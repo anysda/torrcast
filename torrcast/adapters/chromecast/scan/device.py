@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from torrcast.domain.catalogs.phrase import phrase
+
 
 @dataclass(frozen=True, slots=True)
 class Device:
@@ -28,4 +30,4 @@ class Device:
         Безымянный пункт всё равно выбираем: адрес рядом, и человек узнаёт свой
         телевизор по нему. Пустая строка в меню была бы хуже честного «приёмник».
         """
-        return self.name or self.model or "приёмник"
+        return self.name or self.model or phrase("chromecast_scan.unnamed_device")

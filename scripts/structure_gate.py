@@ -105,9 +105,6 @@ TRANSLATION_DEBT: Final = {
     # Скрипт обхода DPI говорит в журнал службы, но говорит по-русски и мимо каталога;
     # каталога он и не видит - слоёв у него нет. Долг такой же, как у пакета.
     "scripts/sni-shim.py": 15,
-    "torrcast/adapters/chromecast/network_receiver_finder.py": 1,
-    "torrcast/adapters/chromecast/scan/device.py": 1,
-    "torrcast/adapters/chromecast/scan/skipped.py": 1,
     "torrcast/adapters/console/console/ask.py": 2,
     "torrcast/adapters/console/console/ask_line.py": 1,
     "torrcast/adapters/console/console/progress.py": 1,

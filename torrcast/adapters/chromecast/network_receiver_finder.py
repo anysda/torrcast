@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from torrcast.adapters.chromecast.scan.find import find as find_receivers
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.receiver_info import ReceiverInfo
 from torrcast.ports.progress.slot import progress as progress_bar
 
@@ -26,7 +27,7 @@ class NetworkReceiverFinder:
     def find(self, name: str | None = None) -> list[ReceiverInfo]:
         discover = self._discover if self._discover is not None else find_receivers
         with progress_bar() as progress:
-            progress.phase("ищу приёмники в сети")
+            progress.phase(phrase("chromecast_scan.searching"))
             found = discover()
         self._notes = list(found.notes)
         devices = [

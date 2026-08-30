@@ -4,12 +4,11 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
+
 
 def skipped(huge: list[str]) -> str:
     """Одна строка о подсетях, которые мы обходить не стали. Пусто - и говорить не о чем."""
     if not huge:
         return ""
-    return (
-        f"слишком большие подсети не обхожу: {', '.join(huge)} - "
-        "если телевизор в одной из них, задай его адрес руками: cast --tv <ip>"
-    )
+    return phrase("chromecast_scan.subnets_skipped", names=", ".join(huge))

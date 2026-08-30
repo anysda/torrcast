@@ -62,7 +62,7 @@ def test_a_device_that_answered_with_nothing_is_the_same_case(
     """Пустой ответ - это тоже «не представился», а не приёмник с именем ``None``."""
     monkeypatch.setattr("pychromecast.dial.get_device_info", lambda _a, timeout=0.0: None)
 
-    assert named("10.0.0.50").title == "приёмник"
+    assert named("10.0.0.50").title == "receiver"
 
 
 def test_the_cosmetic_complaint_is_hushed_before_the_question(

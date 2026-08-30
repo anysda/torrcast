@@ -19,8 +19,8 @@ def test_all_the_huge_subnets_are_named_in_one_line() -> None:
 def test_the_line_names_the_subnet_and_the_way_out_word_for_word() -> None:
     """Строка - единственное, ради чего модуль существует: человеку нужен выход, а не факт."""
     assert skipped(["10.5.0.0/16", "172.30.0.0/16"]) == (
-        "слишком большие подсети не обхожу: 10.5.0.0/16, 172.30.0.0/16 - "
-        "если телевизор в одной из них, задай его адрес руками: cast --tv <ip>"
+        "subnets too large to scan: 10.5.0.0/16, 172.30.0.0/16 - if the TV is in one "
+        "of them, give its address by hand: cast --tv <ip>"
     )
 
 

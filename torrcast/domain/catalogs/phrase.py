@@ -12,6 +12,8 @@ from typing import Final
 
 from torrcast.domain.catalogs.choice.en import en as choice_en
 from torrcast.domain.catalogs.choice.ru import ru as choice_ru
+from torrcast.domain.catalogs.chromecast_scan.en import en as chromecast_scan_en
+from torrcast.domain.catalogs.chromecast_scan.ru import ru as chromecast_scan_ru
 from torrcast.domain.catalogs.chromecast_talk.en import en as chromecast_talk_en
 from torrcast.domain.catalogs.chromecast_talk.ru import ru as chromecast_talk_ru
 from torrcast.domain.catalogs.cli.en import en as cli_en
@@ -88,6 +90,7 @@ _CLUSTERS: Final = (
     (stream_pack_en, stream_pack_ru),
     (main_config_en, main_config_ru),
     (playback_session_en, playback_session_ru),
+    (chromecast_scan_en, chromecast_scan_ru),
 )
 
 
