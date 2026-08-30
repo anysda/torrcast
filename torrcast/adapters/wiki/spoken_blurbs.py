@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from torrcast.adapters.wiki.wiki_translated import Key, wiki_translated
-from torrcast.domain.facts.blurb_outcome import BLANK
 from torrcast.domain.catalogs.tongue import RU, tongue
+from torrcast.domain.facts.blurb_outcome import BLANK
 from torrcast.ports.json_client import JsonClient
 
 

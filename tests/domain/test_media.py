@@ -5,10 +5,13 @@ import pytest
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 
-#: Предмет всего модуля - РУССКАЯ лестница озвучек, писанная до языкового яруса
-#: (:func:`torrcast.domain.voice_order._tier`). Умолчание продукта английское, и на нём
-#: набор остался бы зелёным, но мерил бы уже другой порядок - поэтому язык назван.
-pytestmark = pytest.mark.usefixtures("russian_product")
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет всего модуля - РУССКАЯ лестница озвучек, писанная до языкового яруса
+    (:func:`torrcast.domain.voice_order._tier`). Умолчание продукта английское, и на нём
+    набор остался бы зелёным, но мерил бы уже другой порядок: та же зелень отвечала бы
+    на другой вопрос. Поэтому язык назван, а не унаследован."""
 
 
 def test_an_unnamed_track_keeps_the_passport_from_calling_the_file_foreign() -> None:

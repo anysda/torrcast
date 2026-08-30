@@ -14,8 +14,8 @@ from torrcast.adapters.wiki.endpoints import WIKI_HOST
 from torrcast.adapters.wiki.wiki_articles import WikiArticles
 from torrcast.adapters.wiki.wiki_spelling import WikiSpelling
 from torrcast.domain.alt_query import alt_query
-from torrcast.domain.facts.origin import Origin
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
+from torrcast.domain.facts.origin import Origin
 from torrcast.usecases.passport import Passport
 
 

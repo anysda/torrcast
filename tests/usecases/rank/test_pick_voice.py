@@ -15,10 +15,13 @@ from torrcast.domain.rank_settings import VOICE_MENU
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.pick_voice import pick_voice
 
-#: Предмет всего модуля - РУССКАЯ лестница озвучек, писанная до языкового яруса
-#: (:func:`torrcast.domain.voice_order._tier`). Умолчание продукта английское, и на нём
-#: набор остался бы зелёным, но мерил бы уже другой порядок - поэтому язык назван.
-pytestmark = pytest.mark.usefixtures("russian_product")
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет всего модуля - РУССКАЯ лестница озвучек, писанная до языкового яруса
+    (:func:`torrcast.domain.voice_order._tier`). Умолчание продукта английское, и на нём
+    набор остался бы зелёным, но мерил бы уже другой порядок: та же зелень отвечала бы
+    на другой вопрос. Поэтому язык назван, а не унаследован."""
 
 
 @dataclass

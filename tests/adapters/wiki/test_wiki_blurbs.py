@@ -44,7 +44,9 @@ def _extracts(
     return about, entities, answered
 
 
-def test_an_exact_offline_identity_restores_an_unyearred_blurb_and_rating() -> None:
+def test_an_exact_offline_identity_restores_an_unyearred_blurb_and_rating(
+    _russian_product: None,
+) -> None:
     """Точное имя, год и тип IMDb подтверждают статью без года и несут оценку сами."""
     key = ("Матрица: Революция", 2003)
     article = (
@@ -187,7 +189,7 @@ def test_молчание_всех_пакетов_это_отказ_сети_а_
     raise AssertionError("отказ сети обязан быть исключением, а не пустым ответом")
 
 
-def test_отказ_украшений_не_отнимает_уже_добытое_описание() -> None:
+def test_отказ_украшений_не_отнимает_уже_добытое_описание(_russian_product: None) -> None:
     """🔴 TC-561. Wikidata несёт рейтинг и хронометраж, описание несёт Википедия.
 
     Опоздание украшений отменяло описание целиком - исключение улетало наверх, и в кэш не
@@ -208,7 +210,7 @@ def test_отказ_украшений_не_отнимает_уже_добыто
     assert answered == {CARS_KEY}
 
 
-def test_описание_отдаётся_меню_до_того_как_спрошены_украшения() -> None:
+def test_описание_отдаётся_меню_до_того_как_спрошены_украшения(_russian_product: None) -> None:
     """Меню печатает то, что уже добыто, а не ждёт второго, более медленного шага."""
     order: list[str] = []
 
@@ -292,7 +294,7 @@ def test_the_batch_wave_is_closed_by_the_one_who_raised_it() -> None:
     assert time.monotonic() - started >= 1.0, "отказ отдан после закрытия, а не вместо него"
 
 
-def test_the_ratings_reader_is_closed_by_the_one_who_raised_it() -> None:
+def test_the_ratings_reader_is_closed_by_the_one_who_raised_it(_russian_product: None) -> None:
     """🔴 TC-723. Нитку чтения выгрузки оценок закрывает тот, кто её поднял.
 
     Выгрузка оценок читается рядом с первым запросом, отдельной ниткой, и по сроку её
@@ -319,7 +321,7 @@ def test_the_ratings_reader_is_closed_by_the_one_who_raised_it() -> None:
     assert time.monotonic() - started >= 1.0, "справка отдана после закрытия, а не вместо него"
 
 
-def test_the_asked_type_reaches_the_choice_of_article() -> None:
+def test_the_asked_type_reaches_the_choice_of_article(_russian_product: None) -> None:
     """Тип доезжает не только до карты IMDb, но и до выбора статьи - иначе описание чужое."""
     key = ("Робокоп", 1987)
 

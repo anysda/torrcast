@@ -143,7 +143,7 @@ def _answers(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
 
 
 def test_the_happy_path_asks_nothing_at_all(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """На счастливом пути вопросов нет ни одного: назвали кино - оно и включилось.
 

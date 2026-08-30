@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterable
 
+from torrcast.domain.catalogs.tongue import tongue
 from torrcast.domain.facts.cache_rows import (
     _cached_facts,
     _fact_rows,
@@ -14,7 +15,6 @@ from torrcast.domain.facts.cache_rows import (
 )
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.catalogs.tongue import tongue
 from torrcast.ports.json_store import JsonStore
 
 

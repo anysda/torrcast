@@ -18,7 +18,7 @@ def _silent() -> FakeJsonClient:
     return FakeJsonClient(lambda host, path, params: {"query": {"pages": []}})
 
 
-def test_the_russian_product_asks_the_second_source_nothing_at_all() -> None:
+def test_the_russian_product_asks_the_second_source_nothing_at_all(_russian_product: None) -> None:
     """🔴 Под русским языком справка обязана остаться той же - и не стоить ни запроса."""
     client = _silent()
     about: dict[tuple[str, int | None], Any] = {UTENA_KEY: UTENA}
@@ -28,7 +28,7 @@ def test_the_russian_product_asks_the_second_source_nothing_at_all() -> None:
     assert client.calls == []
 
 
-def test_a_defect_is_not_remembered_empty_but_an_honest_absence_is(english: None) -> None:
+def test_a_defect_is_not_remembered_empty_but_an_honest_absence_is(_english: None) -> None:
     """Сломанный разбор на полку не ложится: иначе он молчал бы неделю после починки.
 
     У «Утэны» ссылка названа, а статьи по ней нет - это дефект, и запомнить его пустым
@@ -43,7 +43,7 @@ def test_a_defect_is_not_remembered_empty_but_an_honest_absence_is(english: None
 
 
 def test_a_missing_article_leaves_the_viewer_without_a_blurb_and_not_with_a_russian_one(
-    english: None,
+    _english: None,
 ) -> None:
     """🔴 Русское описание под английским языком не показывается ни с оговоркой, ни без.
 

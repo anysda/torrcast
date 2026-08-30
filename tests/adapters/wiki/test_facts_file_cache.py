@@ -24,7 +24,7 @@ def test_a_passport_is_written_once_and_read_back_under_its_own_type() -> None:
     assert cache.read("Эксперименты Лэйн", True) is None
 
 
-def test_broken_cache_is_the_same_as_no_cache(tmp_path: Path) -> None:
+def test_broken_cache_is_the_same_as_no_cache(tmp_path: Path, _russian_product: None) -> None:
     """Битый кэш не роняет меню и не подсовывает мусор."""
     path = tmp_path / "facts.json"
     path.write_text("{не json", encoding="utf-8")

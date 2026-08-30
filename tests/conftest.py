@@ -35,7 +35,7 @@ from torrcast.adapters.filesystem.state import save_config as save_config_module
 from torrcast.adapters.filesystem.state.config_path import DEFAULT_CONFIG_PATH
 from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
 from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
-from torrcast.domain.catalogs.tongue import RU, _choose_tongue, tongue
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue, tongue
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
 from torrcast.ports.journal import slot as journal_slot
@@ -395,7 +395,7 @@ def _own_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def russian_product() -> None:
+def _russian_product() -> None:
     """Продукт под этим тестом говорит по-русски - названо, а не досталось умолчанием.
 
     Умолчание продукта английское (:data:`torrcast.domain.catalogs.tongue.EN`,
@@ -406,14 +406,14 @@ def russian_product() -> None:
     а читалась как ответ на прежний.
 
     🔴 Поэтому русская лестница спрашивается поимённо. Просят фикстуру целыми модулями
-    (``pytestmark = pytest.mark.usefixtures("russian_product")``) - те, чей предмет и есть
+    (автофикстурой модуля поверх этой) - те, чей предмет и есть
     русский порядок дорожек. Обратно язык вернёт :func:`_same_tongue`.
     """
     _choose_tongue(RU)
 
 
 @pytest.fixture
-def english() -> None:
+def _english() -> None:
     """Язык продукта под этим тестом - английский; после теста язык вернёт :func:`_same_tongue`.
 
     Ставится он тем же держателем, что и в бою (:mod:`torrcast.domain.catalogs.tongue`), а

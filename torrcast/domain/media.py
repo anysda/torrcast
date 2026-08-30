@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 
 from torrcast.domain._media_picture import _MediaPicture
-from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.catalogs.tongue import tongue
+from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.voice_order import voice_order
 
 __all__ = ["AUDIO_MBIT", "TS_OVERHEAD", "Media"]

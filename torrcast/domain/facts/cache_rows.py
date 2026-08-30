@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from torrcast.domain.catalogs.tongue import RU
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.minutes_of import minutes_of
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import EMPTY_TTL, FACTS_RULES, RUNTIME_CAP_MINUTES
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.catalogs.tongue import RU
 
 
 def _key(title: str, year: int | None, language: str = RU) -> str:

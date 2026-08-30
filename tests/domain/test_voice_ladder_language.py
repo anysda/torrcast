@@ -1,8 +1,8 @@
 """Лестница озвучек идёт за языком продукта; русская сторона при этом не двигается."""
 
 from torrcast.domain.audio_track import AudioTrack
-from torrcast.domain.media import Media
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
+from torrcast.domain.media import Media
 from torrcast.domain.voice_order import voice_order
 
 #: Живой набор дорожек японского аниме: оригинал, русский дубляж, английский дубляж и
