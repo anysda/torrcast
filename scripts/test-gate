@@ -558,7 +558,10 @@ fi
 #   ffmpeg   (62 шт): -n 0 172 с · -n 2 98 с   (шире не берём: перекод жрёт память,
 #                                               а у гейта потолок 6G на всё)
 stage "машинный набор"
-.venv/bin/python -m pytest -m 'machine and not ffmpeg' -n 4
+# Старые машинные пробы побайтово держат русский договор установщика. Новый default
+# отдельно держит installer-language-contract; здесь язык задан явно, чтобы legacy-
+# ожидания не подменяли проверку выбора языка проверкой одного из его значений.
+TORRCAST_LANGUAGE=ru .venv/bin/python -m pytest -m 'machine and not ffmpeg' -n 4
 
 stage "ffmpeg-овый набор"
 .venv/bin/python -m pytest -m 'ffmpeg' -n 2

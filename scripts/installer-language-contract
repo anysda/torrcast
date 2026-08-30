@@ -11,12 +11,23 @@ grep -Fq ".language=\\\$l" install.sh || fail 'existing config does not update l
 
 box=$(mktemp -d)
 trap 'rm -rf "$box"' EXIT HUP INT TERM
-for language in en ru; do
-    TORRCAST_LANGUAGE="$language" TORRCAST_NO_ROOT=1 TORRCAST_PHASES=none \
-        TORRCAST_PREFIX="$box/$language" TORRCAST_CONFIG_DIR="$box/$language/etc" \
-        TORRCAST_STATE_DIR="$box/$language/state" TORRCAST_BIN_DIR="$box/$language/bin" \
-        TORRCAST_MOTD="$box/$language/motd" TORRCAST_MOTD_D="$box/$language/motd.d" \
-        ./install.sh >"$box/$language.out" 2>&1
-done
+TORRCAST_NO_ROOT=1 TORRCAST_PHASES=none \
+    TORRCAST_PREFIX="$box/en" TORRCAST_CONFIG_DIR="$box/en/etc" \
+    TORRCAST_STATE_DIR="$box/en/state" TORRCAST_BIN_DIR="$box/en/bin" \
+    TORRCAST_MOTD="$box/en/motd" TORRCAST_MOTD_D="$box/en/motd.d" \
+    ./install.sh >"$box/en.out" 2>&1
+TORRCAST_NO_ROOT=1 TORRCAST_PHASES=none \
+    TORRCAST_PREFIX="$box/ru" TORRCAST_CONFIG_DIR="$box/ru/etc" \
+    TORRCAST_STATE_DIR="$box/ru/state" TORRCAST_BIN_DIR="$box/ru/bin" \
+    TORRCAST_MOTD="$box/ru/motd" TORRCAST_MOTD_D="$box/ru/motd.d" \
+    ./install.sh -ru >"$box/ru.out" 2>&1
 LC_ALL=C grep -q '[А-яЁё]' "$box/en.out" && fail 'English output contains Cyrillic'
-printf 'installer language contract: en and ru accepted, config writers are explicit\n'
+LC_ALL=C grep -q '[А-яЁё]' "$box/ru.out" || fail 'Russian output contains no Cyrillic'
+iconv -f UTF-8 -t UTF-8 "$box/ru.out" >/dev/null || fail 'Russian output is not valid UTF-8'
+if ./install.sh -unknown >"$box/unknown.out" 2>&1; then
+    fail 'unknown option was accepted'
+else
+    code=$?
+fi
+[ "$code" -eq 2 ] || fail "unknown option returned $code instead of 2"
+printf 'installer language contract: English default, -ru UTF-8, unknown=2, config writers explicit\n'
