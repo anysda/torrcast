@@ -1,382 +1,342 @@
 # torrcast
 
-Консольная утилита `cast`: находит фильм или сериал по названию и включает его на
-телевизоре - **без облака в пути данных и без единого клика по торрентам**. Поток идёт
-торрент → ваш компьютер → телевизор и не покидает локальную сеть.
+[Русский](README.ru.md)
 
-Фильм при этом **кэшируется на диск - на время просмотра**. Пока идёт показ, torrcast
-фоном докачивает и, где надо, перекодирует весь фильм заранее: добежал прогрев до конца -
-дальше кино досматривается вообще без интернета, с перемотками и без единой подгрузки.
-Досмотрели - кэш стирается сам. Проект работает без библиотеки и очереди загрузок:
-на диске лежит ровно то, что смотрят прямо сейчас, и не дольше, чем смотрят.
+`cast` is a command-line tool that finds a movie or series by name and plays it on
+your TV - with no cloud in the data path and no clicking through torrents. The stream
+goes from the torrent to your computer and then to the TV, without leaving your local
+network.
 
-Идея простая: **что ни запросил - оно взяло и включилось**. Одна команда, один
-вопрос (а часто и ни одного), дальше картинка на экране. Ни очереди загрузок, ни
-выбора релиза, ни разбирательств с дорожками.
+The movie is cached on disk only while you watch it. During playback, torrcast downloads
+and, where necessary, transcodes the whole movie in the background. Once warming is
+complete, the rest plays without internet access, including seeks and without buffering.
+The cache is removed after playback. There is no media library or download queue: the
+disk holds exactly what is playing, and only while it is playing.
 
-Второй принцип - **плавность важнее пиковой чёткости**. Показ обязан идти без
-подгрузок: если релиз оказался тяжелее, чем переваривает телевизор, torrcast
-перекодирует его на лету и скажет об этом вслух. Качество роняется только в
-крайнем случае и только настолько, насколько нужно; подгрузка не допускается
-никогда.
+The idea is simple: **ask for something and it starts playing**. One command, one
+question - often none - and then a picture on the screen. No release selection, download
+queue, or audio-track housekeeping.
 
-Молчаливых подмен нет: каждое авто-решение печатается одной честной строкой -
-«релиз N назван 1080p, на деле меньше - беру M (настоящий 1080p)», «внимание:
-~N Мбит/с - тяжёлые куски перекодирую на ходу», «видео hevc - перекодирую на
-ходу целиком».
+The second principle is **smooth playback over peak sharpness**. Playback must not
+buffer. If a release is too heavy for the receiver, torrcast transcodes it on the fly
+and says so. Quality is reduced only as a last resort and only as much as necessary.
 
-## Установка
+There are no silent substitutions. Every automatic decision gets one honest line, for
+example: "release N says 1080p but is smaller - using M (real 1080p)", "warning: about
+N Mbit/s - transcoding heavy pieces on the fly", or "video is HEVC - transcoding the
+whole stream on the fly".
+
+## Installation
+
+On a machine that already has `curl`:
 
 ```sh
 curl -fsSL https://torrcast.anysda.space | sh
 ```
 
-Одна строка ставит последний релиз: бутстрап спрашивает у GitLab последнюю версию,
-тащит тарбол ровно этой версии, сверяет sha256 и запускает `install.sh` уже изнутри.
-`https://rutorrcast.anysda.space` - второе имя того же адреса, отдаёт тот же файл.
-Не под root - перезапустится сам через `sudo`. Нужны `curl`, `tar`, `sha256sum` и
-`bash`; на голом Debian 12 curl не стоит, его надо поставить самому.
+A bare Debian 12 installation does **not** include `curl`; install it first. The
+bootstrap requires `curl`, `tar`, `sha256sum`, and `bash`. The one-liner asks GitLab for
+the latest version, downloads that exact release tarball, verifies its SHA-256 checksum,
+and runs the `install.sh` inside it. `https://rutorrcast.anysda.space` is another name for
+the same endpoint and serves the same file. When not run as root, the bootstrap restarts
+itself through `sudo`.
 
-Из исходников - тем же `install.sh`, что и раньше:
+To install from source, use the same `install.sh`:
 
 ```sh
 git clone https://gitlab.anysda.space/anysda/torrcast && cd torrcast
 sudo ./install.sh
 ```
 
-`install.sh -en` выбирает английский вывод, `install.sh -ru` - русский; без ключа используется английский.
+Use `sudo ./install.sh -en` for English installer output or `sudo ./install.sh -ru` for
+Russian installer output. English is the default.
 
-Приёмник установка находит сама - по mDNS и обходом своих подсетей по порту 8009:
-единственный найденный в сети записывается без вопроса. Если их несколько, установка
-перечислит имена и адреса и продолжит без выбора. Нужный адрес можно записать сразу:
-`cast --tv <ip>`, или выбрать номером в `cast --tv`.
+Installation discovers receivers through mDNS and by scanning local subnets on port
+8009. One receiver is saved automatically. If several are found, the installer lists
+their names and addresses and continues without choosing. Save an address directly with
+`cast --tv <ip>`, or use `cast --tv` and choose a number.
 
-`install.sh` идемпотентен: повторный запуск ничего не ломает и обновляет только то,
-что изменилось. Регистраций и внешних API-ключей не нужно - ключ Prowlarr
-генерится сам и сам же попадает в конфиг torrcast. Индексеры прописываются тоже
-сами - только открытые, без аккаунтов: метапоиск Knaben, RuTor, Nyaa.si и YTS, а
-русские озвучки аниме добирают AniLibria и JacRed - к этим двум установка поднимает
-рядом по маленькой службе-переходнику. Если провайдер не пускает к какому-то из них
-по имени, установка сама поднимет локальный обход и проверит его.
+`install.sh` is idempotent: running it again updates only what changed. No registration
+or external API keys are required. It generates the Prowlarr key, stores it in the
+torrcast configuration, and configures public indexers that require no account: Knaben,
+RuTor, Nyaa.si, and YTS. AniLibria and JacRed provide Russian anime voices through two
+small local adapters installed alongside torrcast. If a provider blocks an indexer by
+name, installation sets up and verifies a local bypass.
 
-TorrServer и Prowlarr ставятся не «последние какие есть», а пиненными версиями, на
-которых проверена вся обвязка: оба пина лежат рядом в начале `install.sh`, апгрейд -
-одна правка. Если пиненного релиза на GitHub уже нет, установка честно скажет об этом
-и возьмёт latest - лучше живая незнакомая версия, чем мёртвая установка.
+TorrServer and Prowlarr use pinned versions tested with the rest of the system. Both pins
+are near the top of `install.sh`. If a pinned GitHub release is gone, installation says
+so and uses the latest release instead.
 
-Установка пакета заканчивается сверкой: скрипт сличает `.py` в venv с исходниками
-рядом с собой и печатает строку `сверка venv ↔ репа: N файлов .py совпадают (sha256 ...)`.
-Если они разошлись - установка падает с перечнем файлов, а не рапортует «готово».
+Installation ends with a package check. The script compares every `.py` file in the venv
+with the adjacent sources and prints a line like `venv vs repo: N .py files match
+(sha256 ...)`. A mismatch fails with the file names instead of reporting success.
 
-Сам пакет живёт в `/opt/torrcast/venv`, команда `cast` - симлинк на него в
-`/usr/local/bin`.
+The package lives in `/opt/torrcast/venv`; `/usr/local/bin/cast` is a symlink to it.
 
-## Требования
+## Requirements
 
-- Linux с systemd, Debian 12 и новее либо Ubuntu с python3.11 и новее в системе
-  (установка ходит в `apt`).
-- Python 3.11+.
-- `ffmpeg` **≥ 6.1** - нужен `-readrate_initial_burst`; если в системе версия старше,
-  `install.sh` сам положит статическую сборку в `/usr/local/bin`.
-- Права root на установку (юниты systemd, пакеты, каталоги в `/opt`, `/etc`, `/var/lib`).
-- Не меньше ~8 ГиБ RAM: живое окно сегментов HLS живёт в `/dev/shm`, рядом работают два
-  ffmpeg. Кэш раздачи - запас показа на обрыв интернета. Установка кладёт его туда,
-  где его помещается больше, а это обычно диск
-  (на машине с большой памятью и тесным диском - память). Размер считается сам, ручное
-  переопределение - `TORRCAST_TS_CACHE`.
-- ~33 ГБ свободного диска: 30 ГБ под прогрев (`/var/lib/torrcast/warm`, бюджет меняется
-  в конфиге) и 3 ГиБ неприкосновенного запаса раздела. Кэш раздачи до 8 ГиБ установка
-  кладёт на диск сверх этого требования, если место есть, или возвращает в память.
-  Бюджет прогрева на всех один, и новый фильм вытесняет самый давний. Места мало -
-  прогрев честно скажет об этом и встанет, показ продолжится с живым окном, а кэш
-  установка урежет или вернёт в память.
-- Телевизор или приставка со встроенным **Chromecast**-приёмником, в одной сети
-  с машиной, где стоит torrcast.
+- Linux with systemd: Debian 12 or newer, or Ubuntu with Python 3.11 or newer available
+  from the system package manager. Installation uses `apt`.
+- Python 3.11 or newer.
+- `ffmpeg` 6.1 or newer. `-readrate_initial_burst` is required. If the system version is
+  older, `install.sh` puts a static build in `/usr/local/bin`.
+- Root privileges for installation of systemd units, packages, and directories under
+  `/opt`, `/etc`, and `/var/lib`.
+- About 8 GiB of RAM or more. The live HLS segment window is in `/dev/shm`, next to two
+  ffmpeg processes. The torrent cache protects playback from an internet outage.
+  Installation places it where more space is available, normally on disk, or in memory
+  on a machine with abundant RAM and a tight disk. Its size is automatic; override it
+  with `TORRCAST_TS_CACHE`.
+- About 33 GB of free disk: 30 GB for warming (`/var/lib/torrcast/warm`, configurable)
+  and 3 GiB of reserved free space. When possible, installation also places up to 8 GiB
+  of torrent cache on disk; otherwise it reduces the cache or moves it to memory. The
+  warming budget is shared, and a new movie evicts the oldest. If space runs short,
+  warming stops with an explicit message while playback continues from the live window.
+- A TV or set-top box with a built-in **Chromecast** receiver on the same network.
 
-> ⚠️ **Про приёмники.** Разработка и живые замеры ведутся на Samsung Q70D со
-> встроенным Chromecast и на приставке Android TV. Для них torrcast сам выбирает
-> отдельные профили с измеренными пределами. Незнакомый приёмник получает осторожный
-> профиль: работать может, но поведение не гарантируется.
+> **Receiver note.** Development and live measurements use a Samsung Q70D with built-in
+> Chromecast and an Android TV box. torrcast selects measured profiles for them. An
+> unknown receiver gets a conservative profile; it may work, but is not guaranteed.
 
-## Команды
+## Commands
 
-Гейт целиком: `scripts/test-gate`; только тесты, задетые правкой: `pytest --testmon`.
+Run the whole gate with `scripts/test-gate`. Run only tests affected by a change with
+`pytest --testmon`.
 
-```
-cast <запрос> [sNeM] [--voice [N]] [--new] [--dry] [--pick N] [--menu] [--release N] [--file N]
-cast                 # то же, что cast status
-cast stop            # снять каст, зафиксировать позицию
-cast status          # что играет, позиция/длительность, источник
-cast doctor          # самопроверка: терминал, локаль, ffmpeg, Prowlarr, TorrServer, ТВ, раздача
-cast log [--since СРОК] # журнал сеансов: 2d / 12h / 30m / ГГГГ-ММ-ДД
-cast --tv            # сменить приёмник: один найденный берётся сам, из нескольких - номером
-cast --tv <ip>       # запомнить адрес сразу
-cast --ru            # перейти на русский: выбор запоминается, на нём же отвечает и бот
-cast --en            # перейти на английский, тем же порядком
-cast -h              # краткая форма справки
-cast --help          # справка и полный набор ключей
-cast --version       # версия
+```text
+cast <query> [sNeM] [--voice [N|STUDIO]] [--new] [--dry] [--pick N] [--menu] [--release N] [--file N]
+cast                    # same as cast status
+cast stop               # stop casting and save the position
+cast status             # current item, position/duration, and source
+cast doctor             # check terminal, locale, ffmpeg, services, receiver, and stream
+cast log [--since WHEN] # sessions since 2d / 12h / 30m / YYYY-MM-DD
+cast --tv               # discover receivers; take one automatically or choose a number
+cast --tv <ip>          # save an address directly
+cast -tg                # open Telegram bot setup
+cast -h                 # short help
+cast --help             # help with every public option
+cast --version          # version
 ```
 
-Счастливый путь - без вопроса, когда torrcast уверен в картине. Ниже сокращённый
-вывод живого прогона: время поиска, число найденных картин и выбранный релиз меняются
-вместе с ответами индексеров и роя.
+`sNeM` means season N, episode M, for example `s2e5`. It is part of the positional query,
+not an option. `2x5` and `2 сезон 5 серия` are accepted forms of the same request.
 
-```
-$ cast матрица
-поиск «матрица»...
+The happy path asks nothing when torrcast is confident. The following abbreviated run
+omits results that vary with indexer and swarm responses:
+
+```text
+$ cast matrix
+searching for "matrix"...
 ...
 ```
 
-После поиска команда называет выбранную картину и сразу переходит к выбору релиза.
+After search, the command names the chosen title and proceeds directly to release
+selection. `--menu` asks for a title explicitly. A menu also appears automatically when
+there is no honest default, such as when the requested franchise part is absent and any
+choice would play a different movie:
 
-Список картин поднимается по явному `--menu`, а сам собой - только там, где взятое
-нечем назвать честно: например спрошенной части франшизы в выдаче нет и любой дефолт
-включил бы другое кино. Этот вывод тоже сокращён:
-
-```
-$ cast матрица --menu
-  1. Матрица (1999)
-  2. Матрица: Перезагрузка (2003)
-  3. Матрица: Революция (2003)
+```text
+$ cast matrix --menu
+  1. The Matrix (1999)
+  2. The Matrix Reloaded (2003)
+  3. The Matrix Revolutions (2003)
   ...
-Что смотрим? [1]: 1
+What shall we watch? [1]: 1
 ...
 ```
 
-Дальше показ идёт сам: упаковка, ожидание телевизора и строка запуска вида
-«играю «Название» (год) · качество · язык · озвучка - на ТВ (старт N с)».
+Playback then handles packaging and receiver readiness by itself and announces a start
+like "playing Title (year) - quality - language - voice - on TV (started at N s)".
 
-Цифра в скобках - **первая живая часть франшизы**: смотреть начинают с начала, но
-части с мёртвым роем пропускаются (у «моаны» это немая документалка 1926 года - один
-VHS-рип на пять сидов). Рейтинг, хронометраж и фраза о том, что это за кино, приезжают
-фоном из открытых источников без ключей и регистрации (ru.wikipedia, Wikidata и
-выгрузка оценок IMDb, которую кладёт `install.sh`). Фразу о кино меню дожидается: её уже
-не вписать под прочитанный пункт. Рейтинг с хронометражем оно не ждёт - те дописываются
-в готовую строку у человека на глазах. Потолок ожидания полторы секунды на всё меню:
-не приехало или сети нет - печатается тот же список, только без подписей.
+The number in parentheses is the **first live franchise part**. Playback starts at the
+beginning, but parts with dead swarms are skipped. Rating, runtime, and a short
+description arrive in the background from open, keyless sources: Wikipedia, Wikidata,
+and the IMDb rating export installed by `install.sh`. The menu waits for the description
+because it cannot be inserted under an item after it has been read. It does not wait for
+rating or runtime; those may appear in place. The whole menu waits at most 1.5 seconds.
 
-Несколько картин под одним именем - это разные фильмы разных лет, и вопроса о них нет:
-берётся самая живая, потому что живой рой и есть признак той картины, которую спросили.
-Молчаливым это не бывает: строка называет взятую годом, число сидов её лучшей раздачи,
-сколько картин под этим именем есть ещё и ключ к ним. `cast мумия` включает «Мумию» (2026)
-и говорит об этом, а `cast мумия --menu` печатает список и спрашивает. Так же берётся
-картина, о выборе которой сказать нечего вовсе: `cast тачки` включает «Тачки» (2006),
-`cast тачки 2` - вторую часть.
+Titles with one name but different years are separate movies. The liveliest one is used
+because swarm activity indicates what people probably meant. This is never silent: the
+line names its year, the best release's seed count, how many other matches exist, and the
+option that shows them. `cast mummy` can choose the newest "Mummy" and say so, while
+`cast mummy --menu` asks. A numbered sequel in the query is treated as that title.
 
-Вопрос остаётся там, где честной строкой не обойтись: спрошенной части франшизы в выдаче
-нет или играть ей нечем, и любой дефолт включил бы другое кино. Тогда список уже на
-экране, дефолта у вопроса нет, и номер называет сам человек.
+When no honest default exists, the person must answer the displayed menu. There is no
+default. `cast matrix --pick 2` supplies the menu item without asking. This is the only
+way to answer such a question without a terminal, for example over SSH without a pty.
 
-Пункт можно назвать и флагом: `cast матрица --pick 2` - тогда вопрос не задаётся
-вовсе. Это единственный способ ответить на вопрос без терминала (ssh без pty, скрипт):
-там, где вопрос остался, вслепую torrcast выбирать отказывается.
+"Started at N s" means the first live picture on the screen, not merely that packaging
+began.
 
-«Старт N с» означает **картинку на экране**, а не «упаковка пошла».
+An unfinished title resumes silently. The normal playback line names the saved position
+and points to `--menu`. `--new` plays the same saved torrent, file, and track from the
+beginning. `--menu`, `--pick N`, and an explicit episode select a title rather than
+answering where to resume.
 
-Начатая картина молча продолжается с сохранённого места. Его называет обычная строка
-показа: «играю ... с H:MM:SS · выбрать другое: --menu». `--new` играет ту же сохранённую
-раздачу, тот же файл и ту же дорожку с начала, а `--menu` поднимает меню картин:
-`cast матрица --menu` спрашивает «Что смотрим?», сохранённое место дороги ему не
-занимает. Номер пункта (`--pick N`) и названная серия (`cast <сериал> s1e1`) работают так
-же: это запрос картины, а не ответ о месте.
+### Series
 
-### Сериалы
+Name an episode in the query: `cast <series> s2e5`, `cast <series> 2x5`, or
+`cast <series> 2 сезон 5 серия`. There is no episode menu: `cast <series>` plays the next
+unseen episode, and after `cast stop` it resumes at the saved position.
 
-Серию можно назвать прямо в запросе: `cast <сериал> s2e5`, `cast <сериал> 2x5` или
-`cast <сериал> 2 сезон 5 серия`.
-Списка серий сериалу не показывается: `cast <сериал>` играет следующую невиденную,
-а после `cast stop` продолжает с места остановки.
+Episodes continue automatically. The next file in the same torrent starts without a
+question or a new receiver connection. When the torrent runs out of episodes, torrcast
+says it was the last one and offers to start over.
 
-Серии идут подряд сами: текущая доигрывает до конца, после чего показ берёт
-следующий файл той же раздачи и играет дальше, не спрашивая ничего и не пересоздавая
-соединение с телевизором. Кончились серии в раздаче - об этом скажут
-строкой «была последней в раздаче» и предложат «Смотреть сначала? [Да/нет]».
+### Voices
 
-### Озвучка
+Release selection is automatic. A rejected release is named, for example "release N is
+not usable (av1) - using M". Receivers that cannot decode HEVC get a live full-stream
+transcode. Such a torrent is the last resort only when no live ordinary torrent contains
+the requested episode. A live H.264 release always wins because full transcoding costs
+CPU from start to credits and starts more slowly. A 2160p release is never that last
+resort because it cannot be transcoded in real time. Zero-seed releases do not rise to
+the top; if the selected swarm stays silent, selection continues through all candidates.
 
-Релиз выбирается сам; не подошёл - строка «релиз N не годится (av1) - беру M».
-Видео в HEVC (H.265) телевизор не декодирует, а отказываться от таких раздач
-незачем: они перекодируются целиком, на лету, со строкой «видео hevc -
-перекодирую на ходу целиком». Берётся такая раздача **последней надеждой** - когда
-живой обычной с нужной серией нет ни одной, и об этом говорит отдельная строка
-«живой раздачи серии s1e1 без HEVC нет - беру HEVC последней надеждой». Пока живой
-H.264 есть, HEVC не берётся вовсе: сплошной перекод занимает процессор от первой
-секунды до титров и стартует медленнее. Кадр 2160p не берётся и последней надеждой -
-в реальное время такой перекод не укладывается, и вместо вечной петли будет отказ.
-Раздача с нулём сидов верхом не встаёт вовсе, а если выбранная всё-таки промолчала
-пирами - показ идёт дальше по очереди, а не сдаётся после третьей: молчание роя
-про качество релиза не говорит ничего, в отличие от прочитанного кодека.
-**Озвучка тоже выбирается сама** - «самая нормальная»: русский дубляж →
-многоголосый/закадровый → двухголосый → одноголосый → прочий русский → оригинал →
-чужой дубляж; тифлокомментарий и комментарии съёмочной группы - в самый низ. Что
-взято, написано в строке запуска.
+Voice selection is automatic too: Russian dub, multi-voice or voice-over, two-voice,
+single-voice, other Russian, original, then a foreign dub. Audio description and crew
+commentary are ranked last. The playback line names the selected voice.
 
-Выбрать озвучку руками можно флагом, и выбор **запоминается за этой картиной**:
-следующий `cast` играет ею же, ни о чём не спрашивая. Явный флаг переписывает
-память, автовыбор её не трогает.
+An explicit voice is remembered for that title. A later `cast` reuses it. An explicit
+option replaces the memory; automatic selection does not.
 
-```
-cast voices <запрос>              # какие озвучки есть у выбранного релиза
-cast <запрос> --voice 3           # играть третью и запомнить
-cast <запрос> --voice             # меню озвучек
+```text
+cast voices <query>             # list voices in the selected release
+cast <query> --voice 3          # use the third voice and remember it
+cast <query> --voice STUDIO     # use a named studio and remember it
+cast <query> --voice            # voice menu
 ```
 
-### Журнал
+### Session log
 
-Разбирать показ обычно приходится потом, когда телевизор давно выключен и все строки
-с экрана уже уехали. На этот случай torrcast ведёт свой след и показывает его командой:
+torrcast keeps its own playback trace for investigation after the TV has been turned off:
 
-```
-cast log                          # последние три сеанса
-cast log --since 2d               # всё за двое суток (12h / 30m / ГГГГ-ММ-ДД)
-```
-
-Без `--since` печатаются три последних сеанса; с ним граница двигается назад, а потолок
-числа сеансов снимается. Сеанс - это одна команда `cast` целиком, вместе с показом:
-у команды и у юнита показа общий идентификатор, поэтому поиск, отбор релиза и то, что
-было потом на экране, стоят в одной записи, а не в трёх разных местах.
-
-В сеансе видно, что искали, кто из индексеров ответил и сколько дал (а кто промолчал),
-какой релиз взят и почему отброшены остальные, каждый ребуфер и обрыв сети с отметкой
-времени, ошибки, и чем всё кончилось - «досмотрено» или «остановлено на H:MM:SS».
-
-След лежит рядом с состоянием, одним `jsonl` на день, хранится семь дней и не растёт
-дальше отведённого потолка; ничего никуда не отправляется. На горячий путь он не влияет:
-запись только ставится в очередь, а на диск её кладёт фоновый поток - показ не ждёт диска.
-Не смотрели неделю - `cast log` так и скажет: «следа нет - за неделю ни одного сеанса».
-
-### Отладочные ручки
-
-Заглянуть внутрь можно только явно - это не часть счастливого пути:
-
-```
-cast releases <запрос>            # таблица найденных релизов, и выход
-cast <запрос> --release N         # взять релиз N вместо выбранного самим
-cast <запрос> --release N --file N  # ещё и файл N этой раздачи
-cast <запрос> --dry               # весь разбор без каста
-cast <запрос> --new               # сохранённая раздача, файл и дорожка с начала
-cast <запрос> --menu              # список картин и вопрос вместо своего решения
+```text
+cast log                 # the last three sessions
+cast log --since 2d      # everything in two days (12h / 30m / YYYY-MM-DD)
 ```
 
-Названный руками релиз не подменяется: раз попросили - играем его, чем бы он ни
-оказался.
+Without `--since`, the last three sessions are shown. With it, the time boundary moves
+back and the session count is unlimited. One session covers one complete `cast` command,
+including playback. Search, release selection, and later screen events share an ID and
+remain one record.
 
-Пауза и перемотка - пультом телевизора. Коды выхода: `0` ок · `1` не нашли ·
-`2` инфраструктурная ошибка (Prowlarr / TorrServer / приёмник) · `3` человек снял вопрос
-сам (кнопка отмены под меню картин в чате). Тем же кодом `2` заканчивается `cast doctor`,
-если хоть одна проверка сказала «плохо».
+A session shows the query, each indexer's result count or silence, the chosen release and
+rejection reasons, every rebuffer and network break with timestamps, errors, and whether
+playback finished or stopped at a saved position.
 
-## Как устроено
+The trace is stored beside state as one JSONL file per day, retained for seven days and
+bounded in size. Nothing is uploaded. Writes go through a background queue, so playback
+never waits for disk. If nothing played for a week, `cast log` says there is no trace.
 
+### Debug controls
+
+These controls expose internals only when explicitly requested:
+
+```text
+cast releases <query>              # table of releases, then exit
+cast <query> --release N           # use release N
+cast <query> --release N --file N  # also use file N in that torrent
+cast <query> --dry                 # resolve everything without casting
+cast <query> --new                 # saved torrent, file, and track from the beginning
+cast <query> --menu                # title list and question instead of automatic choice
 ```
-запрос → search (Prowlarr/Torznab) → parse (имена раздач, франшизы, sNeM)
-       → stream (TorrServer, кэш-запас на обрыв) → ffmpeg → HLS → cast (Chromecast)
-                                             └→ warm (весь фильм на диск, фоном)
+
+An explicitly selected release is never substituted. Pause and seek with the TV remote.
+Exit codes are `0` for success, `1` for no result, `2` for an infrastructure failure
+(Prowlarr, TorrServer, or receiver), and `3` when the person cancels a question. `cast
+doctor` also returns `2` when any check fails.
+
+## How it works
+
+```text
+query -> search (Prowlarr/Torznab) -> parse (torrent names, franchises, sNeM)
+      -> stream (TorrServer, outage cache) -> ffmpeg -> HLS -> cast (Chromecast)
+                                          \-> warm (whole movie to disk, background)
 ```
 
-Показ своего постоянного демона не держит: на время показа `cast` поднимает
-transient-юнит `torrcast-play` (ffmpeg + раздача HLS по http на голом IP + сторож
-позиции). Адрес раздачи собирается сам - берётся тот интерфейс, с которого хост
-виден телевизору, так что DNS в пути показа не участвует. Команда завершилась -
-показ продолжается, логи в journald (`journalctl -u torrcast-play`), `cast stop`
-гасит юнит и фиксирует позицию. Постоянно работают только службы, поднятые
-установкой: TorrServer, Prowlarr, переходники к AniLibria и JacRed и - там, где
-провайдер режет имена, - локальный обход.
+There is no permanent playback daemon. For each show, `cast` starts a transient
+`torrcast-play` unit with ffmpeg, an HLS server over HTTP on a bare IP address, and a
+position watcher. torrcast chooses the host interface visible to the TV, so DNS is not
+in the playback path. The command may exit while playback continues. Logs are in
+`journalctl -u torrcast-play`; `cast stop` stops the unit and saves the position.
+Permanent services are limited to TorrServer, Prowlarr, the AniLibria and JacRed
+adapters, and a local name bypass where required.
 
-Прогрев поднимается **после** того, как на экране появилась картинка, и идёт на остатке
-процессора (`nice`) в темпе вчетверо быстрее реального времени. Приоритет всегда у того
-места, где смотрят прямо сейчас: просел запас показа - прогрев замирает и ждёт. Сетка
-сегментов детерминирована, поэтому прогретый кусок и живой - одно и то же место фильма
-под одним именем: перемотка в прогретую зону отвечает мгновенно и не спрашивает сеть.
-Кодируются они тоже одинаково: решение «копия или перекод» одно на обоих, вплоть до
-конкретных тяжёлых кусков. Для приёмника это одна лента, и разойдись два производителя
-в кодировании - на стыке у него сменился бы профиль потока и декодер пришлось бы
-поднимать заново посреди фильма.
-Сколько прогрето, видно в `cast status` («прогрето N мин из M»). Пропала связь дальше
-прогретого - об этом скажут строкой, а не чёрным экраном, и показ продолжится сам, как
-только связь вернётся. Терпение приёмника при этом короче нашего: пустой экран дольше
-нескольких минут - и он бросает показ насовсем. Тогда показ поднимают заново, с той
-самой секунды, - по факту вернувшейся сети, а не по таймеру, и только на свободном
-приёмнике: чужой показ, начатый за это время, не перебивается ничем. Не поднялся -
-гаснем честной строкой, и `cast` продолжит с места.
+Warming begins **after** the first picture and uses spare CPU through `nice`, targeting
+four times real time. The live position always has priority: if its reserve falls,
+warming pauses. The segment grid is deterministic, so warm and live encoders produce the
+same named piece of the movie. Seeking into a warm area is immediate and needs no
+network. Copy-versus-transcode decisions are shared down to individual heavy pieces,
+keeping one stable stream profile at every join.
 
-Прогресс живёт в `/var/lib/torrcast/state.json`: позиция ≥ 95 % длительности =
-досмотрено. Там же память озвучки - подписью дорожки, а не номером: в следующий раз
-релиз может оказаться другим, а «та самая» озвучка в нём - под другим номером. Нет
-её вовсе - об этом скажут вслух.
+`cast status` reports warming progress. If connectivity disappears beyond the warmed
+area, torrcast says so and resumes when it returns. Since receiver patience is shorter,
+torrcast can restart playback at the same second once the network is actually back. It
+does so only on an idle receiver and never interrupts someone else's playback. If restart
+fails, it exits honestly and the next `cast` resumes from the saved place.
 
-Конфиг - `/etc/torrcast/config.json`: адрес ТВ, адреса Prowlarr и TorrServer, ключ,
-транспорт, каталог сегментов и каталог с бюджетом прогрева. Всё остальное (темп упаковки, окно сегментов,
-пороги перекодирования) - дефолты кода, а не настройки: это замеренные свойства
-приёмника, а не вкусовщина.
+Progress lives in `/var/lib/torrcast/state.json`; 95 percent watched counts as complete.
+Voice memory stores a track signature, not a number, because another release may number
+the same voice differently. If it no longer exists, torrcast says so.
 
-Замеренные свойства у каждого приёмника свои, поэтому они собраны в **профиль**
-(`torrcast/domain/receiver_profile.py` и `torrcast/domain/android_tv_profile.py`): вес
-сегмента и кодеки, которые придётся перекодировать,
-пороги битрейта, терпение приёмника и пороги сторожа подвиса. Профиль выбирается сам,
-по паспорту устройства, и спрашивать о нём не будут: незнакомый приёмник получает самый
-осторожный набор - он играет медленнее, но играет. Каким профилем играем, видно в
-`cast doctor` и в `cast log`; прибить его руками можно ключом `receiver_profile`,
-а отдельный порог в конфиге сильнее профиля.
+Configuration is `/etc/torrcast/config.json`: receiver, Prowlarr and TorrServer
+addresses, API key, transport, segment directory, and warm directory and budget.
+Packaging speed, segment window, and transcode thresholds are measured receiver
+properties in code, not preference settings.
 
-## Разработка
+Each receiver's measured properties form a profile: segment weight, codecs that require
+transcoding, bitrate limits, receiver patience, and stall thresholds. The device identity
+selects it automatically. Unknown devices get the most conservative profile. `cast
+doctor` and `cast log` name the active profile. `receiver_profile` can pin one; an
+explicit threshold in configuration takes precedence.
+
+## Development
 
 ```sh
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
-.venv/bin/mypy
+mypy
 .venv/bin/pytest
 scripts/dead-code
 ```
 
-Все пять обязаны кончиться кодом 0, и смотреть надо именно на код: `mypy` без
-аргументов берёт охват из `[tool.mypy] files` (`torrcast`, `tests`, `scripts`) - сузишь
-охват руками, и проверка промолчит там, где ошибки есть.
+All five commands must return code 0. Check the code itself. Run `mypy` with no
+arguments: `[tool.mypy] files` defines its coverage (`torrcast`, `tests`, and `scripts`).
+Naming paths manually can silently narrow that coverage.
 
-Мёртвый код ловит `scripts/dead-code`, и охват у каждой его стадии свой, потому что
-охват тут и есть смысл. Имена без единого вызывающего ищутся в пакете вместе со
-`scripts` (пробы - такие же законные вызывающие продукта, как команда `cast`),
-но без тестов: мертвец, которого зовёт только его зеркальный тест, удаляется вместе с
-тестом, а не хранится ради него. Вторая стадия смотрит на сами тесты, третья - на
-модули, которых не импортирует никто: счётчик имён слепнет, пока в дереве живёт тёзка из
-соседнего пакета, а граф импортов - нет. Живое, что зовут не из питона (колбэки
-`http.server`, точки входа, `python -m`), названо поимённо - в
-`scripts/vulture-whitelist.py` и в корнях графа, и у каждой строки сказано, кто это имя
-зовёт.
+`scripts/dead-code` gives each stage deliberate coverage. Uncalled names are searched in
+the package together with `scripts`, but without tests, so code called only by its mirror
+test is removed with that test. Another stage checks tests, and a third checks modules
+that nobody imports. Non-Python entry points such as `http.server` callbacks and
+`python -m` are named explicitly in `scripts/vulture-whitelist.py` and graph roots.
 
-Всё разом, вместе с раскладкой и ffmpeg-стадией, гоняет `scripts/test-gate`.
+`scripts/test-gate` runs everything, including installation layout and ffmpeg stages.
 
-Код разложен по слоям: `domain` (чистые модели и правила) - `ports` (договоры внешнего
-мира) - `usecases` (сценарии) - `adapters` (единственное место с сетью, диском и
-подпроцессами) - `cli` - `runtime` (кто именно встаёт за каждым портом). Адаптер не
-импортирует никто, кроме `runtime`, поэтому сценарию физически некуда уехать в сеть.
-Правила - один файл на публичную единицу, имя файла по имени единицы, потолок 200 строк,
-зеркальный тест на каждый модуль - держит `scripts/structure-gate`, и у каждого его
-правила есть отрицательная проба в `tests/test_structure_gate.py`. Где объявлен символ,
-отвечает `scripts/where.py`.
+The layers are `domain` (pure models and rules), `ports` (external contracts),
+`usecases` (scenarios), `adapters` (the only network, disk, and subprocess code), `cli`,
+and `runtime` (wiring). Only `runtime` imports adapters. `scripts/structure-gate` enforces
+one file per public rule, matching names, a 200-line ceiling, and a mirror test for each
+module. Every rule has a negative probe in `tests/test_structure_gate.py`.
+`scripts/where.py` identifies where a symbol is declared.
 
-Перед проверкой установочных фаз на целевой машине сверяют SHA-256 переданного файла
-с рабочей копией. Тесты запускают в среде разработки, из которой передан этот файл.
+Before installation phases are tested on a target machine, the transferred file's
+SHA-256 is compared with the working copy. Tests run in the development environment
+that supplied that file.
 
-В `scripts/` лежат вспомогательные щупы для отладки показа: сверка сетки сегментов
-с картой опорных кадров, замеры старта и перекодирования, снятие дорожек с раздачи,
-опрос приёмника.
+The `scripts/` directory also contains playback probes for segment grids and keyframes,
+startup and transcode measurements, torrent track inspection, and receiver queries.
+Measurement inputs are not committed; probes accept their path. When writing output,
+they add `<output>.passport.json` with the commit and code fingerprint, input
+fingerprint, date, and probe version. A measurement without a passport cannot be
+reproduced.
 
-Сырьё замеров (сохранённые выдачи и прогоны) в репозитории не хранится - путь к нему
-щупы принимают аргументом. Записывая свой вывод, щупы кладут рядом паспорт прогона
-`<вывод>.passport.json`: коммит и отпечаток кода, отпечаток сырья, дату и версию щупа.
-Замер без паспорта пересчитать нечем.
+The passport always states whether the run itself was valid. Live receiver measurements
+use both our trace and the receiver's own log. The latter can stop silently, so a run with
+a truncated receiver log is rejected rather than claiming zero stalls from a dead
+instrument.
 
-Паспорт называет и годность самого прогона - были ли живы приборы, которыми он снят.
-Молчание тут читалось бы как «годен», поэтому строка есть всегда: у замера без такой
-проверки она прямо говорит, что годность не заявлена. Живой замер на приёмнике считают
-две независимые половины - наша лента следа и журнал самого приёмника, - и вторая умеет
-молча оборваться посреди прогона. Прогон с оборванным журналом помечается браком: ноль
-голоданий в нём не заработан, а куплен молчанием выключенного прибора.
+## License
 
-## Лицензия
-
-[MIT](LICENSE). Лицензия распространяется на код torrcast и не даёт никаких прав
-на контент, который вы им смотрите: за источники и законность просмотра
-отвечает пользователь.
+[MIT](LICENSE). The license covers torrcast code and grants no rights to content watched
+with it. The user is responsible for sources and legality.
