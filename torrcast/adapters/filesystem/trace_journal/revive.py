@@ -7,10 +7,26 @@ from __future__ import annotations
 from torrcast.adapters.filesystem.trace_journal.emit import emit
 
 
-def revive(pos: float, tries: int, waited: float, ok: bool) -> None:
+def revive(pos: float, tries: int, waited: float, ok: bool, why: str = "") -> None:
     """Попытка поднять погасший показ: откуда, какая по счёту, после скольких секунд темноты.
 
     ``ok`` - взял ли приёмник LOAD. Ложь тут не хуже правды: по ней и видно, сколько раз
     воскрешение не удалось, прежде чем показ погас честно.
+
+    🔴 ``why`` - почему именно не поднял, и без него ложь читалась двусмысленно. «Нельзя»
+    (на приёмнике чужой показ, и трогать его запрещено), «упал» (соединение легло или
+    переподключается) и «не взял» (LOAD ушёл, а кадра не было) - три разных события с
+    тремя разными выводами, а в ленте они стояли одной строкой, и замер подъёмов
+    приёмника по ней не читался вовсе. Пусто - подъём удался либо приёмник причину
+    называть не умеет (:class:`torrcast.usecases.revive_playback._blame._Blaming`);
+    выдумывать её за него нельзя.
     """
-    emit("play", "revive", pos=round(pos, 1), tries=tries, waited=round(waited, 1), ok=ok)
+    emit(
+        "play",
+        "revive",
+        pos=round(pos, 1),
+        tries=tries,
+        waited=round(waited, 1),
+        ok=ok,
+        why=why,
+    )

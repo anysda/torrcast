@@ -55,6 +55,7 @@ def test_a_foreign_show_on_the_screen_is_never_interrupted() -> None:
     assert _replay(receiver, 100.0) == NOT_RAISED
     assert receiver.restarts == 0
     assert receiver.loads == []
+    assert receiver.refusal().startswith("нельзя:"), "не поднял, ПОТОМУ ЧТО НЕЛЬЗЯ"
 
 
 def test_a_receiver_that_did_not_take_the_load_says_so() -> None:
@@ -62,6 +63,7 @@ def test_a_receiver_that_did_not_take_the_load_says_so() -> None:
     receiver = _Quiet(settles=False)
 
     assert _replay(receiver, 100.0) == NOT_RAISED
+    assert receiver.refusal().startswith("не взял:")
 
 
 def test_a_receiver_that_is_not_in_the_network_does_not_blow_up_the_caller() -> None:
@@ -69,6 +71,40 @@ def test_a_receiver_that_is_not_in_the_network_does_not_blow_up_the_caller() -> 
     receiver = _Quiet(breaks=True)
 
     assert _replay(receiver, 100.0) == NOT_RAISED
+    assert receiver.refusal().startswith("упал:"), "не поднял, ПОТОМУ ЧТО УПАЛ"
+
+
+def test_the_three_ways_of_not_raising_the_show_are_named_apart() -> None:
+    """🔴 «Нельзя», «упал» и «не взял» - три события с тремя выводами, а не одно.
+
+    Пока все три отвечали одним :data:`NOT_RAISED` и уходили в ленту одним ``ok=False``,
+    замер подъёмов приёмника читался двусмысленно: занятый чужим показом ТВ и легшее
+    соединение стояли там одной строкой. Ответ у них и правда один - картинки нет, -
+    поэтому различие обязано жить не в нём, а в названной причине.
+    """
+    said = [
+        _named(_Quiet(device=Device(app="чужое"))),
+        _named(_Quiet(breaks=True)),
+        _named(_Quiet(settles=False)),
+    ]
+
+    assert len(set(said)) == 3, f"три отказа обязаны называться по-разному: {said}"
+
+
+def test_a_successful_resurrection_leaves_no_stale_reason_behind() -> None:
+    """Причина прошлого отказа не имеет права пережить удавшийся подъём."""
+    receiver = _Quiet(settles=False)
+    _replay(receiver, 100.0)
+    receiver.settles = True
+
+    assert _replay(receiver, 100.0) == 100.0
+    assert receiver.refusal() == ""
+
+
+def _named(receiver: _Quiet) -> str:
+    """Как приёмник назвал причину несостоявшегося подъёма."""
+    assert _replay(receiver, 100.0) == NOT_RAISED
+    return receiver.refusal()
 
 
 def test_the_answer_is_the_place_past_the_deadly_segment_and_not_the_place_asked_for() -> None:

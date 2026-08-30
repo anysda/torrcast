@@ -14,7 +14,7 @@ from torrcast.ports.receiver import Receiver
 from torrcast.usecases.choice._ctl import _Revivable
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank._hms import _hms
-from torrcast.usecases.revive_playback._blame import _may, _why
+from torrcast.usecases.revive_playback._blame import _Blaming, _may, _why
 from torrcast.usecases.warm.warmer import Warmer
 
 if TYPE_CHECKING:
@@ -153,11 +153,20 @@ def _resurrect(
     # (:data:`torrcast.domain.not_raised.NOT_RAISED`).
     back = receiver.replay(pos)
     raised = back >= 0
-    journal().revive(pos=back if raised else pos, tries=state.tries, waited=dark, ok=raised)
+    # 🔴 Причину неудачи называет приёмник, а не догадка зовущего. Прежде эта строка
+    # перечисляла версии через «или», а лента писала голое ``ok=False``, - и «нельзя»
+    # (на экране чужой показ) было неотличимо от «упал» (соединение легло). Замер
+    # подъёмов по такой ленте не читается: два разных события в ней стоят одной строкой.
+    # Приёмник, причину назвать не умеющий, молчит, и молчание уходит в ленту пустым
+    # полем - выдумывать за него нельзя (:class:`_Blaming`).
+    refused = receiver.refusal() if not raised and isinstance(receiver, _Blaming) else ""
+    journal().revive(
+        pos=back if raised else pos, tries=state.tries, waited=dark, ok=raised, why=refused
+    )
     print(
         f"показ поднят с {_hms(back)}"
         if raised
-        else "приёмник показ не взял - жду ещё (или он занят чужим показом)",
+        else f"приёмник показ не взял ({refused or 'причина не названа'}) - жду ещё",
         flush=True,
     )
     return True

@@ -9,6 +9,7 @@ import contextlib
 
 from torrcast.adapters.chromecast.cast.hls_hints import HLS_TYPE, hls_hints
 from torrcast.adapters.chromecast.cast.receiver_link import _Link
+from torrcast.adapters.chromecast.cast.while_connecting import _while_connecting
 from torrcast.ports.journal.slot import journal
 
 
@@ -23,14 +24,24 @@ class _Talk(_Link):
         self._paused = paused
         # BUFFERED, а не LIVE: манифест VOD знает длительность целиком, и ресивер
         # рисует шкалу с общим временем - перемотка пультом работает.
-        controller.play_media(
-            self._url,
-            HLS_TYPE,
-            title=self._title,
-            stream_type="BUFFERED",
-            media_info=hls_hints(self.segment_container),
-            current_time=at,
-            autoplay=not paused,
+        #
+        # 🔴 Через :func:`_while_connecting`, а не напрямую: сокет 8009 живёт дольше одной
+        # серии, и на стыке он вправе оказаться в переподключении. Прямой вызов отвечал на
+        # это необработанным ``NotConnected`` - юнит показа кончался кодом 1 при живом ТВ
+        # (замер на стенде 30-08-2026). Ждать нечего у :meth:`block_until_active` ниже: он
+        # ничего приёмнику не шлёт, а сидит на событии своей же сессии.
+        _while_connecting(
+            self,
+            "LOAD",
+            lambda: controller.play_media(
+                self._url,
+                HLS_TYPE,
+                title=self._title,
+                stream_type="BUFFERED",
+                media_info=hls_hints(self.segment_container),
+                current_time=at,
+                autoplay=not paused,
+            ),
         )
         controller.block_until_active(timeout=30)
         # Чья сессия на приёмнике - запоминаем здесь: по ней :meth:`_ours` отличит наш

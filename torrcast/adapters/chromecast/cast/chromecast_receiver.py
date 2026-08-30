@@ -59,6 +59,16 @@ class ChromecastReceiver(_Talk):
         """
         return _replay(self, at, paused)
 
+    def refusal(self) -> str:
+        """Почему последний :meth:`replay` не дал картинки; пусто - он удался.
+
+        Отвечает на вопрос лестницы воскрешения
+        (:class:`torrcast.usecases.revive_playback._blame._Blaming`): «нельзя» и «упал» -
+        разные исходы, и в ленте они обязаны стоять разными строками, иначе замер
+        подъёмов приёмника не читается вовсе.
+        """
+        return self._refused
+
     def seek(self, pos: float) -> None:
         """Перемотка от владеющего сендера — ровно та же MEDIA-команда, что с пульта.
 

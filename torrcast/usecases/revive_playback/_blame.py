@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.feed_pack.feed import Feed
@@ -14,6 +14,26 @@ from torrcast.usecases.warm.warmer import Warmer
 
 if TYPE_CHECKING:
     from torrcast.usecases.revive_playback._revival_state import _RevivalState
+
+
+@runtime_checkable
+class _Blaming(Protocol):
+    """Приёмник, называющий ПРИЧИНУ несостоявшегося подъёма, а не только его отсутствие.
+
+    🔴 Отдельно от :class:`torrcast.usecases.choice._ctl._Revivable` намеренно, и не ради
+    красоты слоёв. «Не поднял, потому что нельзя» (на экране чужой показ, и трогать его
+    запрещено) и «не поднял, потому что упал» (сокет 8009 лёг или переподключается)
+    приходили в ленту одним и тем же ``ok=False``, и различить их там было нечем: любой
+    замер подъёмов приёмника читался двусмысленно, а один такой замер эта двусмысленность
+    уже испортила. Причину знает только сам подъём, поэтому её и спрашивают у приёмника.
+
+    ⚠️ Протокол отдельный ещё и затем, чтобы приёмник, причину назвать не умеющий, просто
+    молчал, а не выпадал из воскрешения целиком: подделка без :meth:`refusal` остаётся
+    :class:`_Revivable`, и лестница работает с ней как работала. Молчание уходит в ленту
+    пустым полем - «причина не названа», и это честнее выдуманной.
+    """
+
+    def refusal(self) -> str: ...
 
 
 def _why(state: _RevivalState, feed: Feed, warmer: Warmer | None = None) -> str:

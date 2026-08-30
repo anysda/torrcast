@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.adapters.chromecast.cast.past_deadly import _past_deadly
 from torrcast.domain.not_raised import NOT_RAISED
+from torrcast.domain.why import why
 
 if TYPE_CHECKING:
     from torrcast.adapters.chromecast.cast.receiver_talk import _Talk
@@ -58,7 +59,9 @@ def _replay(rcv: _Talk, at: float, paused: bool = False) -> float:
     чужой показ нельзя - ни своим LOAD, ни ``quit_app`` перед ним.
 
     Исключения наружу не выпускаются: приёмника может не быть в сети вовсе, а это уже
-    не авария показа - зовущий просто попробует ещё раз или честно погасит показ.
+    не авария показа - зовущий просто попробует ещё раз или честно погасит показ. Но
+    причина не теряется вместе с исключением: она остаётся в :attr:`_Talk._refused`, и
+    оттуда её называет лента (:meth:`ChromecastReceiver.refusal`).
 
     ⚠️ Место подъёма проходит через :meth:`_past_deadly`: показ, который умирает на
     одном и том же куске, поднимать в него же значит поднимать за следующей смертью.
@@ -66,6 +69,7 @@ def _replay(rcv: _Talk, at: float, paused: bool = False) -> float:
     невоспроизводимый кусок от невезучей минуты.
     """
     if not rcv._free():
+        rcv._refused = "нельзя: приёмник занят чужим показом"
         return NOT_RAISED
     at = _past_deadly(rcv, at)
     # Сторож начинает счёт заново: сессия новая, и её подвисы к прошлой отношения не
@@ -79,6 +83,16 @@ def _replay(rcv: _Talk, at: float, paused: bool = False) -> float:
     try:
         rcv._restart_app()
         rcv._load(at, paused=paused)
-        return at if rcv._settle(rcv.WAKE_TIMEOUT) else NOT_RAISED
-    except Exception:
+        if rcv._settle(rcv.WAKE_TIMEOUT):
+            rcv._refused = ""
+            return at
+    except Exception as exc:
+        # 🔴 Проглотить исключение можно, потерять его причину - нет. Три исхода
+        # «картинки не будет» стоят разных выводов: чужой показ на экране трогать НЕЛЬЗЯ
+        # и ждать тут нечего, легшее соединение - это УПАЛ и лечится следующей попыткой
+        # с чистым сокетом, а ушедший LOAD без кадра - это отказ самого приёмника. Пока
+        # все три отвечали одним :data:`NOT_RAISED`, лента писала о них одну строку.
+        rcv._refused = f"упал: {why(exc)}"
         return NOT_RAISED
+    rcv._refused = "не взял: LOAD ушёл, а картинки не было"
+    return NOT_RAISED

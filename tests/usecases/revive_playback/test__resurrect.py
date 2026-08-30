@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -9,11 +10,34 @@ import pytest
 
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import FakeReceiver, FakeSupply, feed_with_segments
+from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.revive_settings import REVIVE_TRIES, SOURCE_TRIES
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.revive_playback._resurrect import _resurrect
 from torrcast.usecases.revive_playback._revival_state import _RevivalState
+
+
+class _Tape(Silent):
+    """Лента, запоминающая именные события: по ним и читается замер подъёмов."""
+
+    def __init__(self) -> None:
+        self.said: list[tuple[str, str, dict[str, object]]] = []
+
+    def revive(self, pos: float, tries: int, waited: float, ok: bool, why: str = "") -> None:
+        self.said.append(("play", "revive", {"pos": pos, "tries": tries, "ok": ok, "why": why}))
+
+
+@dataclass
+class _Blamed(FakeReceiver):
+    """Приёмник, называющий причину несостоявшегося подъёма (:class:`_Blaming`)."""
+
+    why: str = ""
+
+    def refusal(self) -> str:
+        return self.why
 
 
 def _ladder(supply: FakeSupply | None = None, **rest: float) -> _RevivalState:
@@ -121,6 +145,61 @@ def test_a_darkness_from_the_clocks_zero_is_announced_once(
     assert ladder.since == 0.0, "отсчёт темноты - от её начала, а не от второго тика"
     assert receiver.replayed == [120.0], "первая попытка - на 8-й секунде, а не на 16-й"
     assert ladder.tries == 1
+
+
+def test_a_refusal_reaches_the_tape_with_its_reason_and_not_as_a_bare_no(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 «Не поднял, потому что нельзя» и «потому что упал» - разные записи ленты.
+
+    Пока обе приходили одним ``ok=False``, а строка человеку перечисляла версии через
+    «или», замер подъёмов приёмника не читался вовсе: занятый чужим показом ТВ и легшее
+    соединение стояли в ленте одной строкой.
+    """
+    tape = _Tape()
+    install(tape)
+    try:
+        receiver = _Blamed(answer=NOT_RAISED, why="упал: сокет 8009 переподключается")
+        _resurrect(
+            _ladder(FakeSupply(), drop=0.0),
+            cast(Receiver, receiver),
+            feed_with_segments(tmp_path),
+            None,
+            120.0,
+        )
+    finally:
+        install(Silent())
+
+    (record,) = [row for row in tape.said if row[1] == "revive"]
+    assert record[2]["ok"] is False
+    assert record[2]["why"] == "упал: сокет 8009 переподключается"
+    assert "упал: сокет 8009 переподключается" in capsys.readouterr().out
+
+
+def test_a_receiver_that_cannot_name_the_reason_is_not_made_to_invent_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Молчание уходит в ленту пустым полем: выдуманная причина хуже неназванной.
+
+    Подделка без :meth:`refusal` остаётся приёмником, который поднимать умеет, - и
+    лестница работает с ней как работала.
+    """
+    tape = _Tape()
+    install(tape)
+    try:
+        _resurrect(
+            _ladder(FakeSupply(), drop=0.0),
+            cast(Receiver, FakeReceiver(answer=NOT_RAISED)),
+            feed_with_segments(tmp_path),
+            None,
+            120.0,
+        )
+    finally:
+        install(Silent())
+
+    (record,) = [row for row in tape.said if row[1] == "revive"]
+    assert record[2]["why"] == ""
+    assert "причина не названа" in capsys.readouterr().out
 
 
 def test_the_darkness_stamp_is_taken_from_the_clock_the_show_lives_by(tmp_path: Path) -> None:

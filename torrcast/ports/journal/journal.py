@@ -77,8 +77,8 @@ class Journal(Protocol):
     def dark(self, pos: float, why: str, shown: bool = True) -> None:
         """Экран погас: с какой секунды и по какой причине."""
 
-    def revive(self, pos: float, tries: int, waited: float, ok: bool) -> None:
-        """Попытка поднять погасший показ."""
+    def revive(self, pos: float, tries: int, waited: float, ok: bool, why: str = "") -> None:
+        """Попытка поднять погасший показ; ``why`` - почему не поднял."""
 
     def seek(self, frm: float, to: float, wait: float | None, why: str = "") -> None:
         """Перемотка: откуда, куда и сколько ждали картинки."""
