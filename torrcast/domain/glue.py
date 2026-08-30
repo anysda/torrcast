@@ -6,6 +6,7 @@ import re
 
 from torrcast.domain._name_data.data_2 import _ALTERNATIVE_PICTURE_RE, _ALTERNATIVE_TITLE_RE, _ROMAN
 from torrcast.domain.compose import _compose
+from torrcast.domain.formless import _formless
 from torrcast.domain.glued_year import _glued_year
 from torrcast.domain.in_digits import in_digits
 from torrcast.domain.kind import Kind
@@ -28,6 +29,13 @@ def glue(pictures: list[Picture]) -> list[Picture]:
             ),
             plain,
         )
+
+    def one_name(name: str) -> str:
+        # Слово формы снимается ТОЛЬКО там, где вид уже сошёлся: в ведре он стоит ключом.
+        # Между видами оно не шум, а единственная улика: «Naruto Shippuuden Movie» отличает
+        # от сериала «Naruto Shippuuden» ровно слово «Movie», и сняв его, склейка увела бы
+        # фильм в пул сериала - подмену, а не двойника.
+        return _formless(identity(name))
 
     def alternative_release(release: Release) -> bool:
         title = release.raw_name.split(" / ", 1)[0]
@@ -75,11 +83,10 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     }
     named: dict[tuple[Kind, str, bool], list[int]] = {}
     for i, picture in enumerate(pictures):
-        title = identity(picture.title)
-        contested = (picture.kind, title, picture.year) in disputed
-        names = set() if contested else {title}
+        contested = (picture.kind, identity(picture.title), picture.year) in disputed
+        names = set() if contested else {one_name(picture.title)}
         if picture.original:
-            names.add(identity(picture.original))
+            names.add(one_name(picture.original))
         if not contested:
             names |= {in_digits(name) for name in names if name}
         for name in names:
@@ -91,11 +98,14 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     for i, picture in enumerate(pictures):
         if picture.original:
             continue
-        for name in {(slug := identity(picture.title)), in_digits(slug)}:
+        for name in {(slug := one_name(picture.title)), in_digits(slug)}:
             if name:
                 lone.setdefault((picture.kind, name, alternative[i]), []).append(i)
     for i, picture in enumerate(pictures):
-        for alias in picture.aliases:
+        # Псевдоним спрашивается ТОЙ ЖЕ нормализацией, что и ключ ведра: ведро заведено
+        # по one_name(), а псевдоним лежит голым слагом, и без выравнивания сторон
+        # «Chainsaw Man - The Movie: Reze Arc» перестал бы узнавать своё же ведро.
+        for alias in {one_name(a) for a in picture.aliases}:
             for name in (alias, in_digits(alias)):
                 if (
                     bucket := lone.get((picture.kind, name, alternative[i]))

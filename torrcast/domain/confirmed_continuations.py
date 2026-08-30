@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.formless import _formless
 from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.picture import Picture
@@ -65,7 +66,11 @@ def _confirmed(picture: Picture, roots: set[str], anchor: int, *, marked: bool) 
     if picture.year is not None and picture.year < anchor:
         return False
     original = franchise_key(picture.original)
-    if original in roots:
+    # Корень спрашивается и без слова формы: «Naruto Movie» и «Naruto the Movie» это один
+    # корень «naruto», и держать их разными значит терять третий фильм из меню всякий раз,
+    # когда склейка предпочла другое написание. Ослабление узкое: сработать оно может лишь
+    # там, где оригинал это имя франшизы ПЛЮС слово формы, то есть «фильм такой-то франшизы».
+    if original in roots or _formless(original) in roots:
         return True
     return marked and _rooted(original, roots)
 
