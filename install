@@ -10,10 +10,24 @@ set -eu
 BOOTSTRAP_URL="${TORRCAST_BOOTSTRAP_URL:-https://torrcast.anysda.space}"
 GITLAB_API="${TORRCAST_GITLAB_API:-https://gitlab.anysda.space/api/v4}"
 PROJECT_ID="${TORRCAST_PROJECT_ID:-10}"
+LANGUAGE="${TORRCAST_LANGUAGE:-en}"
 
-die()  { printf 'ошибка: %s\n' "$*" >&2; exit 1; }
-info() { printf '%s\n' "$*" >&2; }
-need() { command -v "$1" >/dev/null 2>&1 || die "нужен $1, его нет в PATH"; }
+case "$LANGUAGE" in
+    en|ru) ;;
+    *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 2 ;;
+esac
+
+say() { if [ "$LANGUAGE" = ru ]; then printf '%s\n' "$2" >&2; else printf '%s\n' "$1" >&2; fi; }
+fail() { say "error: $1" "ошибка: $2"; exit 1; }
+die() {
+    case "$1" in
+        "нужен root"*) fail "root is required: sudo sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\"" "$1" ;;
+        "релизов ещё нет"*) fail "no releases yet (permalink/latest returned 404)" "$1" ;;
+        *) fail "installation failed" "$1" ;;
+    esac
+}
+
+need() { command -v "$1" >/dev/null 2>&1 || fail "$1 is required but is not in PATH" "нужен $1, его нет в PATH"; }
 
 # Не root - не падаем молча: под sudo перезапускаемся тем же одностроком, без него
 # просим человека сделать это самому. TORRCAST_NO_ROOT - лазейка для песочницы, как
@@ -28,11 +42,11 @@ become_root() {
     [ -n "${TORRCAST_NO_ROOT:-}" ] && return 0
     [ "$(id -u)" -eq 0 ] && return 0
     if command -v sudo >/dev/null 2>&1; then
-        info "не root - перезапуск через sudo"
+        say "not root - restarting through sudo" "не root - перезапуск через sudo"
         exec sudo sh -c '
-            export TORRCAST_BOOTSTRAP_URL="$1" TORRCAST_GITLAB_API="$2" TORRCAST_PROJECT_ID="$3"
+            export TORRCAST_BOOTSTRAP_URL="$1" TORRCAST_GITLAB_API="$2" TORRCAST_PROJECT_ID="$3" TORRCAST_LANGUAGE="$4"
             curl -fsSL "$1" | sh
-        ' _ "$BOOTSTRAP_URL" "$GITLAB_API" "$PROJECT_ID"
+        ' _ "$BOOTSTRAP_URL" "$GITLAB_API" "$PROJECT_ID" "$LANGUAGE"
     fi
     die "нужен root: sudo sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\""
 }
@@ -45,12 +59,12 @@ latest_version() {
                  "$GITLAB_API/projects/$PROJECT_ID/releases/permalink/latest" 2>/dev/null)" || true
     case "$code" in
         200) ;;
-        404) rm -f "$body"; die "релизов ещё нет (permalink/latest отвечает 404) - вернись, когда выйдет первый релиз" ;;
-        *)   rm -f "$body"; die "GitLab ответил неожиданно (код ${code:-нет ответа}) на $GITLAB_API" ;;
+        404) rm -f "$body"; die "релизов ещё нет (permalink/latest отвечает 404)" ;;
+        *)   rm -f "$body"; fail "unexpected GitLab response (status ${code:-none}) from $GITLAB_API" "GitLab ответил неожиданно (код ${code:-нет ответа}) на $GITLAB_API" ;;
     esac
     ver="$(sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p' "$body")"
     rm -f "$body"
-    [ -n "$ver" ] || die "в ответе GitLab нет tag_name"
+    [ -n "$ver" ] || fail "GitLab response has no tag_name" "в ответе GitLab нет tag_name"
     printf '%s\n' "$ver"
 }
 
@@ -66,22 +80,22 @@ main() {
     # а имя внутри .sha256 обязано побайтово совпасть с локальным именем файла.
     tag="$(latest_version)"
     ver="${tag#v}"
-    info "торкаст $ver"
+    say "torrcast $ver" "торкаст $ver"
 
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
     pkg="$GITLAB_API/projects/$PROJECT_ID/packages/generic/torrcast/$ver"
 
     curl -fsSL -o "$tmp/torrcast-$ver.tar.gz" "$pkg/torrcast-$ver.tar.gz" \
-        || die "не скачался тарбол torrcast-$ver.tar.gz"
+        || fail "could not download torrcast-$ver.tar.gz" "не скачался тарбол torrcast-$ver.tar.gz"
     curl -fsSL -o "$tmp/torrcast-$ver.tar.gz.sha256" "$pkg/torrcast-$ver.tar.gz.sha256" \
-        || die "не скачалась сверка sha256"
+        || fail "could not download the sha256 checksum" "не скачалась сверка sha256"
     (cd "$tmp" && sha256sum -c "torrcast-$ver.tar.gz.sha256") >/dev/null \
-        || die "sha256 не сошёлся - тарбол повреждён или подменён"
+        || fail "sha256 mismatch - the archive is damaged or was replaced" "sha256 не сошёлся - тарбол повреждён или подменён"
 
     mkdir "$tmp/src"
     tar -xzf "$tmp/torrcast-$ver.tar.gz" -C "$tmp/src"
-    [ -f "$tmp/src/install.sh" ] || die "в тарболе нет install.sh"
+    [ -f "$tmp/src/install.sh" ] || fail "the archive has no install.sh" "в тарболе нет install.sh"
 
     # install.sh - bash-скрипт со своим шебангом (#!/usr/bin/env bash), не sh: на
     # Debian /bin/sh - dash, и на башизмах install.sh он падает сразу. </dev/null
