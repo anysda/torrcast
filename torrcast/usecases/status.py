@@ -1,5 +1,6 @@
 """Показывает состояние текущего или последнего сеанса."""
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.ports.clock import Clock
@@ -41,16 +42,23 @@ class Status:
             # Прогрев - это и есть ответ на вопрос «переживёт ли показ обрыв связи»,
             # поэтому он стоит в статусе, а не в отладочной ручке.
             whole = shown.duration > 0 and shown.warm >= shown.duration * WARMED_RATIO
-            self._console.write(
-                f"   прогрето {self._hms(shown.warm)} из {self._hms(shown.duration)}"
-                + (" - весь фильм на диске, интернет не нужен" if whole else "")
+            said = phrase(
+                "status.warmed", warm=self._hms(shown.warm), duration=self._hms(shown.duration)
             )
+            said += phrase("status.warmed_whole") if whole else ""
+            self._console.write(said)
         reserve = self._session.cache_reserve(shown)
         if reserve:
             self._console.write(f"   {reserve}")
         self._console.write(
-            f"   {shown.key} · файл #{shown.file_index} · дорожка {shown.audio_index + 1} · "
-            f"раздача {self._session.stream_address()}, приёмник {self._session.receiver_name()}"
+            phrase(
+                "status.file_info",
+                ident=shown.key,
+                file=shown.file_index,
+                track=shown.audio_index + 1,
+                addr=self._session.stream_address(),
+                receiver=self._session.receiver_name(),
+            )
         )
         return EXIT_OK
 
@@ -58,29 +66,32 @@ class Status:
         """Юнита нет: оборванный показ, недосмотренное кино или честная тишина."""
         if shown is not None and shown.dark_since:  # темнота переживает юнит нарочно
             gone = shown.position
-            was = f"на {self._hms(gone)}" if gone else "картинки не было ни кадра"
-            self._console.write(f"показ оборвался: {shown.shown_as} - {was} ({shown.dark_reason})")
+            was = phrase("status.at", pos=self._hms(gone)) if gone else phrase("status.no_frame")
+            self._console.write(
+                phrase("status.torn", what=shown.shown_as, was=was, reason=shown.dark_reason)
+            )
             return EXIT_OK
-        self._console.write("ничего не играет")
+        self._console.write(phrase("status.nothing_playing"))
         if shown is not None and shown.resumable:
             self._console.write(
-                f"последнее: «{shown.title}» на {self._hms(shown.position)} / "
-                f"{self._hms(shown.duration)}"
+                phrase(
+                    "status.last_resumable",
+                    title=shown.title,
+                    pos=self._hms(shown.position),
+                    duration=self._hms(shown.duration),
+                )
             )
         return EXIT_OK
 
     def _what_is_on(self, shown: PlaybackSnapshot, what: str) -> None:
         """Одна строка про экран: показ идёт или он погас и мы ждём возврата."""
+        pos, duration = self._hms(shown.position), self._hms(shown.duration)
         if not shown.dark_since:
-            self._console.write(
-                f"играю {what} - {self._hms(shown.position)} / {self._hms(shown.duration)}"
-            )
+            self._console.write(phrase("status.playing", what=what, pos=pos, duration=duration))
             return
+        self._console.write(phrase("status.dark", what=what, pos=pos, duration=duration))
         self._console.write(
-            f"показ погас: {what} - {self._hms(shown.position)} / {self._hms(shown.duration)}"
-        )
-        self._console.write(
-            f"   {self._darkness(shown)} ({shown.dark_reason}) - жду возврата, подниму сам"
+            phrase("status.dark_wait", darkness=self._darkness(shown), reason=shown.dark_reason)
         )
 
     def _darkness(self, shown: PlaybackSnapshot) -> str:
@@ -91,7 +102,9 @@ class Status:
         а сдвинутые часы: про число тогда молчим, про саму темноту - нет.
         """
         dark = self._clock.wall() - shown.dark_since
-        return f"темнота {self._hms(dark)}" if dark > 0 else "темнота"
+        if dark > 0:
+            return phrase("status.darkness_for", hms=self._hms(dark))
+        return phrase("status.darkness")
 
     @staticmethod
     def _hms(seconds: float) -> str:

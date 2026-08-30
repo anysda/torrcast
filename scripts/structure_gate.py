@@ -143,7 +143,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/usecases/releases_command.py": 5,
     "torrcast/usecases/say_showing.py": 2,
     "torrcast/usecases/source_blame.py": 2,
-    "torrcast/usecases/status.py": 13,
     "torrcast/usecases/stop.py": 2,
     "torrcast/usecases/voices_command.py": 3,
     "torrcast/usecases/warm/line.py": 8,

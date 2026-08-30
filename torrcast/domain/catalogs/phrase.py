@@ -68,6 +68,8 @@ from torrcast.domain.catalogs.series.en import en as series_en
 from torrcast.domain.catalogs.series.ru import ru as series_ru
 from torrcast.domain.catalogs.spans.en import en as spans_en
 from torrcast.domain.catalogs.spans.ru import ru as spans_ru
+from torrcast.domain.catalogs.status.en import en as status_en
+from torrcast.domain.catalogs.status.ru import ru as status_ru
 from torrcast.domain.catalogs.stream.en import en as stream_en
 from torrcast.domain.catalogs.stream.ru import ru as stream_ru
 from torrcast.domain.catalogs.stream_pack.en import en as stream_pack_en
@@ -124,6 +126,7 @@ _CLUSTERS: Final = (
     (playback_en, playback_ru),
     (screen_en, screen_ru),
     (feed_en, feed_ru),
+    (status_en, status_ru),
 )
 
 

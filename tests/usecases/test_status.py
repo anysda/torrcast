@@ -3,6 +3,7 @@
 from tests.fakes.clock import FakeClock
 from tests.fakes.console import FakeConsole
 from tests.fakes.playback_session import FakePlaybackSession
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.usecases.status import Status
 
@@ -16,8 +17,17 @@ def test_status_prints_playing_snapshot() -> None:
     console = FakeConsole()
 
     assert Status(session, console, FakeClock()).run() == 0
-    assert console.messages[0] == "играю «Луна» · 1080p - 0:01:05 / 1:00:00"
-    assert console.messages[-1].startswith("   moon · файл #2 · дорожка 1")
+    assert console.messages[0] == phrase(
+        "status.playing", what="«Луна» · 1080p", pos="0:01:05", duration="1:00:00"
+    )
+    assert console.messages[-1] == phrase(
+        "status.file_info",
+        ident="moon",
+        file=2,
+        track=1,
+        addr=session.stream_address(),
+        receiver=session.receiver_name(),
+    )
 
 
 def test_status_prints_last_resumable_snapshot() -> None:
@@ -27,6 +37,6 @@ def test_status_prints_last_resumable_snapshot() -> None:
     Status(session, console, FakeClock()).run()
 
     assert console.messages == [
-        "ничего не играет",
-        "последнее: «Луна» на 0:01:05 / 1:00:00",
+        phrase("status.nothing_playing"),
+        phrase("status.last_resumable", title="Луна", pos="0:01:05", duration="1:00:00"),
     ]
