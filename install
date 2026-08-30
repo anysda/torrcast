@@ -1,0 +1,76 @@
+#!/bin/sh
+# torrcast: curl -fsSL https://torrcast.anysda.space | sh   (или .../install - тот же файл)
+#
+# Бутстрап, а не установка: узнаёт у GitLab последнюю версию, тащит тарбол этой
+# версии, сверяет sha256, распаковывает в mktemp -d и зовёт install.sh оттуда.
+# Всё тело - внутри функций: оборванная закачка (curl режет на середине) ничего
+# не выполнит, потому что не доедет до вызова main в конце файла.
+set -eu
+
+BOOTSTRAP_URL="${TORRCAST_BOOTSTRAP_URL:-https://torrcast.anysda.space}"
+GITLAB_API="${TORRCAST_GITLAB_API:-https://gitlab.anysda.space/api/v4}"
+PROJECT_ID="${TORRCAST_PROJECT_ID:-10}"
+
+die()  { printf 'ошибка: %s\n' "$*" >&2; exit 1; }
+info() { printf '%s\n' "$*" >&2; }
+need() { command -v "$1" >/dev/null 2>&1 || die "нужен $1, его нет в PATH"; }
+
+# Не root - не падаем молча: под sudo перезапускаемся тем же одностроком, без него
+# просим человека сделать это самому. TORRCAST_NO_ROOT - лазейка для песочницы, как
+# в install.sh.
+become_root() {
+    [ -n "${TORRCAST_NO_ROOT:-}" ] && return 0
+    [ "$(id -u)" -eq 0 ] && return 0
+    if command -v sudo >/dev/null 2>&1; then
+        info "не root - перезапуск через sudo"
+        exec sudo -E sh -c 'curl -fsSL "$1" | sh' _ "$BOOTSTRAP_URL"
+    fi
+    die "нужен root: sudo sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\""
+}
+
+# Печатает тег последней версии в stdout. 404 до первого релиза - это не сеть
+# легла, а релизов ещё нет: сказать об этом словами, а не сырым JSON.
+latest_version() {
+    body="$(mktemp)"
+    code="$(curl -fsSL --connect-timeout 10 -o "$body" -w '%{http_code}' \
+                 "$GITLAB_API/projects/$PROJECT_ID/releases/permalink/latest" 2>/dev/null)" || true
+    case "$code" in
+        200) ;;
+        404) rm -f "$body"; die "релизов ещё нет (permalink/latest отвечает 404) - вернись, когда выйдет первый релиз" ;;
+        *)   rm -f "$body"; die "GitLab ответил неожиданно (код ${code:-нет ответа}) на $GITLAB_API" ;;
+    esac
+    ver="$(sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p' "$body")"
+    rm -f "$body"
+    [ -n "$ver" ] || die "в ответе GitLab нет tag_name"
+    printf '%s\n' "$ver"
+}
+
+main() {
+    need curl
+    need tar
+    need sha256sum
+    become_root
+
+    ver="$(latest_version)"
+    info "торкаст $ver"
+
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    pkg="$GITLAB_API/projects/$PROJECT_ID/packages/generic/torrcast/$ver"
+
+    curl -fsSL -o "$tmp/torrcast-$ver.tar.gz" "$pkg/torrcast-$ver.tar.gz" \
+        || die "не скачался тарбол torrcast-$ver.tar.gz"
+    curl -fsSL -o "$tmp/torrcast-$ver.tar.gz.sha256" "$pkg/torrcast-$ver.tar.gz.sha256" \
+        || die "не скачалась сверка sha256"
+    (cd "$tmp" && sha256sum -c "torrcast-$ver.tar.gz.sha256") >/dev/null \
+        || die "sha256 не сошёлся - тарбол повреждён или подменён"
+
+    mkdir "$tmp/src"
+    tar -xzf "$tmp/torrcast-$ver.tar.gz" -C "$tmp/src"
+    [ -f "$tmp/src/install.sh" ] || die "в тарболе нет install.sh"
+
+    (cd "$tmp/src" && sh ./install.sh)
+    exit $?
+}
+
+main "$@"
