@@ -108,7 +108,7 @@ def test_a_run_that_gave_nothing_is_not_tried_forever(tmp_path: Path) -> None:
 
     assert state.done == {4, 5, 6}
     assert state.made == 0 and state.pace.seen == 0, "помеха - это не замер скорости"
-    assert any("не дало ни куска" in line for line in said)
+    assert any("did not yield a single piece" in line for line in said)
 
 
 def test_a_run_that_delivered_is_counted_by_its_own_packer_edge(tmp_path: Path) -> None:
@@ -127,7 +127,7 @@ def test_a_run_that_delivered_is_counted_by_its_own_packer_edge(tmp_path: Path) 
     assert state.done == {4, 5}, "выложено два куска из трёх - третий остаётся заходу"
     assert state.made == 2 and state.seconds > 0.0
     assert state.pace.seen == 1, "состоявшийся заход уточняет масштаб таблицы"
-    assert any("перекодировал v4" in line for line in said)
+    assert any("recoded v4" in line for line in said)
 
 
 def test_the_head_of_a_new_run_preempts_a_run_that_works_ahead(tmp_path: Path) -> None:
@@ -147,7 +147,7 @@ def test_the_head_of_a_new_run_preempts_a_run_that_works_ahead(tmp_path: Path) -
 
     _run(state, 12, 14)
 
-    assert run.stopped == "голова прогона важнее"
+    assert run.stopped == "the head of the run matters more"
 
 
 def test_an_abandoned_run_says_why_and_a_finished_one_says_nothing(tmp_path: Path) -> None:
@@ -162,8 +162,8 @@ def test_an_abandoned_run_says_why_and_a_finished_one_says_nothing(tmp_path: Pat
     state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": lambda *a, **k: run}))
     state.played = state.grid.end(14) + 1.0  # показ ушёл за пределы захода
 
-    assert _run(state, 12, 14) == "перемотка"
-    assert run.stopped == "перемотка"
+    assert _run(state, 12, 14) == "rewind"
+    assert run.stopped == "rewind"
 
     delivered = _state(tmp_path)
     delivered.packer_type = cast(

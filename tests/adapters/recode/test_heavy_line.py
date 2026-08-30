@@ -31,9 +31,9 @@ def test_the_bitrate_measure_is_named_when_it_is_the_one_that_fired(tmp_path: Pa
     """16 Мбит/с при пороге 15, а вес копии до потолка не дотягивает - названа мерка битрейта."""
     line = _heavy_line(_recoder(tmp_path, rate=2.0e6, cap=ROOMY))
 
-    assert "кусков на перекод 30 из 30" in line
-    assert "битрейт от 15 Мбит/с" in line
-    assert "вес куска" not in line
+    assert "pieces to recode 30 of 30" in line
+    assert "bitrate from 15 Mbit/s" in line
+    assert "piece weight" not in line
 
 
 def test_the_weight_measure_is_named_when_the_bitrate_never_crossed(tmp_path: Path) -> None:
@@ -42,13 +42,13 @@ def test_the_weight_measure_is_named_when_the_bitrate_never_crossed(tmp_path: Pa
     """
     line = _heavy_line(_recoder(tmp_path, rate=0.5e6, cap=TIGHT))
 
-    assert "кусков на перекод 30 из 30" in line
-    assert "вес куска выше 1 МБ" in line
-    assert "битрейт" not in line
+    assert "pieces to recode 30 of 30" in line
+    assert "piece weight above 1 MB" in line
+    assert "bitrate" not in line
 
 
 def test_both_measures_are_named_when_both_fired(tmp_path: Path) -> None:
     """Сработали обе мерки - названы обе: разбор не должен гадать, которая решила."""
     line = _heavy_line(_recoder(tmp_path, rate=2.0e6, cap=TIGHT))
 
-    assert "битрейт от 15 Мбит/с и вес куска выше 1 МБ" in line
+    assert "bitrate from 15 Mbit/s and piece weight above 1 MB" in line

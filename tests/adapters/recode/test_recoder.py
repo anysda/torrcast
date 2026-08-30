@@ -44,7 +44,7 @@ def test_a_light_film_never_raises_the_thread_at_all(tmp_path: Path) -> None:
     recoder.start()
 
     assert recoder.thread is None
-    assert said == ["тяжёлых кусков нет - перекодировать нечего"]
+    assert said == ["no heavy pieces - nothing to recode"]
 
 
 def test_the_start_says_how_much_of_the_film_is_heavy(tmp_path: Path) -> None:
@@ -58,7 +58,7 @@ def test_the_start_says_how_much_of_the_film_is_heavy(tmp_path: Path) -> None:
     recoder.thread.join(timeout=5.0)
 
     assert (tmp_path / "recode").is_dir(), "каталог перекода готовится на старте"
-    assert "кусков на перекод 30 из 30" in said[0]
+    assert "pieces to recode 30 of 30" in said[0]
     assert recoder.began > 0.0
 
 
@@ -102,7 +102,7 @@ def test_stopping_wakes_a_paused_process_before_killing_it(tmp_path: Path) -> No
 
     assert recoder.stopped and recoder.packer is None
     assert packer.proc.signals == [signal.SIGCONT], "сперва оживить, потом гасить"
-    assert packer.stopped == ["показ окончен"]
+    assert packer.stopped == ["show is over"]
 
 
 def test_the_report_stays_silent_when_there_was_nothing_to_do(tmp_path: Path) -> None:
@@ -112,7 +112,7 @@ def test_the_report_stays_silent_when_there_was_nothing_to_do(tmp_path: Path) ->
     recoder = _recoder(tmp_path)
     recoder.made, recoder.seconds, recoder.late = 7, 84.0, 2
 
-    assert recoder.report() == "перекодировано 7 кусков (84 с фильма), тяжёлых ушло как есть 2"
+    assert recoder.report() == "recoded 7 pieces (84 s of film), 2 heavy ones went as-is"
 
 
 @pytest.mark.parametrize(

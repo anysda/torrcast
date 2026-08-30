@@ -12,6 +12,7 @@ from torrcast.adapters.recode.preset_for import preset_for
 from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.yield_to_shrink import _yield_to_shrink
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -124,7 +125,7 @@ def _run(state: _State, first: int, last: int) -> str | None:
             gone = state.played > state.grid.end(last)
             far = state.played < state.grid.start(first) - state.ahead
             if gone or far:
-                why = "перемотка"
+                why = phrase("recode.rewind")
                 packer.stop(keep_files=True, reason=why)
                 return why
             # Голова нового прогона важнее любого запаса впрок: её ждёт чёрный экран,
@@ -132,7 +133,7 @@ def _run(state: _State, first: int, last: int) -> str | None:
             # голову значит проесть её ожидание чужой работой: замер -
             # заход за `v0` (7 с) съедал ровно столько же от ожидания `v358`.
             if _head_pending(state) and not first <= state.head <= last:
-                why = "голова прогона важнее"
+                why = phrase("recode.head_matters_more")
                 packer.stop(keep_files=True, reason=why)
                 return why
             # Выкладка встала на слишком тяжёлой копии (:meth:`_hold_bulky`) - этот
@@ -142,7 +143,7 @@ def _run(state: _State, first: int, last: int) -> str | None:
             # ним самым быстрым пресетом, не трогаем - быстрее всё равно не будет.
             stuck = state.blocked
             if stuck >= 0 and (stuck < first or (stuck <= last and speed < quickest)):
-                why = f"упаковка встала на v{stuck}"
+                why = phrase("recode.packing_stuck", slot=stuck)
                 packer.stop(keep_files=True, reason=why)
                 return why
             time.sleep(0.3)
@@ -150,7 +151,7 @@ def _run(state: _State, first: int, last: int) -> str | None:
         with state.lock:
             state.packer = None
             state.job = None
-        packer.stop(keep_files=True, reason="заход окончен")
+        packer.stop(keep_files=True, reason=phrase("recode.run_over"))
     # ⚠️ Считаем по краю СВОЕГО упаковщика, а не по тому, что осталось в каталоге:
     # готовый кусок оттуда уже мог забрать показ (:meth:`Packer.publish`), и глоб
     # каталога честный заход объявлял бы провалившимся. Ровно так «перекодировал v0»
@@ -176,12 +177,19 @@ def _run(state: _State, first: int, last: int) -> str | None:
             пауза=round(state.stalled, 1),
         )
         state._say(
-            f"перекодировал v{first}...v{first + len(got) - 1} "
-            f"({seconds:.0f} с фильма за {spent:.0f} с, {preset}, "
-            f"{made / spent:.2f}x - план {state.pace.plan:.2f} от таблицы)"
+            phrase(
+                "recode.recoded_pieces",
+                first=first,
+                last=first + len(got) - 1,
+                seconds=f"{seconds:.0f}",
+                spent=f"{spent:.0f}",
+                preset=preset,
+                rate=f"{made / spent:.2f}",
+                plan=f"{state.pace.plan:.2f}",
+            )
         )
     else:
-        state._say(f"перекодирование v{first}...v{last} не дало ни куска за {spent:.0f} с")
+        state._say(phrase("recode.yielded_nothing", first=first, last=last, spent=f"{spent:.0f}"))
         # Чтобы не крутиться на одном и том же месте вечно.
         state.done.update(range(first, last + 1))
     # Заход отработал до конца - хоть с кусками, хоть без: повторять его нитка

@@ -109,9 +109,6 @@ TRANSLATION_DEBT: Final = {
     # Отказ ловится тут же (`except ValueError: continue`) и до человека не доходит:
     # переводить нечего, экран этой строки не видит.
     "torrcast/adapters/prowlarr/collect_rows.py": 1,
-    "torrcast/adapters/recode/heavy_line.py": 4,
-    "torrcast/adapters/recode/recoder.py": 1,
-    "torrcast/adapters/recode/run.py": 3,
     "torrcast/adapters/stream_pack/_merged_out.py": 5,
     "torrcast/adapters/stream_pack/mark_playing.py": 1,
     "torrcast/adapters/stream_pack/packer_stop.py": 4,

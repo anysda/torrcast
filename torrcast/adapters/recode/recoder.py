@@ -25,6 +25,7 @@ from torrcast.adapters.recode.yield_to_shrink import (
     _shrink_touched,
     _yield_to_shrink,
 )
+from torrcast.domain.catalogs.phrase import phrase
 
 
 @dataclass(slots=True)
@@ -40,7 +41,7 @@ class Recoder(_State):
     def start(self) -> None:
         """Поднять поток кодировщика. Тяжёлых кусков нет — не поднимать вовсе."""
         if not self.targets:
-            self._say("тяжёлых кусков нет - перекодировать нечего")
+            self._say(phrase("recode.no_heavy_pieces"))
             return
         self._say(_heavy_line(self))
         self.spare.mkdir(parents=True, exist_ok=True)
@@ -63,7 +64,7 @@ class Recoder(_State):
         if packer is not None:
             with contextlib.suppress(OSError, ProcessLookupError, AttributeError):
                 packer.proc.send_signal(signal.SIGCONT)
-            packer.stop(keep_files=True, reason="показ окончен")
+            packer.stop(keep_files=True, reason=phrase("recode.show_over"))
 
     def opening(self, slot: int) -> None:
         """Упаковка начинается заново с сегмента ``slot``
@@ -98,9 +99,8 @@ class Recoder(_State):
         """Одна строка итога: сколько успели, сколько тяжёлых ушло как есть."""
         if not self.targets:
             return ""
-        return (
-            f"перекодировано {self.made} кусков ({self.seconds:.0f} с фильма), "
-            f"тяжёлых ушло как есть {self.late}"
+        return phrase(
+            "recode.report", made=self.made, seconds=f"{self.seconds:.0f}", late=self.late
         )
 
     # ------------------------------------------------------------------ внутреннее

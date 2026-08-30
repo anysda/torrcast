@@ -58,6 +58,8 @@ from torrcast.domain.catalogs.profile_detector.en import en as profile_detector_
 from torrcast.domain.catalogs.profile_detector.ru import ru as profile_detector_ru
 from torrcast.domain.catalogs.prowlarr.en import en as prowlarr_en
 from torrcast.domain.catalogs.prowlarr.ru import ru as prowlarr_ru
+from torrcast.domain.catalogs.recode.en import en as recode_en
+from torrcast.domain.catalogs.recode.ru import ru as recode_ru
 from torrcast.domain.catalogs.runtime.en import en as runtime_en
 from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
 from torrcast.domain.catalogs.stream_pack.en import en as stream_pack_en
@@ -100,6 +102,7 @@ _CLUSTERS: Final = (
     (console_en, console_ru),
     (http_server_en, http_server_ru),
     (prowlarr_en, prowlarr_ru),
+    (recode_en, recode_ru),
 )
 
 

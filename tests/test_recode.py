@@ -430,7 +430,7 @@ def test_a_film_with_no_heavy_pieces_starts_no_encoder(tmp_path) -> None:  # typ
     )
     recoder.start()
     assert recoder.thread is None
-    assert "перекодировать нечего" in said[0]
+    assert "nothing to recode" in said[0]
 
 
 # ------------------------------------------------------------------ живой ffmpeg: стык
