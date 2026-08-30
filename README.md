@@ -37,9 +37,14 @@ curl -fsSL https://torrcast.anysda.space | sh
 A bare Debian 12 installation does **not** include `curl`; install it first. The
 bootstrap requires `curl`, `tar`, `sha256sum`, and `bash`. The one-liner asks GitLab for
 the latest version, downloads that exact release tarball, verifies its SHA-256 checksum,
-and runs the `install.sh` inside it. `https://rutorrcast.anysda.space` is another name for
-the same endpoint and serves the same file. When not run as root, the bootstrap restarts
-itself through `sudo`.
+and runs the `install.sh` inside it. When not run as root, the bootstrap restarts itself
+through `sudo`.
+
+The endpoint names the language of the product it installs. `https://torrcast.anysda.space`
+installs an English `cast`: menus, messages and the preferred voice track are all English.
+`https://rutorrcast.anysda.space` installs the same release with Russian as the product
+language. Either way the choice is not final: `cast --en` and `cast --ru` switch the
+installed copy at any time.
 
 To install from source, use the same `install.sh`:
 
