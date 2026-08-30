@@ -173,9 +173,9 @@ def _hold(
             # сказать «старт NN с» и потому строже (ему нужен сдвиг указателя). Здесь
             # вопрос другой - назвал ли приёмник хоть одно живое место, - и ответ на него
             # ровно тот же, по которому показ отличает свои две смерти: 0.0 против 0:02.
-            if not revival.resurrect(
-                receiver, feed, warmer, screen.held or start, shown=screen.held > 0
-            ):
+            # ⚠️ На конце картины по эху мёртвого сокета о воле зрителя не судят (TC-880).
+            shown, sure = screen.held > 0, not position.stale
+            if not revival.resurrect(receiver, feed, warmer, screen.held or start, shown, sure):
                 return revival.ended
             # Причину темноты добывает сам :class:`_Revival`, спрашивая источник, и в след
             # она уже легла (:func:`_why`). Второй раз то же событие не пишем.

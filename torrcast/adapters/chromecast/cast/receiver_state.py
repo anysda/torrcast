@@ -64,6 +64,11 @@ class _State(_Settings):
         #: то есть удавшимся LOAD
         #: (:func:`torrcast.adapters.chromecast.cast.viewer_closed._viewer_closed`).
         self._we_quit = False
+        #: Последний статус взят не свежим: сокет лёг, и приёмник ответил эхом прошлого
+        #: опроса (:meth:`torrcast.adapters.chromecast.cast.receiver_link._Link._status`).
+        #: Уезжает в :attr:`torrcast.domain.position.Position.stale`, где по нему и судят,
+        #: можно ли верить ответу про волю зрителя (TC-880).
+        self._stale = False
         #: Сессия приложения приёмника, которую подняли мы (см. :meth:`_ours`).
         self._session = ""
         #: Позиция с прошлого опроса и незакрытая перемотка (:meth:`_watch_seek`):

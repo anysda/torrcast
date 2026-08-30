@@ -74,10 +74,10 @@ def _position(rcv: _Talk, front: float = 0.0) -> Position:
     else:
         rcv._stall_at, rcv._stall_since = -1.0, 0.0
     if state == "IDLE" and st.idle_reason == "ERROR" and _reload(rcv):
-        return Position(rcv._peak, st.duration or 0.0, True, "BUFFERING", closed)
+        return Position(rcv._peak, st.duration or 0.0, True, "BUFFERING", closed, rcv._stale)
     if rcv._gone:
         # 🔴 Сторож своё отработал и передаёт эстафету воскрешению: живым такой показ
         # называть больше нельзя, хотя приёмник и рапортует BUFFERING. Состояние
         # отдаём как есть - врать о нём незачем, а решает зовущий по ``playing``.
-        return Position(pos, st.duration or 0.0, False, state, closed)
-    return Position(pos, st.duration or 0.0, st.player_is_playing, state, closed)
+        return Position(pos, st.duration or 0.0, False, state, closed, rcv._stale)
+    return Position(pos, st.duration or 0.0, st.player_is_playing, state, closed, rcv._stale)

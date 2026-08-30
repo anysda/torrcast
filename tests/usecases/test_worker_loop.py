@@ -12,7 +12,11 @@ from tests.fakes.journal import Tape
 from tests.fakes.state_store import FakeStateStore
 from tests.fakes.stream_source import FakeStreamSource
 from tests.fakes.torrent_engine import FakeTorrentEngine
-from tests.usecases.revive_playback.world import RemoteClosedReceiver, feed_with_segments
+from tests.usecases.revive_playback.world import (
+    Beat,
+    RemoteClosedReceiver,
+    feed_with_segments,
+)
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
@@ -311,6 +315,145 @@ def test_a_show_closed_by_the_remote_moves_the_bookmark_without_raising_the_rece
     assert played == ["Домохозяйки s1e7"], "приёмник поднят только для закрытой серии, не для s1e8"
     following = _following(key)
     assert following is not None and following.episode == 8, "закладка всё же сдвинута на s1e8"
+
+
+def test_a_show_closed_by_the_remote_on_the_credits_does_not_raise_the_receiver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _ports_restored: None,
+) -> None:
+    """🔴 TC-880: тот же жест НА ТИТРАХ приёмник тоже не будит.
+
+    Отличие от жеста в середине серии ровно одно, и оно решает всё: признак закрытия
+    приезжает не первым тёмным опросом, а следующим. Жест роняет сокет 8009 вместе с
+    приложением, и первый тёмный ответ - эхо прошлого опроса (:attr:`Beat.stale`): экран
+    в нём числится нашим, а показ незакрытым. В середине серии следующий круг показу
+    дарит лестница подъёма, а на титрах она же его и отнимала - ``ending_reached``
+    возвращал «гаснем» до всякого разбора, и цикл юнита заводил следующую серию.
+
+    Живой замер на приставке 30-08-2026 (жест = ``am force-stop`` приложения приёмника):
+    ``upd=ERR:NotConnected``, ``closed=False`` первым опросом и ``closed=True`` следующим.
+    Сценарий ниже - эти самые три круга.
+
+    🔴 Признак закрытия руками в сторожа не кладут: он обязан пройти всю цепочку -
+    невнятный ответ приёмника → внятный → :func:`_closed` → настоящий :class:`Watch` →
+    цикл юнита. Проставленный тестом признак мерил бы одно последнее звено (TC-899).
+    """
+    key = "tv:домохозяйки-титры:2020"
+    state = FakeStateStore()
+    fresh = state.load()
+    fresh.put(key, _homemakers())
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(Tape())
+    monkeypatch.setattr(
+        "torrcast.usecases.episode_duration._episode_prober",
+        lambda *_a, **_k: Media(duration=2600.0, video="h264", height=1080, width=1920),
+    )
+    played: list[str] = []
+
+    def play(
+        _c: object, _s: object, _a: object, title: str, _clock: object, watch: Any, **_kw: object
+    ) -> int:
+        played.append(title)
+        receiver = RemoteClosedReceiver(
+            [
+                (2569.0, "PLAYING", False),  # 98.8 % серии: показ уже на титрах
+                Beat(0.0, "UNKNOWN", stale=True),  # жест: сокет лёг, ответ - эхо прошлого
+                Beat(0.0, "UNKNOWN", closed=True),  # приёмник переподключился и назвал волю
+            ],
+            dur=2600.0,
+        )
+        _hold(
+            cast(Receiver, receiver),
+            feed_with_segments(tmp_path / title, whole=2600.0),
+            watch,
+            clock=FakeClock(now=1000.0),
+        )
+        watch.close()
+        return 0
+
+    code = worker_loop._worker_loop(
+        Config(),
+        key,
+        FakeTorrentEngine(),
+        None,  # type: ignore[arg-type]
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        play=play,
+    )
+
+    assert code == 0
+    assert played == ["Домохозяйки s1e7"], "приёмник поднят только для закрытой серии, не для s1e8"
+    following = _following(key)
+    assert following is not None and following.episode == 8, "закладка всё же сдвинута на s1e8"
+
+
+def test_a_stream_that_ended_by_itself_hands_over_at_once_and_costs_no_extra_poll(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _ports_restored: None,
+) -> None:
+    """🔴 Контрольная сторона и цена стыка разом: серия доиграла сама - переход штатный.
+
+    Тот же конец картины, что и в проверке выше, но ответ приёмника ВНЯТНЫЙ (живой замер:
+    ``IDLE/FINISHED``, статус взят свежим). Такой конец обязан разбираться сразу, как и до
+    правки: выдержка :data:`WILL_LIMIT` копится только на эхе мёртвого сокета.
+
+    🔴 Цена названа числом кругов опроса, а не словами: их ровно два, столько же, сколько
+    показ тратил до правки. Лишний круг на КАЖДОМ конце серии откладывал бы переход, а
+    переход по спеке дороже хвоста - молчаливое замедление стыка тут и ловится.
+    """
+    key = "tv:домохозяйки-сама:2020"
+    state = FakeStateStore()
+    fresh = state.load()
+    fresh.put(key, _homemakers())
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(Tape())
+    monkeypatch.setattr(
+        "torrcast.usecases.episode_duration._episode_prober",
+        lambda *_a, **_k: Media(duration=2600.0, video="h264", height=1080, width=1920),
+    )
+    played: list[str] = []
+    seen: list[RemoteClosedReceiver] = []
+
+    def play(
+        _c: object, _s: object, _a: object, title: str, _clock: object, watch: Any, **_kw: object
+    ) -> int:
+        played.append(title)
+        receiver = RemoteClosedReceiver(
+            [
+                (2569.0, "PLAYING", False),  # 98.8 % серии: показ на титрах
+                Beat(0.0, "IDLE"),  # поток кончился сам, и приёмник сказал это внятно
+            ],
+            dur=2600.0,
+        )
+        seen.append(receiver)
+        _hold(
+            cast(Receiver, receiver),
+            feed_with_segments(tmp_path / title, whole=2600.0),
+            watch,
+            clock=FakeClock(now=1000.0),
+        )
+        watch.close()
+        return 0
+
+    code = worker_loop._worker_loop(
+        Config(),
+        key,
+        FakeTorrentEngine(),
+        None,  # type: ignore[arg-type]
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        play=play,
+    )
+
+    assert code == 0
+    assert played == ["Домохозяйки s1e7", "Домохозяйки s1e8"], "обе серии поднялись на приёмнике"
+    assert [r.polls for r in seen] == [2, 2], "внятный конец разобран сразу, лишних кругов нет"
 
 
 def test_a_naturally_ended_show_still_raises_the_next_episode(

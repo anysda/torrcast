@@ -114,6 +114,7 @@ class _Revival(_RevivalState):
         warmer: Warmer | None,
         pos: float,
         shown: bool = True,
+        sure: bool = True,
     ) -> bool:
         """Одна ступень подъёма (:func:`_resurrect`)."""
-        return _resurrect(self, receiver, feed, warmer, pos, shown)
+        return _resurrect(self, receiver, feed, warmer, pos, shown, sure)

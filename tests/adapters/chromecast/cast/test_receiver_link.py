@@ -127,3 +127,42 @@ def test_a_load_failure_without_a_code_does_not_erase_the_one_already_taken() ->
 
     controller._process_media_status({"status": [{"playerState": "IDLE", "idleReason": "ERROR"}]})
     assert receiver._error_code is None, "новая мёртвая сессия без кода - новая причина"
+
+
+class _Deaf(Controller):
+    """Медиаконтроллер с мёртвым сокетом: на просьбу о свежем статусе он отказывает."""
+
+    def update_status(self) -> None:
+        raise ConnectionResetError("NotConnected")
+
+
+def test_a_status_that_could_not_be_refreshed_is_marked_stale() -> None:
+    """🔴 Отказ в свежем статусе - не шум, и глотать его нельзя (TC-880).
+
+    Это единственный признак, по которому «зритель убрал показ» отличается от «источник
+    умер» на первом же тёмном опросе: жест пультом роняет сокет 8009 вместе с приложением,
+    и всё, что приёмник отдаст дальше, - прошлый ответ, где экран числится ещё нашим.
+    Замер на приставке 30-08-2026: ``NotConnected``, ``closed=False``, и лишь следующий,
+    переподключившийся опрос называет волю человека.
+    """
+    made = Device()
+    made.media_controller = _Deaf()
+    receiver = Wired(device=made)
+
+    receiver._status()
+
+    assert receiver._stale is True, "статус взят не свежим, и ответу про волю зрителя веры нет"
+
+
+def test_a_refreshed_status_is_not_marked_stale() -> None:
+    """⚠️ Отрицательная сторона того же признака: он обязан УМЕТЬ МОЛЧАТЬ.
+
+    Прибор, метящий любой ответ невнятным, держал бы показ на каждом конце серии и
+    откладывал бы каждый стык - а переход дороже хвоста. Натуральный конец на приставке
+    приходит именно так: ``IDLE/FINISHED`` со взятым статусом.
+    """
+    receiver = Wired(device=_device())
+
+    receiver._status()
+
+    assert receiver._stale is False, "статус взят свежим - конец картины разбирается сразу"

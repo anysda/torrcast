@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 from torrcast.adapters.chromecast.cast.hush_cosmetic_noise import hush_cosmetic_noise
@@ -22,13 +21,23 @@ class _Link(_State):
         что показ стоит, окно сегментов не чистится и tmpfs растёт до конца фильма.
         """
         controller = self._device().media_controller
+        self._stale = False
         # ⚠️ На закрытом ресивере update_status ПЕРЕЗАПУСКАЕТ пустой Default Media
         # Receiver - «вышел в Home, а каст открылся снова». Поэтому
         # чужой app_id проверяем раньше и статус не трогаем.
         if getattr(self._cast.status, "app_id", None) != self.MEDIA_APP:
             return controller.status
-        with contextlib.suppress(Exception):
+        try:
             controller.update_status()
+        except Exception:
+            # 🔴 Отказ тут не шум, и глотать его нельзя: это ЕДИНСТВЕННЫЙ признак, по
+            # которому «зритель убрал показ» отличается от «источник умер» на первом же
+            # тёмном опросе. Сокет 8009 падает вместе с приложением, свежего статуса
+            # взять неоткуда, и всё, что ниже вернётся, - прошлый ответ: экран числится
+            # НАШИМ, а значит показ числится незакрытым (:func:`_viewer_closed`).
+            # Замер на приставке 30-08-2026: жест пультом, ``NotConnected``, и волю
+            # человека приёмник назвал лишь следующим, переподключившимся опросом (TC-880).
+            self._stale = True
         return controller.status
 
     def _why(self) -> str:

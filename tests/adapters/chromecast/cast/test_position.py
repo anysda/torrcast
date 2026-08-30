@@ -176,3 +176,26 @@ def test_a_live_screen_forgets_the_pause_the_same_way_the_poll_circle_does() -> 
     _position(receiver)
 
     assert receiver._paused is False
+
+
+def test_an_echo_of_a_dead_socket_travels_to_the_show_as_stale() -> None:
+    """🔴 Невнятность ответа обязана доехать до показа, а не осесть в приёмнике (TC-880).
+
+    Судит о конце картины показ (:func:`torrcast.usecases.revive_playback._resurrect`), и
+    решает он ровно этим полем: по эху мёртвого сокета о воле зрителя судить нельзя.
+    """
+    receiver = _Scripted(Status(pos=0.0, state="UNKNOWN"))
+    receiver._stale = True
+
+    where = _position(receiver)
+
+    assert where.stale is True, "эхо мёртвого сокета доехало до показа"
+
+
+def test_a_fresh_answer_reaches_the_show_without_the_stale_mark() -> None:
+    """⚠️ И то же поле обязано молчать на внятном ответе, иначе стык серий встанет ждать."""
+    receiver = _Scripted(Status(pos=2569.0, state="IDLE", idle_reason="FINISHED"))
+
+    where = _position(receiver)
+
+    assert where.stale is False, "внятный конец потока выдержки не стоит"
