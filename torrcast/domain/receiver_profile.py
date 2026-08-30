@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Final, Literal
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 
 __all__ = [
@@ -29,7 +30,11 @@ class ReceiverProfile:
     """
 
     key: str
-    title: str
+    #: КЛЮЧ каталога подписи, а не готовая строка: подпись профиля читает человек,
+    #: и печатается она в трёх местах сразу (``cast releases``, работник, doctor).
+    #: Язык выбирается в момент печати, свойством :attr:`title`, - иначе он застыл бы
+    #: тем, каким был на ИМПОРТЕ модуля, то есть до чтения настройки вовсе.
+    title_key: str
     #: Кодеки, которых приёмник не декодирует вовсе: такой файл перекодируется ЦЕЛИКОМ.
     #:
     #: 🔴 Решение принимается **на уровне файла**, по паспорту ffprobe, а не посегментно по
@@ -144,5 +149,10 @@ class ReceiverProfile:
         """Уедет ли файл на приёмник без перекодирования."""
         return self.verdict(codec, depth, frame) == COPY
 
+    @property
+    def title(self) -> str:
+        """Подпись профиля словом человека: ключ из :attr:`title_key` через каталог."""
+        return phrase(self.title_key)
 
-CAUTIOUS: Final = ReceiverProfile(key="q70d", title="осторожный (Samsung Q70D)")
+
+CAUTIOUS: Final = ReceiverProfile(key="q70d", title_key="receiver.profile_cautious")

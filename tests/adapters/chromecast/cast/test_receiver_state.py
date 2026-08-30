@@ -32,7 +32,7 @@ def test_the_default_profile_is_the_cautious_one_and_the_clock_is_the_real_one()
 def test_a_dry_run_gets_its_own_profile_and_its_own_clock() -> None:
     """Сухому прогону дают свои часы, чтобы не выжидать минуты терпения по-настоящему."""
     clock = FakeClock()
-    profile = Profile(key="stick", title="приставка")
+    profile = Profile(key="stick", title_key="receiver.profile_android_tv")
 
     receiver = _State("10.0.0.50", profile=profile, clock=clock)
 

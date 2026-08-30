@@ -43,7 +43,7 @@ ROOT: Final = Path(__file__).resolve().parent.parent
 #: Что спрашивается по умолчанию.
 PROFILES: Final = ("torrcast/domain/receiver_profile.py", "torrcast/domain/android_tv_profile.py")
 #: Поля профиля, которые ничего не меряют: имя ключа и подпись для человека.
-NOT_MEASURED: Final = frozenset({"key", "title"})
+NOT_MEASURED: Final = frozenset({"key", "title_key"})
 #: Слова, которыми комментарий ссылается на замер. Ссылается - значит обязан назвать чем.
 MEASURED: Final = re.compile(r"замер|измер|снят|живь[её]м|жив(ой|ых|ого)|прогон")
 #: Сегодняшний долг: новое ``НЕ НАЗВАН`` сторож уже не пропустит молча.

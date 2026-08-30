@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from torrcast.domain.catalogs.phrase import phrase
+
 
 @dataclass(frozen=True, slots=True)
 class ReceiverInfo:
@@ -18,4 +20,4 @@ class ReceiverInfo:
         Безымянный пункт всё равно выбираем: адрес рядом, и человек узнаёт свой
         телевизор по нему. Пустая строка в меню была бы хуже честного «приёмник».
         """
-        return self.name or self.model or "приёмник"
+        return self.name or self.model or phrase("receiver.unnamed")

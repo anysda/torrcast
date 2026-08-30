@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 
 
@@ -40,19 +41,17 @@ def nothing_found(
     раздачи) - его выбрасывал отказ ВТОРОГО круга.
     """
     gone = "; ".join(
-        part
-        for part in (
-            f"Prowlarr увёл в недоступные {', '.join(banned)}" if banned else "",
-            f"отказ у {', '.join(refused)}" if refused else "",
-            f"молчит {', '.join(silent)}" if silent else "",
+        phrase(key, names=", ".join(names))
+        for key, names in (
+            ("hunt.banned", banned),
+            ("hunt.refused", refused),
+            ("hunt.silent", silent),
         )
-        if part
+        if names
     )
     if gone:
-        return NotFoundError(
-            f"по запросу «{query}» ничего не нашлось; каталог сейчас урезан - {gone}"
-        )
-    return NotFoundError(f"по запросу «{query}» ничего не нашлось")
+        return NotFoundError(phrase("hunt.nothing_cut", query=query, gone=gone))
+    return NotFoundError(phrase("hunt.nothing", query=query))
 
 
 __all__ = ["nothing_found"]

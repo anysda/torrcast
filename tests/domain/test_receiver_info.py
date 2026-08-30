@@ -21,4 +21,4 @@ def test_a_nameless_receiver_is_called_by_its_model() -> None:
 
 def test_a_receiver_that_said_nothing_about_itself_is_still_a_receiver() -> None:
     """Пустая строка в меню хуже честного слова: адрес рядом, и человек узнаёт свой."""
-    assert ReceiverInfo("", "192.0.2.1").title == "приёмник"
+    assert ReceiverInfo("", "192.0.2.1").title == "receiver"

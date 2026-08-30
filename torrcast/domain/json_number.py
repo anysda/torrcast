@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.json_value import JsonValue
 
 
@@ -14,4 +15,4 @@ def json_number(value: JsonValue) -> float:
     """
     if isinstance(value, str | int | float):
         return float(value)
-    raise TypeError(f"в JSON ожидалось число, а лежит {type(value).__name__}")
+    raise TypeError(phrase("trace.not_a_number", kind=type(value).__name__))

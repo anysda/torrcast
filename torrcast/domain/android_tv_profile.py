@@ -9,7 +9,7 @@ __all__ = ["ANDROID_TV"]
 
 ANDROID_TV: Final = ReceiverProfile(
     key="androidtv",
-    title="приставка Android TV (Xiaomi TV Stick)",
+    title_key="receiver.profile_android_tv",
     segment_container=FMP4,  # снято: НЕ НАЗВАН · неизвестен · 24-08 · CMAF
     recode_codecs=frozenset({"mpeg4"}),  # снято: НЕ НАЗВАН · неизвестен · 24-08 · CMAF
     copy_codecs=frozenset({"h264", "hevc", "vp9"}),  # снято: НЕ НАЗВАН · неизвестен · 24-08 · CMAF

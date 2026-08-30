@@ -13,7 +13,7 @@ from torrcast.domain.profile import CAUTIOUS, Profile
 
 def test_the_live_receiver_is_built_by_name_and_keeps_its_profile() -> None:
     """Корень запуска знает только имя, а профиль едет в приёмник вместе с ним."""
-    profile = Profile(key="stick", title="приставка")
+    profile = Profile(key="stick", title_key="receiver.profile_android_tv")
 
     made = make_receiver("chromecast", address="10.0.0.50", profile=profile)
 

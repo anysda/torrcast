@@ -194,12 +194,12 @@ def test_effective_thresholds_name_every_source() -> None:
         raw, tuned, ANDROID_TV, frozenset({"hls_segment", "bitrate_recode_mbit"})
     )
 
-    assert values["hls_segment"] == 8.0 and sources["hls_segment"] == "написан в конфиге"
+    assert values["hls_segment"] == 8.0 and sources["hls_segment"] == "written in the config"
     assert values["recode_at_mbit"] == 28.0
-    assert sources["recode_at_mbit"] == "профиль androidtv"
-    assert sources["bitrate_recode_mbit"] == "написан в конфиге"
-    assert sources["recode_head_wait"] == "умолчание конфига"
-    assert values["patience"] == 577.0 and sources["patience"] == "профиль androidtv"
+    assert sources["recode_at_mbit"] == "profile androidtv"
+    assert sources["bitrate_recode_mbit"] == "written in the config"
+    assert sources["recode_head_wait"] == "config default"
+    assert values["patience"] == 577.0 and sources["patience"] == "profile androidtv"
 
 
 def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:

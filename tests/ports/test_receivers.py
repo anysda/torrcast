@@ -24,7 +24,7 @@ def test_the_device_profile_travels_with_the_receiver() -> None:
     """Профиль устройства - часть заказа: по нему приёмник решает, что он потянет."""
     factory = FakeReceivers()
     port: Receivers = factory
-    strict = Profile(key="strict", title="Строгий")
+    strict = Profile(key="strict", title_key="receiver.profile_cautious")
     port("chromecast", "192.0.2.10", profile=strict)
     assert factory.asked[-1][3] is strict
 

@@ -4062,7 +4062,7 @@ def test_releases_table_judges_by_the_detected_receiver_profile(
         capsys, lambda config: Choice(ANDROID_TV, "по паспорту: Xiaomi TV Stick")
     )
 
-    assert "профиль приёмника: приставка Android TV" in printed, (
+    assert "профиль приёмника: Android TV box" in printed, (
         "человек видит, по какому профилю судит таблица"
     )
     assert "перекодируем" not in printed, "приставка играет 18 ГБ копией - пометка врала"
@@ -4075,7 +4075,7 @@ def test_releases_table_says_by_which_profile_it_judges_without_a_receiver(
     что судит по осторожному, и тогда та же раздача честно подписана «перекодируем»."""
     printed = _releases_output(capsys)
 
-    assert "профиль приёмника: осторожный" in printed
+    assert "профиль приёмника: cautious" in printed
     assert phrase("choice.mark_recode_parts") in printed, (
         "осторожный профиль такие куски перекодирует"
     )

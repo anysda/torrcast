@@ -10,8 +10,8 @@ def test_snapshot_names_profile_and_explicit_configuration() -> None:
     raw = Config(hls_segment=8.0)
     values, sources = thresholds(raw, raw, ANDROID_TV, frozenset({"hls_segment"}))
     assert values["patience"] == 577.0
-    assert sources["patience"] == "профиль androidtv"
-    assert sources["hls_segment"] == "написан в конфиге"
+    assert sources["patience"] == "profile androidtv"
+    assert sources["hls_segment"] == "written in the config"
 
 
 def test_a_handwritten_key_equal_to_the_cautious_default_is_not_silent() -> None:
@@ -24,7 +24,7 @@ def test_a_handwritten_key_equal_to_the_cautious_default_is_not_silent() -> None
 
     assert values["recode_at_mbit"] == 28.0, "играет профиль, а не написанное"
     assert sources["recode_at_mbit"] == (
-        "написан в конфиге, но равен осторожному - профиль androidtv"
+        "written in the config, but equal to the cautious one - profile androidtv"
     )
 
 
@@ -33,4 +33,4 @@ def test_an_unwritten_key_still_names_the_profile_plainly() -> None:
     raw = Config()
     _values, sources = thresholds(raw, raw, ANDROID_TV, frozenset())
 
-    assert sources["recode_at_mbit"] == "профиль androidtv"
+    assert sources["recode_at_mbit"] == "profile androidtv"

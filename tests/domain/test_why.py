@@ -8,4 +8,4 @@ class ReadTimeout(Exception):  # noqa: N818 - имя имитирует тип r
 
 
 def test_known_reason() -> None:
-    assert why(ReadTimeout()) == "не дождался ответа"
+    assert why(ReadTimeout()) == "waited for an answer and never got one"

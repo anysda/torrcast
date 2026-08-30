@@ -23,7 +23,7 @@ def test_the_table_counts_from_the_first_mark(tmp_path: Path) -> None:
 
     printed = stopwatch_report(lane).splitlines()
 
-    assert printed[0].split() == ["фаза", "от", "нуля", "цена", "pid"]
+    assert printed[0].split() == ["phase", "from", "zero", "cost", "pid"]
     assert printed[1].startswith("старт") and "+0.00" in printed[1]
     assert "+2.50" in printed[2] and "2.50" in printed[2] and printed[2].endswith("7")
 
@@ -59,5 +59,5 @@ def test_marks_are_read_in_time_order_whoever_wrote_them(tmp_path: Path) -> None
 
 def test_an_empty_or_missing_lane_says_so(tmp_path: Path) -> None:
     """Секундомер выключен - об этом и говорим, а не падаем на пустом файле."""
-    assert stopwatch_report(tmp_path / "нет.jsonl") == "меток нет"
-    assert stopwatch_report(_lane(tmp_path / "пусто.jsonl")) == "меток нет"
+    assert stopwatch_report(tmp_path / "нет.jsonl") == "no marks"
+    assert stopwatch_report(_lane(tmp_path / "пусто.jsonl")) == "no marks"

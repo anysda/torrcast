@@ -29,7 +29,7 @@ def test_the_snapshot_keeps_the_named_profile_and_the_explicit_config_key(
     snapshot = trace_thresholds(tune(raw, ANDROID_TV), ANDROID_TV)
 
     assert snapshot["profile_source"] == "назван руками: receiver_profile=androidtv"
-    assert snapshot["threshold_sources"]["recode_head_wait"] == "написан в конфиге"  # type: ignore[index]
+    assert snapshot["threshold_sources"]["recode_head_wait"] == "written in the config"  # type: ignore[index]
     assert snapshot["thresholds"]["recode_at_mbit"] == 28.0  # type: ignore[index]
 
 
@@ -97,5 +97,5 @@ def test_a_handwritten_key_equal_to_the_cautious_default_is_named_ignored(
 
     assert snapshot["thresholds"]["recode_at_mbit"] == 28.0  # type: ignore[index]
     assert snapshot["threshold_sources"]["recode_at_mbit"] == (  # type: ignore[index]
-        "написан в конфиге, но равен осторожному - профиль androidtv"
+        "written in the config, but equal to the cautious one - profile androidtv"
     )

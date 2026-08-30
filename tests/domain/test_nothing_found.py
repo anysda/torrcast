@@ -1,7 +1,18 @@
 """Проверяет отказ «ничего не нашлось»: он обязан назвать выпавшие звенья каталога."""
 
+import pytest
+
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found import nothing_found
+
+
+@pytest.fixture(autouse=True)
+def _russian_lines(_russian_product: None) -> None:
+    """Предмет модуля - русская фраза отказа, поэтому язык назван вслух.
+
+    Умолчание продукта английское (:mod:`torrcast.domain.catalogs.tongue`), и без этой
+    строки набор мерил бы английский отказ, а рассказывал бы про русский.
+    """
 
 
 def test_честный_ноль_остаётся_честным() -> None:

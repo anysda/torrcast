@@ -5,7 +5,9 @@ from torrcast.domain.receiver_profile import CAUTIOUS, COPY, RECODE, REFUSE, Rec
 
 def test_profile_model_owns_the_codec_verdict() -> None:
     """Модель, вынесенная из фасада, сохраняет своё публичное решение."""
-    profile = ReceiverProfile(key="test", title="test", recode_codecs=frozenset({"hevc"}))
+    profile = ReceiverProfile(
+        key="test", title_key="receiver.profile_cautious", recode_codecs=frozenset({"hevc"})
+    )
 
     assert profile.verdict("h264") == COPY
     assert profile.verdict("hevc") == RECODE

@@ -68,7 +68,7 @@ def test_search_builds_expected_url() -> None:
 
 
 def test_search_reports_empty_result_as_not_found() -> None:
-    with pytest.raises(NotFoundError, match="ничего не нашлось"):
+    with pytest.raises(NotFoundError, match="nothing was found"):
         _client([]).search("нетакогофильма")
 
 
@@ -480,16 +480,16 @@ def test_пустой_поиск_при_бане_кворумного_назыв
     6 отказов с кодом 2, и у четырёх из них меню было готово - 17, 6, 15 и 43 раздачи.
     """
     client = _swarm(rows=0, blocked={1: _ago(300)})
-    with pytest.raises(NotFoundError, match="каталог сейчас урезан") as caught:
+    with pytest.raises(NotFoundError, match="the catalogue is cut down") as caught:
         client.search("матрица")
-    assert "Prowlarr увёл в недоступные Knaben" in str(caught.value)
+    assert "Prowlarr took Knaben out of reach" in str(caught.value)
 
 
 def test_пустой_поиск_при_бане_некворумного_остаётся_пустым_но_названным() -> None:
     """У некворумного замерен НОЛЬ запросов, где он единственный источник, - пустоту его
     бан не отменяет. Но человек должен знать, что искали урезанным каталогом."""
     client = _swarm(rows=0, yts=True, blocked={4: _ago(300)})
-    with pytest.raises(NotFoundError, match="каталог сейчас урезан"):
+    with pytest.raises(NotFoundError, match="the catalogue is cut down"):
         client.search("матрица")
 
 
@@ -508,16 +508,17 @@ def test_пустота_отказавшего_источника_не_выда�
     тест, осталась прежней: голое «ничего не нашлось» на лежащем звене - враньё.
     """
     client = _swarm(rows=0, refuses={1})  # Knaben, кворумный
-    with pytest.raises(NotFoundError, match="отказ у Knaben") as caught:
+    with pytest.raises(NotFoundError, match="a refusal at Knaben") as caught:
         client.search("матрица")
-    assert "каталог сейчас урезан" in str(caught.value), "пустота названа урезанной"
+    assert "the catalogue is cut down" in str(caught.value), "пустота названа урезанной"
 
 
 def test_отказ_некворумного_пустоту_не_отменяет_но_называется() -> None:
     """У некворумного замерен НОЛЬ запросов, где он единственный источник: пустота
     остаётся пустотой. Но искали урезанным каталогом, и человек должен это услышать."""
     client = _swarm(rows=0, yts=True, refuses={4})
-    with pytest.raises(NotFoundError, match="каталог сейчас урезан - отказ у YTS"):
+    cut_at_yts = "the catalogue is cut down right now - a refusal at YTS"
+    with pytest.raises(NotFoundError, match=cut_at_yts):
         client.search("матрица")
 
 
@@ -525,7 +526,7 @@ def test_честный_ноль_остаётся_честным() -> None:
     """🔴 Ограждение к TC-291: «ничего не нашлось» СУЩЕСТВУЕТ. Все ответили, все отдали
     ноль, отметок об отказах нет - это честная пустая полка, и подменять её отказом
     инфры значит врать во вторую сторону."""
-    with pytest.raises(NotFoundError, match=r"^по запросу «матрица» ничего не нашлось$"):
+    with pytest.raises(NotFoundError, match=r"^nothing was found for “матрица”$"):
         _swarm(rows=0).search("матрица")
 
 
@@ -535,7 +536,8 @@ def test_молчание_кворумного_названо_в_урезанн�
     короче его собственного терпения), и без этой строки пустота выглядела бы честной
     пустой полкой - при том, что 41% каталога мы просто не дождались."""
     client = _swarm(rows=0, mute=1)  # Knaben, кворумный, молчит
-    with pytest.raises(NotFoundError, match="каталог сейчас урезан - молчит Knaben"):
+    cut_at_knaben = "the catalogue is cut down right now - Knaben keeps silent"
+    with pytest.raises(NotFoundError, match=cut_at_knaben):
         client.search("матрица")
 
 
@@ -555,7 +557,7 @@ def test_молчание_круга_не_отменяет_поиск_в_кот�
     _swarm_of(client).mute_all = True
     with pytest.raises(NotFoundError) as caught:
         client.search("матрица 2")
-    assert "молчит" in str(caught.value), "молчуны названы, каталог урезан"
+    assert "keeps silent" in str(caught.value), "молчуны названы, каталог урезан"
 
 
 def test_non_anime_query_skips_nyaa_when_pool_is_rich() -> None:
@@ -698,7 +700,7 @@ def test_ожидание_опоздавшего_не_длиннее_остат�
     assert client.spare() == 0.0
     began = time.monotonic()
     try:
-        with pytest.raises(NotFoundError, match="ничего не нашлось"):
+        with pytest.raises(NotFoundError, match="nothing was found"):
             client.search("Naruto [TV]")
     finally:
         _swarm_of(client).gate.set()

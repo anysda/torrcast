@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.json_number import json_number
 from torrcast.domain.json_value import JsonValue
 
@@ -20,11 +21,12 @@ def report(marks: Sequence[Mapping[str, JsonValue]], zero: str = "") -> str:
     """
     rows = list(marks)
     if not rows:
-        return "меток нет"
+        return phrase("trace.no_marks")
     base = next((json_number(m["at"]) for m in rows if m.get("name") == zero), None)
     if base is None:
         base = json_number(rows[0]["at"])
-    lines = [f"{'фаза':<28}{'от нуля':>9}{'цена':>8}  {'pid':>7}"]
+    head = (phrase("trace.column_phase"), phrase("trace.column_from_zero"))
+    lines = [f"{head[0]:<28}{head[1]:>9}{phrase('trace.column_cost'):>8}  {'pid':>7}"]
     previous = base
     for entry in rows:
         at = json_number(entry["at"])

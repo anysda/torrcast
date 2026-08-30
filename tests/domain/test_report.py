@@ -17,7 +17,7 @@ def _marks() -> list[dict[str, JsonValue]]:
 
 def test_an_empty_tape_says_so_instead_of_drawing_a_table() -> None:
     """Меток нет - так и сказано: пустая таблица прочиталась бы как «старт мгновенный»."""
-    assert report([]) == "меток нет"
+    assert report([]) == "no marks"
 
 
 def test_the_zero_is_the_named_mark_and_the_cost_is_the_step() -> None:

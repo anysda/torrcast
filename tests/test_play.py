@@ -244,8 +244,8 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     assert _play(config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS)) == 0
     printed = capsys.readouterr().out
     assert "- на ТВ" in printed
-    assert "разрывов 0" in printed and "без CORS 0" in printed
-    decoded = float(printed.split("декодировано ")[1].split(" ")[0])
+    assert "gaps 0" in printed and "no CORS 0" in printed
+    decoded = float(printed.split("decoded ")[1].split(" ")[0])
     # Допуск ровно в один сегмент: если ENDLIST попадает в ту же перезагрузку плейлиста,
     # что и последний сегмент, hls-демуксер ffmpeg молча заканчивает на предыдущем.
     # Воспроизводится и на голом http.server, то есть дело не в нашем сервере.
@@ -286,8 +286,8 @@ def test_a_source_the_receiver_cannot_decode_is_recoded_from_the_first_segment(
     assert played == 0
     assert "video hevc - recoding it whole on the fly" in printed, "решение говорится вслух"
     assert "тяжёлых кусков" not in printed, "посегментный кодировщик тут не поднимается"
-    assert "разрывов 0" in printed
-    decoded = float(printed.split("декодировано ")[1].split(" ")[0])
+    assert "gaps 0" in printed
+    decoded = float(printed.split("decoded ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "приёмник встал посреди показа"
     assert kept, "ни одного выложенного сегмента поймать не удалось"
     for path in kept:
@@ -327,8 +327,8 @@ def test_the_whole_show_plays_the_track_from_a_file_beside_the_video(
 
     printed = capsys.readouterr().out
     assert played == 0
-    assert "разрывов 0" in printed
-    decoded = float(printed.split("декодировано ")[1].split(" ")[0])
+    assert "gaps 0" in printed
+    decoded = float(printed.split("decoded ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "приёмник встал посреди показа"
     assert kept, "ни одного выложенного сегмента поймать не удалось"
     for path in kept:
@@ -1819,7 +1819,7 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     assert _play(config, clip, 0, "тест", _Clock(), watch=watch) == 0
 
     printed = capsys.readouterr().out
-    decoded = float(printed.split("декодировано ")[1].split(" ")[0])
+    decoded = float(printed.split("decoded ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "показ оборвался"
     assert f"упаковка с {offset:.1f} с" in printed, "показ начался с позиции, а не сначала"
     # 🔴 Заход упаковки на голову фильма тут - брак ЗАГЛУШКИ, а не показа: живой Q70D

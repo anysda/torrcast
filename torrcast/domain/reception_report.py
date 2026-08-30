@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from torrcast.domain.catalogs.phrase import phrase
+
 #: На сколько секунд декодеру разрешено не дотянуть до конца манифеста: недобор короче
 #: этого числа приёмка засчитывает доигранным. Порог меньше сегмента сетки
 #: (:attr:`torrcast.domain.profile.Profile.segment_seconds`, 10 с): недоигранным считается
@@ -36,8 +38,12 @@ class ReceptionReport:
 
     def line(self) -> str:
         """Цифры приёмки одной строкой."""
-        return (
-            f"сегментов {self.segments} · манифест {self.duration:.0f} с · "
-            f"декодировано {self.decoded:.0f} с · разрывов {self.gaps} · "
-            f"без CORS {self.no_cors} · пик {self.peak_mbit:.1f} Мбит/с"
+        return phrase(
+            "receiver.reception",
+            segments=self.segments,
+            duration=f"{self.duration:.0f}",
+            decoded=f"{self.decoded:.0f}",
+            gaps=self.gaps,
+            no_cors=self.no_cors,
+            peak=f"{self.peak_mbit:.1f}",
         )

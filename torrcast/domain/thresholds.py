@@ -2,6 +2,7 @@
 
 from typing import Final, Protocol
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.profile import CAUTIOUS, Profile
 
 __all__ = ["thresholds"]
@@ -69,18 +70,20 @@ def thresholds(
         if key in _TUNED:
             stock = getattr(CAUTIOUS, _TUNED[key])
             if getattr(raw, key) != stock:
-                sources[key] = "написан в конфиге"
+                sources[key] = phrase("receiver.source_config")
             elif key in configured:
                 # Ключ в файле ЕСТЬ, но равен осторожному умолчанию, а tune() такой
                 # считает несказанным: играет профиль, и молчать об этом - значит
                 # показать согласие там, где настройку проигнорировали.
-                sources[key] = f"написан в конфиге, но равен осторожному - профиль {profile.key}"
+                sources[key] = phrase("receiver.source_config_as_cautious", profile=profile.key)
             else:
-                sources[key] = f"профиль {profile.key}"
+                sources[key] = phrase("receiver.source_profile", profile=profile.key)
         else:
-            sources[key] = "написан в конфиге" if key in configured else "умолчание конфига"
+            sources[key] = phrase(
+                "receiver.source_config" if key in configured else "receiver.source_config_default"
+            )
     for key in _PROFILE_THRESHOLDS:
         value = getattr(profile, key)
         values[key] = sorted(value) if isinstance(value, frozenset) else value
-        sources[key] = f"профиль {profile.key}"
+        sources[key] = phrase("receiver.source_profile", profile=profile.key)
     return values, sources

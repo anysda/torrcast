@@ -29,6 +29,6 @@ def test_the_line_names_every_number_of_the_run() -> None:
         segments=12, duration=120.0, decoded=119.0, gaps=1, peak_mbit=18.5, no_cors=2
     ).line()
 
-    assert "сегментов 12" in line and "манифест 120 с" in line
-    assert "декодировано 119 с" in line and "разрывов 1" in line
-    assert "без CORS 2" in line and "пик 18.5 Мбит/с" in line
+    assert "segments 12" in line and "manifest 120 s" in line
+    assert "decoded 119 s" in line and "gaps 1" in line
+    assert "no CORS 2" in line and "peak 18.5 Mbit/s" in line
