@@ -56,6 +56,8 @@ from torrcast.domain.catalogs.ports.en import en as ports_en
 from torrcast.domain.catalogs.ports.ru import ru as ports_ru
 from torrcast.domain.catalogs.profile_detector.en import en as profile_detector_en
 from torrcast.domain.catalogs.profile_detector.ru import ru as profile_detector_ru
+from torrcast.domain.catalogs.prowlarr.en import en as prowlarr_en
+from torrcast.domain.catalogs.prowlarr.ru import ru as prowlarr_ru
 from torrcast.domain.catalogs.runtime.en import en as runtime_en
 from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
 from torrcast.domain.catalogs.stream_pack.en import en as stream_pack_en
@@ -97,6 +99,7 @@ _CLUSTERS: Final = (
     (chromecast_scan_en, chromecast_scan_ru),
     (console_en, console_ru),
     (http_server_en, http_server_ru),
+    (prowlarr_en, prowlarr_ru),
 )
 
 

@@ -5,6 +5,7 @@ from typing import Any
 
 import requests
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.why import why
 
@@ -30,11 +31,13 @@ class ProwlarrHttpClient:
             body = str(getattr(exc.response, "text", "") or "").casefold()
             if "all selected indexers being unavailable" in body:
                 raise _IndexersUnavailableError(
-                    "Prowlarr: выбранные индексеры не отвечают"
+                    phrase("prowlarr.selected_indexers_unresponsive")
                 ) from exc
-            raise InfraError(f"Prowlarr не отвечает ({base_url}): {why(exc)}") from exc
+            raise InfraError(
+                phrase("prowlarr.unresponsive", base_url=base_url, reason=why(exc))
+            ) from exc
         except ValueError as exc:
-            raise InfraError("Prowlarr вернул не JSON") from exc
+            raise InfraError(phrase("prowlarr.not_json")) from exc
 
     def post(self, session: Any, url: str, body: Any, timeout: float) -> None:
         session.post(url, json=body, timeout=timeout)

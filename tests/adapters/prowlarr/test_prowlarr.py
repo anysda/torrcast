@@ -366,7 +366,7 @@ def test_trace_carries_per_indexer_milliseconds(journal: Path) -> None:
 
 def test_all_indexers_silent_is_infra_not_empty_result() -> None:
     """Молчат все до одного - это отказ инфраструктуры, а не «ничего не нашлось»."""
-    with pytest.raises(InfraError, match="не отвечает"):
+    with pytest.raises(InfraError, match="does not answer"):
         _swarm(mute_all=True).search("матрица")
 
 
@@ -465,7 +465,7 @@ def test_бан_всех_индексеров_это_отказ_инфры_а_н
     """Заблокированы все до одного - каталога нет, и сказать это надо словами: пустая
     выдача вместо честного отказа тут была бы молчаливой подменой."""
     banned = {num: _ago(300) for num in (1, 2, 3)}
-    with pytest.raises(InfraError, match="все индексеры"):
+    with pytest.raises(InfraError, match="every indexer"):
         _swarm(blocked=banned).search("матрица")
 
 

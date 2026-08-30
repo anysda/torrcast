@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from torrcast.adapters.prowlarr.collect_rows import collect_rows
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.raw_result import RawResult
 
@@ -16,7 +17,7 @@ def from_json(payload: Any) -> list[RawResult]:
     Prowlarr, и это отказ инфраструктуры, а не пустая полка каталога.
     """
     if not isinstance(payload, list):
-        raise InfraError("Prowlarr вернул неожиданный ответ")
+        raise InfraError(phrase("prowlarr.unexpected_answer"))
     return collect_rows(
         (i.get("title"), i.get("infoHash"), i.get("size"), i.get("seeders"), i.get("indexer"))
         for i in payload

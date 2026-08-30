@@ -106,10 +106,9 @@ TRANSLATION_DEBT: Final = {
     # каталога он и не видит - слоёв у него нет. Долг такой же, как у пакета.
     "scripts/sni-shim.py": 15,
     "torrcast/adapters/ffprobe/parse_media.py": 2,
+    # Отказ ловится тут же (`except ValueError: continue`) и до человека не доходит:
+    # переводить нечего, экран этой строки не видит.
     "torrcast/adapters/prowlarr/collect_rows.py": 1,
-    "torrcast/adapters/prowlarr/from_json.py": 1,
-    "torrcast/adapters/prowlarr/indexer_roster.py": 1,
-    "torrcast/adapters/prowlarr/prowlarr_http_client.py": 3,
     "torrcast/adapters/recode/heavy_line.py": 4,
     "torrcast/adapters/recode/recoder.py": 1,
     "torrcast/adapters/recode/run.py": 3,

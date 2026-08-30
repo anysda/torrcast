@@ -122,7 +122,7 @@ def test_заблокированный_не_занимает_места_в_кр
 def test_бан_всех_индексеров_это_отказ_инфры_а_не_пустой_поиск() -> None:
     """Заблокированы все до одного - каталога нет, и сказать это надо словами."""
     roster, _http = _roster(blocked={1: _ago(300), 2: _ago(300)})
-    with pytest.raises(InfraError, match="все индексеры"):
+    with pytest.raises(InfraError, match="every indexer"):
         roster.usable(roster.known())
 
 

@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from typing import Final
 
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.failed_just_now import failed_just_now
 from torrcast.domain.heal_due import heal_due
@@ -75,10 +76,7 @@ class IndexerRoster:
         banned = tuple(name for num, name in known if num in blocked)
         usable = tuple(pair for pair in known if pair[0] not in blocked)
         if not usable:
-            raise InfraError(
-                "Prowlarr увёл в недоступные все индексеры "
-                f"({', '.join(banned)}) - каталога сейчас нет"
-            )
+            raise InfraError(phrase("prowlarr.all_indexers_unavailable", names=", ".join(banned)))
         return usable, banned
 
     def blocked(self) -> dict[int, tuple[str, str]]:

@@ -36,7 +36,7 @@ def test_json_carries_size_and_seeders(json_results: list[RawResult]) -> None:
 
 def test_json_rejects_non_list() -> None:
     """Не список - значит мы разговариваем не с Prowlarr, и это отказ инфры."""
-    with pytest.raises(InfraError, match="неожиданный ответ"):
+    with pytest.raises(InfraError, match="unexpected answer"):
         from_json({"error": "нет"})
 
 
