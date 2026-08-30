@@ -78,24 +78,30 @@ TRANSLATION_SUBJECT: Final = (
 )
 #: Долг перевода, названный числом: столько мест в файле сегодня уезжает человеку
 #: мимо каталога. Число обязано только уменьшаться - выросло значит новая надпись
-#: написана в обход каталога, а не «правило шумит». Сегодня это 580 мест в
-#: 162 файлах; перевод дерева идёт файлами, и каждый переведённый файл
-#: уходит отсюда целиком. Пустого списка тут не будет до последнего файла - и это
-#: единственное, что отделяет правило от красноты на всём дереве сразу.
+#: написана в обход каталога, а не «правило шумит». Перевод дерева идёт файлами, и
+#: каждый переведённый файл уходит отсюда целиком. Пустого списка тут не будет до
+#: последнего файла - и это единственное, что отделяет правило от красноты на всём
+#: дереве сразу.
+#:
+#: 🔴 Текущий итог (сколько мест, в скольких файлах) тут не пишется числом: он и так
+#: печатается живьём в конце каждого прогона (:func:`translation_volume`, строка
+#: «Охват правила «перевод»»), а число, вписанное рукой в докстроку, ничем не
+#: сверяется и рано или поздно расходится с тем, что считает код (было: «580 мест в
+#: 162 файлах» при живых 597 в 163 - разъехалось молча, TC-929, заход 3).
 TRANSLATION_DEBT: Final = {
     # Скрипт обхода DPI говорит в журнал службы, но говорит по-русски и мимо каталога;
     # каталога он и не видит - слоёв у него нет. Долг такой же, как у пакета.
-    "scripts/sni-shim.py": 17,
+    "scripts/sni-shim.py": 15,
     "tgbot/config.py": 1,
     "torrcast/adapters/chromecast/cast/nudge.py": 1,
-    "torrcast/adapters/chromecast/cast/past_deadly.py": 2,
+    "torrcast/adapters/chromecast/cast/past_deadly.py": 1,
     "torrcast/adapters/chromecast/cast/play.py": 1,
     "torrcast/adapters/chromecast/cast/receiver_link.py": 2,
     "torrcast/adapters/chromecast/cast/receiver_state.py": 1,
     "torrcast/adapters/chromecast/cast/receiver_talk.py": 2,
-    "torrcast/adapters/chromecast/cast/reload.py": 2,
-    "torrcast/adapters/chromecast/cast/say_skip.py": 2,
-    "torrcast/adapters/chromecast/cast/while_connecting.py": 3,
+    "torrcast/adapters/chromecast/cast/reload.py": 3,
+    "torrcast/adapters/chromecast/cast/say_skip.py": 1,
+    "torrcast/adapters/chromecast/cast/while_connecting.py": 2,
     "torrcast/adapters/chromecast/mock/hls_decoder.py": 1,
     "torrcast/adapters/chromecast/mock/hls_fetch.py": 2,
     "torrcast/adapters/chromecast/mock/mock_replay.py": 4,
@@ -111,20 +117,20 @@ TRANSLATION_DEBT: Final = {
     "torrcast/adapters/filesystem/state/write_atomic.py": 1,
     "torrcast/adapters/frames/http_range_reader.py": 1,
     "torrcast/adapters/frames/keyframes.py": 1,
-    "torrcast/adapters/http_server/_handler.py": 3,
-    "torrcast/adapters/http_server/hls_base.py": 1,
+    "torrcast/adapters/http_server/_handler.py": 2,
+    "torrcast/adapters/http_server/hls_base.py": 2,
     "torrcast/adapters/http_server/hls_server.py": 2,
     "torrcast/adapters/prowlarr/collect_rows.py": 1,
     "torrcast/adapters/prowlarr/from_json.py": 1,
-    "torrcast/adapters/prowlarr/indexer_roster.py": 2,
+    "torrcast/adapters/prowlarr/indexer_roster.py": 1,
     "torrcast/adapters/prowlarr/prowlarr_http_client.py": 3,
-    "torrcast/adapters/recode/heavy_line.py": 6,
+    "torrcast/adapters/recode/heavy_line.py": 4,
     "torrcast/adapters/recode/recoder.py": 1,
     "torrcast/adapters/recode/run.py": 3,
     "torrcast/adapters/stream_pack/_merged_out.py": 5,
     "torrcast/adapters/stream_pack/mark_playing.py": 1,
     "torrcast/adapters/stream_pack/packer.py": 1,
-    "torrcast/adapters/stream_pack/packer_stop.py": 3,
+    "torrcast/adapters/stream_pack/packer_stop.py": 4,
     "torrcast/adapters/stream_probe/pick_video_file.py": 1,
     "torrcast/adapters/stream_probe/probe.py": 3,
     "torrcast/adapters/stream_probe/run_ffprobe.py": 1,
@@ -138,32 +144,32 @@ TRANSLATION_DEBT: Final = {
     "torrcast/adapters/wiki/wiki_extracts.py": 1,
     "torrcast/cli/answered.py": 2,
     "torrcast/domain/_media_picture.py": 1,
-    "torrcast/domain/_series.py": 7,
+    "torrcast/domain/_series.py": 5,
     "torrcast/domain/cache_health.py": 11,
     "torrcast/domain/codec_name.py": 1,
     "torrcast/domain/digest/_event_line.py": 2,
-    "torrcast/domain/digest/_search_line.py": 17,
+    "torrcast/domain/digest/_search_line.py": 16,
     "torrcast/domain/digest/_session_line.py": 5,
-    "torrcast/domain/digest/_show_line.py": 38,
-    "torrcast/domain/digest/_warm_line.py": 9,
+    "torrcast/domain/digest/_show_line.py": 35,
+    "torrcast/domain/digest/_warm_line.py": 7,
     "torrcast/domain/digest/_words.py": 1,
     "torrcast/domain/digest/digest.py": 1,
-    "torrcast/domain/facts/hms.py": 2,
+    "torrcast/domain/facts/hms.py": 3,
     "torrcast/domain/frames/mkv/keys.py": 6,
     "torrcast/domain/frames/mkv/vint.py": 1,
     "torrcast/domain/frames/mp4/_moov.py": 2,
     "torrcast/domain/frames/mp4/_tables.py": 1,
     "torrcast/domain/frames/mp4/keys.py": 4,
     "torrcast/domain/health_verdict.py": 3,
-    "torrcast/domain/host_health.py": 9,
-    "torrcast/domain/indexer_health.py": 11,
+    "torrcast/domain/host_health.py": 11,
+    "torrcast/domain/indexer_health.py": 10,
     "torrcast/domain/json_number.py": 1,
-    "torrcast/domain/receiver_health.py": 13,
+    "torrcast/domain/receiver_health.py": 15,
     "torrcast/domain/receiver_info.py": 1,
-    "torrcast/domain/reception_report.py": 3,
+    "torrcast/domain/reception_report.py": 1,
     "torrcast/domain/recode_note.py": 3,
-    "torrcast/domain/report.py": 2,
-    "torrcast/domain/serve_health.py": 14,
+    "torrcast/domain/report.py": 4,
+    "torrcast/domain/serve_health.py": 13,
     "torrcast/domain/uptime_words.py": 3,
     "torrcast/domain/voice_swap.py": 1,
     "torrcast/domain/why.py": 4,
@@ -171,9 +177,9 @@ TRANSLATION_DEBT: Final = {
     "torrcast/ports/state_store/slot.py": 1,
     "torrcast/runtime/language_command.py": 2,
     "torrcast/runtime/trace_thresholds.py": 2,
-    "torrcast/usecases/cache_reserve.py": 7,
-    "torrcast/usecases/cast_command/_account_watched.py": 2,
-    "torrcast/usecases/cast_command/_bookmark.py": 6,
+    "torrcast/usecases/cache_reserve.py": 8,
+    "torrcast/usecases/cast_command/_account_watched.py": 3,
+    "torrcast/usecases/cast_command/_bookmark.py": 5,
     "torrcast/usecases/cast_command/_cmd_play.py": 3,
     "torrcast/usecases/cast_command/_notes.py": 3,
     "torrcast/usecases/configure.py": 5,
@@ -184,65 +190,65 @@ TRANSLATION_DEBT: Final = {
     "torrcast/usecases/discover/_reread.py": 4,
     "torrcast/usecases/discover/_second_budget.py": 1,
     "torrcast/usecases/discover/_second_circle.py": 1,
-    "torrcast/usecases/discover/_second_language.py": 6,
+    "torrcast/usecases/discover/_second_language.py": 5,
     "torrcast/usecases/discover/kin_line.py": 1,
     "torrcast/usecases/discover/search_circle.py": 8,
-    "torrcast/usecases/discover/silent_swarm.py": 14,
+    "torrcast/usecases/discover/silent_swarm.py": 13,
     "torrcast/usecases/discover/unfit_line.py": 4,
-    "torrcast/usecases/doctor.py": 1,
-    "torrcast/usecases/doctor_command.py": 1,
-    "torrcast/usecases/next_season.py": 6,
+    "torrcast/usecases/doctor.py": 2,
+    "torrcast/usecases/doctor_command.py": 2,
+    "torrcast/usecases/next_season.py": 5,
     "torrcast/usecases/playback/_launch.py": 8,
     "torrcast/usecases/playback/_play.py": 3,
-    "torrcast/usecases/playback/_recoder.py": 9,
+    "torrcast/usecases/playback/_recoder.py": 11,
     "torrcast/usecases/playback/_show_end.py": 5,
     "torrcast/usecases/playback/file_picker.py": 1,
     "torrcast/usecases/playback/pack_note.py": 1,
     "torrcast/usecases/rank/_gb.py": 1,
     "torrcast/usecases/rank/heard.py": 2,
     "torrcast/usecases/rank/pick_voice.py": 5,
-    "torrcast/usecases/rank/render_table.py": 2,
+    "torrcast/usecases/rank/render_table.py": 7,
     "torrcast/usecases/rank/sound_note.py": 5,
     "torrcast/usecases/rank/spoken.py": 15,
-    "torrcast/usecases/rank/stepdown_note.py": 5,
+    "torrcast/usecases/rank/stepdown_note.py": 6,
     "torrcast/usecases/rank/understated.py": 3,
-    "torrcast/usecases/rank/voice_note.py": 4,
+    "torrcast/usecases/rank/voice_note.py": 5,
     "torrcast/usecases/rank/voices_table.py": 1,
-    "torrcast/usecases/reinforce/_as_is.py": 2,
+    "torrcast/usecases/reinforce/_as_is.py": 1,
     "torrcast/usecases/reinforce/_ceiling_reinforce.py": 4,
     "torrcast/usecases/reinforce/_foreign_note.py": 5,
     "torrcast/usecases/reinforce/_season_reinforce.py": 3,
     "torrcast/usecases/reinforce/_topup.py": 3,
-    "torrcast/usecases/reinforce/_voice_reinforce.py": 3,
+    "torrcast/usecases/reinforce/_voice_reinforce.py": 2,
     "torrcast/usecases/releases_command.py": 5,
     "torrcast/usecases/revive_playback/_blame.py": 2,
     "torrcast/usecases/revive_playback/_closed.py": 1,
     "torrcast/usecases/revive_playback/_endure.py": 2,
-    "torrcast/usecases/revive_playback/_hold.py": 3,
+    "torrcast/usecases/revive_playback/_hold.py": 2,
     "torrcast/usecases/revive_playback/_paused.py": 3,
-    "torrcast/usecases/revive_playback/_resurrect.py": 8,
-    "torrcast/usecases/revive_playback/_screen.py": 9,
+    "torrcast/usecases/revive_playback/_resurrect.py": 10,
+    "torrcast/usecases/revive_playback/_screen.py": 6,
     "torrcast/usecases/say_showing.py": 2,
     "torrcast/usecases/screen_line.py": 2,
     "torrcast/usecases/select/_continue.py": 3,
     "torrcast/usecases/select/_dead_release.py": 2,
     "torrcast/usecases/select/_prep.py": 3,
-    "torrcast/usecases/select/_verdict.py": 2,
+    "torrcast/usecases/select/_verdict.py": 3,
     "torrcast/usecases/select/_voiced.py": 1,
-    "torrcast/usecases/select/plan.py": 3,
+    "torrcast/usecases/select/plan.py": 2,
     "torrcast/usecases/select_bench/_bench_honest.py": 6,
-    "torrcast/usecases/select_bench/_bench_notes.py": 2,
-    "torrcast/usecases/select_bench/_bench_queue.py": 2,
+    "torrcast/usecases/select_bench/_bench_notes.py": 1,
+    "torrcast/usecases/select_bench/_bench_queue.py": 1,
     "torrcast/usecases/select_bench/_bench_recheck.py": 5,
-    "torrcast/usecases/select_bench/_bench_refusal.py": 6,
+    "torrcast/usecases/select_bench/_bench_refusal.py": 7,
     "torrcast/usecases/select_bench/_bench_supply.py": 1,
     "torrcast/usecases/select_bench/_bench_trouble.py": 5,
     "torrcast/usecases/select_bench/bench.py": 6,
     "torrcast/usecases/source_blame.py": 2,
-    "torrcast/usecases/status.py": 12,
+    "torrcast/usecases/status.py": 13,
     "torrcast/usecases/stop.py": 2,
     "torrcast/usecases/voices_command.py": 3,
-    "torrcast/usecases/warm/line.py": 7,
+    "torrcast/usecases/warm/line.py": 8,
     "torrcast/usecases/warm/vault.py": 2,
     "torrcast/usecases/warm/verify.py": 3,
     "torrcast/usecases/watch.py": 1,
@@ -947,7 +953,29 @@ class _Speech:
     def __init__(self, tree: ast.Module) -> None:
         self._docstrings = _docstring_ids(tree)
         self._names: dict[str, list[ast.Constant]] = {}
+        #: Часть f-строки → сама f-строка. Одна надпись доезжает несколькими константами
+        #: (текст до и после ``{...}``), и они обязаны схлопнуться в одну; ключ ставится
+        #: разом по всему дереву, а не по ходу :meth:`spoken`, чтобы совпадал и для
+        #: констант, найденных через :meth:`literals` (имя, собранное f-строкой).
+        self._joined_str_of: dict[int, int] = {
+            id(part): id(node)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.JoinedStr)
+            for part in node.values
+            if isinstance(part, ast.Constant)
+        }
         self._learn(tree)
+
+    def group_key(self, node: ast.Constant) -> int:
+        """Ключ, по которому надпись схлопывается САМА С СОБОЙ, а не с соседкой по строке.
+
+        Раньше схлопывали по ``lineno`` - верно для частей одной f-строки, но валит в
+        одну кучу и две РАЗНЫЕ надписи, которым выпало жить на одной строке (тернарник,
+        ``or``-запасной вариант): вторая пряталась под первой, и долг был занижен
+        (TC-929, заход 3). Части одной f-строки по-прежнему делят ключ - его даёт
+        ``_joined_str_of``, - а всё остальное считается за отдельную надпись всегда.
+        """
+        return self._joined_str_of.get(id(node), id(node))
 
     def _learn(self, tree: ast.Module) -> None:
         """Разносит литералы по именам до неподвижности: имя могло собраться из имени."""
@@ -1047,9 +1075,9 @@ def _docstring_ids(tree: ast.Module) -> set[int]:
 #: чужой ответ на них не придёт.
 @lru_cache(maxsize=2048)
 def _spoken_places(module: Module) -> list[tuple[int, str]]:
-    """Строки модуля, где кириллическая надпись доезжает до человека мимо каталога."""
+    """Надписи модуля, что доезжают до человека мимо каталога - по надписи, не по строке."""
     speech = _Speech(module.tree)
-    found: dict[int, str] = {}
+    found: dict[int, tuple[int, str]] = {}
     for node in ast.walk(module.tree):
         said: list[ast.Constant] = []
         if isinstance(node, ast.Return):
@@ -1064,8 +1092,8 @@ def _spoken_places(module: Module) -> list[tuple[int, str]]:
                 arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
                 said = [item for argument in arguments for item in speech.spoken(argument)]
         for item in said:
-            found.setdefault(item.lineno, str(item.value))
-    return sorted(found.items())
+            found.setdefault(speech.group_key(item), (item.lineno, str(item.value)))
+    return sorted(found.values())
 
 
 def _under_subject(relative: str) -> bool:

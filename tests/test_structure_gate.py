@@ -575,6 +575,40 @@ def _one_module(tmp_path: Path, relative: str, source: str) -> structure_gate.Mo
     )
 
 
+def test_translation_rule_counts_two_different_captions_on_one_line(tmp_path: Path) -> None:
+    """🔴 Дыра TC-929/3: тернарник кладёт две РАЗНЫЕ надписи на одну строку.
+
+    Схлопывание по номеру строки годилось для частей одной f-строки (``раздача {base}
+    - ни серта`` даёт две константы на одну надпись), но тем же ключом ловило и вторую,
+    вовсе не связанную надпись, которой выпало жить на той же строке (тернарник,
+    ``or``-запасной вариант) - она пропадала с гейта молча, а охват не двигался.
+    """
+    source = (
+        '"""Модуль."""\n\n\n'
+        "def codec_name(codec: str, depth: int) -> str:\n"
+        '    """Единица."""\n'
+        '    return f"{codec} {depth} бит" if depth > 8 else f"{codec} без глубины"\n'
+    )
+    module = _one_module(tmp_path, "torrcast/good.py", source)
+    assert len(structure_gate._spoken_places(module)) == 2
+
+
+def test_translation_rule_still_collapses_one_f_string_to_one_caption(tmp_path: Path) -> None:
+    """Части ОДНОЙ f-строки по-прежнему одна надпись - это не пробой, а сама мера.
+
+    ``раздача {base} - ни серта`` даёт две константы (текст до и после ``{base}``) на
+    одну надпись человеку - их и раньше, и теперь положено считать за одно место.
+    """
+    source = (
+        '"""Модуль."""\n\n\n'
+        "def good(base: str) -> str:\n"
+        '    """Единица."""\n'
+        '    return f"раздача {base} - ни серта"\n'
+    )
+    module = _one_module(tmp_path, "torrcast/good.py", source)
+    assert len(structure_gate._spoken_places(module)) == 1
+
+
 def test_translation_debt_may_not_grow(tmp_path: Path) -> None:
     """Мест стало больше записанного - надпись написали в обход каталога."""
     source = '"""Модуль."""\n\n\ndef good() -> str:\n    """Единица."""\n    return "беру"\n'
