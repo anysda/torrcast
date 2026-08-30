@@ -36,9 +36,9 @@ from torrcast.domain.catalogs.spans.en import en as spans_en
 from torrcast.domain.catalogs.spans.ru import ru as spans_ru
 from torrcast.domain.catalogs.stream.en import en as stream_en
 from torrcast.domain.catalogs.stream.ru import ru as stream_ru
+from torrcast.domain.catalogs.tongue import RU, tongue
 from torrcast.domain.catalogs.trace.en import en as trace_en
 from torrcast.domain.catalogs.trace.ru import ru as trace_ru
-from torrcast.domain.catalogs.tongue import RU, tongue
 
 #: Кластеры каталога: (английский, русский). Заход перевода добавляет сюда строку -
 #: пару файлов своего кластера, - а не правит эту функцию. Строка на кластер и запятая

@@ -43,7 +43,10 @@ from torrcast.usecases.reinforce.same_picture import same_picture
 
 GB = 1024**3
 
-pytestmark = pytest.mark.usefixtures("_russian_product")
+
+@pytest.fixture(autouse=True)
+def _russian_titles(_russian_product: None) -> None:
+    """Предмет модуля - русское название как русское: транслит, склонение, порядок слов."""
 
 
 def _knows(passports: dict[str, Origin]) -> FakePassport:

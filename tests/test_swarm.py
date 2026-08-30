@@ -129,8 +129,7 @@ def test_a_silent_stream_is_dropped_before_the_full_probe_budget(
     printed = capsys.readouterr().out
     assert prep.number == 2, "молчащий поток не останавливает показ"
     assert (
-        "release 1 does not fit (рой молчит - за отсрочку не пришло ни байта потока)"
-        " - taking 2"
+        "release 1 does not fit (рой молчит - за отсрочку не пришло ни байта потока) - taking 2"
     ) in printed
     assert elapsed < PROBE_BUDGET, "не сожгли весь бюджет на молчащем релизе"
 
@@ -446,15 +445,11 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
         f"отказ занял {spent:.1f} с: обход трёх раздач стоит отсрочек, а сверх него - "
         "один бюджет раздачи на терпеливый спрос, но не три бюджета"
     )
-    assert printed.count("gave up after 0s") == 3, (
-        "каждая осечка называет предел ожидания"
-    )
+    assert printed.count("gave up after 0s") == 3, "каждая осечка называет предел ожидания"
     assert (
         "the whole queue stayed silent (3) - asking release 1 once more, alone and "
         f"without grace periods (waiting up to {META_BUDGET + PROBE_BUDGET:g}s)"
-    ) in printed, (
-        "последний спрос тоже громкий"
-    )
+    ) in printed, "последний спрос тоже громкий"
     assert said == (
         "releases in the listing: 3, touched: 3 (all) - none answered, though they list "
         "seeders (up to 4), nothing to show: name the picture differently or come back "
