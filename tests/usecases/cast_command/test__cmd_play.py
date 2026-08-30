@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -28,6 +29,7 @@ from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._cmd_play import _cmd_play
 from torrcast.usecases.choice._passport import _Passport
 from torrcast.usecases.following import _following
+from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
@@ -320,3 +322,129 @@ def test_a_series_recognised_by_the_files_of_the_release_reaches_the_bookmark(
     assert _following(one.picture.key) is not None, (
         "без вида «сериал» очереди серий нет по построению: играть дальше нечего"
     )
+
+
+def test_a_healthy_recording_never_takes_the_trip_to_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Здоровая запись играет как играла: поход в поиск считается, и счёт его - ноль.
+
+    Мерится вся цепочка целиком - настоящее продолжение и настоящий приговор раздаче, -
+    потому что ложный отказ виден только здесь: подделан ровно рой, который отвечает
+    файлами, как отвечал бы живой. Считается при этом не исход (он был бы тем же и через
+    поиск), а дорога: лишний поход стоил бы зрителю минуты под меню.
+    """
+    _remember(entry(query="кино"))
+    trips = 0
+
+    class _Swarm:
+        def __call__(self, url: str, timeout: float = 30.0) -> _Swarm:
+            return self
+
+        def add(self, magnet: str) -> str:
+            return "hash-кино"
+
+        def wait_files(self, *_args: object, **_kw: object) -> list[TorrFile]:
+            return [TorrFile(index=0, name="кино/кино.mkv", size=8 * GB)]
+
+    composition.use_engines(monkeypatch, _Swarm())
+
+    def resume(*args: object, **rest: object) -> int | None:
+        return _continue(*args, resume=lambda *a, **k: EXIT_OK, **rest)  # type: ignore[arg-type]
+
+    def choose(*_args: object, **_kw: object) -> int:
+        nonlocal trips
+        trips += 1
+        return EXIT_OK
+
+    code = _cmd_play(Args(query=["кино"]), resume=resume, choose=choose)
+
+    assert code == EXIT_OK
+    assert trips == 0, "обычный путь для здоровой записи не открывается вовсе"
+
+
+def test_the_place_of_a_dead_recording_moves_onto_the_release_found_instead(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-571. Умирает релиз, а не закладка: место записи доезжает до новой раздачи.
+
+    Продолжение уступило поиску, похоронив записанный магнит, - и час просмотра обязан
+    оказаться на том релизе, который поиск нашёл взамен. Иначе цена автоматики - потерянная
+    закладка, а это ровно та ценность, ради которой запись и ведётся.
+    """
+    # Ключ записи - это ключ КАРТИНЫ: под ним её кладёт показ, под ним же место и ищется.
+    saved = WatchState()
+    saved.put(Picture(title="Кино", year=1999).key, entry(query="кино", pos=3600.0, dur=7200.0))
+    watch_store().save(saved)
+
+    def resume(_config: object, _key: object, saved: object, args: Args, **_kw: object) -> None:
+        args.bury(entry(query="кино").magnet)  # так уступает продолжение мёртвой раздаче
+        return None
+
+    other = replace(release("Кино / Movie (1999) WEB-DL 1080p"), magnet="magnet:?xt=другая-раздача")
+    one = Plan(
+        picture=Picture(title="Кино", year=1999, releases=[other]),
+        ranked=[other],
+        runtime=7200.0,
+        warn_mbit=16.0,
+    )
+    prep = _Prep(number=1, release=other)
+    prep.video = TorrFile(index=0, name="кино/кино.mkv", size=8 * GB)
+    prep.files = [prep.video]
+    prep.media = Media(
+        duration=7200.0,
+        tracks=(AudioTrack(index=0, language="rus", title="Дубляж"),),
+        video="h264",
+        height=1080,
+        video_bps=8.0 * 1e6,
+    )
+
+    class _Bench:
+        def drop_all(self) -> None:
+            pass
+
+    class _Passport:
+        def get(self) -> Origin:
+            return Origin()
+
+    code = _cmd_play(
+        Args(query=["кино"], dry=True),
+        restart=_never,
+        resume=resume,
+        choose=lambda *args, **rest: ([one], one, prep, _Bench(), _Passport()),  # type: ignore[arg-type]
+    )
+
+    assert code == EXIT_OK
+    assert "с 1:00:00" in capsys.readouterr().out, "час просмотра переехал на новую раздачу"
+
+
+def test_a_dead_series_recording_searches_the_bookmarked_episode_not_the_first() -> None:
+    """🔴 TC-571. У сериала место - это серия: она встаёт в запрос, куда ушёл поиск.
+
+    Приём тот же, что при названном руками релизе (TC-807): без серии поиск взял бы сезон
+    и заиграл бы s5e1... с первой серии сезона, то есть не то, что зритель смотрел.
+    """
+    _remember(
+        entry(
+            query="кино",
+            kind="tv",
+            season=5,
+            episode=2,
+            pos=265.0,
+            episodes=[[5, 1, 0, 10**9], [5, 2, 1, 10**9]],
+        )
+    )
+    seen: list[Args] = []
+
+    def resume(_config: object, _key: object, _saved: object, args: Args, **_kw: object) -> None:
+        args.bury(entry(query="кино").magnet)
+        return None
+
+    def choose(_config: object, args: Args, *_rest: object, **_kw: object) -> int:
+        seen.append(args)
+        return EXIT_OK
+
+    code = _cmd_play(Args(query=["кино"]), restart=_never, resume=resume, choose=choose)
+
+    assert code == EXIT_OK
+    assert str(seen[0].episode) == "s5e2", "поиск ищет ту серию, на которой зритель стоял"

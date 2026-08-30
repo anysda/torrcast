@@ -58,3 +58,30 @@ def test_a_menu_asked_by_hand_outranks_the_bookmark() -> None:
     assert Args(query=["кино"], menu=True).from_menu
     assert Args(query=["кино"], pick=3).from_menu
     assert not Args(query=["кино"], release=2).from_menu, "релиз - это раздача, не картина"
+
+
+def test_a_release_buried_in_this_run_is_named_by_its_infohash() -> None:
+    """Имя мёртвой раздачи - её инфохэш: тот же торрент в новой выдаче узнаётся по нему.
+
+    Магниты одной раздачи в двух выдачах совпадают не байт в байт: у них разные трекеры
+    в ``&tr=`` и разное ``&dn=``. Сравнение строкой пустило бы похороненное обратно.
+    """
+    args = Args(query=["кино"])
+    args.bury("magnet:?xt=urn:btih:AABBCCDDEEFF00112233445566778899AABBCCDD&dn=Кино")
+
+    assert args.buried("magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd&tr=udp://x")
+    assert not args.buried("magnet:?xt=urn:btih:ffffffffffffffffffffffffffffffffffffffff")
+
+
+def test_a_magnet_that_did_not_name_itself_is_buried_as_it_is() -> None:
+    """Инфохэша в магните нет - хоронится он целой строкой: имени лучше у него всё равно нет."""
+    args = Args(query=["кино"])
+    args.bury("magnet:?xt=кино")
+
+    assert args.buried("magnet:?xt=кино")
+    assert not args.buried("magnet:?xt=другое")
+
+
+def test_nobody_is_buried_until_somebody_is() -> None:
+    """Обычный запуск никого не хоронит, и отбор его очередь не режет."""
+    assert not Args(query=["кино"]).buried("magnet:?xt=кино")

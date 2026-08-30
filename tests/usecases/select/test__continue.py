@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import Any
+
+import pytest
 
 from tests.usecases.select.world import entry
 from torrcast.domain.args import Args
@@ -23,9 +25,14 @@ _SERIES: dict[str, object] = {
 class _Shown:
     """Показ, который никуда не уезжает, а запоминает, с чем его позвали."""
 
-    def __init__(self) -> None:
+    def __init__(self, verdict: str = "") -> None:
         self.launched: list[tuple[str, str]] = []
         self.resumed: list[str] = []
+        #: Приговор записанной раздаче: пусто - играет. Спрашивать про неё живую службу
+        #: зеркалу нельзя: молчание отказавшего соединения читается как «играет», и любой
+        #: из этих случаев зеленел бы сам собой, даже когда мерить уже нечего.
+        self.verdict = verdict
+        self.asked: list[str] = []
 
     def launch(
         self, config: Config, key: str, saved: Entry, about: str, clock: _Clock, dry: bool = False
@@ -39,10 +46,14 @@ class _Shown:
         self.resumed.append(saved.title)
         return EXIT_OK
 
+    def dead(self, config: Config, saved: Entry, own: object) -> str:
+        self.asked.append(saved.magnet)
+        return self.verdict
+
     @property
-    def calls(self) -> dict[str, Callable[..., int]]:
-        """Оба соседа продолжения разом - ровно теми именами, какими их зовут."""
-        return {"launch": self.launch, "resume": self.resume}
+    def calls(self) -> dict[str, Any]:
+        """Все три соседа продолжения разом - ровно теми именами, какими их зовут."""
+        return {"launch": self.launch, "resume": self.resume, "dead": self.dead}
 
 
 def test_a_film_with_nothing_to_continue_gives_way_to_the_usual_path() -> None:
@@ -113,3 +124,84 @@ def test_an_episode_the_torrent_does_not_have_goes_looking_for_a_release() -> No
 
     assert code is None
     assert shown.launched == []
+
+
+def test_a_film_whose_recorded_release_no_longer_plays_goes_looking_by_itself(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-571. Раздача умерла - продолжение уступает поиску само, а не молчит шесть минут.
+
+    До этой правки записанный выбор был единственной дверью без выхода: магнит отдавался
+    показу как есть, и зритель получал до :data:`START_BUDGET` секунд чёрного экрана и
+    код 2. Теперь тот же случай стоит одну честную строку и обычный путь поиска.
+    """
+    shown = _Shown(verdict="раздача не отдала метаданные за 60 с - нет пиров")
+    args = Args(query=["кино"])
+
+    code = _continue(Config(), "movie:кино:1999", entry(), args, _Clock(), **shown.calls)
+
+    assert code is None, "продолжение уступило обычному пути само"
+    assert shown.resumed == [], "мёртвую раздачу показу не отдают"
+    assert capsys.readouterr().out == (
+        "«Кино» - записанная раздача не играется: раздача не отдала метаданные за 60 с - "
+        "нет пиров; ищу другую с 1:00:00\n"
+    )
+    assert args.dead_hash, "имя мёртвой раздачи уезжает в отбор - иначе он вернёт её же"
+
+
+def test_a_series_whose_recorded_release_no_longer_plays_names_the_episode(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """У сериала в той же строке названа серия: зритель видит, ЧТО именно не сыграло."""
+    shown = _Shown(verdict="файла №1 в ней больше нет")
+    args = Args(query=["кино"])
+
+    code = _continue(Config(), "tv:кино", entry(**_SERIES), args, _Clock(), **shown.calls)
+
+    assert code is None
+    assert shown.launched == []
+    assert capsys.readouterr().out == (
+        "«Кино» s1e2 - записанная раздача не играется: файла №1 в ней больше нет; "
+        "ищу другую с 1:00:00\n"
+    )
+
+
+def test_a_healthy_recording_plays_as_it_played_and_is_asked_about_once(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 Здоровая запись играет ровно как играла: один вопрос про рой и ни слова лишнего.
+
+    Ложный отказ хуже отказа вовсе, поэтому мерится не только исход, но и цена: раздачу
+    спрашивают ОДИН раз, тем же магнитом, который через секунду поднимет сам юнит.
+    """
+    shown = _Shown()
+
+    code = _continue(
+        Config(), "movie:кино:1999", entry(), Args(query=["кино"]), _Clock(), **shown.calls
+    )
+
+    assert code == EXIT_OK and shown.resumed == ["Кино"]
+    assert shown.asked == ["magnet:?xt=кино"]
+    assert capsys.readouterr().out == "", "здоровой записи объяснять нечего"
+
+
+def test_the_cheap_reasons_to_give_way_do_not_cost_a_single_trip_to_the_swarm() -> None:
+    """Продолжать нечего - это ответ состоянием, и рой об этом не спрашивают вовсе."""
+    shown = _Shown(verdict="раздача не отдала метаданные за 60 с - нет пиров")
+
+    code = _continue(
+        Config(), "movie:кино:1999", entry(pos=0.0), Args(query=["кино"]), _Clock(), **shown.calls
+    )
+
+    assert code is None and shown.asked == []
+
+
+def test_a_dry_run_wakes_no_swarm_to_judge_the_recorded_release() -> None:
+    """Сухой прогон не будит рой: показа у него нет, чёрного экрана тоже, следов - тем более."""
+    shown = _Shown(verdict="раздача не отдала метаданные за 60 с - нет пиров")
+
+    args = Args(query=["кино"], dry=True)
+
+    code = _continue(Config(), "movie:кино:1999", entry(), args, _Clock(), **shown.calls)
+
+    assert code == EXIT_OK and shown.asked == []

@@ -11,7 +11,6 @@ from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._bookmark import (
-    _account_watched,
     _continue_picked,
     _kept_place,
     _plays_recorded,
@@ -190,32 +189,6 @@ def test_a_started_series_without_the_menu_door_stays_silent(
     assert capsys.readouterr().out == ""
 
 
-def test_a_watched_bookmark_becomes_watched_on_the_next_cast(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Закладка за порогом досмотра на следующем ``cast`` превращается в «досмотрено»."""
-    state = WatchState()
-    saved = entry(pos=7000.0)
-    state.put("кино", saved)
-
-    (key, following), moved = _account_watched(state, ("кино", saved))
-
-    assert moved is True and key == "кино"
-    assert following.pos == 0.0, "с начала - это ноль, а не прежнее место"
-    assert "досмотрено на" in capsys.readouterr().out
-
-
-def test_an_unfinished_bookmark_is_left_alone() -> None:
-    """Место, до порога не доехавшее, - это место, а не досмотр."""
-    state = WatchState()
-    saved = entry(pos=100.0)
-    state.put("кино", saved)
-
-    found, moved = _account_watched(state, ("кино", saved))
-
-    assert moved is False and found[1] is saved
-
-
 def test_a_picture_without_a_bookmark_keeps_its_warm_under_the_menu() -> None:
     """Записи нет - прогреву этой картины сноситься нечем."""
     assert _plays_recorded(_state_with(None), plan().picture.key, Args(query=["кино"])) is False
@@ -377,3 +350,38 @@ def test_a_hand_named_release_of_a_series_at_another_episode_says_the_place_is_d
 
     assert code is None
     assert "сохранённое место 0:04:25 не поднимаю" in capsys.readouterr().out
+
+
+def test_a_buried_release_is_not_played_again_by_the_bookmark_of_the_chosen_picture(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-571. Похороненную раздачу второй выход закладки обратно не поднимает.
+
+    Первый выход уже спросил рой и получил отказ. Заходить сюда с той же записью значило
+    бы спросить его второй раз - ещё минута ожидания за заранее известный ответ, - да ещё
+    и снести ``bench.drop_all()`` прогрев, который поиску прямо сейчас и понадобится.
+    """
+    args = Args(query=["кино"])
+    args.bury(entry().magnet)
+    bench = Bench()
+
+    code = _continue_picked(
+        Config(),
+        _state_with(entry()),
+        cast(Any, plan()),
+        bench,  # type: ignore[arg-type]
+        args=args,
+        clock=_Clock(),
+    )
+
+    assert code is None
+    assert bench.dropped == 0, "прогрев нужен поиску, в который закладка сама же и ушла"
+    assert capsys.readouterr().out == "", "про мёртвую раздачу уже сказано, второй раз незачем"
+
+
+def test_a_buried_picture_keeps_its_warm_like_any_other() -> None:
+    """Записанная раздача не играется - значит греть картину надо наравне с прочими."""
+    args = Args(query=["кино"])
+    args.bury(entry().magnet)
+
+    assert _plays_recorded(_state_with(entry()), plan().picture.key, args) is False

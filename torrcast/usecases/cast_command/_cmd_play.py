@@ -15,9 +15,11 @@ from torrcast.domain.track_studio import track_studio
 from torrcast.domain.tune import tune as tune_profile
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.state_store.slot import store as watch_store
-from torrcast.usecases.cast_command._bookmark import _account_watched, _from_start, _kept_place
+from torrcast.usecases.cast_command._account_watched import _account_watched
+from torrcast.usecases.cast_command._bookmark import _from_start, _kept_place
 from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._entry_for import _entry_for
+from torrcast.usecases.cast_command._kept_dead import _kept_dead
 from torrcast.usecases.cast_command._notes import _notes
 from torrcast.usecases.playback._launch import _launch
 from torrcast.usecases.rank._hms import _hms
@@ -112,6 +114,13 @@ def _cmd_play(
         code = resume(config, *found_entry, args=args, clock=clock)
         if code is not None:
             return code
+        if args.dead_hash and resumed is None:
+            # Записанная раздача не играется, и продолжение само ушло в поиск. Серия
+            # начатого сериала встаёт при этом в запрос тем же приёмом, что и при ручном
+            # выборе релиза (TC-807): без неё поиск взял бы сезон с первой серии.
+            kept = _kept_place(state, found_entry, args)
+            if kept is not None:
+                found_entry, args, resumed = kept
 
     picked = choose(config, args, chosen, state, live, clock)
     if isinstance(picked, int):
@@ -143,6 +152,11 @@ def _cmd_play(
     # прежнюю запись обязана и запись показа, а не только порядок меню.
     seen = _studio_seen(state, plan.picture.key, found_entry)
     entry = _entry_for(plan, prep, release, video, media, audio, voice, seen, args)
+    if resumed is None:
+        # Фильм, чья записанная раздача не играется: место у него одно на всю картину, и
+        # спрашивается оно по ключу выбранной картины - закладка, ответившая после меню,
+        # до найденной по запросу записи не доходит вовсе (:func:`_kept_dead`).
+        resumed = _kept_dead(state, plan.picture.key, args)
     if resumed is not None and resumed.resumable and (not entry.dur or resumed.pos < entry.dur):
         # Позиция - от серии, а не от файла: другая раздача той же серии продолжается с
         # того же места (TC-807). Позиция за концом файла новой раздачи - не место,

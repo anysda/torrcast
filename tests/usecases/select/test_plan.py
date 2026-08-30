@@ -71,3 +71,28 @@ def test_the_releases_without_the_asked_episode_are_skipped_not_hidden() -> None
     assert built.want == Episode(1, 9)
     assert [r.raw_name for r in built.skipped] == [wrong.raw_name]
     assert built.candidates(_ASKED) == [1], "огрызков в очереди нет вовсе"
+
+
+def test_a_release_that_did_not_play_drops_out_of_the_queue_and_is_not_demoted() -> None:
+    """🔴 TC-571. Раздача, которая в этом запуске не сыграла, ВЫБЫВАЕТ, а не понижается.
+
+    Пул тут длиной один - ровно тот случай, ради которого выбирали между понижением и
+    исключением: понижение вернуло бы её же первой, и зритель получил бы ту же темноту
+    второй раз подряд, уже зная её причину.
+    """
+    only = release()
+    asked = Args(query=["кино"])
+    asked.bury(only.magnet)
+
+    assert plan(only).candidates(asked) == []
+
+
+def test_burying_one_release_leaves_the_rest_of_the_queue_in_place() -> None:
+    """Хоронится одна названная раздача, а не очередь: порядок остальных не меняется ни на знак."""
+    dead = release(magnet="magnet:?xt=мертво")
+    alive = release(magnet="magnet:?xt=живо", seeders=40)
+    asked = Args(query=["кино"])
+    asked.bury(dead.magnet)
+
+    assert plan(dead, alive).candidates(asked) == [2]
+    assert plan(dead, alive).candidates(_ASKED) == [1, 2], "без похорон очередь прежняя"

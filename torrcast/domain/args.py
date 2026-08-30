@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from torrcast.domain.episode import Episode
+from torrcast.domain.magnet_hash import magnet_hash
 from torrcast.domain.split_episode import split_episode
 
 
@@ -43,6 +44,30 @@ class Args:
     since: str | None = None
     #: Внутреннее: показ внутри transient-юнита, руками не зовётся.
     play_key: str | None = None
+    #: Имя раздачи, которая в ЭТОМ запуске уже признана неиграющей
+    #: (:func:`torrcast.usecases.select._dead_release._dead_release`). Внутреннее поле и
+    #: живёт ровно один запуск: следующий спросит рой заново, потому что сиды возвращаются.
+    #:
+    #: 🔴 Без него отбор поднял бы тот же верх выдачи, и зритель получил бы ту же
+    #: темноту второй раз подряд - уже зная её причину.
+    dead_hash: str = ""
+
+    def bury(self, magnet: str) -> None:
+        """Запомнить раздачу, которая в этом запуске не сыграла.
+
+        Запоминается ИМЯ (инфохэш), а не строка магнита: в выдаче нового поиска у той же
+        раздачи другие трекеры и другое ``dn``, и сверять её было бы нечем. Магнит без
+        имени сверяется сам с собой - хуже точного имени, но лучше молчания.
+        """
+        self.dead_hash = magnet_hash(magnet) or magnet
+
+    def buried(self, magnet: str) -> bool:
+        """Правда ли, что эту раздачу в этом запуске уже похоронили.
+
+        Пустое имя тут не совпадает ни с чем: магнит, не назвавший себя, не повод
+        выкинуть из отбора всех остальных таких же.
+        """
+        return bool(self.dead_hash) and (magnet_hash(magnet) or magnet) == self.dead_hash
 
     @property
     def command(self) -> str:

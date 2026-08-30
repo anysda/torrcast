@@ -106,7 +106,11 @@ class Plan(_PlanFields):
             )
             and not misses_episode(r, self.want)
         ]
-        return queue + self._dubbed_tail(queue)
+        queue += self._dubbed_tail(queue)
+        # 🔴 Раздача, которая в этом запуске уже не сыграла, из очереди ВЫБЫВАЕТ, а не
+        # понижается: при пуле длиной один понижение вернуло бы её же, и зритель получил бы
+        # ту же темноту второй раз подряд (:meth:`torrcast.domain.args.Args.buried`).
+        return [n for n in queue if not args.buried(self.ranked[n - 1].magnet)]
 
     def series_in(self, release: Release, files: list[TorrFile]) -> _Series | None:
         """Вернуть серии плана или признать их по нумерованным файлам раздачи."""

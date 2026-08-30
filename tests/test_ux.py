@@ -745,7 +745,14 @@ def _started_film(monkeypatch: pytest.MonkeyPatch, pos: float = 2467.0) -> None:
 def test_silent_resume_does_not_start_a_competing_position_warmer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """После удаления вопроса рой принадлежит только владельцу показа."""
+    """После удаления вопроса рой принадлежит только владельцу показа.
+
+    Читателей у раздачи по-прежнему ровно один - юнит показа: грелки тут нет вовсе, и
+    подделка её появление роняет. Подъём раздачи (``add``) читателем не является и с
+    ffmpeg за рой не спорит: TC-571 спрашивает им ровно метаданные - жива ли записанная
+    раздача, - и спрашивает ОДИН раз, той же строкой, которой раздачу через секунду
+    поднимет сам юнит (``add`` идемпотентен, второй раз она уже поднята).
+    """
     _started_film(monkeypatch)
     added: list[str] = []
 
@@ -758,7 +765,7 @@ def test_silent_resume_does_not_start_a_competing_position_warmer(
     composition.use_warm_file(monkeypatch, lambda *a, **k: pytest.fail("грелки быть не должно"))
 
     assert main(["моана", "2"]) == 0
-    assert added == [], "CLI не поднимает второго читателя раздачи"
+    assert added == ["magnet:?xt=1"], "CLI спрашивает записанную раздачу один раз и не читает её"
 
 
 def test_a_dry_run_takes_even_the_chosen_torrent_back(monkeypatch: pytest.MonkeyPatch) -> None:

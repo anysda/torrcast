@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
-from torrcast.ports.state_store.slot import store as watch_store
+from torrcast.usecases.cast_command._account_watched import _account_watched
 from torrcast.usecases.playback._launch import _launch
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.select._about import _about
@@ -79,6 +79,12 @@ def _continue_picked(
     Названный руками релиз (``--release N`` / ``--file N``) сюда не заходит: там человек
     выбирает раздачу сам, а продолжение играет записанную.
 
+    Не заходит сюда и запись, чья раздача в этом запуске уже признана неиграющей
+    (:meth:`torrcast.domain.args.Args.buried`): её только что похоронил первый выход
+    (:func:`torrcast.usecases.select._continue._continue`), спрашивать рой о ней второй
+    раз - платить минутой за уже известный ответ, а снести перед этим прогретое под меню
+    значило бы отнять у поиска ровно то, ради чего он и пошёл.
+
     🔴 Но молча мимо закладки такой показ не проходит. Названный релиз играется с начала,
     и стартовая запись показа (:func:`torrcast.usecases.playback._launch`) кладётся под тот же ключ
     картины - сохранённое место после этого не восстановить ниоткуда. ``--release N``
@@ -123,7 +129,7 @@ def _continue_picked(
     if args.from_start:
         bench.drop_all()
         return _from_start(config, plan.picture.key, started, args=args, clock=clock)
-    if started.serial or not started.resumable:
+    if started.serial or not started.resumable or args.buried(started.magnet):
         if args.from_menu and started.resumable:
             # Голова строки называет ту дверь, которой вошли: картину выбрали в меню, её
             # закладка здесь не отвечает, и показ с нуля перепишет сохранённое место под
@@ -147,9 +153,13 @@ def _plays_recorded(state: WatchState, key: str, args: Args) -> bool:
     соседнюю - его уберёт уборка чужих картин
     (:meth:`torrcast.usecases.select_bench.bench.Bench.keep_plan`). Условие обязано совпадать с
     условием самой закладки знак в знак, поэтому живёт рядом с ней.
+
+    Похороненная раздача (:meth:`torrcast.domain.args.Args.buried`) закладкой больше не
+    играется, значит и греть эту картину надо наравне с прочими: иначе поиск, в который
+    закладка сама же и ушла, начинал бы её с холодного места.
     """
     started = state.get(key)
-    if started is None or args.pinned:
+    if started is None or args.pinned or args.buried(started.magnet):
         return False
     return args.from_start or (args.episode is None and not started.serial and started.resumable)
 
@@ -175,26 +185,3 @@ def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _C
         return code
     finally:
         own.drop(config)
-
-
-def _account_watched(state: WatchState, found: tuple[str, Entry]) -> tuple[tuple[str, Entry], bool]:
-    """На следующем ``cast`` превратить закладку >= 95 % в «досмотрено».
-
-    Это бухгалтерия сохранённого места, не переход играющего сериала: живой юнит
-    по-прежнему берёт следующую серию только после естественного конца потока.
-    """
-    key, entry = found
-    if entry.done or not entry.watched:
-        return found, False
-    stopped, label = entry.pos, entry.label
-    following = entry.advance()
-    state.put(key, following)
-    watch_store().save(state)
-    if following.serial and following.done:
-        return (key, following), True  # строку и выбор перезапуска ведёт ``_continue``
-    what = f" {label}" if label else ""
-    decision = (
-        f"играю {following.label}" if following.serial and not following.done else "играю с начала"
-    )
-    print(f"«{entry.title}»{what} досмотрено на {_hms(stopped)} из {_hms(entry.dur)} - {decision}")
-    return (key, following), True
