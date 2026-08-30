@@ -10,9 +10,11 @@ import pytest
 
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import feed_with_segments
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.position import Position
 from torrcast.domain.start_settings import PAUSE_LIMIT, PAUSE_SECONDS
 from torrcast.ports.receiver import Receiver
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._hold import _hold
 
 
@@ -112,8 +114,8 @@ def test_the_viewers_pause_survives_the_lost_session(
     assert "PLAYING" not in receiver.after_loss, "показ сам не начинается"
     assert clock.now - 1000.0 >= PAUSE_LIMIT, "срок паузы тикал и без сессии"
     out = capsys.readouterr().out
-    assert "пауза на пульте" in out
-    assert "сам он не начнётся" in out
+    assert phrase("revive.pause_from_remote") in out
+    assert phrase("revive.pause_session_lost", pos=_hms(2231.0)) in out
 
 
 def test_the_restored_pause_starts_on_the_viewers_word(tmp_path: Path) -> None:

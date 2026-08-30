@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import torrcast.usecases.revive_playback._revive_state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import REVIVE_LIMIT, REVIVE_TRIES
 from torrcast.ports.journal.slot import journal
@@ -52,7 +53,10 @@ def _first_frame(
             # флажку, а в журнале показа иначе не осталось бы ни строки о том,
             # что чёрный экран кончился.
             screen.raised = True
-            print(f"{session_tag} картинка пошла с {_hms(position.pos)}", flush=True)
+            print(
+                phrase("revive.picture_started", tag=session_tag, pos=_hms(position.pos)),
+                flush=True,
+            )
 
 
 def _note_transitions(screen: _Screen, feed: Feed, position: Position) -> None:
@@ -94,9 +98,16 @@ def _trace_line(session_tag: str, feed: Feed, position: Position) -> None:
     """Отладочная строка запаса: сколько показано, сколько упаковано и чем расходится."""
     front = feed.front(position.pos)
     print(
-        f"{session_tag} запас: показ {position.pos:.0f} · упаковано {front:.0f} · "
-        f"впереди {front - position.pos:.0f} с · {feed.weight() / 1e6:.0f} МБ · "
-        f"расхождение с манифестом {feed.drift():.3f} с · {position.state}",
+        phrase(
+            "revive.trace_line",
+            tag=session_tag,
+            pos=position.pos,
+            packed=front,
+            ahead=front - position.pos,
+            mb=feed.weight() / 1e6,
+            drift=feed.drift(),
+            state=position.state,
+        ),
         flush=True,
     )
 
@@ -125,13 +136,19 @@ def _report(
         # Молча это выглядело как бездействие, и на потолке человек получал
         # «0 попыт.» без единого объяснения, откуда он взялся.
         spent = (
-            f"поднимал {revival.tries} из {REVIVE_TRIES}"
+            phrase("revive.tries_so_far", tries=revival.tries, limit=REVIVE_TRIES)
             if revival.tries
-            else "источник не вернулся - приёмник не трогаю"
+            else phrase("revive.source_not_back")
         )
         print(
-            f"{session_tag} темнота {_hms(dark)} ({revival.why}) - картинки нет; "
-            f"{spent}, погашу через {_hms(REVIVE_LIMIT - dark)}",
+            phrase(
+                "revive.dark_report",
+                tag=session_tag,
+                dark=_hms(dark),
+                why=revival.why,
+                spent=spent,
+                left=_hms(REVIVE_LIMIT - dark),
+            ),
             flush=True,
         )
     else:
@@ -147,7 +164,11 @@ def _report(
             # показ говорит, докуда он обеспечен, и продолжает пробовать сеть. В
             # темноте эта строка не печатается: обеспечивать там уже нечего.
             print(
-                f"сети нет ({feed.offline}) - показ обеспечен до {_hms(feed.front(position.pos))}",
+                phrase(
+                    "revive.no_network",
+                    why=feed.offline,
+                    until=_hms(feed.front(position.pos)),
+                ),
                 flush=True,
             )
     if warmer is not None:

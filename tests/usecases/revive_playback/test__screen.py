@@ -10,8 +10,11 @@ from tests.adapters.filesystem.trace_journal.tape import caught
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import feed_with_segments
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.position import Position
+from torrcast.domain.revive_settings import REVIVE_LIMIT
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.revive_playback._screen import (
     _first_frame,
@@ -56,7 +59,10 @@ def test_a_moved_pointer_proves_the_picture_and_raises_the_flag(
 
     assert (screen.seen, screen.raised) == (True, True)
     assert marked == [feed.out]
-    assert "картинка пошла с 0:02:02" in capsys.readouterr().out
+    assert (
+        phrase("revive.picture_started", tag="[сеанс]", pos=_hms(122.0))
+        in capsys.readouterr().out
+    )
 
 
 def test_the_rebuffer_is_written_on_entering_it_and_not_every_poll(tmp_path: Path) -> None:
@@ -97,8 +103,17 @@ def test_the_darkness_is_reported_by_its_own_line_and_not_by_a_position(
     _report("[сеанс]", revival, _at(72.0, "IDLE"), feed_with_segments(tmp_path), None)
     printed = capsys.readouterr().out
 
-    assert "темнота 0:01:40 (сети нет) - картинки нет" in printed
-    assert "источник не вернулся - приёмник не трогаю" in printed
+    assert (
+        phrase(
+            "revive.dark_report",
+            tag="[сеанс]",
+            dark=_hms(100.0),
+            why="сети нет",
+            spent=phrase("revive.source_not_back"),
+            left=_hms(REVIVE_LIMIT - 100.0),
+        )
+        in printed
+    )
     assert "экран:" not in printed
 
 

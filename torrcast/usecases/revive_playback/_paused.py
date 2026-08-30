@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.profile import Profile
 from torrcast.domain.start_settings import PAUSE_LIMIT, PAUSE_SECONDS
 from torrcast.ports.clock import Clock
@@ -48,7 +49,7 @@ def _pause(
     if alive:
         screen.restore_since, screen.restore_at = 0.0, 0.0
         if clock.monotonic() - screen.paused > PAUSE_SECONDS and not feed.halted():
-            print("пауза на пульте - упаковку гашу", flush=True)
+            print(phrase("revive.pause_from_remote"), flush=True)
             feed.halt()  # вернутся к показу - раздача сама начнёт паковать заново
         return True
     _restore(screen, receiver, profile, clock, pos)
@@ -72,11 +73,7 @@ def _restore(
     now = clock.monotonic()
     if not screen.restore_since:
         screen.restore_since = now
-        print(
-            f"сессию на паузе приёмник потерял - возвращаю показ на {_hms(pos)}; "
-            "сам он не начнётся",
-            flush=True,
-        )
+        print(phrase("revive.pause_session_lost", pos=_hms(pos)), flush=True)
     interval = profile.revive_pause if screen.restore_at else profile.revive_drop
     if now - (screen.restore_at or screen.restore_since) < interval:
         return
@@ -84,5 +81,5 @@ def _restore(
     back = receiver.replay(pos, paused=True)
     if back >= 0:
         # Место называет приёмник, а не просьба: подъём вправе перешагнуть кусок.
-        print(f"показ вернул на {_hms(back)} и стоит на паузе - жду зрителя", flush=True)
+        print(phrase("revive.pause_restored", pos=_hms(back)), flush=True)
         screen.restore_since, screen.restore_at = 0.0, 0.0

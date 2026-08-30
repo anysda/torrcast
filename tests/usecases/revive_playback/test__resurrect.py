@@ -10,6 +10,7 @@ import pytest
 
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import FakeReceiver, FakeSupply, feed_with_segments
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.revive_settings import REVIVE_TRIES, SOURCE_TRIES
 from torrcast.ports.journal.silent import Silent
@@ -84,7 +85,8 @@ def test_the_zero_place_is_lawful_and_the_show_is_raised_from_it(
     assert held is True
     assert receiver.replayed == [0.0], "лестница обязана попросить приёмник о нуле"
     assert ladder.tries == 1
-    assert "показ поднят с" in capsys.readouterr().out
+    tag = phrase("revive.raised", pos="{pos}").split("{pos}")[0]
+    assert tag in capsys.readouterr().out
 
 
 def test_the_spent_patience_ends_the_show_with_its_own_line(
@@ -99,7 +101,8 @@ def test_the_spent_patience_ends_the_show_with_its_own_line(
     )
 
     assert (held, ladder.ended) == (False, True)
-    assert "показ поднять не удалось" in capsys.readouterr().out
+    tag = phrase("revive.give_up", tries="{tries}", dark=0.0, pos="{pos}").split("(")[0]
+    assert tag in capsys.readouterr().out
 
 
 def test_a_receiver_that_dropped_the_show_is_waited_out_by_its_own_clock(
@@ -114,7 +117,8 @@ def test_a_receiver_that_dropped_the_show_is_waited_out_by_its_own_clock(
     assert held is True
     assert ladder.dropped is True, "источник спрошен и цел - виноват приёмник"
     assert receiver.replayed == [], "в темноте нулевой длины попытка сгорала бы впустую"
-    assert "показ погас на" in capsys.readouterr().out
+    tag = phrase("revive.screen_dark", pos="{pos}").split("{pos}")[0]
+    assert tag in capsys.readouterr().out
 
 
 def test_a_darkness_from_the_clocks_zero_is_announced_once(
@@ -140,7 +144,8 @@ def test_a_darkness_from_the_clocks_zero_is_announced_once(
     _resurrect(ladder, cast(Receiver, receiver), feed, None, 120.0)
 
     printed = capsys.readouterr().out
-    assert printed.count("показ погас на") == 1, "одна темнота - одна строка и один приговор"
+    tag = phrase("revive.screen_dark", pos="{pos}").split("{pos}")[0]
+    assert printed.count(tag) == 1, "одна темнота - одна строка и один приговор"
     assert supply.asked == SOURCE_TRIES, "источник спрошен одним кругом, а не двумя"
     assert ladder.since == 0.0, "отсчёт темноты - от её начала, а не от второго тика"
     assert receiver.replayed == [120.0], "первая попытка - на 8-й секунде, а не на 16-й"
@@ -199,7 +204,7 @@ def test_a_receiver_that_cannot_name_the_reason_is_not_made_to_invent_one(
 
     (record,) = [row for row in tape.said if row[1] == "revive"]
     assert record[2]["why"] == ""
-    assert "причина не названа" in capsys.readouterr().out
+    assert phrase("revive.no_reason_given") in capsys.readouterr().out
 
 
 def test_the_darkness_stamp_is_taken_from_the_clock_the_show_lives_by(tmp_path: Path) -> None:

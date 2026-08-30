@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
@@ -38,10 +39,7 @@ def _endure(
         if not was_offline:  # говорим об аварии один раз, а не каждые две секунды
             was_offline = True
             journal().offline(why=why_source, asked=True)
-            print(
-                f"источник не читается ({why_source}) - жду его возврата, показ подниму сам",
-                flush=True,
-            )
+            print(phrase("revive.source_unreadable_wait", why=why_source), flush=True)
         clock.sleep(2.0)
         return was_offline
     if supply is not None and supply.restored:
@@ -51,4 +49,4 @@ def _endure(
         clock.sleep(2.0)
         return was_offline
     # Убитый сигналом ffmpeg ничего сказать не успевает - не выдумываем за него.
-    raise InfraError(f"упаковка оборвалась: {trouble}")
+    raise InfraError(phrase("revive.pack_broke", trouble=trouble))

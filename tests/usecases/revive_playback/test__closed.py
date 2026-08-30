@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.position import Position
 from torrcast.usecases.revive_playback._closed import _closed
 
@@ -31,5 +32,4 @@ def test_the_show_closed_by_the_viewer_is_named_aloud_and_not_raised(
     assert _closed(closed, "[сеанс 1]", 5981.0) is True
 
     out = capsys.readouterr().out
-    assert "показ закрыт с пульта на 1:39:41" in out
-    assert "поднимать не буду" in out
+    assert phrase("revive.closed_by_remote", tag="[сеанс 1]", pos="1:39:41") in out

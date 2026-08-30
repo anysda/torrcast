@@ -9,6 +9,7 @@ import pytest
 
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import FakeSupply, feed_with_segments
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.revive_playback._endure import _endure
@@ -28,7 +29,7 @@ def test_a_silent_source_is_waited_out_and_said_once(
     second = capsys.readouterr().out
 
     assert (said, again) == (True, True)
-    assert "источник не читается" in first
+    assert phrase("revive.source_unreadable_wait", why="TorrServer не отвечает") in first
     assert second == "", "об одной аварии говорят один раз"
     assert clock.sleeps == [2.0, 2.0], "показ ждёт возврата источника, а не крутится вхолостую"
     assert str(feed.offline) == "TorrServer не отвечает"
@@ -50,7 +51,7 @@ def test_a_source_that_just_came_back_is_given_another_try(tmp_path: Path) -> No
 
 def test_a_dead_packer_with_a_healthy_source_ends_the_show(tmp_path: Path) -> None:
     """Источник цел, а упаковка сдалась - за убитый ffmpeg не выдумываем, честно падаем."""
-    with pytest.raises(InfraError, match="упаковка оборвалась: сигнал 9"):
+    with pytest.raises(InfraError, match=phrase("revive.pack_broke", trouble="сигнал 9")):
         _endure(
             feed_with_segments(tmp_path),
             cast(StreamSource, FakeSupply()),

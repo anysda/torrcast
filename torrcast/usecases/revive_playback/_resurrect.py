@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.ending_reached import ending_reached
 from torrcast.domain.revive_settings import REVIVE_LIMIT, REVIVE_TRIES, WILL_LIMIT
 from torrcast.ports.journal.slot import journal
@@ -112,16 +113,15 @@ def _resurrect(
         state.began, state.why = state.clock.wall(), why
         journal().dark(pos=pos, why=why, shown=shown)
         said = (
-            f"показ погас на {_hms(pos)}"
+            phrase("revive.screen_dark", pos=_hms(pos))
             if shown
-            else f"показа не было ни кадра (заводили с {_hms(pos)})"
+            else phrase("revive.no_frame_yet", pos=_hms(pos))
         )
-        print(f"{said} ({why}) - подниму сам, как вернётся сеть", flush=True)
+        print(phrase("revive.will_raise", said=said, why=why), flush=True)
     dark = now - state.since
     if state.tries >= REVIVE_TRIES or dark > REVIVE_LIMIT:
         print(
-            f"показ поднять не удалось ({state.tries} попыт., темнота {dark:.0f} с) - "
-            f"гашу; cast продолжит с {_hms(pos)}",
+            phrase("revive.give_up", tries=state.tries, dark=dark, pos=_hms(pos)),
             flush=True,
         )
         state.ended = True
@@ -141,8 +141,8 @@ def _resurrect(
         # попытками со второй (:attr:`pause`), где она и заработана замером.
         return True
     state.tries, state.last = state.tries + 1, now
-    came = "приёмник отмолчался" if state.dropped else "сеть вернулась"
-    print(f"{came} - поднимаю показ с {_hms(pos)} (попытка {state.tries})", flush=True)
+    came = phrase("revive.receiver_silent") if state.dropped else phrase("revive.network_back")
+    print(phrase("revive.raising", came=came, pos=_hms(pos), tries=state.tries), flush=True)
     # 🔴 Отвечает приёмник МЕСТОМ, а не согласием, и место это бывает не тем, о котором
     # просили: кусок, на котором показ уже умирал, ему больше не отдаётся
     # (:func:`torrcast.adapters.chromecast.cast.past_deadly._past_deadly`), и подъём уезжает
@@ -164,9 +164,9 @@ def _resurrect(
         pos=back if raised else pos, tries=state.tries, waited=dark, ok=raised, why=refused
     )
     print(
-        f"показ поднят с {_hms(back)}"
+        phrase("revive.raised", pos=_hms(back))
         if raised
-        else f"приёмник показ не взял ({refused or 'причина не названа'}) - жду ещё",
+        else phrase("revive.refused", why=refused or phrase("revive.no_reason_given")),
         flush=True,
     )
     return True

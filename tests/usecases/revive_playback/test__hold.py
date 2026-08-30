@@ -20,6 +20,7 @@ from tests.usecases.revive_playback.world import (
     PlainReceiver,
     feed_with_segments,
 )
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.position import Position
@@ -28,7 +29,9 @@ from torrcast.domain.start_settings import FIRST_FRAME_POLL
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
 from torrcast.runtime.wire_feed import wire_feed
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._hold import _hold
+from torrcast.usecases.revive_playback._revive_state import TAIL_LIMIT
 from torrcast.usecases.watch import Watch
 
 
@@ -70,7 +73,8 @@ def test_one_black_screen_is_one_accident_for_the_viewer(
     )
 
     printed = capsys.readouterr().out
-    assert printed.count("показ погас на") == 1, "одна темнота - одна строка зрителю"
+    tag = phrase("revive.screen_dark", pos="{pos}").replace("{pos}", "")
+    assert printed.count(tag) == 1, "одна темнота - одна строка зрителю"
     assert supply.asked == SOURCE_TRIES, "источник спрошен одним кругом, а не двумя"
 
 
@@ -147,7 +151,10 @@ def test_a_stuck_pointer_at_the_tail_finishes_the_session(
     ended = _hold(cast(Receiver, receiver), feed_with_segments(tmp_path), watch, clock=clock)
 
     assert ended is True
-    assert "считаю доигранным" in capsys.readouterr().out
+    assert (
+        phrase("revive.tail_ended", pos=_hms(7190.0), secs=TAIL_LIMIT)
+        in capsys.readouterr().out
+    )
 
 
 def test_a_dead_packing_with_a_healthy_source_falls_honestly(tmp_path: Path) -> None:
@@ -155,7 +162,7 @@ def test_a_dead_packing_with_a_healthy_source_falls_honestly(tmp_path: Path) -> 
     feed = feed_with_segments(tmp_path)
     feed.fatal = "ffmpeg лёг"
 
-    with pytest.raises(InfraError, match="упаковка оборвалась"):
+    with pytest.raises(InfraError, match=phrase("revive.pack_broke", trouble="")):
         _hold(
             cast(Receiver, FakeReceiver()),
             feed,
@@ -268,7 +275,8 @@ def test_the_show_closed_with_the_remote_is_not_raised_back(
 
     assert ended is True, "показ кончился по воле зрителя, а не аварией"
     assert receiver.replayed == [], "закрытый с пульта показ поднимать нельзя"
-    assert "показ закрыт с пульта на 0:37:11" in capsys.readouterr().out
+    said = phrase("revive.closed_by_remote", tag="", pos=_hms(2231.0)).lstrip()
+    assert said in capsys.readouterr().out
 
 
 def test_a_show_closed_before_the_very_first_frame_is_not_raised_either(
@@ -292,4 +300,5 @@ def test_a_show_closed_before_the_very_first_frame_is_not_raised_either(
 
     assert ended is True
     assert receiver.replayed == [], "показа не было ни кадра, но закрыл его зритель"
-    assert "показ закрыт с пульта на 0:37:11" in capsys.readouterr().out
+    said = phrase("revive.closed_by_remote", tag="", pos=_hms(2231.0)).lstrip()
+    assert said in capsys.readouterr().out

@@ -36,6 +36,8 @@ from torrcast.domain.catalogs.main_config.en import en as main_config_en
 from torrcast.domain.catalogs.main_config.ru import ru as main_config_ru
 from torrcast.domain.catalogs.media_binaries.en import en as media_binaries_en
 from torrcast.domain.catalogs.media_binaries.ru import ru as media_binaries_ru
+from torrcast.domain.catalogs.playback.en import en as playback_en
+from torrcast.domain.catalogs.playback.ru import ru as playback_ru
 from torrcast.domain.catalogs.playback_session.en import en as playback_session_en
 from torrcast.domain.catalogs.playback_session.ru import ru as playback_session_ru
 from torrcast.domain.catalogs.ports.en import en as ports_en
@@ -50,6 +52,8 @@ from torrcast.domain.catalogs.receiver.en import en as receiver_en
 from torrcast.domain.catalogs.receiver.ru import ru as receiver_ru
 from torrcast.domain.catalogs.recode.en import en as recode_en
 from torrcast.domain.catalogs.recode.ru import ru as recode_ru
+from torrcast.domain.catalogs.revive.en import en as revive_en
+from torrcast.domain.catalogs.revive.ru import ru as revive_ru
 from torrcast.domain.catalogs.runtime.en import en as runtime_en
 from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
 from torrcast.domain.catalogs.select.en import en as select_en
@@ -112,6 +116,8 @@ _CLUSTERS: Final = (
     (recode_en, recode_ru),
     (systemd_en, systemd_ru),
     (torrserver_en, torrserver_ru),
+    (revive_en, revive_ru),
+    (playback_en, playback_ru),
 )
 
 

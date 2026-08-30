@@ -9,6 +9,7 @@ import os
 from collections.abc import Callable
 
 import torrcast.usecases.revive_playback._revive_state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, Profile
@@ -83,7 +84,7 @@ def _hold(
     число.
     """
     clock = clock if clock is not None else _state._revive_clock
-    session_tag = session_tag or f"[сеанс {journal().session_id()}]"
+    session_tag = session_tag or phrase("playback.session_tag", id=journal().session_id())
     show_trace = bool(os.environ.get(TRACE_ENV))
     #: Всё, что показ помнит между двумя опросами приёмника (:class:`_Screen`).
     screen = _Screen(raised=raised)
@@ -127,7 +128,7 @@ def _hold(
             # (:meth:`torrcast.usecases.warm.warmer.Warmer._throttle`).
             warmer.feed(feed.front(position.pos) - position.pos)
             if warmer.done and feed.rest():
-                print("прогрето целиком - живую упаковку гашу, показ идёт с диска", flush=True)
+                print(phrase("revive.fully_warm_switch_disk"), flush=True)
         if clock.monotonic() - screen.said >= SAY_SECONDS:
             screen.said = clock.monotonic()
             _report(session_tag, revival, position, feed, warmer)
@@ -146,8 +147,7 @@ def _hold(
                 screen.tail_at, screen.tail_since = position.pos, clock.monotonic()
             elif clock.monotonic() - screen.tail_since > TAIL_LIMIT:
                 print(
-                    f"конец картины: указатель стоит на {_hms(position.pos)} уже "
-                    f"{TAIL_LIMIT:.0f} с - считаю доигранным",
+                    phrase("revive.tail_ended", pos=_hms(position.pos), secs=TAIL_LIMIT),
                     flush=True,
                 )
                 return True

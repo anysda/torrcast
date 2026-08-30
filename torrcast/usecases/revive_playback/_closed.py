@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.position import Position
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.watch import Watch
@@ -31,7 +32,7 @@ def _closed(position: Position, session_tag: str, pos: float, watch: Watch | Non
     """
     if not position.closed:
         return False
-    print(f"{session_tag} показ закрыт с пульта на {_hms(pos)} - поднимать не буду", flush=True)
+    print(phrase("revive.closed_by_remote", tag=session_tag, pos=_hms(pos)), flush=True)
     if watch is not None:
         watch.closed_by_remote = True
     return True

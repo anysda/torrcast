@@ -7,6 +7,7 @@ from typing import cast
 
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import FakeSupply, feed_with_segments
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.revive_playback._blame import _may, _why
 from torrcast.usecases.revive_playback._revival_state import _RevivalState
@@ -33,7 +34,7 @@ def test_a_healthy_source_leaves_the_receiver_to_blame(tmp_path: Path) -> None:
 
     why = _why(state, feed_with_segments(tmp_path))
 
-    assert why == "приёмник бросил показ"
+    assert why == phrase("revive.receiver_dropped_show")
     assert state.dropped is True and state.blamed is False
     assert supply.asked > 0, "приговор приёмнику ставится только после вопроса источнику"
 
@@ -54,7 +55,7 @@ def test_a_fully_warmed_film_never_blames_the_supply(tmp_path: Path) -> None:
 
     why = _why(state, feed_with_segments(tmp_path), cast(Warmer, _Done()))
 
-    assert why == "приёмник бросил показ"
+    assert why == phrase("revive.receiver_dropped_show")
     assert supply.asked == 0, "спрашивать источник не о чем: прогретый фильм сети не ждёт"
 
 
@@ -88,5 +89,5 @@ def test_a_returned_source_still_waits_for_the_stream_to_be_ready(tmp_path: Path
     ready = _may(state, feed, None, 0.0)
 
     assert str(feed.offline) == ""
-    assert state.why == "источник вернулся - жду готовности потока"
+    assert state.why == phrase("revive.source_back_waiting")
     assert ready is (feed.front(0.0) > 0.0)

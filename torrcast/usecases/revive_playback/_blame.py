@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.source_blame import _asked, _blamed
@@ -58,7 +59,7 @@ def _why(state: _RevivalState, feed: Feed, warmer: Warmer | None = None) -> str:
     """
     if warmer is not None and warmer.done:
         state.dropped = True
-        return "приёмник бросил показ"
+        return phrase("revive.receiver_dropped_show")
     why_source = _blamed(state.supply, state.clock)
     if why_source:
         state.blamed = True
@@ -73,7 +74,7 @@ def _why(state: _RevivalState, feed: Feed, warmer: Warmer | None = None) -> str:
     # Источник спрошен и здоров, упаковка на обрыв не жаловалась - винить некого,
     # кроме приёмника. Возврата в такой темноте ждут от него же (:meth:`resurrect`).
     state.dropped = True
-    return "приёмник бросил показ"
+    return phrase("revive.receiver_dropped_show")
 
 
 def _may(state: _RevivalState, feed: Feed, warmer: Warmer | None, pos: float) -> bool:
@@ -97,7 +98,7 @@ def _may(state: _RevivalState, feed: Feed, warmer: Warmer | None, pos: float) ->
         if _asked(state.supply):
             return False  # источник всё ещё лежит - жечь терпение приёмника незачем
         feed.offline = ""
-        state.why = "источник вернулся - жду готовности потока"
+        state.why = phrase("revive.source_back_waiting")
         # Ответ службы доказывает возврат источника, но не готовность потока. После
         # повторного добавления раздача ещё собирает метаданные и пиров; LOAD имеет
         # смысл лишь тогда, когда упаковка уже отдала кусок у сохранённой позиции.
