@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.digest._words import _gb, _hms
 from torrcast.domain.json_number import json_number
 from torrcast.domain.json_value import JsonValue
@@ -17,28 +18,35 @@ def _warm_line(rec: Mapping[str, JsonValue], stamp: str) -> str | None:
     """Событие прогрева одной строкой; не его событие - ``None``."""
     event = str(rec.get("event", ""))
     if event == "disabled":
-        return f"{stamp}прогрев выключен настройкой, поэтому в этом прогоне его событий не будет"
+        return phrase("digest.warm_off", stamp=stamp)
     if event == "evict":
         who = rec.get("title") or rec.get("key", "?")
-        return (
-            f"{stamp}бюджет прогрева вытеснил «{who}»:"
-            f" освободилось {_gb(json_number(rec.get('freed', 0.0)))}"
-            f" под {_gb(json_number(rec.get('need', 0.0)))}"
+        return phrase(
+            "digest.evict",
+            stamp=stamp,
+            who=who,
+            freed=_gb(json_number(rec.get("freed", 0.0))),
+            need=_gb(json_number(rec.get("need", 0.0))),
         )
     if event == "skew":
-        end = "место осталось непрогретым" if rec.get("hole") else "кусок переложен заново"
-        return (
-            f"{stamp}v{rec.get('slot', '?')} лёг мимо сетки:"
-            f" начало {json_number(rec.get('off', 0.0)):+.2f} с"
-            f" от границы {_hms(json_number(rec.get('want', 0.0)))} - {end}"
+        end = phrase("digest.skew_hole" if rec.get("hole") else "digest.skew_redone")
+        return phrase(
+            "digest.skew",
+            stamp=stamp,
+            slot=rec.get("slot", "?"),
+            off=json_number(rec.get("off", 0.0)),
+            want=_hms(json_number(rec.get("want", 0.0))),
+            end=end,
         )
     if event in {"ready", "stall"}:
-        head = (
-            f"{stamp}прогрето {_hms(json_number(rec.get('secs', 0.0)))}"
-            f" из {_hms(json_number(rec.get('dur', 0.0)))}"
-            f" ({json_number(rec.get('share', 0.0)) * 100:.0f} %,"
-            f" {_gb(json_number(rec.get('size', 0.0)))})"
+        head = phrase(
+            "digest.warmed",
+            stamp=stamp,
+            secs=_hms(json_number(rec.get("secs", 0.0))),
+            dur=_hms(json_number(rec.get("dur", 0.0))),
+            share=json_number(rec.get("share", 0.0)) * 100,
+            size=_gb(json_number(rec.get("size", 0.0))),
         )
         why = rec.get("why")
-        return f"{head} - прогрев встал: {why}" if why else head
+        return phrase("digest.warm_stalled", head=head, why=why) if why else head
     return None

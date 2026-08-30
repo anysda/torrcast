@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.digest._search_line import _search_line
 from torrcast.domain.digest._session_line import _session_line
 from torrcast.domain.digest._show_line import _show_line
@@ -24,7 +25,7 @@ def _event_line(rec: Mapping[str, JsonValue], began: float, seam: bool = False) 
     «событие не моё», в отличие от пустой строки - «моё, и печатать его не надо».
     """
     at = json_number(rec.get("at", 0.0)) - began
-    stamp = f"+{at:6.1f}с "
+    stamp = phrase("digest.stamp", at=at)
     event = str(rec.get("event", ""))
     told = _show_line(rec, stamp, seam)
     if told is None:
@@ -42,7 +43,7 @@ def _event_line(rec: Mapping[str, JsonValue], began: float, seam: bool = False) 
         # «вернуть пусто» - целый класс событий, которого человек в `cast log` не видел,
         # хотя в jsonl он лежит. Имя фазы и её числа уже по-русски («отбор релиза
         # релиз=2»), поэтому печатаются как есть.
-        return f"{stamp}фаза «{event}»{_facts(rec)}"
+        return phrase("digest.phase", stamp=stamp, event=event, facts=_facts(rec))
     # Событие, о котором ЭТА версия не знает: чужая ветка, старая лента, новое поле.
     # Молчать о нём нельзя ровно по той же причине: пустая строка в выжимке читается как
     # «события не было», а оно было и лежит в файле.

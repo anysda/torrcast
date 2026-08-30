@@ -45,6 +45,6 @@ def test_warming_switched_off_is_explained_in_the_run_digest(tmp_path: Path) -> 
     install(tape)
 
     assert _warmer(config, "http://ts", 0, grid(), 0.0, "кино") is None
-    assert "прогрев выключен настройкой, поэтому в этом прогоне его событий не будет" in digest(
-        tape.rows
-    )
+    told = digest(tape.rows)
+    assert "warmup is switched off by the setting" in told
+    assert "this run will have no warmup events" in told

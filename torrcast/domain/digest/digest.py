@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.digest._session_block import _session_block
 from torrcast.domain.json_number import json_number
 from torrcast.domain.json_value import JsonValue
@@ -21,7 +22,7 @@ def digest(rows: Sequence[Mapping[str, JsonValue]], limit: int = 3) -> str:
     ``0`` - все.
     """
     if not rows:
-        return "следа нет - за неделю ни одного сеанса"
+        return phrase("digest.no_trace")
     order: list[str] = []
     by_sid: dict[str, list[Mapping[str, JsonValue]]] = {}
     for rec in rows:

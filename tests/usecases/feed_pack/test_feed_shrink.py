@@ -172,9 +172,7 @@ def test_a_failed_shrink_closes_the_splice_arithmetic_on_the_product_tape(
         for event, facts in tape.calls
     ]
 
-    assert "ужатий 1, склейка ужатого: попыток 0, удач 0, без попытки 1" in _session_block(
-        "s", rows
-    )
+    assert "shrinks 1, shrunk splice: attempts 0, wins 0, not tried 1" in _session_block("s", rows)
 
 
 def test_every_product_shrink_has_a_splice_decision_on_the_file_tape(

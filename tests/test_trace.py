@@ -36,6 +36,15 @@ from torrcast.domain.trace_sources import PACKED, WARMED
 
 
 @pytest.fixture(autouse=True)
+def _russian_lines(_russian_product: None) -> None:
+    """Предмет модуля - русские слова выжимки, поэтому язык назван вслух.
+
+    Умолчание продукта английское (:mod:`torrcast.domain.catalogs.tongue`), и без этой
+    строки набор мерил бы английские строки ``cast log``, а рассказывал бы про русские.
+    """
+
+
+@pytest.fixture(autouse=True)
 def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Каждый тест - свой каталог следа и свой sid: ленты тестов не смешиваются."""
     monkeypatch.setenv(LOG_ENV, str(tmp_path))
@@ -425,13 +434,13 @@ def test_doctor_says_whether_the_journal_is_alive(tmp_path: Path) -> None:
 
     line, ok = _trace()
     assert ok, "отсутствие следа - не отказ показа"
-    assert "no trace" in line
+    assert "следа нет" in line
 
     emit("search", "query", query="матрица")
     shutdown()
     line, ok = _trace()
     assert ok
-    assert "trace" in line and "MB" in line and "last record" in line
+    assert "след" in line and "МБ" in line and "последняя запись" in line
 
 
 def test_a_served_piece_says_which_producer_made_it(tmp_path: Path) -> None:

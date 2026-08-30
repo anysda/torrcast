@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.digest._words import _hms
 from torrcast.domain.json_map import json_map
 from torrcast.domain.json_number import json_number
@@ -18,16 +19,13 @@ def _session_line(rec: Mapping[str, JsonValue], stamp: str) -> str | None:
     """Событие сеанса одной строкой; не его событие - ``None``."""
     event = str(rec.get("event", ""))
     if event == "error":
-        return f"{stamp}ошибка: {rec.get('text', '')}"
+        return phrase("digest.error", stamp=stamp, text=rec.get("text", ""))
     if event == "session_start":
         return _session_start(rec, stamp)
     if event == "session_end":
         return ""  # конец сеанса печатает итоговая строка блока, второй раз незачем
     if event == "lost":
-        return (
-            f"{stamp}потеряно записей {rec.get('count', '?')}:"
-            " очередь следа переполнилась - этих решений в ленте нет"
-        )
+        return phrase("digest.lost", stamp=stamp, count=rec.get("count", "?"))
     return None
 
 
@@ -36,13 +34,18 @@ def _session_start(rec: Mapping[str, JsonValue], stamp: str) -> str:
     # Профиль приёмника: по какому набору порогов играли. В записях прежних версий
     # его нет вовсе - тогда и в строке о нём молчим, а не пишем «профиль ?».
     profile = str(rec.get("profile", ""))
-    head = f"{stamp}показ «{rec.get('title', '')}» с {_hms(json_number(rec.get('pos', 0.0)))}"
+    head = phrase(
+        "digest.show_start",
+        stamp=stamp,
+        title=rec.get("title", ""),
+        pos=_hms(json_number(rec.get("pos", 0.0))),
+    )
     if not profile:
         return head
     source = str(rec.get("profile_source", ""))
     thresholds = json_map(rec.get("thresholds"))
     origins = json_map(rec.get("threshold_sources"))
-    profile_text = f" · профиль {profile}" + (f" ({source})" if source else "")
+    profile_text = phrase("digest.profile", profile=profile) + (f" ({source})" if source else "")
     if not thresholds:
         return f"{head}{profile_text}"
     # Всей строкой это 31 порог плюс 31 источник - тысяча с лишним символов, глазами
@@ -50,4 +53,4 @@ def _session_start(rec: Mapping[str, JsonValue], stamp: str) -> str:
     details = "\n    ".join(
         f"{key}={value} [{origins.get(key, '?')}]" for key, value in thresholds.items()
     )
-    return f"{head}{profile_text} · пороги:\n    {details}"
+    return phrase("digest.thresholds", head=head, profile=profile_text, details=details)

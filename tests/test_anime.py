@@ -1124,7 +1124,7 @@ def test_the_catalogue_hole_lands_in_the_weekly_trace(
     mute = [r for r in rows if r.get("event") == "mute"]
     assert mute, "дыра каталога обязана быть в ленте"
     assert (mute[-1]["release"], mute[-1]["lang"], mute[-1]["checked"]) == (1, "японский", 2)
-    assert "русской озвучки нет ни у кого (проверено 2)" in digest(rows)
+    assert "nobody has a Russian voice track (checked 2)" in digest(rows)
 
 
 def test_a_hand_picked_release_is_never_judged_for_its_language(

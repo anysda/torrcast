@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.domain.digest.rows import rec
 from torrcast.domain.digest._show_line import _show_line
 from torrcast.domain.trace_sources import WARMED, WARMED_COPY, WARMED_RECODE
+
+
+@pytest.fixture(autouse=True)
+def _russian_lines(_russian_product: None) -> None:
+    """Предмет модуля - русские слова выжимки, поэтому язык назван вслух.
+
+    Умолчание продукта английское (:mod:`torrcast.domain.catalogs.tongue`), и без этой
+    строки набор мерил бы английские строки ``cast log``, а рассказывал бы про русские.
+    """
+
 
 STAMP = "+   0.0с "
 

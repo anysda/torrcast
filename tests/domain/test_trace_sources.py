@@ -46,12 +46,17 @@ def test_a_switch_between_the_two_sources_is_visible_as_a_seam_in_the_trace() ->
     assert _seams(rows[:2]) == [], "показ без смены источника стыков не даёт"
 
 
-def test_each_source_is_named_in_human_words_in_the_summary() -> None:
+def test_each_source_is_named_in_human_words_in_the_summary(_russian_product: None) -> None:
     """В выжимке источник зовётся по-русски, а не кодом поля.
 
     ``cast log`` читает человек, и «pack» ему ничего не говорит. Заведись источник без
     имени в разборе - он попал бы в выжимку сырой строкой поля, и стык читался бы как
     «источник сменился на pack».
+
+    🔴 Мера тут русская не по привычке: коды полей - сами английские слова (``pack``,
+    ``warm``), и в английской выжимке «сырой код не уехал» проверить нечем - «live
+    packing» содержит ``pack`` буква в букву. Отличить надпись от кода можно только на
+    языке, чьи слова с кодами не совпадают, поэтому язык тут назван вслух.
     """
     onto_packed = digest([_segment("s1", 1.0, WARMED), _segment("s1", 2.0, PACKED)])
     assert "живая упаковка" in onto_packed

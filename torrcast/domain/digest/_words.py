@@ -9,6 +9,7 @@ import time
 from collections.abc import Mapping
 from typing import Final
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.json_value import JsonValue
 
 #: Конверт записи (:func:`emit`): он одинаков у всех и в строке события не печатается.
@@ -27,7 +28,7 @@ def _clock(at: float) -> str:
 
 
 def _gb(size: float) -> str:
-    return f"{size / 1e9:.1f} ГБ"
+    return phrase("digest.gb", size=size / 1e9)
 
 
 def _facts(rec: Mapping[str, JsonValue]) -> str:

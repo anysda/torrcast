@@ -781,4 +781,4 @@ def test_след_отличает_опоздавшего_от_молчуна(jo
     (row,) = [r for r in records() if r.get("event") == "indexers"]
     assert row["late"] == ["Nyaa.si"]
     assert row["silent"] == []
-    assert "опоздали Nyaa.si" in digest(records())
+    assert "late Nyaa.si" in digest(records())
