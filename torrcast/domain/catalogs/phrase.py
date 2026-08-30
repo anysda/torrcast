@@ -20,6 +20,8 @@ from torrcast.domain.catalogs.chromecast_talk.en import en as chromecast_talk_en
 from torrcast.domain.catalogs.chromecast_talk.ru import ru as chromecast_talk_ru
 from torrcast.domain.catalogs.cli.en import en as cli_en
 from torrcast.domain.catalogs.cli.ru import ru as cli_ru
+from torrcast.domain.catalogs.configure.en import en as configure_en
+from torrcast.domain.catalogs.configure.ru import ru as configure_ru
 from torrcast.domain.catalogs.console.en import en as console_en
 from torrcast.domain.catalogs.console.ru import ru as console_ru
 from torrcast.domain.catalogs.digest.en import en as digest_en
@@ -148,6 +150,7 @@ _CLUSTERS: Final = (
     (stop_en, stop_ru),
     (watch_en, watch_ru),
     (worker_en, worker_ru),
+    (configure_en, configure_ru),
 )
 
 

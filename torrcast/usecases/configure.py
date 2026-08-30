@@ -3,6 +3,7 @@
 from dataclasses import replace
 from typing import Literal
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.receiver_info import ReceiverInfo
@@ -36,9 +37,11 @@ class Configure:
         )
         settings = replace(self._store.load(), tv=device.address, receiver=receiver)
         self._store.save(settings)
-        note = " (headless-приёмник, каста наружу нет)" if device.address == "mock" else ""
+        note = phrase("configure.headless_note") if device.address == "mock" else ""
         name = f"{device.name} - " if device.name else ""
-        self._console.write(f"ТВ: {name}{device.address}{note}")
+        self._console.write(
+            phrase("configure.tv_line", name=name, address=device.address, note=note)
+        )
         return EXIT_OK
 
     def _found_tv(self) -> ReceiverInfo:
@@ -58,19 +61,13 @@ class Configure:
         for note in self._finder.notes():
             self._console.write(note)
         if not devices:
-            raise NotFoundError(
-                "приёмников в сети не нашёл - телевизор включён и в той же сети? "
-                "адрес можно задать и руками: cast --tv <ip>"
-            )
+            raise NotFoundError(phrase("configure.no_receivers_found"))
         if len(devices) == 1:
             return devices[0]
         self._console.write(self._lines(devices))
         if not self._console.interactive():
-            raise NotFoundError(
-                f"нашёл приёмников: {len(devices)}, а терминала нет - вслепую не выбираю; "
-                "назови адрес сам: cast --tv <ip>"
-            )
-        return devices[self._console.choose("Какой телевизор?", len(devices)) - 1]
+            raise NotFoundError(phrase("configure.found_no_terminal", count=len(devices)))
+        return devices[self._console.choose(phrase("configure.which_tv"), len(devices)) - 1]
 
     @staticmethod
     def _lines(devices: list[ReceiverInfo]) -> str:

@@ -5,10 +5,16 @@ import pytest
 from tests.fakes.configuration_store import FakeConfigurationStore
 from tests.fakes.console import FakeConsole
 from tests.fakes.receiver_finder import FakeReceiverFinder
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.receiver_info import ReceiverInfo
 from torrcast.domain.settings import Settings
 from torrcast.usecases.configure import Configure
+
+
+@pytest.fixture(autouse=True)
+def _russian_setup(_russian_product: None) -> None:
+    """Предмет всего модуля - настройка ТВ, писанная по-русски до языкового яруса."""
 
 
 def test_configure_saves_named_mock_receiver() -> None:
@@ -18,7 +24,8 @@ def test_configure_saves_named_mock_receiver() -> None:
     assert Configure(store, FakeReceiverFinder(), console).run("mock") == 0
     assert store.settings.tv == "mock"
     assert store.settings.receiver == "mock"
-    assert console.messages == ["ТВ: mock (headless-приёмник, каста наружу нет)"]
+    note = phrase("configure.headless_note")
+    assert console.messages == [phrase("configure.tv_line", name="", address="mock", note=note)]
 
 
 def test_the_only_receiver_found_is_taken_without_a_question() -> None:
@@ -36,7 +43,8 @@ def test_the_only_receiver_found_is_taken_without_a_question() -> None:
 
     assert console.questions == [], "единственный найденный приёмник не спрашивается"
     assert store.settings.tv == "192.0.2.5"
-    assert console.messages[-1] == "ТВ: Гостиная - 192.0.2.5"
+    line = phrase("configure.tv_line", name="Гостиная - ", address="192.0.2.5", note="")
+    assert console.messages[-1] == line
 
 
 def test_the_mock_receiver_leaves_no_trace_of_the_former_tv_address() -> None:
@@ -102,9 +110,7 @@ def test_finding_nobody_says_why_and_keeps_the_manual_way() -> None:
         Configure(store, finder, console).run()
 
     assert "10.5.0.0/16" in "\n".join(console.messages)
-    refusal = str(caught.value)
-    assert "включён" in refusal and "той же сети" in refusal
-    assert "cast --tv <ip>" in refusal
+    assert str(caught.value) == phrase("configure.no_receivers_found")
     assert store.saved == [], "неудачный поиск конфиг не трогает"
 
 
@@ -126,6 +132,5 @@ def test_several_receivers_without_a_terminal_are_not_picked_blindly() -> None:
 
     listed = "\n".join(console.messages)
     assert "10.0.0.50" in listed and "Гостиная - 10.0.0.60" in listed
-    assert "вслепую не выбираю" in str(caught.value)
-    assert "cast --tv <ip>" in str(caught.value)
+    assert str(caught.value) == phrase("configure.found_no_terminal", count=2)
     assert store.saved == [], "отказ конфиг не трогает"

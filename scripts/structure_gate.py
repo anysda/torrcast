@@ -129,7 +129,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/usecases/cast_command/_bookmark.py": 5,
     "torrcast/usecases/cast_command/_cmd_play.py": 3,
     "torrcast/usecases/cast_command/_notes.py": 3,
-    "torrcast/usecases/configure.py": 5,
     "torrcast/usecases/reinforce/_as_is.py": 1,
     "torrcast/usecases/reinforce/_ceiling_reinforce.py": 4,
     "torrcast/usecases/reinforce/_foreign_note.py": 5,
