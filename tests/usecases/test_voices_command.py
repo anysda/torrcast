@@ -16,6 +16,11 @@ from torrcast.usecases import voices_command
 from torrcast.usecases.voices_command import _cmd_voices
 
 
+@pytest.fixture(autouse=True)
+def _russian_menu(_russian_product: None) -> None:
+    """Предмет всего модуля - меню озвучек, писанное по-русски до языкового яруса."""
+
+
 def test_an_empty_query_is_an_honest_line_not_a_search(monkeypatch: pytest.MonkeyPatch) -> None:
     """``cast voices`` без запроса - это вопрос «что искать?», а не поход в каталог.
 

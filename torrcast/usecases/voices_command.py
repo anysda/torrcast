@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeAlias
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
@@ -75,7 +76,7 @@ def _cmd_voices(args: Args, search: Search | None = None) -> int:
         query=list(args.query[1:]), release=args.release, pick=args.pick, file=args.file
     )
     if not inner.query:
-        raise NotFoundError("что искать? cast voices <запрос>")
+        raise NotFoundError(phrase("voices_command.no_query"))
     with progress_bar() as progress:
         plans = search(config, inner, progress)
         bench = Bench(_voices_engines(config.torrserver_url), choose=file_picker(inner))
@@ -88,12 +89,19 @@ def _cmd_voices(args: Args, search: Search | None = None) -> int:
     media = prep.found
     remembered = _remembered(watch_store().load(), plan.picture.key, None)
     print()
-    print(f"{_named(plan.picture)} - релиз {prep.number}: {_cut(prep.release.title, 60)}")
+    print(
+        phrase(
+            "voices_command.head",
+            title=_named(plan.picture),
+            number=prep.number,
+            cut=_cut(prep.release.title, 60),
+        )
+    )
     print(
         voices_table(
             media, media.default_track(plan.picture.native), remembered, prep.release.studios
         )
     )
     print()
-    print("играть конкретную: cast <запрос> --voice N|СТУДИЯ   (выбор запомнится на картину)")
+    print(phrase("voices_command.play_specific"))
     return EXIT_OK
