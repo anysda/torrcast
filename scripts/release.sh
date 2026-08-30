@@ -111,7 +111,7 @@ publish_release() {  # $1 - тег, $2 - версия без v, $3 - загол�
         "$GITLAB_API/projects/$PROJECT_ID/releases" >/dev/null || die "релиз не завёлся"
 
     got="$(curl -fsSL "$GITLAB_API/projects/$PROJECT_ID/releases/permalink/latest" \
-           | sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p')"
+           | sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p')"
     [ "$got" = "$t" ] || die "после публикации permalink/latest отдал «$got», а не «$t»"
 }
 

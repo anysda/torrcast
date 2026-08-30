@@ -39,7 +39,7 @@ latest_version() {
         404) rm -f "$body"; die "релизов ещё нет (permalink/latest отвечает 404) - вернись, когда выйдет первый релиз" ;;
         *)   rm -f "$body"; die "GitLab ответил неожиданно (код ${code:-нет ответа}) на $GITLAB_API" ;;
     esac
-    ver="$(sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p' "$body")"
+    ver="$(sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p' "$body")"
     rm -f "$body"
     [ -n "$ver" ] || die "в ответе GitLab нет tag_name"
     printf '%s\n' "$ver"
