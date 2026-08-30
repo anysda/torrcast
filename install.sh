@@ -356,13 +356,56 @@ HLS_BASE_URL="${TORRCAST_HLS_BASE_URL:-}"
 HLS_HOST="${TORRCAST_HLS_HOSTNAME:-torrcast.local}"
 TLS_DIR="$CONFIG_DIR/tls"
 
+# --- Канал прогресса: подача узнаёт о ходе установки отсюда -------------------
+# 🔴 TC-885. Полоса НЕ идёт по часам, и это главная развязка при переносе подачи
+# из референса. Референс был фейковым установщиком: процент считался от заданной
+# длительности, `pct = прошло * 100 / DURATION`. На боевой установке такой прибор
+# мерил бы не ту цель. Длительность заранее неизвестна (зеркала pypi, размер
+# апдейта, живость трекеров), фазы идут в фоне параллельно (:func:`job_start`), и
+# таймер честно показал бы 99 % на висящей загрузке ffmpeg - то есть соврал бы
+# ровно там, где смотреть и надо.
+#
+# Развязка: единственный источник процента - ЗАКРЫТАЯ ФАЗА. Установка (она же
+# «работник») зовёт :func:`phase_done` там, где фаза кончилась, строка уходит в
+# канал, а рисовалка читает канал и считает `pct = закрыто * 100 / всего
+# включённых`. Цена деления - 1/N, промежуточных значений нет вовсе: полосе
+# нечем показать процент, которого никто не закрыл. Часы в рисовалке остались
+# ровно на одно - на длину кадра.
+#
+# Канал - обычный файл, а не труба: труба на 64 КБ заткнулась бы, если бы
+# рисовалка отстала, и заткнула бы вместе с собой установку. Строку пишет один
+# `printf` в режиме дописывания, поэтому она доезжает целиком.
+UI_CHANNEL="${TORRCAST_UI_CHANNEL:-}"
+
+ui_say() {  # $1 - метка (P фаза, W внимание, D ошибка, E конец), дальше текст
+    local tag="$1"; shift
+    [ -n "$UI_CHANNEL" ] || return 0
+    printf '%s %s\n' "$tag" "$*" >>"$UI_CHANNEL" 2>/dev/null || true
+}
+
+#: Фаза закрыта. Зовётся ТАМ, где результат фазы уже на месте, а не там, где её
+#: запустили: у фоновых заданий это `job_wait`, а не `job_start`.
+phase_done() {  # $1 - короткое имя фазы для статусбара
+    ui_say P "$1"
+}
+
 log()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 skip() { printf '    уже на месте: %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
-die()  { printf '\033[31mошибка:\033[0m %s\n' "$*" >&2; exit 1; }
+# 🔴 TC-885. При включённой заставке заставка не вправе съесть строку ошибки:
+# сегодня `die` - единственный способ узнать, что установка не доделана. Поэтому
+# `die` не только печатает в журнал, но и говорит об этом в канал: рисовалка,
+# увидев метку D, РАЗВАЛИВАЕТ анимацию и выкладывает журнал целиком на экран
+# (:func:`ui_collapse`). Ленты под рамкой для ошибки мало: ошибка - это конец
+# установки, и последнее, что видит владелец, обязано быть ею, а не справкой.
+die()  { printf '\033[31mошибка:\033[0m %s\n' "$*" >&2; ui_say D "$*"; exit 1; }
 # Для того, что установку не роняет, но заметно урезает результат: обычная строка
 # info тонет в потоке установки, а это надо увидеть.
-loud() { printf '\033[1;33mвнимание:\033[0m %s\n' "$*" >&2; }
+# 🔴 TC-885. `loud` установку не роняет, разваливать из-за него анимацию не за
+# что - но и утонуть он не имеет права. Он уходит в ЛЕНТУ под рамкой: рамка
+# ужимается на строку, лента остаётся на экране до конца и переживает итоговый
+# экран справки (:func:`ui_note`).
+loud() { printf '\033[1;33mвнимание:\033[0m %s\n' "$*" >&2; ui_say W "$*"; }
 has()  { [[ " $PHASES " == *" $1 "* ]]; }
 
 need_root() {
@@ -2557,8 +2600,8 @@ main() {
     cleanup_login_notice
     # Локаль и apt идут первыми и по очереди, иначе никак: `curl`, `jq` и `python3-venv`
     # приезжают именно отсюда, а без них не начать ни одну загрузку.
-    has locale     && setup_locale
-    has packages   && install_packages
+    has locale     && { setup_locale;     phase_done 'локаль'; }
+    has packages   && { install_packages; phase_done 'пакеты'; }
 
     # 🔴 Дальше вся работа - сеть, и вся она независима: статическая сборка ffmpeg, два
     # соседних сервера, пробы трекеров и определения индексеров ничего не знают друг о
@@ -2573,30 +2616,41 @@ main() {
 
     # Самое долгое (venv и колёса с pypi) держим на переднем плане: пока идёт оно,
     # соседи успевают скачаться, подняться и ответить.
-    has torrcast    && install_torrcast
+    has torrcast    && { install_torrcast; phase_done 'пакет torrcast'; }
 
     # Индексерам нужны оба: шим с прибитыми именами и поднятый Prowlarr.
+    # 🔴 TC-885. `phase_done` у фоновых заданий стоит после `job_wait`, а не после
+    # `job_start`: закрытой фаза становится там, где её результат приехал и был
+    # проверен. Поставь её у запуска - и полоса улетала бы в 40 % за первую
+    # секунду, ровно тем враньём, ради ухода от которого прогресс и отвязан от часов.
     if has sources; then
         job_wait sources || info "⚠ проверка источников не доработала - смотри строки выше"
+        phase_done 'источники'
     fi
     if has prowlarr; then
         job_wait prowlarr || die "Prowlarr не поставился - причина в строках выше"
+        phase_done 'Prowlarr'
     fi
-    has indexers   && install_indexers
-    has config     && setup_config
-    has hls        && setup_hls
-    has receiver   && setup_receiver
+    has indexers   && { install_indexers; phase_done 'индексеры'; }
+    has config     && { setup_config;     phase_done 'конфиг'; }
+    has hls        && { setup_hls;        phase_done 'раздача'; }
+    has receiver   && { setup_receiver;   phase_done 'приёмник'; }
 
     # Без этих двух `cast` не покажет ничего, поэтому «готово» ждёт их обоих.
     if has ffmpeg; then
         job_wait ffmpeg || die "ffmpeg не поставился - причина в строках выше"
+        phase_done 'ffmpeg'
     fi
     if has torrserver; then
         job_wait torrserver || die "TorrServer не поставился - причина в строках выше"
+        phase_done 'TorrServer'
     fi
     # А это первому показу не нужно: оценки украшают меню, и качать их человеку незачем.
-    has facts      && late_run "оценки IMDb для справки в меню" setup_facts
-    has facts      && late_run "русские прокатные имена IMDb для паспорта картины" setup_names
+    if has facts; then
+        late_run "оценки IMDb для справки в меню" setup_facts
+        late_run "русские прокатные имена IMDb для паспорта картины" setup_names
+        phase_done 'догрев'
+    fi
     [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
 
     log "готово - смотри: cast <название>"
@@ -2622,4 +2676,943 @@ main() {
     fi
 }
 
-main "$@"
+# =============================================================================
+# --- 8. Подача: заставка вместо ленты «==>» ---------------------------------
+# =============================================================================
+# Перенос из референса (tmp-ref/install.sh). Лого отскакивает по рамке в стиле
+# DVD, снизу статусбар во всю ширину окна, на выходе лого садится в центр,
+# сводит цвет к фирменному зелёному и под ним остаётся справка. Установщик при
+# этом продолжает УСТАНАВЛИВАТЬ: заставка - вторая нитка, а не замена работы.
+#
+# Alt-screen не берём НАМЕРЕННО. Он возвращает на выход экран, каким тот был до
+# запуска, и после яркой полноэкранной анимации этот возврат читается как
+# «непонятный остаток прошлого ввода». Рисуем на основном экране, а на выходе
+# оставляем готовую справку - её и видит владелец вместо призрака. Побочно это
+# же спасает покадровый прибор: pyte альтернативного экрана не знает и показал
+# бы кадр, которого зритель не видел.
+#
+# Против мерцания три меры сразу. Кадр собирается в одну строку и уходит одним
+# write внутри DECSET 2026 (synchronized output), поэтому терминал не рисует
+# полукадры. Стирается только прямоугольник под прошлым положением лого, а не
+# всё нутро рамки. Ни одного форка в кадре: время через EPOCHREALTIME, пауза
+# через read -t, чтение канала прогресса - встроенным read по открытому fd.
+#
+# Перенос авторазворота строк (DECAWM off) - решение уже этой правки, у
+# референса его нет. У референса все строки свои и заведомо короткие, а тут в
+# ленту под рамкой приезжает ЧУЖОЙ текст `loud` любой длины. Одна перенесённая
+# строка сдвигает весь экран на строку вверх и уносит верх рамки; мерить длину
+# кириллицы нечем (${#s} в неUTF-8 локали считает байты, а установка локаль как
+# раз чинит). Автозаворот выключен - лишнее просто обрезается краем окна.
+
+# --- терминальные escape ---
+ESC=$'\033'; CSI="${ESC}["
+HIDE="${CSI}?25l";     SHOW="${CSI}?25h"
+SYNC_ON="${CSI}?2026h"; SYNC_OFF="${CSI}?2026l"
+WRAP_OFF="${CSI}?7l";  WRAP_ON="${CSI}?7h"
+CLEAR="${CSI}2J";      HOME_POS="${CSI}H"
+NC="${CSI}0m";         BOLD="${CSI}1m"
+DIMW="${CSI}0;2m";     WARNC="${CSI}1;33m"
+
+VERSION='0.1.0'
+DEFAULT_DURATION=21
+# Шаг на кадр - ЦЕЛОЕ число клеток (2 по колонкам, 1 по строкам). Дробный шаг
+# раньше давал кадры без движения: при 0.8 клетки каждый пятый кадр целая
+# позиция не менялась, и это читалось как подвисание. Замедление на 15% берём
+# длиной кадра, а не долями клетки: 2/0.061 = 32.8 колонок/с.
+FRAME_MS=61
+STEP_X=200
+STEP_Y=100
+#: Сколько миллисекунд холостая подача откладывает себе на посадку. У боевой
+#: установки посадка идёт ПОСЛЕ работы (конца никто заранее не знает), поэтому
+#: и у холостой аргумент - это вся длина подачи целиком, а не длина работы:
+#: работнику остаётся аргумент минус этот запас. Дуга длиной от 4 до 40 кадров,
+#: то есть от 0.24 до 2.44 с (:func:`ui_land_frames`), и заранее её длину не
+#: знает никто: она считается от остатка пути в момент, когда работа кончилась.
+#: Запас взят чуть ниже середины вилки, чтобы вся она укладывалась в аргумент.
+UI_LAND_RESERVE_MS=1400
+#: Сколько строк `loud` держим в ленте под рамкой. Больше - и рамка съедается
+#: лентой; на всё сверх этого лента говорит числом, а полностью они в журнале.
+UI_WARN_MAX=3
+
+ui_version() {  # VERSION из pyproject.toml, без форка
+    local line f="$REPO_DIR/pyproject.toml"
+    [ -r "$f" ] || return 0
+    while IFS= read -r line; do
+        case $line in
+            version\ =\ *|version=*)
+                line=${line#*=}; line=${line//\"/}; line=${line//\'/}; line=${line// /}
+                [ -n "$line" ] && VERSION=$line
+                return 0 ;;
+        esac
+    done < "$f"
+    return 0
+}
+
+# --- цвет ---
+# Truecolor объявляем только по COLORTERM: терминал с 256 цветами, но без
+# truecolor, распечатал бы escape как мусор. Иначе спускаемся до куба 6x6x6.
+COLOR_MODE=basic
+ui_pick_color() {
+    case "${COLORTERM:-}" in
+      truecolor|24bit) COLOR_MODE=truecolor ;;
+      *) case "${TERM:-}" in
+           *direct*) COLOR_MODE=truecolor ;;
+           *256color*|xterm*|screen*|tmux*|rxvt*|alacritty|foot*|kitty*) COLOR_MODE=256 ;;
+         esac ;;
+    esac
+}
+
+FGX=''
+ui_fg() { # r g b -> escape в FGX
+  local r=$1 g=$2 b=$3
+  case $COLOR_MODE in
+    truecolor) FGX="${CSI}38;2;${r};${g};${b}m" ;;
+    256)       FGX="${CSI}38;5;$(( 16 + 36 * ((r * 5 + 127) / 255) \
+                                     + 6 * ((g * 5 + 127) / 255) \
+                                         + ((b * 5 + 127) / 255) ))m" ;;
+    *)         FGX="${CSI}$(( 30 + (r > 127) + 2 * (g > 127) + 4 * (b > 127) ))m" ;;
+  esac
+}
+
+R=0; G=0; B=0
+ui_hsv() { # h(0..359) s(0..100) v(0..100) -> R G B (0..255)
+  local h=$1 s=$2 v=$3
+  local i=$(( h / 60 % 6 )) f=$(( h % 60 * 1000 / 60 ))
+  local p=$(( v * (100 - s) / 100 ))
+  local q=$(( v * (100000 - s * f) / 100000 ))
+  local t=$(( v * (100000 - s * (1000 - f)) / 100000 ))
+  case $i in
+    0) R=$v; G=$t; B=$p ;;
+    1) R=$q; G=$v; B=$p ;;
+    2) R=$p; G=$v; B=$t ;;
+    3) R=$p; G=$q; B=$v ;;
+    4) R=$t; G=$p; B=$v ;;
+    *) R=$v; G=$p; B=$q ;;
+  esac
+  R=$(( R * 255 / 100 )); G=$(( G * 255 / 100 )); B=$(( B * 255 / 100 ))
+}
+
+BRAND=''; GREEN=''; DIMG=''; EMPTY_COL=''; FRAMEC=''
+# Фирменный зелёный в числах: к нему сводится цвет лого на посадке, чтобы
+# итоговый экран подхватил ровно тот же код и стыка не было видно.
+BR_R=0; BR_G=220; BR_B=130
+ui_palette() {
+    ui_fg 0 220 130; BRAND=$FGX
+    GREEN=$BRAND
+    ui_fg 0 120  78; DIMG=$FGX
+    ui_fg 26  62  46; EMPTY_COL=$FGX
+    # Рамка цветом терминала по умолчанию - она белая на тёмной теме и чёрная на
+    # светлой. Зелёная рамка спорила с лого, которое и так перекрашивается.
+    FRAMEC=$NC
+}
+
+# --- баннеры (figlet standard / small / mini) ---
+# Четыре размера, а не обрезанное лого: обрезанный figlet выглядит поломанным.
+# Лого без тени: на штриховом figlet-е смещённая на клетку копия читается не как
+# тень, а как призрак следом за текстом.
+# shellcheck disable=SC2034  # массивы берутся по имени через nameref в ui_try_banner
+B_FULL=(
+' _                               _   '
+'| |_ ___  _ __ _ __ ___ __ _ ___| |_ '
+'| __/ _ \| '"'"'__| '"'"'__/ __/ _` / __| __|'
+'| || (_) | |  | | | (_| (_| \__ \ |_ '
+' \__\___/|_|  |_|  \___\__,_|___/\__|'
+)
+# shellcheck disable=SC2034  # массивы берутся по имени через nameref в ui_try_banner
+B_MID=(
+' _                          _   '
+'| |_ ___ _ _ _ _ __ __ _ __| |_ '
+'|  _/ _ \ '"'"'_| '"'"'_/ _/ _` (_-<  _|'
+' \__\___/_| |_| \__\__,_/__/\__|'
+)
+# shellcheck disable=SC2034  # массивы берутся по имени через nameref в ui_try_banner
+B_TINY=(
+'_|_ _ ._.__ _. __|_ '
+' |_(_)| |(_(_|_> |_ '
+)
+B_MICRO=( 'torrcast' )
+
+SPIN=( '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏' )
+
+# --- справка, которая остаётся на экране после выхода ---
+# Колонка команд добита пробелами прямо в литерале: в кириллице ${#s} считает
+# байты, если локаль не UTF-8, поэтому ширину тут никто не измеряет - она задана.
+FIN_CMD=( 'cast <запрос>    ' 'cast --tv        ' 'cast stop        ' 'cast status      ' 'cast --help      ' )
+FIN_TXT=( 'найти и включить на ТВ' 'выбрать телевизор' 'снять каст' 'что играет сейчас' 'все ключи' )
+FIN_W=39
+FIN_CMD_S=( 'cast <запрос>  ' 'cast --tv      ' 'cast --help    ' )
+FIN_TXT_S=( 'включить на ТВ' 'выбрать ТВ' 'все ключи' )
+FIN_W_S=29
+FIN_CMD_M=( 'cast --tv ' )
+FIN_TXT_M=( 'выбрать ТВ' )
+FIN_W_M=20
+
+# --- геометрия ---
+TROWS=24; TCOLS=80
+INNER_W=0; INNER_H=0; BOX_H=0
+BANNER=(); BANNER_H=0; BANNER_W=0
+MAX_X=1; MAX_Y=1; MAX_X100=100; MAX_Y100=100
+BAR_W=10; SHOW_VER=1
+INNER_TOP=2; INNER_LEFT=2
+#: Нижняя граница отрисовки: строка рамки плюс лента `loud`. Пустая строка,
+#: статусбар и полоса считаются от неё, поэтому лента раздвигает всё разом, а
+#: без единой строки внимания раскладка байт в байт референсная.
+UI_BASE=0
+
+ui_read_size() {
+  local sz=''
+  if [[ -r /dev/tty ]]; then sz=$(stty size < /dev/tty 2>/dev/null) || sz=''; fi
+  if [[ -z $sz ]]; then sz=$(stty size 2>/dev/null) || sz=''; fi
+  if [[ -n $sz && $sz == *' '* ]]; then
+    TROWS=${sz%% *}; TCOLS=${sz##* }
+  else
+    TROWS=$(tput lines 2>/dev/null) || TROWS=24
+    TCOLS=$(tput cols  2>/dev/null) || TCOLS=80
+  fi
+  # Мусорный размер не должен ломать рендер, поэтому клемпим с двух сторон.
+  (( TROWS > 0 )) 2>/dev/null || TROWS=24
+  (( TCOLS > 0 )) 2>/dev/null || TCOLS=80
+  (( TROWS < 8 ))   && TROWS=8
+  (( TCOLS < 20 ))  && TCOLS=20
+  (( TROWS > 200 )) && TROWS=200
+  (( TCOLS > 400 )) && TCOLS=400
+  return 0
+}
+
+ui_try_banner() { # $1 - имя массива; ставит BANNER*, если влезает с запасом на отскок
+  local -n src=$1
+  local h=${#src[@]} w=0 l
+  for l in "${src[@]}"; do (( ${#l} > w )) && w=${#l}; done
+  (( INNER_W < w + 1 || INNER_H < h + 1 )) && return 1
+  BANNER=( "${src[@]}" ); BANNER_H=$h; BANNER_W=$w
+  return 0
+}
+
+ui_layout() {
+  ui_read_size
+  # Рамка на всю ширину; снизу лента внимания, пустая строка и две строки статусбара.
+  BOX_H=$(( TROWS - 3 - UI_WARN_H ))
+  (( BOX_H < 4 )) && BOX_H=4
+  UI_BASE=$(( BOX_H + UI_WARN_H ))
+  INNER_W=$(( TCOLS - 2 ))
+  INNER_H=$(( BOX_H - 2 ))
+
+  ui_try_banner B_FULL || ui_try_banner B_MID || ui_try_banner B_TINY || ui_try_banner B_MICRO || {
+    BANNER=( "${B_MICRO[@]}" ); BANNER_H=1; BANNER_W=${#B_MICRO[0]}
+  }
+
+  MAX_X=$(( INNER_W - BANNER_W )); (( MAX_X < 0 )) && MAX_X=0
+  MAX_Y=$(( INNER_H - BANNER_H )); (( MAX_Y < 0 )) && MAX_Y=0
+  MAX_X100=$(( MAX_X * 100 )); MAX_Y100=$(( MAX_Y * 100 ))
+
+  # Статусбар растянут ровно на ширину окна: "[" + бар + "]" + "  NNN%".
+  BAR_W=$(( TCOLS - 8 ))
+  (( BAR_W < 1 )) && BAR_W=1
+
+  SHOW_VER=1
+  (( TCOLS < 26 )) && SHOW_VER=0
+
+  ui_pick_help
+}
+
+HELP_TIER=0; HELP_H=0; HELP_W=0; HELP_GAP=1
+FIN_BX=0; FIN_TOP=0; FIN_HX=0; FIN_HY=0
+ui_pick_help() {
+  # Лого садится РОВНО в центр рамки, справка ложится под ним. Ярус справки
+  # выбирается самый крупный из тех, что помещаются под отцентрованным лого:
+  # двигать лого вверх ради справки нельзя, посадка перестанет быть в центр.
+  FIN_BX=$(( (INNER_W - BANNER_W) / 2 )); (( FIN_BX < 0 )) && FIN_BX=0
+  FIN_TOP=$(( (INNER_H - BANNER_H) / 2 )); (( FIN_TOP < 0 )) && FIN_TOP=0
+  local room=$(( INNER_H - FIN_TOP - BANNER_H ))
+  HELP_TIER=0; HELP_H=0; HELP_W=0; HELP_GAP=1
+  if   (( INNER_W >= FIN_W   + 2 && room > ${#FIN_CMD[@]}   )); then
+    HELP_TIER=1; HELP_H=${#FIN_CMD[@]};   HELP_W=$FIN_W
+  elif (( INNER_W >= FIN_W_S + 2 && room > ${#FIN_CMD_S[@]} )); then
+    HELP_TIER=2; HELP_H=${#FIN_CMD_S[@]}; HELP_W=$FIN_W_S
+  elif (( INNER_W >= FIN_W_M + 2 && room > ${#FIN_CMD_M[@]} )); then
+    HELP_TIER=3; HELP_H=${#FIN_CMD_M[@]}; HELP_W=$FIN_W_M
+  elif (( INNER_W >= FIN_W_M + 2 && room >= ${#FIN_CMD_M[@]} )); then
+    # места под пустую строку-разделитель нет, а под саму строку есть
+    HELP_TIER=3; HELP_H=${#FIN_CMD_M[@]}; HELP_W=$FIN_W_M; HELP_GAP=0
+  fi
+  FIN_HX=$(( (INNER_W - HELP_W) / 2 )); (( FIN_HX < 0 )) && FIN_HX=0
+  FIN_HY=$(( FIN_TOP + BANNER_H + HELP_GAP ))
+  return 0
+}
+
+# --- кэш полосы ---
+# Строки-префиксы считаем один раз на смену размера: в кадре остаётся одна
+# склейка вместо BAR_W конкатенаций.
+BAR_PRE=(); BAR_EMP=()
+ui_build_bar_cache() {
+  # Заливка РОВНО одного цвета. Градиент по яркости, что стоял тут раньше,
+  # читался как неравномерная заливка: начало полосы тусклее конца, и чем шире
+  # окно, тем заметнее. Цвет фирменный - тот же, что у процентов и у лого.
+  local i acc="$GREEN"
+  BAR_PRE=( '' )
+  for (( i = 0; i < BAR_W; i++ )); do
+    acc+='█'
+    BAR_PRE[i + 1]=$acc
+  done
+  acc=''
+  BAR_EMP=( '' )
+  for (( i = 0; i < BAR_W; i++ )); do acc+='░'; BAR_EMP[i + 1]=$acc; done
+  return 0
+}
+
+ui_rep() { # $1 - сколько, $2 - чем
+  local s; printf -v s '%*s' "$1" ''
+  printf '%s' "${s// /$2}"
+}
+
+ui_draw_border() {
+  local buf="${SYNC_ON}${HOME_POS}${FRAMEC}" row
+  local line; line=$(ui_rep "$INNER_W" '─')
+  local blank; printf -v blank '%*s' "$INNER_W" ''
+  buf+="╭${line}╮"
+  for (( row = 0; row < INNER_H; row++ )); do
+    buf+="${CSI}$(( row + INNER_TOP ));1H│${NC}${blank}${FRAMEC}│"
+  done
+  buf+="${CSI}${BOX_H};1H╰${line}╯${NC}"
+  # Лента внимания под рамкой, потом пустая строка перед статусбаром.
+  for (( row = 0; row < UI_WARN_H; row++ )); do
+    buf+="${CSI}$(( BOX_H + 1 + row ));1H${CSI}2K${WARNC}внимание:${NC} ${UI_WARN[row]}"
+  done
+  buf+="${CSI}$(( UI_BASE + 1 ));1H${CSI}2K"
+  buf+="$SYNC_OFF"
+  printf '%s' "$buf"
+}
+
+# --- состояние анимации ---
+px=0; py=0; vx=$STEP_X; vy=$STEP_Y; hue=140
+prev_x=0; prev_y=0; prev_valid=0
+CUR=''; CR=0; CG=0; CB=0
+
+ui_isqrt() { # целочисленный корень, метод Ньютона; нужен для степени 1.5 в посадке
+  local n=$1 x y
+  (( n < 2 )) && { ISQ=$n; return 0; }
+  x=$(( n / 2 ))
+  while :; do
+    y=$(( (x + n / x) / 2 ))
+    (( y >= x )) && break
+    x=$y
+  done
+  ISQ=$x
+  return 0
+}
+
+ui_land_frames() { # сколько кадров отвести на гашение текущего остатка пути
+  # Окно посадки берётся ОТ РАССТОЯНИЯ, а не постоянной: на фиксированной секунде
+  # лого с ближней точки приезжало за треть окна и остаток стояло - ровно то
+  # «подвисание», из-за которого переписывали движение. Вход в дугу держим около
+  # крейсерской скорости, отсюда множители: по колонкам ход 2 клетки за кадр,
+  # по строкам 1, а ease-out степени 1.5 стартует втрое-вчетверо от средней.
+  local dx dy n
+  dx=$(( (LAND_X - px) / 100 )); (( dx < 0 )) && dx=$(( -dx ))
+  dy=$(( (LAND_Y - py) / 100 )); (( dy < 0 )) && dy=$(( -dy ))
+  n=$(( dy * 2 )); (( dx > n )) && n=$dx
+  n=$(( n * 3 / 4 ))
+  (( n < 4 )) && n=4
+  # Потолок дуги. Упереться в него значит войти в дугу быстрее крейсера - рывок
+  # на входе. При 28 кадрах это ловилось уже на 200 колонках, при 40 запаса
+  # хватает до самых широких окон, а дуга не длиннее двух секунд.
+  (( n > 40 )) && n=40
+  LAND_N=$n
+  return 0
+}
+
+ui_clamp_speed() {
+  # Шаг больше хода по оси - лого перепрыгивает грань и в тесной рамке
+  # никогда на ней не оказывается. Подрезаем скорость под ход.
+  local a
+  a=${vx#-}; (( MAX_X100 > 0 && a > MAX_X100 )) && vx=$(( vx > 0 ? MAX_X100 : -MAX_X100 ))
+  a=${vy#-}; (( MAX_Y100 > 0 && a > MAX_Y100 )) && vy=$(( vy > 0 ? MAX_Y100 : -MAX_Y100 ))
+  return 0
+}
+
+ui_recolor() { # цвет лого; RGB держим отдельно - по ним идёт сведение на посадке
+  ui_hsv "$hue" 88 100
+  CR=$R; CG=$G; CB=$B
+  ui_fg "$CR" "$CG" "$CB"; CUR=$FGX
+  return 0
+}
+
+ui_build_status() { # $1 pct  $2 frame -> STATUS
+  local pct=$1 fr=$2
+  local filled=$(( pct * BAR_W / 100 ))
+  (( filled > BAR_W )) && filled=$BAR_W
+  (( filled < 0 )) && filled=0
+  local empty=$(( BAR_W - filled ))
+  local bar="${BAR_PRE[filled]}"
+  (( empty > 0 )) && bar+="${EMPTY_COL}${BAR_EMP[empty]}"
+
+  local sp=${SPIN[(fr / 2) % ${#SPIN[@]}]}
+  local left
+  if (( SHOW_VER )); then
+    left="${GREEN}${BOLD}${sp}${NC} torrcast  ${DIMG}version ${VERSION}${NC}"
+  else
+    left="${GREEN}${BOLD}${sp}${NC} torrcast"
+  fi
+  # Имя закрытой фазы - это и есть расшифровка полосы: видно, ЗА ЧТО насчитан
+  # процент. Имена фаз короткие и заданы тут же, длину никто не меряет: с
+  # выключенным автозаворотом лишнее обрежет край окна, а не перенос строки.
+  if (( TCOLS >= 70 )) && [ -n "$UI_PHASE" ]; then
+    left+="  ${DIMG}фаза ${UI_DONE}/${UI_TOTAL}: ${UI_PHASE}${NC}"
+  fi
+
+  local tail
+  printf -v tail '  %s%s%3d%%%s' "$GREEN" "$BOLD" "$pct" "$NC"
+
+  STATUS="${CSI}$(( UI_BASE + 2 ));1H${CSI}2K${left}"
+  STATUS+="${CSI}$(( UI_BASE + 3 ));1H${CSI}2K${DIMG}[${NC}${bar}${DIMG}]${NC}${tail}"
+  return 0
+}
+
+ui_render() { # $1 pct  $2 frame
+  local buf="$SYNC_ON" k
+  # Стираем ровно прошлый прямоугольник лого. Полная очистка нутра рамки
+  # каждый кадр - это и есть мерцание, которого тут быть не должно.
+  if (( prev_valid )); then
+    for (( k = 0; k < BANNER_H; k++ )); do
+      buf+="${CSI}$(( INNER_TOP + prev_y + k ));$(( INNER_LEFT + prev_x ))H${NC}${ERASE_SPAN}"
+    done
+  fi
+  local x=$(( px / 100 )) y=$(( py / 100 ))
+  buf+="$CUR"
+  for (( k = 0; k < BANNER_H; k++ )); do
+    buf+="${CSI}$(( INNER_TOP + y + k ));$(( INNER_LEFT + x ))H${BANNER[k]}"
+  done
+  prev_x=$x; prev_y=$y; prev_valid=1
+
+  ui_build_status "$1" "$2"
+  buf+="${NC}${STATUS}${SYNC_OFF}"
+  printf '%s' "$buf"
+  return 0
+}
+
+ui_draw_final() {
+  # Итоговый экран: лого уже стоит в FIN_TOP/FIN_BX и уже фирменного зелёного -
+  # посадка привела его именно туда. Дорисовываем справку, лого перерисовываем
+  # тем же цветом в те же клетки, поэтому стыка не видно вовсе.
+  local buf="$SYNC_ON" k
+  local -a cmds=() txts=()
+  case $HELP_TIER in
+    1) cmds=( "${FIN_CMD[@]}" );   txts=( "${FIN_TXT[@]}" ) ;;
+    2) cmds=( "${FIN_CMD_S[@]}" ); txts=( "${FIN_TXT_S[@]}" ) ;;
+    3) cmds=( "${FIN_CMD_M[@]}" ); txts=( "${FIN_TXT_M[@]}" ) ;;
+  esac
+
+  local blank; printf -v blank '%*s' "$INNER_W" ''
+  buf+="$NC"
+  for (( k = 0; k < INNER_H; k++ )); do
+    buf+="${CSI}$(( INNER_TOP + k ));${INNER_LEFT}H${blank}"
+  done
+  buf+="${BRAND}"
+  for (( k = 0; k < BANNER_H; k++ )); do
+    buf+="${CSI}$(( INNER_TOP + FIN_TOP + k ));$(( INNER_LEFT + FIN_BX ))H${BANNER[k]}"
+  done
+  for (( k = 0; k < HELP_H; k++ )); do
+    buf+="${CSI}$(( INNER_TOP + FIN_HY + k ));$(( INNER_LEFT + FIN_HX ))H"
+    buf+="${BRAND}${cmds[k]}${DIMW}${txts[k]}${NC}"
+  done
+  # Путь к журналу - последней строкой ВНУТРИ рамки, а не под ней. Под рамкой
+  # его пришлось бы печатать второй строкой после [OK], экран уехал бы на строку
+  # вверх и унёс верх рамки - ровно то, из-за чего итоговая строка одна.
+  if [ -n "$UI_JOURNAL_SHOW" ] && (( INNER_W >= 30 && FIN_HY + HELP_H < INNER_H - 1 )); then
+    buf+="${CSI}$(( INNER_TOP + INNER_H - 1 ));${INNER_LEFT}H${DIMW}журнал установки: ${UI_JOURNAL}${NC}"
+  fi
+  buf+="${NC}${CSI}$(( UI_BASE + 2 ));1H${CSI}2K${CSI}$(( UI_BASE + 3 ));1H${CSI}2K"
+  buf+="${CSI}$(( UI_BASE + 2 ));1H"
+  buf+="$SYNC_OFF"
+  printf '%s' "$buf"
+  return 0
+}
+
+NOW_MS=0
+ui_now_ms() { local t=${EPOCHREALTIME}; NOW_MS=$(( ${t%%[.,]*} * 1000 + 10#${t#*[.,]} / 1000 )); }
+
+# --- жизненный цикл терминала ---
+# Эхо на время анимации выключаем, а буфер ввода на выходе выгребаем. Иначе
+# всё, что владелец нажал за время заставки, вываливается на его приглашение
+# уже после выхода и выглядит как чужой недонабранный ввод.
+STTY_SAVED=''
+ui_tty_grab() {
+  [[ -r /dev/tty ]] || return 0
+  STTY_SAVED=$(stty -g < /dev/tty 2>/dev/null) || { STTY_SAVED=''; return 0; }
+  stty -echo -icanon min 0 time 0 < /dev/tty 2>/dev/null || :
+  return 0
+}
+ui_tty_release() {
+  [[ -n $STTY_SAVED ]] || return 0
+  local n=0
+  # min 0 time 0: read забирает то, что скопилось, и сразу возвращается ни с чем,
+  # когда очередь пуста. Счётчик - страховка от бесконечного цикла.
+  while (( n < 64 )) && read -r -t 0.02 -n 4096 _ < /dev/tty 2>/dev/null; do
+    n=$(( n + 1 ))
+  done
+  stty "$STTY_SAVED" < /dev/tty 2>/dev/null || :
+  STTY_SAVED=''
+  return 0
+}
+
+UI_CLEANED=0
+ui_cleanup() {
+  (( UI_CLEANED )) && return 0
+  UI_CLEANED=1
+  printf '%s' "${SYNC_OFF}${SHOW}${WRAP_ON}${NC}"
+  ui_tty_release
+  # 🔴 Работника не бросаем. По Ctrl-C установка обязана остановиться вместе с
+  # заставкой: иначе она доделается втихую на уже отпущенном терминале, поверх
+  # приглашения владельца, и он об этом не узнает. Сторож-обёртка ловит TERM и
+  # добивает подоболочку установки вместе с её фоновыми заданиями; чужие
+  # долгие внуки (curl, apt) досидят до своего таймаута - дальше нашей рукой
+  # не достать, и это честнее, чем kill по маске имени.
+  if [ -n "$UI_WORKER" ] && (( ! UI_ENDED )); then
+    kill -TERM "$UI_WORKER" 2>/dev/null || :
+  fi
+  # Экран не трём: на нём осталась справка, ради которой всё и затевалось.
+  return 0
+}
+
+ui_apply_layout() {
+  ui_layout
+  ui_build_bar_cache
+  ui_recolor
+  printf -v ERASE_SPAN '%*s' "$BANNER_W" ''
+  (( px > MAX_X100 )) && px=$MAX_X100
+  (( py > MAX_Y100 )) && py=$MAX_Y100
+  (( px < 0 )) && px=0
+  (( py < 0 )) && py=0
+  ui_clamp_speed
+  LAND_X=$(( FIN_BX * 100 )); LAND_Y=$(( FIN_TOP * 100 ))
+  # Размер сменили посреди посадки - перецепляем её к текущей точке, конец
+  # всё равно придётся на новый центр.
+  landing=0
+  prev_valid=0
+  ui_draw_border
+  return 0
+}
+
+ERASE_SPAN=''
+LAND_X=0; LAND_Y=0; landing=0; LAND_N=10; LAND_MS=1; land_ms=0; ISQ=0
+sweeping=0; col_ms=0; COL_MS=520; sr0=0; sg0=0; sb0=0
+lx0=0; ly0=0
+end_ms=0; frame=0; STATUS=''
+NEED_RESIZE=0
+
+# Пауза без форка: read с таймаутом по дескриптору, где никогда не будет байт.
+SLEEPFD=''
+ui_nap() { # $1 - миллисекунды
+  local ms=$1 s
+  (( ms <= 0 )) && return 0
+  printf -v s '%d.%03d' $(( ms / 1000 )) $(( ms % 1000 ))
+  if [[ -n $SLEEPFD ]]; then
+    read -t "$s" -u "$SLEEPFD" -r _ 2>/dev/null
+  else
+    sleep "$s"
+  fi
+  return 0
+}
+
+ui_open_sleepfd() {
+  # 🔴 TC-885. Скобки тут не для красоты. У `exec` БЕЗ команды перенаправление
+  # становится постоянным для всей оболочки, поэтому `exec ... 2>/dev/null`
+  # (так было в референсе, и там это ничего не стоило) навсегда уводил stderr
+  # УСТАНОВКИ в /dev/null - вместе с каждым `die` и `loud`. Ровно тот молча
+  # проглоченный `die`, против которого поставлена вся эта глава. Куплено
+  # прогоном на чистом стенде: установка обрывалась на 2 фазе из 12 и не
+  # говорила ни слова. Группа `{ ...; }` глушит только сам `exec`, а stderr
+  # оболочки остаётся на терминале.
+  { exec {SLEEPFD}<> <(:); } 2>/dev/null || SLEEPFD=''
+  # Проверяем, что пауза действительно ждёт. Если дескриптор отдаёт EOF сразу,
+  # цикл превратится в busy-loop на всю длительность - уходим на sleep.
+  local t0
+  ui_now_ms; t0=$NOW_MS
+  ui_nap 100
+  ui_now_ms
+  (( NOW_MS - t0 < 50 )) && SLEEPFD=''
+  return 0
+}
+
+# --- канал прогресса на стороне рисовалки ------------------------------------
+UI_TOTAL=0; UI_DONE=0; UI_PHASE=''
+UI_WARN=(); UI_WARN_H=0; UI_WARN_MORE=0
+UI_DIED=0; UI_ENDED=0; UI_RC=0
+#: Текст `die` держим отдельно от журнала НАМЕРЕННО. Фазы идут фоном, и своё
+#: «ошибка: ...» такая фаза пишет в журнал СВОЕГО задания; в общий журнал он
+#: выливается только когда до неё доберётся `job_wait`. Развал наступает раньше,
+#: поэтому опора на журнал дала бы экран без причины - ровно проглоченный `die`.
+UI_DIE_MSG=''
+#: Сколько ждём работника после `die`, прежде чем разваливать анимацию. Не ради
+#: полосы, а ради строк: за эту паузу `job_wait` успевает вылить журнал задания.
+UI_DIE_GRACE=2500
+UI_WORKER=''; UI_JOURNAL=''; UI_JOURNAL_SHOW=''; UI_CFD=0
+
+#: Все фазы, которые установка умеет закрывать. Из них берётся ЗНАМЕНАТЕЛЬ:
+#: сколько включено в PHASES, столько и делений у полосы. Считаем по этому
+#: списку, а не по словам в PHASES: чужое слово в TORRCAST_PHASES раздуло бы
+#: знаменатель, и полоса не добралась бы до конца на честной установке.
+UI_ALL_PHASES='locale packages ffmpeg torrcast torrserver sources prowlarr indexers config hls receiver facts'
+
+ui_count_phases() {
+  local p
+  UI_TOTAL=0
+  for p in $UI_ALL_PHASES; do
+    has "$p" && UI_TOTAL=$(( UI_TOTAL + 1 ))
+  done
+  (( UI_TOTAL < 1 )) && UI_TOTAL=1
+  return 0
+}
+
+ui_note() {  # $1 - строка `loud`; в ленту под рамкой
+  if (( UI_WARN_H < UI_WARN_MAX )); then
+    UI_WARN[UI_WARN_H]="$1"
+    UI_WARN_H=$(( UI_WARN_H + 1 ))
+  else
+    # Лента не растёт дальше: рамка тут дороже. Первые строки - причины,
+    # поздние обычно их следствия, поэтому держим первые, а про остальные
+    # говорим числом. Целиком они всё равно в журнале.
+    UI_WARN_MORE=$(( UI_WARN_MORE + 1 ))
+    UI_WARN[UI_WARN_MAX - 1]="и ещё $UI_WARN_MORE строк - все в журнале"
+  fi
+  NEED_RESIZE=1
+  return 0
+}
+
+ui_drain() {  # вычитать всё, что приехало в канал; без единого форка
+  local line tag rest
+  while IFS= read -r -u "$UI_CFD" line; do
+    tag=${line%% *}; rest=${line#* }
+    case $tag in
+      P) UI_DONE=$(( UI_DONE + 1 )); UI_PHASE=$rest ;;
+      W) ui_note "$rest" ;;
+      D) UI_DIED=1; UI_DIE_MSG=$rest ;;
+      E) UI_RC=$rest; UI_ENDED=1 ;;
+    esac
+  done
+  return 0
+}
+
+ui_spawn() {  # $1 - имя функции-работника
+  local what="$1"
+  (
+    # 🔴 Внутренний форк уходит под ЖИВЫМ errexit: рисовалка снимает `-e` только
+    # у себя и только ПОСЛЕ этого места. Сторож ниже снимает `-e` себе, иначе
+    # `wait` с ненулевым кодом убил бы его раньше строки «E» и рисовалка ждала
+    # бы конца, о котором ей никто не скажет. Ни одного `||` вокруг самой
+    # установки: он выключил бы errexit на всю её глубину (TC-638).
+    local inner
+    "$what" >"$UI_JOURNAL" 2>&1 </dev/null &
+    inner=$!
+    trap 'kill -TERM "$inner" 2>/dev/null || :; pkill -TERM -P "$inner" 2>/dev/null || :; exit 143' TERM
+    set +e
+    wait "$inner"
+    printf 'E %s\n' "$?" >>"$UI_CHANNEL"
+  ) &
+  UI_WORKER=$!
+  return 0
+}
+
+ui_dry_worker() {
+  # Холостая подача. Настоящих фаз нет, но КАНАЛ тот же, `phase_done` тот же и
+  # знаменатель тот же, поэтому покадровый прибор меряет ровно тот тракт,
+  # который потом работает на боевой установке, а не отдельную рисовалку.
+  local i ms s
+  ms=$(( UI_DRY_MS / UI_TOTAL ))
+  (( ms < 1 )) && ms=1
+  for (( i = 1; i <= UI_TOTAL; i++ )); do
+    printf -v s '%d.%03d' $(( ms / 1000 )) $(( ms % 1000 ))
+    sleep "$s"
+    phase_done "проба $i"
+  done
+  return 0
+}
+
+ui_die_settle() {  # после `die` дать работнику досказать, но не ждать вечно
+  local deadline
+  ui_now_ms; deadline=$(( NOW_MS + UI_DIE_GRACE ))
+  while (( ! UI_ENDED )); do
+    ui_now_ms
+    (( NOW_MS >= deadline )) && break
+    ui_nap 40
+    ui_drain
+  done
+  return 0
+}
+
+ui_collapse() {  # анимация разваливается: показать журнал целиком
+  ui_cleanup
+  # 🔴 Тут экран трём НАМЕРЕННО, в отличие от удачного выхода. Справки не будет,
+  # а недорисованный кадр под журналом прятал бы причину: анимация не вправе
+  # съесть строку ошибки, и последнее, что видит владелец, обязано быть ею.
+  printf '%s' "${CLEAR}${HOME_POS}"
+  [ -s "$UI_JOURNAL" ] && cat "$UI_JOURNAL"
+  if (( UI_DIED )); then
+    # Причина печатается ВСЕГДА и последней строкой, даже если она уже есть в
+    # журнале выше: журнал может быть обрезан на полуслове, а спрятать причину
+    # анимация не вправе.
+    printf '%sошибка:%s %s\n' "${CSI}31m" "$NC" "$UI_DIE_MSG" >&2
+  else
+    # Работник упал не через `die` (голый errexit, сигнал, недобранная фаза) -
+    # молчать про это нельзя тем более.
+    printf '%sошибка:%s установка оборвалась (код %s, закрыто фаз %s из %s) - причина в строках выше\n' \
+      "${CSI}31m" "$NC" "$UI_RC" "$UI_DONE" "$UI_TOTAL" >&2
+  fi
+  return 0
+}
+
+ui_trace() {  # $1.. - строка в след, если след включён; чем меряется полоса
+  [ -n "$UI_TRACE" ] || return 0
+  printf '%s %s\n' "$NOW_MS" "$*" >>"$UI_TRACE" 2>/dev/null || :
+  return 0
+}
+
+UI_TRACE="${TORRCAST_UI_TRACE:-}"
+UI_DRY_MS=0
+
+ui_run() {  # $1 - dry|real, $2 - секунды для dry
+  local mode="$1"
+  ui_version
+  ui_pick_color
+  ui_palette
+  ui_count_phases
+
+  UI_CHANNEL="$(mktemp -t torrcast-ui.XXXXXX)"
+  UI_JOURNAL="${TORRCAST_INSTALL_LOG:-$(mktemp -t torrcast-install.XXXXXX)}"
+  : >"$UI_CHANNEL"
+  : >"$UI_JOURNAL"
+
+  if [[ $mode == dry ]]; then
+    local dur=${2:-$DEFAULT_DURATION}
+    [[ $dur =~ ^[0-9]+$ ]] && (( dur >= 1 )) || dur=$DEFAULT_DURATION
+    (( dur > 3600 )) && dur=3600
+    UI_DRY_MS=$(( dur * 1000 - UI_LAND_RESERVE_MS ))
+    (( UI_DRY_MS < dur * 300 )) && UI_DRY_MS=$(( dur * 300 ))
+  else
+    UI_JOURNAL_SHOW=1
+  fi
+
+  # Работник форкается ДО того, как рисовалка снимет с себя errexit.
+  if [[ $mode == dry ]]; then ui_spawn ui_dry_worker; else ui_spawn main; fi
+
+  # 🔴 `set -e` в цикле рендера вреден: цикл состоит из (( )) и read -t, которые
+  # штатно возвращают ненулевой код (значение выражения 0 либо таймаут чтения).
+  # С -e рисовалка падала бы на ровном месте. Установка при этом идёт в своей
+  # подоболочке под живым errexit - снятие -e тут её не касается.
+  set +e
+
+  exec {UI_CFD}<"$UI_CHANNEL"
+
+  ui_tty_grab
+  trap ui_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'NEED_RESIZE=1' WINCH
+
+  printf '%s' "${HIDE}${WRAP_OFF}${CLEAR}${HOME_POS}"
+  ui_apply_layout
+  px=$(( MAX_X100 / 3 )); py=$(( MAX_Y100 / 3 ))
+  ui_open_sleepfd
+
+  ui_now_ms
+  local deadline=$NOW_MS pct
+  local bounced lt lu le ct cu ce
+  local last=0
+  frame=0
+
+  while :; do
+    if (( NEED_RESIZE )); then
+      NEED_RESIZE=0
+      printf '%s' "${CLEAR}${HOME_POS}"
+      ui_apply_layout
+    fi
+
+    ui_drain
+    if (( UI_DIED )); then
+      ui_die_settle
+      ui_collapse
+      # 🔴 Ноль тут был бы зелёным враньём, и `${UI_RC:-1}` от него НЕ спасает:
+      # `:-` подменяет пустоту, а `UI_RC` инициализирован нулём. Куплено прогоном
+      # на чистом стенде: фоновая фаза умерла через `die`, `main` ещё стоял на её
+      # `job_wait` и доложиться не успел - оборванная установка вернула ssh 0.
+      (( UI_ENDED && UI_RC != 0 )) && return "$UI_RC"
+      return 1
+    fi
+
+    ui_now_ms
+    if (( landing )); then
+      (( NOW_MS >= end_ms )) && last=1
+    elif (( UI_ENDED )); then
+      # Работа кончилась - только теперь конец подачи известен. У боевой
+      # установки его заранее не знает никто, поэтому посадка не вписывается в
+      # отведённое время (так делал референс по своим часам), а НАЧИНАЕТСЯ от
+      # события «все фазы закрыты» и длится ровно столько, сколько нужно дуге.
+      if (( UI_RC != 0 && UI_RC != EXIT_CATALOG_CUT )) || (( UI_DONE < UI_TOTAL )); then
+        # Работник кончился, а установка не доделана. Показать тут справку
+        # значило бы соврать зелёным экраном; разваливаемся и показываем журнал.
+        ui_collapse; return "$UI_RC"
+      fi
+      ui_land_frames
+      landing=1
+      # Отсчёт цепляем к ПРЕДЫДУЩЕМУ кадру, иначе первый кадр посадки выпадает
+      # на lt=0 и лого разок стоит на месте.
+      land_ms=$(( NOW_MS - FRAME_MS ))
+      end_ms=$(( NOW_MS + LAND_N * FRAME_MS ))
+      LAND_MS=$(( end_ms - land_ms ))
+      (( LAND_MS < FRAME_MS )) && LAND_MS=$FRAME_MS
+      lx0=$px; ly0=$py
+      # Цвет сводится к фирменному по своему окну, но не длиннее дуги: иначе на
+      # короткой дуге сведение не успевало бы, и стык с итоговым экраном
+      # пришлось бы гасить рывком.
+      COL_MS=520
+      (( COL_MS > LAND_MS )) && COL_MS=$LAND_MS
+      col_ms=$(( end_ms - COL_MS ))
+    fi
+
+    if (( ! sweeping )) && (( landing )) && (( NOW_MS >= col_ms )); then
+      sweeping=1
+      sr0=$CR; sg0=$CG; sb0=$CB
+    fi
+
+    if (( landing )); then
+      # Посадка. В конце лого не отскакивает, а по замедляющейся дуге сходится
+      # ровно в ту клетку, где останется на итоговом экране, и заодно сводит
+      # свой цвет к фирменному зелёному. ease-out степени 1.5: на входе
+      # скорость близка к крейсерской, на выходе ноль, поэтому остановка
+      # читается как торможение, а не как обрыв. Цель берётся из раскладки, так
+      # что она верна для любого размера окна, а не подогнана под один.
+      lt=$(( (NOW_MS - land_ms) * 1000 / LAND_MS ))
+      (( lt > 1000 )) && lt=1000
+      (( lt < 0 )) && lt=0
+      lu=$(( 1000 - lt ))
+      # ease-out степени 1.5: le = 1 - (1-t)^1.5, в целых через корень.
+      # Кубический тормозил слишком рано и оставлял десяток стоячих кадров в конце.
+      ui_isqrt $(( lu * 1000 ))
+      le=$(( 1000 - lu * ISQ / 1000 ))
+      px=$(( lx0 + (LAND_X - lx0) * le / 1000 ))
+      py=$(( ly0 + (LAND_Y - ly0) * le / 1000 ))
+    else
+    # Шаг с посадкой НА стену, а не отражением от неё. Зеркальное отражение
+    # уводило лого на долю клетки назад, и кадр удара доставался старому цвету -
+    # ровно то, из-за чего первый удар выглядел «без смены цвета». В узкой рамке
+    # оно вдобавок ни разу не попадало в крайнюю клетку и лого казалось стоячим.
+    # Здесь лого ровно один кадр стоит на грани и уже новым цветом: цвет меняем
+    # ДО отрисовки этого же кадра.
+    bounced=0
+    if (( MAX_X100 > 0 )); then
+      px=$(( px + vx ))
+      if   (( px >= MAX_X100 )); then px=$MAX_X100; vx=$(( -vx )); bounced=1
+      elif (( px <= 0 ));        then px=0;         vx=$(( -vx )); bounced=1
+      fi
+    fi
+    if (( MAX_Y100 > 0 )); then
+      py=$(( py + vy ))
+      if   (( py >= MAX_Y100 )); then py=$MAX_Y100; vy=$(( -vy )); bounced=1
+      elif (( py <= 0 ));        then py=0;         vy=$(( -vy )); bounced=1
+      fi
+    fi
+    if (( bounced && ! sweeping )); then hue=$(( (hue + 79) % 360 )); ui_recolor; fi
+    fi
+
+    if (( sweeping )); then
+      # Сведение цвета к фирменному зелёному той же кривой, что и подход: к концу
+      # прогона лого уже ровно того цвета, каким его нарисует итоговый экран,
+      # поэтому стыка между анимацией и справкой не видно.
+      ct=$(( (NOW_MS - col_ms) * 1000 / COL_MS ))
+      (( ct > 1000 )) && ct=1000
+      (( ct < 0 )) && ct=0
+      cu=$(( 1000 - ct ))
+      ui_isqrt $(( cu * 1000 ))
+      ce=$(( 1000 - cu * ISQ / 1000 ))
+      # 🔴 Внутри цикла цвет НЕ доводится до фирменного до конца: последний шаг
+      # к нему делает только кадр посадки. Без этой отсечки последний кадр дуги
+      # и кадр посадки округлялись в один и тот же цвет всякий раз, когда
+      # джиттер ставил их вплотную, а место к тому времени уже занято, - и
+      # выходил мёртвый хвост. Ждать, что джиттер не придёт, нельзя: land.py
+      # краснел то на 300x50, то на 60x20, то на 24x9, каждый прогон на новом
+      # размере. 950 берётся из арифметики, а не на глаз: насыщенность 88 при
+      # яркости 100 держит каждый канал в 30..255, поэтому канал R отстоит от
+      # фирменного нуля не меньше чем на 30, и 5 % остатка - это не меньше
+      # единицы даже при самом близком к зелёному оттенке.
+      (( ce > 950 )) && ce=950
+      CR=$(( sr0 + (BR_R - sr0) * ce / 1000 ))
+      CG=$(( sg0 + (BR_G - sg0) * ce / 1000 ))
+      CB=$(( sb0 + (BR_B - sb0) * ce / 1000 ))
+      ui_fg "$CR" "$CG" "$CB"; CUR=$FGX
+    fi
+
+    if (( last )); then
+      # 🔴 Итоговое состояние - место посадки, фирменный цвет и сотня - рисуется
+      # РОВНО одним кадром, и этот кадр последний в дуге, а не добавочный за
+      # циклом. Добавочный совпадал с последним кадром дуги всякий раз, когда
+      # джиттер ставил тот вплотную к концу окна: лого два кадра подряд стояло
+      # на месте и уже зелёное. Куплено прогоном land.py: 100x30 и 200x40
+      # краснели «мёртвых 1» через раз, а 300x50 краснел не всегда - плавающая
+      # краснота и есть подпись джиттера.
+      px=$LAND_X; py=$LAND_Y
+      CR=$BR_R; CG=$BR_G; CB=$BR_B; ui_fg "$CR" "$CG" "$CB"; CUR=$FGX
+    fi
+
+    # 🔴 Единственный источник процента - закрытые фазы. Ни часов, ни оценок,
+    # ни сглаживания: цена деления 1/N, и промежуточных значений у полосы нет.
+    # Сотню держим до конца работы: 100 % рисуется ОДИН раз, уже после того,
+    # как работник сказал «кончил», - последним кадром дуги.
+    pct=$(( UI_DONE * 100 / UI_TOTAL ))
+    (( pct > 99 )) && pct=99
+    (( last )) && pct=100
+
+    ui_render "$pct" "$frame"
+    ui_trace "FRAME pct=$pct done=$UI_DONE total=$UI_TOTAL"
+    (( last )) && break
+
+    frame=$(( frame + 1 ))
+    deadline=$(( deadline + FRAME_MS ))
+    ui_now_ms
+    # Кадр не успел - не копим долг, иначе после лага пойдёт очередь мгновенных
+    # кадров и лого дёрнется через полэкрана.
+    (( deadline < NOW_MS )) && deadline=$NOW_MS
+    ui_nap $(( deadline - NOW_MS ))
+  done
+
+  # Кадр посадки держится на экране паузой, а не повторной отрисовкой: повтор
+  # был бы тем самым мёртвым кадром.
+  ui_nap 350
+  ui_draw_final
+
+  # Строка не должна переноситься: перенос выталкивает верх рамки за экран
+  # и справка, ради которой всё затевалось, уезжает вверх.
+  if (( TCOLS >= 44 )); then
+    printf '%s%s[OK]%s torrcast %s installed successfully.\n' "$BRAND" "$BOLD" "$NC" "$VERSION"
+  else
+    printf '%s%s[OK]%s torrcast %s\n' "$BRAND" "$BOLD" "$NC" "$VERSION"
+  fi
+  ui_cleanup
+  rm -f "$UI_CHANNEL"
+  return "$UI_RC"
+}
+
+# --- Точка входа -------------------------------------------------------------
+# Три ветки, и все три обязаны работать.
+#  * голое число первым аргументом - ХОЛОСТАЯ подача на столько секунд. Ничего
+#    не ставится, но канал прогресса, знаменатель, полоса, посадка и справка
+#    идут ТЕМ ЖЕ кодом, что и на боевой установке: отличается только работник,
+#    который вместо фаз спит. Этим прогоняется покадровый прибор (check.py):
+#    настоящая установка в 12 секунд не укладывается, а мерить подачу надо тем
+#    кодом, который потом работает, а не отдельной рисовалкой.
+#  * не терминал либо TORRCAST_PLAIN - установка лентой «==>», как была. Важно
+#    для ssh из скрипта и для CI: рисовать там некуда, а ставить надо.
+#  * иначе - установка под заставкой.
+if [[ ${1:-} =~ ^[0-9]+$ ]]; then
+    if [[ ! -t 1 ]]; then
+        # Не терминал - анимировать некуда и незачем, отдаём две строки текста.
+        ui_version
+        printf 'torrcast %s: installing...\n' "$VERSION"
+        printf '[OK] torrcast installed successfully.\n'
+        exit 0
+    fi
+    ui_run dry "$1"
+elif [[ -t 1 && -z ${TORRCAST_PLAIN:-} ]]; then
+    ui_run real
+else
+    main "$@"
+fi
