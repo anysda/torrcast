@@ -412,6 +412,17 @@ def russian_product() -> None:
     _choose_tongue(RU)
 
 
+@pytest.fixture
+def english() -> None:
+    """Язык продукта под этим тестом - английский; после теста язык вернёт :func:`_same_tongue`.
+
+    Ставится он тем же держателем, что и в бою (:mod:`torrcast.domain.catalogs.tongue`), а
+    не подменой настройки: настройка лежит в файле, общем на всю машину, и трогать его
+    ради одного теста значило бы шуметь соседям.
+    """
+    _choose_tongue(EN)
+
+
 @pytest.fixture(autouse=True)
 def _pretend_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     """Под pytest терминала нет, а вопросы проверять надо.

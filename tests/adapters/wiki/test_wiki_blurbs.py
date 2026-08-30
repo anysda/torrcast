@@ -40,7 +40,7 @@ def _extracts(
     set[tuple[str, int | None]],
 ]:
     candidates, payload, answered = wiki_extracts(client, wanted, timeout)
-    about, entities = _read_pages(payload, candidates)
+    about, entities, _ = _read_pages(payload, candidates)
     return about, entities, answered
 
 

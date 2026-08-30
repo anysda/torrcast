@@ -14,6 +14,7 @@ from torrcast.domain.facts.cache_rows import (
 )
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.catalogs.tongue import tongue
 from torrcast.ports.json_store import JsonStore
 
 
@@ -39,8 +40,13 @@ class FactsFileCache:
         self.store.write(raw)
 
     def blurbs(self, wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
-        """Что уже лежит на диске и ещё не протухло; за остальным пойдут в сеть."""
-        return _cached_facts(self.store.read(), wanted, self.now())
+        """Что уже лежит на диске и ещё не протухло; за остальным пойдут в сеть.
+
+        Язык продукта спрашивается тут, а не хранится: полка общая на все языки, и ряд
+        берётся с той её части, на которой говорит нынешний прогон
+        (:func:`~torrcast.domain.facts.cache_rows._key`).
+        """
+        return _cached_facts(self.store.read(), wanted, self.now(), tongue())
 
     def remember(
         self,
@@ -52,5 +58,5 @@ class FactsFileCache:
         if not found and not blanks:
             return
         raw = self.store.read()
-        raw.update(_fact_rows(found, blanks, int(self.now())))
+        raw.update(_fact_rows(found, blanks, int(self.now()), tongue()))
         self.store.write(raw)

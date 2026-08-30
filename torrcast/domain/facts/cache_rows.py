@@ -14,10 +14,19 @@ from torrcast.domain.facts.minutes_of import minutes_of
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import EMPTY_TTL, FACTS_RULES, RUNTIME_CAP_MINUTES
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.catalogs.tongue import RU
 
 
-def _key(title: str, year: int | None) -> str:
-    return f"{title}|{year if year is not None else ''}"
+def _key(title: str, year: int | None, language: str = RU) -> str:
+    """Ряд справки на полке; у каждого языка продукта своя полка, у русского - прежняя.
+
+    🔴 Ключ русского ряда не сдвигается ни на символ, и это не косметика: полка общая и
+    уже лежит у людей, а сдвинь его - и всё накопленное разом станет промахом. Чужой язык
+    приписывается спереди, потому что описание у него другое: положи их в один ряд, и
+    прогон под ``--en`` затирал бы русскую справку, а следующий русский - английскую.
+    """
+    shelf = "" if language == RU else f"{language}|"
+    return f"{shelf}{title}|{year if year is not None else ''}"
 
 
 def _origin_key(title: str, series: bool | None) -> str:
@@ -74,7 +83,10 @@ def _origin_row(found: Origin) -> dict[str, JsonValue]:
 
 
 def _cached_facts(
-    raw: Mapping[str, JsonValue], wanted: list[tuple[str, int | None]], now: float
+    raw: Mapping[str, JsonValue],
+    wanted: list[tuple[str, int | None]],
+    now: float,
+    language: str = RU,
 ) -> dict[tuple[str, int | None], Fact]:
     """Что из лежащего на диске годится сейчас. Битый ряд — как пустой: спросим сеть.
 
@@ -93,7 +105,7 @@ def _cached_facts(
     """
     out: dict[tuple[str, int | None], Fact] = {}
     for key in wanted:
-        row = raw.get(_key(*key))
+        row = raw.get(_key(*key, language))
         if not isinstance(row, dict):
             continue
         if row.get("rules") != FACTS_RULES:
@@ -117,6 +129,7 @@ def _fact_rows(
     found: dict[tuple[str, int | None], Fact],
     misses: list[tuple[str, int | None]],
     now: int,
+    language: str = RU,
 ) -> dict[str, JsonValue]:
     """Итог похода в ряды кэша; ничего не добыто и не опровергнуто — писать нечего.
 
@@ -131,14 +144,14 @@ def _fact_rows(
     """
     rows: dict[str, JsonValue] = {}
     for key, fact in found.items():
-        rows[_key(*key)] = {
+        rows[_key(*key, language)] = {
             "about": fact.about,
             "rating": fact.rating,
             "runtime": fact.runtime,
             "rules": FACTS_RULES,
         }
     for key in misses:
-        rows[_key(*key)] = {
+        rows[_key(*key, language)] = {
             "about": "",
             "rating": "",
             "runtime": "",

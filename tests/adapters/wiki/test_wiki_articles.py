@@ -5,14 +5,17 @@ import time
 from typing import Any
 
 from tests import thread_guard
-from tests.articles import LAIN, page, wiki_reply
+from tests.articles import CARS, LAIN, page, wiki_reply
 from tests.fakes.date_source import FakeDateSource
 from tests.fakes.json_client import FakeJsonClient
 from tests.fakes.name_catalogue import FakeNameCatalogue
 from tests.fakes.origin_store import FakeOriginStore
+from torrcast.adapters.wiki.endpoints import WIKI_HOST
 from torrcast.adapters.wiki.wiki_articles import WikiArticles
 from torrcast.adapters.wiki.wiki_spelling import WikiSpelling
+from torrcast.domain.alt_query import alt_query
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.usecases.passport import Passport
 
 
@@ -114,3 +117,31 @@ def test_the_two_step_wave_is_closed_by_the_one_who_raised_it() -> None:
     left = thread_guard.alive() - before
     assert not left, f"нитки закрыл тот, кто их поднял, а живыми осталось {len(left)}: {left}"
     assert time.monotonic() - started >= 1.0, "ответ отдан после закрытия, а не вместо него"
+
+
+def test_the_product_language_does_not_move_the_tracker_query() -> None:
+    """🔴 Под --en запрос к трекеру обязан совпасть с запросом под --ru ПОСИМВОЛЬНО.
+
+    Имя для второго захода растёт из паспорта (:func:`english_title`), а паспорт читается
+    из русской Википедии. Уведи его вслед за языком продукта - и поменяется НЕ подпись на
+    экране, а строка, которой спрашивают раздачи: зритель под английским языком получил бы
+    другую выдачу и другую картину. Поэтому сверяется тут не «поиск работает», а две
+    строки запроса и хост, у которого спрошен паспорт.
+    """
+
+    def wiki(host: str, path: str, params: dict[str, str]) -> Any:
+        return {"query": {"pages": [page("Тачки", CARS, english="Cars (film)")]}}
+
+    def asked(language: str) -> tuple[str, set[str]]:
+        _choose_tongue(language)
+        client = FakeJsonClient(wiki)
+        found = _articles(client, FakeNameCatalogue()).look("Тачки", False, 1.0)
+        return alt_query("тачки", [], found.title, found.name), {
+            host for host, _path, _params in client.calls
+        }
+
+    russian = asked(RU)
+    english = asked(EN)
+
+    assert english[0] == russian[0] == "Cars"
+    assert english[1] == russian[1] == {WIKI_HOST}

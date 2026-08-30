@@ -13,6 +13,7 @@ from torrcast.adapters.wiki.endpoints import (
     WIKIDATA_HOST,
     WIKIDATA_PATH,
 )
+from torrcast.adapters.wiki.spoken_blurbs import spoken_blurbs
 from torrcast.adapters.wiki.wiki_extracts import wiki_extracts
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.hms import hms
@@ -102,7 +103,8 @@ class WikiBlurbs:
             [reader], time.monotonic() + timeout, lambda: (dict(scores), dict(local_ids))
         )
         scores, local_ids = in_time
-        about, entities = _read_pages(payload, candidates, set(local_ids), kinds)
+        about, entities, linked = _read_pages(payload, candidates, set(local_ids), kinds)
+        about, answered = spoken_blurbs(self.client, about, linked, answered, timeout)
         if ready is not None:
             ready(
                 {

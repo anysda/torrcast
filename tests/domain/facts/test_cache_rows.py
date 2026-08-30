@@ -170,3 +170,30 @@ def test_a_believable_running_time_stays_on_the_row() -> None:
     assert _cached_facts(raw, [("Оппенгеймер", 2023)], time.time()) == {
         ("Оппенгеймер", 2023): Fact(runtime="3 ч")
     }
+
+
+def test_the_russian_shelf_keeps_the_key_it_always_had() -> None:
+    """🔴 Сдвинь ключ русского ряда - и всё накопленное у людей разом станет промахом."""
+    assert _key("Тачки", 2006) == "Тачки|2006"
+    assert _key("Тачки", None) == "Тачки|"
+    assert _key("Тачки", 2006, "ru") == "Тачки|2006"
+
+
+def test_each_language_gets_its_own_shelf() -> None:
+    """Описания у языков разные: в одном ряду они затирали бы друг друга через прогон."""
+    assert _key("Тачки", 2006, "en") != _key("Тачки", 2006)
+
+
+def test_a_russian_row_is_not_read_as_an_english_one() -> None:
+    """Иначе под --en с полки поднималось бы русское описание - и без всякой сети."""
+    raw: dict[str, Any] = {_key("Тачки", 2006): {"about": "русское описание", "rules": FACTS_RULES}}
+    assert _cached_facts(raw, [("Тачки", 2006)], time.time(), "en") == {}
+    assert _cached_facts(raw, [("Тачки", 2006)], time.time())[("Тачки", 2006)].about == (
+        "русское описание"
+    )
+
+
+def test_an_english_walk_writes_to_the_english_shelf() -> None:
+    """Записанное под чужим языком не вправе подменить русский ряд на диске."""
+    rows = _fact_rows({("Тачки", 2006): Fact(about="an english blurb")}, [], 0, "en")
+    assert list(rows) == [_key("Тачки", 2006, "en")]

@@ -6,6 +6,7 @@ from collections.abc import Mapping, Set
 
 from torrcast.domain.facts.article_gate import _fits_type
 from torrcast.domain.facts.confirms import confirms
+from torrcast.domain.facts.linked_title import linked_title
 from torrcast.domain.facts.wiki_pages import wiki_pages
 from torrcast.domain.facts.wiki_reply import _article
 from torrcast.domain.json_map import json_map
@@ -17,8 +18,12 @@ def _read_pages(
     candidates: dict[tuple[str, int | None], list[str]],
     confirmed: Set[tuple[str, int | None]] = frozenset(),
     kinds: Mapping[tuple[str, int | None], str] | None = None,
-) -> tuple[dict[tuple[str, int | None], str], dict[tuple[str, int | None], str]]:
-    """Разобрать ответ Википедии: кандидат → статья → описание и Q-идентификатор.
+) -> tuple[
+    dict[tuple[str, int | None], str],
+    dict[tuple[str, int | None], str],
+    dict[tuple[str, int | None], str],
+]:
+    """Разобрать ответ Википедии: кандидат → статья, её описание, Q-код и чужой заголовок.
 
     Запрошенное имя и заголовок статьи — не одно и то же: API нормализует регистр и ведёт
     по перенаправлениям, и «Моана (мультфильм)» вполне может ответить статьёй с другим
@@ -38,10 +43,17 @@ def _read_pages(
     подсказывается он сюда (``kinds``); года справке НЕ подсказывают - он подтвердит ровно
     ту подмену, которую должен ловить. Тип не назван или назван «other» - сверять нечем,
     и гейт молчит, как молчит он и на статье, не назвавшей своего типа.
+
+    Третьим ответом едет межъязыковой заголовок принятой статьи
+    (:func:`linked_title`) - адрес той же картины в чужой Википедии. Берётся он тут, а не
+    вторым проходом по ответу, ровно по одной причине: принятая статья выбрана здешними
+    гейтами, и второй проход обязан был бы повторить их все, чтобы не разойтись с первым.
+    Ссылка едет тем же запросом и стоит ноль; кому она не нужна, тот её не читает.
     """
     hops, pages = wiki_pages(payload)
     about: dict[tuple[str, int | None], str] = {}
     entities: dict[tuple[str, int | None], str] = {}
+    linked: dict[tuple[str, int | None], str] = {}
     for key, names in candidates.items():
         for name in names:
             page = _article(name, hops, pages)
@@ -60,11 +72,13 @@ def _read_pages(
             if not confirms(extract, key[1]) and not exact:
                 continue
             about[key] = extract
+            if linked_here := linked_title(page):
+                linked[key] = linked_here
             props = json_map(page.get("pageprops"))
             if props.get("wikibase_item"):
                 entities[key] = str(props["wikibase_item"])
             break
-    return about, entities
+    return about, entities, linked
 
 
 def _asked_series(kind: str) -> bool | None:
