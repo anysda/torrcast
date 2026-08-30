@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from torrcast.domain._media_picture import _MediaPicture
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
+from torrcast.domain.catalogs.tongue import tongue
 from torrcast.domain.voice_order import voice_order
 
 __all__ = ["AUDIO_MBIT", "TS_OVERHEAD", "Media"]
@@ -54,7 +55,7 @@ class Media(_MediaPicture):
         """
         return any(track.is_russian for track in self.tracks)
 
-    def default_track(self, native: bool = False) -> int:
+    def default_track(self, native: bool = False, language: str = "") -> int:
         """«Самая нормальная» озвучка — та, что играет без вопросов: русский дубляж →
         русский многоголосый → прочий русский → оригинал → чужой дубляж; служебные
         дорожки (тифлокомментарий, комментарии) — в самый низ. Выбор не молчаливый:
@@ -63,10 +64,16 @@ class Media(_MediaPicture):
         ``native`` — картина снята по-русски, и тогда лестница начинается не с дубляжа, а
         с собственной дорожки фильма (:func:`~torrcast.domain.voice_order.voice_order`).
         Паспорт происхождения молчит — порядок прежний.
+
+        ``language`` — язык продукта; не назван, спрашивается у слота
+        (:mod:`torrcast.domain.catalogs.tongue`). Спрашивается ОДИН раз на выбор, а не на
+        дорожку: за слотом стоит чтение настройки, и звать его в ключе сортировки значило
+        бы читать файл столько раз, сколько в файле дорожек.
         """
         if not self.tracks:
             return 0
-        return min(self.tracks, key=lambda track: voice_order(track, native)).index
+        spoken = language or tongue()
+        return min(self.tracks, key=lambda track: voice_order(track, native, spoken)).index
 
     def find_voice(self, label: str) -> int | None:
         """Дорожка с такой подписью (память озвучки); ``None`` — такой нет.

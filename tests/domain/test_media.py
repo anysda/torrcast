@@ -1,7 +1,14 @@
 """Зеркало :mod:`torrcast.domain.media`: что паспорт говорит о ЗВУКЕ."""
 
+import pytest
+
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
+
+#: Предмет всего модуля - РУССКАЯ лестница озвучек, писанная до языкового яруса
+#: (:func:`torrcast.domain.voice_order._tier`). Умолчание продукта английское, и на нём
+#: набор остался бы зелёным, но мерил бы уже другой порядок - поэтому язык назван.
+pytestmark = pytest.mark.usefixtures("russian_product")
 
 
 def test_an_unnamed_track_keeps_the_passport_from_calling_the_file_foreign() -> None:

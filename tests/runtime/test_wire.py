@@ -17,12 +17,16 @@ from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.warm_environment import environment as warm_environment
+from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.catalogs.tongue import tongue
+from torrcast.domain.config import Config
+from torrcast.domain.media import Media
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install, journal
 from torrcast.ports.progress.slot import factory as progress_factory
 from torrcast.ports.show_unit.slot import unit
 from torrcast.ports.state_store.slot import store
+from torrcast.runtime.language_command import language_command
 from torrcast.runtime.wire import wire
 from torrcast.usecases import doctor_command as _doctor_command
 from torrcast.usecases import doctor_environment as _doctor_environment
@@ -76,6 +80,36 @@ def test_wiring_puts_the_real_ports_and_environments() -> None:
     # Самопроверка окружения: системная среда проб и чтение настроек командой.
     assert type(_doctor_environment.environment) is SystemHealthEnvironment
     assert _doctor_command._settings is load_config
+
+
+def test_the_language_the_root_hands_out_moves_the_sound_and_not_only_the_captions() -> None:
+    """🔴 Держатель языка ОДИН, и звук идёт за ним вместе с надписями.
+
+    Заведи лестница озвучек свой держатель - надписи и звук разошлись бы молча: человек
+    читал бы английское меню и слушал русский дубляж, и ни одна проба надписей этого не
+    заметила бы. Поэтому спрашивается не имя функции, а то, ЧТО играет.
+
+    Вторая половина - про свежесть. `cast --ru мумия` переписывает настройку уже после
+    сборки приложения, и работу делает тот же процесс: доверши корень дело снимком на
+    старте, флаг довернул бы надписи (:func:`torrcast.runtime.language_command`), а звук
+    остался бы на прежней лестнице до следующего запуска.
+    """
+    anime = Media(
+        tracks=(
+            AudioTrack(index=0, language="jpn", title="Original"),
+            AudioTrack(index=1, language="rus", title="Дубляж"),
+            AudioTrack(index=2, language="eng", title="Dub"),
+        )
+    )
+    save_config(Config(tv="10.0.0.50", language="en"))
+
+    wire()
+
+    assert (tongue(), anime.default_track()) == ("en", 2)
+
+    assert language_command("ru") == 0
+
+    assert (tongue(), anime.default_track()) == ("ru", 1)
 
 
 #: Вопрос задаётся СВЕЖЕМУ процессу и по одному модулю за раз, потому что оба соседа

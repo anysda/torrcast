@@ -9,6 +9,13 @@ from torrcast.domain.studio_of import studio_of
 
 #: Языковые коды, которые ffprobe отдаёт для русской дорожки.
 _RU_LANG: Final = frozenset({"rus", "ru", "russian", "рус"})
+#: Языковые коды английской дорожки. Нужны английской лестнице
+#: (:func:`~torrcast.domain.voice_order.voice_order`): она ставит английский звук наверх, и
+#: узнать его надо раньше, чем судить о виде перевода.
+_EN_LANG: Final = frozenset({"eng", "en", "english", "англ"})
+#: Заголовок называет английскую озвучку. Спрашивается только у дорожки без тега языка -
+#: тег сильнее заголовка ровно так же, как у русской (:attr:`AudioTrack.is_russian`).
+_EN_TITLE_RE: Final = re.compile(r"\beng\b|english|англ", re.IGNORECASE)
 #: Коды, которые языка не называют: дорожка без тега или тег-заглушка. Тогда язык
 #: приходится читать из заголовка - у половины живых раздач он там и написан.
 _VAGUE_LANG: Final = frozenset({"", "und", "unk", "unknown", "mul", "mis", "zxx", "qaa"})
@@ -118,6 +125,21 @@ class AudioTrack:
         title = self.title or ""
         named = _RU_TITLE_RE.search(title) or studio_of(title) is not None
         return bool(named) and (not _FOREIGN_TITLE_RE.search(title))
+
+    @property
+    def is_english(self) -> bool:
+        """Английская ли дорожка. Тег языка сильнее заголовка - как и у русской.
+
+        Английский дубляж японского аниме подписан ``eng`` и словом «Dub», а английский
+        оригинал того же ``eng`` и словом «Original»: язык у них общий, и различает их не
+        эта проверка, а ступень (:attr:`step`).
+        """
+        lang = (self.language or "").strip().casefold()
+        if lang in _EN_LANG:
+            return True
+        if lang not in _VAGUE_LANG:
+            return False
+        return bool(_EN_TITLE_RE.search(self.title or "")) and (not self.is_russian)
 
     @property
     def studio(self) -> Studio | None:

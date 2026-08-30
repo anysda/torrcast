@@ -38,6 +38,11 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.voice_order import voice_order
 from torrcast.usecases.rank.voice_note import voice_note
 
+#: Предмет всего модуля - РУССКАЯ лестница озвучек, писанная до языкового яруса
+#: (:func:`torrcast.domain.voice_order._tier`). Умолчание продукта английское, и на нём
+#: набор остался бы зелёным, но мерил бы уже другой порядок - поэтому язык назван.
+pytestmark = pytest.mark.usefixtures("russian_product")
+
 GB = 1024**3
 KEY = "movie:моана-2:2024"
 

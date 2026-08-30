@@ -1,12 +1,29 @@
 """Определяет порядок звуковых дорожек."""
 
-from torrcast.domain.audio_track import STEP_NATIVE, STEP_RU_PLAIN, AudioTrack
+from typing import Final
+
+from torrcast.domain.audio_track import STEP_NATIVE, STEP_RU_PLAIN, STEP_SERVICE, AudioTrack
+from torrcast.domain.catalogs.tongue import EN
+
+#: Ярусы английской лестницы. Ярус старше ступени: он говорит, на каком ЯЗЫКЕ звучит
+#: дорожка, а ступень - каким переводом она сделана, и первое для англоязычного зрителя
+#: важнее второго.
+_EN_SOUND: Final = 0
+_EN_ORIGIN: Final = 1
+_EN_TRANSLATION: Final = 2
+_EN_SERVICE: Final = 3
+#: Под русской ручкой яруса нет вовсе: у всех дорожек он один и тот же, а значит порядок
+#: решают ровно те три ключа, что решали его до появления языка продукта.
+_ONE_TIER: Final = 0
 
 
-def voice_order(track: AudioTrack, native: bool = False) -> tuple[int, int, int]:
-    """Место дорожки в очереди на дефолт: ступень, вес студии, порядок в файле.
+def voice_order(
+    track: AudioTrack, native: bool = False, language: str = ""
+) -> tuple[int, int, int, int]:
+    """Место дорожки в очереди на дефолт: ярус языка, ступень, вес студии, порядок в файле.
 
-    Сортируем по трём ключам слева направо (меньше = лучше):
+    Сортируем по четырём ключам слева направо (меньше = лучше):
+    - ярус языка продукта (:func:`_tier`); под русской ручкой он у всех общий
     - ступень лестницы (дубляж=0, многоголосый=1, ...)
     - минус fame: чем выше вес, тем левее студия внутри ступени; отрицательный fame
       (AniDub) уходит правее незнакомых студий с нулевым весом
@@ -36,9 +53,41 @@ def voice_order(track: AudioTrack, native: bool = False) -> tuple[int, int, int]
     Незнакомая подпись выбор не роняет: она оставляет дорожку на «прочем русском», а
     значит у отечественной картины поднимает её, у иностранной - оставляет как было.
     Молчит паспорт происхождения (``native`` не проставлен) - лестница ровно прежняя.
+
+    ``language`` - язык продукта (:mod:`torrcast.domain.catalogs.tongue`). Не назван -
+    лестница русская, то есть та же, что и была: правило зовут и оттуда, где языку
+    взяться неоткуда, и выдумывать ему английское умолчание нельзя.
     """
     step = track.rank_step
     if native and step == STEP_RU_PLAIN:
         step = STEP_NATIVE
     studio = track.studio
-    return (step, -(studio.fame if studio else 0), track.index)
+    return (_tier(track, language), step, -(studio.fame if studio else 0), track.index)
+
+
+def _tier(track: AudioTrack, language: str) -> int:
+    """Ярус дорожки на английской лестнице; под любой другой ручкой ярус у всех общий.
+
+    🔴 Английский звук стоит наверху ВСЕГДА, а не только у англоязычной картины. Языка
+    съёмки продукт не знает вовсе (:attr:`torrcast.domain.picture.Picture.native` - это
+    булев признак отечественного происхождения, а не язык), но знать его тут и не нужно:
+    англоязычному зрителю английский дубляж японского аниме ближе, чем японский оригинал,
+    ровно так же, как русскому зрителю ближе русский дубляж.
+
+    Оригинал картины идёт следом за английским: не нашлось английской дорожки - слушать
+    фильм на его собственном языке честнее, чем чужой перевод. Русские дорожки ниже
+    оригинала, служебные (тифлокомментарий, комментарии) - в самом низу, как и на русской
+    лестнице: осмысленные, но услышать их никто не хотел.
+
+    Внутри яруса порядок решает ступень, и это не украшение: у англоязычной картины
+    «Original» (:data:`~torrcast.domain.audio_track.STEP_ORIGINAL`) стоит впереди
+    «Dub» (:data:`~torrcast.domain.audio_track.STEP_FOREIGN`), а у русского яруса
+    сохраняется вся его лестница переводов до буквы.
+    """
+    if language != EN:
+        return _ONE_TIER
+    if track.step == STEP_SERVICE:
+        return _EN_SERVICE
+    if track.is_english:
+        return _EN_SOUND
+    return _EN_TRANSLATION if track.is_russian else _EN_ORIGIN

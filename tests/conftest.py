@@ -35,7 +35,7 @@ from torrcast.adapters.filesystem.state import save_config as save_config_module
 from torrcast.adapters.filesystem.state.config_path import DEFAULT_CONFIG_PATH
 from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
 from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
-from torrcast.domain.catalogs.tongue import _choose_tongue, tongue
+from torrcast.domain.catalogs.tongue import RU, _choose_tongue, tongue
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
 from torrcast.ports.journal import slot as journal_slot
@@ -392,6 +392,24 @@ def _own_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # утёк бы из теста в тест и подписал бы чужие записи
     # (:func:`torrcast.adapters.filesystem.trace_journal.session_id`).
     monkeypatch.setenv("TORRCAST_SID", tmp_path.name)
+
+
+@pytest.fixture
+def russian_product() -> None:
+    """Продукт под этим тестом говорит по-русски - названо, а не досталось умолчанием.
+
+    Умолчание продукта английское (:data:`torrcast.domain.catalogs.tongue.EN`,
+    :attr:`torrcast.domain.config.Config.language`), и с появлением языкового яруса
+    (:func:`torrcast.domain.voice_order._tier`) оно двигает и звук. Наборы, писанные ДО
+    яруса по русской лестнице, на умолчании продолжали бы зеленеть - но мерили бы уже
+    английский порядок, а говорили бы про русский: мера отвечала бы на свой вопрос,
+    а читалась как ответ на прежний.
+
+    🔴 Поэтому русская лестница спрашивается поимённо. Просят фикстуру целыми модулями
+    (``pytestmark = pytest.mark.usefixtures("russian_product")``) - те, чей предмет и есть
+    русский порядок дорожек. Обратно язык вернёт :func:`_same_tongue`.
+    """
+    _choose_tongue(RU)
 
 
 @pytest.fixture(autouse=True)
