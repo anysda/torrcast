@@ -72,8 +72,8 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool | None:
         encode = recoder.fit(span, recoder.pace.table()[-1][0])
         mbit = encode.mbit
         run = recoder.spare / SHRINK_DIR
-        weight = phrase("feed.weight_mb", mb=size / 1e6) if size > 0 else ""
-        state._say(phrase("feed.shrinking", slot=slot, weight=weight, mbit=mbit))
+        weight = phrase("feed.weight_mb", mb=f"{size / 1e6:.0f}") if size > 0 else ""
+        state._say(phrase("feed.shrinking", slot=slot, weight=weight, mbit=f"{mbit:.1f}"))
         journal().mark(SHRUNK, слот=slot, мбит=round(mbit, 2))
         command = _state.ffmpeg_pack_command(
             state.source,
@@ -150,7 +150,7 @@ def _skip(state: _State, slot: int, size: int, reason: str, final: bool = True) 
     if state.recoder is not None:
         with contextlib.suppress(Exception):
             state.recoder.done.add(slot)  # кодировщику за это место браться уже незачем
-    weight = phrase("feed.weight_mb", mb=size / 1e6) if size > 0 else ""
+    weight = phrase("feed.weight_mb", mb=f"{size / 1e6:.0f}") if size > 0 else ""
     state._say(phrase("feed.skip_heavy", slot=slot, weight=weight, reason=reason))
     journal().mark("пропуск тяжёлого куска", слот=slot, мб=round(size / 1e6))
     return False

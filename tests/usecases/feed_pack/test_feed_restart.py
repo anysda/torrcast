@@ -105,7 +105,7 @@ def test_the_run_starts_where_it_was_measured_and_the_rollback_is_told(
 
     assert started[0][4]["at"] == 28.4
     assert started[0][2] == show.out / PACK_DIR
-    want = phrase("feed.pack_from", start=30.0) + phrase("feed.catchup", drop=1.6)
+    want = phrase("feed.pack_from", start="30.0") + phrase("feed.catchup", drop="1.6")
     assert said == [want]
 
 
@@ -119,7 +119,7 @@ def test_a_run_that_stands_where_it_was_asked_says_nothing_about_a_rollback(
 
     _restart(show, 3, lambda slot, size: False)
 
-    assert said == [phrase("feed.pack_from", start=30.0)]
+    assert said == [phrase("feed.pack_from", start="30.0")]
 
 
 def test_the_previous_run_is_taken_down_but_its_pieces_stay(tmp_path: Path, journal: Path) -> None:

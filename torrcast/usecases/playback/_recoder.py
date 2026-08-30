@@ -111,9 +111,9 @@ def _profile(grid: MediaGrid, delivered: float, video_mbit_estimated: bool) -> H
     basis = phrase(basis_key)
     if weights is not None:
         print(
-            phrase("recoder.profile_container", mbit=weights.container)
+            phrase("recoder.profile_container", mbit=f"{weights.container:.1f}")
             + (
-                phrase("recoder.tv_weight", mbit=delivered, basis=basis)
+                phrase("recoder.tv_weight", mbit=f"{delivered:.1f}", basis=basis)
                 if delivered > 0
                 else phrase("recoder.no_track_weight")
             )
@@ -123,7 +123,7 @@ def _profile(grid: MediaGrid, delivered: float, video_mbit_estimated: bool) -> H
         return weights
     if delivered > 0:
         print(
-            phrase("recoder.flat_profile", mbit=delivered, basis=basis),
+            phrase("recoder.flat_profile", mbit=f"{delivered:.1f}", basis=basis),
             flush=True,
         )
     else:

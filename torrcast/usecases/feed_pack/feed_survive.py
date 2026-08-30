@@ -37,7 +37,7 @@ def _mute(state: _State) -> None:
         return
     if _state.clock_port.monotonic() - state.moved <= MUTE_SECONDS:
         return
-    state.offline = phrase("feed.source_mute_reason", secs=MUTE_SECONDS)
+    state.offline = phrase("feed.source_mute_reason", secs=f"{MUTE_SECONDS:.0f}")
     state._say(phrase("feed.source_unreadable", why=state.offline))
 
 

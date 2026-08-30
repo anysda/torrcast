@@ -89,7 +89,7 @@ def _restart(state: _State, slot: int, shrink: PackShrink) -> None:
         container=state.container,
     )
     drop = state.grid.start(slot) - at
-    said = phrase("feed.pack_from", start=state.grid.start(slot))
+    said = phrase("feed.pack_from", start=f"{state.grid.start(slot):.1f}")
     if drop > SPLIT_SLACK:
-        said += phrase("feed.catchup", drop=drop)
+        said += phrase("feed.catchup", drop=f"{drop:.1f}")
     state._say(said)

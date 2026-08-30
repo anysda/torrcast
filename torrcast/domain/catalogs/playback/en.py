@@ -13,8 +13,8 @@ def en() -> dict[str, str]:
     return {
         "playback.session_tag": "[session {id}]",
         "playback.dry_run_no_cast": "(--dry) {about} - not casting",
-        "playback.now_playing": "playing {about} - on TV   (start {secs:.0f} s)",
-        "playback.now_playing_tagged": "{tag} playing {about} - on TV   (start {secs:.0f} s)",
+        "playback.now_playing": "playing {about} - on TV   (start {secs} s)",
+        "playback.now_playing_tagged": "{tag} playing {about} - on TV   (start {secs} s)",
         "playback.frame_too_big": (
             "{quality} - the receiver only takes this frame size recoded, and recoding "
             "is off: needs a release at {limit}p or below"
@@ -23,9 +23,9 @@ def en() -> dict[str, str]:
         "playback.packing": "packing",
         "playback.did_not_start": "the show did not start: {why}",
         "playback.picture_undetected_but_playing": (
-            "could not prove a picture within {secs:.0f} s, but the show is playing: {said}"
+            "could not prove a picture within {secs} s, but the show is playing: {said}"
         ),
-        "playback.did_not_start_timeout": "the show did not start within {secs:.0f} s - {said}",
+        "playback.did_not_start_timeout": "the show did not start within {secs} s - {said}",
         "playback.raising_myself": "{tag} {why} - raising the show myself",
         "playback.watched_cleared_warm": "watched to the end - cleared the warmed copy from disk",
         "playback.no_picture_source_unreadable": (
@@ -46,18 +46,18 @@ def en() -> dict[str, str]:
         ),
         "playback.picking_largest_file": (
             "there are {total} video files in this release - playing the largest, "
-            "its share {share:.2f}"
+            "its share {share}"
         ),
-        "recoder.profile_container": "weight profile: container {mbit:.1f} Mbit/s, ",
+        "recoder.profile_container": "weight profile: container {mbit} Mbit/s, ",
         "recoder.basis_estimate": "an estimate",
         "recoder.basis_measurement": "a measurement",
-        "recoder.tv_weight": "will reach the TV at {mbit:.1f} Mbit/s, by {basis}",
+        "recoder.tv_weight": "will reach the TV at {mbit} Mbit/s, by {basis}",
         "recoder.no_track_weight": (
             "no video track weight in the passport - I will learn the correction as I go"
         ),
         "recoder.map_not_grid": " (the map is not a grid, but its weight is honest)",
         "recoder.flat_profile": (
-            "flat weight profile: {mbit:.1f} Mbit/s per piece, by {basis} - I do not know "
+            "flat weight profile: {mbit} Mbit/s per piece, by {basis} - I do not know "
             "the heavy spot by sight, shrinking by the average"
         ),
         "recoder.no_profile": (

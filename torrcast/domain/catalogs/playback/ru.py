@@ -8,8 +8,8 @@ def ru() -> dict[str, str]:
     return {
         "playback.session_tag": "[сеанс {id}]",
         "playback.dry_run_no_cast": "(--dry) {about} - каста нет",
-        "playback.now_playing": "играю {about} - на ТВ   (старт {secs:.0f} с)",
-        "playback.now_playing_tagged": "{tag} играю {about} - на ТВ   (старт {secs:.0f} с)",
+        "playback.now_playing": "играю {about} - на ТВ   (старт {secs} с)",
+        "playback.now_playing_tagged": "{tag} играю {about} - на ТВ   (старт {secs} с)",
         "playback.frame_too_big": (
             "{quality} - такой кадр приёмник берёт только ужатым, а перекодирование "
             "выключено: нужен релиз {limit}p или ниже"
@@ -18,9 +18,9 @@ def ru() -> dict[str, str]:
         "playback.packing": "упаковка",
         "playback.did_not_start": "показ не запустился: {why}",
         "playback.picture_undetected_but_playing": (
-            "картинку не доказал за {secs:.0f} с, но показ идёт: {said}"
+            "картинку не доказал за {secs} с, но показ идёт: {said}"
         ),
-        "playback.did_not_start_timeout": "показ не начался за {secs:.0f} с - {said}",
+        "playback.did_not_start_timeout": "показ не начался за {secs} с - {said}",
         "playback.raising_myself": "{tag} {why} - поднимаю показ сам",
         "playback.watched_cleared_warm": "досмотрено - прогретое с диска убрал",
         "playback.no_picture_source_unreadable": (
@@ -35,16 +35,16 @@ def ru() -> dict[str, str]:
         "playback.receiver_did_not_finish": "приёмник не досмотрел поток - цифры выше",
         "playback.file_number_missing": "видеофайлов в раздаче {total}, номера {number} нет",
         "playback.picking_largest_file": (
-            "видеофайлов в раздаче {total} - играю крупнейший, его доля {share:.2f}"
+            "видеофайлов в раздаче {total} - играю крупнейший, его доля {share}"
         ),
-        "recoder.profile_container": "профиль тяжести: контейнер {mbit:.1f} Мбит/с, ",
+        "recoder.profile_container": "профиль тяжести: контейнер {mbit} Мбит/с, ",
         "recoder.basis_estimate": "оценке",
         "recoder.basis_measurement": "замеру",
-        "recoder.tv_weight": "на ТВ уедет {mbit:.1f} Мбит/с по {basis}",
+        "recoder.tv_weight": "на ТВ уедет {mbit} Мбит/с по {basis}",
         "recoder.no_track_weight": "веса видеодорожки в паспорте нет - поправку наберу по факту",
         "recoder.map_not_grid": " (карта не сетка, но вес по ней честный)",
         "recoder.flat_profile": (
-            "профиль тяжести ровный: {mbit:.1f} Мбит/с на каждый кусок по {basis} - "
+            "профиль тяжести ровный: {mbit} Мбит/с на каждый кусок по {basis} - "
             "тяжёлое место в лицо не знаю, ужимаю по среднему"
         ),
         "recoder.no_profile": (

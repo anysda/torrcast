@@ -63,7 +63,7 @@ def _launch(
     journal().mark("юнит")
     with progress_bar() as progress:
         _await_playing(config, progress, start=entry.pos)
-    print(phrase("playback.now_playing", about=about, secs=clock.total))
+    print(phrase("playback.now_playing", about=about, secs=f"{clock.total:.0f}"))
     return EXIT_OK
 
 
@@ -168,9 +168,9 @@ def _await_playing(
     if said != stale and still_playing(said, start):
         journal().mark("картинка")
         print(
-            phrase("playback.picture_undetected_but_playing", secs=timeout, said=said),
+            phrase("playback.picture_undetected_but_playing", secs=f"{timeout:.0f}", said=said),
             flush=True,
         )
         return
     unit.stop()
-    raise InfraError(phrase("playback.did_not_start_timeout", secs=timeout, said=said))
+    raise InfraError(phrase("playback.did_not_start_timeout", secs=f"{timeout:.0f}", said=said))

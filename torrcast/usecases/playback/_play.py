@@ -163,7 +163,7 @@ def _play(
                     "playback.now_playing_tagged",
                     tag=session_tag,
                     about=about,
-                    secs=clock.total,
+                    secs=f"{clock.total:.0f}",
                 ),
                 flush=True,
             ),

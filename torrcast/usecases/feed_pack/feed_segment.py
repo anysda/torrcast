@@ -146,7 +146,7 @@ def _warm(state: _State, slot: int) -> Path | None:
         promised = state.grid.duration + state.grid.origin
         if not math.isnan(ended) and promised - ended > TAIL_GAP_MAX:
             state.vault.reject(slot)
-            state._say(phrase("feed.warm_torn", slot=slot, missing=promised - ended))
+            state._say(phrase("feed.warm_torn", slot=slot, missing=f"{promised - ended:.2f}"))
             return None
     clock = segment_start(path)
     want = state.grid.start(slot) + state.grid.origin
@@ -155,7 +155,7 @@ def _warm(state: _State, slot: int) -> Path | None:
     if abs(clock.began - want) <= SKEW_MAX:
         return path
     state.vault.reject(slot)
-    state._say(phrase("feed.warm_off_grid", slot=slot, diff=clock.began - want))
+    state._say(phrase("feed.warm_off_grid", slot=slot, diff=f"{clock.began - want:+.2f}"))
     return None
 
 

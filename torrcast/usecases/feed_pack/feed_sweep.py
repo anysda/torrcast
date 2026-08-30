@@ -52,9 +52,9 @@ def _sweep(state: _State, restart: Callable[[int], None]) -> None:
     pending = packer.pending()
     if pending <= state.pending_cap:
         return
-    state._say(phrase("feed.pending_too_big", mb=pending / 1e6))
+    state._say(phrase("feed.pending_too_big", mb=f"{pending / 1e6:.0f}"))
     journal().mark("несданное копится", мб=round(pending / 1e6), край=packer.edge)
-    packer.halt(reason=phrase("feed.pending_reason", mb=pending / 1e6))
+    packer.halt(reason=phrase("feed.pending_reason", mb=f"{pending / 1e6:.0f}"))
 
 
 def _torn(state: _State, restart: Callable[[int], None]) -> None:

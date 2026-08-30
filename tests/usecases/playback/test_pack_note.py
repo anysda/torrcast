@@ -18,7 +18,7 @@ def test_the_pack_line_names_count_largest_and_share() -> None:
         TorrFile(index=2, name="сборник/обложка.jpg", size=10),
         TorrFile(index=3, name="сборник/часть-02.mkv", size=900),
     ]
-    want = phrase("playback.picking_largest_file", total=2, share=0.9)
+    want = phrase("playback.picking_largest_file", total=2, share="0.90")
     assert pack_note(files) == want
 
 

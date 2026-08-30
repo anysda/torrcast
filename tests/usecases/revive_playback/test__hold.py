@@ -152,7 +152,7 @@ def test_a_stuck_pointer_at_the_tail_finishes_the_session(
 
     assert ended is True
     assert (
-        phrase("revive.tail_ended", pos=_hms(7190.0), secs=TAIL_LIMIT)
+        phrase("revive.tail_ended", pos=_hms(7190.0), secs=f"{TAIL_LIMIT:.0f}")
         in capsys.readouterr().out
     )
 

@@ -10,7 +10,7 @@ def ru() -> dict[str, str]:
         "revive.no_frame_yet": "показа не было ни кадра (заводили с {pos})",
         "revive.will_raise": "{said} ({why}) - подниму сам, как вернётся сеть",
         "revive.give_up": (
-            "показ поднять не удалось ({tries} попыт., темнота {dark:.0f} с) - "
+            "показ поднять не удалось ({tries} попыт., темнота {dark} с) - "
             "гашу; cast продолжит с {pos}"
         ),
         "revive.receiver_silent": "приёмник отмолчался",
@@ -21,8 +21,8 @@ def ru() -> dict[str, str]:
         "revive.refused": "приёмник показ не взял ({why}) - жду ещё",
         "revive.picture_started": "{tag} картинка пошла с {pos}",
         "revive.trace_line": (
-            "{tag} запас: показ {pos:.0f} · упаковано {packed:.0f} · впереди {ahead:.0f} с · "
-            "{mb:.0f} МБ · расхождение с манифестом {drift:.3f} с · {state}"
+            "{tag} запас: показ {pos} · упаковано {packed} · впереди {ahead} с · "
+            "{mb} МБ · расхождение с манифестом {drift} с · {state}"
         ),
         "revive.tries_so_far": "поднимал {tries} из {limit}",
         "revive.source_not_back": "источник не вернулся - приёмник не трогаю",
@@ -44,7 +44,7 @@ def ru() -> dict[str, str]:
             "прогрето целиком - живую упаковку гашу, показ идёт с диска"
         ),
         "revive.tail_ended": (
-            "конец картины: указатель стоит на {pos} уже {secs:.0f} с - считаю доигранным"
+            "конец картины: указатель стоит на {pos} уже {secs} с - считаю доигранным"
         ),
         "revive.closed_by_remote": "{tag} показ закрыт с пульта на {pos} - поднимать не буду",
     }

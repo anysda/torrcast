@@ -34,7 +34,7 @@ def test_a_source_silent_longer_than_the_clock_is_the_same_break_as_a_dead_ffmpe
     fake.now = 1001.0 + MUTE_SECONDS
     _mute(show)
 
-    assert show.offline == phrase("feed.source_mute_reason", secs=MUTE_SECONDS)
+    assert show.offline == phrase("feed.source_mute_reason", secs=f"{MUTE_SECONDS:.0f}")
     assert said == [phrase("feed.source_unreadable", why=show.offline)]
 
 
@@ -70,7 +70,7 @@ def test_warmed_pieces_do_not_move_the_source_silence_clock(tmp_path: Path) -> N
 
     fake.now += 1.0
     _sweep(show, lambda _slot: None)
-    assert show.offline == phrase("feed.source_mute_reason", secs=MUTE_SECONDS)
+    assert show.offline == phrase("feed.source_mute_reason", secs=f"{MUTE_SECONDS:.0f}")
 
 
 def test_the_same_corpse_is_counted_once_and_not_five_times_a_second(

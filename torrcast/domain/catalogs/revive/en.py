@@ -15,7 +15,7 @@ def en() -> dict[str, str]:
         "revive.no_frame_yet": "not a single frame shown yet (started from {pos})",
         "revive.will_raise": "{said} ({why}) - I will bring it back myself once the network returns",
         "revive.give_up": (
-            "could not bring the show back ({tries} tries, dark for {dark:.0f} s) - "
+            "could not bring the show back ({tries} tries, dark for {dark} s) - "
             "giving up; cast will resume from {pos}"
         ),
         "revive.receiver_silent": "the receiver went silent",
@@ -26,8 +26,8 @@ def en() -> dict[str, str]:
         "revive.refused": "the receiver refused the show ({why}) - still waiting",
         "revive.picture_started": "{tag} picture started at {pos}",
         "revive.trace_line": (
-            "{tag} margin: shown {pos:.0f} · packed {packed:.0f} · ahead {ahead:.0f} s · "
-            "{mb:.0f} MB · drift from manifest {drift:.3f} s · {state}"
+            "{tag} margin: shown {pos} · packed {packed} · ahead {ahead} s · "
+            "{mb} MB · drift from manifest {drift} s · {state}"
         ),
         "revive.tries_so_far": "raised {tries} out of {limit}",
         "revive.source_not_back": "the source has not returned - leaving the receiver alone",
@@ -50,7 +50,7 @@ def en() -> dict[str, str]:
             "fully warmed - stopping the live pack, playing from disk"
         ),
         "revive.tail_ended": (
-            "end of the picture: the pointer has stood at {pos} for {secs:.0f} s already - "
+            "end of the picture: the pointer has stood at {pos} for {secs} s already - "
             "calling it watched"
         ),
         "revive.closed_by_remote": "{tag} show closed from the remote at {pos} - not bringing it back",

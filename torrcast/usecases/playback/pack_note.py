@@ -31,5 +31,5 @@ def pack_note(files: list[TorrFile]) -> str:
     return phrase(
         "playback.picking_largest_file",
         total=len(videos),
-        share=max(f.size for f in videos) / total,
+        share=f"{max(f.size for f in videos) / total:.2f}",
     )

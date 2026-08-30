@@ -150,7 +150,7 @@ def test_a_warmed_piece_from_another_place_is_repacked_live(
     assert _spots_left(cast("Vault", store), (3,), cast("EncodingKey", object())) == (3,), (
         "возвращённая копия не попала в перекод"
     )
-    assert said == [phrase("feed.warm_off_grid", slot=3, diff=1207.68)]
+    assert said == [phrase("feed.warm_off_grid", slot=3, diff="+1207.68")]
     assert fake.slept == []
 
 

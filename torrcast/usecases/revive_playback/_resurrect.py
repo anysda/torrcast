@@ -121,7 +121,7 @@ def _resurrect(
     dark = now - state.since
     if state.tries >= REVIVE_TRIES or dark > REVIVE_LIMIT:
         print(
-            phrase("revive.give_up", tries=state.tries, dark=dark, pos=_hms(pos)),
+            phrase("revive.give_up", tries=state.tries, dark=f"{dark:.0f}", pos=_hms(pos)),
             flush=True,
         )
         state.ended = True

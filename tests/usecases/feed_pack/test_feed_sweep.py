@@ -72,7 +72,7 @@ def test_unclaimed_pieces_over_the_ceiling_put_the_run_out_with_one_honest_line(
     _sweep(show, nobody)
 
     assert show.packer.halted is True
-    assert said == [phrase("feed.pending_too_big", mb=2.0)]
+    assert said == [phrase("feed.pending_too_big", mb="2")]
 
 
 def test_unclaimed_pieces_under_the_ceiling_never_stop_a_working_run(

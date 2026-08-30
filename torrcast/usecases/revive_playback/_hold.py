@@ -147,7 +147,7 @@ def _hold(
                 screen.tail_at, screen.tail_since = position.pos, clock.monotonic()
             elif clock.monotonic() - screen.tail_since > TAIL_LIMIT:
                 print(
-                    phrase("revive.tail_ended", pos=_hms(position.pos), secs=TAIL_LIMIT),
+                    phrase("revive.tail_ended", pos=_hms(position.pos), secs=f"{TAIL_LIMIT:.0f}"),
                     flush=True,
                 )
                 return True
