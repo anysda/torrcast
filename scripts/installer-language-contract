@@ -3,7 +3,8 @@ set -eu
 
 fail() { printf 'installer language contract: %s\n' "$1" >&2; exit 1; }
 
-grep -Fq 'TORRCAST_LANGUAGE' install || fail 'bootstrap does not carry the language'
+grep -Fq 'export TORRCAST_BOOTSTRAP_URL="$1" TORRCAST_GITLAB_API="$2" TORRCAST_PROJECT_ID="$3" TORRCAST_LANGUAGE="$4"' install \
+    || fail 'bootstrap does not export the language through sudo'
 grep -Fq -- '-en) LANGUAGE=en' install.sh || fail 'install.sh has no -en option'
 grep -Fq -- '-ru) LANGUAGE=ru' install.sh || fail 'install.sh has no -ru option'
 grep -Fq "\"language\": \"\$LANGUAGE\"" install.sh || fail 'new config does not store language'
@@ -11,17 +12,37 @@ grep -Fq ".language=\\\$l" install.sh || fail 'existing config does not update l
 
 box=$(mktemp -d)
 trap 'rm -rf "$box"' EXIT HUP INT TERM
-TORRCAST_NO_ROOT=1 TORRCAST_PHASES=none \
+mkdir -p "$box/en/etc" "$box/en/bin" "$box/ru/etc" "$box/ru/bin"
+printf '{"tv": null}\n' >"$box/en/etc/config.json"
+printf '{"tv": null}\n' >"$box/ru/etc/config.json"
+printf '#!/bin/sh\nexit 1\n' >"$box/en/bin/cast"
+cp "$box/en/bin/cast" "$box/ru/bin/cast"
+chmod +x "$box/en/bin/cast" "$box/ru/bin/cast"
+mkdir "$box/sudo-bin"
+printf '#!/bin/sh\nprintf "1000\\n"\n' >"$box/sudo-bin/id"
+cat >"$box/sudo-bin/sudo" <<'SH'
+#!/bin/sh
+last=""
+for arg in "$@"; do last="$arg"; done
+[ "$last" = en ] || exit 9
+exit 0
+SH
+chmod +x "$box/sudo-bin/id" "$box/sudo-bin/sudo"
+PATH="$box/sudo-bin:$PATH" sh ./install >/dev/null 2>&1 \
+    || fail 'bootstrap did not pass the default language through sudo'
+TORRCAST_NO_ROOT=1 TORRCAST_PHASES=receiver \
     TORRCAST_PREFIX="$box/en" TORRCAST_CONFIG_DIR="$box/en/etc" \
     TORRCAST_STATE_DIR="$box/en/state" TORRCAST_BIN_DIR="$box/en/bin" \
     TORRCAST_MOTD="$box/en/motd" TORRCAST_MOTD_D="$box/en/motd.d" \
     ./install.sh >"$box/en.out" 2>&1
-TORRCAST_NO_ROOT=1 TORRCAST_PHASES=none \
+TORRCAST_NO_ROOT=1 TORRCAST_PHASES=receiver \
     TORRCAST_PREFIX="$box/ru" TORRCAST_CONFIG_DIR="$box/ru/etc" \
     TORRCAST_STATE_DIR="$box/ru/state" TORRCAST_BIN_DIR="$box/ru/bin" \
     TORRCAST_MOTD="$box/ru/motd" TORRCAST_MOTD_D="$box/ru/motd.d" \
     ./install.sh -ru >"$box/ru.out" 2>&1
 LC_ALL=C grep -q '[А-яЁё]' "$box/en.out" && fail 'English output contains Cyrillic'
+grep -Fq 'no receiver selected; run cast --tv <ip>' "$box/en.out" \
+    || fail 'English failure reason is not named'
 LC_ALL=C grep -q '[А-яЁё]' "$box/ru.out" || fail 'Russian output contains no Cyrillic'
 iconv -f UTF-8 -t UTF-8 "$box/ru.out" >/dev/null || fail 'Russian output is not valid UTF-8'
 if ./install.sh -unknown >"$box/unknown.out" 2>&1; then

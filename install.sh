@@ -203,8 +203,8 @@ KEY_INDEXER="Knaben"
 # молчать про источник, которого никто не спрашивал. Урез - это роль, у которой не
 # ответил НИКТО; её и стережёт :func:`catalog_gate` - словами и ненулевым кодом возврата.
 CATALOG_ROLES=(
-    "западные релизы и аниме|$KEY_INDEXER"
-    "русские раздачи и озвучки|rutor jacred"
+    "western releases and anime^западные релизы и аниме|$KEY_INDEXER"
+    "Russian releases and voiceovers^русские раздачи и озвучки|rutor jacred"
 )
 # Список короткий не по лени: пул прочёсан целиком и машинно. В схеме Prowlarr 622
 # определения, из них открытых (privacy=public) - 86, и каждое прощупано с той самой
@@ -409,18 +409,16 @@ phase_done() {  # $1 - короткое имя фазы для статусба�
     if [ "$LANGUAGE" = ru ]; then ui_say P "$1"; else ui_say P "installation"; fi
 }
 
-has_non_ascii() { LC_ALL=C grep -q '[^ -~]' <<<"$*"; }
 log()  {
-    if [ "$LANGUAGE" = ru ] || ! has_non_ascii "$*"; then printf '\033[1m==>\033[0m %s\n' "$*"
-    else printf '\033[1m==>\033[0m installation\n'; fi
+    local text; if [ "$LANGUAGE" = ru ]; then text="$2"; else text="$1"; fi
+    printf '\033[1m==>\033[0m %s\n' "$text"
 }
 skip() {
-    if [ "$LANGUAGE" = ru ]; then printf '    уже на месте: %s\n' "$*"
-    elif has_non_ascii "$*"; then printf '    already installed\n'
-    else printf '    already installed: %s\n' "$*"; fi
+    if [ "$LANGUAGE" = ru ]; then printf '    уже на месте: %s\n' "$2"
+    else printf '    already installed: %s\n' "$1"; fi
 }
 info() {
-    if [ "$LANGUAGE" = ru ] || ! has_non_ascii "$*"; then printf '    %s\n' "$*"; fi
+    if [ "$LANGUAGE" = ru ]; then printf '    %s\n' "$2"; else printf '    %s\n' "$1"; fi
 }
 # 🔴 TC-885. При включённой заставке заставка не вправе съесть строку ошибки:
 # сегодня `die` - единственный способ узнать, что установка не доделана. Поэтому
@@ -429,9 +427,10 @@ info() {
 # (:func:`ui_collapse`). Ленты под рамкой для ошибки мало: ошибка - это конец
 # установки, и последнее, что видит владелец, обязано быть ею, а не справкой.
 die()  {
-    if [ "$LANGUAGE" = ru ]; then printf '\033[31mошибка:\033[0m %s\n' "$*" >&2
-    else printf '\033[31merror:\033[0m installation failed\n' >&2; fi
-    if [ "$LANGUAGE" = ru ]; then ui_say D "$*"; else ui_say D "installation failed"; fi
+    local text
+    if [ "$LANGUAGE" = ru ]; then text="$2"; printf '\033[31mошибка:\033[0m %s\n' "$text" >&2
+    else text="$1"; printf '\033[31merror:\033[0m %s\n' "$text" >&2; fi
+    ui_say D "$text"
     exit 1
 }
 # Для того, что установку не роняет, но заметно урезает результат: обычная строка
@@ -441,15 +440,16 @@ die()  {
 # ужимается на строку, лента остаётся на экране до конца и переживает итоговый
 # экран справки (:func:`ui_note`).
 loud() {
-    if [ "$LANGUAGE" = ru ]; then printf '\033[1;33mвнимание:\033[0m %s\n' "$*" >&2
-    else printf '\033[1;33mwarning:\033[0m an optional installation step failed\n' >&2; fi
-    if [ "$LANGUAGE" = ru ]; then ui_say W "$*"; else ui_say W "an optional installation step failed"; fi
+    local text
+    if [ "$LANGUAGE" = ru ]; then text="$2"; printf '\033[1;33mвнимание:\033[0m %s\n' "$text" >&2
+    else text="$1"; printf '\033[1;33mwarning:\033[0m %s\n' "$text" >&2; fi
+    ui_say W "$text"
 }
 has()  { [[ " $PHASES " == *" $1 "* ]]; }
 
 need_root() {
     [ -n "${TORRCAST_NO_ROOT:-}" ] && return 0
-    [ "$(id -u)" -eq 0 ] || die "запускать от root: sudo ./install.sh"
+    [ "$(id -u)" -eq 0 ] || die "run as root: sudo ./install.sh" "запускать от root: sudo ./install.sh"
 }
 
 # --- Задания в фоне ----------------------------------------------------------
@@ -497,7 +497,7 @@ job_wait() {  # $1 - имя задания; печатает его вывод, 
     # Сколько фаза шла на самом деле. Не украшение: у параллельных фаз время из журнала
     # больше не читается (все их строки приезжают разом), а без него не видно, во что
     # установка упирается и стало ли ей от параллели легче.
-    info "└ фоном: $(cat "$JOB_DIR/$name.took" 2>/dev/null || printf '?') с"
+    info "└ background: $(cat "$JOB_DIR/$name.took" 2>/dev/null || printf '?') s" "└ фоном: $(cat "$JOB_DIR/$name.took" 2>/dev/null || printf '?') с"
     return "$(cat "$JOB_DIR/$name.rc" 2>/dev/null || printf 1)"
 }
 
@@ -517,8 +517,8 @@ LATE_LOG="${TORRCAST_LATE_LOG:-$STATE_DIR/late.log}"
 # ⚠️ Отвязываемся от установки по-настоящему: свои stdin/stdout/stderr в файл (иначе ssh,
 # которым запускали установку, будет ждать закрытия трубы и «зависнет» уже после
 # «готово») и игнор SIGHUP (иначе закрытая консоль убьёт догрев на середине).
-late_run() {  # $1 - чем это назвать человеку, дальше команда с аргументами
-    local note="$1"; shift
+late_run() {  # $1/$2 - английское/русское имя, дальше команда с аргументами
+    local note; if [ "$LANGUAGE" = ru ]; then note="$2"; else note="$1"; fi; shift 2
     install -d -m 0755 "$(dirname "$LATE_LOG")"
     (
         trap '' HUP
@@ -606,9 +606,9 @@ warm_budget() {
     pick_python
     budget="$(PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -c \
         'from torrcast.domain.warm_settings import WARM_BUDGET; print(WARM_BUDGET)' 2>&1)" \
-        || { loud "пакет torrcast не отдал WARM_BUDGET: $budget"; return 1; }
+        || { loud "torrcast package did not provide WARM_BUDGET: $budget" "пакет torrcast не отдал WARM_BUDGET: $budget"; return 1; }
     case "$budget" in
-        ''|*[!0-9]*) loud "WARM_BUDGET не целое число байт: $budget"; return 1 ;;
+        ''|*[!0-9]*) loud "WARM_BUDGET is not an integer byte count: $budget" "WARM_BUDGET не целое число байт: $budget"; return 1 ;;
     esac
     printf '%s' "$budget"
 }
@@ -620,8 +620,8 @@ warm_dir() {
     pick_python
     dir="$(PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -c \
         'from torrcast.domain.warm_settings import WARM_DIR; print(WARM_DIR)' 2>&1)" \
-        || { loud "пакет torrcast не отдал WARM_DIR: $dir"; return 1; }
-    case "$dir" in /*) ;; *) loud "WARM_DIR не абсолютный путь: $dir"; return 1 ;; esac
+        || { loud "torrcast package did not provide WARM_DIR: $dir" "пакет torrcast не отдал WARM_DIR: $dir"; return 1; }
+    case "$dir" in /*) ;; *) loud "WARM_DIR is not an absolute path: $dir" "WARM_DIR не абсолютный путь: $dir"; return 1 ;; esac
     printf '%s' "$dir"
 }
 
@@ -725,8 +725,8 @@ run_service() {  # $1 имя, $2 описание, $3 команда, $4 - ли�
     local quoted; quoted="$(quoted_knobs "${4:-}")"
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
         pgrep -f -- "$(proc_mask "$3")" >/dev/null 2>&1 \
-            && { skip "процесс $1 (песочница)"; return 0; }
-        info "запускаю $1 фоном (песочница)"
+            && { skip "$1 process (sandbox)" "процесс $1 (песочница)"; return 0; }
+        info "starting $1 in the background (sandbox)" "запускаю $1 фоном (песочница)"
         # Потолки памяти в песочнице ставит не systemd, поэтому Environment= разбираем
         # сами: без них служба в песочнице росла бы иначе, чем в системе, и замер
         # песочницы ничего бы не говорил о живой машине. Строки MemoryMax= тут нечему
@@ -792,7 +792,7 @@ fetch() {  # $@ - аргументы curl; возвращает код посл�
         [ "$i" -ge "$DL_TRIES" ] && return 1
         # В stderr, а не в stdout: вывод fetch бывает и телом ответа, которое тут же
         # читает jq - строка про повтор посреди JSON ломала бы разбор.
-        info "не скачалось (попытка $i из $DL_TRIES) - пробую снова" >&2
+        info "download failed (attempt $i of $DL_TRIES) - retrying" "не скачалось (попытка $i из $DL_TRIES) - пробую снова" >&2
         sleep $((i * 3))
         i=$((i + 1))
     done
@@ -824,7 +824,7 @@ gh_release() {  # $1 - организация/репозиторий, $2 - те�
         if [ "$code" = 200 ] || [ "$code" = 404 ] || [ "$i" -ge "$GH_TAG_TRIES" ]; then
             break
         fi
-        info "$3: GitHub не ответил на запрос тега $2 (код ${code:-нет}) - повтор $i из $((GH_TAG_TRIES - 1))" >&2
+        info "$3: GitHub did not answer the request for tag $2 (status ${code:-none}) - retry $i of $((GH_TAG_TRIES - 1))" "$3: GitHub не ответил на запрос тега $2 (код ${code:-нет}) - повтор $i из $((GH_TAG_TRIES - 1))" >&2
         sleep 3
         i=$((i + 1))
     done
@@ -833,15 +833,15 @@ gh_release() {  # $1 - организация/репозиторий, $2 - те�
     fi
     rm -f "$body"
     if [ -n "${4:-}" ]; then
-        info "✗ $3: пиненная версия $2 недоступна (код ${code:-нет}) - другую версию не ставлю" >&2
+        info "✗ $3: pinned version $2 is unavailable (status ${code:-none}) - not installing another version" "✗ $3: пиненная версия $2 недоступна (код ${code:-нет}) - другую версию не ставлю" >&2
         return 1
     fi
     if [ "$code" = 404 ]; then
-        info "⚠ $3: пиненной версии $2 на GitHub больше нет (404) - беру latest" >&2
+        info "⚠ $3: pinned version $2 is no longer on GitHub (404) - using latest" "⚠ $3: пиненной версии $2 на GitHub больше нет (404) - беру latest" >&2
     else
-        info "⚠ $3: до GitHub не достучался за $GH_TAG_TRIES попытки (код ${code:-нет}) - беру latest" >&2
+        info "⚠ $3: GitHub did not answer after $GH_TAG_TRIES attempts (status ${code:-none}) - using latest" "⚠ $3: до GitHub не достучался за $GH_TAG_TRIES попытки (код ${code:-нет}) - беру latest" >&2
     fi
-    info "⚠ версия непроверенная; если обвязка API не сойдётся - установка упадёт ниже" >&2
+    info "⚠ version is unverified; installation will fail below if the API wrapper is incompatible" "⚠ версия непроверенная; если обвязка API не сойдётся - установка упадёт ниже" >&2
     fetch "$api/latest"
 }
 
@@ -871,13 +871,13 @@ locale_build() {  # $1 - имя локали
     fi
     if ! locale_present "$1" && [ -f /etc/locale.gen ] \
         && command -v locale-gen >/dev/null 2>&1; then
-        info "собираю $1 через locale-gen"
+        info "generating $1 with locale-gen" "собираю $1 через locale-gen"
         grep -qE "^[[:space:]]*$1([[:space:]]|\$)" /etc/locale.gen \
             || printf '%s %s\n' "$1" "${1#*.}" >> /etc/locale.gen
         locale-gen >/dev/null 2>&1 || true
     fi
     if ! locale_present "$1" && command -v localedef >/dev/null 2>&1; then
-        info "собираю $1 через localedef"
+        info "generating $1 with localedef" "собираю $1 через localedef"
         localedef -i "${1%%.*}" -f "${1#*.}" "$1" >/dev/null 2>&1 || true
     fi
     locale_present "$1"
@@ -886,12 +886,12 @@ locale_build() {  # $1 - имя локали
 # Приводим систему к UTF-8. Идемпотентно: собранную локаль не пересобираем, готовую
 # строку в конфигах не переписываем.
 setup_locale() {
-    log "локаль UTF-8 ($LOCALE)"
+    log "UTF-8 locale ($LOCALE)" "локаль UTF-8 ($LOCALE)"
     locale_build "$LOCALE" || true
     # Цель не вышла - отступаем на C.UTF-8, и вслух: русская сортировка пропадёт, но
     # показывать это как успех нельзя.
     if ! locale_present "$LOCALE" && [ "$LOCALE" != "$LOCALE_FALLBACK" ]; then
-        info "$LOCALE в этой системе не собралась - беру $LOCALE_FALLBACK, сортировка будет побайтной"
+        info "$LOCALE could not be generated on this system - using $LOCALE_FALLBACK; sorting will be bytewise" "$LOCALE в этой системе не собралась - беру $LOCALE_FALLBACK, сортировка будет побайтной"
         LOCALE="$LOCALE_FALLBACK"
         locale_build "$LOCALE" || true
     fi
@@ -899,20 +899,20 @@ setup_locale() {
     # конкретное имя локали.
     if ! locale_present "$LOCALE"; then
         local ready; ready="$(locale -a 2>/dev/null | grep -i -m1 'utf-\?8$' || true)"
-        [ -n "$ready" ] || die "в системе нет ни одной UTF-8 локали и собрать её не вышло"
-        info "$LOCALE не собралась - беру готовую $ready"
+        [ -n "$ready" ] || die "the system has no UTF-8 locale and none could be generated" "в системе нет ни одной UTF-8 локали и собрать её не вышло"
+        info "$LOCALE was not generated - using available $ready" "$LOCALE не собралась - беру готовую $ready"
         LOCALE="$ready"
     fi
 
     # Вход по ssh берёт LANG отсюда (pam_env с envfile=/etc/default/locale).
     if [ "$(sed -n 's/^LANG=//p' /etc/default/locale 2>/dev/null | head -1)" = "$LOCALE" ]; then
-        skip "LANG=$LOCALE в /etc/default/locale"
+        skip "LANG=$LOCALE in /etc/default/locale" "LANG=$LOCALE в /etc/default/locale"
     elif command -v update-locale >/dev/null 2>&1; then
         update-locale "LANG=$LOCALE"
-        info "LANG=$LOCALE → /etc/default/locale"
+        info "LANG=$LOCALE -> /etc/default/locale" "LANG=$LOCALE → /etc/default/locale"
     else
         printf 'LANG=%s\n' "$LOCALE" > /etc/default/locale
-        info "LANG=$LOCALE → /etc/default/locale"
+        info "LANG=$LOCALE -> /etc/default/locale" "LANG=$LOCALE → /etc/default/locale"
     fi
     # Подстраховка для систем, где строки с envfile в pam.d нет: /etc/environment
     # pam_env читает всегда.
@@ -938,7 +938,7 @@ pick_python() {
             return 0
         fi
     done
-    die "нужен python 3.11 или новее (см. requires-python в pyproject.toml)"
+    die "python 3.11 or newer is required (see requires-python in pyproject.toml)" "нужен python 3.11 или новее (см. requires-python в pyproject.toml)"
 }
 
 #: ffmpeg не ниже 6.1 — из-за -readrate_initial_burst. В Debian 12 живёт 5.1, а без burst
@@ -967,7 +967,7 @@ ffmpeg_smoke() {  # $1 — каталог для файла, $2/$3 — ffmpeg/ff
         -f lavfi -i "testsrc=size=320x240:rate=25:duration=1" -f lavfi -i "sine=duration=1" \
         -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac -f mpegts "$clip" || return 1
     "$fp" -v error -show_entries stream=codec_name -of csv "$clip" >/dev/null || return 1
-    info "сборка проверена: MPEG-TS пакуется и читается"
+    info "build verified: MPEG-TS can be muxed and read" "сборка проверена: MPEG-TS пакуется и читается"
 }
 
 #: Сборка из snap проходит проверку по версии, а конфайнмент не пускает её ни в каталог
@@ -1009,8 +1009,8 @@ install_ffmpeg() {
     # /usr/local/bin/ffmpeg (так же переставляются TorrServer и Prowlarr) и запустить
     # установку снова.
     if mine="$(ffmpeg_ours_ok)"; then
-        skip "статическая сборка ffmpeg $mine в /usr/local/bin \
-(переставить - удали файл и запусти снова)"
+        skip "static ffmpeg build $mine in /usr/local/bin (to reinstall, delete the file and run again)" \
+            "статическая сборка ffmpeg $mine в /usr/local/bin (переставить - удали файл и запусти снова)"
         return
     fi
     # `|| true` не для красоты: ffmpeg на PATH может не быть вовсе (в репозитории он
@@ -1018,8 +1018,8 @@ install_ffmpeg() {
     # установку на коде 127.
     have="$(ffmpeg_version ffmpeg || true)"
     if [ -n "$have" ] && ffmpeg_confined ffmpeg; then
-        info "ffmpeg $have из snap: в $PREFIX, $STATE_DIR и $HLS_DIR его конфайнмент \
-не пустит - беру статическую сборку"
+        info "ffmpeg $have is from snap: confinement blocks $PREFIX, $STATE_DIR and $HLS_DIR - using a static build" \
+            "ffmpeg $have из snap: в $PREFIX, $STATE_DIR и $HLS_DIR его конфайнмент не пустит - беру статическую сборку"
         reject=1
     fi
     if [ -z "$reject" ] && [ -n "$have" ] \
@@ -1031,16 +1031,16 @@ install_ffmpeg() {
         probe="$(mktemp -d)"
         if [ -n "$fp" ] && ffmpeg_smoke "$probe" "$ff" "$fp"; then
             rm -rf "$probe"
-            skip "ffmpeg $have (нужно ≥ $FFMPEG_MIN: -readrate_initial_burst)"
+            skip "ffmpeg $have (need >= $FFMPEG_MIN: -readrate_initial_burst)" "ffmpeg $have (нужно ≥ $FFMPEG_MIN: -readrate_initial_burst)"
             return
         fi
         rm -rf "$probe"
-        info "ffmpeg $have не прошёл проверку MPEG-TS - беру статическую сборку"
+        info "ffmpeg $have failed the MPEG-TS check - using a static build" "ffmpeg $have не прошёл проверку MPEG-TS - беру статическую сборку"
         reject=1
     fi
-    [ "$(uname -m)" = "x86_64" ] || die "статической сборки ffmpeg под $(uname -m) нет — \
-поставь ffmpeg ≥ $FFMPEG_MIN сам"
-    info "ffmpeg ${have:-нет} - беру статическую сборку"
+    [ "$(uname -m)" = "x86_64" ] || die "no static ffmpeg build for $(uname -m) - install ffmpeg >= $FFMPEG_MIN yourself" \
+        "статической сборки ffmpeg под $(uname -m) нет - поставь ffmpeg ≥ $FFMPEG_MIN сам"
+    info "ffmpeg ${have:-none} - using a static build" "ffmpeg ${have:-нет} - беру статическую сборку"
     # Каталог убираем сами: `trap ... RETURN` без `set -T` цепляется ко ВСЕМ функциям
     # сразу и падает на первом же чужом return («work: unbound variable»).
     local work; work="$(mktemp -d)"
@@ -1049,29 +1049,29 @@ install_ffmpeg() {
     local url bin=""
     for url in "$FFMPEG_URL" "$FFMPEG_URL2"; do
         [ -n "$url" ] || continue
-        info "качаю статический ffmpeg: ${url#https://}"
+        info "downloading static ffmpeg: ${url#https://}" "качаю статический ffmpeg: ${url#https://}"
         if fetch -o "$work/ffmpeg.tar.xz" "$url" \
             && tar -xf "$work/ffmpeg.tar.xz" -C "$work" 2>/dev/null \
             && bin="$(find "$work" -type f -name ffmpeg -perm -u+x | head -1)" \
             && [ -n "$bin" ]; then
             break
         fi
-        info "источник не дал годного архива: ${url#https://} - пробую следующий"
+        info "source did not provide a usable archive: ${url#https://} - trying the next one" "источник не дал годного архива: ${url#https://} - пробую следующий"
         rm -rf "${work:?}"/* 2>/dev/null || true
         bin=""
     done
-    [ -n "$bin" ] || die "статическую сборку ffmpeg не удалось получить ни с одного источника"
+    [ -n "$bin" ] || die "could not obtain a static ffmpeg build from any source" "статическую сборку ffmpeg не удалось получить ни с одного источника"
     install -d -m 0755 /usr/local/bin
     install -m 0755 "$bin" /usr/local/bin/ffmpeg
     install -m 0755 "$(dirname "$bin")/ffprobe" /usr/local/bin/ffprobe
     hash -r
     local now; now="$(ffmpeg_version /usr/local/bin/ffmpeg)"
     dpkg --compare-versions "$now" ge "$FFMPEG_MIN" 2>/dev/null \
-        || die "поставился ffmpeg $now — это всё ещё ниже $FFMPEG_MIN"
-    ffmpeg_smoke "$work" || die "сборка ffmpeg $now не пережила MPEG-TS — другой URL"
+        || die "installed ffmpeg $now is still older than $FFMPEG_MIN" "поставился ffmpeg $now - это всё ещё ниже $FFMPEG_MIN"
+    ffmpeg_smoke "$work" || die "ffmpeg build $now failed the MPEG-TS check - use another URL" "сборка ffmpeg $now не пережила MPEG-TS - другой URL"
     rm -rf "$work"
     local packaged; packaged="$(ffmpeg_version /usr/bin/ffmpeg || true)"
-    info "ffmpeg $now → /usr/local/bin${packaged:+ (пакетная $packaged осталась)}"
+    info "ffmpeg $now -> /usr/local/bin${packaged:+ (packaged $packaged remains)}" "ffmpeg $now → /usr/local/bin${packaged:+ (пакетная $packaged осталась)}"
 }
 
 # Версия ffmpeg, которую отдаст apt этой системы, - голая, без эпохи и ревизии
@@ -1088,7 +1088,7 @@ apt_candidate_version() {  # $1 - имя пакета
 }
 
 install_packages() {
-    log "зависимости"
+    log "dependencies" "зависимости"
     local want=() missing=() pkg updated=0
     # Пакетный ffmpeg берём, только если он годен: он тут запасной аэродром, чтобы не
     # качать статическую сборку там, где системный уже свежее нижней границы (Ubuntu
@@ -1107,8 +1107,8 @@ install_packages() {
         if [ "$pkg" = ffmpeg ] && [ -n "$apt_ff" ] \
             && ! dpkg -s ffmpeg >/dev/null 2>&1 \
             && ! dpkg --compare-versions "$apt_ff" ge "$FFMPEG_MIN" 2>/dev/null; then
-            info "в репозитории ffmpeg $apt_ff (нужно ≥ $FFMPEG_MIN) - пакет не ставлю, \
-беру статическую сборку"
+            info "repository has ffmpeg $apt_ff (need >= $FFMPEG_MIN) - not installing the package; using a static build" \
+                "в репозитории ffmpeg $apt_ff (нужно ≥ $FFMPEG_MIN) - пакет не ставлю, беру статическую сборку"
             continue
         fi
         want+=("$pkg")
@@ -1117,13 +1117,13 @@ install_packages() {
         dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
     done
     if [ ${#missing[@]} -eq 0 ]; then
-        skip "apt-пакеты (${want[*]})"
+        skip "apt packages (${want[*]})" "apt-пакеты (${want[*]})"
     else
         [ "$updated" = 1 ] || apt-get update -qq
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
     fi
     pick_python
-    info "интерпретатор $PYTHON ($("$PYTHON" -c 'import sys; print(sys.version.split()[0])'))"
+    info "interpreter $PYTHON ($("$PYTHON" -c 'import sys; print(sys.version.split()[0])'))" "интерпретатор $PYTHON ($("$PYTHON" -c 'import sys; print(sys.version.split()[0])'))"
 }
 
 # --- 2. Пакет torrcast в собственный venv ------------------------------------
@@ -1146,26 +1146,26 @@ pick_pip_index() {
     for mirror in "${PIP_MIRRORS[@]}"; do
         if index_alive "$mirror"; then
             export PIP_INDEX_URL="$mirror"
-            info "⚠ pypi недоступен - ставлю через зеркало ${mirror#https://}"
+            info "⚠ PyPI is unavailable - installing through mirror ${mirror#https://}" "⚠ pypi недоступен - ставлю через зеркало ${mirror#https://}"
             return 0
         fi
     done
-    info "⚠ pypi недоступен, и зеркала тоже - пробую штатным путём"
+    info "⚠ PyPI and its mirrors are unavailable - trying the default route" "⚠ pypi недоступен, и зеркала тоже - пробую штатным путём"
 }
 
 install_torrcast() {
     local installed site
-    log "пакет torrcast → $PREFIX"
+    log "torrcast package -> $PREFIX" "пакет torrcast → $PREFIX"
     pick_python  # фаза может гоняться и в одиночку, без `packages`
     if [ ! -x "$PREFIX/venv/bin/python" ]; then
         install -d -m 0755 "$PREFIX"
         "$PYTHON" -m venv "$PREFIX/venv"
     else
-        skip "venv $PREFIX/venv"
+        skip "venv $PREFIX/venv" "venv $PREFIX/venv"
     fi
     pick_pip_index
     site="$("$PREFIX/venv/bin/python" -P -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" ||
-        die "venv $PREFIX/venv не отвечает - ставить пакет некуда"
+        die "venv $PREFIX/venv does not respond - there is nowhere to install the package" "venv $PREFIX/venv не отвечает - ставить пакет некуда"
     drop_pip_leftovers "$site"
     "$PREFIX/venv/bin/pip" install --quiet --upgrade pip
     # Первый вызов ставит зависимости, второй — САМ пакет, всегда заново.
@@ -1181,7 +1181,7 @@ install_torrcast() {
     # Симлинк перезаписываем всегда: это дёшево и чинит битую ссылку.
     ln -sfn "$PREFIX/venv/bin/cast" "$BIN_DIR/cast"
     installed="$(torrcast_site_dir)" ||
-        die "пакет torrcast не импортируется из $PREFIX/venv - установка не состоялась"
+        die "torrcast package cannot be imported from $PREFIX/venv - installation failed" "пакет torrcast не импортируется из $PREFIX/venv - установка не состоялась"
     prune_torrcast "$installed" "$REPO_DIR/torrcast"
     verify_torrcast "$installed"
 }
@@ -1198,7 +1198,7 @@ drop_pip_leftovers() {  # $1 - каталог site-packages нашего venv
         rm -rf "$left"
         count=$((count + 1))
     done
-    [ "$count" -gt 0 ] && info "убрано следов оборванной установки: $count"
+    [ "$count" -gt 0 ] && info "removed traces of an interrupted installation: $count" "убрано следов оборванной установки: $count"
     return 0
 }
 
@@ -1243,13 +1243,13 @@ prune_torrcast() {  # $1 - каталог установленного паке�
     local pkg="$1" src="$2" rel gone=0
     while IFS= read -r rel; do
         rm -f "$pkg/$rel"
-        info "лишнее в пакете, убрано: $rel"
+        info "removed extra package file: $rel" "лишнее в пакете, убрано: $rel"
         gone=$((gone + 1))
     done < <(stray_files "$pkg" "$src")
     # Каталог, из которого унесли последний файл, оставлять нельзя: пустой каталог внутри
     # пакета Python считает пространством имён, и `import` по мёртвому имени состоится.
     find "$pkg" -mindepth 1 -depth -type d -empty -delete
-    [ "$gone" -gt 0 ] && info "пакет приведён к дереву: убрано файлов $gone"
+    [ "$gone" -gt 0 ] && info "package now matches the tree: removed $gone files" "пакет приведён к дереву: убрано файлов $gone"
     return 0
 }
 
@@ -1272,17 +1272,17 @@ py_manifest() {  # $1 — каталог пакета torrcast
 # что чинило бы venv, а показ пойдёт по чужому коду.
 verify_torrcast() {  # $1 — каталог установленного пакета
     local installed="$1" repo_side venv_side changed count sum extra
-    [ -d "$REPO_DIR/torrcast" ] || die "рядом с install.sh нет каталога torrcast/ — нечего сверять"
-    [ -d "$installed" ] || die "torrcast импортируется, но каталога $installed нет"
+    [ -d "$REPO_DIR/torrcast" ] || die "there is no torrcast/ directory next to install.sh - nothing to verify" "рядом с install.sh нет каталога torrcast/ - нечего сверять"
+    [ -d "$installed" ] || die "torrcast imports, but directory $installed is missing" "torrcast импортируется, но каталога $installed нет"
 
     # Сверка хэшей видит только пары «есть там и там»; отдельной строкой спрашиваем то,
     # чего в дереве нет вовсе, - включая осиротевший байт-код, которого слепок не берёт.
     extra="$(stray_files "$installed" "$REPO_DIR/torrcast" | tr '\n' ' ')"
-    [ -z "$extra" ] || die "в пакете остались файлы, которых в дереве нет: $extra"
+    [ -z "$extra" ] || die "package still contains files absent from the tree: $extra" "в пакете остались файлы, которых в дереве нет: $extra"
 
     repo_side="$(py_manifest "$REPO_DIR/torrcast")"
     venv_side="$(py_manifest "$installed")"
-    [ -n "$repo_side" ] || die "в $REPO_DIR/torrcast нет ни одного .py — сверять нечего"
+    [ -n "$repo_side" ] || die "$REPO_DIR/torrcast contains no .py files - nothing to verify" "в $REPO_DIR/torrcast нет ни одного .py - сверять нечего"
     if [ "$repo_side" != "$venv_side" ]; then
         # Имена расходящихся файлов: строки, встречающиеся только с одной стороны.
         changed="$(comm -3 \
@@ -1290,22 +1290,22 @@ verify_torrcast() {  # $1 — каталог установленного пак
             <(printf '%s\n' "$venv_side" | LC_ALL=C sort) |
             awk '{print $NF}' | LC_ALL=C sort -u)"
         printf '%s\n' "$changed" | while read -r f; do
-            [ -n "$f" ] && info "расходится: ${f#./}"
+            [ -n "$f" ] && info "differs: ${f#./}" "расходится: ${f#./}"
         done
-        info "в репе:  $REPO_DIR/torrcast"
-        info "в venv:  $installed"
-        die "venv не совпадает с исходниками: pip отрапортовал успех, но код не обновился"
+        info "in repository: $REPO_DIR/torrcast" "в репе:  $REPO_DIR/torrcast"
+        info "in venv: $installed" "в venv:  $installed"
+        die "venv does not match the sources: pip reported success but did not update the code" "venv не совпадает с исходниками: pip отрапортовал успех, но код не обновился"
     fi
 
     count="$(printf '%s\n' "$repo_side" | grep -c .)"
     sum="$(printf '%s\n' "$repo_side" | sha256sum | cut -c1-12)"
-    info "сверка venv ↔ репа: $count файлов совпадают (sha256 $sum)"
+    info "venv vs repository check: $count files match (sha256 $sum)" "сверка venv ↔ репа: $count файлов совпадают (sha256 $sum)"
 }
 
 # --- 3. TorrServer ----------------------------------------------------------
 install_torrserver() {
     local budget place where upgraded=0
-    place="$(ts_cache_place)" || die "не рассчитался размер кэша TorrServer - причина выше"
+    place="$(ts_cache_place)" || die "could not calculate TorrServer cache size - see the reason above" "не рассчитался размер кэша TorrServer - причина выше"
     TS_DISK="${place%% *}"
     TS_CACHE="${TORRCAST_TS_CACHE:-${place#* }}"
     if [ "$TS_DISK" = disk ]; then
@@ -1315,7 +1315,7 @@ install_torrserver() {
         where="в памяти"
         budget=$(( TS_CACHE * TS_MEM_OVERHEAD ))
     fi
-    log "TorrServer ($TS_URL, кэш $where $((TS_CACHE / 1024 / 1024)) МиБ)"
+    log "TorrServer ($TS_URL, $where cache $((TS_CACHE / 1024 / 1024)) MiB)" "TorrServer ($TS_URL, кэш $where $((TS_CACHE / 1024 / 1024)) МиБ)"
     install -d -m 0755 "$PREFIX/bin" "$PREFIX/torrserver"
     if [ "$TS_DISK" = disk ]; then
         install -d -m 0755 "$TS_CACHE_DIR"
@@ -1328,14 +1328,14 @@ install_torrserver() {
         installed="${installed#TorrServer }"
     fi
     if [ "$installed" = "$TS_VERSION" ]; then
-        skip "бинарь TorrServer $installed"
+        skip "TorrServer binary $installed" "бинарь TorrServer $installed"
     else
         local arch url
         case "$(uname -m)" in
             x86_64)  arch=amd64 ;;
             aarch64) arch=arm64 ;;
             armv7l)  arch=arm7 ;;
-            *) die "нет сборки TorrServer под $(uname -m)" ;;
+            *) die "no TorrServer build for $(uname -m)" "нет сборки TorrServer под $(uname -m)" ;;
         esac
         url="$(gh_release YouROK/TorrServer "$TS_VERSION" TorrServer exact \
             | jq -r --arg n "TorrServer-linux-$arch" \
@@ -1347,17 +1347,17 @@ install_torrserver() {
         # умирать: остаёмся на нём и говорим об этом вслух.
         if [ -z "$url" ] || [ "$url" = null ]; then
             [ -n "$installed" ] \
-                || die "не нашёл пиненную сборку TorrServer-linux-$arch ($TS_VERSION)"
-            loud "TorrServer остаётся на $installed: пиненного $TS_VERSION на месте \
-загрузки нет"
-            info "поднять пин - строка TS_VERSION в install.sh, список версий лежит \
-в релизах YouROK/TorrServer"
+                || die "pinned TorrServer-linux-$arch build ($TS_VERSION) was not found" "не нашёл пиненную сборку TorrServer-linux-$arch ($TS_VERSION)"
+            loud "TorrServer remains at $installed: pinned $TS_VERSION is absent from the download site" \
+                "TorrServer остаётся на $installed: пиненного $TS_VERSION на месте загрузки нет"
+            info "update the pin in the TS_VERSION line in install.sh; versions are listed in YouROK/TorrServer releases" \
+                "поднять пин - строка TS_VERSION в install.sh, список версий лежит в релизах YouROK/TorrServer"
         else
-            info "качаю $url"
-            fetch -o "$PREFIX/bin/TorrServer.new" "$url" || die "не скачался TorrServer: $url"
+            info "downloading $url" "качаю $url"
+            fetch -o "$PREFIX/bin/TorrServer.new" "$url" || die "could not download TorrServer: $url" "не скачался TorrServer: $url"
             chmod +x "$PREFIX/bin/TorrServer.new"
             mv "$PREFIX/bin/TorrServer.new" "$PREFIX/bin/TorrServer"
-            [ -z "$installed" ] || info "TorrServer обновлён: $installed -> $TS_VERSION"
+            [ -z "$installed" ] || info "TorrServer updated: $installed -> $TS_VERSION" "TorrServer обновлён: $installed -> $TS_VERSION"
             upgraded=1
         fi
     fi
@@ -1379,7 +1379,7 @@ install_torrserver() {
         "Environment=GOMEMLIMIT=${budget}B
 MemoryMax=$(( budget + 256 * 1024 * 1024 ))
 MemorySwapMax=0"
-    wait_http "$TS_URL/echo" 60 || die "TorrServer не поднялся на $TS_URL"
+    wait_http "$TS_URL/echo" 60 || die "TorrServer did not start at $TS_URL" "TorrServer не поднялся на $TS_URL"
 
     # Кэш там, где его больше поместилось, публичные ретрекеры в magnet'ы, DHT и PEX
     # включены.
@@ -1402,9 +1402,9 @@ MemorySwapMax=0"
     curl -fsS -X POST "$TS_URL/settings" -H 'Content-Type: application/json' \
         -d "{\"action\":\"set\",\"sets\":$sets}" >/dev/null
     if [ "$TS_DISK" = disk ]; then
-        info "кэш $((TS_CACHE / 1024 / 1024)) МиБ на диске ($TS_CACHE_DIR), переживает перезапуск службы, свободно на разделе $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) МиБ, потолок службы $((budget / 1024 / 1024)) МиБ, ретрекеры включены"
+        info "$((TS_CACHE / 1024 / 1024)) MiB disk cache ($TS_CACHE_DIR), survives service restarts; $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) MiB free, service limit $((budget / 1024 / 1024)) MiB, retrackers enabled" "кэш $((TS_CACHE / 1024 / 1024)) МиБ на диске ($TS_CACHE_DIR), переживает перезапуск службы, свободно на разделе $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) МиБ, потолок службы $((budget / 1024 / 1024)) МиБ, ретрекеры включены"
     else
-        info "кэш $((TS_CACHE / 1024 / 1024)) МиБ в памяти при $(( $(host_memory) / 1024 / 1024 )) МиБ памяти машины, потолок службы $((budget / 1024 / 1024)) МиБ, ретрекеры включены"
+        info "$((TS_CACHE / 1024 / 1024)) MiB memory cache with $(( $(host_memory) / 1024 / 1024 )) MiB host memory, service limit $((budget / 1024 / 1024)) MiB, retrackers enabled" "кэш $((TS_CACHE / 1024 / 1024)) МиБ в памяти при $(( $(host_memory) / 1024 / 1024 )) МиБ памяти машины, потолок службы $((budget / 1024 / 1024)) МиБ, ретрекеры включены"
     fi
 }
 
@@ -1421,10 +1421,10 @@ pinned() {  # $1 имя - прибито ли уже к 127.0.0.1
 
 hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотентно
     if pinned "$1"; then
-        skip "$HOSTS_FILE: $1"
+        skip "$HOSTS_FILE: $1" "$HOSTS_FILE: $1"
     else
         printf '127.0.0.1 %s\n' "$1" >>"$HOSTS_FILE"
-        info "$HOSTS_FILE: $1 → 127.0.0.1"
+        info "$HOSTS_FILE: $1 -> 127.0.0.1" "$HOSTS_FILE: $1 → 127.0.0.1"
     fi
 }
 
@@ -1503,7 +1503,7 @@ retire_old_shim() {
     rm -rf /etc/knaben-shim
     systemctl daemon-reload >/dev/null 2>&1 || true
     update-ca-certificates --fresh >/dev/null 2>&1 || true
-    info "прежний одиночный шим убран - его место занимает общий"
+    info "old single-host shim removed - the shared shim replaces it" "прежний одиночный шим убран - его место занимает общий"
 }
 
 setup_shim() {  # $1 - имена, которые ведём через шим (через запятую), дальше маршруты имя=кандидат[,…]
@@ -1517,24 +1517,24 @@ setup_shim() {  # $1 - имена, которые ведём через шим (
     # он, набор имён или маршруты - службу гасим: юнит-то прежний, и сама по себе она
     # осталась бы на старом.
     if cmp -s "$REPO_DIR/scripts/sni-shim.py" "$SHIM_DIR/sni-shim.py"; then
-        skip "код шима $SHIM_DIR/sni-shim.py"
+        skip "shim code $SHIM_DIR/sni-shim.py" "код шима $SHIM_DIR/sni-shim.py"
     else
         install -m 0755 "$REPO_DIR/scripts/sni-shim.py" "$SHIM_DIR/sni-shim.py"
-        info "код шима обновлён из репы"
+        info "shim code updated from the repository" "код шима обновлён из репы"
         changed=1
     fi
 
     # Серт один на все имена сразу: перевыпускаем, когда набор имён изменился.
     for spec in "${routes[@]}"; do sans="$sans${sans:+,}DNS:${spec%%=*}"; done
     if [ -s "$SHIM_DIR/shim.crt" ] && [ "$sans" = "$(cat "$SHIM_DIR/names" 2>/dev/null)" ]; then
-        skip "серт шима на ${#routes[@]} имён"
+        skip "shim certificate for ${#routes[@]} names" "серт шима на ${#routes[@]} имён"
     else
         openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
             -keyout "$SHIM_DIR/shim.key" -out "$SHIM_DIR/shim.crt" \
             -subj "/CN=${routes[0]%%=*}" -addext "subjectAltName=$sans" 2>/dev/null
         chmod 600 "$SHIM_DIR/shim.key"
         printf '%s\n' "$sans" >"$SHIM_DIR/names"
-        info "серт шима выпущен на: ${routes[*]%%=*}"
+        info "shim certificate issued for: ${routes[*]%%=*}" "серт шима выпущен на: ${routes[*]%%=*}"
         changed=1
     fi
     # Prowlarr — .NET, и доверяет он системному хранилищу; своего для процесса ему не
@@ -1676,7 +1676,7 @@ probe_all() {  # $1 - `direct` (одна проба мимо hosts) либо `th
 
 # Замер и обход для тех трекеров, чьё имя может не пройти по TLS (:data:`SHIMS`).
 check_sources() {
-    log "источники: что доступно из этой сети"
+    log "sources available from this network" "источники: что доступно из этой сети"
     local spec host path body ups routes=() pins=() probes=""
     # 🔴 TC-260. Спрашиваем ВСЕХ и каждый раз заново. Прежде прибитое имя проверять не
     # ходили вовсе («уже за шимом - маршрут остаётся»), и однажды принятое решение жило
@@ -1691,7 +1691,7 @@ check_sources() {
         # начнёт его резать.
         routes+=("$host=$ups")
         if [ "$(cat "$probes/$host" 2>/dev/null)" != 0 ]; then
-            info "⚠ $host отдаёт ответ не целиком (режется по имени в SNI) - веду через шим"
+            info "⚠ $host returns an incomplete response (cut by SNI name) - routing through the shim" "⚠ $host отдаёт ответ не целиком (режется по имени в SNI) - веду через шим"
             pins+=("$host")
         elif pinned "$host"; then
             # 🔴 Одной удачной пробы мало, чтобы снять уже стоящий обход: цена ошибки
@@ -1699,15 +1699,15 @@ check_sources() {
             # больного - молчащего индексера до следующей установки, и молчит он не
             # словами, а пустой выдачей. Поэтому обход снимает только фоновая
             # перепроверка, и лишь когда имя ответит целиком несколько раз подряд.
-            info "$host отвечает по имени - обход снимется сам, если это подтвердится"
+            info "$host responds by name - the bypass will be removed after confirmation" "$host отвечает по имени - обход снимется сам, если это подтвердится"
             pins+=("$host")
         else
-            info "$host отвечает целиком - веду напрямую"
+            info "$host returns a complete response - routing directly" "$host отвечает целиком - веду напрямую"
         fi
     done
     if [ -n "$probes" ]; then rm -rf "$probes"; fi
     if [ "${#pins[@]}" -eq 0 ]; then
-        info "все трекеры отвечают по имени - шим держим наготове, он перепроверит сам"
+        info "all trackers respond by name - keeping the shim ready; it will recheck automatically" "все трекеры отвечают по имени - шим держим наготове, он перепроверит сам"
     fi
     setup_shim "$(IFS=,; printf '%s' "${pins[*]}")" "${routes[@]}"
 
@@ -1725,7 +1725,7 @@ check_sources() {
         through+=("$spec")
     done
     if [ "${#through[@]}" -gt 0 ]; then
-        late_run "проверка трекеров через шим" verify_shims "${through[@]}"
+        late_run "checking trackers through the shim" "проверка трекеров через шим" verify_shims "${through[@]}"
     fi
 }
 
@@ -1755,14 +1755,14 @@ verify_shims() {  # $@ - строки SHIMS тех, кого ведём чере
         IFS='|' read -r host path body ups _ <<<"$spec"
         if pinned "$host"; then
             if [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
-                info "через шим $host отвечает целиком"
+                info "$host returns a complete response through the shim" "через шим $host отвечает целиком"
             else
-                info "⚠ $host не отвечает и через шим - его индексер может остаться пустым"
+                info "⚠ $host does not respond through the shim either - its indexer may remain empty" "⚠ $host не отвечает и через шим - его индексер может остаться пустым"
             fi
         elif [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
-            info "$host отвечает целиком напрямую - шим имя ещё не прибил, проверял прямой путь"
+            info "$host responds completely over the direct route - the shim has not pinned the name yet" "$host отвечает целиком напрямую - шим имя ещё не прибил, проверял прямой путь"
         else
-            info "⚠ $host не отвечает напрямую, и шим его ещё не прибил - его индексер может остаться пустым"
+            info "⚠ $host does not respond directly and the shim has not pinned it yet - its indexer may remain empty" "⚠ $host не отвечает напрямую, и шим его ещё не прибил - его индексер может остаться пустым"
         fi
     done
     rm -rf "$probes"
@@ -1778,17 +1778,17 @@ seed_definitions() {
     install -m 0644 "$REPO_DIR/scripts/anilibria.yml" "$dir/anilibria.yml"
     install -m 0644 "$REPO_DIR/scripts/jacred.yml" "$dir/jacred.yml"
     if [ "$(find "$dir" -maxdepth 1 -name '*.yml' 2>/dev/null | wc -l)" -gt 100 ]; then
-        skip "определения индексеров ($(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) шт.)"
+        skip "indexer definitions ($(find "$dir" -maxdepth 1 -name '*.yml' | wc -l))" "определения индексеров ($(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) шт.)"
         return
     fi
-    log "определения индексеров с GitHub"
+    log "indexer definitions from GitHub" "определения индексеров с GitHub"
     local tmp; tmp="$(mktemp -d)"
     if fetch -o "$tmp/defs.tar.gz" "$DEFS_TARBALL" \
        && tar -xzf "$tmp/defs.tar.gz" -C "$tmp" --wildcards '*/definitions/v11/*.yml'; then
         find "$tmp" -path '*/definitions/v11/*.yml' -exec install -m 0644 {} "$dir/" \;
-        info "разложено $(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) определений"
+        info "installed $(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) definitions" "разложено $(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) определений"
     else
-        info "⚠ определения не скачались - останутся только встроенные индексеры"
+        info "⚠ definitions could not be downloaded - only built-in indexers remain" "⚠ определения не скачались - останутся только встроенные индексеры"
     fi
     rm -rf "$tmp"
 }
@@ -1819,15 +1819,15 @@ YTS_LIMIT="${TORRCAST_YTS_LIMIT:-10}"
 trim_yts() {  # $1 - каталог с определениями; 0 - подрезали сейчас, 1 - менять нечего
     local file="$1/yts.yml"
     if [ ! -f "$file" ]; then
-        info "⚠ определения yts нет на диске - выдачу подрезать нечем"
+        info "⚠ yts definition is absent from disk - cannot limit its results" "⚠ определения yts нет на диске - выдачу подрезать нечем"
     elif grep -q "^ *limit: $YTS_LIMIT\$" "$file"; then
-        skip "выдача yts подрезана до $YTS_LIMIT картин"
+        skip "yts results limited to $YTS_LIMIT titles" "выдача yts подрезана до $YTS_LIMIT картин"
     elif grep -q '^ *limit: 50$' "$file"; then
         sed -i "s/^\\( *\\)limit: 50\$/\\1limit: $YTS_LIMIT/" "$file"
-        info "выдача yts подрезана до $YTS_LIMIT картин - полную канал рвёт по объёму"
+        info "yts results limited to $YTS_LIMIT titles - the full response exceeds the channel limit" "выдача yts подрезана до $YTS_LIMIT картин - полную канал рвёт по объёму"
         return 0
     else
-        info "⚠ в определении yts не нашлось строки «limit: 50» - подрезать нечего"
+        info "⚠ yts definition has no 'limit: 50' line - nothing to limit" "⚠ в определении yts не нашлось строки «limit: 50» - подрезать нечего"
     fi
     return 1
 }
@@ -1839,7 +1839,7 @@ trim_yts() {  # $1 - каталог с определениями; 0 - подр�
 PL_FALLBACK="${TORRCAST_PL_FALLBACK:-https://prowlarr.servarr.com/v1/update/master/updatefile?os=linux&runtime=netcore&arch=x64}"
 
 install_prowlarr() {
-    log "Prowlarr ($PL_URL, публичные индексеры)"
+    log "Prowlarr ($PL_URL, public indexers)" "Prowlarr ($PL_URL, публичные индексеры)"
     pick_python
     install -d -m 0755 "$PREFIX/prowlarr-data"
 
@@ -1853,7 +1853,7 @@ install_prowlarr() {
     run_service anilibria-indexer "Поиск AniLibria для Prowlarr" \
         "$PYTHON $PREFIX/anilibria-indexer.py 9697" ""
     wait_http "http://127.0.0.1:9697/ping" 15 \
-        || info "⚠ AniLibria не поднялась - остальные индексеры продолжат работать"
+        || info "⚠ AniLibria did not start - other indexers will continue working" "⚠ AniLibria не поднялась - остальные индексеры продолжат работать"
     if ! cmp -s "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"; then
         stop_service jacred-indexer "$PYTHON $PREFIX/jacred-indexer.py"
         install -m 0755 "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"
@@ -1861,7 +1861,7 @@ install_prowlarr() {
     run_service jacred-indexer "Открытый поиск русских раздач для Prowlarr" \
         "$PYTHON $PREFIX/jacred-indexer.py 9698" ""
     wait_http "http://127.0.0.1:9698/ping" 15 \
-        || info "⚠ JacRed не поднялся - остальные индексеры продолжат работать"
+        || info "⚠ JacRed did not start - other indexers will continue working" "⚠ JacRed не поднялся - остальные индексеры продолжат работать"
     install -d -m 0755 "$PREFIX/prowlarr-data/Definitions"
     if ! cmp -s "$REPO_DIR/scripts/anilibria.yml" \
             "$PREFIX/prowlarr-data/Definitions/anilibria.yml" \
@@ -1879,37 +1879,37 @@ install_prowlarr() {
     # каталогом сама. Без этой строки КАЖДЫЙ запрос схемы ждёт таймаута .NET - 100 секунд.
     # Сама выгрузка с GitHub (восемь мегабайт) от нашей закачки не зависит и едет рядом.
     if curl -fsS -m 15 -o /dev/null "$PL_DEFS_URL" 2>/dev/null; then
-        info "каталог индексеров Prowlarr доступен - он возьмёт определения сам"
+        info "Prowlarr indexer catalog is available - it will fetch definitions itself" "каталог индексеров Prowlarr доступен - он возьмёт определения сам"
     else
-        info "⚠ каталог индексеров Prowlarr недоступен - определения возьмём с GitHub"
+        info "⚠ Prowlarr indexer catalog is unavailable - fetching definitions from GitHub" "⚠ каталог индексеров Prowlarr недоступен - определения возьмём с GitHub"
         hosts_pin indexers.prowlarr.com
         job_start defs seed_definitions
     fi
 
     if [ -x "$PREFIX/prowlarr/Prowlarr" ]; then
-        skip "бинарь Prowlarr"
+        skip "Prowlarr binary" "бинарь Prowlarr"
     else
         local url
         url="$(gh_release Prowlarr/Prowlarr "$PL_VERSION" Prowlarr \
             | jq -r '[.assets[]?|select(.name|test("linux-core-x64\\.tar\\.gz$"))][0]
                      .browser_download_url // empty')" || url=""
         if [ -z "$url" ]; then
-            info "GitHub сборку не отдал - иду на $PL_FALLBACK"
+            info "GitHub did not provide the build - trying $PL_FALLBACK" "GitHub сборку не отдал - иду на $PL_FALLBACK"
             url="$PL_FALLBACK"
         fi
-        info "качаю $url"
+        info "downloading $url" "качаю $url"
         install -d -m 0755 "$PREFIX/prowlarr"
-        fetch -o "$PREFIX/prowlarr.tar.gz" "$url" || die "не скачался Prowlarr: $url"
+        fetch -o "$PREFIX/prowlarr.tar.gz" "$url" || die "could not download Prowlarr: $url" "не скачался Prowlarr: $url"
         # В архиве верхний каталог `Prowlarr/` — срезаем, чтобы путь был предсказуем.
         tar -xzf "$PREFIX/prowlarr.tar.gz" -C "$PREFIX/prowlarr" --strip-components=1
         rm -f "$PREFIX/prowlarr.tar.gz"
-        [ -x "$PREFIX/prowlarr/Prowlarr" ] || die "распаковка Prowlarr не дала бинаря"
+        [ -x "$PREFIX/prowlarr/Prowlarr" ] || die "Prowlarr archive did not contain a binary" "распаковка Prowlarr не дала бинаря"
     fi
 
     # Конфиг пишем ДО первого старта: иначе Prowlarr сядет на 0.0.0.0 и включит
     # форму логина. Слушаем только localhost, аутентификация внешняя (её нет).
     if [ -f "$PREFIX/prowlarr-data/config.xml" ]; then
-        skip "$PREFIX/prowlarr-data/config.xml"
+        skip "$PREFIX/prowlarr-data/config.xml" "$PREFIX/prowlarr-data/config.xml"
     else
         cat >"$PREFIX/prowlarr-data/config.xml" <<XML
 <Config>
@@ -1928,13 +1928,13 @@ XML
 
     run_service prowlarr "Prowlarr для torrcast" \
         "$PREFIX/prowlarr/Prowlarr -nobrowser -data=$PREFIX/prowlarr-data" "$PL_IPV4"
-    wait_http "$PL_URL/ping" 120 || die "Prowlarr не поднялся на $PL_URL"
+    wait_http "$PL_URL/ping" 120 || die "Prowlarr did not start at $PL_URL" "Prowlarr не поднялся на $PL_URL"
 
     # Определения должны лежать на месте раньше, чем у Prowlarr спросят схему, - иначе
     # индексеров в ней просто не окажется. Служба поднимается ровно столько же времени,
     # сколько они качаются, поэтому ждём их здесь, а не раньше.
     if [ -n "${JOB_PID[defs]:-}" ]; then
-        job_wait defs || info "⚠ определения индексеров не разложились - останутся встроенные"
+        job_wait defs || info "⚠ indexer definitions were not installed - built-in definitions remain" "⚠ определения индексеров не разложились - останутся встроенные"
         # 🔴 TC-232. Подрезаем ПОСЛЕ раскладки - и поднимаем службу заново, если правда
         # подрезали. Определение Prowlarr читает один раз и держит в памяти: замер на
         # стенде - правка на диске без рестарта выдачу не поменяла («batman» как отдавал
@@ -1945,7 +1945,7 @@ XML
             stop_service prowlarr "$PREFIX/prowlarr/Prowlarr"
             run_service prowlarr "Prowlarr для torrcast" \
                 "$PREFIX/prowlarr/Prowlarr -nobrowser -data=$PREFIX/prowlarr-data" "$PL_IPV4"
-            wait_http "$PL_URL/ping" 120 || die "Prowlarr не поднялся на $PL_URL"
+            wait_http "$PL_URL/ping" 120 || die "Prowlarr did not start at $PL_URL" "Prowlarr не поднялся на $PL_URL"
         fi
     fi
 }
@@ -2025,7 +2025,7 @@ add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
         have="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" 2>/dev/null \
             | jq -r --arg n "$iname" 'any(.[]; .name==$n)' 2>/dev/null)" || have=""
         if [ "$have" = true ]; then
-            info "$iname уже на месте"
+            info "$iname is already installed" "$iname уже на месте"
             continue
         fi
         answer="$(mktemp)"
@@ -2033,9 +2033,9 @@ add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
             "$PL_URL/api/v1/indexer?apikey=$key" -H 'Content-Type: application/json' \
             -d "$ibody" 2>/dev/null)" || status=000
         if [[ "$status" = 2* ]]; then
-            info "$iname добавлен"
+            info "$iname added" "$iname добавлен"
         else
-            info "⚠ $iname не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer")"
+            info "⚠ $iname was not added: Prowlarr returned HTTP $status$(indexer_fail_reason "$answer")" "⚠ $iname не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer")"
         fi
         rm -f "$answer"
     done
@@ -2082,8 +2082,8 @@ retry_add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тел
         [ -z "$missing" ] && return 0
         todo=("${left[@]}")
     done
-    info "⚠ так и не завелись: $missing - каталог без них неполный; \
-повторный ./install.sh заведёт их, когда источник ответит"
+    info "⚠ still failed: $missing - the catalog is incomplete without them; rerun ./install.sh when the source responds" \
+        "⚠ так и не завелись: $missing - каталог без них неполный; повторный ./install.sh заведёт их, когда источник ответит"
 }
 
 # 🔴 TC-259/TC-272. Снять бан с индексеров, которых Prowlarr увёл в недоступные.
@@ -2115,9 +2115,9 @@ unban_indexers() {  # $1 - apikey
         fi
     done
     if [ "$n" -gt 0 ]; then
-        info "снят бан с недоступных индексеров: $names"
+        info "cleared the ban on unavailable indexers: $names" "снят бан с недоступных индексеров: $names"
     else
-        info "⚠ Prowlarr держит индексеры недоступными, и проверка их не вернула - источники ещё молчат"
+        info "⚠ Prowlarr still marks indexers unavailable and the check did not restore them - sources are still silent" "⚠ Prowlarr держит индексеры недоступными, и проверка их не вернула - источники ещё молчат"
     fi
 }
 
@@ -2150,9 +2150,9 @@ check_indexers() {  # $1 - apikey; дальше тройки «номер<TAB>и
         [ -n "$id" ] || continue
         n="$(indexer_yield "$key" "$id")" || n=""
         if [ -z "$n" ]; then
-            info "⚠ $iname: не ответил за $PL_SEARCH_TIMEOUT с"
+            info "⚠ $iname: no response within $PL_SEARCH_TIMEOUT s" "⚠ $iname: не ответил за $PL_SEARCH_TIMEOUT с"
         else
-            info "$iname: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
+            info "$iname: $n results in test search '$PL_SEARCH_PROBE'" "$iname: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
         fi
     done
 }
@@ -2161,7 +2161,8 @@ check_indexers() {  # $1 - apikey; дальше тройки «номер<TAB>и
 #: носитель, и что стало с каждым из них. Пусто - каталог полный. Читает :func:`main`:
 #: пустой каталог под видом успешной установки - это неправда, и она обязана быть видна
 #: и словами, и кодом.
-CATALOG_CUT=""
+CATALOG_CUT_EN=""
+CATALOG_CUT_RU=""
 #: Код возврата установки, которая поставилась, но каталога не получила. Тот же смысл и то
 #: же число, что у инфра-ошибки `cast` (torrcast/domain/exit_codes.py, EXIT_INFRA): всё
 #: своё на месте, а среда не дала работать. Ноль тут врал бы автоматике так же, как
@@ -2199,9 +2200,9 @@ promote_standby() {  # $1 - apikey, $2 - definitionName; ответ - в :data:`
     CATALOG_PROMOTED[$iname]=1
     if [[ "$status" = 2* ]]; then
         STANDBY_ID="$(jq -r '.id // empty' "$answer" 2>/dev/null)"
-        info "добавлен $iname"
+        info "added $iname" "добавлен $iname"
     else
-        loud "$iname не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer")"
+        loud "$iname was not added: Prowlarr returned HTTP $status$(indexer_fail_reason "$answer")" "$iname не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer")"
         CATALOG_RETRY+=("$spec")
     fi
     rm -f "$answer"
@@ -2222,11 +2223,13 @@ promote_standby() {  # $1 - apikey, $2 - definitionName; ответ - в :data:`
 # останавливало. Теперь оно спрашивается на глазах, а из догрева они убраны.
 catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - схема Prowlarr; печатает вердикт
     local key="$1" list="$2" schema="$3"
-    local role name carriers def id iname n why covered cut=""
+    local role names name_en name_ru carriers def id iname n why_en why_ru covered cut_en="" cut_ru=""
     for role in "${CATALOG_ROLES[@]}"; do
-        name="${role%%|*}"
+        names="${role%%|*}"
+        name_en="${names%%^*}"
+        name_ru="${names#*^}"
         read -ra carriers <<<"${role#*|}"
-        why=""; covered=""
+        why_en=""; why_ru=""; covered=""
         for def in "${carriers[@]}"; do
             [ -z "$covered" ] || break
             IFS='|' read -r id iname < <(jq -r --arg d "$def" \
@@ -2240,51 +2243,58 @@ catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - с
             # Ровно за это установка и платит секундами - и платит там, где иначе назвала
             # бы урезанным полный каталог либо смолчала бы о пустом.
             if [ -z "$id" ] && [ -n "${CATALOG_STANDBY[$def]:-}" ]; then
-                info "роль «$name» пока без ответа - завожу запасной источник $iname \
-(Prowlarr щупает его сам, это до двух минут)"
+                info "role '$name_en' is unanswered - adding fallback source $iname (Prowlarr checks it; this may take up to two minutes)" \
+                    "роль «$name_ru» пока без ответа - завожу запасной источник $iname (Prowlarr щупает его сам, это до двух минут)"
                 promote_standby "$key" "$def"
                 id="$STANDBY_ID"
             fi
             if [ -z "$id" ]; then
-                why="$why${why:+, }$iname (не завёлся)"
+                why_en="$why_en${why_en:+, }$iname (not added)"
+                why_ru="$why_ru${why_ru:+, }$iname (не завёлся)"
                 continue
             fi
             n="$(indexer_yield "$key" "$id")" || n=""
             if [ -z "$n" ]; then
-                why="$why${why:+, }$iname (не ответил за $PL_SEARCH_TIMEOUT с)"
+                why_en="$why_en${why_en:+, }$iname (no response within $PL_SEARCH_TIMEOUT s)"
+                why_ru="$why_ru${why_ru:+, }$iname (не ответил за $PL_SEARCH_TIMEOUT с)"
             elif [ "$n" -eq 0 ]; then
-                why="$why${why:+, }$iname (заведён, но не отдал ничего)"
+                why_en="$why_en${why_en:+, }$iname (added but returned no results)"
+                why_ru="$why_ru${why_ru:+, }$iname (заведён, но не отдал ничего)"
             else
-                info "$iname отвечает: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
+                info "$iname responds: $n results in test search '$PL_SEARCH_PROBE'" "$iname отвечает: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
                 covered=1
             fi
         done
         # Роль закрыта первым же ответившим: остальных её носителей не спрашиваем вовсе -
         # ответ они не изменят, а обращение к трекеру стоит суток его ступени бана.
-        [ -n "$covered" ] || cut="$cut${cut:+; }$name - $why"
+        if [ -z "$covered" ]; then
+            cut_en="$cut_en${cut_en:+; }$name_en - $why_en"
+            cut_ru="$cut_ru${cut_ru:+; }$name_ru - $why_ru"
+        fi
     done
-    [ -z "$cut" ] && return 0
-    CATALOG_CUT="$cut"
-    loud "каталог остался без источников роли: $cut"
-    info "остальные индексеры узкие и этой дыры не закрывают: поиск будет находить мало \
-или ничего, пока источник не ответит"
+    [ -z "$cut_en" ] && return 0
+    CATALOG_CUT_EN="$cut_en"
+    CATALOG_CUT_RU="$cut_ru"
+    loud "catalog has no sources for role: $cut_en" "каталог остался без источников роли: $cut_ru"
+    info "the remaining indexers are narrow and do not cover this gap: searches will find little or nothing until a source responds" \
+        "остальные индексеры узкие и этой дыры не закрывают: поиск будет находить мало или ничего, пока источник не ответит"
 }
 
 install_indexers() {
-    log "индексеры Prowlarr"
+    log "Prowlarr indexers" "индексеры Prowlarr"
     local key schema existing
     key="$(prowlarr_apikey)"
-    [ -n "$key" ] || die "не вычитал apikey из config.xml Prowlarr"
+    [ -n "$key" ] || die "could not read apikey from Prowlarr config.xml" "не вычитал apikey из config.xml Prowlarr"
 
     # Гейт версии: обвязка рассчитана на конкретный формат ответа Prowlarr. Если
     # поставилась версия, которая отвечает иначе (например, после отката пина на
     # latest), это должно быть видно здесь и словами, а не молчаливым выходом.
     schema="$(curl -fsS "$PL_URL/api/v1/indexer/schema?apikey=$key")" \
-        || die "Prowlarr не отдал схему индексеров ($PL_URL/api/v1/indexer/schema) - API этой версии не тот, на который рассчитана установка"
+        || die "Prowlarr did not return the indexer schema ($PL_URL/api/v1/indexer/schema) - this version has an incompatible API" "Prowlarr не отдал схему индексеров ($PL_URL/api/v1/indexer/schema) - API этой версии не тот, на который рассчитана установка"
     existing="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")" \
-        || die "Prowlarr не отдал список индексеров ($PL_URL/api/v1/indexer)"
+        || die "Prowlarr did not return the indexer list ($PL_URL/api/v1/indexer)" "Prowlarr не отдал список индексеров ($PL_URL/api/v1/indexer)"
     jq -e 'type == "array" and length > 0 and all(.[]; has("definitionName"))' <<<"$schema" >/dev/null 2>&1 \
-        || die "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
+        || die "Prowlarr indexer schema has an unexpected shape - this version has an incompatible API" "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
     local spec def url extra over body name
     local late=() retry=() answer status first=1
@@ -2292,11 +2302,11 @@ install_indexers() {
         IFS='|' read -r def url extra <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
         if [ -z "$name" ] || [ "$name" = null ]; then
-            info "⚠ $def нет в схеме этой версии Prowlarr - пропускаю"
+            info "⚠ $def is absent from this Prowlarr version's schema - skipping" "⚠ $def нет в схеме этой версии Prowlarr - пропускаю"
             continue
         fi
         if jq -e --arg n "$name" 'any(.[]; .name==$n)' <<<"$existing" >/dev/null; then
-            skip "индексер $name"
+            skip "indexer $name" "индексер $name"
             continue
         fi
         # Поля определения, которые перебиваем: базовый URL плюс то, что задано третьим
@@ -2331,7 +2341,7 @@ install_indexers() {
             "$PL_URL/api/v1/indexer?apikey=$key" -H 'Content-Type: application/json' \
             -d "$body" 2>/dev/null)" || status=000
         if [[ "$status" = 2* ]]; then
-            info "добавлен $name"
+            info "added $name" "добавлен $name"
         elif core_indexer "$def"; then
             # 🔴 TC-692. Это отказ КАТАЛОГА, а не «не блокер»: без опорного источника
             # установка остаётся с почти пустым поиском, и человек обязан это видеть.
@@ -2339,13 +2349,13 @@ install_indexers() {
             # из тела ответа, а дальше догрев переспросит отказавшие ещё не раз
             # (:func:`retry_add_indexers`) - отказ здесь чаще всего погода канала.
             retry+=("$(printf '%s\t%s' "$name" "$body")")
-            loud "$name не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer") - без него каталог неполный"
-            info "переспросим его в фоне ещё не раз; состояние видно в cast doctor"
+            loud "$name was not added: Prowlarr returned HTTP $status$(indexer_fail_reason "$answer") - the catalog is incomplete without it" "$name не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer") - без него каталог неполный"
+            info "it will be retried in the background; see its state in cast doctor" "переспросим его в фоне ещё не раз; состояние видно в cast doctor"
         else
             # 🔴 TC-697. Узкий отказавший не переспрашивается: каталог его отсутствия не
             # замечает, а каждое обращение к молчащему источнику продлевает его сутки бана.
-            info "⚠ $name не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer") - \
-каталог этим не урезан, заведёт следующий ./install.sh"
+            info "⚠ $name was not added: Prowlarr returned HTTP $status$(indexer_fail_reason "$answer") - this does not make the catalog incomplete; the next ./install.sh will add it" \
+                "⚠ $name не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer") - каталог этим не урезан, заведёт следующий ./install.sh"
         fi
         rm -f "$answer"
     done
@@ -2363,7 +2373,7 @@ install_indexers() {
 
     local list rest=() id iname
     list="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")" || list='[]'
-    info "индексеров сейчас: $(jq 'length' <<<"$list")"
+    info "indexers now: $(jq 'length' <<<"$list")" "индексеров сейчас: $(jq 'length' <<<"$list")"
     while IFS='|' read -r id def iname; do
         [ -n "$id" ] || continue
         # Опорные щупаются здесь же, на глазах (:func:`catalog_gate`), поэтому в догрев
@@ -2395,7 +2405,7 @@ install_indexers() {
         names="$names${names:+, }$iname"
     done
     if [ "${#ready[@]}" -gt 0 ]; then
-        late_run "индексер $names (добавляется до двух минут)" add_indexers "$key" "${ready[@]}"
+        late_run "indexer $names (may take up to two minutes to add)" "индексер $names (добавляется до двух минут)" add_indexers "$key" "${ready[@]}"
     fi
     # Запасной, отказавший на добавлении у гейта, ждёт свою роль так же, как отказавший на
     # глазах: переспрос - привилегия носителей роли, и начинается он с полной паузы.
@@ -2406,17 +2416,18 @@ install_indexers() {
         local asked="" more=$(( INDEXER_RETRY_TIMES - 1 ))
         local span=$(( more * INDEXER_RETRY_EVERY / 60 ))
         for spec in "${retry[@]}"; do asked="$asked${asked:+, }${spec%%$'\t'*}"; done
-        late_run "отказавшие опорные $asked (спросим ещё до $more раз, раз в \
-$INDEXER_RETRY_EVERY с - это до $span мин)" retry_add_indexers "$key" "${retry[@]}"
+        late_run "failed core indexers $asked (up to $more more attempts every $INDEXER_RETRY_EVERY s, up to $span min)" \
+            "отказавшие опорные $asked (спросим ещё до $more раз, раз в $INDEXER_RETRY_EVERY с - это до $span мин)" \
+            retry_add_indexers "$key" "${retry[@]}"
     fi
     if [ "${#rest[@]}" -gt 0 ]; then
-        late_run "проверочный поиск по остальным индексерам" check_indexers "$key" "${rest[@]}"
+        late_run "test search through the remaining indexers" "проверочный поиск по остальным индексерам" check_indexers "$key" "${rest[@]}"
     fi
 }
 
 # --- 6. Конфиг, ключи, состояние --------------------------------------------
 setup_config() {
-    log "конфиг и ключи"
+    log "configuration and keys" "конфиг и ключи"
     install -d -m 0755 "$CONFIG_DIR" "$STATE_DIR"
     local key; key="$(prowlarr_apikey)"
 
@@ -2436,7 +2447,7 @@ setup_config() {
 
     if [ -f "$CONFIG_DIR/config.json" ]; then
         # Адрес ТВ и прочий выбор пользователя не трогаем — обновляем только ключ.
-        skip "$CONFIG_DIR/config.json (обновляю apikey, транспорт и темп беру из кода)"
+        skip "$CONFIG_DIR/config.json (updating apikey; transport and temp come from code)" "$CONFIG_DIR/config.json (обновляю apikey, транспорт и темп беру из кода)"
         local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
         jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" --arg l "$LANGUAGE" \
             "$tuned | .prowlarr_apikey=\$k" "$CONFIG_DIR/config.json" >"$tmp"
@@ -2461,7 +2472,7 @@ setup_config() {
   "hls_dir": "$HLS_DIR"
 }
 JSON
-    info "apikey Prowlarr перенесён в $CONFIG_DIR/config.json"
+    info "Prowlarr apikey stored in $CONFIG_DIR/config.json" "apikey Prowlarr перенесён в $CONFIG_DIR/config.json"
 }
 
 # --- 6.5 Приёмник ------------------------------------------------------------
@@ -2479,18 +2490,18 @@ setup_receiver() {
     # только пустое. У mock-стенда адрес заполнен словом «mock» - он тоже пропускается.
     tv="$(jq -r '.tv // empty' "$cfg")"
     if [ -n "$tv" ]; then
-        skip "приёмник уже настроен: $tv"
+        skip "receiver is already configured: $tv" "приёмник уже настроен: $tv"
         return 0
     fi
     [ -x "$BIN_DIR/cast" ] || return 0  # пакет не ставился - фаза torrcast выключена
-    log "приёмник"
+    log "receiver" "приёмник"
     # TORRCAST_CONFIG - чтобы песочница писала в СВОЙ конфиг, а не в общесистемный:
     # без неё `cast` читал бы /etc/torrcast/config.json независимо от TORRCAST_CONFIG_DIR.
     if TORRCAST_CONFIG="$cfg" "$BIN_DIR/cast" --tv </dev/null; then
         return 0
     fi
-    info "приёмник не выбран; выполни cast --tv <ip> с адресом нужного или \
-cast --tv для выбора номером; если список пуст, сначала включи телевизор"
+    info "no receiver selected; run cast --tv <ip> with its address, or cast --tv to choose by number; if the list is empty, turn the TV on first" \
+        "приёмник не выбран; выполни cast --tv <ip> с адресом нужного или cast --tv для выбора номером; если список пуст, сначала включи телевизор"
 }
 
 # --- 7. Юниты и https --------------------------------------------------------
@@ -2520,7 +2531,7 @@ WantedBy=multi-user.target
 UNIT
 )"
     if [ -f "$path" ] && [ "$(cat "$path")" = "$body" ]; then
-        skip "юнит $1.service"
+        skip "$1.service unit" "юнит $1.service"
         return 1
     fi
     printf '%s\n' "$body" >"$path"
@@ -2532,17 +2543,17 @@ UNIT
 # Здесь только то, что должно существовать до первого запуска: каталог сегментов, а при
 # выключенной по умолчанию опции `transport: https` — ещё и серт.
 setup_hls() {
-    log "раздача HLS ($HLS_TRANSPORT, порт $HLS_PORT, сегменты в $HLS_DIR)"
+    log "HLS delivery ($HLS_TRANSPORT, port $HLS_PORT, segments in $HLS_DIR)" "раздача HLS ($HLS_TRANSPORT, порт $HLS_PORT, сегменты в $HLS_DIR)"
     install -d -m 0755 "$HLS_DIR"
     if [ "$HLS_TRANSPORT" != "https" ]; then
-        info "адрес раздачи собирается по маршруту до ТВ - ни серта, ни имени, ни DNS"
+        info "delivery address follows the route to the TV - no certificate, hostname, or DNS" "адрес раздачи собирается по маршруту до ТВ - ни серта, ни имени, ни DNS"
         return
     fi
     install -d -m 0700 "$TLS_DIR"
 
     if [ -s "$TLS_DIR/torrcast.crt" ] && [ -s "$TLS_DIR/torrcast.key" ]; then
-        skip "серт $TLS_DIR/torrcast.crt (до $(openssl x509 -noout -enddate \
-            -in "$TLS_DIR/torrcast.crt" | cut -d= -f2))"
+        skip "certificate $TLS_DIR/torrcast.crt (until $(openssl x509 -noout -enddate -in "$TLS_DIR/torrcast.crt" | cut -d= -f2))" \
+            "серт $TLS_DIR/torrcast.crt (до $(openssl x509 -noout -enddate -in "$TLS_DIR/torrcast.crt" | cut -d= -f2))"
         return
     fi
 
@@ -2553,17 +2564,17 @@ setup_hls() {
         -subj "/CN=$HLS_HOST" -addext "basicConstraints=critical,CA:TRUE" \
         -addext "subjectAltName=DNS:$HLS_HOST,DNS:localhost,IP:127.0.0.1" 2>/dev/null
     chmod 600 "$TLS_DIR/torrcast.key"
-    info "выпущен self-signed на $HLS_HOST - mock-приёмке этого достаточно"
-    info "⚠ живому ТВ нужен серт LE: Chromecast self-signed молча не играет"
+    info "issued a self-signed certificate for $HLS_HOST - sufficient for mock acceptance" "выпущен self-signed на $HLS_HOST - mock-приёмке этого достаточно"
+    info "⚠ a real TV needs an LE certificate: Chromecast silently rejects self-signed certificates" "⚠ живому ТВ нужен серт LE: Chromecast self-signed молча не играет"
 }
 
 setup_facts() {
-    log "справка к меню: оценки IMDb ($IMDB_RATINGS_PATH)"
+    log "menu data: IMDb ratings ($IMDB_RATINGS_PATH)" "справка к меню: оценки IMDb ($IMDB_RATINGS_PATH)"
     install -d -m 0755 "$(dirname "$IMDB_RATINGS_PATH")"
     # Свежее суток не перекачиваем: выгрузка обновляется раз в день, а качать 8.6 МБ
     # на каждый прогон установщика незачем.
     if [ -s "$IMDB_RATINGS_PATH" ] && [ -z "$(find "$IMDB_RATINGS_PATH" -mtime +0)" ]; then
-        skip "$IMDB_RATINGS_PATH ($(wc -l < "$IMDB_RATINGS_PATH") оценок)"
+        skip "$IMDB_RATINGS_PATH ($(wc -l < "$IMDB_RATINGS_PATH") ratings)" "$IMDB_RATINGS_PATH ($(wc -l < "$IMDB_RATINGS_PATH") оценок)"
         return
     fi
     local tmp="$IMDB_RATINGS_PATH.part"
@@ -2571,26 +2582,26 @@ setup_facts() {
     # сети - установка идёт дальше, а меню просто печатается без рейтинга.
     if ! fetch --max-time 120 "$IMDB_RATINGS_URL" -o "$tmp.gz"; then
         rm -f "$tmp.gz"
-        info "выгрузка IMDb не скачалась - меню будет без рейтинга, на показ не влияет"
+        info "IMDb export could not be downloaded - the menu will have no ratings; playback is unaffected" "выгрузка IMDb не скачалась - меню будет без рейтинга, на показ не влияет"
         return
     fi
     if ! gzip -dc "$tmp.gz" | awk -F'\t' -v min="$IMDB_MIN_VOTES" \
         'NR==1 || $3+0 >= min { print $1 "\t" $2 "\t" $3 }' > "$tmp"; then
         rm -f "$tmp" "$tmp.gz"
-        info "выгрузка IMDb битая - меню будет без рейтинга, на показ не влияет"
+        info "IMDb export is damaged - the menu will have no ratings; playback is unaffected" "выгрузка IMDb битая - меню будет без рейтинга, на показ не влияет"
         return
     fi
     mv "$tmp" "$IMDB_RATINGS_PATH"
     rm -f "$tmp.gz"
-    info "оценок: $(wc -l < "$IMDB_RATINGS_PATH") (от $IMDB_MIN_VOTES голосов)"
+    info "ratings: $(wc -l < "$IMDB_RATINGS_PATH") (at least $IMDB_MIN_VOTES votes)" "оценок: $(wc -l < "$IMDB_RATINGS_PATH") (от $IMDB_MIN_VOTES голосов)"
 }
 
 setup_names() {
-    log "паспорт картины: русские прокатные имена IMDb ($IMDB_NAMES_PATH)"
+    log "title metadata: Russian IMDb release names ($IMDB_NAMES_PATH)" "паспорт картины: русские прокатные имена IMDb ($IMDB_NAMES_PATH)"
     install -d -m 0755 "$(dirname "$IMDB_NAMES_PATH")"
     # Свежее месяца не перекачиваем: 735 МБ на каждый прогон установщика незачем.
     if [ -s "$IMDB_NAMES_PATH" ] && [ -z "$(find "$IMDB_NAMES_PATH" -mtime +"$IMDB_NAMES_DAYS")" ]; then
-        skip "$IMDB_NAMES_PATH ($(wc -l < "$IMDB_NAMES_PATH") имён)"
+        skip "$IMDB_NAMES_PATH ($(wc -l < "$IMDB_NAMES_PATH") names)" "$IMDB_NAMES_PATH ($(wc -l < "$IMDB_NAMES_PATH") имён)"
         return
     fi
     local tmp="$IMDB_NAMES_PATH.part"
@@ -2602,7 +2613,7 @@ setup_names() {
     if ! fetch --max-time 3600 "$IMDB_AKAS_URL" | gzip -dc | awk -F'\t' \
         'NR>1 && ($4=="RU" || $4=="SU" || $5=="ru") && !seen[$1"\t"$3]++ { print $1 "\t" $3 }' > "$names"; then
         rm -f "$names" "$basics"
-        info "выгрузка имён IMDb не скачалась - паспорт останется как был, на показ не влияет"
+        info "IMDb names export could not be downloaded - metadata stays unchanged; playback is unaffected" "выгрузка имён IMDb не скачалась - паспорт останется как был, на показ не влияет"
         return
     fi
     # Тип, оригинал и год лежат в другой выгрузке; берём из неё только картины, у которых
@@ -2612,16 +2623,16 @@ setup_names() {
         && $2!="tvEpisode" && $2!="videoGame" && $5!="1" \
         { o=$4; if (o=="\\N") o=$3; print $1 "\t" $2 "\t" o "\t" $6 }' "$names" - > "$basics"; then
         rm -f "$names" "$basics"
-        info "выгрузка карточек IMDb не скачалась - паспорт останется как был, на показ не влияет"
+        info "IMDb title export could not be downloaded - metadata stays unchanged; playback is unaffected" "выгрузка карточек IMDb не скачалась - паспорт останется как был, на показ не влияет"
         return
     fi
     if awk -F'\t' 'NR==FNR { b[$1]=$2 "\t" $3 "\t" $4; next } \
         ($1 in b) { print $2 "\t" $1 "\t" b[$1] }' "$basics" "$names" > "$tmp"; then
         mv "$tmp" "$IMDB_NAMES_PATH"
-        info "имён: $(wc -l < "$IMDB_NAMES_PATH")"
+        info "names: $(wc -l < "$IMDB_NAMES_PATH")" "имён: $(wc -l < "$IMDB_NAMES_PATH")"
     else
         rm -f "$tmp"
-        info "карта имён IMDb не собралась - паспорт останется как был, на показ не влияет"
+        info "IMDb name map could not be built - metadata stays unchanged; playback is unaffected" "карта имён IMDb не собралась - паспорт останется как был, на показ не влияет"
     fi
     rm -f "$names" "$basics"
 }
@@ -2652,7 +2663,7 @@ main() {
     has torrserver && job_start torrserver install_torrserver
     has sources    && job_start sources    check_sources
     has prowlarr   && job_start prowlarr   install_prowlarr
-    log "в фоне: ffmpeg, TorrServer, Prowlarr, источники - их вывод придёт целиком"
+    log "in background: ffmpeg, TorrServer, Prowlarr, sources - their complete output will follow" "в фоне: ffmpeg, TorrServer, Prowlarr, источники - их вывод придёт целиком"
 
     # Самое долгое (venv и колёса с pypi) держим на переднем плане: пока идёт оно,
     # соседи успевают скачаться, подняться и ответить.
@@ -2668,11 +2679,11 @@ main() {
     # фазы бралось не раньше, чем её работа кончилась. Перенос строки ниже к
     # `job_start` красит гейт; меры TC-885 его пропускают, им видна только формула.
     if has sources; then
-        job_wait sources || info "⚠ проверка источников не доработала - смотри строки выше"
+        job_wait sources || info "⚠ source check did not finish - see the lines above" "⚠ проверка источников не доработала - смотри строки выше"
         phase_done 'источники'
     fi
     if has prowlarr; then
-        job_wait prowlarr || die "Prowlarr не поставился - причина в строках выше"
+        job_wait prowlarr || die "Prowlarr was not installed - see the reason above" "Prowlarr не поставился - причина в строках выше"
         phase_done 'Prowlarr'
     fi
     has indexers   && { install_indexers; phase_done 'индексеры'; }
@@ -2682,27 +2693,27 @@ main() {
 
     # Без этих двух `cast` не покажет ничего, поэтому «готово» ждёт их обоих.
     if has ffmpeg; then
-        job_wait ffmpeg || die "ffmpeg не поставился - причина в строках выше"
+        job_wait ffmpeg || die "ffmpeg was not installed - see the reason above" "ffmpeg не поставился - причина в строках выше"
         phase_done 'ffmpeg'
     fi
     if has torrserver; then
-        job_wait torrserver || die "TorrServer не поставился - причина в строках выше"
+        job_wait torrserver || die "TorrServer was not installed - see the reason above" "TorrServer не поставился - причина в строках выше"
         phase_done 'TorrServer'
     fi
     # А это первому показу не нужно: оценки украшают меню, и качать их человеку незачем.
     if has facts; then
-        late_run "оценки IMDb для справки в меню" setup_facts
-        late_run "русские прокатные имена IMDb для паспорта картины" setup_names
+        late_run "IMDb ratings for menu details" "оценки IMDb для справки в меню" setup_facts
+        late_run "Russian IMDb release names for title metadata" "русские прокатные имена IMDb для паспорта картины" setup_names
         phase_done 'догрев'
     fi
     [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
 
-    log "готово - смотри: cast <название>"
+    log "done - try: cast <title>" "готово - смотри: cast <название>"
     # «Готово» сказано, когда `cast` и правда может играть. Если что-то ещё догревается -
     # это отдельная строка ПОСЛЕ него, а не задержка перед ним.
     if [ -s "$LATE_NOTES" ]; then
-        info "догрев: $(awk 'NR>1{printf "; "} {printf "%s", $0} END{print ""}' "$LATE_NOTES") \
-(итог в $LATE_LOG)"
+        info "finishing in background: $(awk 'NR>1{printf "; "} {printf "%s", $0} END{print ""}' "$LATE_NOTES") (result in $LATE_LOG)" \
+            "догрев: $(awk 'NR>1{printf "; "} {printf "%s", $0} END{print ""}' "$LATE_NOTES") (итог в $LATE_LOG)"
     fi
     rm -f "$LATE_NOTES"
 
@@ -2711,11 +2722,10 @@ main() {
     # неправдой: раньше такая установка молча объявляла успех, а свежая машина не находила
     # почти ничего. Роняем не установку, а её ВЕРДИКТ: код возврата у неудавшегося
     # каталога ненулевой (:data:`EXIT_CATALOG_CUT`), иначе всякая автоматика поверит нулю.
-    if [ -n "$CATALOG_CUT" ]; then
-        loud "каталог урезан: $CATALOG_CUT"
-        info "torrcast поставлен и показ работает, но искать почти нечего: источники режет \
-сеть. Догрев переспрашивает их сам, состояние видно в cast doctor, повторный ./install.sh \
-заведёт их, когда они ответят"
+    if [ -n "$CATALOG_CUT_EN" ]; then
+        loud "catalog is incomplete: $CATALOG_CUT_EN" "каталог урезан: $CATALOG_CUT_RU"
+        info "torrcast is installed and playback works, but searches find almost nothing: the network blocks sources. Background retries continue; see cast doctor, or rerun ./install.sh when they respond" \
+            "torrcast поставлен и показ работает, но искать почти нечего: источники режет сеть. Догрев переспрашивает их сам, состояние видно в cast doctor, повторный ./install.sh заведёт их, когда они ответят"
         exit "$EXIT_CATALOG_CUT"
     fi
 }

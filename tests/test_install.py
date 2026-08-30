@@ -128,7 +128,7 @@ def test_receiver_setup_never_reads_an_answer(tmp_path: Path) -> None:
     assert "asked:" not in printed
     assert "Гостиная - 192.0.2.10" in printed
     assert "Спальня - 192.0.2.11" in printed
-    assert "cast --tv <ip>" in printed and "cast --tv для выбора номером" in printed
+    assert "cast --tv <ip>" in printed and "cast --tv to choose by number" in printed
 
 
 def test_name_map_intermediates_stay_beside_the_result() -> None:
@@ -269,8 +269,8 @@ def test_the_catalog_stands_on_roles_and_a_role_may_have_two_carriers() -> None:
     источника, и любой из них закрывает роль. Судить по именам - значит звать урезанным
     полный каталог и молчать про источник, которого никто не спрашивал."""
     roles = SCRIPT.split("CATALOG_ROLES=(", 1)[1].split(")", 1)[0]
-    assert "западные релизы и аниме|$KEY_INDEXER" in roles
-    assert "русские раздачи и озвучки|rutor jacred" in roles
+    assert "western releases and anime^западные релизы и аниме|$KEY_INDEXER" in roles
+    assert "Russian releases and voiceovers^русские раздачи и озвучки|rutor jacred" in roles
     # На глазах добавляют ПЕРВОГО носителя роли, а не всякого: запасной ждёт своего часа.
     assert "lead_indexer" in _body("late_indexer")
     assert 'LATE_INDEXERS=("yts" "jacred")' in SCRIPT
@@ -282,7 +282,8 @@ def test_the_catalog_gate_asks_the_search_not_the_list() -> None:
     gate = _body("catalog_gate")
     assert "indexer_yield" in gate and "/api/v1/search" in _body("indexer_yield")
     assert "не завёлся" in gate and "не отдал ничего" in gate
-    assert 'CATALOG_CUT="$cut"' in gate
+    assert 'CATALOG_CUT_EN="$cut_en"' in gate
+    assert 'CATALOG_CUT_RU="$cut_ru"' in gate
     # Носители ролей щупаются на глазах, поэтому в догрев (`check_indexers`) не уезжают.
     assert 'core_indexer "$def" || rest+=(' in _install_indexers()
 
@@ -307,7 +308,7 @@ def test_a_cut_catalog_is_not_a_successful_install() -> None:
     """🔴 TC-692. Пустой каталог под видом успеха - неправда и для человека, и для
     автоматики: последнее слово установки называет урез и возвращает ненулевой код."""
     main = _body("main")
-    assert 'if [ -n "$CATALOG_CUT" ]; then' in main
+    assert 'if [ -n "$CATALOG_CUT_EN" ]; then' in main
     assert 'exit "$EXIT_CATALOG_CUT"' in main
     assert "EXIT_CATALOG_CUT=2" in SCRIPT
 
@@ -323,7 +324,8 @@ def test_the_indexer_texts_match_what_the_installer_actually_does() -> None:
     assert "кроме опорных" in SCRIPT
     assert "кроме ключевого" not in SCRIPT and "Ключевой проверяется" not in SCRIPT
     body = _install_indexers()
-    assert 'late_run "индексер $names (добавляется до двух минут)" add_indexers' in body
+    assert '"indexer $names (may take up to two minutes to add)"' in body
+    assert '"индексер $names (добавляется до двух минут)" add_indexers' in body
     assert "span=$(( more * INDEXER_RETRY_EVERY / 60 ))" in body
     assert "это до $span мин" in body
 
@@ -489,13 +491,13 @@ def test_a_cut_catalog_comes_out_of_the_installer_as_a_failure(tmp_path: Path) -
     assert done.returncode == 2, done.stdout + done.stderr
     printed = done.stdout + done.stderr
     assert (
-        "каталог урезан: западные релизы и аниме - Knaben (не завёлся); "
-        "русские раздачи и озвучки - RuTor (не завёлся), JacRed (не завёлся)" in printed
+        "catalog is incomplete: western releases and anime - Knaben (not added); "
+        "Russian releases and voiceovers - RuTor (not added), JacRed (not added)" in printed
     )
     assert "не блокер" not in printed
     # 🔴 TC-705. Отказавший запасной ждёт свою роль на той же лестнице переспроса, что и
     # отказавший на глазах: без него роль пуста, а отказ в минуту установки - погода.
-    assert "отказавшие опорные Knaben, RuTor, JacRed" in printed
+    assert "failed core indexers Knaben, RuTor, JacRed" in printed
     # И спрошен он ровно раз: отказ на глазах - это уже проба, второй в ту же минуту
     # ничего не меняет, а ступень бана у трекера продлевает (TC-697).
     _late_settled(box)
@@ -511,8 +513,9 @@ def test_a_role_no_one_answers_is_a_cut_catalog(tmp_path: Path) -> None:
     done, posts = _run_indexers(box, silent=frozenset({"RuTor", "JacRed"}))
     assert done.returncode == 2, done.stdout + done.stderr
     assert (
-        "каталог урезан: русские раздачи и озвучки - RuTor (заведён, но не отдал ничего), "
-        "JacRed (заведён, но не отдал ничего)" in done.stdout + done.stderr
+        "catalog is incomplete: Russian releases and voiceovers - "
+        "RuTor (added but returned no results), "
+        "JacRed (added but returned no results)" in done.stdout + done.stderr
     )
     # 🔴 TC-697. Заведшийся индексер не переспрашивается: «завёлся и молчит» - не
     # повод для второго обращения, его судьбу решает гейт поиском, а не повторным POST.
@@ -534,9 +537,9 @@ def test_a_dead_lead_source_is_not_a_cut_catalog_when_its_role_has_a_second_carr
     done, posts = _run_indexers(box, fail=frozenset({"RuTor"}))
     printed = done.stdout + done.stderr
     assert done.returncode == 0, printed
-    assert "каталог урезан" not in printed
-    assert "роль «русские раздачи и озвучки» пока без ответа" in printed
-    assert "JacRed отвечает: 3 раздач" in printed
+    assert "catalog is incomplete:" not in printed
+    assert "role 'Russian releases and voiceovers' is unanswered" in printed
+    assert "JacRed responds: 3 results" in printed
     # Запасного спросили один раз, и переспроса он не получил: роль он закрыл.
     _late_settled(box)
     assert len(posts["JacRed"]) == 1
@@ -549,12 +552,12 @@ def test_the_installer_still_succeeds_when_the_core_sources_answer(tmp_path: Pat
     box = tmp_path / "все-ответили"
     done, posts = _run_indexers(box)
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "каталог урезан" not in done.stdout + done.stderr
-    assert "Knaben отвечает: 3 раздач" in done.stdout
+    assert "catalog is incomplete:" not in done.stdout + done.stderr
+    assert "Knaben responds: 3 results" in done.stdout
     # 🔴 TC-705. Роль закрыта первым носителем - запасного на глазах не заводят: сотня
     # секунд на его добавление остаётся в догреве, и установка не ждёт ни секунды.
-    assert "пока без ответа" not in done.stdout + done.stderr
-    assert "JacRed отвечает" not in done.stdout
+    assert "is unanswered" not in done.stdout + done.stderr
+    assert "JacRed responds" not in done.stdout
     # 🔴 TC-697. Счастливый путь: ровно одно обращение на индексер, дублей нет.
     _late_settled(box)
     for name in ("Knaben", "RuTor", "Nyaa.si", "AniLibria", "YTS", "JacRed"):
@@ -598,7 +601,7 @@ def test_a_refused_narrow_source_is_not_reasked_at_all(tmp_path: Path) -> None:
         box, fail=frozenset({"YTS", "Nyaa.si"}), retry_times="3", retry_every="1"
     )
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "каталог этим не урезан" in done.stdout + done.stderr
+    assert "this does not make the catalog incomplete" in done.stdout + done.stderr
     _late_settled(box)
     # Узкие приходят обеими дорогами - из фона (yts) и с глаз (Nyaa.si), и обе спрашивают
     # ровно раз; заведшийся узкий не переспрашивается тем более.

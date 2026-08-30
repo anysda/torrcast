@@ -63,14 +63,15 @@ def test_root_check_has_a_sandbox_escape_and_a_sudo_path_and_never_falls_through
     body = _body("become_root")
     assert "TORRCAST_NO_ROOT" in body
     assert "exec sudo" in body
-    assert 'die "нужен root' in body
+    assert 'fail "root is required:' in body
+    assert '"нужен root:' in body
 
 
 def test_a_404_before_the_first_release_speaks_plainly_instead_of_raw_json() -> None:
     body = _body("latest_version")
     assert "404)" in body
-    assert "релизов ещё нет" in body
-    assert "die " in body.split("404)", 1)[1].split(";;", 1)[0]
+    assert "no releases yet" in body
+    assert "fail " in body.split("404)", 1)[1].split(";;", 1)[0]
 
 
 # --- заглушка GitLab: permalink/latest + generic-реестр ---------------------
@@ -167,7 +168,8 @@ def test_no_release_yet_says_so_in_words_not_raw_404(tmp_path: Path) -> None:
     port = _stub_gitlab(tag=None, tarball=None, sha256_body=None)
     done = _run_bootstrap(tmp_path, port)
     assert done.returncode == 1
-    assert "релизов ещё нет" in done.stderr
+    assert "no releases yet" in done.stderr
+    assert "come back after the first release" in done.stderr
     assert "{" not in done.stderr  # не сырой JSON в лицо
     assert not list((tmp_path / "mktmp").iterdir())  # прибрал за собой
 
@@ -201,7 +203,7 @@ def test_a_bad_checksum_dies_loud_and_never_runs_install_sh(tmp_path: Path) -> N
     done = _run_bootstrap(tmp_path, port)
 
     assert done.returncode != 0
-    assert "sha256" in done.stderr and "не сошёлся" in done.stderr
+    assert "sha256" in done.stderr and "mismatch" in done.stderr
     assert not marker.exists()
     assert not list((tmp_path / "mktmp").iterdir())
 
