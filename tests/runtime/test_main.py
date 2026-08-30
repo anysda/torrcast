@@ -87,7 +87,7 @@ def test_log_works_when_the_configuration_is_broken(
     code = main(["log"])
 
     assert code == 0
-    assert capsys.readouterr().out == "следа нет - за неделю ни одного сеанса\n"
+    assert capsys.readouterr().out == "no trace - not a single session over the week\n"
 
 
 def test_a_command_that_needs_configuration_still_names_the_broken_file(
