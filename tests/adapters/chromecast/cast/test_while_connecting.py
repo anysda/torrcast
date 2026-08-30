@@ -69,8 +69,8 @@ def test_a_reconnecting_socket_is_waited_out_and_the_command_still_goes_through(
     assert controller.loads == [1272.4], "LOAD дошёл до приёмника, а не сгорел на отказе"
     assert clock.sleeps == [receiver.CONNECT_PAUSE] * 2
     said = capsys.readouterr().out
-    assert "сокет приёмника переподключается" in said
-    assert said.count("переподключается") == 1, "строка про ожидание говорится один раз"
+    assert "socket is reconnecting" in said
+    assert said.count("reconnecting") == 1, "строка про ожидание говорится один раз"
 
 
 def test_the_wait_has_a_ceiling_and_ends_with_an_honest_refusal_not_a_crash() -> None:
@@ -83,7 +83,7 @@ def test_the_wait_has_a_ceiling_and_ends_with_an_honest_refusal_not_a_crash() ->
     clock = FakeClock()
     receiver = _receiver(refuses=10_000, clock=clock)
 
-    with pytest.raises(StartRefusedError, match="переподключается дольше 12 с") as caught:
+    with pytest.raises(StartRefusedError, match="reconnecting for over 12 s") as caught:
         receiver._load(1272.4)
 
     assert CONNECTING in str(caught.value), "в отказе названо дословное слово приёмника"

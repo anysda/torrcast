@@ -12,6 +12,8 @@ from typing import Final
 
 from torrcast.domain.catalogs.choice.en import en as choice_en
 from torrcast.domain.catalogs.choice.ru import ru as choice_ru
+from torrcast.domain.catalogs.chromecast_talk.en import en as chromecast_talk_en
+from torrcast.domain.catalogs.chromecast_talk.ru import ru as chromecast_talk_ru
 from torrcast.domain.catalogs.cli.en import en as cli_en
 from torrcast.domain.catalogs.cli.ru import ru as cli_ru
 from torrcast.domain.catalogs.digest.en import en as digest_en
@@ -38,12 +40,16 @@ from torrcast.domain.catalogs.spans.en import en as spans_en
 from torrcast.domain.catalogs.spans.ru import ru as spans_ru
 from torrcast.domain.catalogs.stream.en import en as stream_en
 from torrcast.domain.catalogs.stream.ru import ru as stream_ru
+from torrcast.domain.catalogs.media_binaries.en import en as media_binaries_en
+from torrcast.domain.catalogs.media_binaries.ru import ru as media_binaries_ru
 from torrcast.domain.catalogs.ports.en import en as ports_en
 from torrcast.domain.catalogs.ports.ru import ru as ports_ru
 from torrcast.domain.catalogs.profile_detector.en import en as profile_detector_en
 from torrcast.domain.catalogs.profile_detector.ru import ru as profile_detector_ru
 from torrcast.domain.catalogs.runtime.en import en as runtime_en
 from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
+from torrcast.domain.catalogs.stream_pack.en import en as stream_pack_en
+from torrcast.domain.catalogs.stream_pack.ru import ru as stream_pack_ru
 from torrcast.domain.catalogs.telegram_config.en import en as telegram_config_en
 from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
@@ -73,6 +79,9 @@ _CLUSTERS: Final = (
     (ports_en, ports_ru),
     (profile_detector_en, profile_detector_ru),
     (runtime_en, runtime_ru),
+    (chromecast_talk_en, chromecast_talk_ru),
+    (media_binaries_en, media_binaries_ru),
+    (stream_pack_en, stream_pack_ru),
 )
 
 

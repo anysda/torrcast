@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
+
 if TYPE_CHECKING:
     from torrcast.adapters.chromecast.cast.receiver_state import _State
 
@@ -34,7 +36,11 @@ def _say_skip(rcv: _State, back: float) -> None:
     if frm < 0 or back - frm < rcv.SKIP_FLOOR:
         return
     print(
-        f"приёмник зависал - показ перешагнул {back - frm:.0f} с фильма "
-        f"({frm:.0f} с -> {back:.0f} с)",
+        phrase(
+            "chromecast_talk.stalled_skip",
+            gap=f"{back - frm:.0f}",
+            start=f"{frm:.0f}",
+            end=f"{back:.0f}",
+        ),
         flush=True,
     )

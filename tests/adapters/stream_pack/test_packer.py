@@ -106,7 +106,7 @@ def test_a_halt_kills_the_process_but_keeps_what_is_already_published(tmp_path: 
 
     run.halt()
 
-    assert run.halted is True and run.stopped == "пауза на пульте"
+    assert run.halted is True and run.stopped == "paused from the remote"
     assert (run.out / "v0.ts").exists(), "пауза не имеет права стирать показанное"
     assert signals(run) == ["terminate"]
 

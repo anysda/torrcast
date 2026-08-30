@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
+
 if TYPE_CHECKING:
     from torrcast.adapters.chromecast.cast.receiver_state import _State
 
@@ -41,8 +43,13 @@ def _past_deadly(rcv: _State, at: float) -> float:
         return at
     to = cut + rcv.CUT_SLACK
     print(
-        f"показ умирает на одном куске {died}-й раз - перешагиваю его, "
-        f"{to - at:.0f} с фильма мимо ({at:.0f} с -> {to:.0f} с)",
+        phrase(
+            "chromecast_talk.dying_on_one_chunk",
+            count=died,
+            gap=f"{to - at:.0f}",
+            start=f"{at:.0f}",
+            end=f"{to:.0f}",
+        ),
         flush=True,
     )
     return to

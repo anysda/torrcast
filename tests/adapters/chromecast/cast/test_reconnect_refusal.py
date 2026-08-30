@@ -85,7 +85,7 @@ def test_a_receiver_that_was_never_there_buries_the_show(
     _answers(monkeypatch, GONE)
     receiver = _Link("10.0.0.50")
 
-    with pytest.raises(InfraError, match="не принял каст") as fell:
+    with pytest.raises(InfraError, match="did not accept the cast") as fell:
         receiver._device()
 
     assert not isinstance(fell.value, StartRefusedError), (
@@ -108,7 +108,7 @@ def test_a_reconnect_to_a_receiver_that_answered_once_is_a_load_refusal(
     receiver._device()  # первый коннект удался - приёмник в сети ЕСТЬ
     receiver._cast = None  # ровно это делает ``_restart_app`` перед повтором LOAD
 
-    with pytest.raises(StartRefusedError, match="не отозвался на переподключение"):
+    with pytest.raises(StartRefusedError, match="did not answer the reconnect"):
         receiver._device()
 
 
@@ -151,5 +151,5 @@ def test_a_clean_app_restart_does_not_forget_that_the_receiver_is_there(
 
     assert receiver._cast is None, "чистое приложение обязано погасить само соединение"
     assert receiver._linked is True, "приёмник отвечал - чистое приложение этого не отменяет"
-    with pytest.raises(StartRefusedError, match="не отозвался на переподключение"):
+    with pytest.raises(StartRefusedError, match="did not answer the reconnect"):
         receiver._device()

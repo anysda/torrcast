@@ -10,6 +10,7 @@ import threading
 from typing import IO, Any, Final
 
 from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.lost_segments import lost_segments
 from torrcast.domain.position import Position
@@ -82,7 +83,7 @@ class HlsDecoder:
             self.proc = self.spawn(command, stdout=subprocess.PIPE, stderr=self.err, text=True)
         except FileNotFoundError as exc:
             self.close_log()
-            raise InfraError("ffmpeg не установлен") from exc
+            raise InfraError(phrase("media_binaries.ffmpeg_missing")) from exc
         # 🔴 Место захода, а не ноль: до первого слова декодера приёмник стоит ТАМ, куда
         # его послали, и живой приёмник отвечает ровно так - указатель держится на месте
         # захода, пока он копит фильм. С нулём продолжение с 0:20:00 читалось бы как

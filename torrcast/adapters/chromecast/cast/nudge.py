@@ -8,6 +8,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.chromecast.cast.drop_seek import _drop_seek
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -95,8 +96,7 @@ def _nudge(rcv: _Talk, pos: float, front: float = 0.0) -> None:
         if not rcv._gone:
             rcv._gone = True
             print(
-                f"нуджи не дали ни кадра ({rcv._blind} подряд) - прыгать перестаю, "
-                "показ поднимется с последнего показанного кадра",
+                phrase("chromecast_talk.nudges_gave_no_frame", count=rcv._blind),
                 flush=True,
             )
         return
@@ -118,7 +118,7 @@ def _nudge(rcv: _Talk, pos: float, front: float = 0.0) -> None:
     rcv._nudged_to = target
     # Дальше указатель уедет от нашего же прыжка, и приписать этот сдвиг перемотке
     # человека значило бы записать её удачной ровно там, где она не удалась.
-    _drop_seek(rcv, "сторож перебил нуджем")
+    _drop_seek(rcv, phrase("chromecast_talk.nudge_interrupted"))
     journal().nudge(pos=pos, to=target, hit=rcv._stall_hits, stuck=stuck, front=front)
     with contextlib.suppress(Exception):
         rcv._device().media_controller.seek(target)

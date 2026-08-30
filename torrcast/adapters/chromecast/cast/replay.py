@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.chromecast.cast.past_deadly import _past_deadly
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.why import why
 
@@ -69,7 +70,7 @@ def _replay(rcv: _Talk, at: float, paused: bool = False) -> float:
     невоспроизводимый кусок от невезучей минуты.
     """
     if not rcv._free():
-        rcv._refused = "нельзя: приёмник занят чужим показом"
+        rcv._refused = phrase("chromecast_talk.refused_busy")
         return NOT_RAISED
     at = _past_deadly(rcv, at)
     # Сторож начинает счёт заново: сессия новая, и её подвисы к прошлой отношения не
@@ -92,7 +93,7 @@ def _replay(rcv: _Talk, at: float, paused: bool = False) -> float:
         # и ждать тут нечего, легшее соединение - это УПАЛ и лечится следующей попыткой
         # с чистым сокетом, а ушедший LOAD без кадра - это отказ самого приёмника. Пока
         # все три отвечали одним :data:`NOT_RAISED`, лента писала о них одну строку.
-        rcv._refused = f"упал: {why(exc)}"
+        rcv._refused = phrase("chromecast_talk.refused_crashed", reason=why(exc))
         return NOT_RAISED
-    rcv._refused = "не взял: LOAD ушёл, а картинки не было"
+    rcv._refused = phrase("chromecast_talk.refused_not_taken")
     return NOT_RAISED

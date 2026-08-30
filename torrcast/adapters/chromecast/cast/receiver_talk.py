@@ -10,6 +10,7 @@ import contextlib
 from torrcast.adapters.chromecast.cast.hls_hints import HLS_TYPE, hls_hints
 from torrcast.adapters.chromecast.cast.receiver_link import _Link
 from torrcast.adapters.chromecast.cast.while_connecting import _while_connecting
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
 
 
@@ -58,7 +59,7 @@ class _Talk(_Link):
         смерти юнита. При этом новый процесс с новым соединением на том же ТВ поднимает
         картинку за 3 с. Значит, чинить надо не только приёмник, но и свою сессию.
         """
-        print("приёмник залип - закрываю приложение и соединение, гружу заново", flush=True)
+        print(phrase("chromecast_talk.receiver_stuck"), flush=True)
         # Пустой экран после этого - наша работа, и волей зрителя он не считается
         # (:func:`torrcast.adapters.chromecast.cast.viewer_closed._viewer_closed`).
         self._we_quit = True
@@ -167,8 +168,12 @@ class _Talk(_Link):
                 journal().reload(pos=self._peak, tries=self._reloads)
                 tried = self.clock.monotonic()
                 print(
-                    f"LOAD не взяли ({self._why()}) - повтор {self._reloads} "
-                    f"из {self.profile.load_retries}",
+                    phrase(
+                        "chromecast_talk.load_not_taken",
+                        reason=self._why(),
+                        tries=self._reloads,
+                        limit=self.profile.load_retries,
+                    ),
                     flush=True,
                 )
                 self._restart_app()

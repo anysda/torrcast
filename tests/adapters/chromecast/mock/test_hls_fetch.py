@@ -67,7 +67,7 @@ def test_a_dead_source_is_named_infrastructure_and_not_a_crash() -> None:
     """Раздача не ответила - это инфраструктурная авария с человеческой причиной."""
     fetch = _fetch(_Paper(boom=requests.ConnectionError()), FakeClock())
 
-    with pytest.raises(InfraError, match="приёмник не забрал манифест"):
+    with pytest.raises(InfraError, match="did not fetch the manifest"):
         fetch.manifest(URL)
 
 

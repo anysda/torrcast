@@ -88,7 +88,7 @@ def test_a_decoder_that_never_started_is_not_called_a_show() -> None:
 
     assert place == NOT_RAISED
     assert decoder.stopped, "мёртвый декодер за собой не оставляем"
-    assert refused.startswith("не взял:"), "снаружи это отказ приёмника, а не наше падение"
+    assert refused.startswith("not taken:"), "снаружи это отказ приёмника, а не наше падение"
 
 
 def test_a_source_that_is_still_gone_is_not_a_replay_either() -> None:
@@ -101,7 +101,7 @@ def test_a_source_that_is_still_gone_is_not_a_replay_either() -> None:
 
     assert place == NOT_RAISED
     assert screen.jumps == [] and clock.sleeps == [], "ждать нечего: LOAD не взяли"
-    assert refused == "упал: источника нет", "исключение проглочено, причина его - нет"
+    assert refused == "crashed: источника нет", "исключение проглочено, причина его - нет"
 
 
 def test_the_ways_of_not_raising_the_show_are_named_apart_and_not_by_one_string() -> None:

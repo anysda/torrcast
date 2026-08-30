@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.chromecast.cast.drop_seek import _drop_seek
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ def _watch_seek(rcv: _State, pos: float, state: str) -> None:
         # возвращается вместе с ней: пара «где и когда» врозь не живёт, а мёртвая сессия
         # длится сколько угодно, и время под ней идёт.
         rcv._seen, rcv._seen_at = seen, was_at
-        _drop_seek(rcv, "сессия оборвалась")
+        _drop_seek(rcv, phrase("chromecast_talk.session_broke"))
         return
     gone = pos - seen
     covered = max(0.0, now - was_at)  # плёнки, которую показ успел бы проиграть
@@ -73,6 +74,6 @@ def _watch_seek(rcv: _State, pos: float, state: str) -> None:
     nudged, rcv._nudged_to = rcv._nudged_to, -1.0
     if nudged >= 0.0 and abs(pos - nudged) <= rcv.SEEK_JUMP:
         return  # прыжок наш: сторож уже записал его как нудж
-    _drop_seek(rcv, "следом пришла ещё одна перемотка")
+    _drop_seek(rcv, phrase("chromecast_talk.another_seek_arrived"))
     rcv._seek_from, rcv._seek_to = seen, pos
     rcv._seek_since = now

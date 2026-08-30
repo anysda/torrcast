@@ -66,7 +66,7 @@ def test_the_reason_of_a_refusal_names_the_state_and_the_code() -> None:
     assert receiver._why() == "IDLE/ERROR"
 
     receiver._error_code = 905
-    assert receiver._why() == "IDLE/ERROR, код 905"
+    assert receiver._why() == "IDLE/ERROR, with code 905"
 
 
 def test_a_receiver_that_is_not_there_is_named_by_a_human_error(
@@ -80,7 +80,7 @@ def test_a_receiver_that_is_not_there_is_named_by_a_human_error(
     monkeypatch.setattr("pychromecast.get_chromecast_from_host", refuse)
     receiver = _Link("10.0.0.50")
 
-    with pytest.raises(InfraError, match="не принял каст"):
+    with pytest.raises(InfraError, match="did not accept the cast"):
         receiver._device()
 
 

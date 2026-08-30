@@ -45,7 +45,7 @@ def test_the_receiver_is_brought_back_exactly_where_it_stumbled(
     assert receiver._reloads == 1
     assert tape.events() == ["reload"]
     assert tape.named("reload")[0]["error"] == 905
-    assert "повтор LOAD" in capsys.readouterr().out
+    assert "retrying LOAD" in capsys.readouterr().out
 
 
 def test_the_retries_run_out_and_the_trouble_stops_being_ours(

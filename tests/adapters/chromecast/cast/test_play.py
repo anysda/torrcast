@@ -79,7 +79,7 @@ def test_a_refused_load_is_the_first_death_and_not_the_end_of_the_show() -> None
     """
     receiver = _Quiet(settles=False)
 
-    with pytest.raises(StartRefusedError, match="не начал показ: IDLE/ERROR"):
+    with pytest.raises(StartRefusedError, match="did not start the show: IDLE/ERROR"):
         _play(receiver, "http://дом/поток.m3u8")
 
 

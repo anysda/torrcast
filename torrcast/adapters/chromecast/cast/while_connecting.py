@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.adapters.chromecast.cast.receiver_state import _State
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.why import why
 
@@ -63,13 +64,22 @@ def _while_connecting(rcv: _State, what: str, do: Callable[[], None]) -> None:
                 raise
             if rcv.clock.monotonic() >= deadline:
                 raise StartRefusedError(
-                    f"ТВ {rcv.address} переподключается дольше {rcv.CONNECT_WAIT:.0f} с - "
-                    f"{what} не ушёл: {why(exc)}"
+                    phrase(
+                        "chromecast_talk.reconnect_timeout",
+                        address=rcv.address,
+                        timeout=f"{rcv.CONNECT_WAIT:.0f}",
+                        what=what,
+                        reason=why(exc),
+                    )
                 ) from exc
             if not said:
                 said = True
                 print(
-                    f"сокет приёмника переподключается - {what} жду до {rcv.CONNECT_WAIT:.0f} с",
+                    phrase(
+                        "chromecast_talk.reconnect_wait",
+                        timeout=f"{rcv.CONNECT_WAIT:.0f}",
+                        what=what,
+                    ),
                     flush=True,
                 )
             rcv.clock.sleep(rcv.CONNECT_PAUSE)

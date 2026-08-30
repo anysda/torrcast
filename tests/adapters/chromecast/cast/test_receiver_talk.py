@@ -116,7 +116,7 @@ def test_a_stuck_app_is_closed_together_with_our_own_connection(
     assert receiver.device.said == ["quit_app", "disconnect"]
     assert receiver._cast is None, "следующий подъём соединения будет новым"
     assert clock.sleeps == [receiver.LOAD_PAUSE]
-    assert "приёмник залип" in capsys.readouterr().out
+    assert "receiver got stuck" in capsys.readouterr().out
 
 
 def test_a_foreign_app_on_the_screen_is_not_ours() -> None:
@@ -175,7 +175,7 @@ def test_a_silent_receiver_is_reloaded_and_then_given_up_on(
     controller = receiver.device.media_controller
     assert isinstance(controller, _Loading)
     assert len(controller.loads) == receiver.profile.load_retries
-    assert "LOAD не взяли" in capsys.readouterr().out
+    assert "LOAD was not taken" in capsys.readouterr().out
 
 
 def test_a_paused_load_asks_the_receiver_not_to_start() -> None:

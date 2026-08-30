@@ -85,7 +85,7 @@ def test_one_and_the_same_refusal_writes_one_and_the_same_row_in_both_tracts(
 
     assert live.keys() == dry.keys(), "поля записи обязаны совпасть по именам"
     assert live == dry, f"один отказ - одна запись; живой {live}, сухой {dry}"
-    assert live["why"] == "упал: приёмника нет в сети"
+    assert live["why"] == "crashed: приёмника нет в сети"
 
 
 def test_both_tracts_name_the_outcomes_by_the_same_three_words(tmp_path: Path) -> None:

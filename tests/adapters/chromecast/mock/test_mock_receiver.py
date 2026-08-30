@@ -139,7 +139,7 @@ def test_a_replay_is_refused_while_the_404_is_still_remembered() -> None:
 
     assert mock.replay(600.0) == NOT_RAISED
     assert paper.asked == [URL], "второго захода не было - наказание держит"
-    assert mock.refusal().startswith("нельзя:"), "LOAD не полетел вовсе - соваться нельзя"
+    assert mock.refusal().startswith("refused:"), "LOAD не полетел вовсе - соваться нельзя"
 
 
 class _Moving(FakeClock):
@@ -183,7 +183,7 @@ def test_a_replay_without_a_show_behind_it_says_there_is_nothing_to_raise() -> N
 
     assert mock.replay(600.0) == NOT_RAISED
     assert paper.asked == [], "к раздаче не ходили вовсе"
-    assert mock.refusal() == "нельзя: показ сюда не заводили"
+    assert mock.refusal() == "refused: no show was ever loaded here"
 
 
 def test_the_mock_names_the_reason_of_a_refusal_just_as_the_live_receiver_does() -> None:
@@ -209,7 +209,7 @@ def test_the_three_ways_of_not_raising_the_show_are_named_apart() -> None:
     said = [_named(_forbidden()), _named(_crashed()), _named(_not_taken())]
 
     assert len(set(said)) == 3, f"три отказа обязаны называться по-разному: {said}"
-    assert [word.split(":")[0] for word in said] == ["нельзя", "упал", "не взял"]
+    assert [word.split(":")[0] for word in said] == ["refused", "crashed", "not taken"]
 
 
 def _named(mock: MockReceiver) -> str:

@@ -147,7 +147,7 @@ def test_the_pause_is_asked_of_the_run_and_answered_by_it(tmp_path: Path) -> Non
     show.packer = packer(tmp_path, first=0)
     show.halt()
 
-    assert show.halted() is True and show.packer.stopped == "пауза на пульте"
+    assert show.halted() is True and show.packer.stopped == "paused from the remote"
 
 
 def test_a_warmed_piece_handed_out_raises_the_packing_for_the_seam_behind_it(

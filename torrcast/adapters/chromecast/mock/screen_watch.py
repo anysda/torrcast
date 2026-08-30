@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.adapters.chromecast.mock.hls_decoder import HlsDecoder
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.ending_reached import ending_reached
 from torrcast.domain.first_frame_ready import first_frame_ready
 from torrcast.domain.infra_error import InfraError
@@ -136,5 +137,6 @@ class ScreenWatch:
         try:
             self.reopen(pos)
         except (InfraError, OSError) as exc:
-            said = f"упал: {why(exc)}"  # источника всё ещё нет - терпим дальше
+            # источника всё ещё нет - терпим дальше
+            said = phrase("chromecast_talk.refused_crashed", reason=why(exc))
         journal().refetch(pos=pos, tries=self.loads, ok=not said, why=said)

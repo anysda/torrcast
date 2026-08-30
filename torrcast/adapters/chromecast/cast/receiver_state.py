@@ -10,6 +10,7 @@ from typing import Any
 
 from torrcast.adapters.chromecast.cast.receiver_settings import _Settings
 from torrcast.adapters.system_clock import SystemClock
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.segment_container import MPEGTS, SegmentContainer
@@ -27,7 +28,7 @@ class _State(_Settings):
         device: Any = None,
     ) -> None:
         if not address:
-            raise InfraError("адрес ТВ не задан: cast --tv - найдёт телевизоры в сети")
+            raise InfraError(phrase("chromecast_talk.no_tv_address"))
         self.address = address
         #: Профиль этого приёмника: его терпение, его повторы LOAD, его сторож нуджей.
         #: Умолчание осторожное - показ без выбранного профиля ведёт себя как раньше.

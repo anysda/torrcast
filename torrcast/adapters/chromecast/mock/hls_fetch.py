@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Final
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.why import why
 from torrcast.ports.clock import Clock
@@ -57,9 +58,11 @@ class HlsFetch:
             self.caught(response)
             response.raise_for_status()
         except requests.RequestException as exc:
-            raise InfraError(f"приёмник не забрал манифест: {why(exc)}") from exc
+            raise InfraError(
+                phrase("chromecast_talk.manifest_not_fetched", reason=why(exc))
+            ) from exc
         if response.headers.get(CORS_HEADER) != "*":
-            raise InfraError(f"в ответе нет {CORS_HEADER}: * - Chromecast такое молча не играет")
+            raise InfraError(phrase("chromecast_talk.cors_header_missing", header=CORS_HEADER))
         return str(response.text)  # сессия нетипизирована - тело забираем строкой явно
 
     def caught(self, response: Any) -> None:

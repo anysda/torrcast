@@ -92,7 +92,7 @@ def test_a_missing_ffprobe_is_named_not_traced(
     def _gone(command: list[str], timeout: float, alive: Any) -> str:
         raise FileNotFoundError(command[0])
 
-    with pytest.raises(InfraError, match="ffprobe не установлен"):
+    with pytest.raises(InfraError, match="ffprobe is not installed"):
         probe("http://torr/stream/hash-1/2", run=_gone)
 
 
@@ -105,7 +105,7 @@ def test_a_stream_that_never_came_is_told_apart_from_a_broken_one(
     def _late(command: list[str], timeout: float, alive: Any) -> str:
         raise subprocess.TimeoutExpired(command, timeout)
 
-    with pytest.raises(InfraError, match="не дождался потока"):
+    with pytest.raises(InfraError, match="did not wait for the stream"):
         probe("http://torr/stream/hash-1/2", run=_late)
 
     def _bad(command: list[str], timeout: float, alive: Any) -> str:

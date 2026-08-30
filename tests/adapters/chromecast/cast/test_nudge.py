@@ -121,7 +121,7 @@ def test_the_ladder_of_blind_jumps_has_an_end(
 
     assert len(receiver.device.media_controller.jumps) == limit
     assert receiver._gone is True
-    assert "прыгать перестаю" in capsys.readouterr().out
+    assert "stopping the jumps" in capsys.readouterr().out
 
 
 def test_a_jump_that_cannot_get_past_the_shown_frame_is_not_made_at_all(tape: Tape) -> None:

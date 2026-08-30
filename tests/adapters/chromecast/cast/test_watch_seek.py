@@ -85,7 +85,7 @@ def test_a_second_seek_in_a_row_closes_the_first_one_with_a_record(
 
     closed = _seeks(tape)
     assert [rec["wait"] for rec in closed] == [None]
-    assert closed[0]["why"] == "следом пришла ещё одна перемотка"
+    assert closed[0]["why"] == "another seek arrived right after"
 
 
 def test_a_stalled_poll_circle_does_not_turn_playback_into_a_seek(

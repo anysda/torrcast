@@ -51,7 +51,7 @@ def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
 
     assert to == _cut(125.4 + receiver.profile.start_buffer) + receiver.CUT_SLACK
     assert to > 125.4
-    assert "перешагиваю его" in capsys.readouterr().out
+    assert "skipping it" in capsys.readouterr().out
 
 
 def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims() -> None:

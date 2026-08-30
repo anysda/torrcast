@@ -98,7 +98,7 @@ def test_a_fallen_refetch_is_named_by_the_same_word_the_revival_uses() -> None:
 
     assert len(fell) == RETRIES, f"мерить не на чем: перезаборов в ленте {len(fell)}"
     assert all(row["ok"] is False for row in fell), "легший перезабор не смеет звать себя ушедшим"
-    assert all(str(row["why"]).startswith("упал:") for row in fell), f"чужое слово: {fell}"
+    assert all(str(row["why"]).startswith("crashed:") for row in fell), f"чужое слово: {fell}"
     assert all("приёмника нет в сети" in str(row["why"]) for row in fell), "причина не доехала"
 
 

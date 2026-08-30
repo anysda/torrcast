@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.chromecast.cast.past_deadly import _past_deadly
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -33,8 +34,17 @@ def _reload(rcv: _Talk) -> bool:
     rcv._reloads += 1
     at = _past_deadly(rcv, rcv._peak)
     journal().reload(pos=rcv._peak, tries=rcv._reloads, error=rcv._error_code)
-    reason = f", код {rcv._error_code}" if rcv._error_code is not None else ", без кода"
-    print(f"приёмник отвалился на {rcv._peak:.0f} с{reason} - повтор LOAD", flush=True)
+    reason = (
+        phrase("chromecast_talk.with_code", code=rcv._error_code)
+        if rcv._error_code is not None
+        else phrase("chromecast_talk.without_code")
+    )
+    print(
+        phrase(
+            "chromecast_talk.receiver_dropped", position=f"{rcv._peak:.0f}", reason=reason
+        ),
+        flush=True,
+    )
     try:
         rcv._restart_app()  # чистое приложение: залипший молчит на любой LOAD
         rcv._load(at)

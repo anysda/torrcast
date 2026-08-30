@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.start_refused_error import StartRefusedError
 
 if TYPE_CHECKING:
@@ -42,4 +43,6 @@ def _play(rcv: _Talk, url: str, title: str = "", at: float = 0.0) -> None:
     # ⚠️ Отказ загрузки - не конец показа, а его первая смерть (:class:`StartRefusedError`):
     # приёмник в сети, и поднимать его есть чем. Хоронить показ здесь значит оставить
     # зрителя перед чёрным экраном при живом ТВ.
-    raise StartRefusedError(f"ТВ {rcv.address} не начал показ: {rcv._why()}")
+    raise StartRefusedError(
+        phrase("chromecast_talk.tv_did_not_start", address=rcv.address, reason=rcv._why())
+    )

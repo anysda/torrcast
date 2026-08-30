@@ -13,6 +13,7 @@ from torrcast.adapters.chromecast.mock.mock_settings import _Settings
 from torrcast.adapters.chromecast.mock.screen_watch import ScreenWatch
 from torrcast.adapters.chromecast.mock.segment_audit import SegmentAudit
 from torrcast.adapters.system_clock import SystemClock
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.patience import Patience
 from torrcast.domain.position import Position
@@ -148,10 +149,10 @@ class MockReceiver(_Settings):
         зритель, и снимает её тоже он, с пульта.
         """
         if not self._url:
-            self._refused = "нельзя: показ сюда не заводили"
+            self._refused = phrase("chromecast_talk.refused_no_show_set")
             return NOT_RAISED
         if self.clock.monotonic() < self.fetch.sulk_until:
-            self._refused = "нельзя: приёмник помнит 404 и LOAD не берёт"
+            self._refused = phrase("chromecast_talk.refused_sulking")
             return NOT_RAISED
         if paused:
             at, self._refused = _replay_paused(

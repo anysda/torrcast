@@ -27,7 +27,7 @@ def test_a_foreign_show_on_the_screen_is_never_interrupted() -> None:
     assert _replay(receiver, 100.0) == NOT_RAISED
     assert receiver.restarts == 0
     assert receiver.loads == []
-    assert receiver.refusal().startswith("нельзя:"), "не поднял, ПОТОМУ ЧТО НЕЛЬЗЯ"
+    assert receiver.refusal().startswith("refused:"), "не поднял, ПОТОМУ ЧТО НЕЛЬЗЯ"
 
 
 def test_a_receiver_that_did_not_take_the_load_says_so() -> None:
@@ -35,7 +35,7 @@ def test_a_receiver_that_did_not_take_the_load_says_so() -> None:
     receiver = Quiet(settles=False)
 
     assert _replay(receiver, 100.0) == NOT_RAISED
-    assert receiver.refusal().startswith("не взял:")
+    assert receiver.refusal().startswith("not taken:")
 
 
 def test_a_receiver_that_is_not_in_the_network_does_not_blow_up_the_caller() -> None:
@@ -43,7 +43,7 @@ def test_a_receiver_that_is_not_in_the_network_does_not_blow_up_the_caller() -> 
     receiver = Quiet(breaks=True)
 
     assert _replay(receiver, 100.0) == NOT_RAISED
-    assert receiver.refusal().startswith("упал:"), "не поднял, ПОТОМУ ЧТО УПАЛ"
+    assert receiver.refusal().startswith("crashed:"), "не поднял, ПОТОМУ ЧТО УПАЛ"
 
 
 def test_the_three_ways_of_not_raising_the_show_are_named_apart() -> None:

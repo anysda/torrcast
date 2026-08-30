@@ -19,6 +19,7 @@ from torrcast.adapters.stream_pack.packer_measure import _eta, _frontier, _pendi
 from torrcast.adapters.stream_pack.packer_publish import _lay_out
 from torrcast.adapters.stream_pack.packer_state import _Asked, _Shrink, _State, _Told
 from torrcast.adapters.stream_pack.packer_stop import _stop, _why
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.segment_container import MPEGTS, SegmentContainer
@@ -72,7 +73,7 @@ class Packer(_State):
         try:
             proc = spawn(command, stdout=subprocess.DEVNULL, stderr=log)
         except FileNotFoundError as exc:
-            raise InfraError("ffmpeg не установлен") from exc
+            raise InfraError(phrase("media_binaries.ffmpeg_missing")) from exc
         return cls(
             proc=proc,
             out=out,
@@ -139,14 +140,21 @@ class Packer(_State):
         self.publish()
         return _frontier(self)
 
-    def halt(self, reason: str = "пауза на пульте") -> None:
+    def halt(self, reason: str | None = None) -> None:
         """Погасить упаковку, **не трогая уже упакованное**: приёмник на паузе, и копить
         сегменты в tmpfs незачем. Возобновление — новый прогон (:meth:`Feed.segment`).
 
         Раньше на этом месте стояла пауза сигналом (SIGSTOP). Она и оказалась причиной
         подвиса: манифест замирает, а приёмник намертво виснет в BUFFERING —
         держит коннект и не запрашивает ничего. Поэтому процесс именно завершается.
+
+        ``reason`` не берёт значение по умолчанию словом каталога напрямую: аргумент
+        функции считается ОДИН раз на импорте модуля, раньше, чем зритель успевает
+        выбрать язык (:func:`torrcast.domain.catalogs.phrase.phrase`), поэтому умолчание
+        читает текущий язык здесь же, в теле метода.
         """
+        if reason is None:
+            reason = phrase("stream_pack.paused_from_remote")
         self.halted = True
         self.stop(keep_files=True, reason=reason)
 

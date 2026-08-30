@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.why import why
@@ -49,7 +50,7 @@ def mock_replay(
     except (InfraError, OSError) as exc:
         # Источника всё ещё нет - зовущий попробует ещё или погасит показ. Исключение
         # проглочено, но причина его - нет: она уезжает в ленту тем же словом, что на ТВ.
-        return NOT_RAISED, f"упал: {why(exc)}"
+        return NOT_RAISED, phrase("chromecast_talk.refused_crashed", reason=why(exc))
     screen.jumped(at)
     deadline = clock.monotonic() + timeout
     while clock.monotonic() < deadline:
@@ -61,9 +62,9 @@ def mock_replay(
             # Декодер лёг, не начав: показа нет, и врать о нём нельзя. Снаружи это тот же
             # исход, что и на ТВ, - LOAD взяли, кадра не дали, - и назван он так же.
             decoder.stop()
-            return NOT_RAISED, "не взял: декодер лёг, не начав показ"
+            return NOT_RAISED, phrase("chromecast_talk.refused_decoder_died")
     decoder.stop()
-    return NOT_RAISED, "не взял: LOAD ушёл, а картинки не было"
+    return NOT_RAISED, phrase("chromecast_talk.refused_not_taken")
 
 
 def _replay_paused(
@@ -84,7 +85,8 @@ def _replay_paused(
     try:
         open_at(at)
     except (InfraError, OSError) as exc:
-        return NOT_RAISED, f"упал: {why(exc)}"  # зовущий попробует ещё или дождётся паузы
+        # зовущий попробует ещё или дождётся паузы
+        return NOT_RAISED, phrase("chromecast_talk.refused_crashed", reason=why(exc))
     screen.jumped(at)
     screen.dead = False
     pause()

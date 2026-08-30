@@ -23,9 +23,9 @@ def test_the_viewer_is_told_how_much_film_the_watchdog_cost_him(
     _say_skip(receiver, 119.2)
 
     said = capsys.readouterr().out
-    assert "приёмник зависал" in said
-    assert "16 с фильма" in said
-    assert "104 с -> 119 с" in said
+    assert "receiver was stalling" in said
+    assert "16 s of film" in said
+    assert "104 s -> 119 s" in said
     assert receiver._skip_from == -1.0, "о том же пропуске вторым голосом не говорим"
 
 

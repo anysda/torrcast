@@ -1363,7 +1363,9 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven() -> None
         "первый LOAD и ровно load_retries повторов - не одиннадцать по бюджету времени"
     )
     assert loads[1:] == [1200.0] * receiver.profile.load_retries, "повтор уходит туда же"
-    assert "не начал показ" in str(err.value), "исчерпав попытки, показ гаснет честной строкой"
+    assert "did not start the show" in str(err.value), (
+        "исчерпав попытки, показ гаснет честной строкой"
+    )
 
 
 def test_the_receivers_detailed_error_survives_pychromecast_parsing() -> None:
@@ -1926,7 +1928,7 @@ def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
     assert loads[-1] == 148.940 + ChromecastReceiver.CUT_SLACK, (
         "третья смерть - перешагнут кусок декодера, а не картинки"
     )
-    assert "перешагиваю" in capsys.readouterr().out, "решение сказано вслух"
+    assert "skipping it" in capsys.readouterr().out, "решение сказано вслух"
 
 
 def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims() -> None:
@@ -2156,7 +2158,7 @@ def test_the_film_a_nudge_stepped_over_is_named_to_the_viewer(
     gone.show(119.2)  # приёмник ожил ровно там, куда прыгнули
     assert receiver.position(front=1e6).state == "PLAYING"
     said = capsys.readouterr().out
-    assert "перешагнул 16 с фильма" in said, f"пропуск не назван числом: {said!r}"
+    assert "skipped 16 s of film" in said, f"пропуск не назван числом: {said!r}"
     assert said.count("\n") == 1, f"одна честная строка, а не простыня: {said!r}"
 
     gone.show(121.2)

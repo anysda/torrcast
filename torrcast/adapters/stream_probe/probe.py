@@ -14,6 +14,7 @@ from torrcast.adapters.stream_probe.media_shelf import (
     _read_media,
 )
 from torrcast.adapters.stream_probe.run_ffprobe import _run_ffprobe
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 
@@ -67,11 +68,15 @@ def probe(
     try:
         stdout = run(command, timeout, alive)
     except FileNotFoundError as exc:
-        raise InfraError("ffprobe не установлен") from exc
+        raise InfraError(phrase("media_binaries.ffprobe_missing")) from exc
     except subprocess.TimeoutExpired as exc:
-        raise InfraError("ffprobe не дождался потока") from exc
+        raise InfraError(phrase("media_binaries.ffprobe_timed_out")) from exc
     except subprocess.CalledProcessError as exc:
-        raise InfraError(f"ffprobe не прочитал поток: {(exc.stderr or '').strip()[:120]}") from exc
+        raise InfraError(
+            phrase(
+                "media_binaries.ffprobe_failed", reason=(exc.stderr or "").strip()[:120]
+            )
+        ) from exc
     media = parse_media(stdout)
     _keep_media(cache, media)
     return media

@@ -8,6 +8,7 @@ from typing import Any
 
 from torrcast.adapters.chromecast.cast.hush_cosmetic_noise import hush_cosmetic_noise
 from torrcast.adapters.chromecast.cast.receiver_state import _State
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.why import why
@@ -43,9 +44,11 @@ class _Link(_State):
 
     def _why(self) -> str:
         status = self._status()
-        state = status.player_state or "нет статуса"
+        state = status.player_state or phrase("chromecast_talk.no_status")
         said = f"{state}/{status.idle_reason}" if status.idle_reason else str(state)
-        return f"{said}, код {self._error_code}" if self._error_code is not None else said
+        if self._error_code is not None:
+            return said + phrase("chromecast_talk.with_code", code=self._error_code)
+        return said
 
     def _catch_media_error(self, controller: Any) -> None:
         """Сохранить ``detailedErrorCode``, который pychromecast обычно выбрасывает.
@@ -119,8 +122,14 @@ class _Link(_State):
         потолок.
         """
         if not self._linked:
-            return InfraError(f"ТВ {self.address} не принял каст: {why(exc)}")
-        return StartRefusedError(f"ТВ {self.address} не отозвался на переподключение: {why(exc)}")
+            return InfraError(
+                phrase("chromecast_talk.tv_rejected_cast", address=self.address, reason=why(exc))
+            )
+        return StartRefusedError(
+            phrase(
+                "chromecast_talk.tv_no_reconnect_answer", address=self.address, reason=why(exc)
+            )
+        )
 
     def _device(self) -> Any:
         if self._cast is None:
