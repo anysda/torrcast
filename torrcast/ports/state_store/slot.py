@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.state_store.state_store import StateStore
 
 
@@ -20,7 +21,7 @@ class Slot:
         экране что-то появилось.
         """
         if self._store is None:
-            raise RuntimeError("хранилище состояния не назначено: приложение не собрано")
+            raise RuntimeError(phrase("ports.state_store_not_installed"))
         return self._store
 
     def install(self, target: StateStore) -> None:

@@ -26,7 +26,7 @@ def test_a_fresh_slot_refuses_instead_of_remembering_in_memory() -> None:
     """
     slot = Slot()
 
-    with pytest.raises(RuntimeError, match="не назначено"):
+    with pytest.raises(RuntimeError, match="not assembled"):
         slot.current()
 
 

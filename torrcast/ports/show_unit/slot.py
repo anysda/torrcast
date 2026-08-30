@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.show_unit.show_unit import ShowUnit
 
 
@@ -21,7 +22,7 @@ class Slot:
         заводит второй поверх играющего. Отказ приходит на первом же вопросе о юните.
         """
         if self._unit is None:
-            raise RuntimeError("юнит показа не назначен: приложение не собрано")
+            raise RuntimeError(phrase("ports.show_unit_not_installed"))
         return self._unit
 
     def install(self, target: ShowUnit) -> None:

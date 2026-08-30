@@ -38,6 +38,8 @@ from torrcast.domain.catalogs.spans.en import en as spans_en
 from torrcast.domain.catalogs.spans.ru import ru as spans_ru
 from torrcast.domain.catalogs.stream.en import en as stream_en
 from torrcast.domain.catalogs.stream.ru import ru as stream_ru
+from torrcast.domain.catalogs.ports.en import en as ports_en
+from torrcast.domain.catalogs.ports.ru import ru as ports_ru
 from torrcast.domain.catalogs.telegram_config.en import en as telegram_config_en
 from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
@@ -64,6 +66,7 @@ _CLUSTERS: Final = (
     (stream_en, stream_ru),
     (trace_en, trace_ru),
     (telegram_config_en, telegram_config_ru),
+    (ports_en, ports_ru),
 )
 
 

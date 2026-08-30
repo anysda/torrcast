@@ -15,7 +15,7 @@ def test_a_fresh_slot_refuses_instead_of_saying_nothing_plays() -> None:
     """
     slot = Slot()
 
-    with pytest.raises(RuntimeError, match="не назначен"):
+    with pytest.raises(RuntimeError, match="not assembled"):
         slot.current()
 
 

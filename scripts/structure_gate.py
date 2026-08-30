@@ -154,8 +154,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/adapters/unit_playback_session.py": 1,
     "torrcast/adapters/wiki/http_json_client.py": 2,
     "torrcast/adapters/wiki/wiki_extracts.py": 1,
-    "torrcast/ports/show_unit/slot.py": 1,
-    "torrcast/ports/state_store/slot.py": 1,
     "torrcast/runtime/language_command.py": 2,
     "torrcast/runtime/trace_thresholds.py": 2,
     "torrcast/usecases/cache_reserve.py": 8,
