@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import re
+import subprocess
 import sys
 from collections import Counter
 from collections.abc import Iterable, Iterator
@@ -29,6 +30,7 @@ RULES: Final = (
     "окружение",
     "проверка",
     "перевод",
+    "документы",
 )
 #: Шапки, которыми файл целиком снимают с тайпчека.
 _MYPY_OFF: Final = re.compile(r"^#\s*mypy:\s*(ignore-errors|disable-error-code)")
@@ -1186,6 +1188,53 @@ def _translation_list_violations(modules: list[Module]) -> list[Violation]:
     return found
 
 
+#: Точные пути, которым закон «ничего, кроме README, не коммитить» разрешает жить.
+#: Список - не маска: `README*.md`, `README-*.md`, «любой .md в корне» пропускают
+#: `README-old.md`, `README-en.md`, `READMEv2.md` - ровно тот приём, которым правило
+#: обходят не со зла. `README-ru.md` назван поимённо ради двуязычной витрины (TC-931) -
+#: он живёт списком независимо от того, приехал файл в дерево уже сегодня или нет.
+_ALLOWED_MARKDOWN: Final = frozenset({"README.md", "README-ru.md"})
+
+
+def _document_violations(root: Path) -> list[Violation]:
+    """Ищет отслеженный git'ом ``*.md`` вне разрешённого списка: витрина держит немного.
+
+    Владелец решил: ничего, кроме README (`README.md`, `README-ru.md`), в дереве не
+    коммитить - репозиторий публичная витрина, а не блокнот для кухни. Мера смотрит не
+    в рабочий каталог (там чужой мусор `.venv/`, `node_modules/`, соседних worktree,
+    который обходом ловится и красит не то), а в то, что реально закоммичено -
+    `git ls-files`.
+
+    Пустой ответ тут нечестен: `README.md` отслежен всегда, значит пустой список -
+    не «дерево чисто», а сломанный замер (не тот `cwd`, нет `git`, порванный вызов).
+    Такое молчание считается нарушением с явным словом, а не зелёным счётчиком - иначе
+    прибор, переставший видеть, выглядит лучшим сторожем из всех.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "*.md"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    tracked = [line for line in result.stdout.splitlines() if line]
+    print(f"документы: git ls-files увидел {len(tracked)} файлов *.md")
+    if not tracked:
+        return [
+            Violation(
+                "документы",
+                ".",
+                1,
+                "git ls-files '*.md' вернул пусто - прибор ослеп, а не дерево чисто",
+            )
+        ]
+    return [
+        Violation("документы", path, 1, "закоммичен вне README - витрина держит немного документов")
+        for path in tracked
+        if path not in _ALLOWED_MARKDOWN
+    ]
+
+
 def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list[Violation]:
     by_name = {module.name: module for module in modules}
     failures: list[Violation] = []
@@ -1321,7 +1370,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     root = arguments.root.resolve()
     modules = _load_modules(root)
-    violations = check(root, modules)
+    violations = [*check(root, modules), *_document_violations(root)]
     report(violations)
     measured, seen, places = translation_volume(modules)
     print(
