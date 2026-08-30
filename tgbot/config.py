@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.invalid_config_object_error import InvalidConfigObjectError
 
 CONFIG_ENV = "TORRCAST_TELEGRAM_CONFIG"
 DEFAULT_CONFIG = "/etc/torrcast/config.json"
@@ -44,7 +45,7 @@ class Config:
             return {}
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
-            raise ValueError(phrase("telegram_config.broken_file", path=path))
+            raise InvalidConfigObjectError(path, phrase("telegram_config.broken_file", path=path))
         return raw
 
     @classmethod

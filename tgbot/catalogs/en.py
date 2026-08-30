@@ -35,6 +35,7 @@ def en() -> dict[str, str]:
         "help": "cast <title> s1e1 [-2] · cast stop / pause / resume / status",
         "busy": "Another cast request is still being handled.",
         "failed": "The cast did not start: {detail}",
+        "invalid_config_object": "invalid configuration {path}: expected a JSON object",
         "unavailable": "The TV is unavailable.",
         "chosen": "Picture selected.",
         "cancel": "Cancel",

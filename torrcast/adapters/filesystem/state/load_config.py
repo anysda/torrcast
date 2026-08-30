@@ -10,6 +10,7 @@ from typing import Any
 from torrcast.adapters.filesystem.state.config_path import config_path
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
+from torrcast.domain.invalid_config_object_error import InvalidConfigObjectError
 from torrcast.domain.torrcast_error import TorrcastError
 
 
@@ -23,5 +24,5 @@ def load_config() -> Config:
     except (OSError, ValueError) as exc:
         raise TorrcastError(phrase("main_config.unreadable", path=path, reason=exc)) from exc
     if not isinstance(raw, dict):
-        raise TorrcastError(phrase("main_config.not_an_object", path=path))
+        raise InvalidConfigObjectError(path, phrase("main_config.not_an_object", path=path))
     return Config.from_json(raw)

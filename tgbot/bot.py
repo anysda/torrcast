@@ -9,7 +9,7 @@ from queue import Queue
 from typing import Any
 
 from tgbot.config import Config
-from tgbot.i18n import i18n
+from tgbot.i18n import _failure_detail, i18n
 from tgbot.language import language as chosen_language
 from tgbot.restore_flag_dashes import restore_flag_dashes
 from tgbot.telegram_api import TelegramApi
@@ -154,7 +154,7 @@ class Bot:
         except Exception as error:
             self._api.send(
                 self._config.chat_id,
-                i18n("failed", language, detail=str(error) or type(error).__name__),
+                i18n("failed", language, detail=_failure_detail(error, language)),
             )
             return
         if code == EXIT_CANCELLED:
