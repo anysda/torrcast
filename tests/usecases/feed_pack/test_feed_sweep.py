@@ -16,6 +16,7 @@ from tests.usecases.feed_pack.world import (
     tract,
     vault,
 )
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.feed_pack.feed_sweep import _lift, _prune, _sweep
 
 if TYPE_CHECKING:
@@ -71,9 +72,7 @@ def test_unclaimed_pieces_over_the_ceiling_put_the_run_out_with_one_honest_line(
     _sweep(show, nobody)
 
     assert show.packer.halted is True
-    assert said == [
-        "несданных кусков 2 МБ в памяти - упаковку гашу, подниму её по запросу приёмника"
-    ]
+    assert said == [phrase("feed.pending_too_big", mb=2.0)]
 
 
 def test_unclaimed_pieces_under_the_ceiling_never_stop_a_working_run(
@@ -149,7 +148,9 @@ def test_a_torn_run_is_picked_up_by_the_clock_while_the_shelf_is_still_full(
 
     assert asked == [3], "оборванный прогон не подняли с места за краем"
     assert show.crashes == 1 and show.restarted == 100.0
-    assert said and said[0].endswith("начинаю заново, попытка 1")
+    marker = "\x00"
+    tail = phrase("feed.retrying", what=marker, attempt=1).split(marker)[1]
+    assert said and said[0].endswith(tail)
 
 
 def test_a_spawn_failure_does_not_silence_the_next_attempt(tmp_path: Path) -> None:

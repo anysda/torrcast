@@ -9,6 +9,7 @@ import pytest
 
 import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, grid, lay, tract, vault
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
 from torrcast.usecases.warm._warm_count import _spots_left
 from torrcast.usecases.warm.segment_start import _Clock
@@ -149,7 +150,7 @@ def test_a_warmed_piece_from_another_place_is_repacked_live(
     assert _spots_left(cast("Vault", store), (3,), cast("EncodingKey", object())) == (3,), (
         "возвращённая копия не попала в перекод"
     )
-    assert said == ["прогретый v3 мимо сетки (+1207.68 с) - переделываю живой упаковкой"]
+    assert said == [phrase("feed.warm_off_grid", slot=3, diff=1207.68)]
     assert fake.slept == []
 
 

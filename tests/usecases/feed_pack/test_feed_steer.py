@@ -15,6 +15,7 @@ from tests.usecases.feed_pack.world import (
     tract,
     vault,
 )
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.feed_pack.feed_steer import IDLE_CIRCLES, _steer
 
 if TYPE_CHECKING:
@@ -208,7 +209,8 @@ def test_repacking_one_place_in_circles_ends_with_a_line_and_another_decision(
 
     assert asked == [3] * IDLE_CIRCLES, "холостых кругов ровно столько, сколько терпим"
     assert 3 in show.skipped, "место, которого перепаковка не даёт, дальше живёт пропуском"
-    assert any("перепаковки подряд" in line for line in said), "молчать об этом нельзя"
+    want = phrase("feed.give_up", slot=3, circles=IDLE_CIRCLES)
+    assert said == [want], "молчать об этом нельзя"
 
     fake.now = 200.0
     assert _steer(show, 3, asked.append) is True and asked == [3] * IDLE_CIRCLES

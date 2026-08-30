@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +18,7 @@ from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.digest._session_block import _session_block
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.domain.segment_container import FMP4
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.shrunk_splice_events import (
     SHRUNK,
     SHRUNK_SPLICE_ATTEMPT,
@@ -94,10 +96,9 @@ def test_without_an_encoder_the_place_is_honestly_skipped_and_named(
 
     assert _shrink(show, 4, 20_000_000) is False
     assert show.skipped == {4}
-    assert said == [
-        "⚠️ v4 пропускаю: кусок тяжелее потолка (20 МБ), а ужимать нечем - "
-        "этого места в показе не будет"
-    ]
+    weight = phrase("feed.weight_mb", mb=20)
+    reason = phrase("feed.shrink_reason_none")
+    assert said == [phrase("feed.skip_heavy", slot=4, weight=weight, reason=reason)]
 
 
 def test_on_a_whole_film_recode_a_side_run_is_forbidden(tmp_path: Path, journal: Path) -> None:
@@ -106,8 +107,8 @@ def test_on_a_whole_film_recode_a_side_run_is_forbidden(tmp_path: Path, journal:
     show = feed(tmp_path, log=said.append, recoder=_recoder(tmp_path), encode=object())
 
     assert _shrink(show, 4, 0) is False
-    assert said and "ужать нельзя" in said[0]
-    assert " (0 МБ)" not in said[0], "вес не измерен - выдумывать его в строке нельзя"
+    assert said and phrase("feed.shrink_reason_forbidden") in said[0]
+    assert phrase("feed.weight_mb", mb=0) not in said[0], "вес не измерен - строку не выдумываем"
 
 
 def test_a_recode_that_arrived_while_we_waited_for_the_lock_is_taken_as_is(tmp_path: Path) -> None:
@@ -143,7 +144,8 @@ def test_a_shrunk_piece_that_fits_the_ceiling_saves_the_place(
 
     assert _shrink(show, 4, 20_000_000) is True
     assert laid == [4] and show.skipped == set()
-    assert said == ["v4 тяжелее потолка (20 МБ) - ужимаю на месте до 4.0 Мбит/с"]
+    weight = phrase("feed.weight_mb", mb=20)
+    assert said == [phrase("feed.shrinking", slot=4, weight=weight, mbit=4.0)]
 
 
 def test_a_shrink_that_did_not_fit_is_a_skip_and_not_a_second_try(
@@ -156,7 +158,7 @@ def test_a_shrink_that_did_not_fit_is_a_skip_and_not_a_second_try(
 
     assert _shrink(show, 4, 20_000_000) is False
     assert show.skipped == {4}
-    assert any("ужать не вышло" in line for line in said)
+    assert any(phrase("feed.shrink_reason_failed") in line for line in said)
 
 
 def test_a_failed_shrink_closes_the_splice_arithmetic_on_the_product_tape(
@@ -325,7 +327,11 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(tmp_path: Path
     )
 
     assert _shrink(show, 0, MAX_SEGMENT_BYTES + 1) is False
-    asked = float(said[0].split(" до ")[1].split()[0])
+    # Мбит/с всегда с дробной частью, а вес куска - целым числом: дробное число в
+    # строке единственное, и это оно, независимо от слов языка вокруг него.
+    found = re.search(r"\d+\.\d+", said[0])
+    assert found is not None
+    asked = float(found.group())
     went = (asked * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
     assert went <= recoder.threshold, "ужатие обязано укладываться в потолок битрейта"
     assert went * 9.55 / 8 <= show.cap / 1e6, "и в потолок веса оно укладываться не перестало"

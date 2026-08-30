@@ -22,6 +22,7 @@ from tests.usecases.feed_pack.world import (
     vault,
 )
 from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_stop import _rest, _stop
 from torrcast.usecases.feed_pack.feed_sweep import _sweep
@@ -41,7 +42,8 @@ def test_a_wholly_warmed_rest_puts_the_live_packing_out(tmp_path: Path) -> None:
     show.packer = packer(tmp_path, first=0, out=show.out)
 
     assert _rest(show) is True
-    assert show.packer.halted is True and show.packer.stopped == "весь остаток прогрет"
+    assert show.packer.halted is True
+    assert show.packer.stopped == phrase("feed.rest_warmed_reason")
 
 
 def test_without_the_warmed_film_or_a_run_there_is_nothing_to_put_out(tmp_path: Path) -> None:
@@ -97,7 +99,7 @@ def test_the_end_of_the_show_closes_the_feed_for_good(tmp_path: Path) -> None:
 
     _stop(show)
 
-    assert show.trouble() == "показ окончен"
+    assert show.trouble() == phrase("feed.show_over")
     assert recoder.stopped == [1] and show.packer.stopped == ""
     assert list(show.out.glob("v*.ts")) == []
     assert not (show.out / PACK_DIR).exists()

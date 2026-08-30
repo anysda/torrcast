@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.feed_pack.feed_survive import _mute, _progress, _reread, _settle, _survive
 
@@ -51,12 +52,9 @@ def _sweep(state: _State, restart: Callable[[int], None]) -> None:
     pending = packer.pending()
     if pending <= state.pending_cap:
         return
-    state._say(
-        f"несданных кусков {pending / 1e6:.0f} МБ в памяти - упаковку гашу, "
-        "подниму её по запросу приёмника"
-    )
+    state._say(phrase("feed.pending_too_big", mb=pending / 1e6))
     journal().mark("несданное копится", мб=round(pending / 1e6), край=packer.edge)
-    packer.halt(reason=f"несданного {pending / 1e6:.0f} МБ в памяти")
+    packer.halt(reason=phrase("feed.pending_reason", mb=pending / 1e6))
 
 
 def _torn(state: _State, restart: Callable[[int], None]) -> None:

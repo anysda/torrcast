@@ -24,6 +24,8 @@ from torrcast.domain.catalogs.digest.en import en as digest_en
 from torrcast.domain.catalogs.digest.ru import ru as digest_ru
 from torrcast.domain.catalogs.discover.en import en as discover_en
 from torrcast.domain.catalogs.discover.ru import ru as discover_ru
+from torrcast.domain.catalogs.feed.en import en as feed_en
+from torrcast.domain.catalogs.feed.ru import ru as feed_ru
 from torrcast.domain.catalogs.frames.en import en as frames_en
 from torrcast.domain.catalogs.frames.ru import ru as frames_ru
 from torrcast.domain.catalogs.health.en import en as health_en
@@ -121,6 +123,7 @@ _CLUSTERS: Final = (
     (revive_en, revive_ru),
     (playback_en, playback_ru),
     (screen_en, screen_ru),
+    (feed_en, feed_ru),
 )
 
 

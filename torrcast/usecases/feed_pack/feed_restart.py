@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.pack_run.pack_factory import PackShrink
@@ -33,7 +34,7 @@ def _restart(state: _State, slot: int, shrink: PackShrink) -> None:
         # На стенде это выходило строкой «упаковка оборвалась (молча, код 255)» - 255
         # есть ответ ffmpeg на наш SIGTERM - и раздувало счёт ``crashes``, на котором
         # стоят решения о живости упаковки.
-        state.packer.stop(keep_files=True, reason=f"перезапуск с сегмента {slot}")
+        state.packer.stop(keep_files=True, reason=phrase("feed.restart_reason", slot=slot))
     # ⚠️ Кодировщик узнаёт о новом месте показа ПЕРВЫМ делом, до пробного прогона
     # (0.5-1.7 с): голову прогона он обязан начать не позже упаковщика, иначе
     # придерживать её копию будет нечего и первый сегмент уйдёт тяжёлым.
@@ -88,7 +89,7 @@ def _restart(state: _State, slot: int, shrink: PackShrink) -> None:
         container=state.container,
     )
     drop = state.grid.start(slot) - at
-    state._say(
-        f"упаковка с {state.grid.start(slot):.1f} с"
-        + (f" (докатка {drop:.1f} с)" if drop > SPLIT_SLACK else "")
-    )
+    said = phrase("feed.pack_from", start=state.grid.start(slot))
+    if drop > SPLIT_SLACK:
+        said += phrase("feed.catchup", drop=drop)
+    state._say(said)

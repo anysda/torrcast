@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tests.usecases.feed_pack.world import FakeProc, feed, lay, packer, tract, vault
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import MUTE_SECONDS
 from torrcast.usecases.feed_pack.feed_survive import _mute, _survive
 from torrcast.usecases.feed_pack.feed_sweep import _sweep
@@ -33,8 +34,8 @@ def test_a_source_silent_longer_than_the_clock_is_the_same_break_as_a_dead_ffmpe
     fake.now = 1001.0 + MUTE_SECONDS
     _mute(show)
 
-    assert show.offline == f"источник молчит дольше {MUTE_SECONDS:.0f} с"
-    assert said and "жду возврата сети" in said[0]
+    assert show.offline == phrase("feed.source_mute_reason", secs=MUTE_SECONDS)
+    assert said == [phrase("feed.source_unreadable", why=show.offline)]
 
 
 def test_without_the_warmed_film_the_silence_is_indistinguishable_from_a_slow_swarm(
@@ -69,7 +70,7 @@ def test_warmed_pieces_do_not_move_the_source_silence_clock(tmp_path: Path) -> N
 
     fake.now += 1.0
     _sweep(show, lambda _slot: None)
-    assert show.offline == f"источник молчит дольше {MUTE_SECONDS:.0f} с"
+    assert show.offline == phrase("feed.source_mute_reason", secs=MUTE_SECONDS)
 
 
 def test_the_same_corpse_is_counted_once_and_not_five_times_a_second(
@@ -114,7 +115,7 @@ def test_a_film_on_the_disk_turns_the_verdict_into_a_wait_for_the_network(
     assert _survive(show, packer(tmp_path, proc=FakeProc(code=1))) is True
     assert show.fatal == "" and show.crashes == 0
     assert show.offline == "silent, code 1"
-    assert said and "жду возврата сети" in said[0]
+    assert said == [phrase("feed.source_unreadable", why=show.offline)]
 
 
 def test_a_zero_on_a_torn_input_is_told_as_a_fact_and_not_as_a_forecast(
@@ -130,8 +131,10 @@ def test_a_zero_on_a_torn_input_is_told_as_a_fact_and_not_as_a_forecast(
     show = feed(tmp_path, log=said.append)
 
     _survive(show, packer(tmp_path, proc=FakeProc(code=0)))
-    assert said == ["вход оборвался на середине, фильм не кончился - начинаю заново, попытка 1"]
+    torn = phrase("feed.input_torn")
+    assert said == [phrase("feed.retrying", what=torn, attempt=1)]
 
     said.clear()
     _survive(show, packer(tmp_path, proc=FakeProc(code=-9)))
-    assert said == ["упаковка оборвалась (killed by signal 9) - начинаю заново, попытка 2"]
+    broke = phrase("feed.pack_broke_off", why="killed by signal 9")
+    assert said == [phrase("feed.retrying", what=broke, attempt=2)]

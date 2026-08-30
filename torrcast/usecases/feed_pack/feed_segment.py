@@ -10,6 +10,7 @@ import math
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm.segment_end import segment_end
 from torrcast.usecases.warm.segment_start import segment_start
 from torrcast.usecases.warm.settings import SKEW_MAX, TAIL_GAP_MAX
@@ -145,10 +146,7 @@ def _warm(state: _State, slot: int) -> Path | None:
         promised = state.grid.duration + state.grid.origin
         if not math.isnan(ended) and promised - ended > TAIL_GAP_MAX:
             state.vault.reject(slot)
-            state._say(
-                f"прогретый v{slot} оборван (не хватает {promised - ended:.2f} с)"
-                " - переделываю живой упаковкой"
-            )
+            state._say(phrase("feed.warm_torn", slot=slot, missing=promised - ended))
             return None
     clock = segment_start(path)
     want = state.grid.start(slot) + state.grid.origin
@@ -157,9 +155,7 @@ def _warm(state: _State, slot: int) -> Path | None:
     if abs(clock.began - want) <= SKEW_MAX:
         return path
     state.vault.reject(slot)
-    state._say(
-        f"прогретый v{slot} мимо сетки ({clock.began - want:+.2f} с) - переделываю живой упаковкой"
-    )
+    state._say(phrase("feed.warm_off_grid", slot=slot, diff=clock.began - want))
     return None
 
 

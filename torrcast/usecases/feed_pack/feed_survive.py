@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import MUTE_SECONDS
 
 if TYPE_CHECKING:
@@ -36,8 +37,8 @@ def _mute(state: _State) -> None:
         return
     if _state.clock_port.monotonic() - state.moved <= MUTE_SECONDS:
         return
-    state.offline = f"источник молчит дольше {MUTE_SECONDS:.0f} с"
-    state._say(f"источник не читается ({state.offline}) - иду с прогретого, жду возврата сети")
+    state.offline = phrase("feed.source_mute_reason", secs=MUTE_SECONDS)
+    state._say(phrase("feed.source_unreadable", why=state.offline))
 
 
 def _doubts(state: _State) -> None:
@@ -118,7 +119,7 @@ def _survive(state: _State, packer: PackRun) -> bool:
         # и признак снимется сам (:meth:`_steer`).
         state.crashes = 0
         state.offline = why
-        state._say(f"источник не читается ({why}) - иду с прогретого, жду возврата сети")
+        state._say(phrase("feed.source_unreadable", why=why))
         return True
     # 🔴 Ноль от ffmpeg на оборванном прогоне значит «вход умер на середине», а не
     # «фильм кончился» (:meth:`Packer.finished`), и зритель об этом узнать не мог:
@@ -132,7 +133,7 @@ def _survive(state: _State, packer: PackRun) -> bool:
     # 76 раз из 76; не вернулся - 1 из 76 на второй попытке и 0 из 76 на третьей.
     # Кто из двух перед нами, на первом обрыве не знает никто, поэтому строка говорит
     # ФАКТ («вход оборвался»), а не прогноз («сейчас починится»).
-    torn = "вход оборвался на середине, фильм не кончился"
-    what = torn if packer.poll() == 0 else f"упаковка оборвалась ({why})"
-    state._say(f"{what} - начинаю заново, попытка {state.crashes}")
+    torn = phrase("feed.input_torn")
+    what = torn if packer.poll() == 0 else phrase("feed.pack_broke_off", why=why)
+    state._say(phrase("feed.retrying", what=what, attempt=state.crashes))
     return True

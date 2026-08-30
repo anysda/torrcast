@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.feed_pack.feed_survive import _mute, _progress, _reread, _settle, _survive
 
@@ -54,10 +55,7 @@ def _give_up(state: _State, slot: int) -> None:
     state.skipped.add(slot)
     if state.recoder is not None:
         state.recoder.done.add(slot)  # браться за это место кодировщику уже незачем
-    state._say(
-        f"⚠️ v{slot} пропускаю: {IDLE_CIRCLES} перепаковки подряд не дали этого куска - "
-        "этого места в показе не будет"
-    )
+    state._say(phrase("feed.give_up", slot=slot, circles=IDLE_CIRCLES))
     journal().mark("перепаковка по кругу", слот=slot, кругов=IDLE_CIRCLES)
 
 

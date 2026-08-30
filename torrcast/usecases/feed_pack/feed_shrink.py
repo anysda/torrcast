@@ -9,6 +9,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import SHRINK_DIR
 from torrcast.domain.shrunk_splice_events import SHRUNK, SHRUNK_SPLICE_SHRINK_FAILED
 from torrcast.ports.journal.slot import journal
@@ -51,11 +52,11 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool | None:
         return False  # решение по этому месту принято и сказано ровно один раз
     if recoder is None:
         # Ужимать нечем: перекод выключен настройкой или профиль тяжести не построился.
-        return _skip(state, slot, size, "ужимать нечем")
+        return _skip(state, slot, size, phrase("feed.shrink_reason_none"))
     if state.encode is not None:
         # На сплошном перекоде чужой заход в середину потока - это смена SPS на
         # ходу, а её приёмник не переживает (:attr:`Profile.recode_codecs`).
-        return _skip(state, slot, size, "ужать нельзя")
+        return _skip(state, slot, size, phrase("feed.shrink_reason_forbidden"))
     with state.shrink_lock:
         if slot in state.skipped:
             return False
@@ -71,8 +72,8 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool | None:
         encode = recoder.fit(span, recoder.pace.table()[-1][0])
         mbit = encode.mbit
         run = recoder.spare / SHRINK_DIR
-        weight = f" ({size / 1e6:.0f} МБ)" if size > 0 else ""
-        state._say(f"v{slot} тяжелее потолка{weight} - ужимаю на месте до {mbit:.1f} Мбит/с")
+        weight = phrase("feed.weight_mb", mb=size / 1e6) if size > 0 else ""
+        state._say(phrase("feed.shrinking", slot=slot, weight=weight, mbit=mbit))
         journal().mark(SHRUNK, слот=slot, мбит=round(mbit, 2))
         command = _state.ffmpeg_pack_command(
             state.source,
@@ -113,7 +114,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool | None:
             packer = None
         finally:
             if packer is not None:
-                packer.stop(keep_files=True, reason="ужатие на месте окончено")
+                packer.stop(keep_files=True, reason=phrase("feed.shrink_done_reason"))
     ready = recoder.ready(slot)
     fits = False
     if ready is not None:
@@ -127,7 +128,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool | None:
     # снова. Кусок, который ужался и всё равно не влез, - другое дело: он детерминирован,
     # и второй заход над ним получит ровно то же самое.
     journal().mark(SHRUNK_SPLICE_SHRINK_FAILED, слот=slot)
-    return _skip(state, slot, size, "ужать не вышло", final=ready is not None)
+    return _skip(state, slot, size, phrase("feed.shrink_reason_failed"), final=ready is not None)
 
 
 def _skip(state: _State, slot: int, size: int, reason: str, final: bool = True) -> bool:
@@ -149,10 +150,7 @@ def _skip(state: _State, slot: int, size: int, reason: str, final: bool = True) 
     if state.recoder is not None:
         with contextlib.suppress(Exception):
             state.recoder.done.add(slot)  # кодировщику за это место браться уже незачем
-    weight = f" ({size / 1e6:.0f} МБ)" if size > 0 else ""
-    state._say(
-        f"⚠️ v{slot} пропускаю: кусок тяжелее потолка{weight}, а {reason} - "
-        "этого места в показе не будет"
-    )
+    weight = phrase("feed.weight_mb", mb=size / 1e6) if size > 0 else ""
+    state._say(phrase("feed.skip_heavy", slot=slot, weight=weight, reason=reason))
     journal().mark("пропуск тяжёлого куска", слот=slot, мб=round(size / 1e6))
     return False

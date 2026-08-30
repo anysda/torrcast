@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import PACK_DIR
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ def _rest(state: _State) -> bool:
         packer = state.packer
         if packer is None or packer.halted:
             return False
-        packer.halt(reason="весь остаток прогрет")
+        packer.halt(reason=phrase("feed.rest_warmed_reason"))
         return True
     finally:
         state.lock.release()
@@ -43,7 +44,7 @@ def _stop(state: _State) -> None:
     """
     # Закрыто насовсем: поток раздачи, спящий в segment() до двух минут, не должен
     # проснуться и поднять новый ffmpeg в каталог, который уже отдан следующей серии.
-    state.fatal = state.fatal or "показ окончен"
+    state.fatal = state.fatal or phrase("feed.show_over")
     if state.recoder is not None:
         state.recoder.stop()
     with state.lock:

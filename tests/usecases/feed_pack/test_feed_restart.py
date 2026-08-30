@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from tests.usecases.feed_pack.world import factory, feed, grid, packer, signals, tract
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.whole_encode import FULL_PRESET
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_restart import _restart
 from torrcast.usecases.feed_pack.feed_survive import _survive
@@ -104,7 +105,8 @@ def test_the_run_starts_where_it_was_measured_and_the_rollback_is_told(
 
     assert started[0][4]["at"] == 28.4
     assert started[0][2] == show.out / PACK_DIR
-    assert said == ["упаковка с 30.0 с (докатка 1.6 с)"]
+    want = phrase("feed.pack_from", start=30.0) + phrase("feed.catchup", drop=1.6)
+    assert said == [want]
 
 
 def test_a_run_that_stands_where_it_was_asked_says_nothing_about_a_rollback(
@@ -117,7 +119,7 @@ def test_a_run_that_stands_where_it_was_asked_says_nothing_about_a_rollback(
 
     _restart(show, 3, lambda slot, size: False)
 
-    assert said == ["упаковка с 30.0 с"]
+    assert said == [phrase("feed.pack_from", start=30.0)]
 
 
 def test_the_previous_run_is_taken_down_but_its_pieces_stay(tmp_path: Path, journal: Path) -> None:
@@ -130,7 +132,7 @@ def test_the_previous_run_is_taken_down_but_its_pieces_stay(tmp_path: Path, jour
 
     _restart(show, 3, lambda slot, size: False)
 
-    assert old.stopped == "перезапуск с сегмента 3" and signals(old) == ["terminate"]
+    assert old.stopped == phrase("feed.restart_reason", slot=3) and signals(old) == ["terminate"]
     assert (show.out / "v0.ts").exists(), "перезапуск выбросил уже упакованное"
     assert show.packer is not old
 
