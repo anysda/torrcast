@@ -5,6 +5,7 @@ from __future__ import annotations
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.usecases.rank.spoken import spoken
+from torrcast.usecases.rank.spoken_kind import spoken_kind
 
 
 def voice_note(media: Media, audio: int, native: bool = False) -> str:
@@ -39,7 +40,11 @@ def voice_note(media: Media, audio: int, native: bool = False) -> str:
     # Русских две, а играет нерусская - значит обе служебные; это тоже выбор, и назвать
     # его надо языком, а не видом перевода.
     what = (
-        (phrase("rank.voice_original") if own else track.kind or phrase("rank.voice_russian"))
+        (
+            phrase("rank.voice_original")
+            if own
+            else spoken_kind(track.kind) or phrase("rank.voice_russian")
+        )
         if track.is_russian
         else spoken(track)
     )

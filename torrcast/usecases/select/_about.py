@@ -6,6 +6,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.voice_swap import voice_swap
 from torrcast.usecases.rank._hms import _hms
+from torrcast.usecases.rank.spoken_voice import spoken_voice
 
 
 def _about(entry: Entry) -> str:
@@ -21,7 +22,7 @@ def _about(entry: Entry) -> str:
     (:attr:`torrcast.domain.args.Args.menu`): играет тут записанный выбор, и другого
     места сказать о выборе нет.
     """
-    voice = entry.voice or phrase("select.track_number", number=entry.audio + 1)
+    voice = spoken_voice(entry.voice) or phrase("select.track_number", number=entry.audio + 1)
     studio = entry.heard or entry.studio
     if studio and studio.casefold() not in voice.casefold():
         voice = f"{voice} ({studio})"

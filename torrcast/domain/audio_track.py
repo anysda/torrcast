@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
+from torrcast.domain.fallback_track_number import FALLBACK_PREFIX
 from torrcast.domain.studio import Studio
 from torrcast.domain.studio_of import studio_of
 
@@ -93,7 +94,7 @@ class AudioTrack:
         if (lang or "").strip().casefold() in _VAGUE_LANG:
             lang = None
         parts = [p for p in (lang, self.clean_title) if p]
-        return " · ".join(parts) if parts else f"дорожка {self.index + 1}"
+        return " · ".join(parts) if parts else f"{FALLBACK_PREFIX}{self.index + 1}"
 
     @property
     def clean_title(self) -> str:

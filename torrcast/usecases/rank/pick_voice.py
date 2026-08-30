@@ -13,6 +13,7 @@ from torrcast.domain.rank_settings import VOICE_MENU
 from torrcast.domain.studio import Studio
 from torrcast.domain.track_studio import track_studio
 from torrcast.usecases.rank.configure import _console_port
+from torrcast.usecases.rank.spoken_voice import spoken_voice
 from torrcast.usecases.rank.voices_table import voices_table
 
 
@@ -70,7 +71,7 @@ def pick_voice(
             return found, remembered
         # Память живёт на картину, а релиз временный: озвучки в нём нет - говорим и
         # играем обычную, но выбор пользователя не забываем (:attr:`Entry.voice`).
-        _console_port().write(phrase("rank.voice_kept_usual", name=remembered))
+        _console_port().write(phrase("rank.voice_kept_usual", name=spoken_voice(remembered)))
     return media.default_track(native), remembered
 
 

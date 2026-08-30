@@ -8,6 +8,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.domain.studio import Studio
 from torrcast.domain.track_studio import track_studio
+from torrcast.usecases.rank.spoken_label import spoken_label
 
 
 def voices_table(
@@ -23,9 +24,10 @@ def voices_table(
         )
         note = [word for word, on in marks if on]
         tail = f"   [{', '.join(note)}]" if note else ""
+        label = spoken_label(track)
         studio = track_studio(media, track.index, studios)
         named = f" ({studio.name})" if studio is not None else ""
-        if studio is not None and studio.name.casefold() in track.label.casefold():
+        if studio is not None and studio.name.casefold() in label.casefold():
             named = ""
-        rows.append(f"  {track.index + 1}. {track.label}{named}{tail}")
+        rows.append(f"  {track.index + 1}. {label}{named}{tail}")
     return "\n".join([phrase("rank.voices_header"), *rows])

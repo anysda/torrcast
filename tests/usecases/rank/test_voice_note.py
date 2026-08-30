@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.rank.releases import media, track
+from torrcast.domain.catalogs.tongue import EN, _choose_tongue
 from torrcast.usecases.rank.voice_note import voice_note
 
 
@@ -44,3 +45,11 @@ def test_a_native_picture_names_its_own_track_and_says_why_the_dub_lost() -> Non
         "дорожек rus 2, беру оригинальную - картина снята по-русски, это её собственная дорожка"
     )
     assert voice_note(media(tracks=tracks), 0) == "дорожек rus 2, беру дубляж"
+
+
+def test_the_line_speaks_english_when_the_product_does() -> None:
+    """TC-942: было «дорожек rus 2, беру дубляж» - под английским дубляж не остаётся
+    русским словом (:mod:`torrcast.usecases.rank.spoken_kind`)."""
+    _choose_tongue(EN)
+    tracks = (track(0, "rus", "Дубляж"), track(1, "rus", "MVO"))
+    assert voice_note(media(tracks=tracks), 0) == "rus tracks: 2, taking the dub"

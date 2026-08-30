@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.rank.releases import media, track
+from torrcast.domain.catalogs.tongue import EN, _choose_tongue
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.voices_table import voices_table
 
@@ -43,3 +44,12 @@ def test_the_table_names_a_studio_known_only_from_the_release() -> None:
     lines = voices_table(media(tracks=tracks), 0, studios=pack.studios).splitlines()
 
     assert lines[1:3] == ["  1. rus (TVShows)   [дефолт]", "  2. rus (NewStation)"]
+
+
+def test_the_fallback_row_speaks_english_when_the_product_does() -> None:
+    """TC-942: запасная подпись - наше слово, и под английским она обязана звучать
+    по-английски (:mod:`torrcast.usecases.rank.spoken_voice`)."""
+    _choose_tongue(EN)
+    blank = track(0, None, None)
+    lines = voices_table(media(tracks=(blank,)), default=0).splitlines()
+    assert lines == ["Voice tracks:", "  1. track 1   [default]"]
