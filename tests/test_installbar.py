@@ -81,9 +81,11 @@ MOVED = {
             "    has ffmpeg     && { job_start ffmpeg install_ffmpeg; phase_done 'ffmpeg'; }\n",
         ),
         (
-            '        job_wait ffmpeg || die "ffmpeg не поставился - причина в строках выше"\n'
+            '        job_wait ffmpeg || die "ffmpeg was not installed - see the reason above" '
+            '"ffmpeg не поставился - причина в строках выше"\n'
             "        phase_done 'ffmpeg'\n",
-            '        job_wait ffmpeg || die "ffmpeg не поставился - причина в строках выше"\n',
+            '        job_wait ffmpeg || die "ffmpeg was not installed - see the reason above" '
+            '"ffmpeg не поставился - причина в строках выше"\n',
         ),
     ),
     "check_sources": (
@@ -93,9 +95,11 @@ MOVED = {
         ),
         (
             "        job_wait sources || info "
+            '"⚠ source check did not finish - see the lines above" '
             '"⚠ проверка источников не доработала - смотри строки выше"\n'
             "        phase_done 'источники'\n",
             "        job_wait sources || info "
+            '"⚠ source check did not finish - see the lines above" '
             '"⚠ проверка источников не доработала - смотри строки выше"\n',
         ),
     ),
