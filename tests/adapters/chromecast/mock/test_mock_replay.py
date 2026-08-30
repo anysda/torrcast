@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import cast
 
 from tests.fakes.clock import FakeClock
@@ -47,9 +48,16 @@ class _Moving(FakeClock):
             self.decoder.pos = Position(self.decoder.pos.pos + seconds, 7200.0, True)
 
 
-def _replay(clock: FakeClock, decoder: _Decoder, screen: _Screen, at: float = 600.0) -> float:
+def _replay(
+    clock: FakeClock,
+    decoder: _Decoder,
+    screen: _Screen,
+    at: float = 600.0,
+    open_at: Callable[[float], None] = lambda pos: None,
+) -> tuple[float, str]:
+    """Место подъёма и причина, по которой его нет."""
     return mock_replay(
-        lambda pos: None,
+        open_at,
         cast(ScreenWatch, screen),
         cast(HlsDecoder, decoder),
         cast(Clock, clock),
@@ -65,7 +73,7 @@ def test_a_replay_names_only_a_picture_that_really_came_back() -> None:
     clock.decoder = decoder  # декодер поехал - вот теперь на экране картинка
     screen = _Screen()
 
-    assert _replay(clock, decoder, screen) == 600.0
+    assert _replay(clock, decoder, screen) == (600.0, "")
     assert not screen.dead, "показ поднят - сессия снова живая"
     assert screen.jumps == [600.0], "терпение считается от нового места"
     assert clock.sleeps == [1.0], "картинка нашлась с первого опроса - дальше не ждём"
@@ -76,8 +84,11 @@ def test_a_decoder_that_never_started_is_not_called_a_show() -> None:
     clock = FakeClock(1000.0)
     decoder = _Decoder(Position(600.0, 7200.0, False))
 
-    assert _replay(clock, decoder, _Screen()) == NOT_RAISED
+    place, refused = _replay(clock, decoder, _Screen())
+
+    assert place == NOT_RAISED
     assert decoder.stopped, "мёртвый декодер за собой не оставляем"
+    assert refused.startswith("не взял:"), "снаружи это отказ приёмника, а не наше падение"
 
 
 def test_a_source_that_is_still_gone_is_not_a_replay_either() -> None:
@@ -86,18 +97,35 @@ def test_a_source_that_is_still_gone_is_not_a_replay_either() -> None:
     decoder = _Decoder(Position(600.0, 7200.0, True))
     screen = _Screen()
 
-    def refuse(pos: float) -> None:
-        raise InfraError("источника нет")
+    place, refused = _replay(clock, decoder, screen, open_at=_gone)
 
-    assert (
-        mock_replay(
-            refuse,
-            cast(ScreenWatch, screen),
-            cast(HlsDecoder, decoder),
-            cast(Clock, clock),
-            600.0,
-            60.0,
-        )
-        == NOT_RAISED
-    )
+    assert place == NOT_RAISED
     assert screen.jumps == [] and clock.sleeps == [], "ждать нечего: LOAD не взяли"
+    assert refused == "упал: источника нет", "исключение проглочено, причина его - нет"
+
+
+def test_the_ways_of_not_raising_the_show_are_named_apart_and_not_by_one_string() -> None:
+    """🔴 Разные исходы обязаны дать РАЗНЫЕ записи, а не одну строку на всех.
+
+    Ответ про место у всех неудач один - :data:`NOT_RAISED`, - поэтому различие живёт
+    только в названной причине. Пока её не было, замер подъёмов по сухой ленте читался
+    двусмысленно: ноль подъёмов значил и «продукт передумал поднимать», и «процесс упал
+    раньше, чем успел» (TC-880).
+    """
+    said = [_named(True), _named(False), _named(True, _gone)]
+
+    assert len(set(said)) == 3, f"три исхода обязаны называться по-разному: {said}"
+
+
+def _named(playing: bool, open_at: Callable[[float], None] = lambda pos: None) -> str:
+    """Как подъём назвал причину: декодер стоит, декодер лёг, источника нет."""
+    place, refused = _replay(
+        FakeClock(1000.0), _Decoder(Position(600.0, 7200.0, playing)), _Screen(), 600.0, open_at
+    )
+    assert place == NOT_RAISED
+    return refused
+
+
+def _gone(pos: float) -> None:
+    """Источник, которого нет: заход к нему кончается аварией, а не картинкой."""
+    raise InfraError("источника нет")

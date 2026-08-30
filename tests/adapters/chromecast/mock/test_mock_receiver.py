@@ -12,6 +12,7 @@ from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.position import Position
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.ports.receiver import Receiver
+from torrcast.usecases.revive_playback._blame import _Blaming
 
 URL = "http://127.0.0.1:9/hls/index.m3u8"
 
@@ -25,9 +26,13 @@ class _Paper:
     def __init__(self) -> None:
         self.headers = {CORS_HEADER: "*"}
         self.asked: list[str] = []
+        #: Чем раздача отвечает вместо манифеста: так изображается упавшее соединение.
+        self.breaks: Exception | None = None
 
     def get(self, url: str, timeout: float = 0.0) -> _Paper:
         self.asked.append(url)
+        if self.breaks is not None:
+            raise self.breaks
         return self
 
     def raise_for_status(self) -> None:
@@ -134,6 +139,7 @@ def test_a_replay_is_refused_while_the_404_is_still_remembered() -> None:
 
     assert mock.replay(600.0) == NOT_RAISED
     assert paper.asked == [URL], "второго захода не было - наказание держит"
+    assert mock.refusal().startswith("нельзя:"), "LOAD не полетел вовсе - соваться нельзя"
 
 
 class _Moving(FakeClock):
@@ -158,6 +164,7 @@ def test_a_replay_names_only_a_picture_that_really_came_back() -> None:
     assert mock.replay(600.0) == 600.0
     assert not mock.screen.dead, "показ поднят - сессия снова живая"
     assert clock.sleeps == [1.0], "картинка нашлась с первого опроса - дальше не ждём"
+    assert mock.refusal() == "", "причина прошлого отказа удавшийся подъём не переживает"
 
 
 def test_a_decoder_that_never_started_is_not_called_a_show() -> None:
@@ -168,3 +175,69 @@ def test_a_decoder_that_never_started_is_not_called_a_show() -> None:
     mock.decoder.pos = Position(600.0, 7200.0, False)
 
     assert mock.replay(600.0) == NOT_RAISED
+
+
+def test_a_replay_without_a_show_behind_it_says_there_is_nothing_to_raise() -> None:
+    """Поднимать нечего: показ сюда не заводили, и LOAD слать некуда."""
+    mock, paper = _receiver()
+
+    assert mock.replay(600.0) == NOT_RAISED
+    assert paper.asked == [], "к раздаче не ходили вовсе"
+    assert mock.refusal() == "нельзя: показ сюда не заводили"
+
+
+def test_the_mock_names_the_reason_of_a_refusal_just_as_the_live_receiver_does() -> None:
+    """Договор :class:`_Blaming` сухой приёмник выполняет, а не только договор приёмника.
+
+    Подделка без :meth:`refusal` осталась бы :class:`_Revivable` и из лестницы подъёма не
+    выпала бы, но в ленту уходило бы пустое поле - «причина не названа». Сухой прогон
+    затем и нужен, чтобы по нему судить о живом: лента с пустым полем судить не даёт.
+    """
+    mock, _ = _receiver()
+
+    assert isinstance(mock, _Blaming)
+
+
+def test_the_three_ways_of_not_raising_the_show_are_named_apart() -> None:
+    """🔴 «Нельзя», «упал» и «не взял» - три исхода с тремя выводами, а не один.
+
+    Ответ про место у всех трёх один - :data:`NOT_RAISED`, - поэтому мерить надо
+    РАЗЛИЧИЕ названного, а не наличие поля: поле, в котором одна строка на все исходы,
+    ленту не чинит. Замер TC-880 испортила ровно эта неразличимость: ноль подъёмов
+    приёмника значил не «продукт передумал поднимать», а «процесс упал раньше, чем успел».
+    """
+    said = [_named(_forbidden()), _named(_crashed()), _named(_not_taken())]
+
+    assert len(set(said)) == 3, f"три отказа обязаны называться по-разному: {said}"
+    assert [word.split(":")[0] for word in said] == ["нельзя", "упал", "не взял"]
+
+
+def _named(mock: MockReceiver) -> str:
+    """Как сухой приёмник назвал причину несостоявшегося подъёма."""
+    assert mock.replay(600.0) == NOT_RAISED
+    return mock.refusal()
+
+
+def _forbidden() -> MockReceiver:
+    """Соваться нельзя: приёмник помнит 404 и LOAD не берёт."""
+    clock = FakeClock(1000.0)
+    mock, _ = _receiver(clock, profile=ANDROID_TV)
+    mock.play(URL, at=600.0)
+    mock.fetch.sulk_until = clock.monotonic() + 150.0
+    return mock
+
+
+def _crashed() -> MockReceiver:
+    """Упало соединение: источника на месте больше нет."""
+    mock, paper = _receiver()
+    mock.play(URL, at=600.0)
+    paper.breaks = OSError("приёмника нет в сети")
+    return mock
+
+
+def _not_taken() -> MockReceiver:
+    """LOAD ушёл, а картинки не было: декодер лёг, не начав показ."""
+    mock, _ = _receiver()
+    mock.play(URL, at=600.0)
+    mock.decoder.pos = Position(600.0, 7200.0, False)
+    return mock

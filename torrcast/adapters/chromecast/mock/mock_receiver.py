@@ -8,12 +8,11 @@ from typing import Any, Final
 
 from torrcast.adapters.chromecast.mock.hls_decoder import HlsDecoder
 from torrcast.adapters.chromecast.mock.hls_fetch import HlsFetch
-from torrcast.adapters.chromecast.mock.mock_replay import mock_replay
+from torrcast.adapters.chromecast.mock.mock_replay import _replay_paused, mock_replay
 from torrcast.adapters.chromecast.mock.mock_settings import _Settings
 from torrcast.adapters.chromecast.mock.screen_watch import ScreenWatch
 from torrcast.adapters.chromecast.mock.segment_audit import SegmentAudit
 from torrcast.adapters.system_clock import SystemClock
-from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.patience import Patience
 from torrcast.domain.position import Position
@@ -76,6 +75,10 @@ class MockReceiver(_Settings):
         )
         #: Чем и подо что грузили: повтор LOAD уходит туда же, куда и первый.
         self._url = ""
+        #: Почему последний подъём не дал картинки; пусто - подъёма не было либо он удался.
+        #: Слова тут живые («нельзя», «упал», «не взял»): замер подъёмов читают по ленте, а
+        #: не по тракту, который её вёл (:meth:`refusal`).
+        self._refused = ""
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         del title  # названия сухому приёмнику показывать негде
@@ -140,11 +143,18 @@ class MockReceiver(_Settings):
         ``paused=True`` - вернуть сессию на закладку, НЕ начиная показ: паузу ставил
         зритель, и снимает её тоже он, с пульта.
         """
-        if not self._url or self.clock.monotonic() < self.fetch.sulk_until:
-            return NOT_RAISED  # приёмник поймал 404 и ближайшее время не берёт LOAD вовсе
+        if not self._url:
+            self._refused = "нельзя: показ сюда не заводили"
+            return NOT_RAISED
+        if self.clock.monotonic() < self.fetch.sulk_until:
+            self._refused = "нельзя: приёмник помнит 404 и LOAD не берёт"
+            return NOT_RAISED
         if paused:
-            return self._replay_paused(at)
-        return mock_replay(
+            at, self._refused = _replay_paused(
+                lambda pos: self._open(self._url, pos), self.screen, self.pause, at
+            )
+            return at
+        at, self._refused = mock_replay(
             lambda pos: self._open(self._url, pos),
             self.screen,
             self.decoder,
@@ -152,22 +162,17 @@ class MockReceiver(_Settings):
             at,
             self.WAKE_TIMEOUT,
         )
-
-    def _replay_paused(self, at: float) -> float:
-        """LOAD без автостарта: сессия возвращается на закладку и ждёт зрителя.
-
-        Картинки ждать нечего - её и не просили: готовность такого подъёма на живом
-        приёмнике - слово ``PAUSED``, и здесь оно выставляется тем же ``pause``,
-        которым его выставляет пульт.
-        """
-        try:
-            self._open(self._url, at)
-        except (InfraError, OSError):
-            return NOT_RAISED  # источника нет - зовущий попробует ещё или дождётся срока паузы
-        self.screen.jumped(at)
-        self.screen.dead = False
-        self.pause()
         return at
+
+    def refusal(self) -> str:
+        """Почему последний :meth:`replay` не дал картинки; пусто - он удался.
+
+        Тот же ответ и теми же словами, что у живого приёмника
+        (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver.refusal`):
+        сухой прогон затем и нужен, чтобы по нему судить о живом, а лента, у которой поля
+        не те же, судить не даёт.
+        """
+        return self._refused
 
     def _open(self, url: str, at: float = 0.0) -> None:
         """Спросить источник, завести декодер и пустить за ним сверку сегментов.

@@ -86,3 +86,36 @@ class Wired(ChromecastReceiver):
     def _device(self) -> Any:
         self._cast = self.device  # как настоящий подъём соединения, только без сети
         return self.device
+
+
+class Quiet(Wired):
+    """Приёмник, у которого подъём приложения и ожидание картинки только записываются.
+
+    Тремя ручками он разыгрывает все три исхода несостоявшегося подъёма: чужой показ на
+    экране (``device``), легшее соединение (``breaks``) и ушедший LOAD без картинки
+    (``settles``). Стоит в общем инвентаре, а не в одном зеркале, затем, что сличать по
+    нему приходится ДВА тракта: живой и сухой (:class:`_Blaming`), и вторая копия этой
+    подделки развела бы их ровно там, где их и надо держать вместе.
+    """
+
+    def __init__(self, settles: bool = True, breaks: bool = False, **rest: Any) -> None:
+        super().__init__(**rest)
+        self.settles = settles
+        self.breaks = breaks
+        self.loads: list[float] = []
+        self.paused_loads: list[bool] = []
+        self.budgets: list[float] = []
+        self.restarts = 0
+
+    def _restart_app(self) -> None:
+        self.restarts += 1
+        if self.breaks:
+            raise OSError("приёмника нет в сети")
+
+    def _load(self, at: float = 0.0, paused: bool = False) -> None:
+        self.loads.append(at)
+        self.paused_loads.append(paused)
+
+    def _settle(self, budget: float) -> bool:
+        self.budgets.append(budget)
+        return self.settles

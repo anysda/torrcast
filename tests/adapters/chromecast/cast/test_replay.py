@@ -2,37 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from tests.adapters.chromecast.cast.wired import Device, Wired
+from tests.adapters.chromecast.cast.wired import Device, Quiet
 from torrcast.adapters.chromecast.cast.replay import _replay
 from torrcast.domain.not_raised import NOT_RAISED
-
-
-class _Quiet(Wired):
-    """Приёмник, у которого подъём приложения и ожидание картинки только записываются."""
-
-    def __init__(self, settles: bool = True, breaks: bool = False, **rest: Any) -> None:
-        super().__init__(**rest)
-        self.settles = settles
-        self.breaks = breaks
-        self.loads: list[float] = []
-        self.paused_loads: list[bool] = []
-        self.budgets: list[float] = []
-        self.restarts = 0
-
-    def _restart_app(self) -> None:
-        self.restarts += 1
-        if self.breaks:
-            raise OSError("приёмника нет в сети")
-
-    def _load(self, at: float = 0.0, paused: bool = False) -> None:
-        self.loads.append(at)
-        self.paused_loads.append(paused)
-
-    def _settle(self, budget: float) -> bool:
-        self.budgets.append(budget)
-        return self.settles
 
 
 def test_a_successful_resurrection_answers_with_the_second_it_actually_started_from() -> None:
@@ -41,7 +13,7 @@ def test_a_successful_resurrection_answers_with_the_second_it_actually_started_f
     Пока оба ответа были нулём, удачный подъём с начала картины уходил в ленту как
     «приёмник показ не взял» - при идущей картинке.
     """
-    receiver = _Quiet()
+    receiver = Quiet()
 
     assert _replay(receiver, 0.0) == 0.0
     assert receiver.loads == [0.0]
@@ -50,7 +22,7 @@ def test_a_successful_resurrection_answers_with_the_second_it_actually_started_f
 
 def test_a_foreign_show_on_the_screen_is_never_interrupted() -> None:
     """Пока нас не было, на том же ТВ могли начать смотреть что-то другое."""
-    receiver = _Quiet(device=Device(app="чужое"))
+    receiver = Quiet(device=Device(app="чужое"))
 
     assert _replay(receiver, 100.0) == NOT_RAISED
     assert receiver.restarts == 0
@@ -60,7 +32,7 @@ def test_a_foreign_show_on_the_screen_is_never_interrupted() -> None:
 
 def test_a_receiver_that_did_not_take_the_load_says_so() -> None:
     """Картинки нет - это отказ, и зовущий попробует ещё раз или честно погасит показ."""
-    receiver = _Quiet(settles=False)
+    receiver = Quiet(settles=False)
 
     assert _replay(receiver, 100.0) == NOT_RAISED
     assert receiver.refusal().startswith("не взял:")
@@ -68,7 +40,7 @@ def test_a_receiver_that_did_not_take_the_load_says_so() -> None:
 
 def test_a_receiver_that_is_not_in_the_network_does_not_blow_up_the_caller() -> None:
     """Приёмника может не быть в сети вовсе, а это уже не авария показа."""
-    receiver = _Quiet(breaks=True)
+    receiver = Quiet(breaks=True)
 
     assert _replay(receiver, 100.0) == NOT_RAISED
     assert receiver.refusal().startswith("упал:"), "не поднял, ПОТОМУ ЧТО УПАЛ"
@@ -83,9 +55,9 @@ def test_the_three_ways_of_not_raising_the_show_are_named_apart() -> None:
     поэтому различие обязано жить не в нём, а в названной причине.
     """
     said = [
-        _named(_Quiet(device=Device(app="чужое"))),
-        _named(_Quiet(breaks=True)),
-        _named(_Quiet(settles=False)),
+        _named(Quiet(device=Device(app="чужое"))),
+        _named(Quiet(breaks=True)),
+        _named(Quiet(settles=False)),
     ]
 
     assert len(set(said)) == 3, f"три отказа обязаны называться по-разному: {said}"
@@ -93,7 +65,7 @@ def test_the_three_ways_of_not_raising_the_show_are_named_apart() -> None:
 
 def test_a_successful_resurrection_leaves_no_stale_reason_behind() -> None:
     """Причина прошлого отказа не имеет права пережить удавшийся подъём."""
-    receiver = _Quiet(settles=False)
+    receiver = Quiet(settles=False)
     _replay(receiver, 100.0)
     receiver.settles = True
 
@@ -101,7 +73,7 @@ def test_a_successful_resurrection_leaves_no_stale_reason_behind() -> None:
     assert receiver.refusal() == ""
 
 
-def _named(receiver: _Quiet) -> str:
+def _named(receiver: Quiet) -> str:
     """Как приёмник назвал причину несостоявшегося подъёма."""
     assert _replay(receiver, 100.0) == NOT_RAISED
     return receiver.refusal()
@@ -113,7 +85,7 @@ def test_the_answer_is_the_place_past_the_deadly_segment_and_not_the_place_asked
     Пока метод отвечал «да/нет», сказать о подъёме мог только тот, кто просил, - и
     говорил он про место, где показ как раз НЕ пошёл.
     """
-    receiver = _Quiet()
+    receiver = Quiet()
     receiver.next_cut = lambda at: 137.095 if at < 137.095 else 152.0
     receiver._deaths[137.095] = receiver.DEADLY_TRIES - 1
 
@@ -126,7 +98,7 @@ def test_the_answer_is_the_place_past_the_deadly_segment_and_not_the_place_asked
 
 def test_a_paused_resurrection_loads_without_autoplay() -> None:
     """Паузу ставил зритель: сессию возвращают на закладку, НЕ начиная показ."""
-    receiver = _Quiet()
+    receiver = Quiet()
 
     assert _replay(receiver, 2231.0, paused=True) == 2231.0
     assert receiver.loads == [2231.0]
@@ -135,7 +107,7 @@ def test_a_paused_resurrection_loads_without_autoplay() -> None:
 
 def test_the_watchdog_starts_the_new_session_from_a_clean_slate() -> None:
     """Сессия новая, и подвисы прошлой к ней отношения не имеют."""
-    receiver = _Quiet()
+    receiver = Quiet()
     receiver._reloads, receiver._stall_hits, receiver._blind = 2, 4, 3
     receiver._gone, receiver._skip_from = True, 100.0
 
