@@ -1,6 +1,6 @@
-# torrcast
+[Русский](README-ru.md)
 
-[Русский](README.ru.md)
+# torrcast
 
 `cast` is a command-line tool that finds a movie or series by name and plays it on
 your TV - with no cloud in the data path and no clicking through torrents. The stream
