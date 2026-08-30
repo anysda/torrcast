@@ -113,3 +113,56 @@ def test_a_bare_part_number_is_the_whole_name_and_keeps_the_pictures_apart() -> 
     found = glue([_picture("Наруто Фильм 3", 2006), _picture("Наруто Фильм 7", 2006)])
 
     assert len(found) == 2
+
+
+def test_an_edition_tail_no_longer_splits_one_picture_in_two() -> None:
+    """🎯 TC-910. Рядом с настоящим пунктом стоял второй, почти пустой, отличавшийся
+    только служебным хвостом издания. Пункт один, и обе половины лежат в его пуле."""
+    found = glue(
+        [
+            _picture("Врата Штейна", 2011),
+            _picture("Врата Штейна: Полное издание", 2011),
+        ]
+    )
+
+    assert len(found) == 1
+    assert len(found[0].releases) == 2
+
+
+def test_the_directors_cut_joins_the_picture_it_recut() -> None:
+    """Другой монтаж той же картины: выбор монтажа - дело отбора раздачи, не меню."""
+    found = glue(
+        [
+            _picture("Властелин колец: Возвращение короля", 2003),
+            _picture("Властелин Колец: Возвращение Короля. Режиссерская версия", 2003),
+        ]
+    )
+
+    assert len(found) == 1
+    assert len(found[0].releases) == 2
+
+
+def test_extras_are_a_separate_work_and_stay_a_separate_item() -> None:
+    """🔴 Встречный сторож против жадности: «Дополнительные материалы» это ДРУГАЯ работа
+    с другим хронометражом, и склейка подсунула бы зрителю не тот фильм."""
+    found = glue(
+        [
+            _picture("Игра престолов", 2011),
+            _picture("Игра Престолов: Дополнительные материалы", 2011),
+        ]
+    )
+
+    assert len(found) == 2
+
+
+def test_a_documentary_about_the_picture_is_not_its_edition() -> None:
+    """🔴 «Расширенная версия» - перевод «Expanded», и так зовётся документальный фильм О
+    картине. Хвост похож на издание, а за ним чужая работа."""
+    found = glue(
+        [
+            _picture("Чужие", 1986, "Aliens"),
+            _picture("Чужие: Расширенная версия", 1986, "Aliens Expanded"),
+        ]
+    )
+
+    assert len(found) == 2

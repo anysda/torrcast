@@ -6,6 +6,7 @@ import re
 
 from torrcast.domain._name_data.data_2 import _ALTERNATIVE_PICTURE_RE, _ALTERNATIVE_TITLE_RE, _ROMAN
 from torrcast.domain.compose import _compose
+from torrcast.domain.editionless import _editionless
 from torrcast.domain.formless import _formless
 from torrcast.domain.glued_year import _glued_year
 from torrcast.domain.in_digits import in_digits
@@ -35,7 +36,11 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         # Между видами оно не шум, а единственная улика: «Naruto Shippuuden Movie» отличает
         # от сериала «Naruto Shippuuden» ровно слово «Movie», и сняв его, склейка увела бы
         # фильм в пул сериала - подмену, а не двойника.
-        return _formless(identity(name))
+        #
+        # Хвост издания снимается ПЕРЕД словом формы: «Gekijouban X. Полное издание»
+        # должно дойти до голого «x», а порядок наоборот оставил бы слово формы
+        # прикрытым хвостом и до него бы не добрался.
+        return _formless(_editionless(identity(name)))
 
     def alternative_release(release: Release) -> bool:
         title = release.raw_name.split(" / ", 1)[0]
