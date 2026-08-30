@@ -61,7 +61,11 @@ main() {
     need bash
     become_root
 
-    ver="$(latest_version)"
+    # Тег из GitLab - с ведущей v (v0.99.99): так его отдаёт permalink/latest.
+    # Реестр и имена файлов в нём - БЕЗ v (release.sh срезает её через ${tag#v}),
+    # а имя внутри .sha256 обязано побайтово совпасть с локальным именем файла.
+    tag="$(latest_version)"
+    ver="${tag#v}"
     info "торкаст $ver"
 
     tmp="$(mktemp -d)"
