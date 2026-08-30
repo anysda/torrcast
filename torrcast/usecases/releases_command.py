@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeAlias
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
@@ -100,7 +101,7 @@ def _cmd_releases(
     # командной строки живёт слоем выше, и сценарию его не назвать.
     inner = type(args)(query=list(args.query[1:]))
     if not inner.query:
-        raise NotFoundError("что искать? cast releases <запрос>")
+        raise NotFoundError(phrase("releases.no_query"))
     chosen = profile_choice(config)
     config = tune_profile(config, chosen.profile)
     with progress_bar() as progress:
@@ -108,13 +109,13 @@ def _cmd_releases(
     facts = facts_source([(p.picture.title, p.picture.year, p.picture.kind) for p in plans])
     facts.start()
     try:
-        print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}")
+        print(phrase("worker.receiver_profile", title=chosen.profile.title, how=chosen.how))
         shown: list[tuple[str, str, list[Release]]] = []
         for number, plan in enumerate(plans, start=1):
             plan = _timed(plan, facts, inner, config, chosen.profile)
             shown.append((plan.picture.key, _named(plan.picture), plan.ranked))
             print()
-            head = f"{_named(plan.picture)} - раздач {len(plan.ranked)}"
+            head = phrase("releases.head", title=_named(plan.picture), count=len(plan.ranked))
             # Номер картины тот же, что у пункта меню в `cast <запрос>` и у --pick:
             # порядок таблиц - порядок меню (:func:`search_circle` в обеих командах).
             print(f"{number}. {head}" if len(plans) > 1 else head)
@@ -131,12 +132,9 @@ def _cmd_releases(
         _releases_remember(inner.title_query, shown)
         print()
         if len(plans) > 1:
-            print(
-                "играть конкретный: cast <запрос> --pick M --release N [--file N] - "
-                "M это номер картины выше, N номер релиза в её таблице"
-            )
+            print(phrase("releases.play_specific_many"))
         else:
-            print("играть конкретный: cast <запрос> --release N [--file N]")
+            print(phrase("releases.play_specific_one"))
         return EXIT_OK
     finally:
         facts.finish()

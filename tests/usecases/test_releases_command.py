@@ -10,6 +10,7 @@ import pytest
 from tests.fakes.blurb_source import FakeBlurbSource
 from tests.fakes.blurb_store import FakeBlurbStore
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
@@ -25,6 +26,11 @@ from torrcast.usecases.releases_command import _cmd_releases
 from torrcast.usecases.select.plan import Plan
 
 GB = 1024**3
+
+
+@pytest.fixture(autouse=True)
+def _russian_table(_russian_product: None) -> None:
+    """Предмет всего модуля - таблица релизов, писанная по-русски до языкового яруса."""
 
 
 def _silent(wanted: list[FactPicture]) -> Facts:
@@ -78,9 +84,11 @@ def test_the_command_drops_its_own_word_and_prints_the_table(
     printed = capsys.readouterr().out
     assert code == EXIT_OK
     assert asked == [["кино"]], "своё слово команда обязана снять с запроса"
-    assert "профиль приёмника: " in printed
+    marker = "@"
+    prefix = phrase("worker.receiver_profile", title=marker, how="").split(marker)[0]
+    assert prefix in printed
     assert "Кино" in printed and "1080p" in printed
-    assert "играть конкретный: cast <запрос> --release N [--file N]" in printed
+    assert phrase("releases.play_specific_one") in printed
 
 
 def test_an_empty_query_is_an_honest_line_not_a_search(

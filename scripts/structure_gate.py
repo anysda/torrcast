@@ -135,7 +135,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/usecases/reinforce/_season_reinforce.py": 3,
     "torrcast/usecases/reinforce/_topup.py": 3,
     "torrcast/usecases/reinforce/_voice_reinforce.py": 2,
-    "torrcast/usecases/releases_command.py": 5,
     "torrcast/usecases/voices_command.py": 3,
     "torrcast/usecases/warm/line.py": 8,
     "torrcast/usecases/warm/vault.py": 2,

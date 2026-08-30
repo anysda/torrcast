@@ -60,6 +60,8 @@ from torrcast.domain.catalogs.receiver.en import en as receiver_en
 from torrcast.domain.catalogs.receiver.ru import ru as receiver_ru
 from torrcast.domain.catalogs.recode.en import en as recode_en
 from torrcast.domain.catalogs.recode.ru import ru as recode_ru
+from torrcast.domain.catalogs.releases.en import en as releases_en
+from torrcast.domain.catalogs.releases.ru import ru as releases_ru
 from torrcast.domain.catalogs.revive.en import en as revive_en
 from torrcast.domain.catalogs.revive.ru import ru as revive_ru
 from torrcast.domain.catalogs.runtime.en import en as runtime_en
@@ -151,6 +153,7 @@ _CLUSTERS: Final = (
     (watch_en, watch_ru),
     (worker_en, worker_ru),
     (configure_en, configure_ru),
+    (releases_en, releases_ru),
 )
 
 

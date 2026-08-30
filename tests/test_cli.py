@@ -4058,11 +4058,10 @@ def test_releases_table_judges_by_the_detected_receiver_profile(
     from torrcast.domain.choice import Choice
     from torrcast.domain.profile import ANDROID_TV
 
-    printed = _releases_output(
-        capsys, lambda config: Choice(ANDROID_TV, "по паспорту: Xiaomi TV Stick")
-    )
+    how = "по паспорту: Xiaomi TV Stick"
+    printed = _releases_output(capsys, lambda config: Choice(ANDROID_TV, how))
 
-    assert "профиль приёмника: Android TV box" in printed, (
+    assert phrase("worker.receiver_profile", title=ANDROID_TV.title, how=how) in printed, (
         "человек видит, по какому профилю судит таблица"
     )
     assert "перекодируем" not in printed, "приставка играет 18 ГБ копией - пометка врала"
@@ -4073,9 +4072,13 @@ def test_releases_table_says_by_which_profile_it_judges_without_a_receiver(
 ) -> None:
     """Приёмника нет вовсе - таблица не молчит, по какому профилю судит: она говорит,
     что судит по осторожному, и тогда та же раздача честно подписана «перекодируем»."""
+    from torrcast.domain.profile import CAUTIOUS
+
     printed = _releases_output(capsys)
 
-    assert "профиль приёмника: cautious" in printed
+    marker = "@"
+    prefix = phrase("worker.receiver_profile", title=marker, how="").split(marker)[0]
+    assert f"{prefix}{CAUTIOUS.title}" in printed
     assert phrase("choice.mark_recode_parts") in printed, (
         "осторожный профиль такие куски перекодирует"
     )
