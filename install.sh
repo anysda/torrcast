@@ -20,6 +20,25 @@
 #   TORRCAST_PHASES="torrserver prowlarr indexers config" ./install.sh
 set -euo pipefail
 
+LANGUAGE="${TORRCAST_LANGUAGE:-en}"
+while (( $# )); do
+    case "$1" in
+        -en) LANGUAGE=en ;;
+        -ru) LANGUAGE=ru ;;
+        *)
+            printf 'error: unknown option: %s\n' "$1" >&2
+            printf 'usage: %s [-en|-ru]\n' "$0" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+case "$LANGUAGE" in
+    en|ru) ;;
+    *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 2 ;;
+esac
+export TORRCAST_LANGUAGE="$LANGUAGE"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${TORRCAST_PREFIX:-/opt/torrcast}"
 CONFIG_DIR="${TORRCAST_CONFIG_DIR:-/etc/torrcast}"
@@ -241,7 +260,8 @@ PHASES="${TORRCAST_PHASES:-locale packages ffmpeg torrcast torrserver sources pr
 #: в `cast` битым ещё до разбора аргументов. Целью берём ru_RU.UTF-8: в C.UTF-8 строки
 #: сравниваются побайтно, и русские названия в списках выстраиваются не по алфавиту
 #: («Ёлки» после «Яги»). Своя задаётся TORRCAST_LOCALE.
-LOCALE="${TORRCAST_LOCALE:-ru_RU.UTF-8}"
+if [ "$LANGUAGE" = ru ]; then DEFAULT_LOCALE=ru_RU.UTF-8; else DEFAULT_LOCALE=C.UTF-8; fi
+LOCALE="${TORRCAST_LOCALE:-$DEFAULT_LOCALE}"
 #: Куда честно отступаем, если цель не собралась: C.UTF-8 есть в любой современной glibc
 #: и не тянет за собой переводы. Сортировка станет побайтной, кириллица останется целой.
 LOCALE_FALLBACK="${TORRCAST_LOCALE_FALLBACK:-C.UTF-8}"
@@ -386,26 +406,45 @@ ui_say() {  # $1 - метка (P фаза, W внимание, D ошибка, E
 #: Фаза закрыта. Зовётся ТАМ, где результат фазы уже на месте, а не там, где её
 #: запустили: у фоновых заданий это `job_wait`, а не `job_start`.
 phase_done() {  # $1 - короткое имя фазы для статусбара
-    ui_say P "$1"
+    if [ "$LANGUAGE" = ru ]; then ui_say P "$1"; else ui_say P "installation"; fi
 }
 
-log()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
-skip() { printf '    уже на месте: %s\n' "$*"; }
-info() { printf '    %s\n' "$*"; }
+has_non_ascii() { LC_ALL=C grep -q '[^ -~]' <<<"$*"; }
+log()  {
+    if [ "$LANGUAGE" = ru ] || ! has_non_ascii "$*"; then printf '\033[1m==>\033[0m %s\n' "$*"
+    else printf '\033[1m==>\033[0m installation\n'; fi
+}
+skip() {
+    if [ "$LANGUAGE" = ru ]; then printf '    уже на месте: %s\n' "$*"
+    elif has_non_ascii "$*"; then printf '    already installed\n'
+    else printf '    already installed: %s\n' "$*"; fi
+}
+info() {
+    if [ "$LANGUAGE" = ru ] || ! has_non_ascii "$*"; then printf '    %s\n' "$*"; fi
+}
 # 🔴 TC-885. При включённой заставке заставка не вправе съесть строку ошибки:
 # сегодня `die` - единственный способ узнать, что установка не доделана. Поэтому
 # `die` не только печатает в журнал, но и говорит об этом в канал: рисовалка,
 # увидев метку D, РАЗВАЛИВАЕТ анимацию и выкладывает журнал целиком на экран
 # (:func:`ui_collapse`). Ленты под рамкой для ошибки мало: ошибка - это конец
 # установки, и последнее, что видит владелец, обязано быть ею, а не справкой.
-die()  { printf '\033[31mошибка:\033[0m %s\n' "$*" >&2; ui_say D "$*"; exit 1; }
+die()  {
+    if [ "$LANGUAGE" = ru ]; then printf '\033[31mошибка:\033[0m %s\n' "$*" >&2
+    else printf '\033[31merror:\033[0m installation failed\n' >&2; fi
+    if [ "$LANGUAGE" = ru ]; then ui_say D "$*"; else ui_say D "installation failed"; fi
+    exit 1
+}
 # Для того, что установку не роняет, но заметно урезает результат: обычная строка
 # info тонет в потоке установки, а это надо увидеть.
 # 🔴 TC-885. `loud` установку не роняет, разваливать из-за него анимацию не за
 # что - но и утонуть он не имеет права. Он уходит в ЛЕНТУ под рамкой: рамка
 # ужимается на строку, лента остаётся на экране до конца и переживает итоговый
 # экран справки (:func:`ui_note`).
-loud() { printf '\033[1;33mвнимание:\033[0m %s\n' "$*" >&2; ui_say W "$*"; }
+loud() {
+    if [ "$LANGUAGE" = ru ]; then printf '\033[1;33mвнимание:\033[0m %s\n' "$*" >&2
+    else printf '\033[1;33mwarning:\033[0m an optional installation step failed\n' >&2; fi
+    if [ "$LANGUAGE" = ru ]; then ui_say W "$*"; else ui_say W "an optional installation step failed"; fi
+}
 has()  { [[ " $PHASES " == *" $1 "* ]]; }
 
 need_root() {
@@ -2851,6 +2890,18 @@ FIN_CMD_M=( 'cast --tv ' )
 FIN_TXT_M=( 'выбрать ТВ' )
 FIN_W_M=20
 
+if [ "$LANGUAGE" = en ]; then
+  FIN_CMD=( 'cast <query>      ' 'cast --tv         ' 'cast stop         ' 'cast status       ' 'cast --help       ' )
+  FIN_TXT=( 'find and play on TV' 'choose a TV' 'stop casting' 'show what is playing' 'show all options' )
+  FIN_W=41
+  FIN_CMD_S=( 'cast <query>  ' 'cast --tv     ' 'cast --help   ' )
+  FIN_TXT_S=( 'play on TV' 'choose a TV' 'show all options' )
+  FIN_W_S=30
+  FIN_CMD_M=( 'cast --tv ' )
+  FIN_TXT_M=( 'choose a TV' )
+  FIN_W_M=20
+fi
+
 # --- геометрия ---
 TROWS=24; TCOLS=80
 INNER_W=0; INNER_H=0; BOX_H=0
@@ -2980,7 +3031,11 @@ ui_draw_border() {
   buf+="${CSI}${BOX_H};1H╰${line}╯${NC}"
   # Лента внимания под рамкой, потом пустая строка перед статусбаром.
   for (( row = 0; row < UI_WARN_H; row++ )); do
-    buf+="${CSI}$(( BOX_H + 1 + row ));1H${CSI}2K${WARNC}внимание:${NC} ${UI_WARN[row]}"
+    if [ "$LANGUAGE" = ru ]; then
+      buf+="${CSI}$(( BOX_H + 1 + row ));1H${CSI}2K${WARNC}внимание:${NC} ${UI_WARN[row]}"
+    else
+      buf+="${CSI}$(( BOX_H + 1 + row ));1H${CSI}2K${WARNC}warning:${NC} ${UI_WARN[row]}"
+    fi
   done
   buf+="${CSI}$(( UI_BASE + 1 ));1H${CSI}2K"
   buf+="$SYNC_OFF"
@@ -3123,7 +3178,11 @@ ui_draw_final() {
   # его пришлось бы печатать второй строкой после [OK], экран уехал бы на строку
   # вверх и унёс верх рамки - ровно то, из-за чего итоговая строка одна.
   if [ -n "$UI_JOURNAL_SHOW" ] && (( INNER_W >= 30 && FIN_HY + HELP_H < INNER_H - 1 )); then
-    buf+="${CSI}$(( INNER_TOP + INNER_H - 1 ));${INNER_LEFT}H${DIMW}журнал установки: ${UI_JOURNAL}${NC}"
+    if [ "$LANGUAGE" = ru ]; then
+      buf+="${CSI}$(( INNER_TOP + INNER_H - 1 ));${INNER_LEFT}H${DIMW}журнал установки: ${UI_JOURNAL}${NC}"
+    else
+      buf+="${CSI}$(( INNER_TOP + INNER_H - 1 ));${INNER_LEFT}H${DIMW}installation log: ${UI_JOURNAL}${NC}"
+    fi
   fi
   buf+="${NC}${CSI}$(( UI_BASE + 2 ));1H${CSI}2K${CSI}$(( UI_BASE + 3 ));1H${CSI}2K"
   buf+="${CSI}$(( UI_BASE + 2 ));1H"
