@@ -8,7 +8,7 @@ from __future__ import annotations
 from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
-from torrcast.domain.catalogs.tongue import _choose_tongue
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 
 #: Подтверждение печатается на том языке, на который переключились: "cast --en" не
 #: вправе ответить по-русски. Строки продукта сегодня русские, и перевод их всех -
@@ -16,7 +16,7 @@ from torrcast.domain.catalogs.tongue import _choose_tongue
 #: Регистр названия языка не выравнивается между строками: у каждого языка свои
 #: правила письма, а не образец соседа - в английском имя языка пишется с заглавной
 #: буквы ("English"), в русском ("русский") строчной, и это не опечатка.
-_ANNOUNCED = {"ru": "язык: русский", "en": "language: English"}
+_ANNOUNCED = {RU: "язык: русский", EN: "language: English"}
 
 
 def language_command(language: str) -> int:

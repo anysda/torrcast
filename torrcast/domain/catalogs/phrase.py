@@ -12,7 +12,7 @@ from typing import Final
 
 from torrcast.domain.catalogs.choice.en import en as choice_en
 from torrcast.domain.catalogs.choice.ru import ru as choice_ru
-from torrcast.domain.catalogs.tongue import tongue
+from torrcast.domain.catalogs.tongue import RU, tongue
 
 #: Кластеры каталога: (английский, русский). Заход перевода добавляет сюда строку -
 #: пару файлов своего кластера, - а не правит эту функцию.
@@ -25,5 +25,5 @@ def phrase(key: str, **values: object) -> str:
     spoken: dict[str, str] = {}
     for in_english, in_russian in _CLUSTERS:
         english.update(in_english())
-        spoken.update(in_russian() if tongue() == "ru" else in_english())
+        spoken.update(in_russian() if tongue() == RU else in_english())
     return spoken.get(key, english[key]).format(**values)

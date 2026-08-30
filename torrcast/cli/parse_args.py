@@ -9,6 +9,7 @@ import argparse
 from collections.abc import Sequence
 
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.tongue import EN, RU
 from torrcast.domain.rank_settings import VOICE_MENU
 from torrcast.domain.version import __version__
 
@@ -52,14 +53,14 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         "--ru",
         dest="language",
         action="store_const",
-        const="ru",
+        const=RU,
         help="перейти на русский и запомнить выбор",
     )
     tongue.add_argument(
         "--en",
         dest="language",
         action="store_const",
-        const="en",
+        const=EN,
         help="перейти на английский и запомнить выбор",
     )
     # Номер релиза имеет смысл только вместе с запросом и выбранной картиной: другой
