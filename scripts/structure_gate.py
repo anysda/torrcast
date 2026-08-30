@@ -1,4 +1,4 @@
-"""Проверяет раскладку пакета torrcast и названные поимённо скрипты за его пределами."""
+"""Проверяет раскладку пакетов и названные поимённо скрипты за их пределами."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ RULES: Final = (
     "раздача",
     "окружение",
     "проверка",
+    "перевод",
 )
 #: Шапки, которыми файл целиком снимают с тайпчека.
 _MYPY_OFF: Final = re.compile(r"^#\s*mypy:\s*(ignore-errors|disable-error-code)")
@@ -127,11 +128,16 @@ def _module_name(relative: Path) -> str:
 
 def _load_modules(root: Path) -> list[Module]:
     result: list[Module] = []
-    for path in sorted((root / "torrcast").rglob("*.py")):
+    package_paths = [*(root / "torrcast").rglob("*.py"), *(root / "tgbot").rglob("*.py")]
+    for path in sorted(package_paths):
         relative_path = path.relative_to(root)
         source = path.read_text(encoding="utf-8")
         parts = relative_path.parts
-        layer = parts[1] if len(parts) > 2 and parts[1] in LAYERS else "не разложено"
+        layer = (
+            parts[1]
+            if parts[0] == "torrcast" and len(parts) > 2 and parts[1] in LAYERS
+            else "не разложено"
+        )
         result.append(
             Module(
                 path,
@@ -724,6 +730,29 @@ def _empty_test_violations(root: Path) -> list[Violation]:
     return found
 
 
+def _translation_violations(module: Module) -> list[Violation]:
+    """Не даёт пользовательской строке обойти языковой каталог прямым выводом."""
+    if not module.relative.startswith("tgbot/"):
+        return []
+    found: list[Violation] = []
+    for node in ast.walk(module.tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id not in {"input", "print"}:
+            continue
+        for argument in node.args:
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                found.append(
+                    Violation(
+                        "перевод",
+                        module.relative,
+                        argument.lineno,
+                        f"строка для {node.func.id} миновала языковой каталог",
+                    )
+                )
+    return found
+
+
 def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list[Violation]:
     by_name = {module.name: module for module in modules}
     failures: list[Violation] = []
@@ -815,6 +844,7 @@ def check(root: Path) -> list[Violation]:
         failures.extend(_environment_violations(module))
         failures.extend(_trade_violations(module))
         failures.extend(_handout_violations(module, known))
+        failures.extend(_translation_violations(module))
         edges[module.name] = {
             target
             for name, _line in imports

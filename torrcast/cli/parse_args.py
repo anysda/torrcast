@@ -38,6 +38,12 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         metavar="IP",
         help="настройка ТВ: без адреса - найти приёмники в сети и выбрать из списка",
     )
+    parser.add_argument(
+        "-tg",
+        dest="telegram",
+        action="store_true",
+        help="открыть меню настройки Telegram-бота",
+    )
     # Номер релиза имеет смысл только вместе с запросом и выбранной картиной: другой
     # запрос - другой список, а у каждой картины в нём - свои номера (TC-446).
     parser.add_argument(

@@ -15,6 +15,7 @@ license = { text = "MIT" }
 authors = [{ name = "anysda", email = "anysdaw@gmail.com" }]
 dependencies = [
     "requests>=2.32",
+    "PySocks>=1.7",
     # Не catt: он гонит любой URL через yt-dlp и не умеет подсказки формата HLS,
     # без которых Default Media Receiver отвечает LOAD ERROR.
     "PyChromecast>=14",
@@ -37,7 +38,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["torrcast"]
+packages = ["torrcast", "tgbot"]
 
 [tool.ruff]
 line-length = 100
@@ -63,13 +64,13 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "scripts/vulture-whitelist.py" = ["F821", "B018"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["torrcast"]
+known-first-party = ["torrcast", "tgbot"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 incremental = false
-files = ["torrcast", "tests", "scripts"]
+files = ["torrcast", "tgbot", "tests", "scripts"]
 # Белый список vulture переехал в `scripts`, то есть в охват mypy, но кодом он не
 # является: имена в нём намеренно нигде не определены, их читает только vulture.
 exclude = ['scripts/vulture-whitelist\.py$']

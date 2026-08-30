@@ -19,6 +19,10 @@ class Args:
     #: (:data:`~torrcast.cli.parse_args.TV_MENU`) - найти приёмники в сети и спросить,
     #: какой из них телевизор.
     tv: str | None = None
+    #: ``-tg`` без значения поднимает нелинейное меню настройки Telegram.
+    telegram: bool = False
+    #: Точка подключения будущих ``--en`` / ``--ru`` (TC-929); пока английский штатный.
+    language: str = "en"
     release: int | None = None
     #: Инфохэш под номером из последнего ``cast releases``. Внутреннее поле: поздняя
     #: выдача меняет места, но не имеет права менять явно названную раздачу.
@@ -76,6 +80,8 @@ class Args:
         """
         if self.play_key:
             return "worker"
+        if self.telegram:
+            return "telegram"
         words = {"stop", "status", "doctor", "releases", "voices", "log"}
         if self.query and self.query[0] in words:
             return self.query[0]

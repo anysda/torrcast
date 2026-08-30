@@ -16,6 +16,7 @@ from torrcast.cli.play import play
 from torrcast.cli.releases import releases
 from torrcast.cli.status import status
 from torrcast.cli.stop import stop
+from torrcast.cli.telegram import telegram
 from torrcast.cli.voices import voices
 from torrcast.cli.worker import worker
 from torrcast.domain.args import Args
@@ -36,6 +37,7 @@ def _configure_main(terminal: Callable[[], AbstractContextManager[None]]) -> Non
 #: разбора аргументов, поэтому промаха тут не бывает.
 _COMMANDS: Mapping[str, Callable[[Args], int]] = {
     "configure": configure,
+    "telegram": telegram,
     "stop": lambda _args: stop(),
     "status": lambda _args: status(),
     "doctor": lambda _args: doctor(),

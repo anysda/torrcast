@@ -22,6 +22,12 @@ def test_tv_without_an_address_asks_for_the_menu() -> None:
     assert parse_args(["--tv", "10.0.0.50"]).tv == "10.0.0.50"
 
 
+def test_telegram_flag_opens_setup_menu() -> None:
+    args = parse_args(["-tg"])
+    assert args.telegram
+    assert args.command == "telegram"
+
+
 def test_voice_without_a_number_asks_for_the_menu() -> None:
     assert parse_args(["кино", "--voice"]).voice == VOICE_MENU
     assert parse_args(["кино", "--voice", "3"]).voice == 3
