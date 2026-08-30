@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.cast_command.world import entry
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._account_watched import _account_watched
 
@@ -21,7 +22,15 @@ def test_a_watched_bookmark_becomes_watched_on_the_next_cast(
 
     assert moved is True and key == "кино"
     assert following.pos == 0.0, "с начала - это ноль, а не прежнее место"
-    assert "досмотрено на" in capsys.readouterr().out
+    line = phrase(
+        "account_watched.done",
+        title="Кино",
+        what="",
+        stopped="1:56:40",
+        dur="2:00:00",
+        decision=phrase("account_watched.from_start"),
+    )
+    assert line in capsys.readouterr().out
 
 
 def test_an_unfinished_bookmark_is_left_alone() -> None:

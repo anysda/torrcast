@@ -16,6 +16,7 @@ from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
@@ -350,7 +351,7 @@ def test_an_episode_stopped_at_96_percent_starts_the_next_one(
     assert main(["киберпанк"]) == 0
 
     said = capsys.readouterr().out
-    assert "s1e2 досмотрено" in said and "играю s1e3" in said
+    assert "s1e2 watched to" in said and "playing s1e3" in said
     assert "с 0:23:02" not in said
     assert saved().episode == 3 and saved().file_idx == 2 and saved().pos == 0.0
 
@@ -445,4 +446,10 @@ def test_status_names_the_episode(
 
     assert main(["status"]) == 0
 
-    assert "играю «Киберпанк: Бегущие по краю» s1e2 - 0:05:10 / 0:24:00" in capsys.readouterr().out
+    line = phrase(
+        "status.playing",
+        what="«Киберпанк: Бегущие по краю» s1e2",
+        pos="0:05:10",
+        duration="0:24:00",
+    )
+    assert line in capsys.readouterr().out

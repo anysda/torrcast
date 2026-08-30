@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.runtime.stop_command import stop_command
 
 
@@ -21,7 +22,7 @@ def test_a_dead_unit_is_reported_as_silence(
     show_unit.playing = ""
 
     assert stop_command() == 0
-    assert capsys.readouterr().out.strip() == "ничего не играет"
+    assert capsys.readouterr().out.strip() == phrase("stop.nothing_playing")
 
 
 def test_the_stopped_show_is_named_with_its_position(
@@ -37,4 +38,5 @@ def test_the_stopped_show_is_named_with_its_position(
     show_unit.playing = "movie:моана-2"
 
     assert stop_command() == 0
-    assert "остановлено: «Моана 2» на 0:11:00 / 1:39:38" in capsys.readouterr().out
+    line = phrase("stop.stopped", title="Моана 2", pos="0:11:00", duration="1:39:38")
+    assert line in capsys.readouterr().out

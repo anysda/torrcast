@@ -16,6 +16,7 @@ from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.torrent_hash import _torrent_hash
@@ -125,7 +126,7 @@ def test_resume_is_silent_and_starts_from_the_saved_position(
 
     printed = capsys.readouterr().out
     assert asked == []
-    assert "- на ТВ" in printed
+    assert "- on TV" in printed
     assert "ищу" not in printed, "resume не ходит в Prowlarr"
     assert started == [KEY]
     assert saved().pos == 2467.0 and saved().audio == 1
@@ -243,8 +244,15 @@ def test_watched_movie_restarts_without_a_question(
     assert asked == []
     assert saved().pos == 0.0 and not saved().done
     said = capsys.readouterr().out
-    assert said.count("досмотрено") == 1
-    assert "досмотрено на 0:15:50 из 0:16:40 - играю с начала" in said
+    line = phrase(
+        "account_watched.done",
+        title="Моана 2",
+        what="",
+        stopped="0:15:50",
+        dur="0:16:40",
+        decision=phrase("account_watched.from_start"),
+    )
+    assert said.count(line) == 1
 
 
 def test_dry_resume_does_not_touch_the_unit(
@@ -255,7 +263,7 @@ def test_dry_resume_does_not_touch_the_unit(
     composition.use_start_unit(monkeypatch, lambda key: pytest.fail("--dry юнитов не поднимает"))
 
     assert main(["моана", "2", "--dry"]) == 0
-    assert "каста нет" in capsys.readouterr().out
+    assert "not casting" in capsys.readouterr().out
     assert show_unit.stops == [], "--dry не поднимает юнит, но и чужой показ не гасит"
 
 
@@ -269,8 +277,12 @@ def test_status_is_honest_when_nothing_plays(
     assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert printed.startswith("ничего не играет")
-    assert "последнее: «Моана 2» на 0:41:07" in printed
+    assert printed.startswith(phrase("status.nothing_playing"))
+    marker = "DURATION-MARKER"
+    head = phrase(
+        "status.last_resumable", title="Моана 2", pos="0:41:07", duration=marker
+    ).split(marker)[0]
+    assert head in printed
 
 
 def test_status_tells_about_a_show_that_died_without_a_single_frame(
@@ -291,9 +303,12 @@ def test_status_tells_about_a_show_that_died_without_a_single_frame(
     assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert "показ оборвался: «Моана 2» - картинки не было ни кадра" in printed
-    assert "(приёмник бросил показ)" in printed
-    assert "ничего не играет" not in printed, "молчаливого «всё в порядке» тут быть не должно"
+    assert phrase(
+        "status.torn", what="«Моана 2»", was=phrase("status.no_frame"), reason="приёмник бросил показ"
+    ) in printed
+    assert phrase("status.nothing_playing") not in printed, (
+        "молчаливого «всё в порядке» тут быть не должно"
+    )
 
 
 def test_status_shows_what_is_playing_and_from_where(
@@ -306,8 +321,8 @@ def test_status_shows_what_is_playing_and_from_where(
     assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert "играю «Моана 2» - 0:41:07 / 1:39:38" in printed
-    assert KEY in printed and "файл #2" in printed and "дорожка 2" in printed
+    assert phrase("status.playing", what="«Моана 2»", pos="0:41:07", duration="1:39:38") in printed
+    assert KEY in printed and "file #2" in printed and "track 2" in printed
 
 
 def test_status_does_not_call_a_black_screen_a_show(
@@ -326,9 +341,10 @@ def test_status_does_not_call_a_black_screen_a_show(
     assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert "играю" not in printed, "чёрный экран назван показом"
-    assert "показ погас: «Моана 2» - 0:41:07 / 1:39:38" in printed
-    assert "темнота 0:03:20 (TorrServer не отвечает) - жду возврата, подниму сам" in printed
+    assert "playing" not in printed, "чёрный экран назван показом"
+    assert phrase("status.dark", what="«Моана 2»", pos="0:41:07", duration="1:39:38") in printed
+    darkness = phrase("status.darkness_for", hms="0:03:20")
+    assert phrase("status.dark_wait", darkness=darkness, reason="TorrServer не отвечает") in printed
 
 
 def test_status_names_the_unit_key_not_the_freshest_record(
@@ -383,7 +399,8 @@ def test_stop_kills_the_unit_and_reports_the_fixed_position(
     assert main(["stop"]) == 0
 
     assert stopped == [True]
-    assert "остановлено: «Моана 2» на 0:11:00 / 1:39:38" in capsys.readouterr().out
+    line = phrase("stop.stopped", title="Моана 2", pos="0:11:00", duration="1:39:38")
+    assert line in capsys.readouterr().out
 
 
 def test_stop_without_playback_says_so(
@@ -392,7 +409,7 @@ def test_stop_without_playback_says_so(
     show_unit.alive = False
 
     assert main(["stop"]) == 0
-    assert capsys.readouterr().out.strip() == "ничего не играет"
+    assert capsys.readouterr().out.strip() == phrase("stop.nothing_playing")
 
 
 #: Хэш и магнит остановленной картины: снос идёт по хэшу ИЗ МАГНИТА, а не по списку.

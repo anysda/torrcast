@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store.slot import store as watch_store
@@ -29,7 +30,18 @@ def _account_watched(state: WatchState, found: tuple[str, Entry]) -> tuple[tuple
         return (key, following), True  # строку и выбор перезапуска ведёт ``_continue``
     what = f" {label}" if label else ""
     decision = (
-        f"играю {following.label}" if following.serial and not following.done else "играю с начала"
+        phrase("account_watched.next_label", label=following.label)
+        if following.serial and not following.done
+        else phrase("account_watched.from_start")
     )
-    print(f"«{entry.title}»{what} досмотрено на {_hms(stopped)} из {_hms(entry.dur)} - {decision}")
+    print(
+        phrase(
+            "account_watched.done",
+            title=entry.title,
+            what=what,
+            stopped=_hms(stopped),
+            dur=_hms(entry.dur),
+            decision=decision,
+        )
+    )
     return (key, following), True
