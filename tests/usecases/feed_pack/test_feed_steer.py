@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from tests.usecases.feed_pack.world import FakeProc, feed, grid, lay, packer, tract, vault
+from tests.usecases.feed_pack.world import (
+    FakeProc,
+    factory,
+    feed,
+    grid,
+    here,
+    lay,
+    packer,
+    tract,
+    vault,
+)
 from torrcast.usecases.feed_pack.feed_steer import IDLE_CIRCLES, _steer
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from tests.fakes.journal import Tape
+    from tests.usecases.feed_pack.world import FakeClock
+    from torrcast.usecases.feed_pack.feed import Feed
 
 
 def test_a_finished_show_is_never_diagnosed_again(tmp_path: Path) -> None:
@@ -218,3 +232,97 @@ def test_a_place_that_was_given_out_starts_its_count_from_scratch(tmp_path: Path
         _steer(show, 3, asked.append)
 
     assert 3 not in show.skipped, "счёт по чужому месту приговора не выносит"
+
+
+def _seek_stand(tmp_path: Path) -> tuple[Feed, FakeClock]:
+    """Лента, у которой настоящий заход упаковки: подделан медиатракт, но не решение.
+
+    Заходы считаются строкой журнала «заход упаковки», и пишет её сам заход
+    (:func:`torrcast.usecases.feed_pack.feed_restart._restart`), - поэтому подделывать
+    перезапуск доводом тут нельзя: считать было бы нечего.
+    """
+
+    def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
+        run.mkdir(parents=True, exist_ok=True)
+        return packer(out.parent, out=out, run=run, first=first)
+
+    clock = tract(
+        now=1000.0,
+        spawn=here,
+        settle_start=lambda source, at, *rest: (at, at),
+        pack_command=lambda *a, **k: ["ffmpeg"],
+        packer=factory(_start),
+    )
+    show = feed(tmp_path, grid=grid(7800.0, 10.0))
+    show.packer = packer(tmp_path, first=0, edge=4, out=show.out)
+    return show, clock
+
+
+def test_a_seek_inside_the_film_leaves_the_pack_a_single_owner(tmp_path: Path, tape: Tape) -> None:
+    """🔴 TC-634. После перемотки заходы упаковки идут только на слот цели.
+
+    Мерка тут - ЧИСЛО и СЛОТЫ заходов, а не «жив ли показ»: живой показ бывает зелёным и
+    на сломанном дереве. Живой замер 17-08 (перемотка 32.3 → 900): 28 заходов за прогон,
+    попеременно слот 85 (цель, 936.2 с) и слот 5 (место, откуда зритель ушёл, 50.9 с), ни
+    один не дошёл до плёнки, показ дважды сказал `dark` и не поднялся.
+
+    Ждущий запрос старого места возвращается в это решение каждые 0.2 с все ``wait``
+    секунд, поэтому одного оставленного GET хватает, чтобы уводить упаковку от зрителя
+    вечно: держала его только защёлка по времени, а спор шёл о МЕСТЕ.
+    """
+    show, clock = _seek_stand(tmp_path)
+    show.prune(900.0)  # круг часов показа: зритель смотал на 900-ю секунду
+
+    for _ in range(4):
+        show.segment(85)  # приёмник просит цель перемотки
+        clock.now += 3.0  # защёлка «не толкаемся» отпустила: она короче захода упаковки
+        show.segment(5)  # ...а оставленный запрос старого места всё ещё ждёт своего файла
+        clock.now += 3.0
+
+    slots = [told["слот"] for told in tape.named("заход упаковки")]
+    assert slots == [85], f"у упаковки больше одного хозяина: заходы {slots}"
+
+
+def test_a_place_left_behind_is_kept_silent_instead_of_repacking_the_show(
+    tmp_path: Path, tape: Tape
+) -> None:
+    """Отступившее место отвечается тишиной и говорит об этом строкой, а не молчит совсем.
+
+    Ответ тот же, что у честно пропущенного места: 404 приёмник переживает хуже тишины, а
+    круг перепаковки под это место увёл бы упаковку от зрителя. Строка нужна, чтобы
+    отступление было видно в ленте: «заходов нет» и «показ умер» иначе неразличимы.
+    """
+    show, clock = _seek_stand(tmp_path)
+    show.prune(900.0)
+    show.segment(85)  # упаковка ушла на цель перемотки
+    clock.now += 3.0
+
+    assert show._steer(5) is True, "отступившее место обязано ЖДАТЬ, а не получать 404"
+
+    assert tape.named("место позади зрителя") == [{"слот": 5, "зритель": 900.0}]
+    assert [told["слот"] for told in tape.named("заход упаковки")] == [85]
+    assert show.skipped == set(), "место, на которое зритель ещё вернётся, не приговаривают"
+
+
+def test_a_real_seek_back_still_repacks_once_the_show_clock_has_caught_up(
+    tmp_path: Path, tape: Tape
+) -> None:
+    """Отступление старого места не запирает честную перемотку назад.
+
+    Зритель, ушедший вглубь, двигает за собой и границу выметенного. Первый запрос после
+    перемотки застаёт ещё старое место зрителя и ждёт файла, а следующий круг часов показа
+    называет новое - и поток перепаковывается обычным ходом. Цена честной перемотки назад
+    тут - один круг опроса приёмника, а не показ.
+    """
+    show, clock = _seek_stand(tmp_path)
+    show.prune(900.0)
+    show.segment(85)
+    clock.now += 3.0
+
+    show.segment(5)  # зритель смотал назад, часы показа об этом ещё не знают
+    show.prune(50.0)  # ...круг часов - и знают
+    clock.now += 3.0
+    show.segment(5)
+
+    slots = [told["слот"] for told in tape.named("заход упаковки")]
+    assert slots == [85, 5], f"честная перемотка назад не перепаковала поток: заходы {slots}"

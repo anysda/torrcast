@@ -9,7 +9,6 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_PENDING_BYTES
@@ -19,20 +18,7 @@ from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.ports.recode.encoding_rate import EncodingRate
 from torrcast.ports.recode.feed_recoder import FeedRecoder
 from torrcast.usecases.feed_pack._state import Grid
-
-
-class _Vault(Protocol):
-    """Хранилище прогретого в объёме, который нужен показу: взять или отвергнуть кусок.
-
-    Полный :class:`torrcast.usecases.warm.vault.Vault` сюда не приходит: бюджет диска,
-    учёт каталогов и вытеснение - дело прогрева, а показу нужны имена файлов.
-    """
-
-    def path(self, slot: int) -> Path: ...
-
-    def reject(self, slot: int) -> None: ...
-
-    def head(self) -> Path: ...
+from torrcast.usecases.feed_pack.feed_vault import _Vault
 
 
 @dataclass(slots=True)
@@ -58,6 +44,12 @@ class _State:
     burst: float = CAUTIOUS.burst
     #: Сколько секунд позади показа держим сегменты - глубина «бесплатной» перемотки назад.
     keep: float = 120.0
+    #: Где зритель прямо сейчас, секунды фильма. Называет это место уборка по часам показа
+    #: (:func:`torrcast.usecases.feed_pack.feed_sweep._prune`), а спрашивает решение об
+    #: упаковке: место, выметенное из-за спины зрителя, ленте больше не хозяин
+    #: (:func:`torrcast.usecases.feed_pack.feed_steer._behind`). Ноль - показ ещё не начался,
+    #: и позади зрителя нет ничего.
+    played: float = 0.0
     #: Запрос дальше упакованного края больше чем на столько **сегментов** - это перемотка,
     #: а не обычный ход показа. Порог считается не от балды: после ``seek`` живой Q70D
     #: просит шесть сегментов разом (замерено), и ни один из них не должен считаться новой

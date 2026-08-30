@@ -317,3 +317,30 @@ def test_a_show_already_over_is_not_given_a_run_to_kill(tmp_path: Path) -> None:
     assert asked == [], "подъём поднял прогон показу, которого уже нет"
     assert show.lock.acquire(blocking=False), "подъём не отпустил замок"
     show.lock.release()
+
+
+def test_a_run_torn_by_itself_is_lifted_where_it_broke_even_behind_the_viewer(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-634. Показ давно ушёл вперёд, а подъём оборванного прогона остался прежним.
+
+    Развязка спора о хозяине ленты
+    (:func:`torrcast.usecases.feed_pack.feed_steer._behind`) читает место зрителя, которое
+    кладёт сюда уборка, и заткнуть она обязана только «место сменил зритель». «Порвалось
+    само» - случай другой и починки не лишается: подъём продолжает прогон там, где тот
+    оборвался, а не там, где стоит зритель.
+
+    Место подъёма тут нарочно позади зрителя - ровно то, которое запрос сегмента уже не
+    считает своим. Загнать сюда ту же границу значило бы оставить показ без починки обрыва
+    на весь остаток фильма: полке впереди зрителя взяться было бы неоткуда.
+    """
+    tract(now=100.0, spawn=here)
+    asked: list[int] = []
+    show = feed(tmp_path, grid=grid(7800.0, 10.0))
+    show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=FakeProc(code=1))
+    show.prune(900.0)  # круг часов показа: зритель давно за окном keep от этого места
+
+    _sweep(show, asked.append)
+
+    assert asked == [3], "оборванный сам прогон лишился подъёма из-за развязки перемотки"
+    assert show.crashes == 1 and show.restarted == 100.0
