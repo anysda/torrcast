@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from functools import partial
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import Profile
@@ -66,7 +67,7 @@ def _worker_loop(
     while True:
         entry = store().load().get(key)
         if entry is None:
-            raise InfraError(f"в состоянии нет записи {key}")
+            raise InfraError(phrase("worker.missing_state_entry", entry_key=key))
         if entry.magnet != magnet:  # раздача та же - метаданные второй раз не ждём
             magnet = entry.magnet
             torrent_hash = torrserver.add(magnet)
@@ -95,7 +96,7 @@ def _worker_loop(
         # там подмена уже названа своим полем записи.
         shown = " · ".join(filter(None, (title, voice_swap(entry.studio, entry.heard))))
         sid = journal().start_session()
-        session_tag = f"[сеанс {sid}]"
+        session_tag = phrase("playback.session_tag", id=sid)
         # Профиль идёт в след каждой серией: по какому набору порогов играли - вопрос,
         # который иначе снова пришлось бы выяснять с гипервизора.
         journal().emit(
@@ -106,7 +107,10 @@ def _worker_loop(
             profile=profile.key,
             **_worker_thresholds(config, profile),
         )
-        print(f"{session_tag} показ «{title}» с {_hms(entry.pos)}", flush=True)
+        print(
+            phrase("worker.now_playing", tag=session_tag, title=title, pos=_hms(entry.pos)),
+            flush=True,
+        )
         code = play(
             config,
             source,
@@ -145,4 +149,4 @@ def _worker_loop(
             following = _following(key)
         if following is None:
             return code
-        print(f"следующая серия: {following.label}", flush=True)
+        print(phrase("worker.next_episode", label=following.label), flush=True)

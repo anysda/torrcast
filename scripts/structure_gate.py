@@ -141,7 +141,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/usecases/warm/line.py": 8,
     "torrcast/usecases/warm/vault.py": 2,
     "torrcast/usecases/warm/verify.py": 3,
-    "torrcast/usecases/worker_loop.py": 4,
 }
 
 
