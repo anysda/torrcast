@@ -41,6 +41,33 @@ class FakeReceiver:
 
 
 @dataclass
+class RemoteClosedReceiver:
+    """Приёмник, показ у которого убирает с экрана сам зритель.
+
+    Признак пустого экрана
+    (:func:`torrcast.adapters.chromecast.cast.viewer_closed._viewer_closed`) живой приёмник
+    отдаёт одним ответом с местом и словом о ходе показа, поэтому и в сценарии он стоит
+    рядом с ними: своя авария снаружи выглядит так же, а решение по ней обратное.
+    """
+
+    #: Круги опроса: место, слово о ходе показа и пустой ли экран.
+    script: list[tuple[float, str, bool]] = field(default_factory=list)
+    #: Чем гасили приложение приёмника: ``quit_app`` каждого :meth:`stop`.
+    stopped: list[bool] = field(default_factory=list)
+    dur: float = 7200.0
+
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        return None
+
+    def stop(self, quit_app: bool = False) -> None:
+        self.stopped.append(quit_app)
+
+    def position(self, front: float = 0.0) -> Position:
+        pos, state, closed = self.script.pop(0) if self.script else (0.0, "IDLE", False)
+        return Position(pos, self.dur, state in {"PLAYING", "BUFFERING"}, state, closed=closed)
+
+
+@dataclass
 class PlainReceiver:
     """Приёмник, который поднимать показ не умеет: у него нет :meth:`replay`."""
 

@@ -36,45 +36,68 @@ def test_without_the_environment_the_default_stays_the_default(
     assert str(hls_root(DEFAULT_HLS_DIR)) == DEFAULT_HLS_DIR
 
 
+def _unit_of(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
+    """Единица, внутри которой стоит обращение: якорь, переживающий вставку строк выше."""
+    current: ast.AST | None = node
+    while current is not None:
+        if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            return current.name
+        current = parents.get(current)
+    return "<модуль>"
+
+
 def test_every_synchronous_hls_dir_access_is_guarded() -> None:
-    """Новое синхронное чтение ``config.hls_dir`` обязано явно выбрать безопасность.
+    """Новое синхронное чтение настройки ``hls_dir`` обязано явно выбрать безопасность.
+
+    🔴 Сторож судит ИМЯ атрибута, а не имя того, у кого его берут. Привязка к голому
+    ``config`` отвечала «годен» там, где мерить не могла (TC-899): дописанные в тот же
+    файл ``cfg.hls_dir`` и ``holder.config.hls_dir`` - то же самое чтение той же
+    настройки, - проходили молча, а ``config.hls_dir`` рядом с ними краснел.
+
+    Вызов ``x.hls_dir(...)`` сюда не относится вовсе: это не чтение настройки, а адаптер,
+    который каталог ГОТОВИТ (:func:`torrcast.adapters.stream_pack.hls_dir.hls_dir`), - его
+    зовут ровно затем, чтобы место показа было чистым.
 
     Единственное осознанное исключение именует запасной каталог кодировщика, не готовит
     корень показа и потому не вправе звать очищающий адаптер или подменять настройку.
-    Привязка к точной строке не пропустит новый файл либо новое обращение молча.
+    Привязано оно к файлу, единице и самому выражению, а не к номеру строки: вставка
+    строки выше сторожа не касается, а переписанное место - касается. Адрес с номером
+    строки остаётся в самом отказе, где он и нужен человеку.
     """
     root = Path(__file__).parents[3] / "torrcast"
     allowed_bare = {
         (
             "usecases/playback/_next_warmer.py",
-            79,
+            "_next_warmer",
+            "Path(config.hls_dir)",
         ): "только имя RECODE_DIR посреди показа; очистка корня здесь запрещена",
     }
-    bare: list[tuple[str, int]] = []
-    for source in root.rglob("*.py"):
+    bare: dict[tuple[str, str, str], int] = {}
+    for source in sorted(root.rglob("*.py")):
         tree = ast.parse(source.read_text(), filename=str(source))
         parents: dict[ast.AST, ast.AST] = {}
         for parent in ast.walk(tree):
             for child in ast.iter_child_nodes(parent):
                 parents[child] = parent
         for node in ast.walk(tree):
-            if not (
-                isinstance(node, ast.Attribute)
-                and node.attr == "hls_dir"
-                and isinstance(node.value, ast.Name)
-                and node.value.id == "config"
-            ):
+            if not (isinstance(node, ast.Attribute) and node.attr == "hls_dir"):
                 continue
             parent = parents[node]
+            called = isinstance(parent, ast.Call) and parent.func is node
             guarded = (
                 isinstance(parent, ast.Call)
                 and isinstance(parent.func, ast.Name)
                 and parent.func.id == "hls_root"
             )
-            if not guarded:
-                bare.append((str(source.relative_to(root)), node.lineno))
+            if not called and not guarded:
+                where = (
+                    str(source.relative_to(root)),
+                    _unit_of(node, parents),
+                    ast.unparse(parent),
+                )
+                bare[where] = node.lineno
 
     assert set(bare) == set(allowed_bare), (
-        "голое синхронное config.hls_dir требует hls_root либо объяснённого исключения: "
+        "голое синхронное чтение hls_dir требует hls_root либо объяснённого исключения: "
         f"{bare}; разрешено: {allowed_bare}"
     )

@@ -2,23 +2,28 @@
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
+from tests.fakes.clock import FakeClock
 from tests.fakes.journal import Tape
 from tests.fakes.state_store import FakeStateStore
 from tests.fakes.stream_source import FakeStreamSource
 from tests.fakes.torrent_engine import FakeTorrentEngine
+from tests.usecases.revive_playback.world import RemoteClosedReceiver, feed_with_segments
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.worker_settings import WORKER_META
 from torrcast.ports.journal import slot as journal_slot
+from torrcast.ports.receiver import Receiver
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases import worker_loop
 from torrcast.usecases.following import _following
+from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.worker_loop import _worker_loop
 
 
@@ -247,9 +252,17 @@ def _homemakers(**fields: Any) -> Entry:
 
 
 def test_a_show_closed_by_the_remote_moves_the_bookmark_without_raising_the_receiver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     _ports_restored: None,
 ) -> None:
-    """TC-880: закрытый с пульта показ двигает закладку на s1e8, а приёмник не поднимает."""
+    """TC-880: закрытый с пульта показ двигает закладку на s1e8, а приёмник не поднимает.
+
+    🔴 Признак закрытия руками в сторожа тут не кладут: он обязан пройти всю цепочку -
+    пустой экран приёмника → :func:`_closed` → настоящий :class:`Watch` → цикл юнита.
+    Проставленный тестом признак мерил бы одно последнее звено, а вся ценность правки
+    живёт в тех, что до него: убери проводку из продукта, и такой тест промолчит.
+    """
     key = "tv:домохозяйки:2020"
     state = FakeStateStore()
     fresh = state.load()
@@ -257,15 +270,29 @@ def test_a_show_closed_by_the_remote_moves_the_bookmark_without_raising_the_rece
     state.save(fresh)
     state_slot.install(state)
     journal_slot.install(Tape())
+    # Длительность следующей серии читает пробник: с настоящим цикл упёрся бы в сеть
+    # раньше, чем сказал бы, поднял он приёмник или нет.
+    monkeypatch.setattr(
+        "torrcast.usecases.episode_duration._episode_prober",
+        lambda *_a, **_k: Media(duration=2600.0, video="h264", height=1080, width=1920),
+    )
     played: list[str] = []
 
     def play(
         _c: object, _s: object, _a: object, title: str, _clock: object, watch: Any, **_kw: object
     ) -> int:
         played.append(title)
-        watch.entry.pos = watch.entry.dur  # доиграно почти до конца
-        watch.seen = True
-        watch.closed_by_remote = True  # зритель убрал показ с экрана пультом
+        # Круг опроса настоящий: кадр на 2569 с (99 % серии), а следом пустой экран -
+        # ровно то, что видит показ, когда зритель убрал его пультом.
+        receiver = RemoteClosedReceiver(
+            [(2569.0, "PLAYING", False), (0.0, "UNKNOWN", True)], dur=2600.0
+        )
+        _hold(
+            cast(Receiver, receiver),
+            feed_with_segments(tmp_path / title),
+            watch,
+            clock=FakeClock(now=1000.0),
+        )
         watch.close()
         return 0
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from tests.fakes import composition
@@ -10,8 +12,11 @@ from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.choice import Choice
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.episode import Episode
 from torrcast.domain.exit_codes import EXIT_OK
+from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.media import Media
 from torrcast.domain.picture import Picture
@@ -19,9 +24,14 @@ from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store.slot import store as watch_store
+from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._cmd_play import _cmd_play
+from torrcast.usecases.choice._passport import _Passport
+from torrcast.usecases.following import _following
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.select_bench.bench import Bench
+from torrcast.usecases.start_clock import _Clock
 
 
 @pytest.fixture(autouse=True)
@@ -181,3 +191,132 @@ def test_the_played_file_names_the_episode_and_the_place_is_carried(
     out = capsys.readouterr().out
     assert "«Кино» s5e1" in out, "подпись серии - у файла, который играет, а не у запроса"
     assert "с 0:04:25" in out, "место закладки названо обычной строкой показа"
+
+
+class _Facts:
+    """Справка к меню, которой нечего сказать: путь до релиза считает по своим числам."""
+
+    def __init__(self, wanted: object) -> None:
+        self.wanted = wanted
+
+    def start(self) -> None:
+        return None
+
+    def finish(self) -> None:
+        return None
+
+    def get(self, *_rest: object) -> Fact:
+        return Fact()
+
+
+class _OnePassport:
+    def get(self) -> Origin:
+        return Origin()
+
+
+class _OneBench:
+    """Стенд отбора, который отдаёт один готовый релиз и ничего не греет."""
+
+    def __init__(self, prep: _Prep) -> None:
+        self.prep = prep
+
+    def start(self, plan: Plan, number: int) -> None:
+        return None
+
+    def spare(self, plan: Plan, args: object) -> list[object]:
+        return []
+
+    def reorder(self, plan: Plan, *_rest: object) -> Plan:
+        return plan
+
+    def keep_plan(self, plan: Plan) -> None:
+        return None
+
+    def keep_only(self, prep: _Prep) -> None:
+        return None
+
+    def resolve(self, plan: Plan, args: object, progress: object) -> _Prep:
+        return self.prep
+
+    def drop_all(self) -> None:
+        return None
+
+
+def test_a_series_recognised_by_the_files_of_the_release_reaches_the_bookmark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TC-854: раздача с явными номерами серий делает картину сериалом - и это доезжает
+    до закладки, поэтому очередь серий поднимается и после перезапуска.
+
+    🔴 ``recognize_series`` тут не зовут: его обязан позвать сам путь до релиза. Тест,
+    зовущий метод своей строкой, мерит метод, а вся ценность правки живёт в одной строке
+    проводки - в той, где выбранной картине меняют вид уже прочитанными метаданными.
+    Имя раздачи о сериях молчит, поэтому без этой строки в закладке остаётся фильм: ни
+    серии, ни таблицы серий, ни очереди - играть дальше нечего по построению.
+    """
+    composition.use_facts(monkeypatch, _Facts)
+    composition.use_engines(monkeypatch, lambda url, timeout=30.0: object())
+    started: list[str] = []
+    composition.use_start_unit(monkeypatch, started.append)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
+    pack = release("Врата Штейна / Steins;Gate WEB-DL 1080p")
+    one = Plan(
+        picture=Picture(title="Врата Штейна", year=2011, kind="movie", releases=[pack]),
+        ranked=[pack],
+        runtime=1400.0,
+        warn_mbit=16.0,
+    )
+    files = [
+        TorrFile(index=1, name="Врата Штейна/s01e01.mkv", size=8 * GB),
+        TorrFile(index=2, name="Врата Штейна/s01e02.mkv", size=8 * GB),
+    ]
+    prep = _Prep(number=1, release=pack)
+    prep.video, prep.files = files[0], files
+    prep.media = Media(
+        duration=1400.0,
+        tracks=(AudioTrack(index=0, language="rus", title="Дубляж"),),
+        video="h264",
+        height=1080,
+        video_bps=8.0 * 1e6,
+    )
+    bench = _OneBench(prep)
+
+    def choose(
+        config: Config,
+        args: Args,
+        chosen: Choice,
+        state: WatchState,
+        live: tuple[str, Entry] | None,
+        clock: _Clock,
+    ) -> tuple[list[Plan], Plan, _Prep, Bench, _Passport] | int:
+        """Настоящий путь до релиза: подделаны круг поиска, стенд, справка и ответ меню."""
+        return _choose(
+            config,
+            args,
+            chosen,
+            state,
+            live,
+            clock,
+            circle=lambda *_a, **_k: [one],
+            stand=lambda *_a, **_k: cast(Bench, bench),
+            passport_of=lambda _plans: cast(_Passport, _OnePassport()),
+            pick=lambda *_a, **_k: one,
+            bookmark=lambda *_a, **_k: None,
+        )
+
+    code = _cmd_play(Args(query=["врата штейна"]), restart=_never, resume=_never, choose=choose)
+
+    assert code == EXIT_OK
+    assert started == [one.picture.key], "показ уехал в юнит под ключом уточнённой картины"
+    saved = watch_store().load().get(one.picture.key)
+    assert saved is not None, "запись показа обязана лечь под тем же ключом"
+    assert saved.kind == "tv", "закладка помнит сериал, а не фильм имени раздачи"
+    assert (saved.season, saved.episode) == (1, 1), "и серию, с которой сериал начали"
+    assert [row[:3] for row in saved.episodes] == [[1, 1, 1], [1, 2, 2]], (
+        "таблица серий в закладке - вся раздача, а не один сыгранный файл"
+    )
+    assert _following(one.picture.key) is not None, (
+        "без вида «сериал» очереди серий нет по построению: играть дальше нечего"
+    )
