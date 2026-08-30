@@ -105,7 +105,6 @@ TRANSLATION_DEBT: Final = {
     # Скрипт обхода DPI говорит в журнал службы, но говорит по-русски и мимо каталога;
     # каталога он и не видит - слоёв у него нет. Долг такой же, как у пакета.
     "scripts/sni-shim.py": 15,
-    "tgbot/config.py": 1,
     "torrcast/adapters/chromecast/cast/nudge.py": 1,
     "torrcast/adapters/chromecast/cast/past_deadly.py": 1,
     "torrcast/adapters/chromecast/cast/play.py": 1,

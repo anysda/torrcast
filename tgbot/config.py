@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
+from torrcast.domain.catalogs.phrase import phrase
+
 CONFIG_ENV = "TORRCAST_TELEGRAM_CONFIG"
 DEFAULT_CONFIG = "/etc/torrcast/config.json"
 
@@ -42,7 +44,7 @@ class Config:
             return {}
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
-            raise ValueError(f"битая настройка {path}: ожидался объект JSON")
+            raise ValueError(phrase("telegram_config.broken_file", path=path))
         return raw
 
     @classmethod
