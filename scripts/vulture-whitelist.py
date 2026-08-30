@@ -11,12 +11,13 @@
 """
 
 # `http.server.BaseHTTPRequestHandler` разбирает запрос сам и ищет обработчик по имени:
-# `handle_one_request` берёт `getattr(self, "do_" + команда)`. Наш код эти три метода не
+# `handle_one_request` берёт `getattr(self, "do_" + команда)`. Наш код эти методы не
 # зовёт ни разу и звать не должен, их зовёт сервер на каждый входящий запрос.
 _.do_GET
 _.do_HEAD
 _.do_OPTIONS
 _.do_POST
+_.do_PUT
 
 # `close_connection` читает сам `handle_one_request` после каждого ответа: этим полем
 # обработчик говорит серверу, держать ли соединение дальше или закрыть его.
