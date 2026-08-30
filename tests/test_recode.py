@@ -1459,13 +1459,13 @@ def test_a_frame_above_the_receivers_ceiling_is_scaled_down_instead_of_refused()
     assert "force_original_aspect_ratio=decrease" in chain
 
     # ...и человек, выбравший 4К-раздачу, читает это строкой, а не догадывается по чёткости.
-    assert recode_note("hevc 10 бит", 0.0, 2160, whole.out_frame) == (
-        "видео hevc 10 бит - перекодирую на ходу целиком, 2160p - играю в 1080p"
+    assert recode_note("hevc 10 bit", 0.0, 2160, whole.out_frame) == (
+        "video hevc 10 bit - recoding it whole on the fly, 2160p - playing it at 1080p"
     )
     # На 1080p не поменялось ничего: ни фильтра, ни строки.
     same = cast(Encode | None, _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=1080))
     assert same is not None and not same.scaled and "-vf" not in same.args(_grid(), 0, 2)
-    assert recode_note("hevc 10 бит") == "видео hevc 10 бит - перекодирую на ходу целиком"
+    assert recode_note("hevc 10 bit") == "video hevc 10 bit - recoding it whole on the fly"
 
 
 def test_the_level_in_the_stream_matches_the_frame_that_actually_leaves() -> None:

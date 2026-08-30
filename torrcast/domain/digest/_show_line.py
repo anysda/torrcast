@@ -71,11 +71,11 @@ def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | No
             "digest.freeze",
             stamp=stamp,
             pos=_hms(pos),
-            lost=json_number(rec.get("lost", 0.0)),
-            secs=json_number(rec.get("secs", 0.0)),
+            lost=f"{json_number(rec.get('lost', 0.0)):.1f}",
+            secs=f"{json_number(rec.get('secs', 0.0)):.0f}",
             state=rec.get("state", "?"),
-            front=json_number(rec.get("front", 0.0)) - pos,
-            total=json_number(rec.get("total", 0.0)),
+            front=f"{json_number(rec.get('front', 0.0)) - pos:.0f}",
+            total=f"{json_number(rec.get('total', 0.0)):.1f}",
         )
     if event == "offline":
         # Спрошенный источник называется источником: «сеть» тут была бы догадкой, а мы
@@ -97,8 +97,8 @@ def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | No
             hit=rec.get("hit", 1),
             pos=_hms(json_number(rec.get("pos", 0.0))),
             to=_hms(json_number(rec.get("to", 0.0))),
-            stuck=json_number(rec.get("stuck", 0.0)),
-            front=json_number(rec.get("front", 0.0)) - json_number(rec.get("pos", 0.0)),
+            stuck=f"{json_number(rec.get('stuck', 0.0)):.0f}",
+            front=f"{json_number(rec.get('front', 0.0)) - json_number(rec.get('pos', 0.0)):.0f}",
         )
     if event == "reload":
         error = ""
@@ -152,14 +152,14 @@ def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | No
             took=took,
             pos=_hms(json_number(rec.get("pos", 0.0))),
             tries=rec.get("tries", 1),
-            waited=json_number(rec.get("waited", 0.0)),
+            waited=f"{json_number(rec.get('waited', 0.0)):.0f}",
         )
     if event == "seek":
         wait = rec.get("wait")
         # Картинки не было вовсе - это отдельный исход, а не нулевое ожидание: нулём его
         # печатала как раз старая метрика, верившая слову приёмника.
         back = (
-            phrase("digest.seek_shown", wait=json_number(wait))
+            phrase("digest.seek_shown", wait=f"{json_number(wait):.1f}")
             if wait is not None
             else phrase("digest.seek_blank", why=rec.get("why", phrase("digest.why_unnamed")))
         )

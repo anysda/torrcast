@@ -1,5 +1,7 @@
 """Чистое правило recode_note для потокового фасада."""
 
+from torrcast.domain.catalogs.phrase import phrase
+
 
 def recode_note(codec: str, weight_mbit: float = 0.0, frame: int = 0, out_frame: int = 0) -> str:
     """Та самая одна честная строка про сплошной перекод.
@@ -17,10 +19,7 @@ def recode_note(codec: str, weight_mbit: float = 0.0, frame: int = 0, out_frame:
     прочитать это строкой, а не догадаться по чёткости. Ужатия нет (``out_frame`` не ниже
     ``frame``) — строка ровно та же, что была.
     """
-    shrink = f", {frame}p - играю в {out_frame}p" if 0 < out_frame < frame else ""
+    shrink = phrase("stream.shrink", frame=frame, out=out_frame) if 0 < out_frame < frame else ""
     if weight_mbit > 0:
-        return (
-            f"видео {codec} {weight_mbit:.0f} Мбит/с - тяжело приёмнику, "
-            f"перекодирую целиком{shrink}"
-        )
-    return f"видео {codec} - перекодирую на ходу целиком{shrink}"
+        return phrase("stream.recode_heavy", codec=codec, mbit=f"{weight_mbit:.0f}", shrink=shrink)
+    return phrase("stream.recode_whole", codec=codec, shrink=shrink)

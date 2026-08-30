@@ -25,7 +25,7 @@ def _event_line(rec: Mapping[str, JsonValue], began: float, seam: bool = False) 
     «событие не моё», в отличие от пустой строки - «моё, и печатать его не надо».
     """
     at = json_number(rec.get("at", 0.0)) - began
-    stamp = phrase("digest.stamp", at=at)
+    stamp = phrase("digest.stamp", at=f"{at:6.1f}")
     event = str(rec.get("event", ""))
     told = _show_line(rec, stamp, seam)
     if told is None:

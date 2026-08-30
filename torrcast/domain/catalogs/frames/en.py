@@ -18,10 +18,10 @@ def en() -> dict[str, str]:
             "the file has no Cues index - there is nowhere to take the keyframe map from"
         ),
         "frames.mkv_seekhead_not_ebml": "the SeekHead position does not read as an EBML element",
-        "frames.mkv_seekhead_not_cues": "the SeekHead position holds not Cues but {ident:#x}",
+        "frames.mkv_seekhead_not_cues": "the SeekHead position holds not Cues but {ident}",
         "frames.mkv_cues_empty": "the file has Cues, but there is not a point in them",
         "frames.mkv_cues_lie": (
-            "the Cues index lies: the point {at:.3f} refers to something other than a keyframe"
+            "the Cues index lies: the point {at} refers to something other than a keyframe"
             " - a map made of it would be a ghost"
         ),
         # Коробка mp4: боксы и таблицы сэмплов.

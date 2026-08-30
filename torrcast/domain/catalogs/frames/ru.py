@@ -16,10 +16,10 @@ def ru() -> dict[str, str]:
         "frames.mkv_no_segment": "это не mkv: элемента Segment в голове файла нет",
         "frames.mkv_no_cues": "в файле нет индекса Cues - карту опорных кадров взять неоткуда",
         "frames.mkv_seekhead_not_ebml": "по позиции из SeekHead читается не элемент EBML",
-        "frames.mkv_seekhead_not_cues": "по позиции из SeekHead лежит не Cues, а {ident:#x}",
+        "frames.mkv_seekhead_not_cues": "по позиции из SeekHead лежит не Cues, а {ident}",
         "frames.mkv_cues_empty": "Cues в файле есть, но точек в нём нет",
         "frames.mkv_cues_lie": (
-            "индекс Cues врёт: точка {at:.3f} ссылается не на опорный кадр -"
+            "индекс Cues врёт: точка {at} ссылается не на опорный кадр -"
             " карта из него была бы призрачной"
         ),
         # Коробка mp4: боксы и таблицы сэмплов.

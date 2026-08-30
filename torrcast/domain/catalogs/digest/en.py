@@ -12,8 +12,8 @@ def en() -> dict[str, str]:
     """
     return {
         # Общее: отметка времени, вес, пустая лента.
-        "digest.stamp": "+{at:6.1f}s ",
-        "digest.gb": "{size:.1f} GB",
+        "digest.stamp": "+{at}s ",
+        "digest.gb": "{size} GB",
         "digest.no_trace": "no trace - not a single session over the week",
         "digest.phase": "{stamp}phase “{event}”{facts}",
         # Сеанс: ошибка, начало с порогами, потери ленты.
@@ -27,7 +27,7 @@ def en() -> dict[str, str]:
         "digest.thresholds": "{head}{profile} · thresholds:\n    {details}",
         # Поиск и отбор.
         "digest.indexers": "{stamp}indexers {parts}{tail}",
-        "digest.took": " in {secs:.1f} s",
+        "digest.took": " in {secs} s",
         "digest.silent": "; silent {names}",
         "digest.late": "; late {names}",
         "digest.query": "{stamp}query “{query}”{tail}",
@@ -50,12 +50,11 @@ def en() -> dict[str, str]:
         ),
         "digest.evict": "{stamp}the warmup budget evicted “{who}”: {freed} freed for {need}",
         "digest.skew": (
-            "{stamp}v{slot} landed off the grid:"
-            " start {off:+.2f} s from the boundary {want} - {end}"
+            "{stamp}v{slot} landed off the grid: start {off} s from the boundary {want} - {end}"
         ),
         "digest.skew_hole": "the spot was left cold",
         "digest.skew_redone": "the piece was laid down again",
-        "digest.warmed": "{stamp}warmed {secs} of {dur} ({share:.0f} %, {size})",
+        "digest.warmed": "{stamp}warmed {secs} of {dur} ({share} %, {size})",
         "digest.warm_stalled": "{head} - warmup stalled: {why}",
         # Показ: куски и план кодирования.
         "digest.plan_copy": "copy",
@@ -71,8 +70,8 @@ def en() -> dict[str, str]:
         # Показ: всё, что мешало играть.
         "digest.buffering": "{stamp}rebuffer at {pos}",
         "digest.freeze": (
-            "{stamp}stall at {pos}: {lost:.1f} s lost over {secs:.0f} s"
-            " ({state}, {front:.0f} s ready ahead), {total:.1f} s over the whole show"
+            "{stamp}stall at {pos}: {lost} s lost over {secs} s"
+            " ({state}, {front} s ready ahead), {total} s over the whole show"
         ),
         "digest.offline_source": "source",
         "digest.offline_net": "network",
@@ -83,7 +82,7 @@ def en() -> dict[str, str]:
         "digest.resupply": "{stamp}added the swarm by magnet again - {end}",
         "digest.nudge": (
             "{stamp}watchdog nudge {hit}: {pos} -> {to}"
-            " (stuck for {stuck:.0f} s, {front:.0f} s ready ahead)"
+            " (stuck for {stuck} s, {front} s ready ahead)"
         ),
         "digest.reload_code": ", code {error}",
         "digest.reload_no_code": ", no code",
@@ -97,8 +96,8 @@ def en() -> dict[str, str]:
         "digest.dark": "{stamp}{head}: {why}",
         "digest.revive_ok": "the show was raised",
         "digest.revive_failed": "the receiver did not take the show",
-        "digest.revive": "{stamp}{took} from {pos} (attempt {tries}, {waited:.0f} s of darkness)",
-        "digest.seek_shown": " picture after {wait:.1f} s",
+        "digest.revive": "{stamp}{took} from {pos} (attempt {tries}, {waited} s of darkness)",
+        "digest.seek_shown": " picture after {wait} s",
         "digest.seek_blank": " no picture ever came: {why}",
         "digest.seek": "{stamp}seek {frm} -> {to},{back}",
         # Блок сеанса: шапка и итоговая строка.

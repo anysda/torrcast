@@ -50,6 +50,6 @@ def test_the_line_names_the_studio_that_plays_and_the_one_it_replaced() -> None:
     said = _about(entry(pos=0.0, voice="rus", studio="The Kitchen Russia", heard="TVShows"))
 
     assert said == (
-        "«Кино» · rus (TVShows) · озвучка TVShows вместо The Kitchen Russia "
+        "«Кино» · rus (TVShows) · voice TVShows instead of The Kitchen Russia "
         "· выбрать другое: --menu"
     )

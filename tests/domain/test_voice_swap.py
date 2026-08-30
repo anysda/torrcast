@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
 from torrcast.domain.voice_swap import voice_swap
+
+
+@pytest.fixture(autouse=True)
+def _russian_lines(_russian_product: None) -> None:
+    """Предмет модуля - русские слова, поэтому язык назван вслух.
+
+    Умолчание продукта английское (:mod:`torrcast.domain.catalogs.tongue`), и без этой
+    строки набор мерил бы английскую надпись, а рассказывал бы про русскую.
+    """
 
 
 def test_the_forced_studio_is_named_together_with_the_one_it_replaced() -> None:

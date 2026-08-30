@@ -1595,8 +1595,8 @@ def test_ten_bit_h264_is_not_the_same_picture_as_plain_h264() -> None:
     assert hi10.depth == 10 and plain.depth == 8
     assert hi10.recoded_whole, "десятибитный H.264 идёт сплошным перекодом, как HEVC"
     assert not plain.recoded_whole, "обычный H.264 как уезжал копией, так и уезжает"
-    assert hi10.video_name == "h264 10 бит" and plain.video_name == "h264"
-    assert "10 бит" in hi10.video_warning, "молчать о нём нельзя: приёмник на нём встаёт"
+    assert hi10.video_name == "h264 10 bit" and plain.video_name == "h264"
+    assert "10 bit" in hi10.video_warning, "молчать о нём нельзя: приёмник на нём встаёт"
     assert plain.video_warning == ""
     assert Media().depth == 0, "видео нет - и глубины нет"
 

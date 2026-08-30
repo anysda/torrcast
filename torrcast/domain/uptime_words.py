@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
+
 #: Секунд в часе и в сутках - крупнее суток в строке не нужно: разбор смерти показа
 #: спрашивает «перезагружался ли», а не календарь.
 _HOUR = 3600
@@ -16,7 +18,7 @@ def uptime_words(seconds: float) -> str:
     """
     total = max(0, int(seconds))
     if total >= _DAY:
-        return f"{total // _DAY} д {total % _DAY // _HOUR} ч"
+        return phrase("spans.days_hours", days=total // _DAY, hours=total % _DAY // _HOUR)
     if total >= _HOUR:
-        return f"{total // _HOUR} ч {total % _HOUR // 60} мин"
-    return f"{total // 60} мин"
+        return phrase("spans.hours_minutes", hours=total // _HOUR, minutes=total % _HOUR // 60)
+    return phrase("spans.minutes", minutes=total // 60)

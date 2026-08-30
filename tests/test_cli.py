@@ -822,7 +822,7 @@ def test_hevc_release_plays_and_says_so_instead_of_being_refused(
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "hevc"), "HEVC-релиз играет, а не отказывает"
-    assert "видео hevc - перекодирую на ходу целиком" in printed
+    assert "video hevc - recoding it whole on the fly" in printed
     assert "не годится" not in printed and not re.search(r"беру \d", printed)
 
 
@@ -860,7 +860,7 @@ def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refu
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "mpeg4"), "mpeg4-релиз играет, а не отказывает"
-    assert "видео mpeg4 - перекодирую на ходу целиком" in printed
+    assert "video mpeg4 - recoding it whole on the fly" in printed
     assert "не годится" not in printed and not re.search(r"беру \d", printed)
 
 
@@ -1320,7 +1320,7 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "av1"), "названный релиз не подменяется"
-    assert "видео av1 - перекодирую на ходу целиком" in printed
+    assert "video av1 - recoding it whole on the fly" in printed
     assert "не перекодируем" not in printed and not re.search(r"беру \d", printed)
     assert not torrserver.dropped, "раздача остаётся: её и просили"
 
@@ -1341,7 +1341,7 @@ def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
 
     printed = capsys.readouterr().out
     assert prep.number == 1
-    assert "видео hevc - перекодирую на ходу целиком" in printed
+    assert "video hevc - recoding it whole on the fly" in printed
     assert "не перекодируем" not in printed
 
 

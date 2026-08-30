@@ -102,7 +102,7 @@ def _indexers(rec: Mapping[str, JsonValue], stamp: str) -> str:
         # Время держим за именем: «за 0.4 с» после счётчика, у молчунов - вместо него.
         # В записях прежних версий поля ms нет вовсе - тогда строка выглядит как раньше.
         ms = took.get(str(name))
-        return phrase("digest.took", secs=json_number(ms) / 1000) if ms is not None else ""
+        return phrase("digest.took", secs=f"{json_number(ms) / 1000:.1f}") if ms is not None else ""
 
     parts = ", ".join(f"{name}:{count}{_took(name)}" for name, count in got.items())
     heard = ", ".join(str(name) + _took(name) for name in silent)

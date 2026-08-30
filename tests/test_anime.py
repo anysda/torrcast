@@ -815,9 +815,9 @@ def test_the_recode_line_names_the_weight_and_the_reason() -> None:
     from torrcast.domain.recode_note import recode_note
 
     assert recode_note("h264", 36.4) == (
-        "видео h264 36 Мбит/с - тяжело приёмнику, перекодирую целиком"
+        "video h264 36 Mbit/s - heavy for the receiver, recoding it whole"
     )
-    assert recode_note("hevc") == "видео hevc - перекодирую на ходу целиком"
+    assert recode_note("hevc") == "video hevc - recoding it whole on the fly"
 
 
 #: Живая выдача «Gintama s1e1»: 162 раздачи в каталоге, первая серия - ровно в двух.

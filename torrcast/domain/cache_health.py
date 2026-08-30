@@ -40,7 +40,7 @@ class CacheHealth:
     @staticmethod
     def gib(size: int) -> str:
         """Байты человеку: доли гигабайта тут читаются, а сами байты - нет."""
-        return phrase("health.gib", size=size / 1024**3)
+        return phrase("health.gib", size=f"{size / 1024**3:.1f}")
 
     @staticmethod
     def server(url: str, echo: str | None) -> HealthLine:

@@ -34,7 +34,7 @@ def test_a_whole_recode_is_never_silent(capsys: pytest.CaptureFixture[str]) -> N
 
     bench._announce(plan([rel()]), hevc, [1], {}, 1)
 
-    assert "перекод" in capsys.readouterr().out.casefold()
+    assert "recod" in capsys.readouterr().out.casefold()
 
 
 def test_a_copy_playable_release_needs_no_word_at_all(

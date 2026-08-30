@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
+
 
 def voice_swap(studio: str, heard: str) -> str:
     """Подмена озвучки одной строкой; пусто - подмены нет.
@@ -16,7 +18,7 @@ def voice_swap(studio: str, heard: str) -> str:
     """
     if not heard or not studio or heard.casefold() == studio.casefold():
         return ""
-    return f"озвучка {heard} вместо {studio}"
+    return phrase("stream.voice_swap", heard=heard, studio=studio)
 
 
 __all__ = ["voice_swap"]

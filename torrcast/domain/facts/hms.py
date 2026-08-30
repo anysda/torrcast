@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.settings import RUNTIME_CAP_MINUTES
 
 
@@ -16,5 +17,7 @@ def hms(minutes: int) -> str:
         return ""
     hours, rest = divmod(minutes, 60)
     if not hours:
-        return f"{rest} мин"
-    return f"{hours} ч {rest} мин" if rest else f"{hours} ч"
+        return phrase("spans.minutes", minutes=rest)
+    if rest:
+        return phrase("spans.hours_minutes", hours=hours, minutes=rest)
+    return phrase("spans.hours", hours=hours)

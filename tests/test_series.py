@@ -166,7 +166,7 @@ def test_two_numbering_systems_are_named_aloud_instead_of_a_plain_miss() -> None
     absolute = parse_release_name("Гинтама / Gintama TV-2 [202-252] (2011) BDRip-HEVC 1080p | L1")
     pack = files(*(f"Gintama/Gintama - {n}.mkv" for n in range(202, 253)))
 
-    with pytest.raises(NotFoundError, match="нумерации разные"):
+    with pytest.raises(NotFoundError, match="the numbering differs"):
         _Series(want=Episode(5, 1)).choose(absolute, pack)
 
     # Своя система работает как работала: сквозной номер из сквозной раздачи берётся.
@@ -175,7 +175,7 @@ def test_two_numbering_systems_are_named_aloud_instead_of_a_plain_miss() -> None
     # А раздача, назвавшая сезон, на чужой сезон отвечает по-прежнему: «серии нет».
     by_season = parse_release_name("Гинтама / Gintama [S05] (2017) WEB-DL 1080p")
     season_pack = numbered("Gintama/Gintama.S05E{n:02d}.mkv", 12)
-    with pytest.raises(NotFoundError, match="серии s6e1 в этой раздаче нет"):
+    with pytest.raises(NotFoundError, match="episode s6e1 is not in this swarm"):
         _Series(want=Episode(6, 1)).choose(by_season, season_pack)
 
 
@@ -687,7 +687,7 @@ def test_the_episode_table_belongs_to_the_release_being_played() -> None:
     # Соседняя раздача той же картины отвечает позже и своей серии не находит: её разбор
     # обязан умереть вместе с её же отказом.
     other = parse_release_name("Рик и Морти / Rick and Morty [S09] (2026) WEB-DL 1080p")
-    with pytest.raises(NotFoundError, match="серии s1e1 в этой раздаче нет"):
+    with pytest.raises(NotFoundError, match="episode s1e1 is not in this swarm"):
         series.choose(other, numbered("Rick/Rick.and.Morty.S09E{n:02d}.1080p.WEB-DL.mkv", 10))
 
     table = series.table(played, pack.season)

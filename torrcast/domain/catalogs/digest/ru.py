@@ -12,8 +12,8 @@ def ru() -> dict[str, str]:
     """
     return {
         # Общее: отметка времени, вес, пустая лента.
-        "digest.stamp": "+{at:6.1f}с ",
-        "digest.gb": "{size:.1f} ГБ",
+        "digest.stamp": "+{at}с ",
+        "digest.gb": "{size} ГБ",
         "digest.no_trace": "следа нет - за неделю ни одного сеанса",
         "digest.phase": "{stamp}фаза «{event}»{facts}",
         # Сеанс: ошибка, начало с порогами, потери ленты.
@@ -27,7 +27,7 @@ def ru() -> dict[str, str]:
         "digest.thresholds": "{head}{profile} · пороги:\n    {details}",
         # Поиск и отбор.
         "digest.indexers": "{stamp}индексеры {parts}{tail}",
-        "digest.took": " за {secs:.1f} с",
+        "digest.took": " за {secs} с",
         "digest.silent": "; молчат {names}",
         "digest.late": "; опоздали {names}",
         "digest.query": "{stamp}запрос «{query}»{tail}",
@@ -49,12 +49,10 @@ def ru() -> dict[str, str]:
             "{stamp}прогрев выключен настройкой, поэтому в этом прогоне его событий не будет"
         ),
         "digest.evict": "{stamp}бюджет прогрева вытеснил «{who}»: освободилось {freed} под {need}",
-        "digest.skew": (
-            "{stamp}v{slot} лёг мимо сетки: начало {off:+.2f} с от границы {want} - {end}"
-        ),
+        "digest.skew": ("{stamp}v{slot} лёг мимо сетки: начало {off} с от границы {want} - {end}"),
         "digest.skew_hole": "место осталось непрогретым",
         "digest.skew_redone": "кусок переложен заново",
-        "digest.warmed": "{stamp}прогрето {secs} из {dur} ({share:.0f} %, {size})",
+        "digest.warmed": "{stamp}прогрето {secs} из {dur} ({share} %, {size})",
         "digest.warm_stalled": "{head} - прогрев встал: {why}",
         # Показ: куски и план кодирования.
         "digest.plan_copy": "копия",
@@ -70,8 +68,8 @@ def ru() -> dict[str, str]:
         # Показ: всё, что мешало играть.
         "digest.buffering": "{stamp}ребуфер на {pos}",
         "digest.freeze": (
-            "{stamp}подгруз на {pos}: потеряно {lost:.1f} с за {secs:.0f} с"
-            " ({state}, готово впереди {front:.0f} с), за показ {total:.1f} с"
+            "{stamp}подгруз на {pos}: потеряно {lost} с за {secs} с"
+            " ({state}, готово впереди {front} с), за показ {total} с"
         ),
         "digest.offline_source": "источник",
         "digest.offline_net": "сеть",
@@ -81,8 +79,7 @@ def ru() -> dict[str, str]:
         "digest.resupply_wait": "служба ещё не отдала раздачу",
         "digest.resupply": "{stamp}раздачу добавил магнитом заново - {end}",
         "digest.nudge": (
-            "{stamp}нудж сторожа {hit}: {pos} -> {to}"
-            " (стоял {stuck:.0f} с, готово впереди {front:.0f} с)"
+            "{stamp}нудж сторожа {hit}: {pos} -> {to} (стоял {stuck} с, готово впереди {front} с)"
         ),
         "digest.reload_code": ", код {error}",
         "digest.reload_no_code": ", без кода",
@@ -96,8 +93,8 @@ def ru() -> dict[str, str]:
         "digest.dark": "{stamp}{head}: {why}",
         "digest.revive_ok": "показ поднят",
         "digest.revive_failed": "приёмник показ не взял",
-        "digest.revive": "{stamp}{took} с {pos} (попытка {tries}, темнота {waited:.0f} с)",
-        "digest.seek_shown": " картинка через {wait:.1f} с",
+        "digest.revive": "{stamp}{took} с {pos} (попытка {tries}, темнота {waited} с)",
+        "digest.seek_shown": " картинка через {wait} с",
         "digest.seek_blank": " картинки так и не было: {why}",
         "digest.seek": "{stamp}перемотка {frm} -> {to},{back}",
         # Блок сеанса: шапка и итоговая строка.

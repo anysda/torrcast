@@ -19,6 +19,16 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 
+
+@pytest.fixture(autouse=True)
+def _russian_lines(_russian_product: None) -> None:
+    """Предмет модуля - русские слова, поэтому язык назван вслух.
+
+    Умолчание продукта английское (:mod:`torrcast.domain.catalogs.tongue`), и без этой
+    строки набор мерил бы английскую надпись, а рассказывал бы про русскую.
+    """
+
+
 GB = 1024**3
 
 

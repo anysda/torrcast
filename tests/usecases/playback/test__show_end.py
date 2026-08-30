@@ -55,7 +55,7 @@ def test_the_reason_of_the_whole_recode_is_said_out_loud(
     _say_whole(whole, "hevc", 10, 20.0, 2160, CAUTIOUS)
 
     printed = capsys.readouterr().out
-    assert "перекодирую на ходу целиком" in printed
+    assert "recoding it whole on the fly" in printed
     assert "1080p" in printed, "ужатый кадр называется, а не подразумевается"
 
 

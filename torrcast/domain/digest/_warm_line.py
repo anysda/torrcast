@@ -34,7 +34,7 @@ def _warm_line(rec: Mapping[str, JsonValue], stamp: str) -> str | None:
             "digest.skew",
             stamp=stamp,
             slot=rec.get("slot", "?"),
-            off=json_number(rec.get("off", 0.0)),
+            off=f"{json_number(rec.get('off', 0.0)):+.2f}",
             want=_hms(json_number(rec.get("want", 0.0))),
             end=end,
         )
@@ -44,7 +44,7 @@ def _warm_line(rec: Mapping[str, JsonValue], stamp: str) -> str | None:
             stamp=stamp,
             secs=_hms(json_number(rec.get("secs", 0.0))),
             dur=_hms(json_number(rec.get("dur", 0.0))),
-            share=json_number(rec.get("share", 0.0)) * 100,
+            share=f"{json_number(rec.get('share', 0.0)) * 100:.0f}",
             size=_gb(json_number(rec.get("size", 0.0))),
         )
         why = rec.get("why")

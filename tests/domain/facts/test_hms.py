@@ -1,6 +1,17 @@
 """Проверяет перевод минут в человеческую строку хронометража."""
 
+import pytest
+
 from torrcast.domain.facts.hms import hms
+
+
+@pytest.fixture(autouse=True)
+def _russian_lines(_russian_product: None) -> None:
+    """Предмет модуля - русские слова, поэтому язык назван вслух.
+
+    Умолчание продукта английское (:mod:`torrcast.domain.catalogs.tongue`), и без этой
+    строки набор мерил бы английскую надпись, а рассказывал бы про русскую.
+    """
 
 
 def test_running_time_reads_as_a_human_would_say_it() -> None:

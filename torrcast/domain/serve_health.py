@@ -44,10 +44,10 @@ class ServeHealth:
                 shelf=shelf,
                 keys=keys[0],
                 keys_kept=keys_kept,
-                keys_mb=keys[1] / 1e6,
+                keys_mb=f"{keys[1] / 1e6:.1f}",
                 probe=probe[0],
                 probe_kept=probe_kept,
-                probe_mb=probe[1] / 1e6,
+                probe_mb=f"{probe[1] / 1e6:.1f}",
             )
         )
 
@@ -55,10 +55,10 @@ class ServeHealth:
     def ago(seconds: float) -> str:
         """Возраст записи словами: минуты, часы или дни - что уместнее."""
         if seconds < 3600:
-            return phrase("health.ago_minutes", count=seconds / 60)
+            return phrase("health.ago_minutes", count=f"{seconds / 60:.0f}")
         if seconds < 86400:
-            return phrase("health.ago_hours", count=seconds / 3600)
-        return phrase("health.ago_days", count=seconds / 86400)
+            return phrase("health.ago_hours", count=f"{seconds / 3600:.0f}")
+        return phrase("health.ago_days", count=f"{seconds / 86400:.0f}")
 
     @staticmethod
     def trace(found: bool, age: float, total: int, directory: str, retain_days: int) -> HealthLine:
@@ -70,8 +70,8 @@ class ServeHealth:
         """
         if not found:
             return HealthVerdict.warn(phrase("health.trace_missing", directory=directory))
-        size = phrase("health.trace_size", size=total / 1e6)
+        size = phrase("health.trace_size", size=f"{total / 1e6:.1f}")
         days = age / 86400
         if days > retain_days:
-            return HealthVerdict.warn(phrase("health.trace_stale", size=size, days=days))
+            return HealthVerdict.warn(phrase("health.trace_stale", size=size, days=f"{days:.0f}"))
         return HealthVerdict.ok(phrase("health.trace_ok", size=size, ago=ServeHealth.ago(age)))

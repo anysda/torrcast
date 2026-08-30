@@ -26,6 +26,12 @@ from torrcast.domain.catalogs.select.en import en as select_en
 from torrcast.domain.catalogs.select.ru import ru as select_ru
 from torrcast.domain.catalogs.select_bench.en import en as select_bench_en
 from torrcast.domain.catalogs.select_bench.ru import ru as select_bench_ru
+from torrcast.domain.catalogs.series.en import en as series_en
+from torrcast.domain.catalogs.series.ru import ru as series_ru
+from torrcast.domain.catalogs.spans.en import en as spans_en
+from torrcast.domain.catalogs.spans.ru import ru as spans_ru
+from torrcast.domain.catalogs.stream.en import en as stream_en
+from torrcast.domain.catalogs.stream.ru import ru as stream_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
 
 #: Кластеры каталога: (английский, русский). Заход перевода добавляет сюда строку -
@@ -40,6 +46,9 @@ _CLUSTERS: Final = (
     (rank_en, rank_ru),
     (select_bench_en, select_bench_ru),
     (select_en, select_ru),
+    (series_en, series_ru),
+    (spans_en, spans_ru),
+    (stream_en, stream_ru),
 )
 
 

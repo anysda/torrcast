@@ -284,7 +284,7 @@ def test_a_source_the_receiver_cannot_decode_is_recoded_from_the_first_segment(
 
     printed = capsys.readouterr().out
     assert played == 0
-    assert "видео hevc - перекодирую на ходу целиком" in printed, "решение говорится вслух"
+    assert "video hevc - recoding it whole on the fly" in printed, "решение говорится вслух"
     assert "тяжёлых кусков" not in printed, "посегментный кодировщик тут не поднимается"
     assert "разрывов 0" in printed
     decoded = float(printed.split("декодировано ")[1].split(" ")[0])

@@ -14,7 +14,7 @@ def ru() -> dict[str, str]:
         "health.ok": "ок      {text}",
         "health.warn": "внимание {text}",
         "health.bad": "плохо   {text}",
-        "health.gib": "{size:.1f} ГиБ",
+        "health.gib": "{size} ГиБ",
         "health.server_silent": "TorrServer не отвечает ({url}) - раздачи не будет",
         "health.cache_unreadable": "настройки TorrServer не читаются - размер кэша неизвестен",
         "health.cache_in_memory": (
@@ -99,14 +99,14 @@ def ru() -> dict[str, str]:
         ),
         "health.hls_cert_ok": "раздача {base}, серту осталось {days} дн",
         "health.shelves": (
-            "кэши в {shelf}: карт {keys}/{keys_kept} ({keys_mb:.1f} МБ), "
-            "паспортов {probe}/{probe_kept} ({probe_mb:.1f} МБ)"
+            "кэши в {shelf}: карт {keys}/{keys_kept} ({keys_mb} МБ), "
+            "паспортов {probe}/{probe_kept} ({probe_mb} МБ)"
         ),
-        "health.ago_minutes": "{count:.0f} мин",
-        "health.ago_hours": "{count:.0f} ч",
-        "health.ago_days": "{count:.0f} дн",
+        "health.ago_minutes": "{count} мин",
+        "health.ago_hours": "{count} ч",
+        "health.ago_days": "{count} дн",
         "health.trace_missing": "следа нет в {directory} - `cast log` покажет пустоту",
-        "health.trace_size": "{size:.1f} МБ",
-        "health.trace_stale": "след есть ({size}), но последняя запись {days:.0f} дн назад",
+        "health.trace_size": "{size} МБ",
+        "health.trace_stale": "след есть ({size}), но последняя запись {days} дн назад",
         "health.trace_ok": "след {size}, последняя запись {ago} назад",
     }

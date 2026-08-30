@@ -56,7 +56,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
         raise InfraError(phrase("frames.mkv_seekhead_not_ebml"))
     ident, size, data = found[0]
     if ident != CUES:
-        raise InfraError(phrase("frames.mkv_seekhead_not_cues", ident=ident))
+        raise InfraError(phrase("frames.mkv_seekhead_not_cues", ident=f"{ident:#x}"))
     body = chunk[data : data + size]
     if len(body) < size:  # редкий толстый индекс - добираем остаток
         body += reader.read(facts.cues_at + len(chunk), size - len(body))
@@ -98,7 +98,7 @@ def _ghost(cues: list[Cue], facts: Head, reader: Reader) -> str | None:
     for cue in probes(own):
         at, offset, _ = cue.point
         if key_frame(reader, offset, facts.video, facts.codec, cue.inside) is False:
-            return phrase("frames.mkv_cues_lie", at=at)
+            return phrase("frames.mkv_cues_lie", at=f"{at:.3f}")
     return None
 
 

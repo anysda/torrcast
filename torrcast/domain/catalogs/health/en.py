@@ -14,7 +14,7 @@ def en() -> dict[str, str]:
         "health.ok": "ok      {text}",
         "health.warn": "warning {text}",
         "health.bad": "bad     {text}",
-        "health.gib": "{size:.1f} GiB",
+        "health.gib": "{size} GiB",
         "health.server_silent": "TorrServer is silent ({url}) - nothing will be served",
         "health.cache_unreadable": (
             "TorrServer settings are unreadable - the cache size is unknown"
@@ -117,14 +117,14 @@ def en() -> dict[str, str]:
         ),
         "health.hls_cert_ok": "serving {base}, {days} days left on the certificate",
         "health.shelves": (
-            "shelves in {shelf}: keyframe maps {keys}/{keys_kept} ({keys_mb:.1f} MB), "
-            "media probes {probe}/{probe_kept} ({probe_mb:.1f} MB)"
+            "shelves in {shelf}: keyframe maps {keys}/{keys_kept} ({keys_mb} MB), "
+            "media probes {probe}/{probe_kept} ({probe_mb} MB)"
         ),
-        "health.ago_minutes": "{count:.0f} min",
-        "health.ago_hours": "{count:.0f} h",
-        "health.ago_days": "{count:.0f} d",
+        "health.ago_minutes": "{count} min",
+        "health.ago_hours": "{count} h",
+        "health.ago_days": "{count} d",
         "health.trace_missing": "no trace in {directory} - `cast log` will show nothing",
-        "health.trace_size": "{size:.1f} MB",
-        "health.trace_stale": "trace is there ({size}), but the last record is {days:.0f} days old",
+        "health.trace_size": "{size} MB",
+        "health.trace_stale": "trace is there ({size}), but the last record is {days} days old",
         "health.trace_ok": "trace {size}, last record {ago} ago",
     }

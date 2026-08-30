@@ -1,5 +1,7 @@
 """Формирует человекочитаемое имя видеокодека."""
 
+from torrcast.domain.catalogs.phrase import phrase
+
 COPY_DEPTH = 8
 
 
@@ -12,4 +14,4 @@ def codec_name(codec: str, depth: int = 0) -> str:
     """
     if not codec:
         return ""
-    return f"{codec} {depth} бит" if depth > COPY_DEPTH else codec
+    return phrase("stream.codec_bits", codec=codec, depth=depth) if depth > COPY_DEPTH else codec

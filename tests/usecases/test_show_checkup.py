@@ -49,7 +49,7 @@ def test_an_open_port_is_followed_by_the_uptime_and_the_link() -> None:
     environment = FakeHealthEnvironment(link=(86400 * 2.0, False))
     lines = list(_checkup(environment).tv(Settings(tv="10.0.0.50")))
     assert [ok for _, ok in lines] == [True, True, True]
-    assert "2 д 0 ч" in lines[2][0] and "over Wi-Fi" in lines[2][0]
+    assert "2 d 0 h" in lines[2][0] and "over Wi-Fi" in lines[2][0]
     assert environment.timeouts == [5.0, 5.0], "срок ожидания задаёт сценарий, а не адаптер"
 
 

@@ -28,7 +28,7 @@ def _clock(at: float) -> str:
 
 
 def _gb(size: float) -> str:
-    return phrase("digest.gb", size=size / 1e9)
+    return phrase("digest.gb", size=f"{size / 1e9:.1f}")
 
 
 def _facts(rec: Mapping[str, JsonValue]) -> str:

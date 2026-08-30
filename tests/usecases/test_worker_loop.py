@@ -145,7 +145,7 @@ def test_a_forced_voice_swap_reaches_the_screen_and_not_the_terminal(
     """Зритель смотрит в телевизор: подпись показа - единственное, что туда уезжает."""
     shown = _shown_title(_harley(studio="The Kitchen Russia", heard="TVShows"))
 
-    assert shown == "Харли Квинн s5e1 · озвучка TVShows вместо The Kitchen Russia"
+    assert shown == "Харли Квинн s5e1 · voice TVShows instead of The Kitchen Russia"
 
 
 def test_a_show_without_a_swap_carries_no_extra_word(_ports_restored: None) -> None:

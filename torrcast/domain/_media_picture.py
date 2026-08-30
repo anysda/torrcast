@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from torrcast.domain._media_facts import _MediaFacts
 from torrcast.domain.bitrate_mbit import bitrate_mbit
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.codec_name import codec_name
 from torrcast.domain.color_depth import color_depth
 from torrcast.domain.delivered_mbit import delivered_mbit
@@ -120,4 +121,4 @@ class _MediaPicture(_MediaFacts):
         """
         if not recodes_whole(self.video or "", self.depth, frame=self.frame):
             return ""
-        return f"внимание: видео {self.video_name} - ресивер может не взять, а мы не перекодируем"
+        return phrase("stream.video_warning", codec=self.video_name)

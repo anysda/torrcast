@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.episode_file import EpisodeFile
 from torrcast.domain.map_episodes import map_episodes
@@ -69,16 +70,13 @@ class _Series:
             and not release.seasons
         ):
             span = f"{release.episodes[0]}-{release.episodes[-1]}"
-            return (
-                f"нумерации разные: {self.want} - это счёт по сезонам, а раздача считает "
-                f"серии насквозь через весь сериал ({span}), не называя сезонов "
-                f"({self.summary(files)}) - нужна раздача, подписанная сезоном: "
-                "cast <запрос> --release N"
+            return phrase(
+                "series.numbering_differs",
+                want=self.want,
+                span=span,
+                summary=self.summary(files),
             )
-        return (
-            f"серии {self.want} в этой раздаче нет ({self.summary(files)}) - "
-            "возьми другую раздачу: cast <запрос> --release N"
-        )
+        return phrase("series.episode_absent", want=self.want, summary=self.summary(files))
 
     @staticmethod
     def table(files: list[TorrFile], season: int | None) -> list[list[int]]:
@@ -93,7 +91,17 @@ class _Series:
     def summary(files: list[EpisodeFile]) -> str:
         """«серий 10: s1e1…s1e10», для пака — ещё и диапазон сезонов."""
         if not files:
-            return "серий не нашлось"
+            return phrase("series.none_found")
         seasons = {f.season for f in files}
-        span = f"сезоны {min(seasons)}-{max(seasons)} · " if len(seasons) > 1 else ""
-        return f"{span}серий {len(files)}: {files[0].at}...{files[-1].at}"
+        span = (
+            phrase("series.seasons_span", first=min(seasons), last=max(seasons))
+            if len(seasons) > 1
+            else ""
+        )
+        return phrase(
+            "series.episode_count",
+            span=span,
+            count=len(files),
+            first=files[0].at,
+            last=files[-1].at,
+        )
