@@ -2,6 +2,7 @@
 
 import pytest
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.usecases.say_showing import _say_showing
 
@@ -18,5 +19,5 @@ def test_the_viewer_hears_what_will_be_interrupted(capsys: pytest.CaptureFixture
     _say_showing(("ключ", entry))
 
     printed = capsys.readouterr().out
-    assert "на телевизоре сейчас идёт «Моана 2» на 0:11:00" in printed
-    assert "этот показ прервётся" in printed
+    where = f" {phrase('showing.at', pos='0:11:00')}"
+    assert phrase("showing.busy", what="«Моана 2»", where=where) in printed

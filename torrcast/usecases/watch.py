@@ -7,6 +7,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.ports.state_store.slot import store
 from torrcast.usecases.rank._hms import _hms
@@ -76,4 +77,5 @@ class Watch:
         if self.done:
             self.sealed = True
             what = f" {self.entry.label}" if self.entry.label else ""
-            print(f"досмотрено{what}: {_hms(self.entry.pos)} из {_hms(self.entry.dur)}", flush=True)
+            pos, duration = _hms(self.entry.pos), _hms(self.entry.dur)
+            print(phrase("watch.finished", what=what, pos=pos, duration=duration), flush=True)

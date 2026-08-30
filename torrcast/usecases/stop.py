@@ -1,5 +1,6 @@
 """Останавливает текущий показ и сообщает сохранённую позицию."""
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.ports.console import Console
 from torrcast.ports.playback_session import PlaybackSession
@@ -28,12 +29,16 @@ class Stop:
         self._session.stop()
         shown = self._session.snapshot(key)
         if not played or shown is None:
-            self._console.write("ничего не играет")
+            self._console.write(phrase("stop.nothing_playing"))
             return EXIT_OK
         self._session.release(shown.torrent_hash)
         self._console.write(
-            f"остановлено: «{shown.title}» на {self._hms(shown.position)} / "
-            f"{self._hms(shown.duration)}"
+            phrase(
+                "stop.stopped",
+                title=shown.title,
+                pos=self._hms(shown.position),
+                duration=self._hms(shown.duration),
+            )
         )
         return EXIT_OK
 

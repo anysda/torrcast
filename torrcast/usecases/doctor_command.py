@@ -8,6 +8,7 @@ __all__ = ["EXIT_INFRA", "EXIT_OK", "_cmd_doctor"]
 
 from collections.abc import Callable
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
 from torrcast.ports.health_config import HealthConfig
 from torrcast.usecases.doctor import checkup
@@ -37,5 +38,5 @@ def _cmd_doctor() -> int:
         print(line)
         bad += 0 if ok else 1
     print()
-    print("всё в порядке" if not bad else f"проблем: {bad} - смотри строки «плохо» выше")
+    print(phrase("doctor.all_clear") if not bad else phrase("doctor.problems", bad=bad))
     return EXIT_OK if not bad else EXIT_INFRA

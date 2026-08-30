@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 
 __all__ = ["Entry", "_say_showing"]
@@ -29,9 +30,5 @@ def _say_showing(live: tuple[str, Entry] | None) -> None:
         return
     entry = live[1]
     what = f"«{entry.title}»" + (f", {entry.label}" if entry.label else "")
-    where = f" на {_hms(entry.pos)}" if entry.pos > 0 else ""
-    print(
-        f"на телевизоре сейчас идёт {what}{where}. Выберешь картину - этот показ "
-        f"прервётся; пока выбираешь, он идёт как шёл.",
-        flush=True,
-    )
+    where = f" {phrase('showing.at', pos=_hms(entry.pos))}" if entry.pos > 0 else ""
+    print(phrase("showing.busy", what=what, where=where), flush=True)

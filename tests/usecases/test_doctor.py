@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from tests.fakes.configuration_source import FakeConfigurationSource
 from tests.fakes.console import FakeConsole
 from tests.fakes.health_environment import FakeHealthEnvironment
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.indexer_health import CORE_INDEXERS
 from torrcast.domain.settings import Settings
 from torrcast.usecases.doctor import Doctor, _cache, _mdns
@@ -28,7 +29,7 @@ def test_doctor_prints_success() -> None:
     )
 
     assert doctor.run() == 0
-    assert console.messages == ["ок      ffmpeg", "", "всё в порядке"]
+    assert console.messages == ["ок      ffmpeg", "", phrase("doctor.all_clear")]
 
 
 def test_doctor_counts_failed_checks() -> None:
@@ -40,7 +41,7 @@ def test_doctor_counts_failed_checks() -> None:
     )
 
     assert doctor.run() == 2
-    assert console.messages[-1] == "проблем: 2 - смотри строки «плохо» выше"
+    assert console.messages[-1] == phrase("doctor.problems", bad=2)
 
 
 def _config() -> Settings:

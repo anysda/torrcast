@@ -6,6 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
 from torrcast.ports.health_config import HealthConfig
 from torrcast.usecases import doctor_command
@@ -26,7 +27,8 @@ def test_a_healthy_household_is_an_honest_zero(
     monkeypatch.setattr(doctor_command, "checkup", _answers(("ок      ffmpeg", True)))
 
     assert _cmd_doctor() == EXIT_OK
-    assert capsys.readouterr().out.splitlines() == ["ок      ffmpeg", "", "всё в порядке"]
+    lines = ["ок      ffmpeg", "", phrase("doctor.all_clear")]
+    assert capsys.readouterr().out.splitlines() == lines
 
 
 def test_a_broken_household_answers_two_and_says_how_many(
@@ -38,7 +40,7 @@ def test_a_broken_household_answers_two_and_says_how_many(
     )
 
     assert _cmd_doctor() == EXIT_INFRA
-    assert "проблем: 2" in capsys.readouterr().out
+    assert phrase("doctor.problems", bad=2) in capsys.readouterr().out
 
 
 def test_one_bad_line_among_good_ones_is_enough_to_fail(
@@ -50,4 +52,4 @@ def test_one_bad_line_among_good_ones_is_enough_to_fail(
     )
 
     assert _cmd_doctor() == EXIT_INFRA
-    assert "проблем: 1" in capsys.readouterr().out
+    assert phrase("doctor.problems", bad=1) in capsys.readouterr().out

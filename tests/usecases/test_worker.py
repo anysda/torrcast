@@ -9,6 +9,7 @@ import pytest
 
 from tests.fakes import composition
 from torrcast.adapters.filesystem.state.state import State
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
@@ -83,7 +84,8 @@ def test_the_unit_asks_the_receiver_about_itself_and_says_the_answer_aloud(
 
     assert _cmd_worker(KEY, play=_played) == 0
 
-    assert f"профиль приёмника: {ANDROID_TV.title} - спрошен приёмник" in capsys.readouterr().out
+    said = phrase("worker.receiver_profile", title=ANDROID_TV.title, how="спрошен приёмник")
+    assert said in capsys.readouterr().out
 
 
 def test_the_profile_the_unit_chose_is_the_one_it_names(
@@ -94,7 +96,8 @@ def test_the_profile_the_unit_chose_is_the_one_it_names(
 
     assert _cmd_worker(KEY, play=_played) == 0
 
-    assert f"профиль приёмника: {CAUTIOUS.title} - ответа нет" in capsys.readouterr().out
+    said = phrase("worker.receiver_profile", title=CAUTIOUS.title, how="ответа нет")
+    assert said in capsys.readouterr().out
 
 
 def test_the_unit_takes_its_own_torrent_away_when_the_show_ends(

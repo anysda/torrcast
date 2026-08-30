@@ -2,6 +2,7 @@
 
 from tests.fakes.console import FakeConsole
 from tests.fakes.playback_session import FakePlaybackSession
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.usecases.stop import Stop
 
@@ -17,7 +18,8 @@ def test_stop_reports_played_title_and_releases_torrent() -> None:
     assert Stop(session, console).run() == 0
     assert session.stopped == 1
     assert session.released == ["abc"]
-    assert console.messages == ["остановлено: «Луна» на 0:01:05 / 1:00:00"]
+    said = phrase("stop.stopped", title="Луна", pos="0:01:05", duration="1:00:00")
+    assert console.messages == [said]
 
 
 def test_stop_reports_empty_session() -> None:
@@ -26,4 +28,4 @@ def test_stop_reports_empty_session() -> None:
 
     Stop(session, console).run()
 
-    assert console.messages == ["ничего не играет"]
+    assert console.messages == [phrase("stop.nothing_playing")]

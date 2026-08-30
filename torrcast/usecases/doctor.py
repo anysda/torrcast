@@ -20,6 +20,7 @@ from functools import partial
 
 import torrcast.usecases.doctor_environment as _state
 from torrcast.domain.cache_health import CacheHealth
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.indexer_health import CORE_INDEXERS, IPV4_ONLY, IndexerHealth
 from torrcast.domain.receiver_health import ReceiverHealth
 from torrcast.domain.warm_claim import warm_claim
@@ -79,7 +80,7 @@ class Doctor:
             self._console.write(line)
             bad += 0 if ok else 1
         self._console.write("")
-        verdict = "всё в порядке" if not bad else f"проблем: {bad} - смотри строки «плохо» выше"
+        verdict = phrase("doctor.all_clear") if not bad else phrase("doctor.problems", bad=bad)
         self._console.write(verdict)
         return 0 if not bad else 2
 

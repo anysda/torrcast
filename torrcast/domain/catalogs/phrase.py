@@ -26,6 +26,8 @@ from torrcast.domain.catalogs.digest.en import en as digest_en
 from torrcast.domain.catalogs.digest.ru import ru as digest_ru
 from torrcast.domain.catalogs.discover.en import en as discover_en
 from torrcast.domain.catalogs.discover.ru import ru as discover_ru
+from torrcast.domain.catalogs.doctor.en import en as doctor_en
+from torrcast.domain.catalogs.doctor.ru import ru as doctor_ru
 from torrcast.domain.catalogs.feed.en import en as feed_en
 from torrcast.domain.catalogs.feed.ru import ru as feed_ru
 from torrcast.domain.catalogs.frames.en import en as frames_en
@@ -70,10 +72,14 @@ from torrcast.domain.catalogs.select_bench.en import en as select_bench_en
 from torrcast.domain.catalogs.select_bench.ru import ru as select_bench_ru
 from torrcast.domain.catalogs.series.en import en as series_en
 from torrcast.domain.catalogs.series.ru import ru as series_ru
+from torrcast.domain.catalogs.showing.en import en as showing_en
+from torrcast.domain.catalogs.showing.ru import ru as showing_ru
 from torrcast.domain.catalogs.spans.en import en as spans_en
 from torrcast.domain.catalogs.spans.ru import ru as spans_ru
 from torrcast.domain.catalogs.status.en import en as status_en
 from torrcast.domain.catalogs.status.ru import ru as status_ru
+from torrcast.domain.catalogs.stop.en import en as stop_en
+from torrcast.domain.catalogs.stop.ru import ru as stop_ru
 from torrcast.domain.catalogs.stream.en import en as stream_en
 from torrcast.domain.catalogs.stream.ru import ru as stream_ru
 from torrcast.domain.catalogs.stream_pack.en import en as stream_pack_en
@@ -89,6 +95,10 @@ from torrcast.domain.catalogs.torrserver.en import en as torrserver_en
 from torrcast.domain.catalogs.torrserver.ru import ru as torrserver_ru
 from torrcast.domain.catalogs.trace.en import en as trace_en
 from torrcast.domain.catalogs.trace.ru import ru as trace_ru
+from torrcast.domain.catalogs.watch.en import en as watch_en
+from torrcast.domain.catalogs.watch.ru import ru as watch_ru
+from torrcast.domain.catalogs.worker.en import en as worker_en
+from torrcast.domain.catalogs.worker.ru import ru as worker_ru
 
 #: Кластеры каталога: (английский, русский). Заход перевода добавляет сюда строку -
 #: пару файлов своего кластера, - а не правит эту функцию. Строка на кластер и запятая
@@ -133,6 +143,11 @@ _CLUSTERS: Final = (
     (feed_en, feed_ru),
     (status_en, status_ru),
     (season_en, season_ru),
+    (doctor_en, doctor_ru),
+    (showing_en, showing_ru),
+    (stop_en, stop_ru),
+    (watch_en, watch_ru),
+    (worker_en, worker_ru),
 )
 
 
