@@ -1,6 +1,17 @@
 """Зеркало :mod:`torrcast.domain.indexer_health`."""
 
+import pytest
+
 from torrcast.domain.indexer_health import CORE_INDEXERS, IPV4_ONLY, IndexerHealth
+
+
+@pytest.fixture(autouse=True)
+def _russian_lines(_russian_product: None) -> None:
+    """Предмет модуля - русское словоблюдие самопроверки, поэтому язык назван вслух.
+
+    Умолчание продукта английское (:mod:`torrcast.domain.catalogs.tongue`), и без этой
+    строки набор мерил бы английские надписи, а рассказывал бы про русские.
+    """
 
 
 def test_the_road_to_trackers_is_named_and_treated() -> None:

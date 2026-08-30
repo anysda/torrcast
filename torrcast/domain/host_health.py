@@ -3,6 +3,7 @@
 Зовёт сценарий :mod:`torrcast.usecases.doctor`, факты приносит порт среды.
 """
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.health_verdict import HealthLine, HealthVerdict
 
 
@@ -17,25 +18,29 @@ class HostHealth:
         непроверенное место, поэтому «внимание».
         """
         if not tty:
-            return HealthVerdict.warn(
-                "терминала нет (запуск не интерактивный) - вопросы возьмут дефолты"
-            )
+            return HealthVerdict.warn(phrase("health.no_terminal"))
         if utf8 is None:
-            return HealthVerdict.warn(
-                "терминал есть, но режим ввода не читается - кириллица не проверена"
-            )
-        how = "уже включён" if utf8 else "выключен, включаем сами на время команды"
-        return HealthVerdict.ok(f"терминал: pty есть, IUTF8 {how} - кириллица в вопросах работает")
+            return HealthVerdict.warn(phrase("health.terminal_mode_unknown"))
+        how = phrase("health.iutf8_on") if utf8 else phrase("health.iutf8_off")
+        return HealthVerdict.ok(phrase("health.terminal_ok", how=how))
 
     @staticmethod
     def locale(encoding: str, env: str) -> HealthLine:
         """Кодировка: русские названия и ключи состояния должны переживать запись в файл."""
         if "utf" in encoding or "utf" in env.lower():
             return HealthVerdict.ok(
-                f"локаль: {encoding or 'utf-8'} {('(' + env + ')') if env else ''}".strip()
+                phrase(
+                    "health.locale_ok",
+                    encoding=encoding or "utf-8",
+                    env=("(" + env + ")") if env else "",
+                ).strip()
             )
         return HealthVerdict.bad(
-            f"локаль {encoding or '?'} не UTF-8 - русские названия побьются ({env or 'пусто'})"
+            phrase(
+                "health.locale_bad",
+                encoding=encoding or "?",
+                env=env or phrase("health.locale_empty"),
+            )
         )
 
     @staticmethod
@@ -47,8 +52,8 @@ class HostHealth:
         или ``None``, если она не сказала ничего.
         """
         if help_text is None:
-            return HealthVerdict.bad("ffmpeg не запускается - упаковывать поток нечем")
+            return HealthVerdict.bad(phrase("health.no_ffmpeg"))
         head = version[:60] if version is not None else "ffmpeg"
         if "readrate_initial_burst" not in help_text:
-            return HealthVerdict.bad(f"{head}: нет -readrate_initial_burst - старт будет медленным")
-        return HealthVerdict.ok(f"{head}, -readrate_initial_burst есть")
+            return HealthVerdict.bad(phrase("health.ffmpeg_no_burst", head=head))
+        return HealthVerdict.ok(phrase("health.ffmpeg_ok", head=head))

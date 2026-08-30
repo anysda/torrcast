@@ -3,6 +3,7 @@
 Зовёт сценарий :mod:`torrcast.usecases.doctor`, диск и часы приносит порт среды.
 """
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.health_verdict import HealthLine, HealthVerdict
 
 #: За сколько дней до конца серта показ считается обречённым: меньше недели - это уже
@@ -17,16 +18,14 @@ class ServeHealth:
     def hls(base: str, error: str, https: bool, cert: str, days: int | None) -> HealthLine:
         """Адрес раздачи и, если кто-то включил https, свежесть серта."""
         if error:
-            return HealthVerdict.bad(f"адрес раздачи не собирается: {error}")
+            return HealthVerdict.bad(phrase("health.hls_no_base", error=error))
         if not https:
-            return HealthVerdict.ok(f"раздача {base} - ни серта, ни DNS в пути показа")
+            return HealthVerdict.ok(phrase("health.hls_plain", base=base))
         if days is None:
-            return HealthVerdict.bad(f"раздача {base}, но серт {cert} не читается")
+            return HealthVerdict.bad(phrase("health.hls_cert_unreadable", base=base, cert=cert))
         if days < CERT_FLOOR:
-            return HealthVerdict.bad(
-                f"раздача {base}, серту осталось {days} дн - показ вот-вот отвалится"
-            )
-        return HealthVerdict.ok(f"раздача {base}, серту осталось {days} дн")
+            return HealthVerdict.bad(phrase("health.hls_cert_expiring", base=base, days=days))
+        return HealthVerdict.ok(phrase("health.hls_cert_ok", base=base, days=days))
 
     @staticmethod
     def shelves(
@@ -40,18 +39,26 @@ class ServeHealth:
         чтобы «много» и «мало» читались без документации.
         """
         return HealthVerdict.ok(
-            f"кэши в {shelf}: карт {keys[0]}/{keys_kept} ({keys[1] / 1e6:.1f} МБ), "
-            f"паспортов {probe[0]}/{probe_kept} ({probe[1] / 1e6:.1f} МБ)"
+            phrase(
+                "health.shelves",
+                shelf=shelf,
+                keys=keys[0],
+                keys_kept=keys_kept,
+                keys_mb=keys[1] / 1e6,
+                probe=probe[0],
+                probe_kept=probe_kept,
+                probe_mb=probe[1] / 1e6,
+            )
         )
 
     @staticmethod
     def ago(seconds: float) -> str:
         """Возраст записи словами: минуты, часы или дни - что уместнее."""
         if seconds < 3600:
-            return f"{seconds / 60:.0f} мин"
+            return phrase("health.ago_minutes", count=seconds / 60)
         if seconds < 86400:
-            return f"{seconds / 3600:.0f} ч"
-        return f"{seconds / 86400:.0f} дн"
+            return phrase("health.ago_hours", count=seconds / 3600)
+        return phrase("health.ago_days", count=seconds / 86400)
 
     @staticmethod
     def trace(found: bool, age: float, total: int, directory: str, retain_days: int) -> HealthLine:
@@ -62,11 +69,9 @@ class ServeHealth:
         когда что-то уже сломалось. Сама по себе лента показу не нужна - поэтому «внимание».
         """
         if not found:
-            return HealthVerdict.warn(f"следа нет в {directory} - `cast log` покажет пустоту")
-        size = f"{total / 1e6:.1f} МБ"
+            return HealthVerdict.warn(phrase("health.trace_missing", directory=directory))
+        size = phrase("health.trace_size", size=total / 1e6)
         days = age / 86400
         if days > retain_days:
-            return HealthVerdict.warn(
-                f"след есть ({size}), но последняя запись {days:.0f} дн назад"
-            )
-        return HealthVerdict.ok(f"след {size}, последняя запись {ServeHealth.ago(age)} назад")
+            return HealthVerdict.warn(phrase("health.trace_stale", size=size, days=days))
+        return HealthVerdict.ok(phrase("health.trace_ok", size=size, ago=ServeHealth.ago(age)))

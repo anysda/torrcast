@@ -92,8 +92,8 @@ def test_a_pause_and_a_silent_live_probe_both_reach_the_answer() -> None:
     lines = list(_prowlarr(_config(), environment))
 
     text = "\n".join(line for line, _ in lines)
-    assert f"индексер {KEY} отключён Prowlarr до 2026-08-09 12:30:00" in text
-    assert f"индексер {KEY} не ответил на живой поиск - выдача неполная" in text
+    assert f"indexer {KEY} is disabled by Prowlarr until 2026-08-09 12:30:00" in text
+    assert f"indexer {KEY} did not answer a live search - results will be short" in text
     assert any(not good for _, good in lines)
 
 
@@ -171,5 +171,5 @@ def test_a_closed_port_still_turns_the_indexer_line_red() -> None:
 
     assert lines, "мёртвый индексер обязан оставить строку, а не промолчать"
     assert all(not good for _, good in lines), f"закрытый порт прошёл как здоровый: {lines}"
-    assert "индексер RuTor не ответил на живой поиск" in lines[0][0]
+    assert "indexer RuTor did not answer a live search" in lines[0][0]
     assert spent < _INDEXER_TIMEOUT, f"отказ порта ждали {spent:.1f} с вместо мгновенного"

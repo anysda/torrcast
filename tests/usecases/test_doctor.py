@@ -70,19 +70,19 @@ def test_checkup_keeps_every_probe_and_their_order() -> None:
     lines = list(Doctor.checkup(_config(), _answering()))
 
     assert len(lines) == 19, [line for line, _ in lines]
-    assert "терминал" in lines[0][0] and "локаль" in lines[1][0] and "ffmpeg" in lines[2][0]
-    assert "Prowlarr ходит к трекерам по IPv4" in lines[3][0]
-    assert "индексеров 2" in lines[4][0]
+    assert "terminal" in lines[0][0] and "locale" in lines[1][0] and "ffmpeg" in lines[2][0]
+    assert "Prowlarr reaches the trackers over IPv4" in lines[3][0]
+    assert "indexers 2" in lines[4][0]
     # По строке живой пробы и по строке опорного на каждого: их два, и молчит доктор ни
     # о ком (TC-697 - установка при отказе отправляет человека смотреть именно сюда).
-    assert "Knaben ответил" in lines[5][0] and "RuTor ответил" in lines[6][0]
-    assert "Knaben на месте" in lines[7][0] and "RuTor на месте" in lines[8][0]
-    assert "TorrServer" in lines[9][0] and "кэша неизвестен" in lines[10][0]
-    assert "ТВ 10.0.0.50" in lines[11][0] and "порт 8009" in lines[12][0]
+    assert "Knaben answered" in lines[5][0] and "RuTor answered" in lines[6][0]
+    assert "Knaben is in place" in lines[7][0] and "RuTor is in place" in lines[8][0]
+    assert "TorrServer" in lines[9][0] and "cache size is unknown" in lines[10][0]
+    assert "TV 10.0.0.50" in lines[11][0] and "port 8009" in lines[12][0]
     # 🔴 TC-503. Аптайм и связь идут сразу за портом: приёмник спрашивается один раз.
-    assert "приёмник" in lines[13][0]
-    assert "тишина" in lines[14][0] and "профиль приёмника" in lines[15][0]
-    assert "раздача" in lines[16][0] and "кэши в" in lines[17][0] and "след" in lines[18][0]
+    assert "receiver" in lines[13][0]
+    assert "тишина" in lines[14][0] and "receiver profile" in lines[15][0]
+    assert "serving" in lines[16][0] and "shelves in" in lines[17][0] and "trace" in lines[18][0]
 
 
 def test_a_checkup_of_a_healthy_machine_stays_passing() -> None:
@@ -95,7 +95,7 @@ def test_a_cache_in_memory_is_measured_by_the_machine() -> None:
         settings={"CacheSize": 4 * 1024**3, "UseDisk": False}, memory=8 * 1024**3
     )
     line, ok = _cache(_config(), environment)
-    assert not ok and "не влезает" in line, line
+    assert not ok and "does not fit" in line, line
 
 
 def test_a_cache_on_disk_is_measured_by_the_partition() -> None:
@@ -106,14 +106,14 @@ def test_a_cache_on_disk_is_measured_by_the_partition() -> None:
         free=60 * 1024**3,
     )
     line, ok = _cache(_config(), environment)
-    assert ok and "на диске" in line, line
+    assert ok and "on disk" in line, line
     assert environment.urls == ["/кэш"]
 
 
 def test_a_cache_on_disk_without_a_path_never_touches_the_disk() -> None:
     environment = FakeHealthEnvironment(settings={"CacheSize": 1, "UseDisk": True})
     line, ok = _cache(_config(), environment)
-    assert not ok and "путь не задан" in line, line
+    assert not ok and "path not set" in line, line
     assert environment.urls == []
 
 
@@ -124,7 +124,7 @@ def test_an_unreadable_torrserver_does_not_fail_the_checkup() -> None:
     """
     line, ok = _cache(_config(), FakeHealthEnvironment(settings=None))
 
-    assert ok and "неизвестен" in line, line
+    assert ok and "cache size is unknown" in line, line
 
 
 def test_a_cache_that_leaves_no_room_for_the_warmup_is_bad() -> None:
@@ -141,7 +141,7 @@ def test_a_cache_that_leaves_no_room_for_the_warmup_is_bad() -> None:
     line, ok = _cache(_config(), environment)
 
     assert not ok, f"30 ГиБ на раздел под кэш и прогрев - этого не хватает: {line}"
-    assert "прогреву места не остаётся" in line, line
+    assert "no room left for warmup" in line, line
 
 
 def test_what_the_warming_already_took_is_not_asked_of_the_partition_twice() -> None:
@@ -174,5 +174,5 @@ def test_the_receivers_heard_in_the_air_are_named_in_the_line() -> None:
 
     line, ok = _mdns(environment)
 
-    assert ok and line.startswith("ок"), line
+    assert ok and line.startswith("ok"), line
     assert "Samsung Q70D" in line

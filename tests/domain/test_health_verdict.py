@@ -1,6 +1,17 @@
 """Зеркало :mod:`torrcast.domain.health_verdict`."""
 
+import pytest
+
 from torrcast.domain.health_verdict import HealthVerdict
+
+
+@pytest.fixture(autouse=True)
+def _russian_lines(_russian_product: None) -> None:
+    """Предмет модуля - русское словоблюдие самопроверки, поэтому язык назван вслух.
+
+    Умолчание продукта английское (:mod:`torrcast.domain.catalogs.tongue`), и без этой
+    строки набор мерил бы английские надписи, а рассказывал бы про русские.
+    """
 
 
 def test_verdicts_keep_their_words_and_their_weight() -> None:

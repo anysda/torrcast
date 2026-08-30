@@ -12,7 +12,7 @@ def _checkup(environment: FakeHealthEnvironment) -> ShowCheckup:
 def test_a_silent_torrserver_is_a_failure_with_its_address() -> None:
     environment = FakeHealthEnvironment(echo=None)
     line, ok = _checkup(environment).torrserver(Settings())
-    assert not ok and "не отвечает" in line
+    assert not ok and "is silent" in line
     assert environment.timeouts == [5.0], "срок ожидания задаёт сценарий, а не адаптер"
 
 
@@ -49,7 +49,7 @@ def test_an_open_port_is_followed_by_the_uptime_and_the_link() -> None:
     environment = FakeHealthEnvironment(link=(86400 * 2.0, False))
     lines = list(_checkup(environment).tv(Settings(tv="10.0.0.50")))
     assert [ok for _, ok in lines] == [True, True, True]
-    assert "2 д 0 ч" in lines[2][0] and "по Wi-Fi" in lines[2][0]
+    assert "2 д 0 ч" in lines[2][0] and "over Wi-Fi" in lines[2][0]
     assert environment.timeouts == [5.0, 5.0], "срок ожидания задаёт сценарий, а не адаптер"
 
 
@@ -66,13 +66,13 @@ def test_http_delivery_never_asks_about_a_cert() -> None:
     """Серт спрашивается только под https - иначе его отсутствие ничего не значит."""
     environment = FakeHealthEnvironment(days=None)
     line, ok = _checkup(environment).hls(Settings())
-    assert ok and "ни серта" in line
+    assert ok and "no certificate" in line
 
 
 def test_https_delivery_is_judged_by_the_days_left() -> None:
     environment = FakeHealthEnvironment(base=("https://tv", ""), days=3)
     line, ok = _checkup(environment).hls(Settings(transport="https"))
-    assert not ok and "осталось 3 дн" in line
+    assert not ok and "3 days left" in line
 
 
 def test_a_broken_base_is_not_asked_about_a_cert_either() -> None:
@@ -83,17 +83,17 @@ def test_a_broken_base_is_not_asked_about_a_cert_either() -> None:
 
 def test_the_profile_line_comes_from_the_receiver_passport() -> None:
     environment = FakeHealthEnvironment(profile=("осторожный", "нет паспорта", True))
-    assert _checkup(environment).profile(Settings())[0].startswith("ок"), "не «беру осторожный»"
+    assert _checkup(environment).profile(Settings())[0].startswith("ok"), "не «беру осторожный»"
 
 
 def test_shelves_show_counts_against_their_ceilings() -> None:
     environment = FakeHealthEnvironment(shelf=("/полка", (7, 0), (3, 0)), limits=(200, 300))
     line, ok = _checkup(environment).shelves()
-    assert ok and "карт 7/200" in line and "паспортов 3/300" in line
+    assert ok and "maps 7/200" in line and "probes 3/300" in line
 
 
 def test_the_journal_age_is_counted_from_the_environment_clock() -> None:
     """Часы у сценария не свои: возраст записи считает та же среда, что и всё прочее."""
     environment = FakeHealthEnvironment(journal=(True, 1000.0, 2_000_000), moment=1000.0 + 7200)
     line, ok = _checkup(environment).trace()
-    assert ok and "2 ч назад" in line
+    assert ok and "2 h ago" in line

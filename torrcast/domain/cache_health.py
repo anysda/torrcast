@@ -3,6 +3,7 @@
 Зовёт сценарий :mod:`torrcast.usecases.doctor`, размеры и ответы приносит порт среды.
 """
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.health_verdict import HealthLine, HealthVerdict
 
 #: Во сколько раз память службы раздачи больше кэша, который она держит В ПАМЯТИ. Замер:
@@ -39,32 +40,32 @@ class CacheHealth:
     @staticmethod
     def gib(size: int) -> str:
         """Байты человеку: доли гигабайта тут читаются, а сами байты - нет."""
-        return f"{size / 1024**3:.1f} ГиБ"
+        return phrase("health.gib", size=size / 1024**3)
 
     @staticmethod
     def server(url: str, echo: str | None) -> HealthLine:
         """Служба раздачи: ``echo`` - её ответ, ``None`` - молчание."""
         if echo is None:
-            return HealthVerdict.bad(f"TorrServer не отвечает ({url}) - раздачи не будет")
+            return HealthVerdict.bad(phrase("health.server_silent", url=url))
         return HealthVerdict.ok(f"TorrServer {echo.strip()[:20]} ({url})")
 
     @staticmethod
     def unreadable() -> HealthLine:
         """Настройки не прочитались: про саму службу уже сказала строка выше."""
-        return HealthVerdict.warn("настройки TorrServer не читаются - размер кэша неизвестен")
+        return HealthVerdict.warn(phrase("health.cache_unreadable"))
 
     @staticmethod
     def in_memory(size: int, total: int) -> HealthLine:
         """Кэш в памяти: мера ему - память машины, и платит он вдвое против себя."""
         weight = size * CACHE_OVERHEAD
-        text = (
-            f"кэш раздачи {CacheHealth.gib(size)} в памяти, под показом это "
-            f"~{CacheHealth.gib(weight)} памяти из {CacheHealth.gib(total)} машины"
+        text = phrase(
+            "health.cache_in_memory",
+            size=CacheHealth.gib(size),
+            weight=CacheHealth.gib(weight),
+            total=CacheHealth.gib(total),
         )
         if weight + CACHE_RESERVE > total:
-            return HealthVerdict.bad(
-                f"{text} - не влезает: показ уронит машину, переставь install.sh"
-            )
+            return HealthVerdict.bad(phrase("health.cache_no_room", text=text))
         return HealthVerdict.ok(text)
 
     @staticmethod
@@ -75,17 +76,21 @@ class CacheHealth:
         прогрев со своим бюджетом и запасом, а также состояние и система. То же число
         складывает установка - слагаемые общие, чтобы числа не разъезжались.
         """
-        text = f"кэш раздачи {CacheHealth.gib(size)} на диске ({path or 'путь не задан'})"
+        text = phrase(
+            "health.cache_on_disk",
+            size=CacheHealth.gib(size),
+            path=path or phrase("health.cache_path_unset"),
+        )
         if not path:
-            return HealthVerdict.bad(
-                f"{text} - служба положит его куда сама решит, переставь install.sh"
-            )
+            return HealthVerdict.bad(phrase("health.cache_path_loose", text=text))
         if not free:
-            return HealthVerdict.warn(f"{text}, свободное место на разделе не читается")
-        text = (
-            f"{text}, память службы ~{CacheHealth.gib(CACHE_ON_DISK_MEMORY)}, "
-            f"на разделе {CacheHealth.gib(free)}"
+            return HealthVerdict.warn(phrase("health.cache_free_unknown", text=text))
+        text = phrase(
+            "health.cache_disk_room",
+            text=text,
+            memory=CacheHealth.gib(CACHE_ON_DISK_MEMORY),
+            free=CacheHealth.gib(free),
         )
         if free < reserve:
-            return HealthVerdict.bad(f"{text} - прогреву места не остаётся, обрыв оборвёт показ")
+            return HealthVerdict.bad(phrase("health.cache_no_warm_room", text=text))
         return HealthVerdict.ok(text)

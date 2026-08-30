@@ -425,13 +425,13 @@ def test_doctor_says_whether_the_journal_is_alive(tmp_path: Path) -> None:
 
     line, ok = _trace()
     assert ok, "отсутствие следа - не отказ показа"
-    assert "следа нет" in line
+    assert "no trace" in line
 
     emit("search", "query", query="матрица")
     shutdown()
     line, ok = _trace()
     assert ok
-    assert "след" in line and "МБ" in line and "последняя запись" in line
+    assert "trace" in line and "MB" in line and "last record" in line
 
 
 def test_a_served_piece_says_which_producer_made_it(tmp_path: Path) -> None:
