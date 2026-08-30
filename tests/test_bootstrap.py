@@ -228,6 +228,87 @@ def test_install_sh_exit_code_passes_through_without_a_bootstrap_wrapper(
     assert "ошибка:" not in done.stderr
 
 
+def _sudo_chain_bin(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    """Строит поддельные `id`, `sudo`, `curl`, как их видит бутстрап после `exec sudo`.
+
+    `id` всегда говорит "не root". `sudo` ведёт себя как настоящий sudo без `-E` -
+    записывает, что его позвали, и запускает переданную команду с ВЫТЕРТЫМ окружением
+    (см. комментарий у become_root в install: TORRCAST_* не переживают -E на части
+    машин). `curl` не ходит в сеть - вместо скачивания печатает щуп, который дописывает
+    СВОЁ окружение (то, что реально досталось процессу за трубой) в файл. Это и есть
+    замер поведением, а не грепом: наблюдаем то, что видит код после sudo, а не текст
+    install."""
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir()
+    observed = tmp_path / "observed.txt"
+    sudo_calls = tmp_path / "sudo_calls.txt"
+    curl_calls = tmp_path / "curl_calls.txt"
+
+    id_bin = bindir / "id"
+    id_bin.write_text("#!/bin/sh\nprintf '1000\\n'\n", encoding="utf-8")
+    id_bin.chmod(0o755)
+
+    sudo_bin = bindir / "sudo"
+    sudo_bin.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> "{sudo_calls}"\n'
+        'exec env -i PATH="$PATH" HOME="$HOME" "$@"\n',
+        encoding="utf-8",
+    )
+    sudo_bin.chmod(0o755)
+
+    curl_bin = bindir / "curl"
+    curl_bin.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> "{curl_calls}"\n'
+        "cat <<'PROBE'\n"
+        "#!/bin/sh\n"
+        "{\n"
+        '  printf "LANGUAGE=%s\\n" "${TORRCAST_LANGUAGE:-<unset>}"\n'
+        '  printf "BOOTSTRAP_URL=%s\\n" "${TORRCAST_BOOTSTRAP_URL:-<unset>}"\n'
+        f'}} >> "{observed}"\n'
+        "PROBE\n",
+        encoding="utf-8",
+    )
+    curl_bin.chmod(0o755)
+
+    return bindir, observed, sudo_calls, curl_calls
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize("language", ["ru", "en"])
+def test_language_survives_the_restart_through_sudo(tmp_path: Path, language: str) -> None:
+    """Дыра TC-886/2: `TORRCAST_LANGUAGE` в become_root доезжает до перезапущенного
+    процесса ТОЛЬКО через явный export внутри `sh -c` за sudo - окружение самого sudo
+    настоящий sudo без `-E` вытирает молча. Замер не грепает install, а сажает щуп
+    именно там, куда попадает то, что бутстрап зовёт ПОСЛЕ sudo, и печатает
+    наблюдённое окружение. Без TORRCAST_NO_ROOT (та лазейка пропускает ровно этот путь):
+    не-root изображён поддельным `id`."""
+    bindir, observed, sudo_calls, curl_calls = _sudo_chain_bin(tmp_path)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "TORRCAST_LANGUAGE": language}
+    env.pop("TORRCAST_NO_ROOT", None)
+
+    done = subprocess.run(
+        ["sh", str(BOOTSTRAP)], capture_output=True, text=True, env=env, check=False
+    )
+
+    assert sudo_calls.exists() and sudo_calls.read_text(encoding="utf-8").strip(), (
+        f"sudo ни разу не был позван - нечего мерить (stderr: {done.stderr!r})"
+    )
+    assert curl_calls.exists() and curl_calls.read_text(encoding="utf-8").strip(), (
+        f"curl за sudo ни разу не был позван - нечего мерить (stderr: {done.stderr!r})"
+    )
+    assert observed.exists() and observed.read_text(encoding="utf-8").strip(), (
+        "щуп ничего не увидел: ноль наблюдений за трубой sudo -> curl -> sh, "
+        f"судить о языке нечем (stderr: {done.stderr!r})"
+    )
+    body = observed.read_text(encoding="utf-8")
+    assert f"LANGUAGE={language}" in body, (
+        f"TORRCAST_LANGUAGE не пережил перезапуск через sudo: ждали {language!r}, "
+        f"щуп увидел {body!r}"
+    )
+
+
 @pytest.mark.machine
 def test_the_tag_from_permalink_is_stripped_of_v_before_hitting_the_registry(
     tmp_path: Path,
