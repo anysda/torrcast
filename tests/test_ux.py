@@ -234,7 +234,7 @@ def test_the_question_says_out_loud_what_enter_will_start(
         < printed.index("  2. Моана 2 (2024)")
         < printed.index(enter)
     ), "список хронологический, а строка про дефолт - в хвосте, у самого вопроса"
-    assert "играю «Moana» (2016)" in printed, "и Enter запустил ровно то, что было названо"
+    assert "playing «Moana» (2016)" in printed, "и Enter запустил ровно то, что было названо"
 
 
 def test_a_single_choice_is_not_a_question(
@@ -283,7 +283,7 @@ def test_the_liveliest_namesake_is_taken_without_a_question(
         )
         in printed
     ), printed
-    assert "играю «Мумия» (2026)" in printed
+    assert "playing «Мумия» (2026)" in printed
 
 
 #: Выдача «мумии»: две картины под одним именем - самая тихая из подмен (🔴 TC-198).
@@ -417,7 +417,7 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
         if buttons and buttons[0][0]["callback_data"].startswith("control:")
     ]
     assert controls == ["Мумия (2026)", "Мумия (1999)"]
-    assert "играю «Мумия» (1999)" in capsys.readouterr().out
+    assert "playing «Мумия» (1999)" in capsys.readouterr().out
 
 
 @pytest.mark.machine
@@ -672,7 +672,7 @@ def test_the_cancel_button_takes_the_whole_dialog_away_without_a_failure(
     #: Нажата была именно кнопка отмены - последняя строка карточки со списком.
     assert [data.split(":")[0] for data in pressed] == ["drop"], pressed
     #: Показ не пошёл: ни строки запуска, ни нового пульта под неё.
-    assert "играю «Мумия»" not in printed, printed
+    assert "playing «Мумия»" not in printed, printed
     assert not any(
         buttons and str(buttons[0][0].get("callback_data", "")).startswith("control:")
         for _message_id, _text, buttons in api.sent[card_id:]
@@ -823,7 +823,7 @@ def test_bot_understands_the_menu_flag_after_telegram_autocorrects_the_dash(
 
     #: Карточка со списком пришла - значит флаг `--menu` доехал до argparse настоящим.
     assert any("1. Мумия (1999)" in text for _message_id, text, _buttons in api.sent)
-    assert "играю «Мумия» (1999)" in capsys.readouterr().out
+    assert "playing «Мумия» (1999)" in capsys.readouterr().out
 
 
 def test_the_namesake_line_is_said_before_the_start(
@@ -856,7 +856,7 @@ def test_the_namesake_line_is_said_before_the_start(
             asked="мумия",
         )
     )
-    start = printed.index("играю «Мумия» (2026)")
+    start = printed.index("playing «Мумия» (2026)")
     assert take < start, "решение названо вслух до старта показа, а не после"
 
 
@@ -959,7 +959,7 @@ def test_releases_prints_the_old_table_and_exits(capsys: pytest.CaptureFixture[s
     printed = capsys.readouterr().out
     assert "Релизы:" in printed and "Качество" in printed
     assert "Moana (2016)" in printed and "Моана 2 (2024)" in printed
-    assert "играю" not in printed, "releases ничего не запускает"
+    assert "playing" not in printed, "releases ничего не запускает"
 
 
 def test_releases_ties_each_number_to_its_picture(capsys: pytest.CaptureFixture[str]) -> None:
@@ -972,8 +972,8 @@ def test_releases_ties_each_number_to_its_picture(capsys: pytest.CaptureFixture[
     assert main(["releases", "моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert "1. Moana (2016) - раздач" in printed, printed
-    assert "2. Моана 2 (2024) - раздач" in printed, printed
+    assert "1. Moana (2016) - releases" in printed, printed
+    assert "2. Моана 2 (2024) - releases" in printed, printed
     assert "--pick M --release N" in printed, printed
 
 
@@ -996,7 +996,7 @@ def test_the_start_time_means_a_picture_on_the_screen(
     show_unit.alive = True  # юнит жив: ждать нам мешает только отсутствие картинки
     config = Config(hls_dir=str(out))
 
-    with pytest.raises(Exception, match="показ не начался"), Progress() as progress:
+    with pytest.raises(Exception, match="did not start"), Progress() as progress:
         AWAIT_PLAYING(config, progress, timeout=0.6)
 
     mark_playing(out)
@@ -1118,7 +1118,7 @@ def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
     printed = capsys.readouterr().out
     assert asked == [], "имя франшизы зовёт первую часть, и спрашивать не о чем"
     assert phrase("choice.taken", picture="Moana (2016)", total=2, asked="моана") in printed
-    assert "играю «Moana» (2016)" in printed, printed
+    assert "playing «Moana» (2016)" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "закладка цела"
 
 
@@ -1141,7 +1141,7 @@ def test_the_bookmark_is_resumed_inside_the_picture_that_was_chosen(
 
     printed = capsys.readouterr().out
     assert asked == [], "картину назвали флагом, а место поднимается молча"
-    assert "играю «Моана 2»" in printed and "с 0:41:07" in printed, printed
+    assert "playing «Моана 2»" in printed and "с 0:41:07" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "продолжаем с места"
 
 
@@ -1485,9 +1485,9 @@ def test_a_second_cast_says_the_tv_is_busy_with_our_show(
     assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert "на телевизоре сейчас идёт «Матрица»" in printed, printed
+    assert "the TV is already showing «Матрица»" in printed, printed
     assert "0:02:08" in printed, "видно и то, докуда досмотрели"
-    assert "этот показ прервётся" in printed, printed
+    assert "this show will be interrupted" in printed, printed
 
 
 def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
@@ -1559,7 +1559,7 @@ def test_a_hand_named_release_weighs_the_same_on_both_early_exits(
 
 
 def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """Названный релиз играется с начала - и сохранённое место теряется НЕ молча.
 
@@ -1578,16 +1578,17 @@ def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
     assert main(["моана", "2", "--release", "2"]) == 0
 
     said = capsys.readouterr().out
-    assert (
-        "«Моана 2» - релиз назван руками, играю с начала; "
-        "сохранённое место 0:41:07 не поднимаю" in said
-    ), said
+    line = phrase("bookmark.release_named_resume", title="Моана 2", pos="0:41:07")
+    assert line in said, said
     assert State.load().entries["movie:моана-2:2024"].pos == 0.0, "играли с начала"
 
 
 @pytest.mark.parametrize(
     ("flag", "number", "named", "torrent"),
-    [("--release", "2", "релиз", "d"), ("--file", "1", "файл", "c")],
+    [
+        ("--release", "2", "bookmark.release_word", "d"),
+        ("--file", "1", "bookmark.file_word", "c"),
+    ],
 )
 def test_a_hand_named_choice_beats_new_and_says_so(
     monkeypatch: pytest.MonkeyPatch,
@@ -1596,6 +1597,7 @@ def test_a_hand_named_choice_beats_new_and_says_so(
     number: str,
     named: str,
     torrent: str,
+    _russian_product: None,
 ) -> None:
     """Явный релиз или файл выбирается заново; ``--new`` не глотает его молча."""
     state = State()
@@ -1611,10 +1613,8 @@ def test_a_hand_named_choice_beats_new_and_says_so(
     played = State.load().entries["movie:моана-2:2024"]
     said = capsys.readouterr().out
     assert played.magnet.startswith(f"magnet:?xt=urn:btih:{torrent * 4}")
-    assert (
-        f"«Моана 2» - {named} назван руками, играю выбранное с начала; "
-        "сохранённый выбор не поднимаю" in said
-    ), said
+    line = phrase("bookmark.named_from_start", title="Моана 2", named=phrase(named))
+    assert line in said, said
 
 
 def test_continuing_without_a_flag_keeps_the_bookmark_and_stays_silent(
@@ -1686,7 +1686,7 @@ def test_a_series_named_by_its_only_season_still_plays(
     assert main(["кухня", "6"]) == 0, "картина живая, раздачи живые - это показ"
 
     printed = capsys.readouterr().out
-    assert "играю «Кухня 6»" in printed, printed
+    assert "playing «Кухня 6»" in printed, printed
     # Молчаливого прочтения не бывает: номер человек написал сам и вправе знать, чем
     # мы его сочли.
     assert "номер 6 читаю сезоном, а не частью" in printed, printed

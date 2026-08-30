@@ -8,6 +8,7 @@ import pytest
 
 from tests.usecases.cast_command.world import entry, plan
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._bookmark import (
@@ -16,6 +17,11 @@ from torrcast.usecases.cast_command._bookmark import (
     _plays_recorded,
 )
 from torrcast.usecases.start_clock import _Clock
+
+
+@pytest.fixture(autouse=True)
+def _russian_bookmark(_russian_product: None) -> None:
+    """Предмет всего модуля - закладка показа, писанная по-русски до языкового яруса."""
 
 
 class Bench:
@@ -65,10 +71,8 @@ def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
     )
 
     assert code is None, "названный руками релиз играется обычным путём"
-    assert (
-        "«Кино» - релиз назван руками, играю с начала; "
-        "сохранённое место 1:00:00 не поднимаю" in capsys.readouterr().out
-    )
+    said = phrase("bookmark.release_named_resume", title="Кино", pos="1:00:00")
+    assert said in capsys.readouterr().out
     assert bench.dropped == 0, "прогретое тут ещё пригодится: показ пойдёт обычным путём"
 
 
@@ -106,10 +110,8 @@ def test_a_menu_picked_started_series_says_it_drops_the_saved_place(
     )
 
     assert code is None, "сериал уходит обычным путём - показ с нуля"
-    assert (
-        "«Кино» - картина выбрана в меню, играю с начала; "
-        "сохранённое место 1:00:00 не поднимаю" in capsys.readouterr().out
-    )
+    said = phrase("bookmark.picked_in_menu", title="Кино", pos="1:00:00")
+    assert said in capsys.readouterr().out
 
 
 def test_a_flag_picked_started_series_says_it_drops_the_saved_place(
@@ -128,10 +130,8 @@ def test_a_flag_picked_started_series_says_it_drops_the_saved_place(
     )
 
     assert code is None
-    assert (
-        "«Кино» - картина выбрана в меню, играю с начала; "
-        "сохранённое место 1:00:00 не поднимаю" in capsys.readouterr().out
-    )
+    said = phrase("bookmark.picked_in_menu", title="Кино", pos="1:00:00")
+    assert said in capsys.readouterr().out
 
 
 def test_a_menu_picked_picture_without_a_bookmark_stays_silent(
@@ -349,7 +349,8 @@ def test_a_hand_named_release_of_a_series_at_another_episode_says_the_place_is_d
     )
 
     assert code is None
-    assert "сохранённое место 0:04:25 не поднимаю" in capsys.readouterr().out
+    said = phrase("bookmark.release_named_resume", title="Кино", pos="0:04:25")
+    assert said in capsys.readouterr().out
 
 
 def test_a_buried_release_is_not_played_again_by_the_bookmark_of_the_chosen_picture(

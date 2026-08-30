@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
@@ -108,11 +109,8 @@ def _continue_picked(
     if started is None:
         return None
     if args.pinned and args.from_start:
-        named = "релиз" if args.release is not None else "файл"
-        print(
-            f"«{started.title}» - {named} назван руками, играю выбранное с начала; "
-            "сохранённый выбор не поднимаю"
-        )
+        word = "bookmark.release_word" if args.release is not None else "bookmark.file_word"
+        print(phrase("bookmark.named_from_start", title=started.title, named=phrase(word)))
     elif args.pinned and started.resumable:
         kept = (
             started.serial
@@ -121,8 +119,9 @@ def _continue_picked(
         )
         if not kept:  # сериалу место уже поднято (:func:`_kept_place`) - строка соврала бы
             print(
-                f"«{started.title}» - релиз назван руками, играю с начала; "
-                f"сохранённое место {_hms(started.pos)} не поднимаю"
+                phrase(
+                    "bookmark.release_named_resume", title=started.title, pos=_hms(started.pos)
+                )
             )
     if args.pinned:
         return None
@@ -134,10 +133,7 @@ def _continue_picked(
             # Голова строки называет ту дверь, которой вошли: картину выбрали в меню, её
             # закладка здесь не отвечает, и показ с нуля перепишет сохранённое место под
             # тем же ключом. Потеря та же, что у названного руками релиза выше, - хвост общий.
-            print(
-                f"«{started.title}» - картина выбрана в меню, играю с начала; "
-                f"сохранённое место {_hms(started.pos)} не поднимаю"
-            )
+            print(phrase("bookmark.picked_in_menu", title=started.title, pos=_hms(started.pos)))
         return None
     bench.drop_all()
     return _continue(config, plan.picture.key, started, args=args, clock=clock)
