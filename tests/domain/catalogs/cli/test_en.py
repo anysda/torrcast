@@ -1,4 +1,4 @@
-"""Английский каталог кластера разбора argv: он же умолчание, он же запасной.
+"""Английский каталог кластера командной строки: он же умолчание, он же запасной.
 
 Кириллица в нём - не опечатка, а невыполненный перевод: запасной каталог отвечает всем,
 у кого языка нет вовсе, и русская строка оттуда уехала бы англоязычному человеку.
@@ -21,6 +21,4 @@ def test_english_catalog_holds_no_russian() -> None:
 def test_every_key_names_its_cluster() -> None:
     stray = [key for key in english() if not key.startswith("cli.")]
     assert stray == []
-    assert english()["cli.about"] == (
-        "torrcast - find a release and cast it to the TV without downloading"
-    )
+    assert english()["cli.help_new"] == "the same release, file and track from the start"

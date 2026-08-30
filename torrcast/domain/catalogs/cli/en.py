@@ -1,10 +1,10 @@
-"""Английские надписи кластера разбора argv."""
+"""Английские надписи кластера командной строки."""
 
 from __future__ import annotations
 
 
 def en() -> dict[str, str]:
-    """Вернуть английский каталог кластера разбора argv.
+    """Вернуть английский каталог кластера командной строки.
 
     Английский - и умолчание продукта, и запасной каталог: без него ``cast --help``
     показывал бы русский текст даже английской установке, потому что справка
@@ -12,24 +12,26 @@ def en() -> dict[str, str]:
     """
     return {
         "cli.about": "torrcast - find a release and cast it to the TV without downloading",
-        "cli.query_help": "the title, or stop / status",
-        "cli.tv_help": (
+        "cli.help_query": "the title, or stop / status",
+        "cli.help_tv": (
             "TV setup: without an address - find receivers on the network and pick from the list"
         ),
-        "cli.telegram_help": "open the Telegram bot setup menu",
-        "cli.ru_help": "switch to Russian and remember the choice",
-        "cli.en_help": "switch to English and remember the choice",
-        "cli.release_help": (
+        "cli.help_telegram": "open the Telegram bot setup menu",
+        "cli.help_ru": "switch to Russian and remember the choice",
+        "cli.help_en": "switch to English and remember the choice",
+        "cli.help_release": (
             "debug: release N of the chosen picture; numbers come from cast releases "
             "with the same query"
         ),
-        "cli.pick_help": "picture N from the menu, without asking",
-        "cli.menu_help": "show the list of pictures and ask, instead of switching on by itself",
-        "cli.file_help": "debug: take file N of the release",
-        "cli.voice_metavar": "N|STUDIO",
-        "cli.voice_help": "voice: number or studio - take and remember, no value - menu",
-        "cli.from_start_help": "the same release, file and track from the start",
-        "cli.dry_help": "the whole resolve without casting",
-        "cli.since_metavar": "SPAN",
-        "cli.since_help": "cast log: since when (2d / 12h / 30m / YYYY-MM-DD)",
+        "cli.help_pick": "picture N from the menu, without asking",
+        "cli.help_menu": "show the list of pictures and ask, instead of switching on by itself",
+        "cli.help_file": "debug: take file N of the release",
+        "cli.metavar_voice": "N|STUDIO",
+        "cli.help_voice": "voice: number or studio - take and remember, no value - menu",
+        "cli.help_new": "the same release, file and track from the start",
+        "cli.help_dry": "the whole resolve without casting",
+        "cli.metavar_since": "SPAN",
+        "cli.help_since": "cast log: since when (2d / 12h / 30m / YYYY-MM-DD)",
+        "cli.terminated_by_sigterm": "command interrupted by SIGTERM",
+        "cli.terminated_by_keyboard": "command interrupted from the keyboard",
     }

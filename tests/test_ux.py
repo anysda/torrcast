@@ -717,7 +717,7 @@ def test_the_console_question_keeps_its_enter_hint_and_its_ctrl_c(
     monkeypatch.setattr("builtins.input", interrupted)
 
     assert main(["моана", "--menu"]) == EXIT_INFRA
-    assert "команда прервана с клавиатуры" in capsys.readouterr().err
+    assert phrase("cli.terminated_by_keyboard") in capsys.readouterr().err
 
 
 @pytest.mark.machine

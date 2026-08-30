@@ -125,8 +125,8 @@ def test_sigterm_is_named_on_the_screen_and_in_the_trace(
         return int(EXIT_OK)
 
     assert answered(terminated) == EXIT_INFRA
-    assert capsys.readouterr().err == "команда прервана сигналом SIGTERM\n"
-    assert tape.events == [("command", "finished", {"result": "SIGTERM", "code": EXIT_INFRA})]
+    assert capsys.readouterr().err == "command interrupted by SIGTERM\n"
+    assert tape.events == [("command", "finished", {"result": "sigterm", "code": EXIT_INFRA})]
     assert tape.closed == 1
 
 
@@ -148,4 +148,4 @@ raise SystemExit(main(["мумия"], commands=commands))
     )
 
     assert done.returncode == EXIT_INFRA
-    assert "команда прервана сигналом SIGTERM" in done.stderr
+    assert "command interrupted by SIGTERM" in done.stderr

@@ -42,19 +42,19 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     parser = argparse.ArgumentParser(
         prog="cast", description=phrase("cli.about"), allow_abbrev=False
     )
-    parser.add_argument("query", nargs="*", help=phrase("cli.query_help"))
+    parser.add_argument("query", nargs="*", help=phrase("cli.help_query"))
     parser.add_argument(
         "--tv",
         nargs="?",
         const=TV_MENU,
         metavar="IP",
-        help=phrase("cli.tv_help"),
+        help=phrase("cli.help_tv"),
     )
     parser.add_argument(
         "-tg",
         dest="telegram",
         action="store_true",
-        help=phrase("cli.telegram_help"),
+        help=phrase("cli.help_telegram"),
     )
     # Язык - настройка, а не режим запуска: флаг ЗАПОМИНАЕТСЯ, и следующий `cast` уже
     # говорит на нём же. Умолчание тут `None`, а не "en": «язык не назван» и «назван
@@ -65,14 +65,14 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         dest="language",
         action="store_const",
         const=RU,
-        help=phrase("cli.ru_help"),
+        help=phrase("cli.help_ru"),
     )
     tongue.add_argument(
         "--en",
         dest="language",
         action="store_const",
         const=EN,
-        help=phrase("cli.en_help"),
+        help=phrase("cli.help_en"),
     )
     # Номер релиза имеет смысл только вместе с запросом и выбранной картиной: другой
     # запрос - другой список, а у каждой картины в нём - свои номера (TC-446).
@@ -80,24 +80,24 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         "--release",
         type=int,
         metavar="N",
-        help=phrase("cli.release_help"),
+        help=phrase("cli.help_release"),
     )
-    parser.add_argument("--pick", type=int, metavar="N", help=phrase("cli.pick_help"))
+    parser.add_argument("--pick", type=int, metavar="N", help=phrase("cli.help_pick"))
     # Закладка отвечает на «где я остановился», а меню - на «что играть»: этой ручкой
     # спрашивают второе, и сохранённое место у неё дороги не занимает.
     parser.add_argument(
         "--menu",
         action="store_true",
-        help=phrase("cli.menu_help"),
+        help=phrase("cli.help_menu"),
     )
-    parser.add_argument("--file", type=int, metavar="N", help=phrase("cli.file_help"))
+    parser.add_argument("--file", type=int, metavar="N", help=phrase("cli.help_file"))
     parser.add_argument(
         "--voice",
         type=_voice,
         nargs="?",
         const=VOICE_MENU,
-        metavar=phrase("cli.voice_metavar"),
-        help=phrase("cli.voice_help"),
+        metavar=phrase("cli.metavar_voice"),
+        help=phrase("cli.help_voice"),
     )
     # Прежнее имя того же флага: ломать чужие пальцы и историю оболочки незачем.
     parser.add_argument(
@@ -112,11 +112,11 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         FROM_START_FLAG,
         dest="from_start",
         action="store_true",
-        help=phrase("cli.from_start_help"),
+        help=phrase("cli.help_new"),
     )
-    parser.add_argument("--dry", action="store_true", help=phrase("cli.dry_help"))
+    parser.add_argument("--dry", action="store_true", help=phrase("cli.help_dry"))
     parser.add_argument(
-        "--since", metavar=phrase("cli.since_metavar"), help=phrase("cli.since_help")
+        "--since", metavar=phrase("cli.metavar_since"), help=phrase("cli.help_since")
     )
     parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
     parser.add_argument("--version", action="version", version=f"torrcast {__version__}")

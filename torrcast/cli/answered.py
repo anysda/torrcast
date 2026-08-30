@@ -11,6 +11,7 @@ import sys
 from collections.abc import Callable
 
 from torrcast.domain.cancelled_error import CancelledError
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_CANCELLED, EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
@@ -41,12 +42,11 @@ def answered(run: Callable[[], int]) -> int:
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(line_buffering=True)
     previous = signal.signal(signal.SIGTERM, _on_term)
-    # `result` - поле ленты (``journal().emit("command", "finished", result=result, ...)``),
-    # не жалоба человеку: `cast log` его печатает, но это машинный ярлык рода конца
-    # команды, тот же смысл, что у имени события рядом с ним. Ярлык остаётся английским
-    # словом при любом языке настройки - тем же выбором, что уже сделан для отказа сборки
-    # (:func:`torrcast.runtime.main.main`), - а русский текст самого отказа уходит
-    # отдельно, строкой в stderr.
+    # 🔴 `result` - тег события для журнала (:func:`torrcast.ports.journal.slot.journal`),
+    # а не надпись человеку: сосед по тому же вызову (``"error"``, ``"finished"``) уже
+    # английский литерал, а не переключается языком показа. Запись в журнал не помнит,
+    # каким языком её читали, - переключи её каталогом, и старые записи разошлись бы с
+    # новыми при одной смене `cast --ru/--en`.
     result = "unhandled_failure"
     code = EXIT_INFRA
     try:
@@ -78,13 +78,13 @@ def answered(run: Callable[[], int]) -> int:
         return EXIT_OK
     except _Terminated:
         code = EXIT_INFRA
-        result = "SIGTERM"
-        print("команда прервана сигналом SIGTERM", file=sys.stderr)
+        result = "sigterm"
+        print(phrase("cli.terminated_by_sigterm"), file=sys.stderr)
         return EXIT_INFRA
     except KeyboardInterrupt:
         code = EXIT_INFRA
         result = "keyboard_interrupt"
-        print("команда прервана с клавиатуры", file=sys.stderr)
+        print(phrase("cli.terminated_by_keyboard"), file=sys.stderr)
         return EXIT_INFRA
     except BrokenPipeError:  # `cast status | head` - не повод показывать трейсбек
         code = EXIT_OK
