@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 
 import structure_gate
+
+STRUCTURE_GATE_SCRIPT = Path(__file__).parents[1] / "scripts" / "structure_gate.py"
 
 
 def _tree(tmp_path: Path, source: str = '"""Модуль."""\n\nclass Good:\n    pass\n') -> Path:
@@ -706,3 +711,63 @@ def test_the_sample_cluster_is_clean_on_a_counted_number_of_files() -> None:
     assert len(sample) == len(list((root / "torrcast" / "usecases" / "choice").rglob("*.py")))
     assert len(sample) > 1
     assert [item.relative for item in sample if structure_gate._spoken_places(item)] == []
+
+
+def _git_tree(tmp_path: Path, names: tuple[str, ...]) -> Path:
+    """Настоящий git-репозиторий с отслеженными файлами - мера правила это `git ls-files`,
+    и синтетическим каталогом без `.git` её не проверить."""
+    for name in names:
+        (tmp_path / name).write_text("", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    if names:
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+@pytest.mark.machine
+def test_document_rule_allows_readme_alone(tmp_path: Path) -> None:
+    root = _git_tree(tmp_path, ("README.md",))
+    assert structure_gate._document_violations(root) == []
+
+
+@pytest.mark.machine
+def test_document_rule_allows_readme_and_its_russian_twin(tmp_path: Path) -> None:
+    root = _git_tree(tmp_path, ("README.md", "README-ru.md"))
+    assert structure_gate._document_violations(root) == []
+
+
+@pytest.mark.machine
+def test_document_rule_turns_red_on_a_third_markdown_that_looks_legitimate(
+    tmp_path: Path,
+) -> None:
+    """`README-en.md` ловит подмену точного списка маской - `docs/notes.md` бы не поймал."""
+    root = _git_tree(tmp_path, ("README.md", "README-en.md"))
+    violations = structure_gate._document_violations(root)
+    assert [item.path for item in violations] == ["README-en.md"]
+    assert {item.rule for item in violations} == {"документы"}
+
+
+@pytest.mark.machine
+def test_document_rule_turns_red_when_git_ls_files_sees_nothing(tmp_path: Path) -> None:
+    """Пустой ответ `git ls-files` - сломанный замер, а не чистое дерево."""
+    root = _git_tree(tmp_path, ())
+    violations = structure_gate._document_violations(root)
+    assert len(violations) == 1
+    assert violations[0].rule == "документы"
+    assert "ослеп" in violations[0].message
+
+
+@pytest.mark.machine
+def test_document_rule_is_wired_into_the_entry_point(tmp_path: Path) -> None:
+    """Сторож проводки: доказывает не то, что правило умеет краснеть, а то, что его
+    в принципе спрашивают из точки входа - гоняет модуль отдельным процессом, как его
+    зовёт `scripts/structure-gate`, а не импортом одной функции."""
+    root = _git_tree(tmp_path, ("README.md", "README-en.md"))
+    completed = subprocess.run(
+        [sys.executable, str(STRUCTURE_GATE_SCRIPT), str(root), "--strict"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert "README-en.md" in completed.stdout
