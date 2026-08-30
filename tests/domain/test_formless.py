@@ -44,3 +44,10 @@ def test_a_key_made_of_a_form_word_alone_is_kept_whole() -> None:
     """Пустого ключа не отдаём: «фильм» это всё, что о картине сказано, и стричь нечего."""
     assert _formless("фильм") == "фильм"
     assert _formless("movie") == "movie"
+
+
+def test_a_leading_form_word_plus_a_bare_number_stays_whole() -> None:
+    """🔴 TC-906: «Movie 43» - настоящее имя, а не двойник со сведённым ключом `43`."""
+    assert _formless("movie-43") == "movie-43"
+    assert _formless("film-7") == "film-7"
+    assert _formless("gekijouban-bleach") == "bleach"
