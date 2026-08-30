@@ -71,5 +71,5 @@ def test_a_previous_show_is_put_out_before_the_new_one_starts() -> None:
 
 def test_a_unit_that_did_not_start_is_told_about_out_loud() -> None:
     """Не поднялся юнит - беда наружу словами, а не молчаливый «показ пошёл»."""
-    with pytest.raises(InfraError, match="не запустился юнит"):
+    with pytest.raises(InfraError, match=r"unit .* did not start"):
         start_play_unit("ключ", call=_answers([], code=1))

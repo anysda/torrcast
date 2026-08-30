@@ -7,6 +7,7 @@ import sys
 
 from torrcast.adapters.systemd._systemd_call import SystemdCall, _systemd
 from torrcast.adapters.systemd.stop_play_unit import stop_play_unit
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.unit_naming import _PASS_ENV, _UNIT_NAME, _UNIT_TAG
 
@@ -36,4 +37,5 @@ def start_play_unit(key: str, unit: str = _UNIT_NAME, *, call: SystemdCall = _sy
         sys.executable, "-m", "torrcast.runtime", "--play-key", key,
     )  # fmt: skip
     if done.returncode != 0:
-        raise InfraError(f"не запустился юнит {unit}: {done.stderr.strip()[:120] or 'systemd-run'}")
+        detail = done.stderr.strip()[:120] or "systemd-run"
+        raise InfraError(phrase("systemd.unit_did_not_start", unit=unit, detail=detail))

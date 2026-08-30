@@ -36,12 +36,12 @@ def test_the_last_word_is_taken_from_the_show_and_not_from_systemd() -> None:
 def test_a_journal_without_our_lines_says_so_instead_of_inventing_a_reason() -> None:
     """Своих строк нет - так и говорим. Битая строка журнала не роняет ответ."""
     only_systemd = _journal({"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "Started."})
-    assert unit_why(call=only_systemd) == "в журнале пусто"
+    assert unit_why(call=only_systemd) == "the journal is empty"
 
     def broken(tool: str, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess([tool, *args], 0, "{не json\n", "")
 
-    assert unit_why(call=broken) == "в журнале пусто"
+    assert unit_why(call=broken) == "the journal is empty"
 
 
 def test_a_very_long_line_is_cut_before_it_reaches_the_console() -> None:
@@ -56,4 +56,4 @@ def test_a_broken_journal_cannot_kill_the_answer_about_the_unit() -> None:
     def unavailable(tool: str, *args: str) -> subprocess.CompletedProcess[str]:
         raise subprocess.TimeoutExpired([tool, *args], 60)
 
-    assert unit_why(call=unavailable).startswith("причина недоступна:")
+    assert unit_why(call=unavailable).startswith("reason unavailable:")

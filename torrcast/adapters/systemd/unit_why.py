@@ -6,6 +6,7 @@ import contextlib
 import json
 
 from torrcast.adapters.systemd._systemd_call import SystemdCall, _systemd
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.unit_naming import _UNIT_NAME
 from torrcast.domain.why import why
 
@@ -29,7 +30,7 @@ def unit_why(unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd) -> str:
             "-o", "json", "--output-fields=MESSAGE,SYSLOG_IDENTIFIER",
         )  # fmt: skip
     except Exception as exc:
-        return f"причина недоступна: {why(exc)}"[:160]
+        return phrase("systemd.reason_unavailable", reason=why(exc))[:160]
     ours: list[str] = []
     for line in done.stdout.splitlines():
         with contextlib.suppress(ValueError, TypeError):
@@ -38,4 +39,4 @@ def unit_why(unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd) -> str:
                 text = str(record.get("MESSAGE") or "").strip()
                 if text:
                     ours.append(text)
-    return ours[-1][:160] if ours else "в журнале пусто"
+    return ours[-1][:160] if ours else phrase("systemd.journal_empty")

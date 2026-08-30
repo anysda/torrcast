@@ -64,6 +64,8 @@ from torrcast.domain.catalogs.runtime.en import en as runtime_en
 from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
 from torrcast.domain.catalogs.stream_pack.en import en as stream_pack_en
 from torrcast.domain.catalogs.stream_pack.ru import ru as stream_pack_ru
+from torrcast.domain.catalogs.systemd.en import en as systemd_en
+from torrcast.domain.catalogs.systemd.ru import ru as systemd_ru
 from torrcast.domain.catalogs.telegram_config.en import en as telegram_config_en
 from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
@@ -103,6 +105,7 @@ _CLUSTERS: Final = (
     (http_server_en, http_server_ru),
     (prowlarr_en, prowlarr_ru),
     (recode_en, recode_ru),
+    (systemd_en, systemd_ru),
 )
 
 

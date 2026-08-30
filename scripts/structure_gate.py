@@ -115,8 +115,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/adapters/stream_probe/pick_video_file.py": 1,
     "torrcast/adapters/stream_probe/run_ffprobe.py": 1,
     "torrcast/adapters/stream_probe/supply.py": 3,
-    "torrcast/adapters/systemd/start_play_unit.py": 1,
-    "torrcast/adapters/systemd/unit_why.py": 2,
     "torrcast/adapters/torrserver/torr_server.py": 9,
     "torrcast/adapters/torrserver/warmup.py": 1,
     "torrcast/adapters/wiki/http_json_client.py": 2,
