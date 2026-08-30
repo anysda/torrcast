@@ -71,6 +71,8 @@ from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
 from torrcast.domain.catalogs.trace.en import en as trace_en
 from torrcast.domain.catalogs.trace.ru import ru as trace_ru
+from torrcast.domain.catalogs.torrserver.en import en as torrserver_en
+from torrcast.domain.catalogs.torrserver.ru import ru as torrserver_ru
 
 #: Кластеры каталога: (английский, русский). Заход перевода добавляет сюда строку -
 #: пару файлов своего кластера, - а не правит эту функцию. Строка на кластер и запятая
@@ -106,6 +108,7 @@ _CLUSTERS: Final = (
     (prowlarr_en, prowlarr_ru),
     (recode_en, recode_ru),
     (systemd_en, systemd_ru),
+    (torrserver_en, torrserver_ru),
 )
 
 

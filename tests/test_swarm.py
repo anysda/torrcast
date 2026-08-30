@@ -251,7 +251,7 @@ def test_the_metadata_deadline_is_a_deadline() -> None:
     """
     client = _Late(99.0)  # рой молчит и будет молчать
     began = time.monotonic()
-    with pytest.raises(InfraError, match="не отдала метаданные"):
+    with pytest.raises(InfraError, match="gave no metadata"):
         client.wait_files("hash", timeout=0.35)
     spent = time.monotonic() - began
     assert 0.35 <= spent < 0.45, f"обещали ждать 0.35 с, ждали {spent:.2f} с"
@@ -270,7 +270,7 @@ def test_a_swarm_with_no_contacts_is_called_empty_within_the_grace() -> None:
     """Контактов ноль и за отсрочку не появилось - ждать некого, отказ приходит сразу."""
     client = _Late(99.0, peers=0)
     began = time.monotonic()
-    with pytest.raises(InfraError, match="рой пуст"):
+    with pytest.raises(InfraError, match="swarm is empty"):
         client.wait_files("hash", timeout=20.0, grace=0.3)
     spent = time.monotonic() - began
     assert spent < 1.0, f"пустой рой стоил {spent:.1f} с вместо отсрочки"
@@ -296,7 +296,7 @@ def test_silence_about_peers_is_not_silence_of_the_swarm() -> None:
     """
     client = _Late(99.0, peers=None)
     began = time.monotonic()
-    with pytest.raises(InfraError, match="не отдала метаданные"):
+    with pytest.raises(InfraError, match="gave no metadata"):
         client.wait_files("hash", timeout=0.6, grace=0.2)
     spent = time.monotonic() - began
     assert spent >= 0.6, f"ждали {spent:.2f} с - отказали за неизвестное, а не за известное"

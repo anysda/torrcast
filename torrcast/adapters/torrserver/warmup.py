@@ -3,6 +3,7 @@
 import threading
 from dataclasses import dataclass
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.ports.clock import Clock
 
@@ -28,5 +29,5 @@ class Warmup:
         if self.error is not None:
             raise self.error
         if not self.torrent_hash:
-            raise InfraError("TorrServer не принял раздачу за отведённое время")
+            raise InfraError(phrase("torrserver.warmup_timed_out"))
         return self.torrent_hash

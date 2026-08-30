@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.warmup import Warmup
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.swarm_alive import swarm_alive
@@ -63,10 +64,10 @@ class TorrServer:
     def add(self, magnet: str) -> str:
         payload = self._post("/torrents", {"action": "add", "link": magnet, "save_to_db": True})
         if not isinstance(payload, dict):
-            raise ServerDownError("TorrServer вернул неожиданный ответ на добавление")
+            raise ServerDownError(phrase("torrserver.unexpected_answer_add"))
         torrent_hash = str(payload.get("hash", ""))
         if not torrent_hash:
-            raise ServerDownError("TorrServer не отдал hash раздачи")
+            raise ServerDownError(phrase("torrserver.no_hash"))
         return torrent_hash
 
     def warm(self, magnet: str) -> Warmup:
@@ -85,13 +86,13 @@ class TorrServer:
     def status(self, torrent_hash: str) -> dict[str, Any]:
         payload = self._post("/torrents", {"action": "get", "hash": torrent_hash})
         if not isinstance(payload, dict):
-            raise ServerDownError("TorrServer вернул неожиданный ответ на список файлов")
+            raise ServerDownError(phrase("torrserver.unexpected_answer_files"))
         return payload
 
     def cache(self, torrent_hash: str) -> dict[str, Any]:
         payload = self._post("/cache", {"action": "get", "hash": torrent_hash})
         if not isinstance(payload, dict):
-            raise ServerDownError("TorrServer вернул неожиданный ответ на счётчик кэша")
+            raise ServerDownError(phrase("torrserver.unexpected_answer_cache"))
         return payload
 
     def files(self, torrent_hash: str) -> list[TorrFile]:
@@ -132,10 +133,10 @@ class TorrServer:
                 )
             seconds = grace.seconds if isinstance(grace, ContactWait) else float(grace)
             if seconds > 0 and now >= hopeless and swarm_alive(status) is False:
-                raise SwarmError(f"рой пуст - за {seconds:.0f} с ни одного пира")
+                raise SwarmError(phrase("torrserver.swarm_empty", seconds=f"{seconds:.0f}"))
             left = deadline - now
             if left <= 0:
-                raise SwarmError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
+                raise SwarmError(phrase("torrserver.metadata_timeout", timeout=f"{timeout:.0f}"))
             self.clock.sleep(min(step, left))
             step = min(step * META_STEP_GROW, META_STEP_MAX)
 
@@ -157,7 +158,7 @@ class TorrServer:
     def listed(self, torrent_hash: str) -> bool:
         payload = self._post("/torrents", {"action": "list"})
         if not isinstance(payload, list):
-            raise ServerDownError("TorrServer вернул неожиданный ответ на список раздач")
+            raise ServerDownError(phrase("torrserver.unexpected_answer_list"))
         want = torrent_hash.casefold()
         return any(
             isinstance(item, dict) and str(item.get("hash", "")).casefold() == want
@@ -180,10 +181,12 @@ class TorrServer:
             response = self._session.post(f"{self.base_url}{path}", json=body, timeout=self.timeout)
             response.raise_for_status()
         except requests.RequestException as exc:
-            raise ServerDownError(f"TorrServer не отвечает ({self.base_url}): {why(exc)}") from exc
+            raise ServerDownError(
+                phrase("torrserver.unresponsive", base_url=self.base_url, reason=why(exc))
+            ) from exc
         if not json_body:
             return None
         try:
             return response.json()
         except ValueError as exc:
-            raise ServerDownError("TorrServer вернул не JSON") from exc
+            raise ServerDownError(phrase("torrserver.not_json")) from exc

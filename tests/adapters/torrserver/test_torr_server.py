@@ -101,7 +101,7 @@ def test_the_metadata_budget_counts_the_warm_up_too() -> None:
     clock = FakeClock()
     wait = ContactWait(6.0, clock)
 
-    with pytest.raises(SwarmError, match="не отдала метаданные"):
+    with pytest.raises(SwarmError, match="gave no metadata"):
         _Mute(clock, wait).wait_files("hash", timeout=20.0, grace=wait)
 
     assert clock.now < 41.0, "бюджет метаданных отсчитан от добавления раздачи"
