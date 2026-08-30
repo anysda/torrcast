@@ -33,6 +33,7 @@ from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.digest.digest import digest
 from torrcast.domain.facts.origin import Origin
@@ -957,9 +958,7 @@ def test_the_heavy_path_says_so_out_loud_in_one_line() -> None:
     picture = Picture(title="Гинтама", year=2006, kind="tv", releases=[dead, hevc])
     plan = plan_for(picture, Args(query=["gintama", "s1e1"]), Config())
 
-    assert last_hope_note(plan, hevc) == (
-        "живой раздачи серии s1e1 без HEVC нет - беру HEVC последней надеждой"
-    )
+    assert last_hope_note(plan, hevc) == phrase("choice.last_hope_episode", want="s1e1")
     assert last_hope_note(plan, dead) == "", "обычный релиз про надежду молчит"
 
 
