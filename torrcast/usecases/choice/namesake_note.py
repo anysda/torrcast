@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
+
 if TYPE_CHECKING:
     from torrcast.domain.facts.origin import Origin
     from torrcast.usecases.select.plan import Plan
@@ -35,7 +37,9 @@ def namesake_note(picked: Plan, about: Origin) -> str:
         return ""
     if abs(picture.year - about.year) > 1:
         return ""
-    return (
-        f"«{picture.title}» ({picture.year}): под этим именем и годом картин две - "
-        f"справка знает ещё «{about.namesake}», развести их по имени и году нечем"
+    return phrase(
+        "choice.namesake_two",
+        title=picture.title,
+        year=picture.year,
+        other=about.namesake,
     )

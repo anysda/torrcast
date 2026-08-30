@@ -7,7 +7,13 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, outside, plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice.named_taken_line import named_taken_line
+
+
+def q(*names: str) -> str:
+    """Имена картин так, как их пишет каталог: в кавычках своего языка, через запятую."""
+    return ", ".join(phrase("choice.quoted", it=name) for name in names)
 
 
 def test_a_dead_named_picture_is_named_with_the_reason() -> None:
@@ -18,10 +24,14 @@ def test_a_dead_named_picture_is_named_with_the_reason() -> None:
     ]
 
     with outside(Outside()):
-        assert named_taken_line(bleach, "блич", 2) == (
-            "«блич» - это «Блич (2004, сериал)», но не играет: рой у неё мёртв - сидов 3; "
-            "беру самую живую - «Блич: Тысячелетняя кровавая война (2022, сериал)»; "
-            "всего подошло картин 2; другая: cast блич --menu"
+        assert named_taken_line(bleach, "блич", 2) == phrase(
+            "choice.named_taken_unplayable",
+            name="блич",
+            whom=q(f"Блич (2004{phrase('choice.series_mark')})"),
+            why=phrase("choice.why_dead_swarm", seeds=3),
+            took=f"Блич: Тысячелетняя кровавая война (2022{phrase('choice.series_mark')})",
+            total=2,
+            asked="блич",
         )
 
 
@@ -35,8 +45,14 @@ def test_living_named_pictures_make_the_take_the_liveliest_of_them() -> None:
     ]
 
     with outside(Outside()):
-        assert named_taken_line(chernobyl, "чернобыль", 3) == (
-            "«чернобыль» - это «Чернобыль (2019, сериал)», «Чернобыль (2022, сериал)»; "
-            "беру самую живую из них - «Чернобыль (2019, сериал)»; "
-            "всего подошло картин 4; другая: cast чернобыль --menu"
+        assert named_taken_line(chernobyl, "чернобыль", 3) == phrase(
+            "choice.named_taken_alive",
+            name="чернобыль",
+            whom=q(
+                f"Чернобыль (2019{phrase('choice.series_mark')})",
+                f"Чернобыль (2022{phrase('choice.series_mark')})",
+            ),
+            took=f"Чернобыль (2019{phrase('choice.series_mark')})",
+            total=4,
+            asked="чернобыль",
         )

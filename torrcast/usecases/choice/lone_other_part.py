@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
@@ -52,7 +53,9 @@ def lone_other_part(plans: list[Plan], asked: str) -> str:
         names |= {franchise_key(picture.original)}
     if not key or key not in names:
         return ""
-    return (
-        f"«{name}»: первой части в выдаче нет, и другую часть сам не включаю - "
-        f"есть «{_named(picture)}», спроси её номером «{name} {picture.part}»"
+    return phrase(
+        "choice.lone_other_part",
+        name=name,
+        picture=_named(picture),
+        part=picture.part,
     )

@@ -11,6 +11,7 @@ from dataclasses import replace
 
 from tests.usecases.choice.world import film, plan
 from torrcast.domain._series import _Series
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.usecases.choice.last_hope_note import last_hope_note
 
@@ -27,16 +28,14 @@ def test_the_line_names_the_episode_for_which_no_honest_release_was_left() -> No
 
     said = last_hope_note(gintama, HEVC)
 
-    assert said == "живой раздачи серии s1e1 без HEVC нет - беру HEVC последней надеждой"
+    assert said == phrase("choice.last_hope_episode", want="s1e1")
 
 
 def test_a_film_has_no_episode_to_name_and_the_line_speaks_of_the_picture() -> None:
     """Серии не спрашивали - речь про картину целиком, и выдумывать номер нечего."""
     film_plan = plan("Кино", 2020, pool=[HEVC], last_resort=True)
 
-    assert last_hope_note(film_plan, HEVC) == (
-        "живой раздачи картины без HEVC нет - беру HEVC последней надеждой"
-    )
+    assert last_hope_note(film_plan, HEVC) == phrase("choice.last_hope_picture")
 
 
 def test_the_usual_path_says_nothing_because_there_is_no_price_to_explain() -> None:

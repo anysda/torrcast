@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, outside
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.position import Position
 from torrcast.usecases.choice._ctl import _ctl, _Revivable, _Steerable
 
@@ -129,7 +130,7 @@ def test_an_unknown_word_is_echoed_but_touches_no_handle() -> None:
     with outside(world):
         _ctl(receiver)
 
-    assert world.said == ["пульт: fly 42"] and receiver.done == []
+    assert world.said == [phrase("choice.remote_command", command="fly 42")] and receiver.done == []
 
 
 def test_a_broken_number_never_takes_the_show_down_with_it() -> None:
@@ -144,7 +145,9 @@ def test_a_broken_number_never_takes_the_show_down_with_it() -> None:
     with outside(world):
         _ctl(receiver)
 
-    assert world.said == ["пульт: seek abc"] and receiver.done == []
+    assert (
+        world.said == [phrase("choice.remote_command", command="seek abc")] and receiver.done == []
+    )
 
 
 def test_a_receiver_that_answers_the_pult_handles_is_recognised_by_them() -> None:

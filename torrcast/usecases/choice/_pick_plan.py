@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._shown import _shown
@@ -62,7 +63,7 @@ def _pick_plan(
     """
     env = environment or _environment_port()
     if pick is not None and not 1 <= pick <= len(plans):
-        raise env.not_found_error(f"подходит картин: {len(plans)}, номера {pick} нет")
+        raise env.not_found_error(phrase("choice.pick_out_of_range", total=len(plans), pick=pick))
     verdict = take if take is not None else enter_take(plans, asked, pick, menu)
     plan = plans[verdict.number - 1]
     if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
@@ -72,14 +73,18 @@ def _pick_plan(
             # номером сегодня стоит ДРУГАЯ картина. Показать её молча - подмена; отказ
             # называет, что стояло под номером тогда и что стоит сейчас.
             raise env.not_found_error(
-                f"под номером {pick} в таблице «{asked}» была «{named}», "
-                f"а сейчас под ним «{_named(plan.picture)}» - это не та картина; "
-                f"свежие номера: cast releases {asked}"
+                phrase(
+                    "choice.pick_moved",
+                    pick=pick,
+                    asked=asked,
+                    was=named,
+                    now=_named(plan.picture),
+                )
             )
         _shown(env, plans, facts, dress=False, asked=asked).close()
         # Картина проговаривается перед показом: номер молчит, и без этой строки
         # человек узнал бы о подмене уже с экрана.
-        env.write(f"играю «{_named(plan.picture)}» - пункт {pick}, названный флагом --pick")
+        env.write(phrase("choice.playing_pick", picture=_named(plan.picture), pick=pick))
         return plan
     if verdict.refusal:
         raise env.not_found_error(verdict.refusal)
@@ -94,20 +99,22 @@ def _pick_plan(
         # уронить скрипт: картина ровно одна, выбирать не из чего, и «вслепую» тут
         # ничего не выбирается. За терминалом --menu по-прежнему поднимает список
         # из одного пункта и вопрос (TC-578, TC-836) - этой ветки они не касаются.
-        env.write(f"подходит картин: 1 - «{_named(plan.picture)}», меню не нужно")
+        env.write(phrase("choice.single_no_menu", picture=_named(plan.picture)))
         return plan
     painted = _shown(env, plans, facts, dress=env.stdin_is_tty(), asked=asked)
     try:
         if not env.stdin_is_tty():
             raise env.not_found_error(
-                f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "
-                f"назови картину точно (например «{plan.picture.title}») "
-                f"или её номер (--pick N), либо запусти cast в терминале"
+                phrase(
+                    "choice.blind_refusal",
+                    total=len(plans),
+                    example=plan.picture.title,
+                )
             )
         if verdict.note:
             env.write(verdict.note)
         default = verdict.number if verdict.takes else None
-        return plans[env.ask("Что смотрим?", len(plans), default=default) - 1]
+        return plans[env.ask(phrase("choice.question"), len(plans), default=default) - 1]
     finally:
         # Меню отвечено: сперва отписываем его от справки, потом отпускаем экран - иначе
         # опоздавшая на миллисекунду строка писала бы уже в чужой вывод.

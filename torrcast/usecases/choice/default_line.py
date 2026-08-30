@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice._named import _named
 
 if TYPE_CHECKING:
@@ -26,4 +27,9 @@ def default_line(plans: list[Plan], default: int) -> str:
 
     Список при этом не переупорядочивается: показ дефолта - это показ, а не порядок.
     """
-    return f"Enter - «{_named(plans[default - 1].picture)}», пункт {default} из {len(plans)}"
+    return phrase(
+        "choice.default",
+        picture=_named(plans[default - 1].picture),
+        number=default,
+        total=len(plans),
+    )

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, parts, plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice.part_one_swap import part_one_swap
 
 #: Первая часть, у которой в каталоге одни DVD-образы: рой есть, играть нечем.
@@ -27,9 +28,10 @@ def test_a_dead_first_part_stops_the_default_and_the_number_is_named_by_the_pers
         plan("Тачки 3", 2017, part=3, seeders=121),
     ]
 
-    assert part_one_swap(cars, "тачки") == (
-        "«Тачки (2006)» не играет: играть у неё нечем - ни одной годной раздачи; "
-        "вместо неё другую часть сам не включаю - вот что есть, назови номер"
+    assert part_one_swap(cars, "тачки") == phrase(
+        "choice.part_one_dead_why",
+        picture="Тачки (2006)",
+        why=phrase("choice.why_nothing_playable"),
     )
 
 
@@ -41,10 +43,7 @@ def test_a_first_part_missing_from_the_results_gets_its_own_honest_line() -> Non
     """
     cars = [plan("Тачки 2", 2011, part=2, seeders=40), plan("Тачки 3", 2017, part=3, seeders=121)]
 
-    assert part_one_swap(cars, "тачки") == (
-        "«тачки»: первой части в выдаче нет, и вместо неё другую часть сам не включаю - "
-        "вот что есть, назови номер"
-    )
+    assert part_one_swap(cars, "тачки") == phrase("choice.part_one_absent", name="тачки")
 
 
 def test_an_original_name_asks_about_the_same_franchise_as_the_russian_one() -> None:
@@ -57,7 +56,11 @@ def test_an_original_name_asks_about_the_same_franchise_as_the_russian_one() -> 
         plan("Тачки 2", 2011, part=2, original="Cars 2", seeders=40),
     ]
 
-    assert part_one_swap(cars, "cars").startswith("«Тачки (2006)» не играет")
+    assert part_one_swap(cars, "cars") == phrase(
+        "choice.part_one_dead_why",
+        picture="Тачки (2006)",
+        why=phrase("choice.why_nothing_playable"),
+    )
 
 
 def test_a_part_named_by_its_number_was_already_picked_and_the_default_is_honest() -> None:
@@ -145,7 +148,4 @@ def test_a_single_release_on_both_sides_leaves_no_reason_worth_printing() -> Non
         ),
     ]
 
-    assert part_one_swap(cars, "тачки") == (
-        "«Тачки (2006)» не играет; вместо неё другую часть сам не включаю - "
-        "вот что есть, назови номер"
-    )
+    assert part_one_swap(cars, "тачки") == phrase("choice.part_one_dead", picture="Тачки (2006)")

@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import replace
 
 from tests.usecases.choice.world import film, parts, plan
+from torrcast.domain.catalogs.choice.en import en
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice.default_note import _passed_why, default_note
 
 VHS = film("Moana 1926 DVDRip XviD", seeders=100, codec="XviD", quality=None)
@@ -26,9 +28,12 @@ def test_a_swap_of_type_is_named_by_both_pictures_and_by_the_reason() -> None:
 
     said = default_note(wife, "хорошая жена s1e1")
 
-    assert said == (
-        "спросили «хорошая жена s1e1» - беру «Хорошая жена (2015, сериал)», "
-        "а не «Хорошая жена (1987)»: спросили серию, а это другой тип"
+    assert said == phrase(
+        "choice.note_instead_asked_why",
+        asked="хорошая жена s1e1",
+        mine=f"Хорошая жена (2015{phrase('choice.series_mark')})",
+        other="Хорошая жена (1987)",
+        why=phrase("choice.why_other_kind"),
     )
 
 
@@ -46,8 +51,13 @@ def test_a_skipped_earlier_part_is_named_together_with_the_reason_it_was_skipped
     said = default_note(moana, "моана")
 
     assert said == (
-        "спросили «моана» - беру «Моана (2016)», а не «Моана: романтика золотого века "
-        "(1926)»: играть у неё нечем - ни одной годной раздачи"
+        phrase(
+            "choice.note_instead_asked_why",
+            asked="моана",
+            mine="Моана (2016)",
+            other="Моана: романтика золотого века (1926)",
+            why=phrase("choice.why_nothing_playable"),
+        )
     )
 
 
@@ -55,7 +65,12 @@ def test_without_the_words_of_the_person_the_line_keeps_everything_but_the_head(
     """``asked`` пуст - строка та же, только без головы «спросили X»."""
     moana = [plan("Моана: романтика золотого века", 1926, pool=[VHS]), plan("Моана", 2016)]
 
-    assert default_note(moana).startswith("беру «Моана (2016)», а не ")
+    assert default_note(moana) == phrase(
+        "choice.note_instead_why",
+        mine="Моана (2016)",
+        other="Моана: романтика золотого века (1926)",
+        why=phrase("choice.why_nothing_playable"),
+    )
 
 
 def test_a_namesake_by_year_is_said_out_loud_even_when_the_default_is_the_first_item() -> None:
@@ -68,8 +83,12 @@ def test_a_namesake_by_year_is_said_out_loud_even_when_the_default_is_the_first_
     said = default_note(mummy, "мумия")
 
     assert said == (
-        "спросили «мумия» - беру «Мумия (1999)»: под этим именем есть ещё "
-        "«Мумия (2017)» - другая картина"
+        phrase(
+            "choice.note_namesake_asked",
+            asked="мумия",
+            mine="Мумия (1999)",
+            others=phrase("choice.quoted", it="Мумия (2017)"),
+        )
     )
 
 
@@ -98,11 +117,11 @@ def test_each_of_the_four_reasons_says_a_different_thing_to_the_person() -> None
         plan("Кино", 2001, pool=[film("a", seeders=28), film("b", seeders=20)]),
     ]
 
-    assert _passed_why(nothing, 1, [1, 2]) == "играть у неё нечем - ни одной годной раздачи"
-    assert _passed_why(dead, 1, [1, 2]) == "рой у неё мёртв - сидов 2"
-    assert _passed_why(junk, 1, [1, 2]) == "живого HD у неё нет - одно старьё"
+    assert _passed_why(nothing, 1, [1, 2]) == phrase("choice.why_nothing_playable")
+    assert _passed_why(dead, 1, [1, 2]) == phrase("choice.why_dead_swarm", seeds=2)
+    assert _passed_why(junk, 1, [1, 2]) == phrase("choice.why_no_hd")
     # Счёт раздач - у ВЗЯТОЙ картины: у пропущенной он по построению ветки всегда один.
-    assert _passed_why(lonely, 1, [1, 2]) == "у неё всего одна раздача, а тут их 2"
+    assert _passed_why(lonely, 1, [1, 2]) == phrase("choice.why_single_release", taken=2)
 
 
 def test_the_torrent_count_is_taken_from_the_picture_the_default_took() -> None:
@@ -120,9 +139,12 @@ def test_the_torrent_count_is_taken_from_the_picture_the_default_took() -> None:
         ),
     ]
 
-    assert default_note(falcon, "мальтийский сокол") == (
-        "спросили «мальтийский сокол» - беру «Мальтийский сокол (1941)», а не "
-        "«Мальтийский сокол (1931)»: у неё всего одна раздача, а тут их 2"
+    assert default_note(falcon, "мальтийский сокол") == phrase(
+        "choice.note_instead_asked_why",
+        asked="мальтийский сокол",
+        mine="Мальтийский сокол (1941)",
+        other="Мальтийский сокол (1931)",
+        why=phrase("choice.why_single_release", taken=2),
     )
 
 
@@ -139,8 +161,8 @@ def test_when_the_taken_picture_is_also_a_single_release_the_reason_is_not_print
     ]
 
     assert _passed_why(lonely, 1, [1, 2, 3]) == ""
-    assert default_note(lonely, "кино") == (
-        "спросили «кино» - беру «Кино (2001)», а не «Кино (1999)»"
+    assert default_note(lonely, "кино") == phrase(
+        "choice.note_instead_asked", asked="кино", mine="Кино (2001)", other="Кино (1999)"
     )
 
 
@@ -160,8 +182,13 @@ def test_the_line_speaks_even_when_the_skipped_picture_was_no_candidate_at_all()
     said = default_note(clinic, "клиника s7e1")
 
     assert said == (
-        "спросили «клиника s7e1» - беру «Клиника (2001, сериал)», "
-        "а не «Клиника (1987)»: спросили серию, а это другой тип"
+        phrase(
+            "choice.note_instead_asked_why",
+            asked="клиника s7e1",
+            mine=f"Клиника (2001{phrase('choice.series_mark')})",
+            other="Клиника (1987)",
+            why=phrase("choice.why_other_kind"),
+        )
     )
 
 
@@ -180,8 +207,13 @@ def test_the_type_that_kept_the_default_in_place_is_named_too() -> None:
     said = default_note(ghoul, "токийский гуль s1e1")
 
     assert said == (
-        "спросили «токийский гуль s1e1» - беру «Токийский гуль (2014, сериал)», "
-        "а не «Токийский гуль (2017)»: спросили серию, а это другой тип"
+        phrase(
+            "choice.note_instead_asked_why",
+            asked="токийский гуль s1e1",
+            mine=f"Токийский гуль (2014{phrase('choice.series_mark')})",
+            other="Токийский гуль (2017)",
+            why=phrase("choice.why_other_kind"),
+        )
     )
 
 
@@ -202,8 +234,13 @@ def test_the_line_compares_against_the_default_no_narrowing_ever_touched() -> No
     said = default_note(ghoul, "токийский гуль s1e1")
 
     assert said == (
-        "спросили «токийский гуль s1e1» - беру «Токийский гуль (2014, сериал)», "
-        "а не «Токийский гуль 2 (2019)»: спросили серию, а это другой тип"
+        phrase(
+            "choice.note_instead_asked_why",
+            asked="токийский гуль s1e1",
+            mine=f"Токийский гуль (2014{phrase('choice.series_mark')})",
+            other="Токийский гуль 2 (2019)",
+            why=phrase("choice.why_other_kind"),
+        )
     )
 
 
@@ -224,8 +261,13 @@ def test_the_line_speaks_even_when_the_default_stayed_the_first_menu_item() -> N
     said = default_note(mirage, "мираж s1e1")
 
     assert said == (
-        "спросили «мираж s1e1» - беру «Мираж 2 (2018, сериал)»: спрошен 1 сезон, "
-        "а в выдаче его нет - у неё часть 2"
+        phrase(
+            "choice.note_season_asked",
+            asked="мираж s1e1",
+            mine=f"Мираж 2 (2018{phrase('choice.series_mark')})",
+            season=1,
+            part=2,
+        )
     )
 
 
@@ -240,3 +282,19 @@ def test_a_carried_season_stays_silent_even_when_the_part_number_differs() -> No
     mirage = [plan("Мираж 2", 2018, kind="tv", part=2, season=1, asked_series=True, pool=[named])]
 
     assert default_note(mirage, "мираж s1e1") == ""
+
+
+def test_every_key_the_line_builds_on_the_fly_exists_in_the_catalog() -> None:
+    """🔴 Ключ тут собирается из кусков (``choice.note_instead`` + ``_asked`` + ``_why``).
+
+    Разбор исходников такой ключ не видит: в тексте его нет ни разу. Значит сторожить
+    его нечем, кроме как назвать все восемь поимённо - иначе ветка без слов человека
+    падала бы `KeyError` ровно у того, кто ответил номером сам.
+    """
+    tails = ("", "_asked")
+    keys = [f"choice.note_instead{tail}" for tail in tails]
+    keys += [f"choice.note_instead{tail}_why" for tail in tails]
+    keys += [f"choice.note_namesake{tail}" for tail in tails]
+    keys += [f"choice.note_season{tail}" for tail in tails]
+
+    assert [key for key in keys if key not in en()] == []

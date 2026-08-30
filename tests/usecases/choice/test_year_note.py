@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.origin import Origin
 from torrcast.usecases.choice.year_note import year_note
 
@@ -19,15 +20,15 @@ def test_a_year_that_disagrees_with_the_reference_is_said_out_loud() -> None:
 
     said = year_note(it, Origin(title="It", year=2017), "оно")
 
-    assert said == "спросили «оно» - беру «Оно» 2014 года, но справка знает эту картину как 2017"
+    assert said == phrase("choice.year_note_asked", asked="оно", title="Оно", year=2014, known=2017)
 
 
 def test_without_the_words_of_the_person_the_line_keeps_everything_but_the_head() -> None:
     """``asked`` пуст - строка та же, только без головы «спросили X»."""
     it = plan("Оно", 2014, seeders=90)
 
-    assert year_note(it, Origin(title="It", year=2017)) == (
-        "беру «Оно» 2014 года, но справка знает эту картину как 2017"
+    assert year_note(it, Origin(title="It", year=2017)) == phrase(
+        "choice.year_note", title="Оно", year=2014, known=2017
     )
 
 

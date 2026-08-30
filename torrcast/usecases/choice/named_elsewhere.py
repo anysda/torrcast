@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
@@ -74,18 +75,11 @@ def named_elsewhere(plans: list[Plan], asked: str) -> str:
         return ""
     numbers = asked_kind(plans)
     chosen = [n for n in named if n in numbers] or named
-    whom = ", ".join(f"«{_named(plans[n - 1].picture)}»" for n in chosen)
+    whom = ", ".join(phrase("choice.quoted", it=_named(plans[n - 1].picture)) for n in chosen)
     taken = _named(plans[default - 1].picture)
     if why := _unplayable_why(plans, chosen[0], numbers):
-        return (
-            f"«{name}» - это {whom}; не играет: {why}; вместо неё другую картину "
-            f"(«{taken}») сам не включаю - вот что есть, назови номер"
-        )
-    return (
-        f"«{name}» - это {whom}, а дефолтом встаёт другая картина - «{taken}» "
-        f"(первая живая по хронологии); какую из них смотреть, сам не решаю - "
-        f"вот что есть, назови номер"
-    )
+        return phrase("choice.named_unplayable", name=name, whom=whom, why=why, taken=taken)
+    return phrase("choice.named_not_default", name=name, whom=whom, taken=taken)
 
 
 def _slugs(picture: Picture) -> set[str]:

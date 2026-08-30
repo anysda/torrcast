@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import RUNTIME, film
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice.warned import warned
 
 WARN_MBIT = 16.0
@@ -38,7 +39,7 @@ def test_two_different_troubles_are_both_named_and_not_swallowed_by_each_other()
 
     said = warned(heavy_hevc, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT)
 
-    assert said == "перекодирую целиком, тяжёлый"
+    assert said == ", ".join([phrase("choice.mark_recode_all"), phrase("choice.mark_heavy")])
 
 
 def test_the_codec_is_named_before_the_weight_because_it_costs_the_most() -> None:
@@ -47,7 +48,10 @@ def test_the_codec_is_named_before_the_weight_because_it_costs_the_most() -> Non
 
     said = warned(heavy_hevc, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT)
 
-    assert said.split(", ") == ["перекодирую целиком", "тяжёлый"]
+    assert said.split(", ") == [
+        phrase("choice.mark_recode_all"),
+        phrase("choice.mark_heavy"),
+    ]
 
 
 def test_only_one_weight_mark_is_said_and_it_is_the_worst_of_them() -> None:
@@ -58,7 +62,9 @@ def test_only_one_weight_mark_is_said_and_it_is_the_worst_of_them() -> None:
     """
     heavy = film("Кино 2020 BDRemux 1080p", size_gb=18.0)
 
-    assert warned(heavy, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == "тяжёлый"
+    assert warned(heavy, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == phrase(
+        "choice.mark_heavy"
+    )
 
 
 def test_the_ceiling_is_the_last_allowed_value_and_not_the_first_forbidden_one() -> None:
@@ -69,7 +75,9 @@ def test_the_ceiling_is_the_last_allowed_value_and_not_the_first_forbidden_one()
     """
     at_ceiling = film("Кино 2020 BDRemux 1080p", size_gb=WARN_MBIT * RUNTIME / 8000.0)
 
-    assert warned(at_ceiling, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == "перекодируем"
+    assert warned(at_ceiling, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == phrase(
+        "choice.mark_recode_parts"
+    )
 
 
 def test_a_light_release_says_nothing_so_that_a_real_warning_is_not_lost_in_noise() -> None:

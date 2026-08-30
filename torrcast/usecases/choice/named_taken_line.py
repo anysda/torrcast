@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.alive_numbers import alive_numbers
@@ -31,10 +32,23 @@ def named_taken_line(plans: list[Plan], asked: str, taken: int) -> str:
     """
     name, _index = split_franchise_index(asked)
     chosen = _chosen(plans, asked)
-    whom = ", ".join(f"«{_named(plans[n - 1].picture)}»" for n in chosen)
+    whom = ", ".join(phrase("choice.quoted", it=_named(plans[n - 1].picture)) for n in chosen)
     took = _named(plans[taken - 1].picture)
-    tail = f"всего подошло картин {len(plans)}; другая: cast {asked} --menu"
     if alive_numbers(plans, chosen):
-        return f"«{name}» - это {whom}; беру самую живую из них - «{took}»; {tail}"
-    why = _unplayable_why(plans, chosen[0], asked_kind(plans))
-    return f"«{name}» - это {whom}, но не играет: {why}; беру самую живую - «{took}»; {tail}"
+        return phrase(
+            "choice.named_taken_alive",
+            name=name,
+            whom=whom,
+            took=took,
+            total=len(plans),
+            asked=asked,
+        )
+    return phrase(
+        "choice.named_taken_unplayable",
+        name=name,
+        whom=whom,
+        why=_unplayable_why(plans, chosen[0], asked_kind(plans)),
+        took=took,
+        total=len(plans),
+        asked=asked,
+    )

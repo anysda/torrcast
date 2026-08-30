@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from tests.usecases.choice.world import Outside, outside, parts, plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.runtime.menu_facts import MenuFacts
@@ -140,7 +141,7 @@ def test_a_picture_standing_outside_the_numbered_line_is_marked_as_such() -> Non
     with outside(Outside()):
         rows = menu_rows(cars)
 
-    assert rows[2] == "  3. Тачки: Мультачки (2008, без номера части)"
+    assert rows[2] == f"  3. Тачки: Мультачки (2008{phrase('choice.no_part_mark')})"
 
 
 def test_the_reference_is_asked_about_a_picture_by_its_title_and_its_year() -> None:

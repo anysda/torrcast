@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice._named import _named
 
 if TYPE_CHECKING:
@@ -18,7 +19,9 @@ def taken_line(plans: list[Plan], default: int, asked: str) -> str:
     случае нет вовсе - меню печатается только там, где его читают и на него отвечают,
     а тридцать семь строк перед показом, который уже начался, читать некому.
     """
-    return (
-        f"беру «{_named(plans[default - 1].picture)}» - подошло картин {len(plans)}; "
-        f"другая: cast releases {asked} и --pick N"
+    return phrase(
+        "choice.taken",
+        picture=_named(plans[default - 1].picture),
+        total=len(plans),
+        asked=asked,
     )

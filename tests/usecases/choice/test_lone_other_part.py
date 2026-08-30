@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice.lone_other_part import lone_other_part
 
 
@@ -14,9 +15,8 @@ def test_the_only_picture_found_being_another_part_is_refused_by_name_and_number
     """Нашлась одна картина, и она - третья часть: строка называет её и запрос к ней."""
     ice = [plan("Лёд 3", 2024, part=3, seeders=3)]
 
-    assert lone_other_part(ice, "лёд") == (
-        "«лёд»: первой части в выдаче нет, и другую часть сам не включаю - "
-        "есть «Лёд 3 (2024)», спроси её номером «лёд 3»"
+    assert lone_other_part(ice, "лёд") == phrase(
+        "choice.lone_other_part", name="лёд", picture="Лёд 3 (2024)", part=3
     )
 
 
@@ -24,7 +24,9 @@ def test_an_original_name_asks_about_the_same_franchise_as_the_russian_one() -> 
     """Запрос «cars» читается так же, как «тачки»: франшиза сверяется в двух языках."""
     cars = [plan("Тачки 2", 2011, part=2, original="Cars 2", seeders=40)]
 
-    assert lone_other_part(cars, "cars").startswith("«cars»: первой части в выдаче нет")
+    assert lone_other_part(cars, "cars") == phrase(
+        "choice.lone_other_part", name="cars", picture="Тачки 2 (2011)", part=2
+    )
 
 
 def test_a_number_named_by_the_person_asks_for_exactly_what_was_found() -> None:

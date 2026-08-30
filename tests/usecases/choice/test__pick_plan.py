@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from tests.usecases.choice.world import Outside, Waited, film, parts, plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice.swap_note import swap_note
@@ -36,8 +39,8 @@ def test_the_menu_is_printed_before_the_question_so_the_number_has_a_meaning() -
         "  2. Моана (2016)",
         "  3. Моана 2 (2024)",
     ]
-    assert world.said[1] == "Enter - «Моана (2016)», пункт 2 из 3"
-    assert world.asked == [("Что смотрим?", 3, 2)]
+    assert world.said[1] == phrase("choice.default", picture="Моана (2016)", number=2, total=3)
+    assert world.asked == [(phrase("choice.question"), 3, 2)]
     assert picked is moana[1], "пустой Enter - это дефолт"
 
 
@@ -66,8 +69,13 @@ def test_namesakes_by_year_are_taken_liveliest_without_a_question() -> None:
     assert picked is mummy[1], "самая живая из одноимённых"
     assert world.asked == [], "вопроса не было"
     assert world.said == [
-        "беру «Мумия (2017)» - самая живая из одноимённых, у лучшей её раздачи сидов 58; "
-        "других картин под этим именем: 1, их список: cast мумия --menu"
+        phrase(
+            "choice.namesake_taken",
+            picture="Мумия (2017)",
+            seeds=58,
+            others=1,
+            asked="мумия",
+        )
     ]
 
 
@@ -98,9 +106,9 @@ def test_the_menu_flag_prints_and_asks_even_about_a_single_picture() -> None:
     assert _pick_plan(single, environment=world, menu=True) is single[0]
     assert world.said == [
         "  1. Мумия (1999)",
-        "Enter - «Мумия (1999)», пункт 1 из 1",
+        phrase("choice.default", picture="Мумия (1999)", number=1, total=1),
     ]
-    assert world.asked == [("Что смотрим?", 1, 1)]
+    assert world.asked == [(phrase("choice.question"), 1, 1)]
 
 
 def test_the_menu_flag_returns_the_single_picture_outside_a_terminal() -> None:
@@ -115,7 +123,7 @@ def test_the_menu_flag_returns_the_single_picture_outside_a_terminal() -> None:
     picked = _pick_plan(single, asked="мумия", environment=world, menu=True)
 
     assert picked is single[0]
-    assert world.said == ["подходит картин: 1 - «Мумия (1999)», меню не нужно"]
+    assert world.said == [phrase("choice.single_no_menu", picture="Мумия (1999)")]
     assert world.asked == [], "выбирать было не из чего, вопроса тут нет"
 
 
@@ -131,7 +139,9 @@ def test_lone_other_part_still_speaks_up_under_menu_without_a_terminal() -> None
     with pytest.raises(NotFoundError):
         _pick_plan(ice, asked="лёд", environment=world, menu=True)
 
-    assert world.said[0].startswith("«лёд»: первой части в выдаче нет"), "отказ остался строкой"
+    assert world.said[0] == phrase(
+        "choice.lone_other_part", name="лёд", picture="Лёд 3 (2024)", part=3
+    ), "отказ остался строкой"
 
 
 def test_the_only_picture_found_being_another_part_of_the_franchise_is_refused() -> None:
@@ -146,8 +156,9 @@ def test_the_only_picture_found_being_another_part_of_the_franchise_is_refused()
     with pytest.raises(NotFoundError) as refusal:
         _pick_plan(ice, asked="лёд", environment=world)
 
-    assert "первой части в выдаче нет" in str(refusal.value)
-    assert "«Лёд 3 (2024)»" in str(refusal.value)
+    assert str(refusal.value) == phrase(
+        "choice.lone_other_part", name="лёд", picture="Лёд 3 (2024)", part=3
+    )
     assert world.asked == [], "выбирать было не из чего, и вопроса тут нет"
 
 
@@ -164,9 +175,11 @@ def test_the_menu_flag_passes_ahead_of_the_lone_other_part_refusal() -> None:
     picked = _pick_plan(ice, asked="лёд", environment=world, menu=True)
 
     assert picked is ice[0]
-    assert world.said[0].startswith("«лёд»: первой части в выдаче нет"), "отказ стал строкой"
+    assert world.said[0] == phrase(
+        "choice.lone_other_part", name="лёд", picture="Лёд 3 (2024)", part=3
+    ), "отказ стал строкой"
     assert world.said[1].splitlines() == ["  1. Лёд 3 (2024)"]
-    assert world.asked == [("Что смотрим?", 1, 1)]
+    assert world.asked == [(phrase("choice.question"), 1, 1)]
 
 
 def test_a_single_picture_of_the_asked_franchise_still_goes_on_without_a_word() -> None:
@@ -203,7 +216,7 @@ def test_the_flag_number_is_checked_against_the_table_it_came_from() -> None:
     world = Outside(tty=False, pinned=(mummy[1].picture.key, "Мумия (2017)"))
 
     assert _pick_plan(mummy, pick=2, asked="мумия", environment=world) is mummy[1]
-    assert world.said[-1] == "играю «Мумия (2017)» - пункт 2, названный флагом --pick"
+    assert world.said[-1] == phrase("choice.playing_pick", picture="Мумия (2017)", pick=2)
 
 
 def test_a_flag_number_pointing_at_another_picture_is_a_refusal_not_a_show() -> None:
@@ -218,9 +231,9 @@ def test_a_flag_number_pointing_at_another_picture_is_a_refusal_not_a_show() -> 
     with pytest.raises(NotFoundError) as refusal:
         _pick_plan(mummy, pick=2, asked="мумия", environment=world)
 
-    said = str(refusal.value)
-    assert "«Мумия (1999)»" in said and "«Мумия (2017)»" in said
-    assert "cast releases мумия" in said
+    assert str(refusal.value) == phrase(
+        "choice.pick_moved", pick=2, asked="мумия", was="Мумия (1999)", now="Мумия (2017)"
+    )
     assert world.asked == [], "вопроса не было - был отказ"
 
 
@@ -282,7 +295,9 @@ def test_a_number_outside_the_list_is_an_honest_error_and_not_a_quiet_first_item
     """Номера нет в списке - честная ошибка: тихо взять первый пункт значило бы подменить кино."""
     mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
 
-    with pytest.raises(NotFoundError, match="подходит картин: 2, номера 5 нет"):
+    with pytest.raises(
+        NotFoundError, match=re.escape(phrase("choice.pick_out_of_range", total=2, pick=5))
+    ):
         _pick_plan(mummy, pick=5, environment=Outside())
 
 
@@ -301,9 +316,7 @@ def test_without_a_terminal_we_refuse_out_loud_and_say_how_to_name_the_picture()
     with pytest.raises(NotFoundError) as refusal:
         _pick_plan(moana, asked="моана", environment=world)
 
-    said = str(refusal.value)
-    assert "терминала нет - вслепую не выбираю" in said
-    assert "«Моана»" in said and "--pick N" in said
+    assert str(refusal.value) == phrase("choice.blind_refusal", total=3, example="Моана")
     assert world.asked == [], "спрашивать было некого, и висеть мы не стали"
 
 
@@ -322,8 +335,12 @@ def test_a_default_that_would_swap_a_part_of_the_franchise_is_taken_away_entirel
 
     picked = _pick_plan(cars, asked="тачки", environment=world)
 
-    assert world.said[1].startswith("«Тачки (2006)» не играет")
-    assert world.asked == [("Что смотрим?", 3, None)], "дефолта у вопроса нет"
+    assert world.said[1] == phrase(
+        "choice.part_one_dead_why",
+        picture="Тачки (2006)",
+        why=phrase("choice.why_nothing_playable"),
+    )
+    assert world.asked == [(phrase("choice.question"), 3, None)], "дефолта у вопроса нет"
     assert picked is cars[2]
     assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
 
@@ -345,8 +362,13 @@ def test_a_part_that_is_not_in_the_results_at_all_takes_the_liveliest_out_loud()
     assert picked is cars[0], "первая живая из найденных - дефолт у прибора один"
     assert world.asked == [], "вопроса не было"
     assert world.said == [
-        "«тачки»: первой части в выдаче нет; беру первую живую из найденных - "
-        "«Тачки 2 (2011)»; всего подошло картин 2; остальные: cast тачки --menu"
+        phrase(
+            "choice.absent_part",
+            name="тачки",
+            picture="Тачки 2 (2011)",
+            total=2,
+            asked="тачки",
+        )
     ]
 
 
@@ -361,8 +383,8 @@ def test_the_menu_flag_still_asks_about_a_part_that_is_not_in_the_results() -> N
     picked = _pick_plan(cars, asked="тачки", environment=world, menu=True)
 
     assert picked is cars[0]
-    assert world.asked == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
-    assert world.said[1].startswith("«тачки»: первой части в выдаче нет, и вместо неё")
+    assert world.asked == [(phrase("choice.question"), 2, None)], "дефолта у вопроса нет"
+    assert world.said[1] == phrase("choice.part_one_absent", name="тачки")
 
 
 def test_a_default_that_leaves_the_exactly_named_picture_takes_the_liveliest() -> None:
@@ -383,9 +405,15 @@ def test_a_default_that_leaves_the_exactly_named_picture_takes_the_liveliest() -
     assert picked is bleach[1], "взята самая живая - названная не играет"
     assert world.asked == [], "вопроса на обычном пути больше нет"
     assert world.said == [
-        "«блич» - это «Блич (2004, сериал)», но не играет: рой у неё мёртв - сидов 3; "
-        "беру самую живую - «Блич: Тысячелетняя кровавая война (2022, сериал)»; "
-        "всего подошло картин 2; другая: cast блич --menu"
+        phrase(
+            "choice.named_taken_unplayable",
+            name="блич",
+            whom=phrase("choice.quoted", it=f"Блич (2004{phrase('choice.series_mark')})"),
+            why=phrase("choice.why_dead_swarm", seeds=3),
+            took=f"Блич: Тысячелетняя кровавая война (2022{phrase('choice.series_mark')})",
+            total=2,
+            asked="блич",
+        )
     ]
 
 
@@ -399,8 +427,14 @@ def test_the_named_guard_still_asks_without_a_default_behind_the_menu_flag() -> 
 
     picked = _pick_plan(bleach, asked="блич", environment=world, menu=True)
 
-    assert world.said[1].startswith("«блич» - это «Блич (2004, сериал)»")
-    assert world.asked == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
+    assert world.said[1] == phrase(
+        "choice.named_unplayable",
+        name="блич",
+        whom=phrase("choice.quoted", it=f"Блич (2004{phrase('choice.series_mark')})"),
+        why=phrase("choice.why_dead_swarm", seeds=3),
+        taken=f"Блич: Тысячелетняя кровавая война (2022{phrase('choice.series_mark')})",
+    )
+    assert world.asked == [(phrase("choice.question"), 2, None)], "дефолта у вопроса нет"
     assert picked is bleach[1], "взята та картина, чей номер назвал человек"
     assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
 
@@ -423,9 +457,7 @@ def test_several_pictures_are_not_a_reason_to_ask_when_the_top_is_the_one_asked(
 
     assert picked is cars[0]
     assert world.asked == [], "вопроса не было"
-    assert world.said == [
-        "беру «Тачки (2006)» - подошло картин 3; другая: cast releases тачки и --pick N"
-    ]
+    assert world.said == [phrase("choice.taken", picture="Тачки (2006)", total=3, asked="тачки")]
 
 
 def test_the_menu_flag_raises_the_list_where_the_device_would_take_it_itself() -> None:
@@ -445,7 +477,7 @@ def test_the_menu_flag_raises_the_list_where_the_device_would_take_it_itself() -
     picked = _pick_plan(cars, asked="тачки", environment=world, menu=True)
 
     assert picked is cars[0], "пустой Enter - это по-прежнему дефолт"
-    assert world.asked == [("Что смотрим?", 3, 1)], "список подняли - о нём и спрашивают"
+    assert world.asked == [(phrase("choice.question"), 3, 1)], "список подняли - о нём и спрашивают"
     assert world.said[0].splitlines()[1] == "  2. Тачки 2 (2011)"
 
 
@@ -464,7 +496,7 @@ def test_a_picture_the_lines_are_silent_about_needs_no_terminal_either() -> None
     picked = _pick_plan(cars, asked="тачки", environment=world)
 
     assert picked is cars[0]
-    assert world.said[0].startswith("беру «Тачки (2006)»")
+    assert world.said[0] == phrase("choice.taken", picture="Тачки (2006)", total=2, asked="тачки")
 
 
 def test_the_taken_namesake_is_the_one_the_honest_lines_are_about() -> None:
@@ -483,12 +515,20 @@ def test_the_taken_namesake_is_the_one_the_honest_lines_are_about() -> None:
     assert picked is titanic[2], "самая живая из одноимённых - она же и дефолт"
     assert world.asked == [], "тёзки больше не спрашивают (TC-812)"
     assert world.said == [
-        "беру «Титаник (1997)» - самая живая из одноимённых, у лучшей её раздачи сидов 165; "
-        "других картин под этим именем: 2, их список: cast титаник --menu"
+        phrase(
+            "choice.namesake_taken",
+            picture="Титаник (1997)",
+            seeds=165,
+            others=2,
+            asked="титаник",
+        )
     ]
-    assert swap_note(titanic, picked, "титаник") == (
-        "спросили «титаник» - беру «Титаник (1997)», а не «Титаник (1943)»: "
-        "рой у неё мёртв - сидов 1"
+    assert swap_note(titanic, picked, "титаник") == phrase(
+        "choice.note_instead_asked_why",
+        asked="титаник",
+        mine="Титаник (1997)",
+        other="Титаник (1943)",
+        why=phrase("choice.why_dead_swarm", seeds=1),
     ), "картина сменилась - и об этом сказано"
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
@@ -66,7 +67,7 @@ def _ctl(receiver: Receiver) -> None:
     if not line:
         return
     word, _, rest = line.partition(" ")
-    _environment_port().write(f"пульт: {line}")
+    _environment_port().write(phrase("choice.remote_command", command=line))
     with contextlib.suppress(Exception):
         if word == "seek":
             receiver.seek(float(rest))

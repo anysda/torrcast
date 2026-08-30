@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._namesake import _namesake
 from torrcast.usecases.choice.asked_kind import asked_kind
@@ -24,8 +25,10 @@ def namesake_line(plans: list[Plan], taken: int, asked: str) -> str:
     """
     others = [n for n in asked_kind(plans) if n != taken and _namesake(plans, n, taken)]
     plan = plans[taken - 1]
-    return (
-        f"беру «{_named(plan.picture)}» - самая живая из одноимённых, у лучшей её "
-        f"раздачи сидов {liveliness(plan)}; других картин под этим именем: "
-        f"{len(others)}, их список: cast {asked} --menu"
+    return phrase(
+        "choice.namesake_taken",
+        picture=_named(plan.picture),
+        seeds=liveliness(plan),
+        others=len(others),
+        asked=asked,
     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.usecases.choice._named import _named
 
@@ -25,8 +26,10 @@ def absent_part_line(plans: list[Plan], default: int, asked: str) -> str:
     и ход к остальным. Решение принято за человека, и без хода строка была бы отпиской.
     """
     name, _index = split_franchise_index(asked)
-    return (
-        f"«{name}»: первой части в выдаче нет; беру первую живую из найденных - "
-        f"«{_named(plans[default - 1].picture)}»; всего подошло картин {len(plans)}; "
-        f"остальные: cast {asked} --menu"
+    return phrase(
+        "choice.absent_part",
+        name=name,
+        picture=_named(plans[default - 1].picture),
+        total=len(plans),
+        asked=asked,
     )

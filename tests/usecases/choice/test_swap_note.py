@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from tests.usecases.choice.world import parts
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice.swap_note import _is_default, swap_note
 
 
@@ -17,7 +18,12 @@ def test_a_picture_chosen_for_the_person_is_explained_out_loud() -> None:
     """Картину выбрали за человека - строка печатается, и она та же, что у дефолта."""
     mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
 
-    assert swap_note(mummy, mummy[0], "мумия").startswith("спросили «мумия» - беру «Мумия (1999)»")
+    assert swap_note(mummy, mummy[0], "мумия") == phrase(
+        "choice.note_namesake_asked",
+        asked="мумия",
+        mine="Мумия (1999)",
+        others=phrase("choice.quoted", it="Мумия (2017)"),
+    )
 
 
 def test_a_picture_the_person_picked_himself_gets_no_line_about_any_swap() -> None:
@@ -47,9 +53,11 @@ def test_a_default_keeps_its_namesake_line_after_its_picture_is_recognised_as_se
 
     steins_gate[0].picture.kind = "tv"
 
-    assert swap_note(steins_gate, steins_gate[0], "врата штейна s1e1") == (
-        "спросили «врата штейна s1e1» - беру «Врата Штейна (2011, сериал)»: "
-        "под этим именем есть ещё «Врата Штейна (2009)» - другая картина"
+    assert swap_note(steins_gate, steins_gate[0], "врата штейна s1e1") == phrase(
+        "choice.note_namesake_asked",
+        asked="врата штейна s1e1",
+        mine=f"Врата Штейна (2011{phrase('choice.series_mark')})",
+        others=phrase("choice.quoted", it="Врата Штейна (2009)"),
     )
 
 

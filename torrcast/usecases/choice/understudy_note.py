@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.configure import _environment_port
 
@@ -19,9 +20,12 @@ def understudy_note(failed: Plan, spare: Plan, why: str) -> str:
     первая не сыграла: без причины это выглядело бы как каприз показа, а с ней человек
     видит, что выбор был сделан за него не от лени.
     """
-    return (
-        f"«{_named(failed.picture)}» - играть нечем ({why}); "
-        f"ухожу к «{_named(spare.picture)}»: раздач {len(spare.ranked)}"
+    return phrase(
+        "choice.understudy",
+        failed=_named(failed.picture),
+        why=why,
+        spare=_named(spare.picture),
+        releases=len(spare.ranked),
     )
 
 

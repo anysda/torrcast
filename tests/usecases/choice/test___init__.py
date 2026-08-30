@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
 from torrcast.domain.rank_settings import ALIVE_SEEDERS
 from torrcast.domain.release import Release
@@ -115,7 +116,9 @@ def test_a_release_over_the_receivers_ceiling_is_called_heavy() -> None:
     Порог тут не украшение: на таком весе приёмник встаёт в ребуфер раз в 30-60 секунд, и
     каждый подвис стоит секунд пропущенного фильма.
     """
-    assert warned(film(18), RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == "тяжёлый"
+    assert warned(film(18), RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == phrase(
+        "choice.mark_heavy"
+    )
 
 
 def test_a_release_sitting_exactly_on_a_line_is_still_on_the_good_side_of_it() -> None:
@@ -130,7 +133,9 @@ def test_a_release_sitting_exactly_on_a_line_is_still_on_the_good_side_of_it() -
     at_ceiling = film(14.4)
     at_recode_line = film(9)
 
-    assert warned(at_ceiling, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) != "тяжёлый"
+    assert warned(at_ceiling, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) != phrase(
+        "choice.mark_heavy"
+    )
     assert warned(at_recode_line, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == ""
 
 
@@ -145,8 +150,10 @@ def test_above_the_lower_of_the_two_ceilings_the_whole_file_is_promised_to_be_re
     above = warned(film(18), RUNTIME, warn_mbit=25.0, recode_at=10.0, hard_mbit=16.0)
     at_line = warned(film(14.4), RUNTIME, warn_mbit=25.0, recode_at=10.0, hard_mbit=16.0)
 
-    assert above == "перекодирую целиком"
-    assert at_line == "перекодируем", "ровно на черте сплошного перекода ещё нет"
+    assert above == phrase("choice.mark_recode_all")
+    assert at_line == phrase("choice.mark_recode_parts"), (
+        "ровно на черте сплошного перекода ещё нет"
+    )
 
 
 def test_a_release_over_the_recode_line_promises_a_recode_and_not_a_refusal() -> None:
@@ -155,7 +162,9 @@ def test_a_release_over_the_recode_line_promises_a_recode_and_not_a_refusal() ->
     Тяжёлые куски поедут перекодированными - честное предупреждение, а не отказ. Назови
     таблица такой релиз тяжёлым - человек обошёл бы стороной то, что прекрасно играет.
     """
-    assert warned(film(10), RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == "перекодируем"
+    assert warned(film(10), RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == phrase(
+        "choice.mark_recode_parts"
+    )
 
 
 def test_hevc_is_named_by_what_the_show_will_actually_do_with_it() -> None:
@@ -166,8 +175,10 @@ def test_hevc_is_named_by_what_the_show_will_actually_do_with_it() -> None:
     """
     hevc = film(6, codec="HEVC")
 
-    assert warned(hevc, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == "перекодирую целиком"
-    assert warned(hevc, RUNTIME, WARN_MBIT) == "не берём"
+    assert warned(hevc, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == phrase(
+        "choice.mark_recode_all"
+    )
+    assert warned(hevc, RUNTIME, WARN_MBIT) == phrase("choice.mark_not_taken")
 
 
 def test_an_unknown_weight_produces_no_weight_marks_at_all() -> None:
@@ -199,4 +210,4 @@ def test_an_unknown_weight_still_leaves_the_codec_mark_in_place() -> None:
 
     said = warned(silent_hevc, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT)
 
-    assert said == "перекодирую целиком"
+    assert said == phrase("choice.mark_recode_all")

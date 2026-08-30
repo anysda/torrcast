@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, parts, plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.choice.understudy_note import _why_refused, understudy_note
 
@@ -18,9 +19,12 @@ def test_the_line_names_both_pictures_the_reason_and_what_the_spare_has_to_play(
 
     said = understudy_note(failed, spare, "годного релиза нет")
 
-    assert said == (
-        "«Человек-невидимка (1933)» - играть нечем (годного релиза нет); "
-        "ухожу к «Человек-невидимка (2020)»: раздач 2"
+    assert said == phrase(
+        "choice.understudy",
+        failed="Человек-невидимка (1933)",
+        why="годного релиза нет",
+        spare="Человек-невидимка (2020)",
+        releases=2,
     )
 
 

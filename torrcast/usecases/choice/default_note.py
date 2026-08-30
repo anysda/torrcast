@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._namesake import _namesake
 from torrcast.usecases.choice.alive_numbers import alive_numbers
@@ -59,27 +60,38 @@ def default_note(plans: list[Plan], asked: str = "") -> str:
     numbers = asked_kind(plans)
     picked = first_alive(plans)
     plain = _first_alive(plans, list(range(1, len(plans) + 1)))
-    head = f"спросили «{asked}» - беру" if asked else "беру"
+    tail = "_asked" if asked else ""
     mine = _named(plans[picked - 1].picture)
     if picked > 1:
         other = _named(plans[0].picture)
         why = (
-            "спросили серию, а это другой тип"
-            if 1 not in numbers
-            else _passed_why(plans, 1, numbers)
+            phrase("choice.why_other_kind") if 1 not in numbers else _passed_why(plans, 1, numbers)
         )
-        return f"{head} «{mine}», а не «{other}»{f': {why}' if why else ''}"
+        key = f"choice.note_instead{tail}{'_why' if why else ''}"
+        return phrase(key, asked=asked, mine=mine, other=other, why=why)
     if len(numbers) != len(plans) and picked != plain:
         other = _named(plans[plain - 1].picture)
-        return f"{head} «{mine}», а не «{other}»: спросили серию, а это другой тип"
+        return phrase(
+            f"choice.note_instead{tail}_why",
+            asked=asked,
+            mine=mine,
+            other=other,
+            why=phrase("choice.why_other_kind"),
+        )
     if twins := [n for n in numbers if n != picked and _namesake(plans, n, picked)]:
-        others = ", ".join(f"«{_named(plans[n - 1].picture)}»" for n in twins)
-        return f"{head} «{mine}»: под этим именем есть ещё {others} - другая картина"
+        others = ", ".join(phrase("choice.quoted", it=_named(plans[n - 1].picture)) for n in twins)
+        return phrase(f"choice.note_namesake{tail}", asked=asked, mine=mine, others=others)
     season = asked_season_number(plans)
     picture = plans[picked - 1].picture
     if season is not None and not carries_season(picture, season):
         part = picture.part
-        return f"{head} «{mine}»: спрошен {season} сезон, а в выдаче его нет - у неё часть {part}"
+        return phrase(
+            f"choice.note_season{tail}",
+            asked=asked,
+            mine=mine,
+            season=season,
+            part=part,
+        )
     return ""
 
 
@@ -98,12 +110,12 @@ def _passed_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
     """
     life = liveliness(plans[number - 1])
     if life <= 0:
-        return "играть у неё нечем - ни одной годной раздачи"
+        return phrase("choice.why_nothing_playable")
     if number not in alive_numbers(plans, numbers):
-        return f"рой у неё мёртв - сидов {life}"
+        return phrase("choice.why_dead_swarm", seeds=life)
     if not fitness(plans[number - 1]):
-        return "живого HD у неё нет - одно старьё"
+        return phrase("choice.why_no_hd")
     taken = len(plans[first_alive(plans) - 1].ranked)
     if taken <= 1:
         return ""
-    return f"у неё всего одна раздача, а тут их {taken}"
+    return phrase("choice.why_single_release", taken=taken)

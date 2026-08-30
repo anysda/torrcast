@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.release import Release
 from torrcast.usecases.choice.configure import _environment_port
 
@@ -25,16 +26,18 @@ def warned(
     peak = _environment_port().bitrate_of(release, runtime)
     marks: list[str] = []
     if release.is_hevc:
-        marks += ["перекодирую целиком" if recode_at > 0 else "не берём"]
+        whole = phrase("choice.mark_recode_all")
+        marks += [whole if recode_at > 0 else phrase("choice.mark_not_taken")]
     if peak is None:  # вес неизвестен (TC-344) - пометок по весу нет, врать нечем
         return ", ".join(marks)
     if peak > warn_mbit:
-        marks += ["тяжёлый"]
+        marks += [phrase("choice.mark_heavy")]
     elif hard_mbit > 0 and peak > hard_mbit:
         # Тяжелее прежнего потолка, но играбелен: уедет перекодированным целиком.
-        if "перекодирую целиком" not in marks:
-            marks += ["перекодирую целиком"]
+        whole = phrase("choice.mark_recode_all")
+        if whole not in marks:
+            marks += [whole]
     elif recode_at > 0 and peak > recode_at:
         # Не брак, а честное предупреждение - тяжёлые куски поедут перекодированными.
-        marks += ["перекодируем"]
+        marks += [phrase("choice.mark_recode_parts")]
     return ", ".join(marks)

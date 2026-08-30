@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture
 from torrcast.usecases.choice.head_line import head_line
@@ -32,4 +33,6 @@ def test_only_the_half_that_arrived_is_added_to_the_line() -> None:
 
 def test_a_picture_standing_outside_the_numbered_line_says_so_in_its_line() -> None:
     """Пункт без номера части уезжает вниз списка и говорит, почему он там."""
-    assert head_line(3, CARS, Fact(), aside=True) == "  3. Тачки (2006, без номера части)"
+    assert head_line(3, CARS, Fact(), aside=True) == (
+        f"  3. Тачки (2006{phrase('choice.no_part_mark')})"
+    )

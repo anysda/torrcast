@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.release import Release
 from torrcast.usecases.choice.configure import _environment_port
 
@@ -25,5 +26,6 @@ def last_hope_note(plan: Plan, release: Release) -> str:
     """
     if not (plan.last_resort and _environment_port().hevc_hope(release, plan.last_resort)):
         return ""
-    what = f"серии {plan.want}" if plan.want else "картины"
-    return f"живой раздачи {what} без HEVC нет - беру HEVC последней надеждой"
+    if plan.want:
+        return phrase("choice.last_hope_episode", want=plan.want)
+    return phrase("choice.last_hope_picture")

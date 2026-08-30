@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.origin import Origin
 from torrcast.usecases.choice.namesake_note import namesake_note
 
@@ -22,10 +23,7 @@ def test_the_second_picture_is_named_the_way_the_reference_signed_it() -> None:
 
     said = namesake_note(nine, Origin(title="Nine", year=2009, namesake="9 (мультфильм)"))
 
-    assert said == (
-        "«Девять» (2009): под этим именем и годом картин две - "
-        "справка знает ещё «9 (мультфильм)», развести их по имени и году нечем"
-    )
+    assert said == phrase("choice.namesake_two", title="Девять", year=2009, other="9 (мультфильм)")
 
 
 def test_without_a_namesake_in_the_reference_the_line_would_be_an_invention() -> None:

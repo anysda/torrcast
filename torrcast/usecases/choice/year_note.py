@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.slugify import slugify
 
 if TYPE_CHECKING:
@@ -42,8 +43,17 @@ def year_note(picked: Plan, about: Origin, asked: str = "") -> str:
         return ""
     if abs(picture.year - about.year) <= 1:
         return ""
-    head = f"спросили «{asked}» - " if asked else ""
-    return (
-        f"{head}беру «{picture.title}» {picture.year} года, "
-        f"но справка знает эту картину как {about.year}"
+    if asked:
+        return phrase(
+            "choice.year_note_asked",
+            asked=asked,
+            title=picture.title,
+            year=picture.year,
+            known=about.year,
+        )
+    return phrase(
+        "choice.year_note",
+        title=picture.title,
+        year=picture.year,
+        known=about.year,
     )

@@ -15,8 +15,14 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import parts, plan
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.named_elsewhere import named_elsewhere
+
+
+def q(*names: str) -> str:
+    """Имена картин так, как их пишет каталог: в кавычках своего языка, через запятую."""
+    return ", ".join(phrase("choice.quoted", it=name) for name in names)
 
 
 def test_a_dead_exactly_named_picture_stops_the_default_and_names_the_reason() -> None:
@@ -31,10 +37,12 @@ def test_a_dead_exactly_named_picture_stops_the_default_and_names_the_reason() -
         plan("Блич: Тысячелетняя кровавая война", 2022, kind="tv", seeders=40, asked_series=True),
     ]
 
-    assert named_elsewhere(bleach, "блич") == (
-        "«блич» - это «Блич (2004, сериал)»; не играет: рой у неё мёртв - сидов 3; "
-        "вместо неё другую картину («Блич: Тысячелетняя кровавая война (2022, сериал)») "
-        "сам не включаю - вот что есть, назови номер"
+    assert named_elsewhere(bleach, "блич") == phrase(
+        "choice.named_unplayable",
+        name="блич",
+        whom=q(f"Блич (2004{phrase('choice.series_mark')})"),
+        why=phrase("choice.why_dead_swarm", seeds=3),
+        taken=f"Блич: Тысячелетняя кровавая война (2022{phrase('choice.series_mark')})",
     )
 
 
@@ -52,11 +60,14 @@ def test_alive_namesakes_by_year_are_all_named_and_the_choice_is_the_persons() -
         plan("Чернобыль", 2022, kind="tv", seeders=50, asked_series=True),
     ]
 
-    assert named_elsewhere(chernobyl, "чернобыль") == (
-        "«чернобыль» - это «Чернобыль (2019, сериал)», «Чернобыль (2022, сериал)», "
-        "а дефолтом встаёт другая картина - «Чернобыль. Зона отчуждения (2014, сериал)» "
-        "(первая живая по хронологии); какую из них смотреть, сам не решаю - "
-        "вот что есть, назови номер"
+    assert named_elsewhere(chernobyl, "чернобыль") == phrase(
+        "choice.named_not_default",
+        name="чернобыль",
+        whom=q(
+            f"Чернобыль (2019{phrase('choice.series_mark')})",
+            f"Чернобыль (2022{phrase('choice.series_mark')})",
+        ),
+        taken=f"Чернобыль. Зона отчуждения (2014{phrase('choice.series_mark')})",
     )
 
 

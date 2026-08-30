@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.numbered_line import _numbered_line
 from torrcast.domain.slugify import slugify
@@ -51,19 +52,15 @@ def part_one_swap(plans: list[Plan], asked: str) -> str:
     if not franchise:
         return ""
     if first is None:
-        return (
-            f"«{name}»: первой части в выдаче нет, и вместо неё другую часть сам не "
-            f"включаю - вот что есть, назови номер"
-        )
+        return phrase("choice.part_one_absent", name=name)
     default = plans[first_alive(plans) - 1].picture
     if default is first or default.title.casefold() == first.title.casefold():
         return ""
     number = next(n for n, plan in enumerate(plans, start=1) if plan.picture is first)
     why = _passed_why(plans, number, asked_kind(plans))
-    return (
-        f"«{_named(first)}» не играет{f': {why}' if why else ''}; вместо неё другую "
-        f"часть сам не включаю - вот что есть, назови номер"
-    )
+    if why:
+        return phrase("choice.part_one_dead_why", picture=_named(first), why=why)
+    return phrase("choice.part_one_dead", picture=_named(first))
 
 
 def _first_part(plans: list[Plan], asked: str) -> tuple[Picture | None, bool]:
