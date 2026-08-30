@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.adapters.http_server.our_address import our_address
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.infra_error import InfraError
 
@@ -25,5 +26,6 @@ def hls_base(config: Config, route: Callable[[str], str] = our_address) -> str:
         return config.hls_base_url.rstrip("/")
     host = route(config.tv or "")
     if not host:
-        raise InfraError(f"не вижу маршрута до ТВ {config.tv or '(адрес не задан)'}")
+        tv = config.tv or phrase("http_server.address_unset")
+        raise InfraError(phrase("http_server.no_route_to_tv", tv=tv))
     return f"{config.transport}://{host}:{config.hls_port}"

@@ -12,6 +12,7 @@ from typing import Any
 
 from torrcast.adapters.http_server._feed import _Feed
 from torrcast.adapters.http_server._handler import _Handler
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.why import why
 
@@ -95,7 +96,9 @@ class HlsServer:
             try:
                 ctx.load_cert_chain(self.cert, self.key)
             except (OSError, ssl.SSLError) as exc:
-                raise InfraError(f"не читается серт {self.cert}: {why(exc)}") from exc
+                raise InfraError(
+                    phrase("http_server.cert_unreadable", path=self.cert, reason=why(exc))
+                ) from exc
         handler = type(
             "_Bound",
             (_Handler,),
@@ -104,7 +107,9 @@ class HlsServer:
         try:
             server = _Server((self.host, self.port), handler)
         except OSError as exc:
-            raise InfraError(f"порт {self.port} занят или недоступен: {why(exc)}") from exc
+            raise InfraError(
+                phrase("http_server.port_unavailable", port=self.port, reason=why(exc))
+            ) from exc
         server.ctx = ctx
         self._server = server
         threading.Thread(

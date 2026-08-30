@@ -31,7 +31,7 @@ def test_the_configured_base_overrides_everything() -> None:
 
 def test_without_a_route_to_the_receiver_the_base_is_refused() -> None:
     """Маршрута нет - беда словами. Молча собранная база уводит показ в никуда."""
-    with pytest.raises(InfraError, match="не вижу маршрута до ТВ"):
+    with pytest.raises(InfraError, match="no route to the TV"):
         hls_base(Config(tv="10.0.100.9"), lambda tv: "")
-    with pytest.raises(InfraError, match="адрес не задан"):
+    with pytest.raises(InfraError, match="address not set"):
         hls_base(Config(), lambda tv: "")

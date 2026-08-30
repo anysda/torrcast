@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Final
 from torrcast.adapters.http_server._feed import _Feed
 from torrcast.adapters.http_server.log_segment import log_segment
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.trace_sources import PACKED, WARMED_COPY, WARMED_RECODE
 
@@ -80,7 +81,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._head(404, 0, "text/plain")
             self._trace(name, began, "404")
             return
-        self._trace(name, began, f"{len(data) / 1e6:.1f} МБ")
+        self._trace(
+            name, began, phrase("http_server.trace_megabytes", size=f"{len(data) / 1e6:.1f}")
+        )
         suffix = Path(name).suffix
         ctype, total = _TYPES[suffix], len(data)
         span = self._range(total)
@@ -170,11 +173,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if not _tracing():
             return
         span = self.headers.get("Range", "")
-        print(
-            f"запрос {name}{' ' + span if span else ''} · ждал {time.monotonic() - began:.1f} с"
-            f" · {got}",
-            flush=True,
+        waited = f"{time.monotonic() - began:.1f}"
+        span_text = f" {span}" if span else ""
+        line = phrase(
+            "http_server.trace_request", name=name, span=span_text, waited=waited, got=got
         )
+        print(line, flush=True)
 
     def _sent(self, name: str, size: int, seconds: float) -> None:
         """Сколько времени кусок **уезжал в телевизор** (``TORRCAST_TRACE=1``).
@@ -186,11 +190,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         """
         if not _tracing() or seconds <= 0:
             return
-        print(
-            f"отдал {name} · {size / 1e6:.1f} МБ за {seconds:.1f} с"
-            f" · {size * 8 / seconds / 1e6:.1f} Мбит/с",
-            flush=True,
+        size_mb, rate = f"{size / 1e6:.1f}", f"{size * 8 / seconds / 1e6:.1f}"
+        line = phrase(
+            "http_server.trace_sent", name=name, size=size_mb, seconds=f"{seconds:.1f}", rate=rate
         )
+        print(line, flush=True)
 
     def log_message(self, fmt: str, *args: Any) -> None:
         pass
