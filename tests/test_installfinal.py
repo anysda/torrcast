@@ -46,7 +46,11 @@ LONG_NAME = "Гостиная Самсунга На Втором Этаже Сл
 #: вхождения текста в install.sh: второй `cast --tv`, вписанный строкой ниже - в
 #: `receiver_choice` или в любую другую функцию, - текстовую сверку одной функции
 #: не тревожит, а счётчик вызовов ловит его в каждом случае.
-_MARK = '#!/bin/sh\nprintf "call\\n" >> "$TC939_CALLED"\n'
+#: 🔴 Путь счётчика ВШИВАЕТСЯ в текст подделки при записи, а не берётся из
+#: окружения: измеряемый код наследует окружение и мог бы отвести второй вызов в
+#: `/dev/null`, подсунув `TC939_CALLED`. Вшитый путь ему не переписать.
+_CALLED = "@CALLED@"
+_MARK = f'#!/bin/sh\nprintf "call\\n" >> "{_CALLED}"\n'
 _FOUND = (
     _MARK
     + """printf 'ТВ: {name} - {addr}\n'
@@ -121,10 +125,10 @@ def _run(case: str, cols: int, language: str, box: Path, rows: int, locale: str)
     tv = BEFORE.get(case)
     value = f'"{tv}"' if tv else "null"
     (box / "cfg" / "config.json").write_text(f'{{"tv": {value}}}\n', encoding="utf-8")
-    cast = box / "bin" / "cast"
-    cast.write_text(CASTS[case], encoding="utf-8")
-    cast.chmod(0o755)
     called = box / "called"
+    cast = box / "bin" / "cast"
+    cast.write_text(CASTS[case].replace(_CALLED, str(called)), encoding="utf-8")
+    cast.chmod(0o755)
 
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
@@ -151,7 +155,6 @@ def _run(case: str, cols: int, language: str, box: Path, rows: int, locale: str)
             "TORRCAST_MOTD": str(box / "motd"),
             "TORRCAST_MOTD_D": str(box / "motd.d"),
             "TORRCAST_PHASES": "receiver",
-            "TC939_CALLED": str(called),
         },
         start_new_session=True,
     )
@@ -250,18 +253,34 @@ def test_a_repeat_install_names_the_address_without_a_second_search() -> None:
 
 
 @pytest.mark.machine
-@pytest.mark.parametrize("case", ["one", "noname", "long", "two", "many", "none"])
-def test_the_search_runs_exactly_once_in_every_case(case: str) -> None:
+@pytest.mark.parametrize(
+    ("case", "times"),
+    [
+        ("one", 1),
+        ("noname", 1),
+        ("long", 1),
+        ("two", 1),
+        ("many", 1),
+        ("none", 1),
+        # Настроенный приёмник и mock-стенд: искать нечего, ноль запусков.
+        ("again", 0),
+        ("mock", 0),
+    ],
+)
+def test_the_search_runs_exactly_the_promised_number_of_times(case: str, times: int) -> None:
     """🔴 Поиск - секунды mDNS, и второго человек ждать не обязан.
 
     Считаются ЗАПУСКИ подделки, а не вхождения текста в install.sh: второй
     `cast --tv`, вписанный соседней функцией, текстовую сверку одной функции не
     тревожит. Отдельно сверяется, что вывод поиска сохранён: имя найденного и
     список нескольких берутся из него, иначе за ними пришлось бы идти в сеть.
+    Случаи с нулём тут не для полноты решётки: настроенному приёмнику и стенду
+    поиск не нужен вовсе, и лишний запуск - те же секунды ожидания на пустом
+    месте.
     """
     shot = frame(case)
     _landed(shot)
-    assert shot.calls == 1, f"`cast --tv` запускался {shot.calls} раз(а), а не один"
+    assert shot.calls == times, f"`cast --tv` запускался {shot.calls} раз(а), а не {times}"
     body = SCRIPT.split("setup_receiver() {", 1)[1].split("\n}", 1)[0]
     assert 'out="$(' in body, "вывод поиска не сохранён - имя брать неоткуда"
 
@@ -290,25 +309,31 @@ def test_a_long_list_keeps_the_hint_and_says_how_many_are_left() -> None:
     assert shot.text.count("cast --tv") == 1, f"подсказка cast --tv задвоилась:\n{shot.show()}"
 
 
+#: Чем язык говорит про пустой поиск. Сверяется словом, а не одной командой:
+#: `cast --tv  выбрать ТВ` из колонки нашлась бы и на экране, который смолчал.
+SAYS_NONE = {"ru": r"не найден|нет", "en": r"no receiver|no TV"}
+
+
 @pytest.mark.machine
-@pytest.mark.parametrize("cols", [WIDE, NARROW, TINY])
-def test_an_empty_list_is_not_silence(cols: int) -> None:
+@pytest.mark.parametrize("language", ["ru", "en"])
+@pytest.mark.parametrize("cols", [WIDE, NARROW, TINY, 25, 24, 23])
+def test_an_empty_list_is_not_silence(cols: int, language: str) -> None:
     """🔴 Не нашлось никого - экран говорит и про что, и чем это чинить.
 
-    Узкий размер тут не для полноты решётки: на 24x30 колонка команд у вида
+    Узкие размеры тут не для полноты решётки. На 24x30 колонка команд у вида
     `none` отдана блоку целиком (HELP_DROP съедает единственную строку тира M),
     и если блоку урезать хвост, человек остаётся без единой команды на экране.
+    На 23, 24 и 25 колонках до TC-939 не было ни одной команды в обоих языках:
+    короткая форма блока туда не влезала и резалась бортом.
     """
-    shot = frame("none", cols)
+    shot = frame("none", cols, language)
     _landed(shot)
     _unbroken(shot)
     assert shot.text.count("cast --tv") == 1, (
         f"подсказки cast --tv на экране {shot.text.count('cast --tv')}:\n{shot.show()}"
     )
     line = shot.row("cast --tv")
-    # Мало найти команду: `cast --tv  выбрать ТВ` из колонки нашлась бы и на
-    # экране, который про пустой поиск смолчал. Строка обязана сказать «нет».
-    assert re.search(r"не найден|нет", line), f"экран не сказал, что не нашёл:\n{shot.show()}"
+    assert re.search(SAYS_NONE[language], line), f"экран не сказал, что не нашёл:\n{shot.show()}"
 
 
 @pytest.mark.machine
@@ -366,13 +391,22 @@ def test_the_final_screen_shows_the_door_to_the_other_language(
 
 
 @pytest.mark.machine
-def test_the_narrowest_tier_keeps_the_tv_and_drops_the_language() -> None:
-    """Тир M держит одну команду, и это `cast --tv`: язык человек уже выбрал сам."""
-    shot = frame("one", TINY)
+@pytest.mark.parametrize("language", ["ru", "en"])
+@pytest.mark.parametrize("cols", [TINY, 24])
+def test_the_narrowest_tier_keeps_the_tv_and_drops_the_language(cols: int, language: str) -> None:
+    """Тир M держит одну команду, и это `cast --tv`: язык человек уже выбрал сам.
+
+    🔴 Ширина 24 тут именная. Английская строка тира M шире русской на знак (21
+    против 20 - `choose a TV` длиннее `выбрать ТВ`), и порог «ширина + 2» отнимал
+    у английского 24-колоночного терминала единственную команду: колонки не было
+    вовсе. Цифру трогать нельзя, она правдива, поэтому мерится сам экран.
+    """
+    shot = frame("one", cols, language)
     _landed(shot)
     _unbroken(shot)
+    door = "cast --en" if language == "ru" else "cast --ru"
     assert "cast --tv" in shot.text, f"в узком тире не осталось команды:\n{shot.show()}"
-    assert "cast --en" not in shot.text, f"узкий тир занят языком, а не ТВ:\n{shot.show()}"
+    assert door not in shot.text, f"узкий тир занят языком, а не ТВ:\n{shot.show()}"
     assert ADDR in shot.text, f"про приёмник смолчали и тут:\n{shot.show()}"
 
 
@@ -392,6 +426,27 @@ def test_a_byte_locale_measures_the_same_width_as_a_utf8_one() -> None:
     assert byte.row("приёмник"), f"в байтовой локали строка про приёмник пропала:\n{byte.show()}"
     assert byte.row("приёмник") == utf8.row("приёмник"), (
         f"байтовая мерка разошлась со знаковой:\nбайты:\n{byte.show()}\nзнаки:\n{utf8.show()}"
+    )
+
+
+@pytest.mark.machine
+def test_a_byte_locale_cuts_a_long_name_at_the_same_letter() -> None:
+    """🔴 Обрезка (`ui_cut`) вне UTF-8 идёт по ведущим байтам - тут её и меряем.
+
+    Мерка (`ui_len`) и обрезка - разные ветки, и короткое имя обрезку не трогает
+    вовсе: «Гостиная» помещается целиком в обоих локалях. Поэтому берётся имя,
+    которое РЕЖЕТСЯ, и байтовый кадр сличается со знаковым буква в букву: если
+    `ui_cut` считает байты, под `LC_ALL=C` имя оборвётся вдвое раньше.
+    """
+    utf8 = frame("long", NARROW)
+    byte = frame("long", NARROW, locale="C")
+    _landed(byte)
+    _unbroken(byte)
+    line = byte.row("приёмник")
+    assert line, f"в байтовой локали строка про приёмник пропала:\n{byte.show()}"
+    assert "Гостиная Самсунг" in line, f"имя обрезано раньше времени:\n{byte.show()}"
+    assert line == utf8.row("приёмник"), (
+        f"байтовая обрезка разошлась со знаковой:\nбайты:\n{byte.show()}\nзнаки:\n{utf8.show()}"
     )
 
 
