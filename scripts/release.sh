@@ -26,14 +26,22 @@ need() { command -v "$1" >/dev/null 2>&1 || die "нужен $1, его нет в
 
 dry_run=0
 tag=""
-for arg in "$@"; do
-    case "$arg" in
+notes=""
+while [ $# -gt 0 ]; do
+    case "$1" in
         --dry-run) dry_run=1 ;;
-        -*) die "неизвестный флаг: $arg" ;;
-        *) tag="$arg" ;;
+        --notes)
+            shift
+            [ $# -gt 0 ] || die "--notes нужен файл с описанием релиза"
+            notes="$1"
+            ;;
+        -*) die "неизвестный флаг: $1" ;;
+        *) tag="$1" ;;
     esac
+    shift
 done
-[ -n "$tag" ] || die "нужен тег: scripts/release.sh [--dry-run] vX.Y.Z"
+[ -n "$tag" ] || die "нужен тег: scripts/release.sh [--dry-run] [--notes ФАЙЛ] vX.Y.Z"
+[ -z "$notes" ] || [ -f "$notes" ] || die "файла с описанием нет: $notes"
 
 # --- 1. тег: формат и предок master -----------------------------------------
 check_tag_format() {  # $1 - тег
@@ -58,10 +66,13 @@ clone_at_tag() {  # $1 - каталог назначения, $2 - тег
 # --- 3. версия из тега в три места -------------------------------------------
 substitute_version() {  # $1 - каталог клона, $2 - версия без v
     src="$1" ver="$2"
-    sed -i "s/^__version__ = \"0\.1\.0\"\$/__version__ = \"$ver\"/" \
+    # Версия в дереве - любая: она уже менялась и будет меняться. Литерал прежней
+    # версии здесь означал бы, что первый же выпуск делает скрипт неработающим молча.
+    any_ver='[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*'
+    sed -i "s/^__version__ = \"$any_ver\"\$/__version__ = \"$ver\"/" \
         "$src/torrcast/domain/version.py"
-    sed -i "s/^version = \"0\.1\.0\"\$/version = \"$ver\"/" "$src/pyproject.toml"
-    sed -i "s/^VERSION='0\.1\.0'\$/VERSION='$ver'/" "$src/install.sh"
+    sed -i "s/^version = \"$any_ver\"\$/version = \"$ver\"/" "$src/pyproject.toml"
+    sed -i "s/^VERSION='$any_ver'\$/VERSION='$ver'/" "$src/install.sh"
 
     grep -q "^__version__ = \"$ver\"\$" "$src/torrcast/domain/version.py" \
         || die "версия не встала в torrcast/domain/version.py"
@@ -73,14 +84,15 @@ substitute_version() {  # $1 - каталог клона, $2 - версия бе
 
 # --- 4. тарбол белым списком + sha256 ----------------------------------------
 # Едут: torrcast/, tgbot/ (их ставит hatchling, see pyproject packages), install.sh,
-# install (bootstrap), pyproject.toml, README.md, LICENSE и пять файлов из scripts/,
+# install (bootstrap), pyproject.toml, все четыре README, LICENSE и пять файлов из scripts/,
 # которых install.sh реально зовёт по REPO_DIR (sni-shim.py и определения индексеров).
 # tests/, scripts/test-gate и прочая разработческая обвязка НЕ едут.
 build_tarball() {  # $1 - рабочий каталог (внутри - src/ клон), $2 - версия без v
     work="$1" ver="$2" src="$1/src" pkg="$1/pkg"
     mkdir "$pkg" "$pkg/scripts"
     cp -a "$src/torrcast" "$src/tgbot" "$pkg/"
-    cp "$src/install.sh" "$src/install" "$src/pyproject.toml" "$src/README.md" "$src/LICENSE" "$pkg/"
+    cp "$src/install.sh" "$src/install" "$src/pyproject.toml" "$src/LICENSE" "$pkg/"
+    cp "$src/README.md" "$src/README-jp.md" "$src/README-es.md" "$src/README-ru.md" "$pkg/"
     cp "$src/scripts/sni-shim.py" "$src/scripts/anilibria.yml" "$src/scripts/jacred.yml" \
        "$src/scripts/anilibria-indexer.py" "$src/scripts/jacred-indexer.py" "$pkg/scripts/"
     find "$pkg" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
@@ -101,13 +113,35 @@ upload_package() {  # $1 - рабочий каталог, $2 - версия бе
 }
 
 # --- 6. Release на теге + сверка permalink/latest снаружи --------------------
+release_body() {  # $1 - тег, $2 - url install, $3 - url тарбола; описание - из $notes
+    need python3
+    TC_TAG="$1" TC_INSTALL="$2" TC_TARBALL="$3" TC_NOTES="$notes" python3 -c '
+import json
+import os
+
+body = {
+    "tag_name": os.environ["TC_TAG"],
+    "assets": {
+        "links": [
+            {"name": "install", "url": os.environ["TC_INSTALL"], "filepath": "/install"},
+            {"name": "tarball", "url": os.environ["TC_TARBALL"]},
+        ]
+    },
+}
+notes = os.environ["TC_NOTES"]
+if notes:
+    with open(notes, encoding="utf-8") as fh:
+        body["description"] = fh.read()
+print(json.dumps(body, ensure_ascii=False))
+'
+}
+
 publish_release() {  # $1 - тег, $2 - версия без v, $3 - заголовок токена
     t="$1" ver="$2" auth="$3"
     tarball_url="$GITLAB_API/projects/$PROJECT_ID/packages/generic/torrcast/$ver/torrcast-$ver.tar.gz"
     install_url="$GITLAB_WEB/$PROJECT_PATH/-/raw/$t/install"
     curl -fsSL -X POST -H "$auth" -H 'Content-Type: application/json' \
-        --data "$(printf '{"tag_name":"%s","assets":{"links":[{"name":"install","url":"%s","filepath":"/install"},{"name":"tarball","url":"%s"}]}}' \
-                  "$t" "$install_url" "$tarball_url")" \
+        --data "$(release_body "$t" "$install_url" "$tarball_url")" \
         "$GITLAB_API/projects/$PROJECT_ID/releases" >/dev/null || die "релиз не завёлся"
 
     got="$(curl -fsSL "$GITLAB_API/projects/$PROJECT_ID/releases/permalink/latest" \

@@ -313,7 +313,7 @@ def test_language_survives_the_restart_through_sudo(tmp_path: Path, language: st
 def test_the_tag_from_permalink_is_stripped_of_v_before_hitting_the_registry(
     tmp_path: Path,
 ) -> None:
-    """TC-886, регресс v0.99.99: permalink/latest отдаёт тег С ведущей v, а
+    """TC-886, регресс: permalink/latest отдаёт тег С ведущей v, а
     generic-реестр (release.sh) кладёт пакет БЕЗ неё. Если install снова подставит
     сырой тег в путь реестра или в имя файла, заглушка (как настоящий GitLab)
     ответит 404, и установка упадёт."""

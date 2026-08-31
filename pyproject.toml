@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "torrcast"
-version = "0.1.0"
+version = "1.0.0"
 description = "Поиск торрент-релиза и каст его на ТВ без скачивания и без облака"
 readme = "README.md"
 # Debian 12 везёт python3.11 и никакого python3.12 в репозиториях у неё нет. Нижняя

@@ -28,17 +28,19 @@ RELEASE_SH = REPO / "scripts" / "release.sh"
 def _write_repo(root: Path) -> None:
     (root / "torrcast" / "domain").mkdir(parents=True)
     (root / "torrcast" / "domain" / "version.py").write_text(
-        '"""Версия."""\n\n__version__ = "0.1.0"\n', encoding="utf-8"
+        '"""Версия."""\n\n__version__ = "1.0.0"\n', encoding="utf-8"
     )
     (root / "tgbot").mkdir()
     (root / "tgbot" / "__init__.py").write_text("", encoding="utf-8")
     (root / "pyproject.toml").write_text(
-        '[project]\nname = "torrcast"\nversion = "0.1.0"\n', encoding="utf-8"
+        '[project]\nname = "torrcast"\nversion = "1.0.0"\n', encoding="utf-8"
     )
-    (root / "install.sh").write_text("#!/usr/bin/env bash\nVERSION='0.1.0'\n", encoding="utf-8")
+    (root / "install.sh").write_text("#!/usr/bin/env bash\nVERSION='1.0.0'\n", encoding="utf-8")
     os.chmod(root / "install.sh", 0o755)  # как реальный install.sh в репе (100755)
     (root / "install").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
     (root / "README.md").write_text("# torrcast\n", encoding="utf-8")
+    for tongue in ("jp", "es", "ru"):
+        (root / f"README-{tongue}.md").write_text(f"# torrcast ({tongue})\n", encoding="utf-8")
     (root / "LICENSE").write_text("MIT\n", encoding="utf-8")
     scripts = root / "scripts"
     scripts.mkdir()
@@ -106,8 +108,11 @@ def _run(
     dry_run: bool = True,
     repo_path: Path | None = None,
     extra_env: dict[str, str] | None = None,
+    notes: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     args = ["--dry-run", tag] if dry_run else [tag]
+    if notes is not None:
+        args = ["--notes", str(notes), *args]
     env = {**os.environ, **(extra_env or {})}
     if repo_path is not None:
         env["TORRCAST_GITLAB_REPO"] = str(repo_path)
@@ -130,6 +135,20 @@ def test_unknown_flag_dies() -> None:
     )
     assert done.returncode != 0
     assert "неизвестный флаг" in done.stderr
+
+
+@pytest.mark.machine
+def test_notes_without_a_file_dies_before_touching_the_network(tmp_path: Path) -> None:
+    """Описание релиза пишется один раз и вручную: опечатка в пути к нему обязана
+    остановить выпуск, а не завести релиз с пустым телом."""
+    done = subprocess.run(
+        [str(RELEASE_SH), "--notes", str(tmp_path / "нет-такого.md"), "v9.9.9"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode != 0
+    assert "файла с описанием нет" in done.stderr
 
 
 @pytest.mark.machine
@@ -174,6 +193,9 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
         assert "torrcast/domain/version.py" in names
         assert "pyproject.toml" in names
         assert "install.sh" in names
+        # Английский README ссылается на три перевода: уехавший без них ведёт
+        # установленную копию на файлы, которых в ней нет.
+        assert {"README.md", "README-jp.md", "README-es.md", "README-ru.md"} <= set(names)
         assert "tests" not in names and not any(n.startswith("tests/") for n in names)
 
         version_py = tar.extractfile("torrcast/domain/version.py")
@@ -322,3 +344,46 @@ def test_a_ci_job_token_is_sent_as_job_token_header(repo: Path) -> None:
     )
     assert done.returncode == 0, done.stderr
     assert all(a == "ci-token" for a in seen.auth)
+
+
+@pytest.mark.machine
+def test_notes_land_in_the_release_description_verbatim(repo: Path, tmp_path: Path) -> None:
+    """Описание едет в релиз как есть: с кавычками, переводами строк и кириллицей.
+    Склейка тела руками ломалась бы на первой же цитате."""
+    notes = tmp_path / "notes.md"
+    text = '## torrcast 1.0.0\n\nСтрока с "кавычками", обратным слешем \\ и переносом.\n'
+    notes.write_text(text, encoding="utf-8")
+
+    port, seen = _stub_gitlab_write()
+    done = _run(
+        "v9.9.9",
+        dry_run=False,
+        repo_path=repo,
+        notes=notes,
+        extra_env={
+            "TORRCAST_GITLAB_API": f"http://127.0.0.1:{port}/api/v4",
+            "TORRCAST_GITLAB_WEB": f"http://127.0.0.1:{port}",
+            "GITLAB_TOKEN": "s3cr3t",
+        },
+    )
+    assert done.returncode == 0, done.stderr
+    assert seen.release["description"] == text
+
+
+@pytest.mark.machine
+def test_without_notes_the_release_carries_no_description(repo: Path) -> None:
+    """Отрицательная проба к предыдущему тесту: описание берётся из флага, а не
+    появляется само. Без флага ключа нет, и прежнее тело релиза не переписывается."""
+    port, seen = _stub_gitlab_write()
+    done = _run(
+        "v9.9.9",
+        dry_run=False,
+        repo_path=repo,
+        extra_env={
+            "TORRCAST_GITLAB_API": f"http://127.0.0.1:{port}/api/v4",
+            "TORRCAST_GITLAB_WEB": f"http://127.0.0.1:{port}",
+            "GITLAB_TOKEN": "s3cr3t",
+        },
+    )
+    assert done.returncode == 0, done.stderr
+    assert "description" not in seen.release

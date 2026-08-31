@@ -808,7 +808,7 @@ def test_a_torn_install_leaves_no_copy_of_the_old_package(tmp_path: Path) -> Non
     site = tmp_path / "site-packages"
     (site / "~orcast" / "adapters").mkdir(parents=True)
     (site / "~orcast" / "adapters" / "old.py").touch()
-    (site / "~orcast-0.1.0.dist-info").mkdir()
+    (site / "~orcast-1.0.0.dist-info").mkdir()
     (site / "torrcast").mkdir()
     (site / "torrcast" / "__init__.py").touch()
 
