@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, row
@@ -9,6 +10,8 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.reinforce._voice_reinforce import _voice_reinforce
+
+_CYRILLIC = re.compile(r"[А-Яа-яЁё]")
 
 #: Единственный кандидат «тачек»: англоязычный BluRay на 66 сид, играть по-русски нечем.
 _ENGLISH = [row("Тачки / Cars (2006) BluRay 1080p", "e", size_gb=8.0, seeders=66)]
@@ -55,9 +58,10 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
 
     assert client.asked == []
     assert merged is _ENGLISH
-    assert said.text == (
-        "not doing top up via «Cars 2006»: the search already spent the goal at 10s"
-    )
+    reason = phrase("reinforce.voice_reason", exact="Cars 2006")
+    assert reason in said.text, "круг не назвал причину отказа своими словами"
+    shell = phrase("reinforce.voice_reason", exact="")
+    assert not _CYRILLIC.search(shell), "рамка причины обязана говорить продуктовым языком"
 
 
 def test_the_same_line_is_never_asked_twice() -> None:
