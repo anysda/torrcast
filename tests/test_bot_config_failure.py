@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 
@@ -16,8 +17,25 @@ from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.config import Config
 from torrcast.domain.invalid_config_object_error import InvalidConfigObjectError
+from torrcast.usecases.choice.configure import _environment_port
+from torrcast.usecases.choice.configure import configure as configure_choice
 
 _CYRILLIC = re.compile(r"[\u0400-\u04ff]")
+
+
+@pytest.fixture(autouse=True)
+def _choice_restored() -> Iterator[None]:
+    """``Bot()`` тут ставит окружение выбора глобально и не снимает его.
+
+    В бою это законно - бот один на процесс. В наборе это течь: следующий тест того
+    же воркера xdist наследует чужое окружение и уезжает в телеграм-путь. Дисциплина
+    та же, что уже держат пробы в ``tests/test_ux.py`` и ``tests/test_bot.py``
+    (``previous = _environment_port()`` до создания бота, ``configure_choice(previous)``
+    после), но здесь заведена фикстурой, чтобы не держаться на памяти каждого теста.
+    """
+    previous = _environment_port()
+    yield
+    configure_choice(previous)
 
 
 class _Api:
