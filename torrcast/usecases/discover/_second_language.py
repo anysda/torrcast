@@ -110,10 +110,15 @@ def _second_language(
         raw
     )
     lead = _leading(found)
-    about = _second_origin(
-        passport or _search_state._search_passport, name, _asked_kind(lead, args), index, budget
-    )
+    ask_passport = passport or _search_state._search_passport
+    asked_kind = _asked_kind(lead, args)
+    about = _second_origin(ask_passport, name, asked_kind, index, budget)
     alt = alt_query(name, pool, about.title, about.name)
+    confirmed_alt = False
+    if alt and not about and name.isascii():
+        about = _second_origin(ask_passport, alt, asked_kind, index, budget)
+        alt = alt_query(name, pool, about.title, about.name)
+        confirmed_alt = bool(about.title)
     hearsay = _second_hearsay(name, alt, about)
     if hearsay is None:
         # Справка нашла лишь похожее имя - это другая картина, и за ней не идут вовсе.
@@ -144,7 +149,8 @@ def _second_language(
     # Одна новая картина бывает второй, несклеившейся языковой половиной той же картины.
     # Всё сверх неё - оригинал расширил предмет поиска вместо уточнения. На ПУСТОЙ первой
     # выдаче расширять нечего, и мерка молчит (:func:`_widened_subject`, TC-866).
-    if _widened_subject(len(pictures), len(first_pictures)):
+    proven = bool(about.title) or alt == about.name or alt == transliterate(name)
+    if not confirmed_alt and _widened_subject(len(pictures), len(first_pictures)):
         outcome = phrase(
             "discover.retry_more_pictures",
             alt=alt,
@@ -156,7 +162,6 @@ def _second_language(
         return _as_is(raw, found, about, progress)
     # Транслит - это сами слова запроса, чужого фильма он принести не может; оригинал из
     # справки отвечает про ту самую картину. А вот оригинал из выдачи ничем не подтверждён.
-    proven = bool(about.title) or alt == about.name or alt == transliterate(name)
     wider, vouched = _second_wider(pictures, query, alt, index, about, proven)
     was = sum(len(p.releases) for p in found)
     now = sum(len(p.releases) for p in wider)

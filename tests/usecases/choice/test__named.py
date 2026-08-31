@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, film, outside, plan
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.usecases.choice._named import _BLURB_INDENT, _named
 from torrcast.usecases.choice.menu_blocks import menu_blocks
@@ -17,6 +18,20 @@ from torrcast.usecases.choice.menu_blocks import menu_blocks
 def test_a_picture_is_named_by_its_title_and_the_year_in_brackets() -> None:
     """Название и год: без года «Мумия» 1999 и «Мумия» 2017 в меню неразличимы."""
     assert _named(plan("Мумия", 1999).picture) == "Мумия (1999)"
+
+
+def test_a_picture_is_named_by_its_original_title_in_english() -> None:
+    """Английское меню меняет только подпись, а ключ памяти остаётся прежним."""
+    picture = plan("Матрица", 1999, original="The Matrix").picture
+    key = picture.key
+
+    _choose_tongue(EN)
+
+    assert _named(picture) == "The Matrix (1999)"
+    assert picture.key == key == "movie:матрица:1999"
+
+    _choose_tongue(RU)
+    assert _named(picture) == "Матрица (1999)"
 
 
 def test_a_picture_with_no_known_year_says_so_instead_of_dropping_the_brackets() -> None:

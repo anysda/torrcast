@@ -7,6 +7,7 @@ from collections.abc import Iterable
 
 from torrcast.domain._name_data.data_1 import _CYRILLIC
 from torrcast.domain.akin import _akin
+from torrcast.domain.catalogs.tongue import EN, tongue
 from torrcast.domain.franchise_name import franchise_name
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
@@ -20,7 +21,16 @@ def alt_query(query: str, releases: Iterable[Release], known: str = "", native: 
         if known and (not _CYRILLIC.search(known)) and (slugify(known) != wanted):
             return known
         native = native.strip()
-        return native if _CYRILLIC.search(native) and slugify(native) != wanted else ""
+        if _CYRILLIC.search(native) and slugify(native) != wanted:
+            return native
+        pool = list(releases)
+        if (
+            tongue() == EN
+            and len(query.split()) == 1
+            and any((release.original or "").casefold().startswith("the ") for release in pool)
+        ):
+            return f"The {query.strip()}"
+        return ""
     if known and (not _CYRILLIC.search(known)) and (slugify(known) != wanted):
         return known.strip()
     pool = list(releases)

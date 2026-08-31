@@ -28,6 +28,13 @@ def test_a_second_name_equal_to_the_first_is_not_a_second_query() -> None:
     assert alt_query("Brother", [], known="brother") == ""
 
 
+def test_an_incomplete_english_name_restores_the_article_seen_in_the_results() -> None:
+    """`matrix` добирается как `The Matrix`, а не остаётся внутри `The Animatrix`."""
+    nearby = [_found("Аниматрица", "The Animatrix")]
+
+    assert alt_query("matrix", nearby) == "The matrix"
+
+
 def test_a_one_word_query_without_any_answer_is_taken_in_latin_letters() -> None:
     """Одно слово кириллицей - последняя попытка: трекеры пишут его латиницей."""
     assert alt_query("Брат", []) == "brat"

@@ -58,7 +58,7 @@ def test_an_original_name_asks_about_the_same_franchise_as_the_russian_one() -> 
 
     assert part_one_swap(cars, "cars") == phrase(
         "choice.part_one_dead_why",
-        picture="Тачки (2006)",
+        picture="Cars (2006)",
         why=phrase("choice.why_nothing_playable"),
     )
 

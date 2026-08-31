@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.tongue import EN, tongue
 from torrcast.domain.picture import Picture
 
 #: Отступ описания в меню: ровно под название, за номером с точкой.
@@ -18,4 +19,5 @@ def _named(picture: Picture, aside: bool = False) -> str:
     marks = phrase("choice.series_mark") if picture.kind == "tv" else ""
     if aside:
         marks += phrase("choice.no_part_mark")
-    return f"{picture.title} ({picture.year or '?'}{marks})"
+    title = picture.original if tongue() == EN and picture.original else picture.title
+    return f"{title} ({picture.year or '?'}{marks})"

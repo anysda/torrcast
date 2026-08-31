@@ -231,7 +231,7 @@ def test_the_question_says_out_loud_what_enter_will_start(
     assert enter in printed
     assert (
         printed.index("  1. Moana (2016)")
-        < printed.index("  2. Моана 2 (2024)")
+        < printed.index("  2. Moana 2 (2024)")
         < printed.index(enter)
     ), "список хронологический, а строка про дефолт - в хвосте, у самого вопроса"
     assert "playing «Moana» (2016)" in printed, "и Enter запустил ровно то, что было названо"
@@ -276,7 +276,7 @@ def test_the_liveliest_namesake_is_taken_without_a_question(
     assert (
         phrase(
             "choice.namesake_taken",
-            picture="Мумия (2026)",
+            picture="The Mummy (2026)",
             seeds=604,
             others=1,
             asked="мумия",
@@ -361,7 +361,7 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
             for item in api.sent
             if phrase(
                 "choice.namesake_taken",
-                picture="Мумия (2026)",
+                picture="The Mummy (2026)",
                 seeds=604,
                 others=1,
                 asked="мумия",
@@ -409,8 +409,8 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
     finally:
         configure_choice(previous)
 
-    assert any("1. Мумия (1999)" in text for _message_id, text, _buttons in api.sent)
-    assert any("1. Мумия (1999)" in text for text in api.edited)
+    assert any("1. The Mummy (1999)" in text for _message_id, text, _buttons in api.sent)
+    assert any("1. The Mummy (1999)" in text for text in api.edited)
     controls = [
         text
         for _message_id, text, buttons in api.sent
@@ -822,7 +822,7 @@ def test_bot_understands_the_menu_flag_after_telegram_autocorrects_the_dash(
         configure_choice(previous)
 
     #: Карточка со списком пришла - значит флаг `--menu` доехал до argparse настоящим.
-    assert any("1. Мумия (1999)" in text for _message_id, text, _buttons in api.sent)
+    assert any("1. The Mummy (1999)" in text for _message_id, text, _buttons in api.sent)
     assert "playing «Мумия» (1999)" in capsys.readouterr().out
 
 
@@ -850,7 +850,7 @@ def test_the_namesake_line_is_said_before_the_start(
     take = printed.index(
         phrase(
             "choice.namesake_taken",
-            picture="Мумия (2026)",
+            picture="The Mummy (2026)",
             seeds=604,
             others=1,
             asked="мумия",
@@ -970,7 +970,7 @@ def test_releases_prints_the_old_table_and_exits(capsys: pytest.CaptureFixture[s
 
     printed = capsys.readouterr().out
     assert "Releases:" in printed and "Quality" in printed
-    assert "Moana (2016)" in printed and "Моана 2 (2024)" in printed
+    assert "Moana (2016)" in printed and "Moana 2 (2024)" in printed
     assert "playing" not in printed, "releases ничего не запускает"
 
 
@@ -985,7 +985,7 @@ def test_releases_ties_each_number_to_its_picture(capsys: pytest.CaptureFixture[
 
     printed = capsys.readouterr().out
     assert "1. Moana (2016) - releases" in printed, printed
-    assert "2. Моана 2 (2024) - releases" in printed, printed
+    assert "2. Moana 2 (2024) - releases" in printed, printed
     assert "--pick M --release N" in printed, printed
 
 

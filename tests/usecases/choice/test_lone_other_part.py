@@ -25,7 +25,7 @@ def test_an_original_name_asks_about_the_same_franchise_as_the_russian_one() -> 
     cars = [plan("Тачки 2", 2011, part=2, original="Cars 2", seeders=40)]
 
     assert lone_other_part(cars, "cars") == phrase(
-        "choice.lone_other_part", name="cars", picture="Тачки 2 (2011)", part=2
+        "choice.lone_other_part", name="cars", picture="Cars 2 (2011)", part=2
     )
 
 

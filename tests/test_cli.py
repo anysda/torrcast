@@ -2653,7 +2653,7 @@ def test_the_default_never_switches_to_another_part_of_the_franchise() -> None:
     note = part_one_swap(plans, "тачки")
     assert note == phrase(
         "choice.part_one_dead_why",
-        picture="Тачки (2006)",
+        picture="Cars (2006)",
         why=phrase("choice.why_nothing_playable"),
     )
 
@@ -2670,7 +2670,7 @@ def test_the_original_name_of_the_franchise_reads_the_same() -> None:
 
     assert part_one_swap(plans, "cars") == phrase(
         "choice.part_one_dead_why",
-        picture="Тачки (2006)",
+        picture="Cars (2006)",
         why=phrase("choice.why_nothing_playable"),
     )
     assert part_one_swap(plans[1:], "cars") == phrase("choice.part_one_absent", name="cars")
@@ -2784,7 +2784,7 @@ def test_a_part_absent_from_the_results_plays_instead_of_asking(
 
     out = capsys.readouterr().out
     assert out.strip() == phrase(
-        "choice.absent_part", name="тачки", picture="Тачки 2 (2011)", total=2, asked="тачки"
+        "choice.absent_part", name="тачки", picture="Cars 2 (2011)", total=2, asked="тачки"
     ), "ход к другим частям обязан быть"
     assert plan.picture.title == "Тачки 2"
 
@@ -2824,7 +2824,7 @@ def test_the_menu_default_stays_on_the_living_first_part(
     plan = _pick_plan(plans, asked="тачки", environment=cast(Any, environment))
 
     assert (
-        phrase("choice.taken", picture="Тачки (2006)", total=3, asked="тачки")
+        phrase("choice.taken", picture="Cars (2006)", total=3, asked="тачки")
         in capsys.readouterr().out
     )
     assert environment.questions == [], "спрашивать не о чем"
