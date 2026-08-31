@@ -261,7 +261,7 @@ class _Seen:
 _RELEASE_ID = 7
 
 
-def _stub_github_write() -> tuple[int, _Seen]:
+def _stub_github_write(stale_latest: int = 0) -> tuple[int, _Seen]:
     """Заглушка на создание релиза, заливку ассетов и `/releases/latest`.
 
     Формы взяты с живого GitHub: релиз заводится POST'ом на `/releases` и отвечает
@@ -270,8 +270,14 @@ def _stub_github_write() -> tuple[int, _Seen]:
     перенаправляет на `/releases/tag/<тег>`.
 
     🔴 `id` намеренно НЕ первое поле ответа и рядом лежат чужие `id`: разбор по
-    первому попавшемуся (sed, регулярка) обязан здесь сломаться, а не подыграть."""
+    первому попавшемуся (sed, регулярка) обязан здесь сломаться, а не подыграть.
+
+    stale_latest - сколько первых заходов на `/releases/latest` отвечают ещё СТАРЫМ
+    перенаправлением (на список релизов), хотя релиз уже заведён. Так живой GitHub и
+    ведёт себя: API отдаёт релиз сразу, а этот редирект догоняет из кэша. `None` в
+    этом месте означало бы «кэш не догонит никогда»."""
     seen = _Seen()
+    stale = {"left": stale_latest}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
@@ -316,6 +322,9 @@ def _stub_github_write() -> tuple[int, _Seen]:
                 base = path[: -len("/latest")]
                 if seen.release is None:
                     return self._redirect(base)
+                if stale["left"] > 0:
+                    stale["left"] -= 1
+                    return self._redirect(base)
                 return self._redirect(f"{base}/tag/{seen.release['tag_name']}")
             return self._send(404, {"message": "нет такого"})
 
@@ -359,6 +368,59 @@ def test_a_real_run_uploads_the_asset_pair_and_publishes_a_release(repo: Path) -
     }
     assert all(a == "Bearer s3cr3t" for a in seen.auth)
     assert seen.release["tag_name"] == "v9.9.9"
+
+
+@pytest.mark.machine
+def test_a_lagging_latest_redirect_is_waited_out_not_called_a_failure(repo: Path) -> None:
+    """🔴 Куплено потерей 31-08-2026: выпуск v1.0.1 прошёл целиком (релиз заведён, три
+    ассета залиты), а скрипт вышел с ошибкой, потому что перенаправление
+    `/releases/latest` ещё отдавалось из кэша со старым адресом. Отставший кэш - это
+    «спросили слишком рано», а не «релиз не тот», и красным его красить нельзя."""
+    port, seen = _stub_github_write(stale_latest=2)
+    done = _run(
+        "v9.9.9",
+        dry_run=False,
+        repo_path=repo,
+        extra_env={
+            "TORRCAST_GITHUB_API": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_WEB": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_UPLOADS": f"http://127.0.0.1:{port}",
+            "GITHUB_TOKEN": "s3cr3t",
+            "TORRCAST_LATEST_RETRY_PAUSE": "0",
+        },
+    )
+    assert done.returncode == 0, done.stderr
+    assert "готово" in done.stdout + done.stderr
+    # Ожидание должно быть ВИДНО: молчаливая пауза неотличима от зависшего скрипта.
+    assert "жду" in done.stderr
+    assert set(seen.uploads) == {
+        "torrcast-9.9.9.tar.gz",
+        "torrcast-9.9.9.tar.gz.sha256",
+        "install",
+    }
+
+
+@pytest.mark.machine
+def test_a_latest_redirect_that_never_catches_up_still_fails(repo: Path) -> None:
+    """Отрицательная проба к предыдущему: потолок ожидания настоящий. Повтор, который
+    ждёт без конца, купил бы зелень на расхождении - релиз бы висел не тем, а скрипт
+    молчал бы про это вечно."""
+    port, _ = _stub_github_write(stale_latest=10_000)
+    done = _run(
+        "v9.9.9",
+        dry_run=False,
+        repo_path=repo,
+        extra_env={
+            "TORRCAST_GITHUB_API": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_WEB": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_UPLOADS": f"http://127.0.0.1:{port}",
+            "GITHUB_TOKEN": "s3cr3t",
+            "TORRCAST_LATEST_RETRY_PAUSE": "0",
+            "TORRCAST_LATEST_RETRY_TRIES": "3",
+        },
+    )
+    assert done.returncode != 0
+    assert "а не на тег v9.9.9" in done.stderr
 
 
 @pytest.mark.machine

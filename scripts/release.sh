@@ -142,14 +142,30 @@ upload_asset() {  # $1 - id релиза, $2 - путь к файлу, $3 - им
 
 # Сверка тем же способом, каким версию узнаёт бутстрап: `/releases/latest` обязан
 # перенаправить на `/releases/tag/<тег>`. Спрашиваем БЕЗ токена - так же, как аноним.
+#
+# 🔴 С повторами, и это куплено потерей. Заведённый релиз виден в API сразу, а вот
+# перенаправление `/releases/latest` отдаётся из кэша и догоняет за десятки секунд:
+# 31-08-2026 первый же выпуск с этого скрипта упал ровно здесь, опубликовав при этом
+# всё как надо. Без повторов сверка ловит не «релиз не тот», а «спросили слишком рано»,
+# и красит красным исправный выпуск. Потолок ожидания есть: молчание кэша дольше него -
+# уже не задержка, а расхождение, и о нём надо знать.
 check_latest_points_at() {  # $1 - тег
-    loc="$(curl -fsS -o /dev/null -w '%{redirect_url}' \
-                "$GITHUB_WEB/$PROJECT_PATH/releases/latest")" \
-        || die "releases/latest не отвечает"
-    case "$loc" in
-        */releases/tag/"$1") ;;
-        *) die "после публикации releases/latest ведёт на «$loc», а не на тег $1" ;;
-    esac
+    pause="${TORRCAST_LATEST_RETRY_PAUSE:-5}"
+    tries="${TORRCAST_LATEST_RETRY_TRIES:-24}"
+    n=1
+    while : ; do
+        loc="$(curl -fsS -o /dev/null -w '%{redirect_url}' \
+                    "$GITHUB_WEB/$PROJECT_PATH/releases/latest")" \
+            || die "releases/latest не отвечает"
+        case "$loc" in
+            */releases/tag/"$1") return 0 ;;
+        esac
+        [ "$n" -lt "$tries" ] \
+            || die "releases/latest и через $((tries * pause)) с ведёт на «$loc», а не на тег $1"
+        info "    releases/latest ещё ведёт на «$loc», жду $pause с ($n из $tries)"
+        n=$((n + 1))
+        sleep "$pause"
+    done
 }
 
 main() {
