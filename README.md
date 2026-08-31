@@ -61,11 +61,14 @@ Installation discovers receivers through mDNS and by scanning local subnets on p
 their names and addresses and continues without choosing. Save an address directly with
 `cast --tv <ip>`, or use `cast --tv` and choose a number.
 
-The final screen of the installer speaks about the receiver itself: the saved one is named
-by name and address, several found ones are listed, and an empty search is not left in
-silence - the screen says what to turn on and what to run. A mock stand is named as such:
-it casts nowhere. The same screen names the door to the other language - `cast --ru` after
-an English installation.
+The final screen of the installer speaks about the receiver itself. The saved one is named
+by name and address, or by address alone when the device announced no name, as well as on a
+repeat installation, where the configuration holds an address only. Of several found ones it
+lists as many as fit under the logo and counts the rest: "and 2 more". An empty search is not
+left in silence: the screen says to turn the TV on and names `cast --tv`; on a narrow
+terminal the wording shrinks, but the command never drops out of it. A mock stand is named
+as such: it casts nowhere. The same screen names the door to the other language - `cast --ru`
+after an English installation.
 
 `install.sh` is idempotent: running it again updates only what changed. No registration
 or external API keys are required. It generates the Prowlarr key, stores it in the

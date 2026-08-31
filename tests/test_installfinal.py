@@ -42,16 +42,25 @@ ALT_SCREEN = ("\x1b[?1049h", "\x1b[?47h", "\x1b[?1047h")
 ADDR = "192.0.2.10"
 LONG_NAME = "Гостиная Самсунга На Втором Этаже Слева"
 
-_FOUND = """#!/bin/sh
-printf 'ТВ: {name} - {addr}\\n'
+#: 🔴 Первой строкой КАЖДОЙ подделки - отметка о вызове. Считаются вызовы, а не
+#: вхождения текста в install.sh: второй `cast --tv`, вписанный строкой ниже - в
+#: `receiver_choice` или в любую другую функцию, - текстовую сверку одной функции
+#: не тревожит, а счётчик вызовов ловит его в каждом случае.
+_MARK = '#!/bin/sh\nprintf "call\\n" >> "$TC939_CALLED"\n'
+_FOUND = (
+    _MARK
+    + """printf 'ТВ: {name} - {addr}\n'
 jq '.tv = "{addr}"' "$TORRCAST_CONFIG" > "$TORRCAST_CONFIG.new"
 mv "$TORRCAST_CONFIG.new" "$TORRCAST_CONFIG"
 exit 0
 """
-_LIST = """#!/bin/sh
-{body}
+)
+_LIST = (
+    _MARK
+    + """{body}
 exit 1
 """
+)
 #: Подделки `cast --tv`. Ключ - случай, значение - тело скрипта. Настоящего поиска
 #: тут нет вовсе: строки те же, что печатает `cast --tv`, и разбираются они же.
 CASTS = {
@@ -66,10 +75,10 @@ CASTS = {
     "none": _LIST.format(
         body="printf 'приёмников в сети не нашёл - телевизор включён и в той же сети?\\n'"
     ),
-    #: Повторная установка: `cast` звать не за чем, и если его позвали - он это
-    #: запишет, а сверка увидит след.
-    "again": '#!/bin/sh\nprintf "called\\n" > "$TC939_CALLED"\nexit 0\n',
-    "mock": "#!/bin/sh\nexit 0\n",
+    #: Повторная установка и mock-стенд: звать `cast` не за чем вовсе, и отметка
+    #: тут стоит ровно затем, чтобы вызов было видно, если его всё же сделают.
+    "again": _MARK + "exit 0\n",
+    "mock": _MARK + "exit 0\n",
 }
 #: Что лежит в конфиге ДО фазы приёмника.
 BEFORE = {"again": ADDR, "mock": "mock"}
@@ -82,7 +91,7 @@ class Frame:
     lines: tuple[str, ...]
     stream: str
     rc: int
-    called: bool
+    calls: int  # сколько раз реально запустился `cast --tv`
 
     @property
     def text(self) -> str:
@@ -98,15 +107,15 @@ class Frame:
         return "\n".join([rule, *(f"|{line}|" for line in self.lines), rule])
 
 
-def _capture(case: str, cols: int, language: str) -> Frame:
+def _capture(case: str, cols: int, language: str, rows: int, locale: str) -> Frame:
     box = Path(tempfile.mkdtemp(prefix=f"tc939-{case}-"))
     try:
-        return _run(case, cols, language, box)
+        return _run(case, cols, language, box, rows, locale)
     finally:
         shutil.rmtree(box, ignore_errors=True)
 
 
-def _run(case: str, cols: int, language: str, box: Path) -> Frame:
+def _run(case: str, cols: int, language: str, box: Path, rows: int, locale: str) -> Frame:
     for name in ("bin", "cfg", "state", "hls", "motd.d"):
         (box / name).mkdir()
     tv = BEFORE.get(case)
@@ -118,7 +127,7 @@ def _run(case: str, cols: int, language: str, box: Path) -> Frame:
     called = box / "called"
 
     master, slave = pty.openpty()
-    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, cols, 0, 0))
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     child = subprocess.Popen(
         ["bash", str(REPO / "install.sh"), *(("-ru",) if language == "ru" else ())],
         stdin=slave,
@@ -127,7 +136,9 @@ def _run(case: str, cols: int, language: str, box: Path) -> Frame:
         env={
             **os.environ,
             "TERM": "xterm-256color",
-            "LINES": str(ROWS),
+            "LC_ALL": locale,
+            "LANG": locale,
+            "LINES": str(rows),
             "COLUMNS": str(cols),
             "TORRCAST_NO_ROOT": "1",
             "TORRCAST_NO_SYSTEMD": "1",
@@ -161,19 +172,24 @@ def _run(case: str, cols: int, language: str, box: Path) -> Frame:
     os.close(master)
     rc = child.wait()
 
-    screen = pyte.Screen(cols, ROWS)
+    screen = pyte.Screen(cols, rows)
     pyte.Stream(screen).feed(stream.decode("utf-8", errors="replace"))
-    return Frame(
-        tuple(screen.display), stream.decode("utf-8", errors="replace"), rc, called.exists()
-    )
+    calls = len(called.read_text(encoding="utf-8").split()) if called.exists() else 0
+    return Frame(tuple(screen.display), stream.decode("utf-8", errors="replace"), rc, calls)
 
 
-_CACHE: dict[tuple[str, int, str], Frame] = {}
+_CACHE: dict[tuple[str, int, str, int, str], Frame] = {}
 
 
-def frame(case: str, cols: int = WIDE, language: str = "ru") -> Frame:
+def frame(
+    case: str,
+    cols: int = WIDE,
+    language: str = "ru",
+    rows: int = ROWS,
+    locale: str = "C.UTF-8",
+) -> Frame:
     """Кадр случая. Прогон стоит секунду, поэтому одинаковые не повторяются."""
-    key = (case, cols, language)
+    key = (case, cols, language, rows, locale)
     if key not in _CACHE:
         _CACHE[key] = _capture(*key)
     return _CACHE[key]
@@ -196,11 +212,16 @@ def _landed(shot: Frame) -> None:
 
 
 def _unbroken(shot: Frame) -> None:
-    """Рамка не разорвана: строка, начатая бортом, бортом и кончается."""
+    """Рамка не разорвана: строка, начатая бортом, бортом и кончается.
+
+    Сперва считаются сами борта: на кадре, где их нет вовсе, обход ниже был бы
+    зелен на пустом множестве, а это уже не мера.
+    """
     width = len(shot.lines[0])
-    for number, line in enumerate(shot.lines):
-        if not line.startswith("│"):
-            continue
+    walls = [number for number, line in enumerate(shot.lines) if line.startswith("│")]
+    assert len(walls) >= 3, f"бортов в кадре {len(walls)} - мерить нечего:\n{shot.show()}"
+    for number in walls:
+        line = shot.lines[number]
         assert len(line) == width and line[width - 1] == "│", (
             f"строка {number} порвала рамку:\n{shot.show()}"
         )
@@ -224,14 +245,24 @@ def test_a_repeat_install_names_the_address_without_a_second_search() -> None:
     shot = frame("again")
     _landed(shot)
     _unbroken(shot)
-    assert not shot.called, "повторная установка полезла искать заново"
+    assert shot.calls == 0, f"повторная установка звала поиск {shot.calls} раз(а)"
     assert ADDR in shot.row(ADDR), f"экран смолчал про уже настроенный приёмник:\n{shot.show()}"
 
 
-def test_the_search_is_run_once_and_its_output_feeds_the_final_screen() -> None:
-    """Второго поиска нет и в тексте: `cast --tv` в фазе зовётся ровно раз."""
+@pytest.mark.machine
+@pytest.mark.parametrize("case", ["one", "noname", "long", "two", "many", "none"])
+def test_the_search_runs_exactly_once_in_every_case(case: str) -> None:
+    """🔴 Поиск - секунды mDNS, и второго человек ждать не обязан.
+
+    Считаются ЗАПУСКИ подделки, а не вхождения текста в install.sh: второй
+    `cast --tv`, вписанный соседней функцией, текстовую сверку одной функции не
+    тревожит. Отдельно сверяется, что вывод поиска сохранён: имя найденного и
+    список нескольких берутся из него, иначе за ними пришлось бы идти в сеть.
+    """
+    shot = frame(case)
+    _landed(shot)
+    assert shot.calls == 1, f"`cast --tv` запускался {shot.calls} раз(а), а не один"
     body = SCRIPT.split("setup_receiver() {", 1)[1].split("\n}", 1)[0]
-    assert body.count('"$BIN_DIR/cast" --tv') == 1, "фаза приёмника ищет дважды"
     assert 'out="$(' in body, "вывод поиска не сохранён - имя брать неоткуда"
 
 
@@ -260,15 +291,24 @@ def test_a_long_list_keeps_the_hint_and_says_how_many_are_left() -> None:
 
 
 @pytest.mark.machine
-@pytest.mark.parametrize("cols", [WIDE, NARROW])
+@pytest.mark.parametrize("cols", [WIDE, NARROW, TINY])
 def test_an_empty_list_is_not_silence(cols: int) -> None:
-    """Не нашлось никого - экран говорит и что делать, и чем."""
+    """🔴 Не нашлось никого - экран говорит и про что, и чем это чинить.
+
+    Узкий размер тут не для полноты решётки: на 24x30 колонка команд у вида
+    `none` отдана блоку целиком (HELP_DROP съедает единственную строку тира M),
+    и если блоку урезать хвост, человек остаётся без единой команды на экране.
+    """
     shot = frame("none", cols)
     _landed(shot)
     _unbroken(shot)
+    assert shot.text.count("cast --tv") == 1, (
+        f"подсказки cast --tv на экране {shot.text.count('cast --tv')}:\n{shot.show()}"
+    )
     line = shot.row("cast --tv")
-    assert "приёмник" in line, f"про приёмник экран смолчал:\n{shot.show()}"
-    assert shot.text.count("cast --tv") == 1, f"подсказка cast --tv задвоилась:\n{shot.show()}"
+    # Мало найти команду: `cast --tv  выбрать ТВ` из колонки нашлась бы и на
+    # экране, который про пустой поиск смолчал. Строка обязана сказать «нет».
+    assert re.search(r"не найден|нет", line), f"экран не сказал, что не нашёл:\n{shot.show()}"
 
 
 @pytest.mark.machine
@@ -334,3 +374,74 @@ def test_the_narrowest_tier_keeps_the_tv_and_drops_the_language() -> None:
     assert "cast --tv" in shot.text, f"в узком тире не осталось команды:\n{shot.show()}"
     assert "cast --en" not in shot.text, f"узкий тир занят языком, а не ТВ:\n{shot.show()}"
     assert ADDR in shot.text, f"про приёмник смолчали и тут:\n{shot.show()}"
+
+
+@pytest.mark.machine
+def test_a_byte_locale_measures_the_same_width_as_a_utf8_one() -> None:
+    """🔴 Мерка чужих строк заведена ради неUTF-8 локали - там её и меряем.
+
+    Вне UTF-8 `${#s}` в bash считает БАЙТЫ, и «Гостиная» вышла бы шириной 16:
+    имя обрезалось бы вдвое раньше, чем надо. Ветка обхода по ведущим байтам
+    (`UI_CHARS=0`) в UTF-8 не исполняется вовсе, поэтому кадр снимается ещё раз
+    под `LC_ALL=C` и сличается со знаковым - строка в строку.
+    """
+    utf8 = frame("one", NARROW)
+    byte = frame("one", NARROW, locale="C")
+    _landed(byte)
+    _unbroken(byte)
+    assert byte.row("приёмник"), f"в байтовой локали строка про приёмник пропала:\n{byte.show()}"
+    assert byte.row("приёмник") == utf8.row("приёмник"), (
+        f"байтовая мерка разошлась со знаковой:\nбайты:\n{byte.show()}\nзнаки:\n{utf8.show()}"
+    )
+
+
+@pytest.mark.machine
+def test_the_installation_log_line_is_cut_at_the_border() -> None:
+    """Строка журнала называет путь mktemp и обязана резаться, а не рвать рамку.
+
+    Появляется она только там, где под блоком приёмника ещё осталось место,
+    поэтому кадр берётся выше обычного: на 24 строках её вытесняет приёмник.
+    """
+    shot = frame("one", NARROW, rows=30)
+    _landed(shot)
+    _unbroken(shot)
+    line = shot.row("журнал установки")
+    assert line, f"строки журнала в кадре нет - сторож мерил бы пустоту:\n{shot.show()}"
+    assert line.endswith("│"), f"строка журнала съела борт рамки:\n{shot.show()}"
+
+
+def _column(name: str, chunk: str) -> list[str]:
+    """Литералы одного массива колонки команд."""
+    found = re.search(rf"^\s*{name}=\( (.*) \)$", chunk, re.M)
+    assert found, f"массив {name} не найден"
+    return re.findall(r"'([^']*)'", found.group(1))
+
+
+@pytest.mark.parametrize(
+    ("cmd", "txt", "width"),
+    [
+        ("FIN_CMD", "FIN_TXT", "FIN_W"),
+        ("FIN_CMD_S", "FIN_TXT_S", "FIN_W_S"),
+        ("FIN_CMD_M", "FIN_TXT_M", "FIN_W_M"),
+    ],
+)
+@pytest.mark.parametrize("language", ["ru", "en"])
+def test_the_declared_help_width_equals_the_widest_row(
+    language: str, cmd: str, txt: str, width: str
+) -> None:
+    """🔴 Ширина колонки задана литералом, потому что мерить её нечем.
+
+    Задана - значит обязана равняться факту: этой же цифрой колонка центруется и
+    ею же решается, влезает ли ярус. Литерал меньше факта - строка шире своей
+    коробки и режется бортом; больше - ярус отказывается там, где помещался бы.
+    До TC-948 в английской колонке было и то и другое (`FIN_W=41` при факте 38,
+    `FIN_W_M=20` при факте 21).
+    """
+    head, tail = SCRIPT.split('if [ "$LANGUAGE" = en ]; then', 1)
+    chunk = head if language == "ru" else tail
+    rows = [len(c) + len(t) for c, t in zip(_column(cmd, chunk), _column(txt, chunk), strict=True)]
+    declared = re.search(rf"^\s*{width}=(\d+)$", chunk, re.M)
+    assert declared, f"ширина {width} не найдена"
+    assert max(rows) == int(declared.group(1)), (
+        f"{language} {width}={declared.group(1)}, а самая широкая строка {max(rows)}: {rows}"
+    )

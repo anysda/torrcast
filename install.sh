@@ -2955,6 +2955,11 @@ SPIN=( '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏' )
 # --- справка, которая остаётся на экране после выхода ---
 # Колонка команд добита пробелами прямо в литерале: в кириллице ${#s} считает
 # байты, если локаль не UTF-8, поэтому ширину тут никто не измеряет - она задана.
+# 🔴 Задана - значит обязана совпадать с фактом: этой же цифрой колонка
+# центруется и ею же решается, влезает ли ярус. Английские `FIN_W=41` (факт 38)
+# и `FIN_W_M=20` (факт 21) разошлись с фактом ещё до TC-948; второе расхождение
+# в опасную сторону - строка шире объявленной коробки. Обе выправлены по факту,
+# и с тех пор равенство сторожит test_installfinal.py.
 # Дверь в другой язык названа В ТОМ языке, в который ведёт: `English` латиницей
 # в русской колонке и `русский` кириллицей в английской. Показывается ровно одна
 # дверь - та, в которую человеку идти; язык установки уже лежит в конфиге
@@ -2974,13 +2979,13 @@ FIN_W_M=20
 if [ "$LANGUAGE" = en ]; then
   FIN_CMD=( 'cast <query>      ' 'cast --tv         ' 'cast stop         ' 'cast status       ' 'cast --help       ' 'cast --ru         ' )
   FIN_TXT=( 'find and play on TV' 'choose a TV' 'stop casting' 'show what is playing' 'show all options' 'русский' )
-  FIN_W=41
+  FIN_W=38
   FIN_CMD_S=( 'cast <query>  ' 'cast --tv     ' 'cast --help   ' 'cast --ru     ' )
   FIN_TXT_S=( 'play on TV' 'choose a TV' 'show all options' 'русский' )
   FIN_W_S=30
   FIN_CMD_M=( 'cast --tv ' )
   FIN_TXT_M=( 'choose a TV' )
-  FIN_W_M=20
+  FIN_W_M=21
 fi
 
 # --- мерка для ЧУЖИХ строк ---------------------------------------------------
@@ -3198,13 +3203,19 @@ ui_recv_plain() {  # $1 - готовая строка -> LINE, урезанна�
   return 0
 }
 
-ui_recv_pick() {  # $1 длинная надпись, $2 короткая -> LINE
-  # У ОСМЫСЛЕННОГО текста запасная короткая форма, а не обрезка на полуслове:
+ui_recv_pick() {  # $1..$N - формы одной надписи, от длинной к короткой -> LINE
+  # У ОСМЫСЛЕННОГО текста запасные короткие формы, а не обрезка на полуслове:
   # «приёмник не найден: включи телевизор и» - это уже не подсказка, потому что
-  # обрезалось ровно то, что человеку и надо сделать.
-  ui_len "$1"
-  if (( LEN <= INNER_W )); then LINE=$1; return 0; fi
-  ui_recv_plain "$2"
+  # обрезалось ровно то, что человеку и надо сделать. 🔴 Поэтому последняя форма
+  # там, где надпись про выбор, - сама команда и ничего кроме: на 24x30 колонка
+  # команд у видов `many` и `none` отдана блоку целиком (HELP_DROP), и если
+  # блоку урезать хвост, человек останется вообще без команды.
+  local one
+  for one in "$@"; do
+    ui_len "$one"
+    if (( LEN <= INNER_W )); then LINE=$one; return 0; fi
+  done
+  ui_recv_plain "${!#}"
   return 0
 }
 
@@ -3241,18 +3252,18 @@ ui_recv_many() {  # $1 - сколько строк можно занять; сп
   local room=$1 n=${#UI_RECV_DEV[@]} head cta shown extra i
   if [ "$LANGUAGE" = ru ]; then
     ui_recv_pick 'нашлось несколько приёмников:' 'приёмников несколько:'; head=$LINE
-    ui_recv_pick 'выбрать нужный надо самому: cast --tv' 'выбери свой: cast --tv'; cta=$LINE
+    ui_recv_pick 'выбрать нужный надо самому: cast --tv' 'выбери свой: cast --tv' 'cast --tv'; cta=$LINE
   else
     ui_recv_pick 'several receivers found:' 'receivers found:'; head=$LINE
-    ui_recv_pick 'choose the one you need: cast --tv' 'choose yours: cast --tv'; cta=$LINE
+    ui_recv_pick 'choose the one you need: cast --tv' 'choose yours: cast --tv' 'cast --tv'; cta=$LINE
   fi
   if   (( room >= n + 2 )); then shown=$n; extra=0
   elif (( room >= 4 ));     then shown=$(( room - 3 )); extra=$(( n - shown ))
   else
     # Тесно. Остаётся одно, и это не список, а то, что выбор за человеком: список
     # без счёта остатка прочитался бы как полный, а он таким уже не будет.
-    if [ "$LANGUAGE" = ru ]; then ui_recv_pick "приёмников найдено $n - выбери свой: cast --tv" "приёмников $n: cast --tv"
-    else ui_recv_pick "found $n receivers - choose yours: cast --tv" "$n receivers: cast --tv"; fi
+    if [ "$LANGUAGE" = ru ]; then ui_recv_pick "приёмников найдено $n - выбери свой: cast --tv" "приёмников $n: cast --tv" "$n ТВ: cast --tv" 'cast --tv'
+    else ui_recv_pick "found $n receivers - choose yours: cast --tv" "$n receivers: cast --tv" "$n TVs: cast --tv" 'cast --tv'; fi
     RECV_LINES=( "$LINE" )
     return 0
   fi
@@ -3288,8 +3299,10 @@ ui_recv_set() {  # -> LINE: приёмник найден и прописан л
   # Имени у устройства нет (или его нет в конфиге при повторной установке, где
   # лежит только адрес), либо от него в рамке не осталось бы и слога. Тогда адрес
   # и есть всё имя, которое можно назвать честно.
-  if [ "$LANGUAGE" = ru ]; then ui_recv_pick "приёмник по адресу $UI_RECV_ADDR, настроен" "приёмник $UI_RECV_ADDR настроен"
-  else ui_recv_pick "receiver at $UI_RECV_ADDR is configured" "receiver $UI_RECV_ADDR is set"; fi
+  # Последняя форма - один адрес: «receiver 192.0.2.10 is» с оборванным хвостом
+  # не говорит ничего, а адрес говорит всё, что в такую ширину влезает.
+  if [ "$LANGUAGE" = ru ]; then ui_recv_pick "приёмник по адресу $UI_RECV_ADDR, настроен" "приёмник $UI_RECV_ADDR настроен" "приёмник $UI_RECV_ADDR" "$UI_RECV_ADDR"
+  else ui_recv_pick "receiver at $UI_RECV_ADDR is configured" "receiver $UI_RECV_ADDR is set" "receiver $UI_RECV_ADDR" "$UI_RECV_ADDR"; fi
   return 0
 }
 
@@ -3301,13 +3314,13 @@ ui_recv_fill() {  # $1 - сколько строк можно занять; со
       RECV_LINES=( "$LINE" )
       ;;
     mock)
-      if [ "$LANGUAGE" = ru ]; then ui_recv_pick 'приёмник mock: headless-стенд, каста наружу нет' 'приёмник mock: каста наружу нет'
-      else ui_recv_pick 'receiver mock: headless stand, no casting out' 'receiver mock: no casting out'; fi
+      if [ "$LANGUAGE" = ru ]; then ui_recv_pick 'приёмник mock: headless-стенд, каста наружу нет' 'приёмник mock: каста наружу нет' 'mock: каста нет'
+      else ui_recv_pick 'receiver mock: headless stand, no casting out' 'receiver mock: no casting out' 'mock: no casting'; fi
       RECV_LINES=( "$LINE" )
       ;;
     none)
-      if [ "$LANGUAGE" = ru ]; then ui_recv_pick 'приёмник не найден: включи телевизор и выполни cast --tv' 'приёмника нет: включи ТВ, cast --tv'
-      else ui_recv_pick 'no receiver found: turn the TV on and run cast --tv' 'no receiver: turn the TV on, cast --tv'; fi
+      if [ "$LANGUAGE" = ru ]; then ui_recv_pick 'приёмник не найден: включи телевизор и выполни cast --tv' 'приёмника нет: включи ТВ, cast --tv' 'нет ТВ: cast --tv' 'cast --tv'
+      else ui_recv_pick 'no receiver found: turn the TV on and run cast --tv' 'no receiver: turn the TV on, cast --tv' 'no TV: cast --tv' 'cast --tv'; fi
       RECV_LINES=( "$LINE" )
       ;;
     many) ui_recv_many "$1" ;;
