@@ -900,7 +900,7 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "мёртвая раздача не останавливает показ"
-    assert "release 1 does not fit (gave up after 20s)" in printed
+    assert "release 1 does not fit (gave up waiting)" in printed
     assert "taking 2" in printed
 
 
@@ -926,7 +926,7 @@ def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
 
     printed = capsys.readouterr().out
     assert prep.number == 5, "четыре молчаливых роя подряд - и всё же дошли до живого"
-    assert printed.count("gave up after") == 4, "каждая осечка стоит строку, молчаливых нет"
+    assert printed.count("gave up waiting") == 4, "каждая осечка стоит строку, молчаливых нет"
     assert "taking 5" in printed
 
 
@@ -952,11 +952,12 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
     msg = str(caught.value)
     assert "releases in the listing: 6, touched: 1 out of 6 queued" in msg, msg
     assert "these are silent, no time was left for the rest" in msg, msg
-    assert "gave up after" in msg, "причина молчания названа, а не спрятана"
+    assert "gave up waiting" in msg, "причина молчания названа, а не спрятана"
     assert "no fit release" not in msg, "это молчание роя, а не отсутствие годных"
     assert "pick by hand" not in msg and "--release" not in msg
     assert "come back later" in msg, "ход остаётся, но честный"
-    assert capsys.readouterr().out.count("gave up after") == 1, "бюджет вышел - второго похода нет"
+    out = capsys.readouterr().out
+    assert out.count("gave up waiting") == 1, "бюджет вышел - второго похода нет"
 
 
 class _FakeClock:
@@ -1072,7 +1073,7 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
     assert "no peers" not in msg, "пиры числятся - врать про пустую выдачу нельзя"
     assert "no fit release" not in msg
     printed = capsys.readouterr().out
-    assert printed.count("gave up after") == 3, "обход называет три окончившихся ожидания"
+    assert printed.count("gave up waiting") == 3, "обход называет три окончившихся ожидания"
     assert printed.count("нет пиров") == 1, "повторный полный спрос называет свой итог"
     assert "release 1 still silent alone" in printed, "второй спрос тоже стоит строки"
 
@@ -1112,7 +1113,7 @@ def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_th
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "терпеливый второй спрос дошёл до живой раздачи"
-    assert printed.count("gave up after") == 3, "каждая осечка честно называет наше ожидание"
+    assert printed.count("gave up waiting") == 3, "каждая осечка честно называет наше ожидание"
     assert (
         "the whole queue stayed silent (3) - asking release 1 once more, alone and without "
         "grace periods (waiting up to 60s)" in printed
