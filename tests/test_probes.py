@@ -212,7 +212,7 @@ def test_щуп_прогоняет_отбор_по_сохранённой_выд
     assert plan.ranked[queue[0] - 1].seeders == 60, "дефолтом стал не верх ранжира"
     # Ровно та сверка, ради которой щуп и заведён: очередь плюс отсев = пул картины.
     assert len(queue) + sum(drops.values()) == len(plan.picture.releases)
-    assert "тяжелее потолка" in drops, "2160p-ремукс обязан быть отсеян по битрейту"
+    assert "heavier than the ceiling" in drops, "2160p-ремукс обязан быть отсеян по битрейту"
 
 
 def test_щуп_сохраняет_сиды_и_приговор_каждой_раздачи() -> None:
@@ -232,7 +232,7 @@ def test_щуп_сохраняет_сиды_и_приговор_каждой_р�
         (release["queue"] is None) != (release["drop_reason"] is None) for release in releases
     )
     heavy = next(release for release in releases if release["seeders"] == 9)
-    assert heavy["queue"] is None and heavy["drop_reason"] == "тяжелее потолка"
+    assert heavy["queue"] is None and heavy["drop_reason"] == "heavier than the ceiling"
 
 
 def test_щуп_называет_склейку_двух_имён() -> None:
@@ -931,7 +931,7 @@ def test_щуп_добора_называет_цену_отказа_гейта()
         item.counts["строк после"] == 4 and item.counts["картин после"] > item.counts["картин до"]
     )
     assert item.counts["раздач после"] > item.counts["раздач до"], "цена отказа не сосчитана"
-    assert any("привёз больше картин" in note for note in item.notes)
+    assert any("brought more pictures" in note for note in item.notes)
     assert ask("нет такой картины") == Origin(), "без кэша справка молчит, а не выдумывает"
 
 
@@ -1034,7 +1034,9 @@ def test_щуп_добора_читает_отказом_чужую_картин
 
     assert item.worth and item.alt == "The Climbers" and not item.missed
     assert not item.taken, "чужая картина под видом добора - это отказ, а не прибавка"
-    assert any("другая картина" in note for note in item.notes), "отказ не назван своим гейтом"
+    assert any("brought a different picture" in note for note in item.notes), (
+        "отказ не назван своим гейтом"
+    )
     assert item.counts["строк после"] > item.counts["строк до"], "привезённое не сосчитано"
 
 

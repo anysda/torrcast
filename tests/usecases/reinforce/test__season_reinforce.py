@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, row
@@ -12,8 +11,6 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.reinforce._season_reinforce import _season_reinforce
-
-_CYRILLIC = re.compile(r"[А-Яа-яЁё]")
 
 #: Русский запрос принёс сериал, но ни одной раздачи спрошенного сезона.
 _FIFTH = [row("Ангел / Angel S05 1080p", "a", seeders=30)]
@@ -86,10 +83,7 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
 
     assert client.asked == []
     assert merged is _FIFTH
-    reason = phrase("reinforce.season_reason", season=1)
-    assert reason in said.text, "круг не назвал причину отказа своими словами"
-    shell = phrase("reinforce.season_reason", season="")
-    assert not _CYRILLIC.search(shell), "рамка причины обязана говорить продуктовым языком"
+    assert said.text == "not doing top up season 1: the search already spent the goal at 10s"
 
 
 def test_without_a_series_in_the_pool_there_is_nothing_to_reinforce() -> None:

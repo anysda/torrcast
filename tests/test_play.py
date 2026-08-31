@@ -286,7 +286,11 @@ def test_a_source_the_receiver_cannot_decode_is_recoded_from_the_first_segment(
     printed = capsys.readouterr().out
     assert played == 0
     assert "video hevc - recoding it whole on the fly" in printed, "решение говорится вслух"
-    assert "тяжёлых кусков" not in printed, "посегментный кодировщик тут не поднимается"
+    # Подъём кодировщика (:meth:`Recoder.start`) говорит одной из двух строк, и обе тут
+    # запрещены: сплошной перекод идёт целым файлом, посегментный не поднимается вовсе.
+    # Одной строки мало - сторож на «нет тяжёлых кусков» молчал бы о подъёме С кусками.
+    for silent in ("no heavy pieces", "pieces to recode"):
+        assert silent not in printed, silent
     assert "gaps 0" in printed
     decoded = float(printed.split("decoded ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "приёмник встал посреди показа"

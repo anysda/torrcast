@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, pictures, row
@@ -12,8 +11,6 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.reinforce._ceiling_reinforce import _ceiling_reinforce
-
-_CYRILLIC = re.compile(r"[А-Яа-яЁё]")
 
 #: Выдача запроса «девять»: сотня строк про соседей по подстроке, самой картины нет.
 _YARDS = [row("Девять ярдов / The Whole Nine Yards (2000) BDRip 1080p", "a")]
@@ -91,10 +88,7 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
 
     assert client.asked == []
     assert [picture.title for picture in found] == ["Девять ярдов"]
-    reason = phrase("reinforce.refine_reason", name="девять")
-    assert reason in said.text, "круг не назвал причину отказа своими словами"
-    shell = phrase("reinforce.refine_reason", name="")
-    assert not _CYRILLIC.search(shell), "рамка причины обязана говорить продуктовым языком"
+    assert said.text == "not doing refine by «девять»: the search already spent the goal at 10s"
 
 
 def test_a_stranger_from_the_refined_circle_is_not_taken() -> None:

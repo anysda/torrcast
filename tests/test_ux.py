@@ -186,7 +186,7 @@ def test_silent_indexer_is_named_once_during_search(
 
     assert main(["моана"]) == 0
     printed = capsys.readouterr().out
-    line = "индексер Knaben не ответил - выдача может быть хуже"
+    line = "indexer Knaben did not answer - the listing may be worse for it"
     assert printed.count(line) == 1
 
 
@@ -207,7 +207,7 @@ def test_banned_indexer_is_named_too(
 
     assert main(["моана"]) == 0
     printed = capsys.readouterr().out
-    assert printed.count("индексер Knaben недоступен - выдача может быть хуже") == 1
+    assert printed.count("indexer Knaben unavailable - the listing may be worse for it") == 1
 
 
 def test_the_question_says_out_loud_what_enter_will_start(
@@ -249,7 +249,7 @@ def test_a_single_choice_is_not_a_question(
     assert main(["моана", "2"]) == 0
 
     assert asked == [], "выбирать не из чего - спрашивать не о чем"
-    assert "Озвучка:" not in capsys.readouterr().out
+    assert "Voice tracks:" not in capsys.readouterr().out
 
 
 def test_the_liveliest_namesake_is_taken_without_a_question(
@@ -869,7 +869,7 @@ def test_the_film_with_a_number_in_the_title_is_a_film(
     assert main(["моана", "--pick", "2"]) == 0
 
     printed = capsys.readouterr().out
-    assert "сериал" not in printed and "s1e1" not in printed
+    assert "is a series" not in printed and "s1e1" not in printed
     key, entry = next(iter(State.load()))
     assert (key, entry.kind, entry.episodes) == ("movie:моана-2:2024", "movie", [])
 
@@ -954,9 +954,14 @@ def test_a_hand_picked_number_does_not_trip_the_neighbours_prewarm(
     composition.use_indexers(monkeypatch, _WithSpare)
     _answers(monkeypatch, "")
 
-    assert main(["моана", "--pick", "2", "--release", "3"]) == 0
+    code = main(["моана", "--pick", "2", "--release", "3"])
 
-    assert "релизов 2" not in capsys.readouterr().out, "счёт соседки к выбору не относится"
+    # Отказ по номеру релиза уходит в stderr (:class:`NotFoundError` наверху ``main``), и
+    # сторож, смотревший один stdout, молчание соседки померить не мог в принципе.
+    # Тишина спрашивается раньше кода возврата: она называет беду, а код лишь её след.
+    said = capsys.readouterr()
+    assert "has 2 releases" not in said.out + said.err, "счёт соседки к выбору не относится"
+    assert code == 0
 
 
 def test_releases_prints_the_old_table_and_exits(capsys: pytest.CaptureFixture[str]) -> None:
@@ -964,7 +969,7 @@ def test_releases_prints_the_old_table_and_exits(capsys: pytest.CaptureFixture[s
     assert main(["releases", "моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert "Релизы:" in printed and "Качество" in printed
+    assert "Releases:" in printed and "Quality" in printed
     assert "Moana (2016)" in printed and "Моана 2 (2024)" in printed
     assert "playing" not in printed, "releases ничего не запускает"
 
@@ -1028,7 +1033,7 @@ def test_resume_is_silent_and_only_reports_position_in_the_show_line(
 
     printed = capsys.readouterr().out
     assert asked == []
-    assert "с 0:41:07" in printed and "ищу" not in printed
+    assert "from 0:41:07" in printed and "searching" not in printed
 
 
 def test_new_plays_the_saved_choice_from_zero_without_questions(
@@ -1148,7 +1153,7 @@ def test_the_bookmark_is_resumed_inside_the_picture_that_was_chosen(
 
     printed = capsys.readouterr().out
     assert asked == [], "картину назвали флагом, а место поднимается молча"
-    assert "playing «Моана 2»" in printed and "с 0:41:07" in printed, printed
+    assert "playing «Моана 2»" in printed and "from 0:41:07" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "продолжаем с места"
 
 
@@ -1182,7 +1187,10 @@ def test_a_legacy_record_of_a_film_written_as_a_series_behaves_as_a_film(
 
     printed = capsys.readouterr().out
     assert asked == []
-    assert "s1e1" not in printed and "Серии" not in printed
+    # Заголовок «Серии» продукт убрал 05-08-2026 (0d1101e, авто-выбор релиза), и в
+    # каталогах его нет ни на одном языке: утверждение про него осталось от прежнего
+    # экрана и покраснеть уже не могло. Сторожит тут код серии - он на обоих языках один.
+    assert "s1e1" not in printed
     assert State.load().entries["tv:moana-2:2024"].pos == 2566.0, "позиция пользователя цела"
 
 
@@ -1646,7 +1654,7 @@ def test_continuing_without_a_flag_keeps_the_bookmark_and_stays_silent(
 
     said = capsys.readouterr().out
     assert asked == []
-    assert "не поднимаю" not in said, said
+    assert "not raising the saved" not in said, said
     kept = State.load().entries["movie:моана-2:2024"]
     assert kept.pos == 2467.0, "место осталось на 41:07"
     assert kept.magnet == "magnet:?xt=1", "играли записанную раздачу, а не выбранную заново"
@@ -1698,8 +1706,8 @@ def test_a_series_named_by_its_only_season_still_plays(
     assert "playing «Кухня 6»" in printed, printed
     # Молчаливого прочтения не бывает: номер человек написал сам и вправе знать, чем
     # мы его сочли.
-    assert "номер 6 читаю сезоном, а не частью" in printed, printed
-    assert "сезона 1 среди них нет" not in printed, "отказа больше нет"
+    assert "reading number 6 as a season, not a part" in printed, printed
+    assert "none of them names season 1" not in printed, "отказа больше нет"
 
 
 def test_the_bot_answers_in_the_language_the_previous_cast_command_remembered() -> None:
