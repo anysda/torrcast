@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import pty
 import re
@@ -41,6 +42,10 @@ WIDE, NARROW, TINY = 80, 40, 30
 ALT_SCREEN = ("\x1b[?1049h", "\x1b[?47h", "\x1b[?1047h")
 ADDR = "192.0.2.10"
 LONG_NAME = "Гостиная Самсунга На Втором Этаже Слева"
+#: 🔴 TC-949. Адрес, которого в сети уже нет: протух с прошлой установки. Не
+#: должен совпасть ни с одним адресом из CASTS ниже - иначе сторож мерил бы
+#: случайное совпадение, а не свою настоящую цель.
+STALE = "192.0.2.49"
 
 #: 🔴 Первой строкой КАЖДОЙ подделки - отметка о вызове. Считаются вызовы, а не
 #: вхождения текста в install.sh: второй `cast --tv`, вписанный строкой ниже - в
@@ -79,13 +84,25 @@ CASTS = {
     "none": _LIST.format(
         body="printf 'приёмников в сети не нашёл - телевизор включён и в той же сети?\\n'"
     ),
-    #: Повторная установка и mock-стенд: звать `cast` не за чем вовсе, и отметка
-    #: тут стоит ровно затем, чтобы вызов было видно, если его всё же сделают.
-    "again": _MARK + "exit 0\n",
+    #: Повторная установка: адрес в конфиге тот же, что находит поиск - подтверждение,
+    #: а не слепое доверие. Отметка вызова тут и доказывает, что поиск в самом деле был.
+    "again": _FOUND.format(name="Гостиная", addr=ADDR),
+    #: 🔴 TC-949. В конфиге протухший адрес (STALE), а сеть в ответ на поиск отдаёт
+    #: ДВУХ живых приёмников - ни с одним из них STALE не совпадает. Ровно случай
+    #: владельца: «receiver at 192.168.1.49 is configured» при отсутствующем .49
+    #: и двух настоящих приёмниках в сети.
+    "stale_two": _LIST.format(
+        body="printf '  1. Гостиная - 192.0.2.10\\n  2. Спальня - 192.0.2.11\\n'"
+    ),
+    #: Протухший адрес, а поиск отдаёт ОДНОГО, но другого: подменять выбор человека
+    #: молча нельзя, конфиг обязан остаться со STALE.
+    "stale_one": _FOUND.format(name="Спальня", addr=ADDR),
+    #: mock-стенд: звать `cast` не за чем вовсе, и отметка тут стоит ровно затем,
+    #: чтобы вызов было видно, если его всё же сделают.
     "mock": _MARK + "exit 0\n",
 }
 #: Что лежит в конфиге ДО фазы приёмника.
-BEFORE = {"again": ADDR, "mock": "mock"}
+BEFORE = {"again": ADDR, "stale_two": STALE, "stale_one": STALE, "mock": "mock"}
 
 
 @dataclass(frozen=True)
@@ -96,6 +113,7 @@ class Frame:
     stream: str
     rc: int
     calls: int  # сколько раз реально запустился `cast --tv`
+    final_tv: str | None  # что осталось в .tv конфига ПОСЛЕ фазы приёмника
 
     @property
     def text(self) -> str:
@@ -178,7 +196,10 @@ def _run(case: str, cols: int, language: str, box: Path, rows: int, locale: str)
     screen = pyte.Screen(cols, rows)
     pyte.Stream(screen).feed(stream.decode("utf-8", errors="replace"))
     calls = len(called.read_text(encoding="utf-8").split()) if called.exists() else 0
-    return Frame(tuple(screen.display), stream.decode("utf-8", errors="replace"), rc, calls)
+    final_tv = json.loads((box / "cfg" / "config.json").read_text(encoding="utf-8")).get("tv")
+    return Frame(
+        tuple(screen.display), stream.decode("utf-8", errors="replace"), rc, calls, final_tv
+    )
 
 
 _CACHE: dict[tuple[str, int, str, int, str], Frame] = {}
@@ -243,13 +264,53 @@ def test_one_receiver_is_named_with_its_name_and_address(cols: int) -> None:
 
 
 @pytest.mark.machine
-def test_a_repeat_install_names_the_address_without_a_second_search() -> None:
-    """Адрес уже в конфиге: экран называет его, а поиск не запускается вовсе."""
+def test_a_repeat_install_confirms_the_configured_address_by_scanning() -> None:
+    """🔴 TC-949. Адрес уже в конфиге - экран называет его, но только ПОСЛЕ поиска.
+
+    Слепое доверие старому конфигу и есть дефект (владелец получил `receiver at
+    192.168.1.49 is configured`, хотя .49 в сети не было вовсе): поэтому поиск
+    обязан запускаться и на повторной установке, а не только на первой.
+    """
     shot = frame("again")
     _landed(shot)
     _unbroken(shot)
-    assert shot.calls == 0, f"повторная установка звала поиск {shot.calls} раз(а)"
-    assert ADDR in shot.row(ADDR), f"экран смолчал про уже настроенный приёмник:\n{shot.show()}"
+    assert shot.calls == 1, f"повторная установка звала поиск {shot.calls} раз(а), а не 1"
+    assert ADDR in shot.row(ADDR), f"экран смолчал про подтверждённый приёмник:\n{shot.show()}"
+
+
+@pytest.mark.machine
+def test_a_stale_address_with_other_live_receivers_is_not_called_configured() -> None:
+    """🔴 TC-949. Живой дефект: протухший адрес не «настроен» - выбор за человеком.
+
+    Ровно случай владельца: в конфиге адрес, которого в сети уже нет (STALE), а
+    поиск при этом находит ДВУХ живых приёмников - ни с одним из них STALE не
+    совпадает. Экран не вправе назвать STALE настроенным (это и была бы прежняя
+    ложь), а обязан отдать выбор человеку - тем же экраном, что и у случая `two`.
+    """
+    shot = frame("stale_two")
+    _landed(shot)
+    _unbroken(shot)
+    assert shot.calls == 1, f"протухший адрес принят на веру без поиска: {shot.calls} вызовов"
+    assert "настроен" not in shot.text, f"протухший адрес назван настроенным:\n{shot.show()}"
+    for name, addr in (("Гостиная", "192.0.2.10"), ("Спальня", "192.0.2.11")):
+        line = shot.row(name)
+        assert addr in line, f"{name} без адреса в списке:\n{shot.show()}"
+    assert shot.final_tv == STALE, (
+        f"конфиг переписан без спроса: было {STALE}, стало {shot.final_tv}"
+    )
+
+
+@pytest.mark.machine
+def test_a_differing_single_find_does_not_overwrite_the_configured_choice() -> None:
+    """Протухший адрес, а поиск отдал ОДНОГО другого - выбор человека не трогаем."""
+    shot = frame("stale_one")
+    _landed(shot)
+    _unbroken(shot)
+    assert shot.calls == 1, f"протухший адрес принят на веру без поиска: {shot.calls} вызовов"
+    assert "настроен" not in shot.text, f"чужой найденный назван настроенным:\n{shot.show()}"
+    assert shot.final_tv == STALE, (
+        f"конфиг переписан найденным без спроса: было {STALE}, стало {shot.final_tv}"
+    )
 
 
 @pytest.mark.machine
@@ -262,21 +323,25 @@ def test_a_repeat_install_names_the_address_without_a_second_search() -> None:
         ("two", 1),
         ("many", 1),
         ("none", 1),
-        # Настроенный приёмник и mock-стенд: искать нечего, ноль запусков.
-        ("again", 0),
+        ("again", 1),
+        ("stale_two", 1),
+        ("stale_one", 1),
+        # mock-стенд: каста наружу нет вовсе, искать нечего, ноль запусков.
         ("mock", 0),
     ],
 )
 def test_the_search_runs_exactly_the_promised_number_of_times(case: str, times: int) -> None:
-    """🔴 Поиск - секунды mDNS, и второго человек ждать не обязан.
+    """🔴 Поиск - секунды mDNS, и лишнего человек ждать не обязан.
 
     Считаются ЗАПУСКИ подделки, а не вхождения текста в install.sh: второй
     `cast --tv`, вписанный соседней функцией, текстовую сверку одной функции не
     тревожит. Отдельно сверяется, что вывод поиска сохранён: имя найденного и
     список нескольких берутся из него, иначе за ними пришлось бы идти в сеть.
-    Случаи с нулём тут не для полноты решётки: настроенному приёмнику и стенду
-    поиск не нужен вовсе, и лишний запуск - те же секунды ожидания на пустом
-    месте.
+    Ноль тут не для полноты решётки: у mock-стенда каста наружу нет вовсе, и
+    искать ему нечего - лишний запуск был бы теми же секундами ожидания на
+    пустом месте. Настроенный адрес (`again`, `stale_two`, `stale_one`) поиск,
+    наоборот, обязан запускать - непроверенный конфиг не значит «настроен»
+    (TC-949).
     """
     shot = frame(case)
     _landed(shot)

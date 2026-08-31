@@ -2536,20 +2536,24 @@ EOF
 }
 
 setup_receiver() {
-    local cfg="$CONFIG_DIR/config.json" tv
+    local cfg="$CONFIG_DIR/config.json" tv had_tv
     [ -f "$cfg" ] || return 0  # фаза config выключена - настраивать не во что
-    # Адрес ТВ - выбор человека, и повторная установка его не переписывает: доводим
-    # только пустое. У mock-стенда адрес заполнен словом «mock» - он тоже пропускается.
     tv="$(jq -r '.tv // empty' "$cfg")"
-    if [ -n "$tv" ]; then
-        skip "receiver is already configured: $tv" "приёмник уже настроен: $tv"
-        # Имени в конфиге нет, там только адрес. Достать его новым поиском значило бы
-        # лезть в сеть ради красивой строки - итоговый экран назовёт адрес, и всё.
+    # У mock-стенда каста наружу нет вовсе - сканировать нечего, слово и есть весь ответ.
+    if [ "$tv" = mock ]; then
+        skip "receiver is already configured: mock" "приёмник уже настроен: mock"
         receiver_said "$tv" ''
         return 0
     fi
     [ -x "$BIN_DIR/cast" ] || return 0  # пакет не ставился - фаза torrcast выключена
     log "receiver" "приёмник"
+    # Адрес из конфига - выбор человека (см. setup_config), но НЕПРОВЕРЕННЫЙ выбор не
+    # значит «настроен»: молча поверить прошлому конфигу и назвать это фактом на итоговом
+    # экране - соврать (TC-949: именно так итоговый экран назвал настроенным адрес,
+    # которого в сети уже не было). Поэтому ищем всегда, даже при заполненном .tv, а
+    # найденное с ним сверяем. Переписывать выбор при этом всё равно нельзя: не
+    # совпало - прежний адрес возвращается в конфиг как был.
+    had_tv=$tv
     # TORRCAST_CONFIG - чтобы песочница писала в СВОЙ конфиг, а не в общесистемный:
     # без неё `cast` читал бы /etc/torrcast/config.json независимо от TORRCAST_CONFIG_DIR.
     # Вывод забираем в переменную и тут же выкладываем в журнал целиком: имя найденного
@@ -2560,12 +2564,27 @@ setup_receiver() {
     if [ -n "$out" ]; then printf '%s\n' "$out"; fi
     if [ "$rc" = 0 ]; then
         tv="$(jq -r '.tv // empty' "$cfg")"
+        if [ -n "$had_tv" ] && [ "$tv" != "$had_tv" ]; then
+            # Нашёлся один, но другой, чем был в конфиге: заменить выбор человека
+            # молча значило бы переписать его без спроса. Возвращаем прежний адрес.
+            local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
+            jq --arg t "$had_tv" '.tv=$t' "$cfg" >"$tmp"
+            mv "$tmp" "$cfg"
+            info "configured receiver $had_tv did not answer this search; $tv did - run cast --tv $tv to switch, or cast --tv to search again" \
+                "настроенный приёмник $had_tv не отозвался при поиске; ответил $tv - выполни cast --tv $tv, чтобы переключиться, или cast --tv для нового поиска"
+            return 0
+        fi
         receiver_said "$tv" "$(receiver_name "$out" "$tv")"
         return 0
     fi
     receiver_choice "$out"
-    info "no receiver selected; run cast --tv <ip> with its address, or cast --tv to choose by number; if the list is empty, turn the TV on first" \
-        "приёмник не выбран; выполни cast --tv <ip> с адресом нужного или cast --tv для выбора номером; если список пуст, сначала включи телевизор"
+    if [ -n "$had_tv" ]; then
+        info "configured receiver $had_tv did not answer this search; pick from the list above, or run cast --tv $had_tv if it comes back" \
+            "настроенный приёмник $had_tv не отозвался при поиске; выбери из списка выше, либо выполни cast --tv $had_tv, если он вернётся"
+    else
+        info "no receiver selected; run cast --tv <ip> with its address, or cast --tv to choose by number; if the list is empty, turn the TV on first" \
+            "приёмник не выбран; выполни cast --tv <ip> с адресом нужного или cast --tv для выбора номером; если список пуст, сначала включи телевизор"
+    fi
 }
 
 # --- 7. Юниты и https --------------------------------------------------------
