@@ -9,11 +9,15 @@ import argparse
 from collections.abc import Sequence
 
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.catalogs.tongue import EN, RU
 from torrcast.domain.rank_settings import VOICE_MENU
 from torrcast.domain.version import __version__
 
-FROM_START_FLAG, FROM_START_HELP = "--new", "та же раздача, файл и дорожка с начала"
+#: Имя флага восстановления - часть контракта командной строки, а не надпись человеку;
+#: сам текст справки живёт в каталоге (:mod:`torrcast.domain.catalogs.cli`) и берётся
+#: словом :func:`phrase`, чтобы `--help` говорил на языке настройки, а не всегда по-русски.
+FROM_START_FLAG = "--new"
 #: ``--tv`` без адреса: найти приёмники в сети и показать список. Адресом такое значение
 #: не бывает никогда, поэтому путь «адрес назвали руками» остаётся ровно прежним.
 TV_MENU = "?"
@@ -28,22 +32,29 @@ def _voice(value: str) -> int | str:
 
 
 def parse_args(argv: Sequence[str] | None = None) -> Args:
-    """Разобрать argv по контракту CLI."""
-    about = "torrcast - найти релиз и кастить его на ТВ без скачивания"
-    parser = argparse.ArgumentParser(prog="cast", description=about, allow_abbrev=False)
-    parser.add_argument("query", nargs="*", help="название, либо stop / status")
+    """Разобрать argv по контракту CLI.
+
+    Композиционный корень (:func:`torrcast.runtime.wire.wire`) успевает выставить язык
+    ДО этого вызова, поэтому :func:`phrase` тут уже отвечает на языке настройки -
+    ``cast --help`` говорит по-русски у русской установки и по-английски у английской,
+    а не одним и тем же текстом всегда (TC-947).
+    """
+    parser = argparse.ArgumentParser(
+        prog="cast", description=phrase("cli.about"), allow_abbrev=False
+    )
+    parser.add_argument("query", nargs="*", help=phrase("cli.query_help"))
     parser.add_argument(
         "--tv",
         nargs="?",
         const=TV_MENU,
         metavar="IP",
-        help="настройка ТВ: без адреса - найти приёмники в сети и выбрать из списка",
+        help=phrase("cli.tv_help"),
     )
     parser.add_argument(
         "-tg",
         dest="telegram",
         action="store_true",
-        help="открыть меню настройки Telegram-бота",
+        help=phrase("cli.telegram_help"),
     )
     # Язык - настройка, а не режим запуска: флаг ЗАПОМИНАЕТСЯ, и следующий `cast` уже
     # говорит на нём же. Умолчание тут `None`, а не "en": «язык не назван» и «назван
@@ -54,14 +65,14 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         dest="language",
         action="store_const",
         const=RU,
-        help="перейти на русский и запомнить выбор",
+        help=phrase("cli.ru_help"),
     )
     tongue.add_argument(
         "--en",
         dest="language",
         action="store_const",
         const=EN,
-        help="перейти на английский и запомнить выбор",
+        help=phrase("cli.en_help"),
     )
     # Номер релиза имеет смысл только вместе с запросом и выбранной картиной: другой
     # запрос - другой список, а у каждой картины в нём - свои номера (TC-446).
@@ -69,24 +80,24 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         "--release",
         type=int,
         metavar="N",
-        help="отладка: релиз N выбранной картины; номера - из cast releases с тем же запросом",
+        help=phrase("cli.release_help"),
     )
-    parser.add_argument("--pick", type=int, metavar="N", help="картина N из меню, без вопроса")
+    parser.add_argument("--pick", type=int, metavar="N", help=phrase("cli.pick_help"))
     # Закладка отвечает на «где я остановился», а меню - на «что играть»: этой ручкой
     # спрашивают второе, и сохранённое место у неё дороги не занимает.
     parser.add_argument(
         "--menu",
         action="store_true",
-        help="показать список картин и спросить, а не включать самому",
+        help=phrase("cli.menu_help"),
     )
-    parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
+    parser.add_argument("--file", type=int, metavar="N", help=phrase("cli.file_help"))
     parser.add_argument(
         "--voice",
         type=_voice,
         nargs="?",
         const=VOICE_MENU,
-        metavar="N|СТУДИЯ",
-        help="озвучка: номер или студия - взять и запомнить, без значения - меню",
+        metavar=phrase("cli.voice_metavar"),
+        help=phrase("cli.voice_help"),
     )
     # Прежнее имя того же флага: ломать чужие пальцы и историю оболочки незачем.
     parser.add_argument(
@@ -98,11 +109,14 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         help=argparse.SUPPRESS,
     )
     parser.add_argument(
-        FROM_START_FLAG, dest="from_start", action="store_true", help=FROM_START_HELP
+        FROM_START_FLAG,
+        dest="from_start",
+        action="store_true",
+        help=phrase("cli.from_start_help"),
     )
-    parser.add_argument("--dry", action="store_true", help="весь резолв без каста")
+    parser.add_argument("--dry", action="store_true", help=phrase("cli.dry_help"))
     parser.add_argument(
-        "--since", metavar="СРОК", help="cast log: с какого момента (2d / 12h / 30m / ГГГГ-ММ-ДД)"
+        "--since", metavar=phrase("cli.since_metavar"), help=phrase("cli.since_help")
     )
     parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
     parser.add_argument("--version", action="version", version=f"torrcast {__version__}")

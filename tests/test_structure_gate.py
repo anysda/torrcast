@@ -566,6 +566,79 @@ def test_translation_rule_leaves_a_latin_caption_alone(tmp_path: Path) -> None:
     assert "перевод" not in _rules(root)
 
 
+def test_translation_rule_sees_a_caption_in_an_argparse_help(tmp_path: Path) -> None:
+    """🔴 TC-947: ``add_argument(help=...)`` не был ни `return`, ни `raise`, ни портом показа -
+    этим классом слепоты русское слово «фаза» уехало в релиз, минуя весь гейт."""
+    source = (
+        '"""Модуль."""\n\nimport argparse\n\n\n'
+        "def good() -> None:\n"
+        '    """Единица."""\n'
+        "    parser = argparse.ArgumentParser()\n"
+        '    parser.add_argument("--voice", help="студия озвучки")\n'
+    )
+    assert "перевод" in _rules(_tree(tmp_path, source))
+
+
+def test_translation_rule_sees_a_caption_in_an_argparse_metavar(tmp_path: Path) -> None:
+    """``metavar`` тоже едет в текст `--help`, а не только `help=`."""
+    source = (
+        '"""Модуль."""\n\nimport argparse\n\n\n'
+        "def good() -> None:\n"
+        '    """Единица."""\n'
+        "    parser = argparse.ArgumentParser()\n"
+        '    parser.add_argument("--since", metavar="СРОК")\n'
+    )
+    assert "перевод" in _rules(_tree(tmp_path, source))
+
+
+def test_translation_rule_sees_a_caption_in_an_argparse_description(tmp_path: Path) -> None:
+    """``ArgumentParser(description=...)`` тоже часть невидимой правилу справки."""
+    source = (
+        '"""Модуль."""\n\nimport argparse\n\n\n'
+        "def good() -> None:\n"
+        '    """Единица."""\n'
+        '    argparse.ArgumentParser(description="разбор аргументов")\n'
+    )
+    assert "перевод" in _rules(_tree(tmp_path, source))
+
+
+def test_translation_rule_leaves_an_english_argparse_help_alone(tmp_path: Path) -> None:
+    """Убранное русское слово - и правило зеленеет, как обещано мерой цели."""
+    source = (
+        '"""Модуль."""\n\nimport argparse\n\n\n'
+        "def good() -> None:\n"
+        '    """Единица."""\n'
+        "    parser = argparse.ArgumentParser()\n"
+        '    parser.add_argument("--voice", help="voice studio")\n'
+    )
+    assert "перевод" not in _rules(_tree(tmp_path, source))
+
+
+def test_translation_rule_sees_a_caption_in_super_init(tmp_path: Path) -> None:
+    """``super().__init__("текст")`` - тот же слепой класс, что и argparse: не return и не raise."""
+    source = (
+        '"""Модуль."""\n\n\n'
+        "class Bad(Exception):\n"
+        '    """Единица."""\n\n'
+        "    def __init__(self) -> None:\n"
+        '        """Завести отказ со своим текстом."""\n'
+        '        super().__init__("что-то пошло не так")\n'
+    )
+    assert "перевод" in _rules(_tree(tmp_path, source))
+
+
+def test_translation_rule_leaves_an_english_super_init_alone(tmp_path: Path) -> None:
+    source = (
+        '"""Модуль."""\n\n\n'
+        "class Bad(Exception):\n"
+        '    """Единица."""\n\n'
+        "    def __init__(self) -> None:\n"
+        '        """Завести отказ со своим текстом."""\n'
+        '        super().__init__("something went wrong")\n'
+    )
+    assert "перевод" not in _rules(_tree(tmp_path, source))
+
+
 def _one_module(tmp_path: Path, relative: str, source: str) -> structure_gate.Module:
     path = tmp_path / relative
     path.parent.mkdir(parents=True, exist_ok=True)

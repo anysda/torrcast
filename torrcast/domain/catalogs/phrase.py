@@ -12,6 +12,8 @@ from typing import Final
 
 from torrcast.domain.catalogs.choice.en import en as choice_en
 from torrcast.domain.catalogs.choice.ru import ru as choice_ru
+from torrcast.domain.catalogs.cli.en import en as cli_en
+from torrcast.domain.catalogs.cli.ru import ru as cli_ru
 from torrcast.domain.catalogs.digest.en import en as digest_en
 from torrcast.domain.catalogs.digest.ru import ru as digest_ru
 from torrcast.domain.catalogs.discover.en import en as discover_en
@@ -45,6 +47,7 @@ from torrcast.domain.catalogs.trace.ru import ru as trace_ru
 #: в конце: так соседний заход добавляет свой кластер, не трогая ничьей чужой строки.
 _CLUSTERS: Final = (
     (choice_en, choice_ru),
+    (cli_en, cli_ru),
     (digest_en, digest_ru),
     (discover_en, discover_ru),
     (frames_en, frames_ru),

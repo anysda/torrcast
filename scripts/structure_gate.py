@@ -59,6 +59,17 @@ _CYRILLIC: Final = re.compile(r"[А-Яа-яЁё]")
 SPOKEN_METHODS: Final = frozenset({"ask", "choose", "note", "phase", "redraw", "show", "write"})
 #: Те же ворота, но встроенные в язык.
 SPOKEN_BUILTINS: Final = frozenset({"input", "print"})
+#: Четвёртые ворота: конструкторы `argparse`, которыми строится `--help`. Ни возврат, ни
+#: `raise`, ни порт показа тут ни при чём - `parser.add_argument("--voice", help="...")`
+#: не подходил ни под один прежний случай, и этим классом слепоты русское слово «фаза»
+#: уехало в релиз (TC-947). Имя ловится по атрибуту, а не по объекту: парсеров и
+#: подпарсеров в файле бывает несколько (``parser``, ``tongue``, ``ap``), и у каждого
+#: своё имя переменной.
+SPOKEN_ARGPARSE_CALLS: Final = frozenset(
+    {"ArgumentParser", "add_argument", "add_parser", "add_subparsers"}
+)
+#: Именованные аргументы этих вызовов, из которых складывается видимая человеку справка.
+SPOKEN_ARGPARSE_KEYWORDS: Final = frozenset({"description", "epilog", "help", "metavar"})
 #: Кириллица тут - ПРЕДМЕТ разбора, а не надпись: правила разбора имён, таблица
 #: гомоглифов IMDb, уточнение запроса к Википедии, ключ хранимой памяти об озвучке
 #: (``AudioTrack.label``) - и сами каталоги надписей, мерить которые значит мерить ответ.
@@ -272,6 +283,17 @@ def _module_name(relative: Path) -> str:
 
 
 def _load_modules(root: Path) -> list[Module]:
+    """Разбирает деревья пакетов и названные поимённо скрипты (:data:`SCRIPTS`).
+
+    Всё правило «перевод» (:func:`_translation_violations`) меряет ровно то, что тут
+    собрано. `scripts/*.py`, не названные в :data:`SCRIPTS` поимённо, сюда не попадают
+    вовсе - решение названное, а не тихое: `scripts/` в продукт не отгружается
+    (``pyproject.toml``, ``packages = ["torrcast", "tgbot"]``), человек этих строк не
+    видит никогда, а десятки вспомогательных прогонялок сценария (`tvjournal.py`,
+    `packbench.py` и соседи) держат кириллицу в `--help` открыто, для себя же. Единственное
+    исключение - `scripts/sni-shim.py`: он поднимается службой из `install.sh` и часть
+    каталога достижима только через него, поэтому мерить его нечем нельзя.
+    """
     result: list[Module] = []
     package_paths = [*(root / "torrcast").rglob("*.py"), *(root / "tgbot").rglob("*.py")]
     for path in sorted(package_paths):
@@ -1005,6 +1027,41 @@ def _docstring_ids(tree: ast.Module) -> set[int]:
     return found
 
 
+def _is_super_init(node: ast.Call) -> bool:
+    """Правда ли это `super().__init__(...)`: свой текст исключения, а не `raise`.
+
+    `raise Foo("текст")` уже ловится узлом `Raise`, но исключение может назвать свой
+    текст и в собственном конструкторе - `super().__init__("текст")` внутри `__init__`
+    подкласса, - и до места, откуда его подняли `raise`ом, эта строка уже не дотянется:
+    `Raise.exc` там - вызов `Foo(...)` без единого литерала внутри.
+    """
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "__init__"
+        and isinstance(func.value, ast.Call)
+        and isinstance(func.value.func, ast.Name)
+        and func.value.func.id == "super"
+    )
+
+
+def _spoken_call(node: ast.Call, speech: _Speech) -> list[ast.Constant]:
+    """Литералы вызова, что доезжают до человека - если вызов вообще из говорящих."""
+    name = node.func.id if isinstance(node.func, ast.Name) else None
+    attribute = node.func.attr if isinstance(node.func, ast.Attribute) else None
+    if name in SPOKEN_BUILTINS or attribute in SPOKEN_METHODS or _is_super_init(node):
+        arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+        return [item for argument in arguments for item in speech.spoken(argument)]
+    if name in SPOKEN_ARGPARSE_CALLS or attribute in SPOKEN_ARGPARSE_CALLS:
+        return [
+            item
+            for keyword in node.keywords
+            if keyword.arg in SPOKEN_ARGPARSE_KEYWORDS
+            for item in speech.spoken(keyword.value)
+        ]
+    return []
+
+
 #: Разбор одного модуля спрашивают трижды за прогон - правилом, сторожем списков и
 #: замером охвата, - а ответ на одном и том же дереве один и тот же. Ключ кэша - сам
 #: :class:`Module`, то есть и разобранное дерево: у соседнего корня объекты свои, и
@@ -1022,11 +1079,7 @@ def _spoken_places(module: Module) -> list[tuple[int, str]]:
             arguments = [*node.exc.args, *(keyword.value for keyword in node.exc.keywords)]
             said = [item for argument in arguments for item in speech.spoken(argument)]
         elif isinstance(node, ast.Call):
-            name = node.func.id if isinstance(node.func, ast.Name) else None
-            attribute = node.func.attr if isinstance(node.func, ast.Attribute) else None
-            if name in SPOKEN_BUILTINS or attribute in SPOKEN_METHODS:
-                arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
-                said = [item for argument in arguments for item in speech.spoken(argument)]
+            said = _spoken_call(node, speech)
         for item in said:
             found.setdefault(speech.group_key(item), (item.lineno, str(item.value)))
     return sorted(found.values())
