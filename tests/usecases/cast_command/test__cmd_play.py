@@ -12,6 +12,7 @@ from tests.usecases.cast_command.world import GB, entry, release
 from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
@@ -192,7 +193,8 @@ def test_the_played_file_names_the_episode_and_the_place_is_carried(
     assert code == EXIT_OK
     out = capsys.readouterr().out
     assert "«Кино» s5e1" in out, "подпись серии - у файла, который играет, а не у запроса"
-    assert "с 0:04:25" in out, "место закладки названо обычной строкой показа"
+    tail = phrase("cmd_play.resumed_from", pos="0:04:25")
+    assert tail in out, "место закладки названо обычной строкой показа"
 
 
 class _Facts:
@@ -415,7 +417,8 @@ def test_the_place_of_a_dead_recording_moves_onto_the_release_found_instead(
     )
 
     assert code == EXIT_OK
-    assert "с 1:00:00" in capsys.readouterr().out, "час просмотра переехал на новую раздачу"
+    tail = phrase("cmd_play.resumed_from", pos="1:00:00")
+    assert tail in capsys.readouterr().out, "час просмотра переехал на новую раздачу"
 
 
 def test_a_dead_series_recording_searches_the_bookmarked_episode_not_the_first() -> None:

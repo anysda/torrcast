@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.cast_command._play_state as _state
 from torrcast.domain.bitrate_mbit import bitrate_mbit
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.track_studio import track_studio
 from torrcast.domain.tune import tune as tune_profile
@@ -142,7 +143,7 @@ def _cmd_play(
     journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
     label = spoken_label(sound.tracks[audio]) if audio < len(sound.tracks) else "-"
     if prep.apart and prep.voice_file is not None:
-        print(f"русская озвучка лежит отдельным файлом «{prep.voice_file.base}» - беру её")
+        print(phrase("cmd_play.voice_apart", base=prep.voice_file.base))
     # Чья это озвучка - в подписи дорожки бывает не написано вовсе: сезонный пак
     # подписывает свои дорожки голым «rus», а студию называет своим именем. Строка
     # запуска обязана сказать, ЧТО играет, и молчать об этом ей нечем (TC-701).
@@ -171,7 +172,7 @@ def _cmd_play(
     what = f"«{plan.picture.title}»{shown}"
     about = f"{what} · {quality_text(release, media)} · {label}"
     if entry.pos > 0:
-        about = f"{about} · с {_hms(entry.pos)}"
+        about = f"{about}{phrase('cmd_play.resumed_from', pos=_hms(entry.pos))}"
     journal().emit(
         "select",
         "select",
@@ -190,6 +191,6 @@ def _cmd_play(
         # Сухой прогон - главный замер отбора, поэтому он называет, ЧТО выбрал бы:
         # имя файла внутри раздачи, а не эхо запроса. Иначе дефект «сыграла не та
         # серия» (сквозная нумерация против сезонной) всухую не виден вовсе (TC-302).
-        print(f"(--dry) {about} · файл «{video.base}» - каста нет")
+        print(phrase("cmd_play.dry_no_cast", about=about, base=video.base))
         return EXIT_OK
     return _launch(config, plan.picture.key, entry, about, clock)

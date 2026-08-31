@@ -24,6 +24,8 @@ from torrcast.domain.catalogs.chromecast_talk.en import en as chromecast_talk_en
 from torrcast.domain.catalogs.chromecast_talk.ru import ru as chromecast_talk_ru
 from torrcast.domain.catalogs.cli.en import en as cli_en
 from torrcast.domain.catalogs.cli.ru import ru as cli_ru
+from torrcast.domain.catalogs.cmd_play.en import en as cmd_play_en
+from torrcast.domain.catalogs.cmd_play.ru import ru as cmd_play_ru
 from torrcast.domain.catalogs.configure.en import en as configure_en
 from torrcast.domain.catalogs.configure.ru import ru as configure_ru
 from torrcast.domain.catalogs.console.en import en as console_en
@@ -166,6 +168,7 @@ _CLUSTERS: Final = (
     (releases_en, releases_ru),
     (voices_command_en, voices_command_ru),
     (notes_en, notes_ru),
+    (cmd_play_en, cmd_play_ru),
 )
 
 

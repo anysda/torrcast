@@ -924,7 +924,14 @@ def test_release_and_file_are_debug_handles_and_show_the_insides(
     assert main(["моана", "2", "--release", "2", "--file", "1"]) == 0
 
     printed = capsys.readouterr().out
-    assert "файл: Moana.2016.1080p.mkv" in printed
+    line = phrase(
+        "notes.file_debug",
+        base="Moana.2016.1080p.mkv",
+        size="5.0 GB",
+        duration="1:39:38",
+        video="h264",
+    )
+    assert line in printed
     assert State.load().entries["movie:моана-2:2024"].file_idx == 0
 
 
@@ -1396,7 +1403,9 @@ def test_a_dry_run_names_the_chosen_file_not_the_request_echo(
 
     said = capsys.readouterr().out
     assert "Cyberpunk.S01E03.mkv" in said, "сухой прогон называет ВЫБРАННЫЙ файл"
-    assert "каста нет" in said
+    tail = phrase("cmd_play.dry_no_cast", about="ABOUT-MARK", base="BASE-MARK")
+    tail = tail.split("BASE-MARK»")[1]
+    assert tail in said
 
 
 def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPatch) -> None:
