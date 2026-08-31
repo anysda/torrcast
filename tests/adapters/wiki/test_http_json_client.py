@@ -99,3 +99,31 @@ def test_a_refusal_by_deadline_takes_its_resolver_thread_with_it() -> None:
     assert not left, f"нитку закрыл тот, кто её поднял, а живой осталась {left}"
     assert time.monotonic() - started >= 1.0, "отказ отдан после закрытия, а не вместо него"
     assert client._resolve("late.example", 0.05) == "1.2.3.4", "опоздавший ответ не пропал"
+
+
+def test_warming_a_name_asks_for_it_once_and_does_not_wait_for_the_answer() -> None:
+    """🔴 TC-957. Греть - значит спросить имя заранее и сразу вернуться, а не ждать адрес.
+
+    Ждать тут нечего: адрес понадобится второй волне справки, а до неё ещё целая первая.
+    Второй нитки на то же имя греющий не поднимает - и уже известное имя не спрашивает
+    заново: иначе каждое согревание стоило бы своей нитки.
+    """
+    asked: list[str] = []
+    slow = threading.Event()
+
+    def creeping(host: str) -> list[Any]:
+        asked.append(host)
+        slow.wait(5.0)
+        return [(0, 0, 0, "", ("1.2.3.4", 0))]
+
+    client = HttpJsonClient("проба", lookup=creeping)
+    started = time.monotonic()
+    client.warm("en.wikipedia.org")
+    client.warm("en.wikipedia.org")
+    spent = time.monotonic() - started
+
+    try:
+        assert spent < 0.5, f"согревание не ждёт ответа, а оно просидело {spent:.2f} с"
+        assert asked == ["en.wikipedia.org"], "одна нитка на имя, сколько его ни грей"
+    finally:
+        slow.set()

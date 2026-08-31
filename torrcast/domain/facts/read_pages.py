@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Set
 
-from torrcast.domain.facts.article_gate import _fits_type
+from torrcast.domain.facts.article_gate import _declares_work, _fits_type
 from torrcast.domain.facts.confirms import confirms
 from torrcast.domain.facts.linked_title import linked_title
 from torrcast.domain.facts.wiki_pages import wiki_pages
@@ -68,7 +68,18 @@ def _read_pages(
             # пару имени, года и типа вправе подтвердить офлайн-карта IMDb. Послабление
             # действует только для полного имени: отрезанное до двоеточия имя легко
             # оказалось бы другой частью той же франшизы.
-            exact = key in confirmed and name.casefold() == key[0].strip().casefold()
+            #
+            # 🔴 От сверки ГОДА карта освобождает, а от вопроса «произведение ли это» -
+            # нет (:func:`_declares_work`). Карта доказывает, что картина с таким именем
+            # и годом есть на свете, но про статью под этим именем не говорит ничего:
+            # «Титаник» - пароход, «Дюна» - песчаный холм, и обе уходили зрителю как
+            # справка о фильме (TC-957). Год у них не подтверждался - ровно ту защиту
+            # послабление и снимало.
+            exact = (
+                key in confirmed
+                and name.casefold() == key[0].strip().casefold()
+                and _declares_work(str(page.get("title") or ""), extract)
+            )
             if not confirms(extract, key[1]) and not exact:
                 continue
             about[key] = extract

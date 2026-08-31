@@ -1,7 +1,16 @@
 """Проверяет гейты статьи: про кино ли она и того ли типа, что спросили."""
 
-from tests.articles import BREAKING_BAD, CLONE_WARS, HP_FRANCHISE, NOT_CINEMA
-from torrcast.domain.facts.article_gate import _about_cinema, _fits_type
+from tests.articles import (
+    BREAKING_BAD,
+    CARS,
+    CLONE_WARS,
+    HP_FRANCHISE,
+    LANDFORM,
+    LINER,
+    NOT_CINEMA,
+    REVOLUTIONS,
+)
+from torrcast.domain.facts.article_gate import _about_cinema, _declares_work, _fits_type
 
 
 def test_a_franchise_article_passes_the_cinema_gate_but_a_biography_still_does_not() -> None:
@@ -63,3 +72,16 @@ def test_a_type_the_article_never_names_does_not_silence_it() -> None:
     assert _fits_type(True, "Во все тяжкие", BREAKING_BAD)
     assert not _fits_type(False, "Во все тяжкие", BREAKING_BAD)
     assert _fits_type(None, "Во все тяжкие", BREAKING_BAD), "тип неизвестен - сверять нечем"
+
+
+def test_a_yearless_work_passes_where_a_ship_and_a_landform_do_not() -> None:
+    """Год не спрашиваем, кавычки и жанр - спрашиваем: пароход и холм произведением не назвались.
+
+    🔴 TC-957. Послабление точного имени снимало сверку года, и вместе с ней уходила
+    единственная защита от статьи, которая про кино не говорит ни слова: «Титаник» -
+    пароход, «Дюна» - песчаный холм. Обе печатались зрителю как справка о фильме.
+    """
+    assert _declares_work("Матрица: Революция", REVOLUTIONS), "своего года статья не называет"
+    assert not _declares_work("Титаник", LINER)
+    assert not _declares_work("Дюна", LANDFORM)
+    assert _declares_work("Тачки", CARS), "обычную статью о кино гейт пропускал и пропускает"

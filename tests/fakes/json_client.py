@@ -15,6 +15,11 @@ class FakeJsonClient:
 
     answer: Callable[[str, str, dict[str, str]], Any] = _nothing
     calls: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
+    warmed: list[str] = field(default_factory=list)
+
+    def warm(self, host: str) -> None:
+        """Двойник имён не разрешает, но помнит, какое греть просили."""
+        self.warmed.append(host)
 
     def get(
         self,

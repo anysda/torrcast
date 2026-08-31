@@ -10,11 +10,14 @@ from collections.abc import Callable
 from torrcast.adapters.wiki.closed_wave import closed_wave
 from torrcast.adapters.wiki.endpoints import (
     SPARQL_HEAD,
+    WIKI_HOST,
     WIKIDATA_HOST,
     WIKIDATA_PATH,
 )
 from torrcast.adapters.wiki.spoken_blurbs import spoken_blurbs
 from torrcast.adapters.wiki.wiki_extracts import wiki_extracts
+from torrcast.adapters.wiki.wiki_host import wiki_host
+from torrcast.domain.catalogs.tongue import tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.hms import hms
 from torrcast.domain.facts.read_pages import _read_pages
@@ -83,6 +86,13 @@ class WikiBlurbs:
 
         reader = threading.Thread(target=load, daemon=True)
         reader.start()
+        # Имена Википедий греются ЗДЕСЬ, а не там, где понадобятся: разрешать имя в
+        # срок своей волны значит отдавать этот срок резолверу, а идёт волна под грохот
+        # прогрева раздач (:meth:`~torrcast.ports.json_client.JsonClient.warm`). Имён два,
+        # и греются оба: первая волна всегда идёт в русскую Википедию, вторая - в
+        # Википедию языка продукта, и под русским языком это одно и то же имя.
+        for host in dict.fromkeys([WIKI_HOST, wiki_host(tongue())]):
+            self.client.warm(host)
         try:
             candidates, payload, answered = wiki_extracts(self.client, wanted, timeout, kinds)
         except OSError:
@@ -106,18 +116,20 @@ class WikiBlurbs:
         about, entities, linked = _read_pages(payload, candidates, set(local_ids), kinds)
         about, answered = spoken_blurbs(self.client, about, linked, answered, timeout)
         if ready is not None:
-            ready(
-                {
-                    key: Fact(
-                        about=text,
-                        rating=(
-                            f"IMDb {scores[local_ids[key]]}" if local_ids.get(key) in scores else ""
-                        ),
-                    )
-                    for key, text in about.items()
-                    if text
-                }
-            )
+            # Первым шагом едет ВСЁ, что уже на руках, а не только картины со статьёй:
+            # оценка лежит в офлайн-карте и приехала, пока шла первая волна. Придержи её
+            # до второго шага - и картина без статьи теряла бы оценку, которая у нас уже
+            # была: у русского показа так пропадал «Титаник: 20 лет спустя» (TC-957).
+            first = {
+                key: Fact(
+                    about=about.get(key, ""),
+                    rating=(
+                        f"IMDb {scores[local_ids[key]]}" if local_ids.get(key) in scores else ""
+                    ),
+                )
+                for key in wanted
+            }
+            ready({key: fact for key, fact in first.items() if fact})
         ids: dict[str, tuple[str, int]] = {}
         if entities:
             with contextlib.suppress(Exception):

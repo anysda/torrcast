@@ -350,3 +350,62 @@ def test_the_asked_type_leads_the_queue_that_reaches_wikipedia() -> None:
     WikiBlurbs(FakeJsonClient(answer), FakeRatingDump(dict)).fetch([key], kinds={key: "movie"})
     names = asked[0]
     assert names.index("Робокоп (фильм, 1987)") < names.index("Робокоп (телесериал)")
+
+
+def test_both_wikipedia_names_are_warmed_before_the_first_wave(_english: None) -> None:
+    """🔴 TC-957. Имена обеих Википедий греются В НАЧАЛЕ добора, а не каждое в свою волну.
+
+    Волне адрес нужен в её собственный срок - а идёт волна под грохот прогрева раздач, и
+    разрешение имени в этот срок на стенде съедало его целиком: английское меню выходило
+    без единой справки при полной справке русского. Греются оба имени, а не только имя
+    второй волны: первая идёт в русскую Википедию под любым языком продукта, и платить
+    за её имя своим сроком английскому показу не за что.
+    """
+    client = FakeJsonClient()
+
+    WikiBlurbs(client, FakeRatingDump(dict)).fetch([CARS_KEY], timeout=0.2)
+
+    assert client.warmed == ["ru.wikipedia.org", "en.wikipedia.org"], "оба имени заранее"
+
+
+def test_the_russian_product_warms_the_one_name_it_asks(_russian_product: None) -> None:
+    """Под русским языком обе волны идут в одну Википедию - и имя греется одно."""
+    client = FakeJsonClient()
+
+    WikiBlurbs(client, FakeRatingDump(dict)).fetch([CARS_KEY], timeout=0.2)
+
+    assert client.warmed == ["ru.wikipedia.org"], "лишнего имени добор не трогает"
+
+
+def test_a_rating_without_an_article_rides_the_first_step_too(_russian_product: None) -> None:
+    """🔴 TC-957. Первый шаг несёт ВСЁ, что уже на руках: оценку без статьи в том числе.
+
+    Оценка приезжает из офлайн-карты, а не из Википедии, и статья ей не нужна. Пока
+    первый шаг собирался только по разобранным статьям, картина без принятой статьи
+    доезжала до зрителя лишь вторым шагом - то есть после первой печати меню, а второй
+    печати нет (:func:`~torrcast.usecases.choice._shown._shown`). Так одна и та же
+    картина под разными языками получала разную справку: у кого потолок пошире, у того
+    второй шаг успевал.
+    """
+    key = ("Титаник: 20 лет спустя", 2017)
+
+    def answer(host: str, path: str, params: dict[str, str]) -> Any:
+        if host == WIKIDATA_HOST:
+            raise OSError("Wikidata молчит")
+        return {"query": {"pages": [{"title": key[0], "missing": True}]}}
+
+    class Catalogue:
+        @staticmethod
+        def ids(
+            pictures: list[tuple[str, int | None, str]],
+        ) -> dict[tuple[str, int | None], str]:
+            return {key: "tt7137380"}
+
+    ready: list[dict[tuple[str, int | None], Fact]] = []
+    WikiBlurbs(
+        FakeJsonClient(answer),
+        FakeRatingDump(lambda: {"tt7137380": "7.0"}),
+        Catalogue(),
+    ).fetch([key], ready=ready.append, kinds={key: "movie"})
+
+    assert ready == [{key: Fact(rating="IMDb 7.0")}]

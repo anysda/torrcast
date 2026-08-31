@@ -10,7 +10,8 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Iterable
 
-from tests.usecases.choice.world import Outside, Paint, outside, parts
+from tests.usecases.choice.world import Outside, Paint, outside, parts, plan
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.usecases.choice._dress import _dress
@@ -21,6 +22,7 @@ from torrcast.usecases.select.plan import Plan
 Blurbs = dict[tuple[str, int | None], Fact]
 CARS = ("Тачки", 2006)
 CARS2 = ("Тачки 2", 2011)
+MATRIX = ("Матрица", 1999)
 DRESSED = Fact(rating="IMDb 7.1", runtime="1 ч 57 мин")
 
 
@@ -154,3 +156,26 @@ def test_a_description_that_came_late_adds_no_lines_to_the_menu_on_screen() -> N
     facts.finish()
 
     assert paint.lines == ["  1. Тачки (2006) · IMDb 7.1"]
+
+
+def test_an_english_menu_asks_the_reference_by_the_same_name_it_was_ordered_by() -> None:
+    """Дописывание не вправе СТИРАТЬ уже показанную справку.
+
+    🔴 Справка заказана и разложена по внутреннему имени картины, а на английском экране
+    у той же картины другое имя. Спроси дописывание справку именем с экрана - ответом
+    была бы пустая справка на каждый пункт, и строка «дополнилась» бы до голой: зритель
+    терял бы оценку, хронометраж и описание, которые уже прочитал.
+    """
+    matrix = [plan("Матрица", 1999, original="The Matrix")]
+    facts = Facts([MATRIX], store=Empty({MATRIX: DRESSED}), source=Wave({}, {}))
+    facts.start()
+
+    _choose_tongue(EN)
+    try:
+        paint, blocks = stand(matrix, facts)
+        _dress(paint, matrix, blocks, facts)
+    finally:
+        _choose_tongue(RU)
+
+    assert paint.lines == ["  1. The Matrix (1999) · IMDb 7.1 · 1 ч 57 мин"]
+    assert paint.redraws == [], "строка уже полная - переписывать её нечем и незачем"

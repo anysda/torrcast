@@ -6,7 +6,6 @@ from itertools import accumulate
 from typing import TYPE_CHECKING
 
 from torrcast.domain.outside_numbering import outside_numbering
-from torrcast.usecases.choice._named import _title
 from torrcast.usecases.choice.head_line import head_line
 
 if TYPE_CHECKING:
@@ -29,6 +28,13 @@ def _dress(menu: MenuPaint, plans: list[Plan], blocks: list[list[str]], facts: F
     считается по кускам меню - у картины с описанием их несколько, и без этого счёта
     рейтинг лёг бы в чужой пункт.
 
+    🔴 Справка спрашивается ВНУТРЕННИМ именем картины - тем же, каким её заказали
+    (:func:`~torrcast.usecases.cast_command._choose._choose`) и каким её читает первая
+    печать (:func:`~torrcast.usecases.choice.menu_blocks.menu_blocks`). Спроси её именем
+    с экрана - под английским языком ключ разошёлся бы с заказанным, ответом на каждый
+    пункт стала бы пустая справка, и дописывание СТИРАЛО бы уже показанные рейтинг,
+    хронометраж и описание: строка «дополнялась» бы до голой.
+
     Описание тут не дописывается намеренно, и это не цена, а граница: оно занимает не одну
     строку, а несколько, и вставить их в середину уже прочитанного списка нельзя - список
     поехал бы под курсором у человека, который его в эту секунду читает. Поэтому описание
@@ -43,7 +49,7 @@ def _dress(menu: MenuPaint, plans: list[Plan], blocks: list[list[str]], facts: F
     def dress() -> None:
         for at, plan in enumerate(plans):
             picture = plan.picture
-            fact = facts.ready(_title(picture), picture.year)
+            fact = facts.ready(picture.title, picture.year)
             line = head_line(at + 1, picture, fact, picture.key in aside)
             if line != shown[at]:
                 shown[at] = line

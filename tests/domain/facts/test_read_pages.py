@@ -2,7 +2,16 @@
 
 from typing import Any
 
-from tests.articles import CARS, MOANA, ROBOCOP_FILM, ROBOCOP_SERIES, robocop_reply, wiki_reply
+from tests.articles import (
+    CARS,
+    LINER,
+    MOANA,
+    REVOLUTIONS,
+    ROBOCOP_FILM,
+    ROBOCOP_SERIES,
+    robocop_reply,
+    wiki_reply,
+)
 from torrcast.domain.facts.read_pages import _read_pages
 from torrcast.domain.facts.titles_for import titles_for
 
@@ -56,3 +65,52 @@ def test_without_a_hinted_type_the_series_takes_the_films_place() -> None:
     key = ("Робокоп", 1987)
     about, _, _ = _read_pages(robocop_reply(), {key: titles_for(*key)})
     assert about[key] == ROBOCOP_SERIES
+
+
+def _liner_reply() -> dict[str, Any]:
+    """Ответ Википедии на имя «Титаник»: статья о пароходе, а не о фильме."""
+    return {
+        "query": {
+            "pages": [
+                {
+                    "title": "Титаник",
+                    "extract": LINER,
+                    "pageprops": {"wikibase_item": "Q25173"},
+                }
+            ]
+        }
+    }
+
+
+def test_an_exact_name_from_the_offline_map_does_not_hand_over_a_ship() -> None:
+    """Карта IMDb освобождает от сверки года, но не делает пароход фильмом.
+
+    🔴 TC-957. Статья «Титаник» - про британский пароход: года фильма в ней нет, и одна
+    лишь точность имени пускала её зрителю как справку о картине 1997 года.
+    """
+    key = ("Титаник", 1997)
+
+    about, entities, _ = _read_pages(_liner_reply(), {key: ["Титаник"]}, {key}, {key: "movie"})
+
+    assert about == {}
+    assert entities == {}
+
+
+def test_an_exact_name_still_restores_a_picture_that_never_names_its_year() -> None:
+    """Послабление живо: статья назвалась произведением своего жанра - года с неё не спросят."""
+    key = ("Матрица: Революция", 2003)
+    reply: dict[str, Any] = {
+        "query": {
+            "pages": [
+                {
+                    "title": key[0],
+                    "extract": REVOLUTIONS,
+                    "pageprops": {"wikibase_item": "Q207536"},
+                }
+            ]
+        }
+    }
+
+    about, _, _ = _read_pages(reply, {key: [key[0]]}, {key}, {key: "movie"})
+
+    assert about[key] == REVOLUTIONS

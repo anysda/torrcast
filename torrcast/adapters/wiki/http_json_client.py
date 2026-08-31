@@ -64,6 +64,17 @@ class HttpJsonClient:
         finally:
             connection.close()
 
+    def warm(self, host: str) -> None:
+        """Пустить разрешение имени заранее и вернуться сразу: ответа тут не ждут.
+
+        Нитка та же и память та же, что у :meth:`_resolve`, - поэтому греть можно сколько
+        угодно раз: вторая нитка на то же имя не поднимается (:meth:`_looker`), а уже
+        известный адрес не спрашивается заново (:meth:`_known`). Зачем греют - в
+        :meth:`~torrcast.ports.json_client.JsonClient.warm`.
+        """
+        if self._known(host) is None:
+            self._looker(host)
+
     def _resolve(self, host: str, timeout: float) -> str:
         """Адрес имени в отведённый срок; отказ по сроку уносит с собой поднятую нитку.
 

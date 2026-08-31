@@ -9,7 +9,8 @@ from collections.abc import Callable, Iterable
 from typing import TypeAlias
 
 from torrcast.domain.facts.fact import Fact
-from torrcast.domain.facts.settings import FACTS_BUDGET, TOPUP_LIMIT
+from torrcast.domain.facts.facts_budget import facts_budget
+from torrcast.domain.facts.topup_limit import topup_limit
 from torrcast.ports.blurb_source import BlurbSource
 from torrcast.ports.blurb_store import BlurbStore
 
@@ -26,7 +27,7 @@ class Facts:
     def __init__(
         self,
         pictures: Iterable[FactPicture],
-        budget: float = FACTS_BUDGET,
+        budget: float | None = None,
         *,
         store: BlurbStore,
         source: BlurbSource,
@@ -34,7 +35,7 @@ class Facts:
         rows = list(pictures)
         self.wanted = [(row[0], row[1]) for row in rows]
         self.kinds = {(row[0], row[1]): row[2] if len(row) == 3 else "movie" for row in rows}
-        self.budget = budget
+        self.budget = facts_budget() if budget is None else budget
         self.store = store
         self.source = source
         self.found: dict[tuple[str, int | None], Fact] = {}
@@ -124,12 +125,11 @@ class Facts:
         (``--dry``, отказ «картин много, а терминала нет»), процесс уносил поток с собой:
         в кэш не попадало ничего, и следующий заход снова печатал голое меню.
 
-        Ждём не с нуля, а остаток :data:`TOPUP_LIMIT` от старта: полторы секунды бюджета
-        уже прошли, и на Ctrl-C это оставляет не задержку, а её хвостик.
+        Ждём не с нуля, а остаток :func:`topup_limit` от старта: на Ctrl-C это хвостик.
         """
         thread = self._thread
         if thread is not None:
-            thread.join(max(0.0, self._started + TOPUP_LIMIT - time.monotonic()))
+            thread.join(max(0.0, self._started + topup_limit() - time.monotonic()))
 
     def _work(self) -> None:
         try:

@@ -4,10 +4,13 @@ import threading
 import time
 from typing import Any
 
+import pytest
+
 from tests.articles import CARS, MOANA
 from tests.fakes.blurb_source import FakeBlurbSource
 from tests.fakes.blurb_store import FakeBlurbStore
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.settings import FACTS_BUDGET, HTTP_TIMEOUT
 from torrcast.usecases.facts import Facts
 
 MOANA_KEY = ("Моана", 2016)
@@ -308,3 +311,19 @@ def test_a_reference_with_nothing_to_say_holds_the_menu_not_a_moment() -> None:
     assert held < 1.0, f"молчание не стоит ожидания, а меню просидело {held:.2f} с"
     assert cached.ready("Моана", 2016).about == MOANA
     assert refused.ready("Моана", 2016) == Fact()
+
+
+def test_an_unnamed_ceiling_is_the_one_the_spoken_tongue_needs(_english: None) -> None:
+    """🔴 TC-957. Потолок не назвали - берётся потолок ЯЗЫКА, а не одно число на всех.
+
+    Под чужим языком до первой печати идут две сетевые волны, вторая по адресу из первой
+    (:func:`~torrcast.domain.facts.facts_budget.facts_budget`). Возьми добор здесь
+    русский потолок - описания не успевали бы к нему никогда, и английское меню выходило
+    бы голым при полной справке русского. Названный аргументом потолок сильнее: им
+    меряют зеркала.
+    """
+    unnamed = Facts([MOANA_KEY], store=FakeBlurbStore(), source=FakeBlurbSource())
+    named = Facts([MOANA_KEY], 0.5, store=FakeBlurbStore(), source=FakeBlurbSource())
+
+    assert unnamed.budget == pytest.approx(FACTS_BUDGET + HTTP_TIMEOUT)
+    assert named.budget == 0.5

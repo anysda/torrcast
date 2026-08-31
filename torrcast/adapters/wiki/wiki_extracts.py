@@ -31,8 +31,13 @@ def wiki_extracts(
 
     Тип картины правит ПОРЯДОК кандидатов (:func:`titles_for`), а не их набор: в волну
     влезает не всё, и уточнение чужого типа впереди своего стоит места настоящей статьи.
+
+    Имена ВСЕХ спрошенных картин едут в перебор каждой: имя соседа по вопросу - не
+    кандидат, а чужой адрес, и отрезанный подзаголовок не вправе его занимать
+    (:func:`titles_for`).
     """
-    candidates = {key: titles_for(*key, (kinds or {}).get(key, "")) for key in wanted}
+    names_asked = [key[0] for key in wanted]
+    candidates = {key: titles_for(*key, (kinds or {}).get(key, ""), names_asked) for key in wanted}
     names: list[str] = []
     scheduled: dict[tuple[str, int | None], list[str]] = {key: [] for key in wanted}
     room = _EXLIMIT * _EXBATCHES
