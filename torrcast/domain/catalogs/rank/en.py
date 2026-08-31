@@ -14,6 +14,7 @@ def en() -> dict[str, str]:
         "rank.lang_german": "German",
         "rank.lang_spanish": "Spanish",
         "rank.lang_italian": "Italian",
+        "rank.lang_russian": "Russian",
         "rank.lang_original": "original",
         "rank.stepdown_dead_swarm": "the swarm is dead",
         "rank.stepdown_rejected": "rejected ({why})",
@@ -32,7 +33,7 @@ def en() -> dict[str, str]:
             "no “{name}” voice track in this release - check: cast voices <query>"
         ),
         "rank.voice_question": "Voice track?",
-        "rank.no_language_tag_russian": (
+        "rank.no_language_tag_dub_by_name": (
             "sound has no language tag - the release name says Russian"
         ),
         "rank.language_unknown": (
@@ -46,14 +47,15 @@ def en() -> dict[str, str]:
         ),
         "rank.only_lang_no_dub": "{lang} sound only, no dub in the catalog",
         "rank.voice_original": "the original",
-        "rank.voice_russian": "the Russian one",
+        "rank.voice_ours": "the English one",
+        "rank.voice_tag": "eng",
         "rank.kind_dub": "the dub",
         "rank.kind_multi": "the multi-voice one",
         "rank.kind_dual": "the dual-voice one",
         "rank.kind_mono": "the single-voice one",
         "rank.voice_own_reason": " - the picture was shot in Russian, this is its own track",
         "rank.voice_studio_tier": " - this studio sits at the “{tier}” tier with us",
-        "rank.voice_note": "rus tracks: {russian}, taking {what}{tail}{why}",
+        "rank.voice_note": "{tag} tracks: {count}, taking {what}{tail}{why}",
         "rank.understated_named": "named {named}, actually {actual}",
         "rank.understated_actual_only": "actually {actual}",
         "rank.track_unnamed": "unnamed",

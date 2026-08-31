@@ -49,7 +49,24 @@ def test_a_native_picture_names_its_own_track_and_says_why_the_dub_lost() -> Non
 
 def test_the_line_speaks_english_when_the_product_does() -> None:
     """TC-942: было «дорожек rus 2, беру дубляж» - под английским дубляж не остаётся
-    русским словом (:mod:`torrcast.usecases.rank.spoken_kind`)."""
+    русским словом (:mod:`torrcast.usecases.rank.spoken_kind`).
+
+    🔴 TC-953. И счёт, и тег под английской ручкой - про английские дорожки: продукт
+    английскому зрителю русскую озвучку не ищет (:func:`torrcast.domain.voice_order._tier`).
+    """
     _choose_tongue(EN)
-    tracks = (track(0, "rus", "Дубляж"), track(1, "rus", "MVO"))
-    assert voice_note(media(tracks=tracks), 0) == "rus tracks: 2, taking the dub"
+    tracks = (track(0, "eng", "Dub"), track(1, "eng", "MVO"))
+    assert voice_note(media(tracks=tracks), 0) == "eng tracks: 2, taking the dub"
+
+
+def test_the_english_line_counts_english_tracks_only() -> None:
+    """Русские дорожки рядом - не тот выбор, из которого брал английский зритель."""
+    _choose_tongue(EN)
+    tracks = (
+        track(0, "rus", "Дубляж"),
+        track(1, "rus", "MVO"),
+        track(2, "eng", "Dub"),
+        track(3, "eng", "Original"),
+    )
+    assert voice_note(media(tracks=tracks), 2) == "eng tracks: 2, taking the dub"
+    assert voice_note(media(tracks=tracks[:3]), 2) == "", "одна английская - выбора не было"

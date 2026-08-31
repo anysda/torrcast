@@ -3349,7 +3349,7 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание меняем на знание, а не на догадку"
-    assert "release 1 has no Russian dub (unnamed) - taking 2" in printed
+    assert "release 1 has no English dub (unnamed) - taking 2" in printed
     assert torrserver.dropped, (
         "запасным ходом безымянный паспорт не станет (TC-741), а держать раздачу под ход, "
         "которого не будет, значит доедать полосу роя у того, кого мы и играем"
@@ -3383,9 +3383,9 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
 
     printed = capsys.readouterr().out
     assert prep.number == 2
-    assert "release 1 has no Russian dub (unnamed) - taking 2" in printed
-    assert "release 2 has no Russian dub (English)" in printed
-    assert "no Russian dub in any of the checked releases (2)" in printed
+    assert "release 1 has no English dub (unnamed) - taking 2" in printed
+    assert "release 2 has no English dub (English)" in printed
+    assert "no English dub in any of the checked releases (2)" in printed
     assert "turning on release 2, sound English" in printed
     assert "playing it" not in printed, "второй строки под тот же случай не заводится"
 

@@ -40,7 +40,7 @@ def en() -> dict[str, str]:
         "digest.runtime_guess": "a guess: the facts sheet says nothing",
         "digest.drop": "{stamp}release dropped {release}: {why}",
         "digest.mute": (
-            "{stamp}nobody has a Russian voice track (checked {checked})"
+            "{stamp}nobody has an English voice track (checked {checked})"
             " - playing release {release}, audio {lang}"
         ),
         "digest.switch": "{stamp}“{frm}” has nothing to play ({why}) - moving to “{to}”",

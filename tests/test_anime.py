@@ -1059,7 +1059,7 @@ def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goe
     printed = capsys.readouterr().out
     assert prep.number == 2, "японский релиз годным не считается - идём дальше по очереди"
     assert prep.found.tracks[0].is_russian
-    assert "release 1 has no Russian dub (Japanese) - taking 2" in printed
+    assert "release 1 has no English dub (Japanese) - taking 2" in printed
 
 
 def test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian(
@@ -1100,9 +1100,9 @@ def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучший из того, что есть, а не отказ"
-    assert "release 1 has no Russian dub (Japanese) - taking 2" in printed
+    assert "release 1 has no English dub (Japanese) - taking 2" in printed
     assert (
-        "no Russian dub in any of the checked releases (2) - turning on release 1, sound Japanese"
+        "no English dub in any of the checked releases (2) - turning on release 1, sound Japanese"
     ) in printed
 
 
@@ -1125,7 +1125,7 @@ def test_the_catalogue_hole_lands_in_the_weekly_trace(
     mute = [r for r in rows if r.get("event") == "mute"]
     assert mute, "дыра каталога обязана быть в ленте"
     assert (mute[-1]["release"], mute[-1]["lang"], mute[-1]["checked"]) == (1, "Japanese", 2)
-    assert "nobody has a Russian voice track (checked 2)" in digest(rows)
+    assert "nobody has an English voice track (checked 2)" in digest(rows)
 
 
 def test_a_hand_picked_release_is_never_judged_for_its_language(
@@ -1166,7 +1166,7 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
 
     printed = capsys.readouterr().out
     assert prep.number == 6, "русская дорожка нашлась ниже по очереди - её и играем"
-    assert "release 4 has no Russian dub (unnamed) - taking 5" in printed
+    assert "release 4 has no English dub (unnamed) - taking 5" in printed
     assert "nothing more honest nearby, playing it" not in printed, (
         "«не назван, играю его» больше не бывает"
     )
@@ -1191,13 +1191,13 @@ def test_when_the_queue_runs_out_the_named_language_plays_and_the_unnamed_does_n
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "играет названный японский, а не дорожка без метки языка"
-    assert "release 1 has no Russian dub (Japanese) - taking 2" in printed
+    assert "release 1 has no English dub (Japanese) - taking 2" in printed
     assert (
-        "no Russian dub in any of the checked releases (3) - turning on release 1, sound Japanese"
+        "no English dub in any of the checked releases (3) - turning on release 1, sound Japanese"
     ) in printed
     # Отложенным не бывает безымянный: финальный ход обязан назвать НАЗВАННЫЙ язык.
     unnamed_turned_on = (
-        "no Russian dub in any of the checked releases (3) - turning on release 1, sound unnamed"
+        "no English dub in any of the checked releases (3) - turning on release 1, sound unnamed"
     )
     assert unnamed_turned_on not in printed, "«не назван, играю его» больше не бывает"
 
@@ -1253,7 +1253,7 @@ def test_a_foreign_picture_whose_original_is_hieroglyphs_keeps_the_voice_gate(
 
     assert not picture.native, "иероглифы в скобке - это названное имя, а не его отсутствие"
     assert prep.number == 2, "безымянная дорожка чужой картины русской не становится"
-    assert "release 1 has no Russian dub (unnamed) - taking 2" in capsys.readouterr().out
+    assert "release 1 has no English dub (unnamed) - taking 2" in capsys.readouterr().out
 
 
 def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
@@ -1301,9 +1301,9 @@ def test_a_release_name_promising_russian_does_not_save_an_unnamed_passport(
 
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
-    marker = "no Russian dub in any of the checked releases ("
+    marker = "no English dub in any of the checked releases ("
     verdicts = [line for line in capsys.readouterr().out.splitlines() if marker in line]
     assert prep.number == 2, "обещание именем годностью не считается"
     assert verdicts == [
-        "no Russian dub in any of the checked releases (2) - turning on release 2, sound English"
+        "no English dub in any of the checked releases (2) - turning on release 2, sound English"
     ]

@@ -55,7 +55,7 @@ def sound_note(
         # русскую, назвав источник, а не молча подставить её (и не выдать за неё). Улики
         # нет - язык так и остаётся неизвестным, и об этом честная строка.
         if release is not None and release.dubbed:
-            return phrase("rank.no_language_tag_russian")
+            return phrase("rank.no_language_tag_dub_by_name")
         return phrase("rank.language_unknown")
     lang = spoken(track)
     if any(r is not release and r.dubbed and r.seeders > 0 for r in pool):
