@@ -36,10 +36,14 @@ become_root() {
     [ "$(id -u)" -eq 0 ] && return 0
     if command -v sudo >/dev/null 2>&1; then
         say "not root - restarting through sudo" "не root - перезапуск через sudo"
+        # Язык через sudo сносим, только если он НАЗВАН в окружении однострока (TC-955):
+        # экспорт дефолта отсюда сбрасывал бы язык из живого конфига при каждом
+        # обновлении не-root'ом. Молчание обязано доехать до install.sh молчанием.
         exec sudo sh -c '
-            export TORRCAST_BOOTSTRAP_URL="$1" TORRCAST_GITLAB_API="$2" TORRCAST_PROJECT_ID="$3" TORRCAST_LANGUAGE="$4"
+            export TORRCAST_BOOTSTRAP_URL="$1" TORRCAST_GITLAB_API="$2" TORRCAST_PROJECT_ID="$3"
+            [ -z "$4" ] || export TORRCAST_LANGUAGE="$4"
             curl -fsSL "$1" | sh
-        ' _ "$BOOTSTRAP_URL" "$GITLAB_API" "$PROJECT_ID" "$LANGUAGE"
+        ' _ "$BOOTSTRAP_URL" "$GITLAB_API" "$PROJECT_ID" "${TORRCAST_LANGUAGE:-}"
     fi
     fail "root is required: sudo sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\"" \
         "нужен root: sudo sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\""

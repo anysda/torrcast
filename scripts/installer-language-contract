@@ -1,35 +1,100 @@
 #!/bin/sh
+# Договор языка установщика (заведён в TC-886, переставлен в TC-955):
+#
+#   - свежая установка без ключей пишет в конфиг язык по умолчанию (en);
+#   - язык ЖИВОГО конфига повторная установка без ключей СОХРАНЯЕТ: выбор языка -
+#     вкус человека (cast --ru / --en), а не замер кода, и обновление не вправе
+#     его сносить;
+#   - ключ -en / -ru (или TORRCAST_LANGUAGE у однострока), названный руками при
+#     повторной установке, выбор менять ВПРАВЕ - для того он и набран;
+#   - бутстрап `install` сносит язык через перезапуск под sudo, только если тот
+#     назван: молчание однострока обязано доехать до install.sh молчанием, иначе
+#     каждое обновление не-root'ом сбрасывало бы язык в дефолт.
+#
+# Проверки - пробы, а не грепы там, где договор о поведении: install.sh гоняется
+# в песочнице (TORRCAST_NO_ROOT, фаза config с поддельным apikey Prowlarr), а
+# канал sudo у бутстрапа меряется щупом за трубой `sudo -> curl | sh`, как в
+# tests/test_bootstrap.py.
 set -eu
 
 fail() { printf 'installer language contract: %s\n' "$1" >&2; exit 1; }
 
-grep -Fq 'export TORRCAST_BOOTSTRAP_URL="$1" TORRCAST_GITLAB_API="$2" TORRCAST_PROJECT_ID="$3" TORRCAST_LANGUAGE="$4"' install \
-    || fail 'bootstrap does not export the language through sudo'
+command -v jq >/dev/null 2>&1 || fail 'jq is required'
+
 grep -Fq -- '-en) LANGUAGE=en' install.sh || fail 'install.sh has no -en option'
 grep -Fq -- '-ru) LANGUAGE=ru' install.sh || fail 'install.sh has no -ru option'
-grep -Fq "\"language\": \"\$LANGUAGE\"" install.sh || fail 'new config does not store language'
-grep -Fq ".language=\\\$l" install.sh || fail 'existing config does not update language'
+grep -Fq '"language": "$LANGUAGE"' install.sh || fail 'new config does not store language'
+grep -Fq '[ -z "$4" ] || export TORRCAST_LANGUAGE="$4"' install \
+    || fail 'bootstrap does not forward the named language through sudo'
 
 box=$(mktemp -d)
 trap 'rm -rf "$box"' EXIT HUP INT TERM
+
+# --- бутстрап: названный язык переживает sudo, молчание доезжает молчанием -----
+# Настоящий sudo без -E вытирает окружение молча - изображаем именно это, иначе
+# проба «названный язык доехал» проходила бы на сквозняке окружения, а не на
+# явном export'е внутри sh -c.
+mkdir "$box/sudo-bin"
+printf '#!/bin/sh\nprintf "1000\\n"\n' >"$box/sudo-bin/id"
+cat >"$box/sudo-bin/sudo" <<'SH'
+#!/bin/sh
+exec env -i PATH="$PATH" "$@"
+SH
+cat >"$box/sudo-bin/curl" <<SH
+#!/bin/sh
+cat <<'PROBE'
+#!/bin/sh
+printf 'LANGUAGE=%s\n' "\${TORRCAST_LANGUAGE:-<unset>}" >>"$box/observed"
+PROBE
+SH
+chmod +x "$box/sudo-bin/id" "$box/sudo-bin/sudo" "$box/sudo-bin/curl"
+
+PATH="$box/sudo-bin:$PATH" sh ./install >/dev/null 2>&1 \
+    || fail 'bootstrap run failed'
+grep -Fq 'LANGUAGE=<unset>' "$box/observed" \
+    || fail 'bootstrap exports a default language through sudo - silence must stay silence'
+
+: >"$box/observed"
+PATH="$box/sudo-bin:$PATH" TORRCAST_LANGUAGE=ru sh ./install >/dev/null 2>&1 \
+    || fail 'bootstrap run with a named language failed'
+grep -Fq 'LANGUAGE=ru' "$box/observed" \
+    || fail 'bootstrap did not pass the named language through sudo'
+
+# --- install.sh: язык живого конфига сохраняется, названный ключ его меняет ----
+mkdir -p "$box/p/prowlarr-data"
+printf '<Config><ApiKey>sandboxkey</ApiKey></Config>\n' >"$box/p/prowlarr-data/config.xml"
+
+run_config() {  # $@ - ключи install.sh
+    TORRCAST_NO_ROOT=1 TORRCAST_PHASES=config \
+        TORRCAST_PREFIX="$box/p" TORRCAST_CONFIG_DIR="$box/etc" \
+        TORRCAST_STATE_DIR="$box/state" TORRCAST_BIN_DIR="$box/bin" \
+        TORRCAST_MOTD="$box/motd" TORRCAST_MOTD_D="$box/motd.d" \
+        ./install.sh "$@" >"$box/config.out" 2>&1
+}
+
+run_config || fail 'fresh sandbox install failed'
+[ "$(jq -r .language "$box/etc/config.json")" = en ] \
+    || fail 'fresh install without keys did not store en'
+
+# Выбор человека продуктом: cast --ru пишет в этот же конфиг.
+jq '.language="ru"' "$box/etc/config.json" >"$box/etc/config.json.tmp"
+mv "$box/etc/config.json.tmp" "$box/etc/config.json"
+
+run_config || fail 'reinstall without keys failed'
+[ "$(jq -r .language "$box/etc/config.json")" = ru ] \
+    || fail 'reinstall without keys dropped the chosen language (TC-955)'
+
+run_config -en || fail 'reinstall with -en failed'
+[ "$(jq -r .language "$box/etc/config.json")" = en ] \
+    || fail 'a named -en key did not change the language'
+
+# --- язык собственного вывода установщика --------------------------------------
 mkdir -p "$box/en/etc" "$box/en/bin" "$box/ru/etc" "$box/ru/bin"
 printf '{"tv": null}\n' >"$box/en/etc/config.json"
 printf '{"tv": null}\n' >"$box/ru/etc/config.json"
 printf '#!/bin/sh\nexit 1\n' >"$box/en/bin/cast"
 cp "$box/en/bin/cast" "$box/ru/bin/cast"
 chmod +x "$box/en/bin/cast" "$box/ru/bin/cast"
-mkdir "$box/sudo-bin"
-printf '#!/bin/sh\nprintf "1000\\n"\n' >"$box/sudo-bin/id"
-cat >"$box/sudo-bin/sudo" <<'SH'
-#!/bin/sh
-last=""
-for arg in "$@"; do last="$arg"; done
-[ "$last" = en ] || exit 9
-exit 0
-SH
-chmod +x "$box/sudo-bin/id" "$box/sudo-bin/sudo"
-PATH="$box/sudo-bin:$PATH" sh ./install >/dev/null 2>&1 \
-    || fail 'bootstrap did not pass the default language through sudo'
 TORRCAST_NO_ROOT=1 TORRCAST_PHASES=receiver \
     TORRCAST_PREFIX="$box/en" TORRCAST_CONFIG_DIR="$box/en/etc" \
     TORRCAST_STATE_DIR="$box/en/state" TORRCAST_BIN_DIR="$box/en/bin" \
@@ -51,4 +116,4 @@ else
     code=$?
 fi
 [ "$code" -eq 2 ] || fail "unknown option returned $code instead of 2"
-printf 'installer language contract: English default, -ru UTF-8, unknown=2, config writers explicit\n'
+printf 'installer language contract: existing config keeps its language, a named key may change it, silence survives sudo\n'

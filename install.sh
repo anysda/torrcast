@@ -20,7 +20,13 @@
 #   TORRCAST_PHASES="torrserver prowlarr indexers config" ./install.sh
 set -euo pipefail
 
-LANGUAGE="${TORRCAST_LANGUAGE:-en}"
+#: TC-955. Язык - выбор человека (cast --ru / --en, TC-926), а не замер кода, поэтому
+#: установщик различает «назван руками» и «молчание». TORRCAST_LANGUAGE здесь - не
+#: переменная продукта (оттуда она ушла в TC-926), а канал однострока: `install` зовёт
+#: install.sh без ключей и потому сносит названный язык окружением через перезапуск
+#: под sudo. Пустое значение значит «в этот заход язык не называли», и повторная
+#: установка обязана оставить выбор из живого конфига (см. ниже, после CONFIG_DIR).
+LANGUAGE="${TORRCAST_LANGUAGE:-}"
 while (( $# )); do
     case "$1" in
         -en) LANGUAGE=en ;;
@@ -34,14 +40,24 @@ while (( $# )); do
     shift
 done
 case "$LANGUAGE" in
-    en|ru) ;;
+    en|ru|"") ;;
     *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 2 ;;
 esac
+#: Названный в этот заход язык - единственный, которым повторная установка вправе
+#: переписать язык живого конфига (см. setup_config).
+LANGUAGE_NAMED="$LANGUAGE"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${TORRCAST_PREFIX:-/opt/torrcast}"
 CONFIG_DIR="${TORRCAST_CONFIG_DIR:-/etc/torrcast}"
 STATE_DIR="${TORRCAST_STATE_DIR:-/var/lib/torrcast}"
 BIN_DIR="${TORRCAST_BIN_DIR:-/usr/local/bin}"
+#: Молчание при повторной установке берёт язык из живого конфига - и говорит на нём же.
+#: jq тут ещё не гарантирован (его ставит фаза пакетов), поэтому читаем sed'ом строго
+#: en|ru: чужое содержимое поля означает ровно «выбора нет», и ответ - дефолт.
+if [ -z "$LANGUAGE" ] && [ -f "$CONFIG_DIR/config.json" ]; then
+    LANGUAGE="$(sed -n 's/.*"language" *: *"\(en\|ru\)".*/\1/p' "$CONFIG_DIR/config.json" | head -n 1)"
+fi
+[ -n "$LANGUAGE" ] || LANGUAGE=en
 #: Интерпретатор ищем, а не прибиваем: на Debian 12 есть только python3.11,
 #: python3.12 в её репозиториях нет вовсе. Нижняя граница — 3.11
 #: (requires-python), на ней зелены тесты и mypy --strict.
@@ -2441,19 +2457,24 @@ setup_config() {
     # уйти. Потолок битрейта из того же класса: это замеренное свойство приёмника (Q70D
     # ребуферит уже на 17.8 Мбит/с). Оставь его в конфиге — и опущенный до 16 дефолт молча
     # упрётся в старые 20. Настройки перекодирования — тоже замеры процессора и приёмника,
-    # а не вкус.
+    # а не вкус. Языка в этом списке нет НАРОЧНО: он как раз вкус (cast --ru / --en),
+    # и сносящая его при обновлении безусловная запись была дефектом TC-955.
     local tuned='del(.hls_readrate, .hls_window, .hls_burst, .hls_keep, .bitrate_warn_mbit,'
     tuned="$tuned .bitrate_hard_mbit, .recode, .recode_mbit, .recode_at_mbit, .recode_preset,"
     tuned="$tuned .recode_ahead,"
     tuned="$tuned .recode_cache_mb)"
-    tuned="$tuned | .transport=\$t | .hls_port=(\$p|tonumber) | .hls_base_url=\$b | .language=\$l"
+    tuned="$tuned | .transport=\$t | .hls_port=(\$p|tonumber) | .hls_base_url=\$b"
 
     if [ -f "$CONFIG_DIR/config.json" ]; then
         # Адрес ТВ и прочий выбор пользователя не трогаем — обновляем только ключ.
+        # Язык - из того же выбора: без названного в этот заход ключа он остаётся как
+        # лежал; ключ -en / -ru сменить его вправе, человек его для того и набрал.
         skip "$CONFIG_DIR/config.json (updating apikey; transport and temp come from code)" "$CONFIG_DIR/config.json (обновляю apikey, транспорт и темп беру из кода)"
+        local lang_step=''
+        [ -z "$LANGUAGE_NAMED" ] || lang_step=' | .language=$l'
         local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
-        jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" --arg l "$LANGUAGE" \
-            "$tuned | .prowlarr_apikey=\$k" "$CONFIG_DIR/config.json" >"$tmp"
+        jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" --arg l "$LANGUAGE_NAMED" \
+            "$tuned$lang_step | .prowlarr_apikey=\$k" "$CONFIG_DIR/config.json" >"$tmp"
         mv "$tmp" "$CONFIG_DIR/config.json"
         return
     fi
