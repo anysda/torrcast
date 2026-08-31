@@ -841,8 +841,8 @@ def test_document_rule_allows_readme_alone(tmp_path: Path) -> None:
 
 
 @pytest.mark.machine
-def test_document_rule_allows_readme_and_its_russian_twin(tmp_path: Path) -> None:
-    root = _git_tree(tmp_path, ("README.md", "README-ru.md"))
+def test_document_rule_allows_readme_and_its_translations(tmp_path: Path) -> None:
+    root = _git_tree(tmp_path, ("README.md", "README-ru.md", "README-jp.md", "README-es.md"))
     assert structure_gate._document_violations(root) == []
 
 
