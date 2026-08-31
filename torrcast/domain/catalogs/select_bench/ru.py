@@ -17,7 +17,7 @@ def ru() -> dict[str, str]:
             "релиз {number} не успел ответить - играю {chosen} ({look})"
         ),
         "select_bench.unfit_note": "релиз {number} не годится ({why})",
-        "select_bench.reason_no_russian_voice": "без русской озвучки",
+        "select_bench.reason_no_voice": "без русской озвучки",
         "select_bench.honest_no_voice_note": "релиз {number} не лучше (без русской озвучки)",
         "select_bench.reason_not_better": "не лучше ({quality})",
         "select_bench.honest_not_better_note": "релиз {number} не лучше ({quality})",

@@ -13,6 +13,7 @@ from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.contact_wait import ContactWait
+from torrcast.usecases.rank.sought_voice import sought_voice
 
 
 @dataclass(slots=True)
@@ -39,7 +40,7 @@ class _Prep:
     media: Media | None = None
     #: Файл со звуком, лежащий в этой же раздаче рядом с видео
     #: (:func:`torrcast.domain.voice_beside.voice_beside`), и его паспорт. Спрашиваются
-    #: только тогда, когда русской дорожки не нашлось в самом видеофайле.
+    #: только тогда, когда дорожки на языке зрителя не нашлось в самом видеофайле.
     voice_file: TorrFile | None = None
     voice_media: Media | None = None
     error: str = ""
@@ -81,23 +82,23 @@ class _Prep:
     def voiced(self) -> Media:
         """Паспорт, по которому судят ЗВУК этого релиза, - он же решает годность.
 
-        Обычно это паспорт самого видеофайла. Разойтись они могут ровно там, где русская
-        дорожка в раздаче есть, но лежит отдельным файлом рядом с видео (:attr:`apart`):
-        судить релиз по одному видеофайлу значило бы забраковать раздачу за то, чего в
-        ней нет, при том что услышать зритель должен именно вторую дорожку.
+        Обычно это паспорт самого видеофайла. Разойтись они могут ровно там, где дорожка
+        на языке зрителя в раздаче есть, но лежит отдельным файлом рядом с видео
+        (:attr:`apart`): судить релиз по одному видеофайлу значило бы забраковать раздачу
+        за то, чего в ней нет, при том что услышать зритель должен именно вторую дорожку.
         """
         found = self.voice_media
         return found if found is not None and self.apart else self.found
 
     @property
     def apart(self) -> bool:
-        """Русская дорожка есть, но лежит отдельным файлом рядом с видео.
+        """Дорожка на языке зрителя есть, но лежит отдельным файлом рядом с видео.
 
-        Паспорт самого видеофайла при этом русскую не подтверждает - иначе играть
+        Паспорт самого видеофайла при этом искомую дорожку не подтверждает - иначе играть
         вторым входом нечего: дорожка уже внутри, и один вход дешевле двух.
         """
         voiced = self.voice_media
-        return voiced is not None and voiced.russian and not self.found.russian
+        return voiced is not None and sought_voice(voiced) and not sought_voice(self.found)
 
     @property
     def timing(self) -> str:

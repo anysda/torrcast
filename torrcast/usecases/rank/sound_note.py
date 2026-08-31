@@ -1,4 +1,4 @@
-"""Честная строка про звук, когда русской дорожки в файле не оказалось; зовёт запуск показа."""
+"""Честная строка про звук, когда дорожки на языке зрителя не оказалось; зовёт запуск показа."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases.rank.sought_voice import sought_voice
 from torrcast.usecases.rank.spoken import spoken
 
 
@@ -23,7 +24,11 @@ def sound_note(
     *,
     native: bool = False,
 ) -> str:
-    """Честная строка про звук, когда русской дорожки в файле не оказалось; иначе пусто.
+    """Честная строка про звук, когда дорожки на языке зрителя не оказалось; иначе пусто.
+
+    Искомая дорожка - на языке продукта (:func:`sought_voice`): под русской ручкой это
+    русская, под английской - английская, и английский оригинал ею считается - для
+    фильма, снятого по-английски, английская дорожка не дубляж, а сам фильм.
 
     Решение продукта по аниме: субтитров не делаем — значит японский тайтл без
     перевода останется японским, и показ обязан сказать это ДО картинки, а не оставить
@@ -44,7 +49,7 @@ def sound_note(
     Чей звук играет, читается из дорожки (:func:`spoken`), а не додумывается: у
     французского фильма без перевода японского звука взяться неоткуда.
     """
-    if not media.tracks or any(t.is_russian for t in media.tracks):
+    if not media.tracks or sought_voice(media):
         return ""
     track = media.tracks[audio] if audio < len(media.tracks) else media.tracks[0]
     if not track.named:

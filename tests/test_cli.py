@@ -3323,7 +3323,7 @@ FOREIGN = (AudioTrack(0, "eng", "Original", "ac3", 6),)
 
 
 def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """🔴 TC-492. Верх про язык звука не сказал ничего - идём дальше по очереди.
 
@@ -3332,7 +3332,8 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
     правки гейт такой верх пропускал - и очередь до подтверждённой русской не доходила
     вовсе, потому что показ уже начался. Незнание годностью не считается, и очередь
     доходит сама: ни одного лишнего ffprobe это не стоит, спрашивается уже прочитанный
-    паспорт.
+    паспорт. Сценарий - про русский гейт, поэтому продукт тут говорит по-русски; под
+    английской ручкой искомая дорожка английская (:func:`voice_unproven`).
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
@@ -3349,7 +3350,7 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание меняем на знание, а не на догадку"
-    assert "release 1 has no English dub (unnamed) - taking 2" in printed
+    assert "релиз 1 без русской озвучки (не назван) - беру 2" in printed
     assert torrserver.dropped, (
         "запасным ходом безымянный паспорт не станет (TC-741), а держать раздачу под ход, "
         "которого не будет, значит доедать полосу роя у того, кого мы и играем"
@@ -3357,7 +3358,7 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
 
 
 def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """🔴 TC-741. Русской не нашлось ни у кого - играет тот, чей язык назван вслух.
 
@@ -3383,11 +3384,41 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
 
     printed = capsys.readouterr().out
     assert prep.number == 2
-    assert "release 1 has no English dub (unnamed) - taking 2" in printed
-    assert "release 2 has no English dub (English)" in printed
-    assert "no English dub in any of the checked releases (2)" in printed
-    assert "turning on release 2, sound English" in printed
+    assert "релиз 1 без русской озвучки (не назван) - беру 2" in printed
+    assert "релиз 2 без русской озвучки (английский)" in printed
+    assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
+    assert "включаю релиз 2, звук английский" in printed
     assert "playing it" not in printed, "второй строки под тот же случай не заводится"
+
+
+def test_an_english_original_is_a_find_not_a_missing_dub(
+    capsys: pytest.CaptureFixture[str], _english: None
+) -> None:
+    """🔴 TC-958. Под ``--en`` английская дорожка - это находка, а не отсутствие дубляжа.
+
+    Та же пара паспортов, что выше: безымянный верх и релиз с английским оригиналом.
+    Под английской ручкой второй ПРОХОДИТ гейт сразу - фильм уже на языке зрителя, - и
+    ни одна строка не отрицает английский звук, который продукт включает: «dub» врёт
+    про такую дорожку независимо от языка в скобках (:func:`voice_unproven`).
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
+        rel(name="Кино [BDRip 1080p] обещал | D", seeders=121),
+    ]
+    prober = _reads(
+        ranked,
+        Media(5977.0, UNNAMED, "h264", 1080, 1920),
+        Media(5977.0, FOREIGN, "h264", 1080, 1920),
+    )
+
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 2, "английский оригинал годен сам - без запасного хода"
+    assert "release 1 has no English voice (unnamed) - taking 2" in printed
+    assert "has no English voice (English)" not in printed, "звук есть - отрицать его нельзя"
+    assert "no English voice in any of the checked releases" not in printed
+    assert "dub" not in printed, "про оригинал слово «дубляж» - враньё"
 
 
 def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str]) -> None:
@@ -3423,8 +3454,12 @@ def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str
     assert prep.number == 2, "обещание имени русской дорожкой не становится"
 
 
-def test_the_passport_has_three_answers_about_the_language() -> None:
-    """«Да», «нет» и «не знаю» - и годен только первый (:func:`voice_unproven`)."""
+def test_the_passport_has_three_answers_about_the_language(_russian_product: None) -> None:
+    """«Да», «нет» и «не знаю» - и годен только первый (:func:`voice_unproven`).
+
+    Сценарий русского гейта: под английской ручкой «да» - это английская дорожка
+    (см. :mod:`tests.usecases.rank.test_voice_unproven`).
+    """
     assert not voice_unproven(Media(5977.0, RUSSIAN, "h264", 1080, 1920)), "паспорт: да"
     assert voice_unproven(Media(5977.0, FOREIGN, "h264", 1080, 1920)), "паспорт: нет"
     assert voice_unproven(Media(5977.0, UNNAMED, "h264", 1080, 1920)), "паспорт: не знаю"
@@ -3545,8 +3580,14 @@ def test_a_named_release_still_has_no_spare_at_all() -> None:
         "Барбоскины",
     ],
 )
-def test_a_native_picture_accepts_its_only_unnamed_track(title: str) -> None:
-    """У отечественной картины пустой оригинал - паспорт происхождения, а не пробел."""
+def test_a_native_picture_accepts_its_only_unnamed_track(
+    title: str, _russian_product: None
+) -> None:
+    """У отечественной картины пустой оригинал - паспорт происхождения, а не пробел.
+
+    Скидка эта - правило русского гейта: под английской ручкой безымянная дорожка
+    отечественной картины английского звука не подтверждает (:func:`voice_unproven`).
+    """
     release = rel(name=f"{title} [WEB-DL 1080p]", voices=())
     media = Media(5977.0, UNNAMED, "h264", 1080, 1920)
 

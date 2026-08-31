@@ -123,13 +123,15 @@ class _BenchRecheck(_BenchNotes):
             self._forget(prep)
             return None
         if not args.pinned and voice_unproven(prep.found, native=plan.picture.native):
-            # Ожил безрусский: русской не нашлось ни у кого, кого вообще удалось спросить.
+            # Ожил релиз без искомой дорожки: её не нашлось ни у кого, кого удалось спросить.
             # 🔴 TC-741. Играет он только если язык НАЗВАН: тогда зритель слышит, чей это
             # звук, и решает сам. Паспорт, промолчавший про язык, тут ровно тот же отказ,
             # что и в обходе очереди, - подставлять первую дорожку файла молча нельзя.
-            if prep.found.foreign:
+            # Внутри ветки «искомой нет» «все языки названы» - это и есть прямое «нет»
+            # (под русской ручкой - :attr:`Media.foreign`).
+            if all(track.named for track in prep.found.tracks):
                 return self._mute_fallback(plan, prep, queue, judged, len(queue), len(queue))
-            _turned_down(judged, number, phrase("select_bench.reason_no_russian_voice"))
+            _turned_down(judged, number, phrase("select_bench.reason_no_voice"))
             print(phrase("select_bench.recheck_no_voice_note", number=number))
             self._forget(prep)
             return None

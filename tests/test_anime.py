@@ -498,9 +498,12 @@ def test_a_japanese_only_show_says_so_out_loud_instead_of_playing_silently() -> 
     assert sound_note(_media("jpn"), 0, pool) == ("Japanese sound only, no dub in the catalog")
 
 
-def test_when_the_catalogue_may_have_a_dub_the_line_does_not_promise_it() -> None:
+def test_when_the_catalogue_may_have_a_dub_the_line_does_not_promise_it(
+    _russian_product: None,
+) -> None:
     """Перевод в выдаче есть, а в ЭТОМ релизе его не оказалось. Тогда строка обязана
-    назвать и запасной ход: выбрать раздачу руками.
+    назвать и запасной ход: выбрать раздачу руками. Сценарий русского гейта: под
+    английской ручкой дорожка ``eng`` - уже находка, и предупреждать не о чем.
     """
     pool = [
         named(NARUTO_FULL, size_gb=157.3, seeders=91),
@@ -513,7 +516,7 @@ def test_when_the_catalogue_may_have_a_dub_the_line_does_not_promise_it() -> Non
 
     note = sound_note(_media("jpn", "eng"), 0, pool)
 
-    assert note == "Japanese sound only - the catalog may hold a dub in another release"
+    assert note == "только японский звук - в каталоге, возможно, есть перевод в другой раздаче"
     assert "--release N" not in note
 
 
@@ -527,7 +530,9 @@ def test_an_unplayable_dub_is_not_offered_as_a_way_out() -> None:
     assert "--release N" not in note
 
 
-def test_a_dub_that_exists_only_as_a_separate_file_is_named_as_such() -> None:
+def test_a_dub_that_exists_only_as_a_separate_file_is_named_as_such(
+    _russian_product: None,
+) -> None:
     """🔴 TC-191. Весь перевод в каталоге - только ``RUS(ext)``, отдельным файлом.
 
     Отправлять человека выбирать раздачу руками тут нечестно: выбирать не из чего, все
@@ -537,7 +542,7 @@ def test_a_dub_that_exists_only_as_a_separate_file_is_named_as_such() -> None:
 
     note = sound_note(_media("jpn", "eng"), 0, pool)
 
-    assert note == ("Japanese sound only - the catalog has a dub, but it sits in a separate file")
+    assert note == ("только японский звук - в каталоге перевод есть, но лежит отдельным файлом")
     assert "--release N" not in note, "выбирать руками нечего - совет был бы враньём"
 
 
@@ -557,7 +562,7 @@ def test_a_separate_russian_audio_file_is_read_from_the_torrent_contents() -> No
     )
 
 
-def test_a_release_with_a_russian_track_says_nothing_extra() -> None:
+def test_a_release_with_a_russian_track_says_nothing_extra(_russian_product: None) -> None:
     """Русская дорожка на месте — предупреждать не о чем, лишних строк не печатаем."""
     pool = [named("Кино / Movie (1999) WEB-DL 1080p | D", size_gb=8, seeders=100)]
 
@@ -1041,14 +1046,15 @@ def _tracks(ranked: list[Release], *langs: str) -> FakeMediaProbe:
 
 
 def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goes_on(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """🔴 TC-178. «Включилось» значит «включилось с русской озвучкой».
 
     До этой правки паспорт с одной японской дорожкой считался годным: лестница выбирала
     лучшее из того, что есть В ВЗЯТОМ релизе, печатала честную строку - и человек
     оставался с японским звуком при живом соседе с русским. Честная строка тут не
-    результат, а признание, что мы не дотянулись.
+    результат, а признание, что мы не дотянулись. Сценарий русского гейта: под английской
+    ручкой годность даёт английская дорожка, а не русская (:func:`voice_unproven`).
     """
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
     probe = _tracks(ranked, "jpn", "rus")
@@ -1059,17 +1065,18 @@ def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goe
     printed = capsys.readouterr().out
     assert prep.number == 2, "японский релиз годным не считается - идём дальше по очереди"
     assert prep.found.tracks[0].is_russian
-    assert "release 1 has no English dub (Japanese) - taking 2" in printed
+    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
 
 
 def test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """Скорость - часть продукта: на счастливом пути гейт не стоит ни одного лишнего шага.
 
     Спрашивается уже прочитанный паспорт, а не второй ffprobe и не второй поход в рой.
     Верх заговорил по-русски - очередь дальше не идёт, и к паспорту каждой поднятой
-    раздачи мы обращаемся ровно один раз.
+    раздачи мы обращаемся ровно один раз. Счастливый путь тут русский: под английской
+    ручкой раздача с одной русской дорожкой годности не имеет (TC-958).
     """
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90), rel(name="r2", seeders=80)]
     probe = _tracks(ranked, "rus", "rus", "rus")
@@ -1084,14 +1091,16 @@ def test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian(
     assert "без русской озвучки" not in printed, "счастливый путь лишних строк не печатает"
 
 
-def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
+def test_when_nobody_has_an_english_track_the_show_still_happens_and_says_so(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """🔴 TC-178. Гейт не слепой: русской нет ни у кого - человек всё равно получает картину.
+    """🔴 TC-178. Гейт не слепой: искомой дорожки нет ни у кого - человек получает картину.
 
-    Отказать тут значило бы отобрать у зрителя и то, что есть: японский тайтл, который
-    никто не озвучивал, - это дыра каталога, а не осечка отбора. Решение громкое: строка
-    называет и то, что искали, и то, что в итоге включили.
+    Под английской ручкой искомая - английская: тайтлу нужен английский ДУБЛЯЖ, и его
+    нет, - это отказ гейта, и назван он своим именем. Отказать в показе значило бы
+    отобрать у зрителя и то, что есть: японский тайтл, который никто не озвучивал, - это
+    дыра каталога, а не осечка отбора. Решение громкое: строка называет и то, что искали,
+    и то, что в итоге включили.
     """
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
     probe = _tracks(ranked, "jpn", "jpn")
@@ -1100,9 +1109,9 @@ def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучший из того, что есть, а не отказ"
-    assert "release 1 has no English dub (Japanese) - taking 2" in printed
+    assert "release 1 has no English voice (Japanese) - taking 2" in printed
     assert (
-        "no English dub in any of the checked releases (2) - turning on release 1, sound Japanese"
+        "no English voice in any of the checked releases (2) - turning on release 1, sound Japanese"
     ) in printed
 
 
@@ -1145,7 +1154,7 @@ def test_a_hand_picked_release_is_never_judged_for_its_language(
 
 
 def test_an_unnamed_language_no_longer_ends_the_queue(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """🔴 TC-492. Переигровка сеанса «Эксперименты Лэйн» (11-08, очередь из восьми).
 
@@ -1157,7 +1166,8 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
     Как стало: незнание не годность. Очередь идёт дальше и доходит до подтверждённой
     русской. Лишнего ffprobe это не стоит - спрашивается тот же уже прочитанный паспорт,
     - а от бесконечного перебора выдачу защищают прежние потолки (:data:`MAX_TRIES`,
-    :data:`VERDICT_BUDGET`), а не согласие играть неизвестно что.
+    :data:`VERDICT_BUDGET`), а не согласие играть неизвестно что. Сеанс - про русский
+    гейт, поэтому и говорит продукт тут по-русски.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(8)]
     probe = _tracks(ranked, "jpn", "jpn", "jpn", "und", "jpn", "rus", "jpn", "jpn")
@@ -1166,7 +1176,7 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
 
     printed = capsys.readouterr().out
     assert prep.number == 6, "русская дорожка нашлась ниже по очереди - её и играем"
-    assert "release 4 has no English dub (unnamed) - taking 5" in printed
+    assert "релиз 4 без русской озвучки (не назван) - беру 5" in printed
     assert "nothing more honest nearby, playing it" not in printed, (
         "«не назван, играю его» больше не бывает"
     )
@@ -1175,14 +1185,14 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
 def test_when_the_queue_runs_out_the_named_language_plays_and_the_unnamed_does_not(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """🔴 TC-741. Русской не нашлось ни у кого - играет тот, чей язык НАЗВАН.
+    """🔴 TC-741. Искомой дорожки не нашлось ни у кого - играет тот, чей язык НАЗВАН.
 
     Хода под этот случай не заводится нового: работает тот же
     :meth:`~torrcast.usecases.select_bench.bench.Bench._mute_fallback`, что и всегда. А
     отложенным становится названный японский, а не безымянная дорожка: про японский
     зрителю есть что сказать строкой до картинки, про безымянную - ровно одно, что она
     первая в файле. Прежде незнание вытесняло знание «нет», и отбор кончался тем самым
-    релизом, который сам же забраковал строкой «без русской озвучки».
+    релизом, который сам же забраковал строкой «без озвучки».
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     probe = _tracks(ranked, "jpn", "und", "jpn")
@@ -1191,19 +1201,19 @@ def test_when_the_queue_runs_out_the_named_language_plays_and_the_unnamed_does_n
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "играет названный японский, а не дорожка без метки языка"
-    assert "release 1 has no English dub (Japanese) - taking 2" in printed
+    assert "release 1 has no English voice (Japanese) - taking 2" in printed
     assert (
-        "no English dub in any of the checked releases (3) - turning on release 1, sound Japanese"
+        "no English voice in any of the checked releases (3) - turning on release 1, sound Japanese"
     ) in printed
     # Отложенным не бывает безымянный: финальный ход обязан назвать НАЗВАННЫЙ язык.
     unnamed_turned_on = (
-        "no English dub in any of the checked releases (3) - turning on release 1, sound unnamed"
+        "no English voice in any of the checked releases (3) - turning on release 1, sound unnamed"
     )
     assert unnamed_turned_on not in printed, "«не назван, играю его» больше не бывает"
 
 
 def test_a_native_picture_still_plays_its_only_unnamed_track(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """У отечественной картины безымянная дорожка - паспорт происхождения, а не пробел.
 
@@ -1225,7 +1235,7 @@ def test_a_native_picture_still_plays_its_only_unnamed_track(
 
 
 def test_a_foreign_picture_whose_original_is_hieroglyphs_keeps_the_voice_gate(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """🔴 TC-567. Имя картины записано иероглифами - это не «имени нет», и звук не наш.
 
@@ -1253,11 +1263,11 @@ def test_a_foreign_picture_whose_original_is_hieroglyphs_keeps_the_voice_gate(
 
     assert not picture.native, "иероглифы в скобке - это названное имя, а не его отсутствие"
     assert prep.number == 2, "безымянная дорожка чужой картины русской не становится"
-    assert "release 1 has no English dub (unnamed) - taking 2" in capsys.readouterr().out
+    assert "релиз 1 без русской озвучки (не назван) - беру 2" in capsys.readouterr().out
 
 
 def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """Полицейский с Рублёвки: ответ справки относится и к обычному первому кругу."""
     ranked = [
@@ -1283,7 +1293,7 @@ def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
 
 
 def test_a_release_name_promising_russian_does_not_save_an_unnamed_passport(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
     """🔴 TC-741. Имя раздачи не паспорт: «| D» безымянную дорожку русской не делает.
 
@@ -1291,7 +1301,8 @@ def test_a_release_name_promising_russian_does_not_save_an_unnamed_passport(
     запасной ход, и собственную мягкую строку - «имя релиза обещает русский», - хотя про
     сам звук по-прежнему не было известно ничего. Играет названный английский ниже, и
     ступень кадра, которой это стоило, зритель читает отдельной строкой: озвучка выше
-    чёткости, но молчаливым размен не бывает.
+    чёткости, но молчаливым размен не бывает. Сценарий русского гейта: под английской
+    ручкой релиз с английской дорожкой прошёл бы гейт сразу (TC-958).
     """
     ranked = [
         rel(name="Кино 1080p | D", seeders=120),
@@ -1301,9 +1312,10 @@ def test_a_release_name_promising_russian_does_not_save_an_unnamed_passport(
 
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
-    marker = "no English dub in any of the checked releases ("
+    marker = "русской озвучки нет ни в одной из проверенных раздач ("
     verdicts = [line for line in capsys.readouterr().out.splitlines() if marker in line]
     assert prep.number == 2, "обещание именем годностью не считается"
     assert verdicts == [
-        "no English dub in any of the checked releases (2) - turning on release 2, sound English"
+        "русской озвучки нет ни в одной из проверенных раздач (2) - "
+        "включаю релиз 2, звук английский"
     ]

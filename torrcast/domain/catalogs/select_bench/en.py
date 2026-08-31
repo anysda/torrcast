@@ -11,7 +11,7 @@ def en() -> dict[str, str]:
         "select_bench.phase_failed": "failure",
         "select_bench.phase_missed_budget": "phase “{phase}” missed its budget",
         "select_bench.voice_search_phase": (
-            "looking for an English dub: release {number} of {total} - "
+            "looking for an English voice: release {number} of {total} - "
         ),
         "select_bench.honest_phase": "release {chosen} {look} - checking {number}",
         "select_bench.reason_no_answer": "did not answer in time",
@@ -19,8 +19,8 @@ def en() -> dict[str, str]:
             "release {number} did not answer in time - playing {chosen} ({look})"
         ),
         "select_bench.unfit_note": "release {number} does not fit ({why})",
-        "select_bench.reason_no_russian_voice": "no English dub",
-        "select_bench.honest_no_voice_note": "release {number} is not better (no English dub)",
+        "select_bench.reason_no_voice": "no English voice",
+        "select_bench.honest_no_voice_note": "release {number} is not better (no English voice)",
         "select_bench.reason_not_better": "not better ({quality})",
         "select_bench.honest_not_better_note": "release {number} is not better ({quality})",
         "select_bench.honest_taken_note": (
@@ -33,7 +33,7 @@ def en() -> dict[str, str]:
             "swarm delivers {got} of the needed {need} Mbit/s ({ratio}x)"
         ),
         "select_bench.tail_take": " - taking {following}",
-        "select_bench.voiceless_head": "release {number} has no English dub ({lang})",
+        "select_bench.voiceless_head": "release {number} has no English voice ({lang})",
         "select_bench.no_swarm_capacity": (
             "no checked swarm can keep up - taking the best, release {number} ({ratio}x)"
         ),
@@ -44,7 +44,7 @@ def en() -> dict[str, str]:
             "{quality} - this frame reaches the receiver only through recoding"
         ),
         "select_bench.mute_fallback_note": (
-            "no English dub in any of the checked releases ({tried}) - "
+            "no English voice in any of the checked releases ({tried}) - "
             "turning on release {number}, sound {lang}"
         ),
         "select_bench.skipped_note": (
@@ -63,11 +63,11 @@ def en() -> dict[str, str]:
         "select_bench.recheck_result_alone_unfit": "answered alone, but does not fit",
         "select_bench.recheck_result_note": "release {number} {result} ({trouble})",
         "select_bench.recheck_no_voice_note": (
-            "release {number} answered alone, but without an English dub"
+            "release {number} answered alone, but without an English voice"
         ),
         "select_bench.refusal_none_fit": "no fit release ({shown}{more})",
         "select_bench.refusal_no_voice": (
-            "no English dub in any of the checked releases ({count})"
+            "no English voice in any of the checked releases ({count})"
         ),
         "select_bench.more_tried": " and {count} more",
         "select_bench.refusal_rename_hint": (
