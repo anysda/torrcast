@@ -26,7 +26,7 @@ def _about(entry: Entry) -> str:
     studio = entry.heard or entry.studio
     if studio and studio.casefold() not in voice.casefold():
         voice = f"{voice} ({studio})"
-    parts = [f"«{entry.title}»", entry.label, entry.quality, voice]
+    parts = [phrase("choice.quoted", it=entry.title), entry.label, entry.quality, voice]
     parts.append(voice_swap(entry.studio, entry.heard))
     if entry.pos > 0:
         parts.append(phrase("select.from_position", pos=_hms(entry.pos)))

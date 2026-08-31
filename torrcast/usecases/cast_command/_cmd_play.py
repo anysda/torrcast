@@ -22,6 +22,7 @@ from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._entry_for import _entry_for
 from torrcast.usecases.cast_command._kept_dead import _kept_dead
 from torrcast.usecases.cast_command._notes import _notes
+from torrcast.usecases.choice._named import _title
 from torrcast.usecases.playback._launch import _launch
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.rank.pick_voice import pick_voice
@@ -169,7 +170,7 @@ def _cmd_play(
     shown = f" {entry.label}" if entry.label else ""
     if not plan.series and not shown:
         shown = f" ({plan.picture.year or '?'})"
-    what = f"«{plan.picture.title}»{shown}"
+    what = f"{phrase('choice.quoted', it=_title(plan.picture))}{shown}"
     about = f"{what} · {quality_text(release, media)} · {label}"
     if entry.pos > 0:
         about = f"{about}{phrase('cmd_play.resumed_from', pos=_hms(entry.pos))}"

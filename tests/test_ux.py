@@ -237,7 +237,7 @@ def test_the_question_says_out_loud_what_enter_will_start(
         < printed.index("  2. Moana 2 (2024)")
         < printed.index(enter)
     ), "список хронологический, а строка про дефолт - в хвосте, у самого вопроса"
-    assert "playing «Moana» (2016)" in printed, "и Enter запустил ровно то, что было названо"
+    assert "playing “Moana” (2016)" in printed, "и Enter запустил ровно то, что было названо"
 
 
 def test_a_single_choice_is_not_a_question(
@@ -286,7 +286,7 @@ def test_the_liveliest_namesake_is_taken_without_a_question(
         )
         in printed
     ), printed
-    assert "playing «Мумия» (2026)" in printed
+    assert "playing “The Mummy” (2026)" in printed
 
 
 #: Выдача «мумии»: две картины под одним именем - самая тихая из подмен (🔴 TC-198).
@@ -420,7 +420,7 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
         if buttons and buttons[0][0]["callback_data"].startswith("control:")
     ]
     assert controls == ["Мумия (2026)", "Мумия (1999)"]
-    assert "playing «Мумия» (1999)" in capsys.readouterr().out
+    assert "playing “The Mummy” (1999)" in capsys.readouterr().out
 
 
 @pytest.mark.machine
@@ -826,7 +826,7 @@ def test_bot_understands_the_menu_flag_after_telegram_autocorrects_the_dash(
 
     #: Карточка со списком пришла - значит флаг `--menu` доехал до argparse настоящим.
     assert any("1. The Mummy (1999)" in text for _message_id, text, _buttons in api.sent)
-    assert "playing «Мумия» (1999)" in capsys.readouterr().out
+    assert "playing “The Mummy” (1999)" in capsys.readouterr().out
 
 
 def test_the_namesake_line_is_said_before_the_start(
@@ -859,7 +859,7 @@ def test_the_namesake_line_is_said_before_the_start(
             asked="мумия",
         )
     )
-    start = printed.index("playing «Мумия» (2026)")
+    start = printed.index("playing “The Mummy” (2026)")
     assert take < start, "решение названо вслух до старта показа, а не после"
 
 
@@ -1133,7 +1133,7 @@ def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
     printed = capsys.readouterr().out
     assert asked == [], "имя франшизы зовёт первую часть, и спрашивать не о чем"
     assert phrase("choice.taken", picture="Moana (2016)", total=2, asked="моана") in printed
-    assert "playing «Moana» (2016)" in printed, printed
+    assert "playing “Moana” (2016)" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "закладка цела"
 
 
@@ -1156,7 +1156,7 @@ def test_the_bookmark_is_resumed_inside_the_picture_that_was_chosen(
 
     printed = capsys.readouterr().out
     assert asked == [], "картину назвали флагом, а место поднимается молча"
-    assert "playing «Моана 2»" in printed and "from 0:41:07" in printed, printed
+    assert "playing “Moana 2”" in printed and "from 0:41:07" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "продолжаем с места"
 
 
@@ -1706,7 +1706,7 @@ def test_a_series_named_by_its_only_season_still_plays(
     assert main(["кухня", "6"]) == 0, "картина живая, раздачи живые - это показ"
 
     printed = capsys.readouterr().out
-    assert "playing «Кухня 6»" in printed, printed
+    assert "playing “Kuhnya 6”" in printed, printed
     # Молчаливого прочтения не бывает: номер человек написал сам и вправе знать, чем
     # мы его сочли.
     assert "reading number 6 as a season, not a part" in printed, printed

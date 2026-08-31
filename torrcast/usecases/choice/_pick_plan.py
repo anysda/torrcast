@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
-from torrcast.usecases.choice._named import _named
+from torrcast.usecases.choice._named import _named, _title
 from torrcast.usecases.choice._shown import _shown
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.enter_take import enter_take
@@ -108,7 +108,7 @@ def _pick_plan(
                 phrase(
                     "choice.blind_refusal",
                     total=len(plans),
-                    example=plan.picture.title,
+                    example=_title(plan.picture),
                 )
             )
         if verdict.note:

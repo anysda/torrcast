@@ -28,6 +28,7 @@ from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._cmd_play import _cmd_play
+from torrcast.usecases.choice._named import _title
 from torrcast.usecases.choice._passport import _Passport
 from torrcast.usecases.following import _following
 from torrcast.usecases.select._continue import _continue
@@ -192,7 +193,8 @@ def test_the_played_file_names_the_episode_and_the_place_is_carried(
 
     assert code == EXIT_OK
     out = capsys.readouterr().out
-    assert "«Кино» s5e1" in out, "подпись серии - у файла, который играет, а не у запроса"
+    named = phrase("choice.quoted", it=_title(one.picture))
+    assert f"{named} s5e1" in out, "подпись серии - у файла, который играет, а не у запроса"
     tail = phrase("cmd_play.resumed_from", pos="0:04:25")
     assert tail in out, "место закладки названо обычной строкой показа"
 

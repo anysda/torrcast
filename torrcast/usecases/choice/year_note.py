@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.slugify import slugify
+from torrcast.usecases.choice._named import _title
 
 if TYPE_CHECKING:
     from torrcast.domain.facts.origin import Origin
@@ -47,13 +48,13 @@ def year_note(picked: Plan, about: Origin, asked: str = "") -> str:
         return phrase(
             "choice.year_note_asked",
             asked=asked,
-            title=picture.title,
+            title=_title(picture),
             year=picture.year,
             known=about.year,
         )
     return phrase(
         "choice.year_note",
-        title=picture.title,
+        title=_title(picture),
         year=picture.year,
         known=about.year,
     )

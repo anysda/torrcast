@@ -9,6 +9,7 @@ import pytest
 from tests.usecases.cast_command.world import entry, plan
 from torrcast.domain.args import Args
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.config import Config
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._bookmark import (
@@ -53,6 +54,31 @@ def test_a_picture_without_a_bookmark_goes_the_usual_way() -> None:
     )
 
     assert code is None
+
+
+def test_an_english_resume_uses_the_picture_name_without_rewriting_the_bookmark() -> None:
+    """Продолжение локализует копию записи, а сохранённое русское имя не меняет."""
+    saved = entry(title="Титаник", pos=755.0)
+    state = WatchState()
+    picked = plan()
+    picked.picture.title = "Титаник"
+    picked.picture.original = "Titanic"
+    state.put(picked.picture.key, saved)
+    _choose_tongue(EN)
+    try:
+        code = _continue_picked(
+            Config(),
+            state,
+            cast(Any, picked),
+            Bench(),  # type: ignore[arg-type]
+            args=Args(query=["titanic"], dry=True),
+            clock=_Clock(),
+        )
+    finally:
+        _choose_tongue(RU)
+
+    assert code == 0
+    assert state.get(picked.picture.key).title == "Титаник"  # type: ignore[union-attr]
 
 
 def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(

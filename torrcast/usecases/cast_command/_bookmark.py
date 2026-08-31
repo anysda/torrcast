@@ -14,6 +14,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._account_watched import _account_watched
+from torrcast.usecases.choice._named import _title
 from torrcast.usecases.playback._launch import _launch
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.select._about import _about
@@ -108,6 +109,7 @@ def _continue_picked(
     started = state.get(plan.picture.key)
     if started is None:
         return None
+    started = replace(started, title=_title(plan.picture))
     if args.pinned and args.from_start:
         word = "bookmark.release_word" if args.release is not None else "bookmark.file_word"
         print(phrase("bookmark.named_from_start", title=started.title, named=phrase(word)))

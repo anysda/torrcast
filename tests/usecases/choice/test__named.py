@@ -7,12 +7,27 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.choice.world import Outside, film, outside, plan
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
-from torrcast.usecases.choice._named import _BLURB_INDENT, _named
+from torrcast.usecases.choice._named import (
+    _BLURB_INDENT,
+    _also,
+    _different_display_names,
+    _named,
+    _prepare_title,
+    _title,
+)
 from torrcast.usecases.choice.menu_blocks import menu_blocks
+
+
+@pytest.fixture(autouse=True)
+def _russian_catalog() -> None:
+    """Русские ожидания этого зеркала явно выбирают русский каталог."""
+    _choose_tongue(RU)
 
 
 def test_a_picture_is_named_by_its_title_and_the_year_in_brackets() -> None:
@@ -32,6 +47,55 @@ def test_a_picture_is_named_by_its_original_title_in_english() -> None:
 
     _choose_tongue(RU)
     assert _named(picture) == "Матрица (1999)"
+
+
+def test_the_language_changes_the_spoken_name_without_changing_the_memory_key() -> None:
+    """Имя для всех строк экрана локализуется, а адрес сохранённого места остаётся русским."""
+    picture = plan("Бегущий по лезвию", 1982, original="Blade Runner").picture
+    key = picture.key
+
+    _choose_tongue(EN)
+    try:
+        assert _title(picture) == "Blade Runner"
+        assert picture.key == key == "movie:бегущий-по-лезвию:1982"
+    finally:
+        _choose_tongue(RU)
+
+
+def test_a_glued_alias_uses_the_english_original_and_a_transliterated_tail() -> None:
+    """Строка склейки не возвращает кириллицу поверх английского имени картины."""
+    picture = plan("Титаник", 1997, original="Titanic").picture
+    picture.also = "Титаник 3Д"
+
+    _choose_tongue(EN)
+    try:
+        assert _also(picture) == "Titanic 3d"
+    finally:
+        _choose_tongue(RU)
+
+
+def test_a_glued_line_is_silent_when_localized_names_only_differ_by_case() -> None:
+    """Два одинаковых имени не объясняют склейку человеку."""
+    picture = plan("Матрица", 1999, original="The Matrix").picture
+    picture.also = "the matrix"
+
+    _choose_tongue(EN)
+    try:
+        assert _different_display_names(picture) is False
+    finally:
+        _choose_tongue(RU)
+
+
+def test_an_english_menu_marks_an_unknown_english_title_without_transliteration() -> None:
+    """Без original английское имя неизвестно: мусорная транслитерация его не выдумывает."""
+    picture = plan("Дюна: Пророчество 1", 2024).picture
+
+    _choose_tongue(EN)
+    try:
+        _prepare_title(picture)
+        assert _title(picture) == "English title unavailable"
+    finally:
+        _choose_tongue(RU)
 
 
 def test_a_picture_with_no_known_year_says_so_instead_of_dropping_the_brackets() -> None:

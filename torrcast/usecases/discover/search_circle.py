@@ -22,6 +22,7 @@ from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
+from torrcast.usecases.choice._named import _also, _different_display_names, _prepare_titles, _title
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._reread import _relayout, _titled_number
@@ -136,16 +137,17 @@ def search_circle(
         raise NotFoundError(phrase("discover.nothing_parsed", name=name))
     if not found:
         raise NotFoundError(_nothing(name, index, pictures))
+    _prepare_titles(found)
     lead = _leading(found)
     if other := other_words(name, lead):
         progress.note(phrase("discover.catalog_alias", name=name, other=other))
     if lead is not None and lead.also:
         # Склейка картин (:func:`~torrcast.domain.glue.glue`) - решение автоматическое, и молчать
         # о нём нельзя: человек спросил одно имя, а в меню и в отборе теперь оба.
-        count = len(lead.releases)
-        progress.note(
-            phrase("discover.glued_pictures", also=lead.also, title=lead.title, count=count)
-        )
+        also, title = _also(lead), _title(lead)
+        if _different_display_names(lead):
+            count = len(lead.releases)
+            progress.note(phrase("discover.glued_pictures", also=also, title=title, count=count))
     progress.phase("")
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
     # стоять вторыми, а безномерные - после линейки

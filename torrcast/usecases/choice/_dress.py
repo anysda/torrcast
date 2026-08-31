@@ -6,6 +6,7 @@ from itertools import accumulate
 from typing import TYPE_CHECKING
 
 from torrcast.domain.outside_numbering import outside_numbering
+from torrcast.usecases.choice._named import _title
 from torrcast.usecases.choice.head_line import head_line
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ def _dress(menu: MenuPaint, plans: list[Plan], blocks: list[list[str]], facts: F
     def dress() -> None:
         for at, plan in enumerate(plans):
             picture = plan.picture
-            fact = facts.ready(picture.title, picture.year)
+            fact = facts.ready(_title(picture), picture.year)
             line = head_line(at + 1, picture, fact, picture.key in aside)
             if line != shown[at]:
                 shown[at] = line

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.usecases.choice._named import _title
 
 if TYPE_CHECKING:
     from torrcast.domain.facts.origin import Origin
@@ -39,7 +40,7 @@ def namesake_note(picked: Plan, about: Origin) -> str:
         return ""
     return phrase(
         "choice.namesake_two",
-        title=picture.title,
+        title=_title(picture),
         year=picture.year,
         other=about.namesake,
     )

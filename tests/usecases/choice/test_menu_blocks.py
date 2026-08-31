@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 
+import pytest
+
 from tests.usecases.choice.world import Outside, outside, parts, plan
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.runtime.menu_facts import MenuFacts
@@ -25,6 +28,12 @@ ABOUT = (
     "автомобиле, который застрял в маленьком городке у трассы"
 )
 Blurbs = dict[tuple[str, int | None], Fact]
+
+
+@pytest.fixture(autouse=True)
+def _russian_catalog() -> None:
+    """Русские строки меню в этом зеркале явно выбирают русский каталог."""
+    _choose_tongue(RU)
 
 
 def menu_rows(plans: list[Plan], facts: Facts | None = None, width: int = 0) -> list[str]:
@@ -163,3 +172,33 @@ def test_the_reference_is_asked_about_a_picture_by_its_title_and_its_year() -> N
 
     assert rows[1].strip() == "Приключенческий фильм Стивена Соммерса."
     assert rows[3].strip() == "Перезапуск с Томом Крузом."
+
+
+def test_an_english_menu_binds_each_russian_reference_to_its_own_picture() -> None:
+    """Показ локален, но русский источник и кэш спрашиваются по внутреннему имени."""
+    facts = Ready(
+        {
+            ("Титаник", 1997): Fact(about="James Cameron's epic romance."),
+            ("Титаник: анатомия катастрофы", 1997): Fact(
+                about="A documentary about the ship's sinking."
+            ),
+        }
+    )
+    facts.start()
+    menu = [
+        plan("Титаник", 1997, original="Titanic"),
+        plan(
+            "Титаник: анатомия катастрофы",
+            1997,
+            original="Titanic: Anatomy of a Disaster",
+        ),
+    ]
+
+    _choose_tongue(EN)
+    try:
+        rows = menu_rows(menu, facts)
+    finally:
+        _choose_tongue(RU)
+
+    assert rows[1].strip() == "James Cameron's epic romance."
+    assert rows[3].strip() == "A documentary about the ship's sinking."

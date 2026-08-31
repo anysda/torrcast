@@ -14,6 +14,7 @@ def en() -> dict[str, str]:
         "choice.quoted": "“{it}”",
         "choice.series_mark": ", series",
         "choice.no_part_mark": ", no part number",
+        "choice.english_title_unknown": "English title unavailable",
         "choice.remote_command": "remote: {command}",
         "choice.pick_out_of_range": "matching pictures: {total}, no number {pick} there",
         "choice.pick_moved": (
