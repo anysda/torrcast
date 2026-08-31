@@ -2506,11 +2506,12 @@ JSON
 # опрашивать Telegram было некому, и всякая команда из чата уходила в пустоту.
 # Юнит кладётся на диск всегда, включается - только при настроенном Telegram: пустой
 # конфиг гонял бы бота по кругу падений. Обычно включает его сам мастер
-# (torrcast/adapters/systemd/enable_bot_unit.py), здесь - ради переустановки: машина,
+# (tgbot/enable_bot_unit.py), здесь - ради переустановки: машина,
 # настроенная раньше, обязана вернуться с живым ботом и уже с новым кодом.
 setup_bot_unit() {
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
-        skip "torrcast-bot.service unit (sandbox)" "юнит torrcast-bot.service (песочница)"
+        info "systemd is off - the torrcast-bot.service unit is not written (sandbox)" \
+             "systemd выключен - юнит torrcast-bot.service не кладу (песочница)"
         return 0
     fi
     # ⚠️ Спрашиваем ДО правки юнита, как и run_service: `enable --now` уже поднятую
