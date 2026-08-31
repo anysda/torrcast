@@ -680,11 +680,17 @@ def test_grace_follows_the_actual_route_and_only_the_untried_tail() -> None:
 
 
 def test_silence_is_named_as_our_expired_wait() -> None:
-    """Ответа роя нет: строка сообщает предел ожидания, а не выдуманный приговор."""
+    """Ответа роя нет: строка сообщает предел ожидания, а не выдуманный приговор.
+
+    Секунды приезжают полем отказа (:attr:`~torrcast.domain.swarm_error.SwarmError.waited`),
+    как их и кладёт боевой :meth:`~torrcast.adapters.torrserver.torr_server.TorrServer.wait_files`:
+    жалоба пишется языком зрителя, а приговор от её слов не зависит. Двусторонняя мера
+    этого договора - в :mod:`tests.usecases.select.test__verdict`.
+    """
     prep = _Prep(
         number=1,
         release=rel(name="молчун"),
-        failure=SwarmError("рой пуст - за 6 с ни одного пира"),
+        failure=SwarmError("рой пуст - за 6 с ни одного пира", waited=6.0),
     )
 
     assert _waiting_note(prep, str(prep.failure)) == "gave up after 6s"

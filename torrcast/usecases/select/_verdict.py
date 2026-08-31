@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.ports.journal.slot import journal
@@ -33,13 +31,23 @@ def _did_not_answer(number: int, why: str) -> None:
 
 
 def _waiting_note(prep: _Prep, why: str) -> str:
-    """Назвать окончившееся терпение, а не объявлять неизвестный рой пустым."""
+    """Назвать окончившееся терпение, а не объявлять неизвестный рой пустым.
+
+    🔴 Число секунд приходит полем отказа (:attr:`~torrcast.domain.swarm_error.SwarmError.waited`),
+    оттуда, где его знают. Раньше оно выковыривалось регуляркой ``за (\\d+) с`` из готовой
+    жалобы - и это тот же дефект, от которого сосед по файлу (:func:`_silenced`) отгорожен
+    договором «опознаётся ТИПОМ отказа, а не текстом». Перевод кластера
+    :mod:`torrcast.domain.catalogs.torrserver` жалобу сделал английской, регулярка прошла
+    мимо, и приговор молча терял секунды, сваливаясь с :data:`select.timed_out` на
+    :data:`select.gave_up`. Второй регуляркой, по английским словам, это не чинится:
+    сломалось бы на следующем языке и на любой правке формулировки.
+    """
     if not _silenced(prep):
         return why
-    matched = re.search(r"за (\d+) с", why)
-    if matched:
-        return phrase("select.timed_out", secs=matched.group(1))
-    return phrase("select.gave_up")
+    waited = prep.failure.waited if isinstance(prep.failure, SwarmError) else None
+    if waited is None:
+        return phrase("select.gave_up")
+    return phrase("select.timed_out", secs=f"{waited:.0f}")
 
 
 def _silenced(prep: _Prep | None) -> bool:

@@ -133,10 +133,14 @@ class TorrServer:
                 )
             seconds = grace.seconds if isinstance(grace, ContactWait) else float(grace)
             if seconds > 0 and now >= hopeless and swarm_alive(status) is False:
-                raise SwarmError(phrase("torrserver.swarm_empty", seconds=f"{seconds:.0f}"))
+                raise SwarmError(
+                    phrase("torrserver.swarm_empty", seconds=f"{seconds:.0f}"), waited=seconds
+                )
             left = deadline - now
             if left <= 0:
-                raise SwarmError(phrase("torrserver.metadata_timeout", timeout=f"{timeout:.0f}"))
+                raise SwarmError(
+                    phrase("torrserver.metadata_timeout", timeout=f"{timeout:.0f}"), waited=timeout
+                )
             self.clock.sleep(min(step, left))
             step = min(step * META_STEP_GROW, META_STEP_MAX)
 

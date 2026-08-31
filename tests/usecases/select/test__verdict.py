@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.select.world import release
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torrcast_error import TorrcastError
@@ -77,7 +78,45 @@ def test_a_release_we_learnt_everything_about_is_not_a_silence() -> None:
 
 def test_the_note_names_our_patience_not_an_empty_swarm() -> None:
     """Неизвестный рой пустым не объявляют: строка говорит про наше ожидание."""
-    assert _waiting_note(_prep(), "пиров нет за 30 с") == "не дождались за 30 с"
+    waited = SwarmError("пиров нет за 30 с", waited=30.0)
+
+    assert _waiting_note(_prep(failure=waited), "пиров нет за 30 с") == "не дождались за 30 с"
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [(RU, "не дождались за 30 с"), (EN, "gave up after 30s")],
+    ids=["ru", "en"],
+)
+def test_the_seconds_we_waited_come_from_the_refusal_not_from_its_wording(
+    language: str, expected: str
+) -> None:
+    """🔴 Число секунд приезжает полем отказа, и приговор один и тот же на обоих языках.
+
+    Разбор готовой жалобы регуляркой ``за (\\d+) с`` держался ровно до перевода кластера
+    :mod:`torrcast.domain.catalogs.torrserver`: английская жалоба мимо русских слов, и
+    приговор молча сваливался с «не дождались за 30 с» на «не дождались». Мера двусторонняя
+    нарочно: прибор, спрошенный на одном языке, на такую поломку отвечает зелёным.
+
+    Жалоба тут нарочно английская при ОБОИХ языках зрителя - так её и пишет боевой
+    :class:`~torrcast.adapters.torrserver.torr_server.TorrServer`, когда язык продукта
+    английский: приговор не вправе зависеть от того, какими словами написан отказ.
+    """
+    _choose_tongue(language)
+    refusal = SwarmError("swarm is empty - not one peer in 30 s", waited=30.0)
+
+    assert _waiting_note(_prep(failure=refusal), str(refusal)) == expected
+
+
+def test_a_silence_that_never_counted_seconds_names_patience_without_a_number() -> None:
+    """Сколько ждали, отсюда не видно - терпение называется, а число не выдумывается.
+
+    Так приезжает молчание роя, замеченное паспортом
+    (:func:`torrcast.adapters.stream_probe.run_ffprobe.run_ffprobe`), и так же выглядит
+    фаза, не уложившаяся в бюджет: отказа нет вовсе.
+    """
+    assert _waiting_note(_prep(failure=SwarmError("рой молчит")), "рой молчит") == "не дождались"
+    assert _waiting_note(_prep(), "фаза «метаданные» не уложилась в бюджет") == "не дождались"
 
 
 def test_a_known_release_keeps_its_own_reason() -> None:
