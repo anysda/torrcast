@@ -1045,11 +1045,38 @@ def _is_super_init(node: ast.Call) -> bool:
     )
 
 
+def _is_journal_emit(node: ast.Call) -> bool:
+    """Правда ли это `journal().emit(...)` - названный по форме вызова, а не по имени.
+
+    `emit` - имя короткое и ходовое, и в этом же дереве оно уже занято чужими портами:
+    `WarmEnvironment.emit` (`torrcast/ports/warm_environment/warm_environment.py`) и
+    порт прогретого показа (`torrcast/usecases/choice/configure.py::_environment_port`)
+    отвечают за телеметрию прогрева, а не за ленту, которую читает `cast log`, и их
+    литералы - латинские имена схем событий, не жалобы человеку. Ловить `.emit` по
+    одному имени атрибута, как :data:`SPOKEN_METHODS`, значило бы требовать перевод и
+    от них; поэтому здесь смотрят на вызов целиком - `journal()`, и только он, перед
+    точкой.
+    """
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "emit"
+        and isinstance(func.value, ast.Call)
+        and isinstance(func.value.func, ast.Name)
+        and func.value.func.id == "journal"
+    )
+
+
 def _spoken_call(node: ast.Call, speech: _Speech) -> list[ast.Constant]:
     """Литералы вызова, что доезжают до человека - если вызов вообще из говорящих."""
     name = node.func.id if isinstance(node.func, ast.Name) else None
     attribute = node.func.attr if isinstance(node.func, ast.Attribute) else None
-    if name in SPOKEN_BUILTINS or attribute in SPOKEN_METHODS or _is_super_init(node):
+    if (
+        name in SPOKEN_BUILTINS
+        or attribute in SPOKEN_METHODS
+        or _is_super_init(node)
+        or _is_journal_emit(node)
+    ):
         arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
         return [item for argument in arguments for item in speech.spoken(argument)]
     if name in SPOKEN_ARGPARSE_CALLS or attribute in SPOKEN_ARGPARSE_CALLS:

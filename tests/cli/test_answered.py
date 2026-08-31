@@ -82,7 +82,7 @@ def test_a_cancelled_question_is_its_own_code_and_says_nothing_out_loud(
 
     assert answered(cancelled) == EXIT_CANCELLED
     assert capsys.readouterr().err == "", "отмена ничего не ломала - и кричать ей не о чем"
-    assert tape.events == [("command", "finished", {"result": "отменён", "code": EXIT_CANCELLED})]
+    assert tape.events == [("command", "finished", {"result": "cancelled", "code": EXIT_CANCELLED})]
 
     def missing() -> int:
         raise NotFoundError("ничего не нашёл")
@@ -94,8 +94,8 @@ def test_a_cancelled_question_is_its_own_code_and_says_nothing_out_loud(
 @pytest.mark.parametrize(
     ("run", "result", "code"),
     [
-        (lambda: int(EXIT_OK), "успех", EXIT_OK),
-        (_broken, "необработанный отказ", EXIT_INFRA),
+        (lambda: int(EXIT_OK), "ok", EXIT_OK),
+        (_broken, "unhandled_failure", EXIT_INFRA),
     ],
 )
 def test_every_exit_closes_the_trace(run: Callable[[], int], result: str, code: int) -> None:
@@ -103,7 +103,7 @@ def test_every_exit_closes_the_trace(run: Callable[[], int], result: str, code: 
     tape = _ClosingTape()
     install(tape)
 
-    if result == "необработанный отказ":
+    if result == "unhandled_failure":
         with pytest.raises(RuntimeError, match="сломано"):
             answered(run)
     else:

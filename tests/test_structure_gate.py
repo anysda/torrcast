@@ -639,6 +639,43 @@ def test_translation_rule_leaves_an_english_super_init_alone(tmp_path: Path) -> 
     assert "перевод" not in _rules(_tree(tmp_path, source))
 
 
+def test_translation_rule_sees_a_caption_in_a_journal_emit(tmp_path: Path) -> None:
+    """`journal().emit(...)` - третье слепое место: `cast log` печатает поля наружу."""
+    source = (
+        '"""Модуль."""\n\n\n'
+        "def good(journal) -> None:\n"
+        '    """Единица."""\n'
+        '    journal().emit("command", "finished", result="провал сборки")\n'
+    )
+    assert "перевод" in _rules(_tree(tmp_path, source))
+
+
+def test_translation_rule_leaves_an_english_journal_emit_alone(tmp_path: Path) -> None:
+    source = (
+        '"""Модуль."""\n\n\n'
+        "def good(journal) -> None:\n"
+        '    """Единица."""\n'
+        '    journal().emit("command", "finished", result="failure")\n'
+    )
+    assert "перевод" not in _rules(_tree(tmp_path, source))
+
+
+def test_translation_rule_leaves_a_foreign_emit_alone(tmp_path: Path) -> None:
+    """`.emit` короткое имя: у другого порта (не `journal()`) оно не про ленту вовсе.
+
+    `WarmEnvironment.emit` (``torrcast/ports/warm_environment/warm_environment.py``) -
+    ровно такой чужой `emit`: ловить его по одному имени атрибута значило бы требовать
+    перевод от телеметрии прогрева, которая человеку не показывается.
+    """
+    source = (
+        '"""Модуль."""\n\n\n'
+        "def good(environment) -> None:\n"
+        '    """Единица."""\n'
+        '    environment.emit("warmth", why="почему остановился")\n'
+    )
+    assert "перевод" not in _rules(_tree(tmp_path, source))
+
+
 def _one_module(tmp_path: Path, relative: str, source: str) -> structure_gate.Module:
     path = tmp_path / relative
     path.parent.mkdir(parents=True, exist_ok=True)

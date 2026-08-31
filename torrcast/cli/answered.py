@@ -41,34 +41,40 @@ def answered(run: Callable[[], int]) -> int:
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(line_buffering=True)
     previous = signal.signal(signal.SIGTERM, _on_term)
-    result = "необработанный отказ"
+    # `result` - поле ленты (``journal().emit("command", "finished", result=result, ...)``),
+    # не жалоба человеку: `cast log` его печатает, но это машинный ярлык рода конца
+    # команды, тот же смысл, что у имени события рядом с ним. Ярлык остаётся английским
+    # словом при любом языке настройки - тем же выбором, что уже сделан для отказа сборки
+    # (:func:`torrcast.runtime.main.main`), - а русский текст самого отказа уходит
+    # отдельно, строкой в stderr.
+    result = "unhandled_failure"
     code = EXIT_INFRA
     try:
         code = run()
-        result = "успех" if code == EXIT_OK else "отказ"
+        result = "ok" if code == EXIT_OK else "failure"
         return code
     except CancelledError:
         # 🔴 TC-926. Человек снял свой вопрос сам: в stderr не уходит ничего и ошибкой в
         # след это не пишется - писать не о чем. Ветка стоит ПЕРЕД `TorrcastError`, иначе
         # отмена вышла бы отказом: род у неё наш, и общая ветка её проглотила бы.
         code = EXIT_CANCELLED
-        result = "отменён"
+        result = "cancelled"
         return EXIT_CANCELLED
     except NotFoundError as exc:
         code = EXIT_NOT_FOUND
-        result = "не найдено"
+        result = "not_found"
         journal().emit("error", "error", text=str(exc)[:200])
         print(str(exc), file=sys.stderr)
         return EXIT_NOT_FOUND
     except TorrcastError as exc:  # InfraError и всё прочее наше
         code = EXIT_INFRA
-        result = "отказ"
+        result = "failure"
         journal().emit("error", "error", text=str(exc)[:200])
         print(str(exc), file=sys.stderr)
         return EXIT_INFRA
     except _Stopped:  # `cast stop` - штатный конец показа, а не отказ
         code = EXIT_OK
-        result = "остановлен"
+        result = "stopped"
         return EXIT_OK
     except _Terminated:
         code = EXIT_INFRA
@@ -77,12 +83,12 @@ def answered(run: Callable[[], int]) -> int:
         return EXIT_INFRA
     except KeyboardInterrupt:
         code = EXIT_INFRA
-        result = "прерван с клавиатуры"
+        result = "keyboard_interrupt"
         print("команда прервана с клавиатуры", file=sys.stderr)
         return EXIT_INFRA
     except BrokenPipeError:  # `cast status | head` - не повод показывать трейсбек
         code = EXIT_OK
-        result = "закрыт вывод"
+        result = "broken_pipe"
         with contextlib.suppress(OSError):
             sys.stdout.close()
         return EXIT_OK

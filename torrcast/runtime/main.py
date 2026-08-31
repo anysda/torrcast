@@ -40,7 +40,10 @@ def main(
     except TorrcastError as exc:
         journal().emit("error", "error", text=str(exc)[:200])
         print(str(exc), file=sys.stderr)
-        journal().emit("command", "finished", result="отказ сборки", code=EXIT_INFRA)
+        # Ярлык ленты, не жалоба: тот же машинный смысл, что у `result` внутри
+        # :func:`torrcast.cli.answered.answered`, и остаётся английским словом по той же
+        # причине - `cast log` читает поле как есть при любом языке настройки.
+        journal().emit("command", "finished", result="assembly_failure", code=EXIT_INFRA)
         journal().shutdown()
         return EXIT_INFRA
     return command(argv)
