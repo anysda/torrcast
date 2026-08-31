@@ -299,9 +299,9 @@ def test_an_empty_queue_is_an_honest_refusal_not_a_substitute() -> None:
         _resolve(Bench(cast(Any, _FakeTorrServer())), game)
 
     msg = str(caught.value)
-    assert "годного релиза нет: раздач в выдаче 2" in msg, msg
-    assert "все до одной отсеял отбор (тяжелее потолка - 2)" in msg, msg
-    assert "выбери руками" not in msg and "--release" not in msg
+    assert "no fit release: releases in the listing 2" in msg, msg
+    assert "selection rejected every one (heavier than the ceiling - 2)" in msg, msg
+    assert "pick by hand" not in msg and "--release" not in msg
 
 
 def test_an_empty_queue_without_kin_still_names_the_next_step() -> None:
@@ -318,10 +318,10 @@ def test_an_empty_queue_without_kin_still_names_the_next_step() -> None:
         _resolve(Bench(cast(Any, _FakeTorrServer())), game)
 
     msg = str(caught.value)
-    assert "все до одной отсеял отбор (тяжелее потолка - 2)" in msg, msg
-    assert "в каталоге есть" not in msg, "соседей нет - и подсказки про них нет"
-    assert "картина есть, а раздачи её негодны" in msg, msg
-    assert "назови её иначе или зайди позже" in msg, msg
+    assert "selection rejected every one (heavier than the ceiling - 2)" in msg, msg
+    assert "the catalog has" not in msg, "соседей нет - и подсказки про них нет"
+    assert "the picture exists, but its releases do not fit" in msg, msg
+    assert "name it differently or come back later" in msg, msg
     assert "выбери руками" not in msg and "--release" not in msg
 
 
@@ -334,7 +334,7 @@ def test_an_out_of_range_hand_picked_number_names_its_picture() -> None:
     """
     plan = _plan([rel(name="r1"), rel(name="r2")])
 
-    with pytest.raises(NotFoundError, match="у «Кино» релизов 2, номера 3 нет"):
+    with pytest.raises(NotFoundError, match="“Кино” has 2 releases, no number 3"):
         plan.candidates(Args(query=["кино"], release=3))
 
 
@@ -407,9 +407,9 @@ def test_ordinary_release_is_not_mistaken_for_a_disc() -> None:
 def test_table_has_all_the_columns() -> None:
     text = render_table([rel(seeders=214, voices=("Дубляж",))], RUNTIME, 20.0)
     lines = text.splitlines()
-    assert lines[0] == "Релизы:"
-    assert lines[1].split() == ["N", "Качество", "Размер", "Сиды", "Озвучка", "Студия", "Кодек"]
-    assert lines[2].split() == ["1", "1080p", "8.0", "ГБ", "214", "Дубляж", "-", "H.264"]
+    assert lines[0] == "Releases:"
+    assert lines[1].split() == ["N", "Quality", "Size", "Seeders", "Voice", "Studio", "Codec"]
+    assert lines[2].split() == ["1", "1080p", "8.0", "GB", "214", "Дубляж", "-", "H.264"]
 
 
 def test_table_marks_hevc_row() -> None:
@@ -432,7 +432,7 @@ def test_table_shows_only_the_head_of_a_long_list() -> None:
     releases = [rel(name=f"r{i}", seeders=100 - i) for i in range(TABLE_LIMIT + 7)]
     text = render_table(releases, RUNTIME, 20.0)
     assert len(text.splitlines()) == TABLE_LIMIT + 3  # заголовок, шапка, строки, хвост
-    assert "и ещё 7 с меньшим числом сидов" in text
+    assert "and 7 more with fewer seeders" in text
 
 
 def test_missing_values_are_shown_as_dashes() -> None:
@@ -673,8 +673,8 @@ def test_дешёвый_добор_не_снимается_молчуном_съ
     from torrcast.domain.facts.settings import FACTS_BUDGET
 
     assert left == FACTS_BUDGET
-    assert "всё равно делаю в свои 2.5 с" in said
-    assert "поиск уже съел цель в 10 с" in said
+    assert "anyway, on its own 2.5s" in said
+    assert "the search already spent the goal at 10s" in said
 
 
 def test_частный_бюджет_за_целью_выдаётся_один_раз_за_поиск() -> None:
@@ -699,9 +699,9 @@ def test_частный_бюджет_за_целью_выдаётся_один_�
 
     assert first == FACTS_BUDGET, "первый заход за целью получает свой частный бюджет"
     assert second is None and third is None, "второе превышение цели уже не оплачивается"
-    assert "добор по «кино» всё равно делаю" in said
-    assert "добор сезона 2 не делаю: поиск уже съел цель в 10 с" in said
-    assert "добор по «Kino» не делаю" in said, "отказ сказан вслух каждому, а не молча"
+    assert "doing добор по «кино» anyway" in said
+    assert "not doing добор сезона 2: the search already spent the goal at 10s" in said
+    assert "not doing добор по «Kino»" in said, "отказ сказан вслух каждому, а не молча"
 
 
 def test_целый_остаток_цели_частный_бюджет_не_тратит() -> None:
@@ -786,7 +786,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
 
     assert (prep.number, prep.found.video) == (2, "h264")
     assert prep.want.name == "movie.mkv"
-    assert "релиз 1 не годится (av1) - беру 2" in capsys.readouterr().out
+    assert "release 1 does not fit (av1) - taking 2" in capsys.readouterr().out
     assert torrserver.dropped, "неподошедшая раздача из TorrServer убирается"
 
 
@@ -847,7 +847,7 @@ def test_hevc_is_still_refused_when_recoding_is_switched_off(
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования HEVC остаётся отказом"
-    assert "релиз 1 не годится (hevc) - беру 2" in capsys.readouterr().out
+    assert "release 1 does not fit (hevc) - taking 2" in capsys.readouterr().out
 
 
 def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refused(
@@ -881,7 +881,7 @@ def test_mpeg4_is_still_refused_when_recoding_is_switched_off(
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования mpeg4 остаётся отказом"
-    assert "релиз 1 не годится (mpeg4) - беру 2" in capsys.readouterr().out
+    assert "release 1 does not fit (mpeg4) - taking 2" in capsys.readouterr().out
 
 
 def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
@@ -900,8 +900,8 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "мёртвая раздача не останавливает показ"
-    assert "релиз 1 не годится (не дождались за 20 с)" in printed
-    assert "беру 2" in printed
+    assert "release 1 does not fit (gave up after 20s)" in printed
+    assert "taking 2" in printed
 
 
 def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
@@ -926,8 +926,8 @@ def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
 
     printed = capsys.readouterr().out
     assert prep.number == 5, "четыре молчаливых роя подряд - и всё же дошли до живого"
-    assert printed.count("не дождались") == 4, "каждая осечка стоит строку, молчаливых нет"
-    assert "беру 5" in printed
+    assert printed.count("gave up after") == 4, "каждая осечка стоит строку, молчаливых нет"
+    assert "taking 5" in printed
 
 
 def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
@@ -950,13 +950,13 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
         _resolve(Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
 
     msg = str(caught.value)
-    assert "раздач в выдаче 6, потрогали 1 из очереди 6" in msg, msg
-    assert "эти молчат, на остальных не хватило времени" in msg, msg
-    assert "не дождались" in msg, "причина молчания названа, а не спрятана"
-    assert "годного релиза нет" not in msg, "это молчание роя, а не отсутствие годных"
-    assert "выбери руками" not in msg and "--release" not in msg
-    assert "зайди позже" in msg, "ход остаётся, но честный"
-    assert capsys.readouterr().out.count("не дождались") == 1, "бюджет вышел - второго похода нет"
+    assert "releases in the listing: 6, touched: 1 out of 6 queued" in msg, msg
+    assert "these are silent, no time was left for the rest" in msg, msg
+    assert "gave up after" in msg, "причина молчания названа, а не спрятана"
+    assert "no fit release" not in msg, "это молчание роя, а не отсутствие годных"
+    assert "pick by hand" not in msg and "--release" not in msg
+    assert "come back later" in msg, "ход остаётся, но честный"
+    assert capsys.readouterr().out.count("gave up after") == 1, "бюджет вышел - второго похода нет"
 
 
 class _FakeClock:
@@ -1032,10 +1032,10 @@ def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached() -> Non
         _resolve(Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
 
     msg = str(caught.value)
-    assert "раздач в выдаче 5, потрогали 1 из очереди 3" in msg, msg
-    assert "играть нечего" not in msg, "двое в очереди не тронуты - за них не говорим"
-    assert "выбери руками" not in msg and "--release" not in msg
-    assert "годного релиза нет" not in msg
+    assert "releases in the listing: 5, touched: 1 out of 3 queued" in msg, msg
+    assert "nothing playable" not in msg, "двое в очереди не тронуты - за них не говорим"
+    assert "pick by hand" not in msg and "--release" not in msg
+    assert "no fit release" not in msg
 
 
 def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
@@ -1067,14 +1067,14 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
         _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     msg = str(caught.value)
-    assert "раздач в выдаче 3, потрогали 3 (все)" in msg and "ни одна не отозвалась" in msg
-    assert "до 100" in msg, "сиды называются как обещание индексера, а не как факт"
-    assert "пиров нет" not in msg, "пиры числятся - врать про пустую выдачу нельзя"
-    assert "годного релиза нет" not in msg
+    assert "releases in the listing: 3, touched: 3 (all)" in msg and "none answered" in msg
+    assert "up to 100" in msg, "сиды называются как обещание индексера, а не как факт"
+    assert "no peers" not in msg, "пиры числятся - врать про пустую выдачу нельзя"
+    assert "no fit release" not in msg
     printed = capsys.readouterr().out
-    assert printed.count("не дождались") == 3, "обход называет три окончившихся ожидания"
+    assert printed.count("gave up after") == 3, "обход называет три окончившихся ожидания"
     assert printed.count("нет пиров") == 1, "повторный полный спрос называет свой итог"
-    assert "релиз 1 молчит и в одиночку" in printed, "второй спрос тоже стоит строки"
+    assert "release 1 still silent alone" in printed, "второй спрос тоже стоит строки"
 
 
 class _Impatient(_FakeTorrServer):
@@ -1112,10 +1112,10 @@ def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_th
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "терпеливый второй спрос дошёл до живой раздачи"
-    assert printed.count("не дождались") == 3, "каждая осечка честно называет наше ожидание"
+    assert printed.count("gave up after") == 3, "каждая осечка честно называет наше ожидание"
     assert (
-        "промолчала вся очередь (3) - спрашиваю релиз 1 ещё раз, одного и без отсрочек "
-        "(жду до 60 с)" in printed
+        "the whole queue stayed silent (3) - asking release 1 once more, alone and without "
+        "grace periods (waiting up to 60s)" in printed
     )
 
 
@@ -1128,8 +1128,8 @@ def test_a_patient_ask_that_gets_a_verdict_does_not_report_silent_swarm() -> Non
         _resolve(Bench(cast(Any, _Impatient()), prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
-    assert "годного релиза нет" in msg and "av1" in msg
-    assert "рой" not in msg and "зайди позже" not in msg
+    assert "no fit release" in msg and "av1" in msg
+    assert "swarm" not in msg and "come back later" not in msg
 
 
 def test_an_exhausted_queue_does_not_offer_a_release_that_was_already_rejected() -> None:
@@ -1141,9 +1141,9 @@ def test_an_exhausted_queue_does_not_offer_a_release_that_was_already_rejected()
         _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
-    assert "годного релиза нет" in msg and "av1" in msg
-    assert "выбери руками" not in msg and "--release" not in msg
-    assert "назови картину иначе" in msg
+    assert "no fit release" in msg and "av1" in msg
+    assert "pick by hand" not in msg and "--release" not in msg
+    assert "name the picture differently" in msg
 
 
 def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
@@ -1163,8 +1163,8 @@ def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
         _resolve(Bench(cast(Any, torrserver), prober=prober, pick_budget=1.0), ranked)
 
     printed = capsys.readouterr().out
-    assert "потрогали 3 (все)" in str(caught.value)
-    assert "ещё раз" not in printed, "бюджет фазы второго спроса не покрывает - его и нет"
+    assert "touched: 3 (all)" in str(caught.value)
+    assert "once more" not in printed, "бюджет фазы второго спроса не покрывает - его и нет"
 
 
 def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_one(
@@ -1199,8 +1199,8 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "терпеливо спросили того, кого оборвал рой"
-    assert "спрашиваю релиз 2 ещё раз" in printed
-    assert "спрашиваю релиз 1" not in printed, "про верх известно всё - терпеть тут нечего"
+    assert "asking release 2 once more" in printed
+    assert "asking release 1" not in printed, "про верх известно всё - терпеть тут нечего"
 
 
 def test_a_patient_verdict_rewrites_the_reason_of_the_release_that_was_reasked() -> None:
@@ -1276,9 +1276,9 @@ def test_a_disc_image_verdict_is_not_asked_twice(capsys: pytest.CaptureFixture[s
         _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
-    assert "релиз 1 не годится (the torrent has no separate video file" in printed
-    assert "спрашиваю релиз 2 ещё раз" in printed, "переспрашивается промолчавший"
-    assert "спрашиваю релиз 1" not in printed, "осуждённый второго спроса не получает"
+    assert "release 1 does not fit (the torrent has no separate video file" in printed
+    assert "asking release 2 once more" in printed, "переспрашивается промолчавший"
+    assert "asking release 1" not in printed, "осуждённый второго спроса не получает"
     assert printed.count("no separate video file") == 1, "приговор звучит ровно один раз"
 
 
@@ -1302,9 +1302,9 @@ def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm() -> None:
         _resolve(Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
 
     msg = str(caught.value)
-    assert "годного релиза нет" in msg and "нет отдельного видеофайла" in msg
-    assert "зайди позже" not in msg, "рой тут ни при чём - обещать его пробуждение нельзя"
-    assert "не отозвалась" not in msg, "раздача отозвалась: приговор, а не молчание"
+    assert "no fit release" in msg and "нет отдельного видеофайла" in msg
+    assert "come back later" not in msg, "рой тут ни при чём - обещать его пробуждение нельзя"
+    assert "did not answer" not in msg, "раздача отозвалась: приговор, а не молчание"
 
 
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
@@ -1367,9 +1367,9 @@ def test_a_queue_of_failed_probes_ends_with_an_honest_exit(
     prober = _probes(ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
         _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
-    assert "годного релиза нет" in str(caught.value)
+    assert "no fit release" in str(caught.value)
     assert "1 - av1" in str(caught.value) and "3 - vc1" in str(caught.value)
-    assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 4  # очередь пройдена
+    assert len(re.findall(r"taking \d", capsys.readouterr().out)) == 4  # очередь пройдена
 
 
 def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
@@ -1400,7 +1400,7 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
 
     printed = capsys.readouterr().out
     assert prep.number == 4, "три дешёвых приговора - и всё же дошли до живого 1080p"
-    assert printed.count("не годится") == 3, "каждый приговор стоит строки, молчаливых нет"
+    assert printed.count("does not fit") == 3, "каждый приговор стоит строки, молчаливых нет"
     assert spent < VERDICT_BUDGET, f"дошли за {spent:.1f} с при бюджете приговоров 15 с"
 
 
@@ -1421,8 +1421,8 @@ def test_expensive_verdicts_still_stop_the_walk_at_three(
         bench = Bench(cast(Any, _FakeTorrServer()), prober=prober, verdict_budget=0.0)
         _resolve(bench, ranked)
 
-    assert "годного релиза нет" in str(caught.value)
-    assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 2, "не больше MAX_TRIES"
+    assert "no fit release" in str(caught.value)
+    assert len(re.findall(r"taking \d", capsys.readouterr().out)) == 2, "не больше MAX_TRIES"
 
 
 def test_the_healthy_case_pays_nothing_for_the_deeper_walk(
@@ -1460,7 +1460,7 @@ def test_vp9_is_refused_at_the_pick_like_av1_and_never_reaches_the_packer(
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert (prep.number, prep.found.video) == (2, "h264"), "берём тот, про который знаем всё"
-    assert "релиз 1 не годится (vp9) - беру 2" in capsys.readouterr().out
+    assert "release 1 does not fit (vp9) - taking 2" in capsys.readouterr().out
 
 
 def test_warmup_leaves_in_torrserver_only_what_we_play() -> None:
@@ -1785,7 +1785,7 @@ def test_a_lying_1080p_is_still_swapped_by_ffprobe() -> None:
     """Ступень поднимает ОБЕЩАНИЕ, а судит по-прежнему кадр: 1080p в имени, 574p внутри."""
     liar = rel(name="BDRip 1080p", codec=None, size_gb=7.0, seeders=100)
     assert is_full_hd(liar, alive=100)
-    assert understated(liar, Media(height=574, width=1150)) == "назван 1080p, на деле 574p"
+    assert understated(liar, Media(height=574, width=1150)) == "named 1080p, actually 574p"
 
 
 def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> None:
@@ -1809,7 +1809,7 @@ def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> N
 
     assert (
         bench._trouble(prep, pinned=False, warn_mbit=16.0)
-        == "слишком тяжёлый для приёмника, ~18 Мбит/с"
+        == "too heavy for the receiver, ~18 Mbit/s"
     )
     assert bench._trouble(prep, pinned=True, warn_mbit=16.0) == "", "руками - берём"
     assert bench._trouble(prep, pinned=False, warn_mbit=20.0) == "", "прежний потолок брал"
@@ -1835,13 +1835,13 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
     prep.media = Media(duration=5977.0, video="h264", video_bps=49_900_000.0)
     assert (
         bench._trouble(prep, pinned=False, warn_mbit=25.0)
-        == "слишком тяжёлый для приёмника, ~50 Мбит/с"
+        == "too heavy for the receiver, ~50 Mbit/s"
     )
 
     prep.media = Media(duration=5977.0, video="h264")  # паспорт молчит - по размеру
     assert (
         bench._trouble(prep, pinned=False, warn_mbit=16.0)
-        == "слишком тяжёлый для приёмника, ~18 Мбит/с"
+        == "too heavy for the receiver, ~18 Mbit/s"
     )
 
 
@@ -2104,13 +2104,13 @@ def test_a_half_walked_queue_is_not_a_dead_swarm() -> None:
     pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
     plan = _plan(pool)
     half = silent_swarm(plan, [1, 2, 3], 3, "1 - тишина")
-    assert "раздач в выдаче 15, потрогали 3" in half
+    assert "releases in the listing: 15, touched: 3" in half
     assert "мёртв" not in half, "живой рой мёртвым не называем"
-    assert "до 14 сид" in half and "cast releases" in half
+    assert "up to 14 seeders" in half and "cast releases" in half
 
     whole = silent_swarm(plan, list(range(1, 16)), 15, "1 - тишина")
-    assert "раздач в выдаче 15, потрогали 15 (все)" in whole
-    assert "ни одна не отозвалась" in whole and "числятся" in whole
+    assert "releases in the listing: 15, touched: 15 (all)" in whole
+    assert "none answered" in whole and "list seeders" in whole
 
 
 def test_a_walk_cut_by_the_clock_counts_the_queue_it_did_not_reach() -> None:
@@ -2124,11 +2124,11 @@ def test_a_walk_cut_by_the_clock_counts_the_queue_it_did_not_reach() -> None:
     pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
     said = silent_swarm(_plan(pool), list(range(1, 13)), 3, "1 - тишина")
 
-    assert "раздач в выдаче 15, потрогали 3 из очереди 12" in said
-    assert "на остальных не хватило времени" in said
-    assert "(все)" not in said and "играть нечего" not in said
+    assert "releases in the listing: 15, touched: 3 out of 12 queued" in said
+    assert "no time was left for the rest" in said
+    assert "(all)" not in said and "nothing playable" not in said
     assert "cast releases" not in said and "--release" not in said
-    assert "зайди позже" in said, "ход остаётся, но честный"
+    assert "come back later" in said, "ход остаётся, но честный"
 
 
 def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
@@ -2142,11 +2142,11 @@ def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
     dead = silent_swarm(border, [1, 2], 2, "1 - тишина")
     live = silent_swarm(monkeys, [1, 2, 3], 3, "1 - тишина")
     assert dead == (
-        "раздач в выдаче 2, потрогали 2 - пиров нет ни у одной, показывать нечего: "
-        "назови картину иначе или зайди позже - другой запрос соберёт другую выдачу, "
-        "а рой может ожить (1 - тишина)"
+        "releases in the listing: 2, touched: 2 - no peers anywhere, nothing to show: "
+        "name the picture differently or come back later - a different query gathers a "
+        "different listing, and the swarm may wake up (1 - тишина)"
     )
-    assert "пиров нет" not in live
+    assert "no peers anywhere" not in live
     assert dead != live
 
 
@@ -2166,7 +2166,7 @@ def test_every_refusal_leaves_the_person_a_move() -> None:
         silent_swarm(plan, list(range(1, 16)), 15, "1 - тишина"),
         silent_swarm(_plan([rel(name="r", seeders=0)]), [1], 1, "1 - тишина"),
     ):
-        assert "назови картину иначе" in said and "зайди позже" in said
+        assert "name the picture differently" in said and "come back later" in said
         assert "--release" not in said, "выбирать не из чего - надежду не предлагаем"
 
 
@@ -2182,7 +2182,7 @@ def test_the_seed_count_in_a_refusal_is_about_the_asked_not_the_listing() -> Non
     plan = _plan([asked, outsider])
     assert not is_candidate(outsider, RUNTIME, 20.0), "молчуна в очередь не пустили"
     said = silent_swarm(plan, [1], 1, "1 - тишина")
-    assert "до 10 сид" in said and "25" not in said, "25 сид - не у тех, кого спрашивали"
+    assert "up to 10 seeders" in said and "25" not in said, "25 сид - не у тех, кого спрашивали"
     assert "cast releases" in said, "молчун пригоден по известным признакам - выбор есть"
 
 
@@ -2198,9 +2198,9 @@ def test_a_refusal_does_not_offer_a_pick_from_the_known_unplayable() -> None:
     pool += [rel(name=f"remux {n}", size_gb=60, seeders=50) for n in range(3)]
     plan = _plan(pool)
     said = silent_swarm(plan, [1], 1, "1 - тишина")
-    assert "тяжелее потолка - 3" in said
+    assert "heavier than the ceiling - 3" in said
     assert "cast releases" not in said and "--release" not in said
-    assert "назови картину иначе" in said, "ход остаётся, но честный"
+    assert "name the picture differently" in said, "ход остаётся, но честный"
 
 
 def test_a_refusal_names_the_missing_episode_instead_of_a_manual_pick() -> None:
@@ -2210,9 +2210,9 @@ def test_a_refusal_names_the_missing_episode_instead_of_a_manual_pick() -> None:
     plan = _plan([first, *strangers])
     plan.series = _Series(want=Episode(1, 1))
     said = silent_swarm(plan, [1], 1, "1 - тишина")
-    assert "нужной серии нет - 2" in said
+    assert "no matching episode - 2" in said
     assert "cast releases" not in said and "--release" not in said
-    assert "назови картину иначе" in said
+    assert "name the picture differently" in said
 
 
 def test_a_refusal_still_offers_a_pick_when_someone_untouched_is_playable() -> None:
@@ -2233,8 +2233,8 @@ def test_a_refusal_after_a_manual_pick_offers_another_release() -> None:
 
     said = silent_swarm(plan, [1], 1, "1 - тишина", picked=1)
 
-    assert "выбери другой релиз" in said
-    assert "выбери руками" not in said
+    assert "pick another release" in said
+    assert "pick by hand" not in said
     assert "cast releases" in said and "--release N" in said
 
 
@@ -2839,7 +2839,7 @@ def test_a_missing_part_answer_lists_what_the_franchise_has() -> None:
 
     text = _nothing("тачки", 1, pictures)
 
-    assert "картин во франшизе 2, номера 1 нет" in text
+    assert "pictures in the franchise: 2, no number 1" in text
     assert "Тачки 2 (2011)" in text and "Тачки 3 (2017)" in text
 
 
@@ -3183,7 +3183,7 @@ def test_an_interlaced_file_is_named_what_it_is() -> None:
     inter = Media(5977.0, (), "h264", 1080, 1920, field_order="tb")
     assert quality_text(rel(quality="1080p"), inter) == "1080i"
     assert quality_text(rel(quality="1080i"), inter) == "1080i"
-    assert understated(rel(quality="1080p"), inter) == "назван 1080p, на деле 1080i"
+    assert understated(rel(quality="1080p"), inter) == "named 1080p, actually 1080i"
     assert understated(rel(quality="1080i"), inter) == "", "имя и так говорило правду"
     prog = Media(5977.0, (), "h264", 1080, 1920, field_order="progressive")
     assert quality_text(rel(quality="1080p"), prog) == "1080p"
@@ -3213,7 +3213,7 @@ def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "среди честных обсиженность решает, но 574p - не честный 1080p"
-    assert "релиз 1 на деле 574p - беру 2 (настоящий 1080p)" in printed
+    assert "release 1 actually 574p - taking 2 (actually 1080p)" in printed
     assert torrserver.dropped, "отвергнутый верх не доедает полосу роя"
 
 
@@ -3257,8 +3257,8 @@ def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
-    assert "релиз 2 не лучше (576p)" in printed
-    assert "релиз 1 на деле 574p - честнее рядом нет, играю его" in printed
+    assert "release 2 is not better (576p)" in printed
+    assert "release 1 actually 574p - nothing more honest nearby, playing it" in printed
 
 
 def test_a_named_release_is_never_second_guessed_for_quality(
@@ -3306,7 +3306,7 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(capsys: pytest.CaptureFixtur
         slow.set()  # поток прогрева отпускаем, чтобы не висел до конца прогона
 
     assert prep.number == 1
-    assert "релиз 2 не успел ответить" in capsys.readouterr().out
+    assert "release 2 did not answer in time" in capsys.readouterr().out
 
 
 # --- Честный звук: неназванный язык против соседа, обещавшего русскую дорожку ---------
@@ -3348,7 +3348,7 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание меняем на знание, а не на догадку"
-    assert "релиз 1 без русской озвучки (не назван) - беру 2" in printed
+    assert "release 1 has no Russian dub (unnamed) - taking 2" in printed
     assert torrserver.dropped, (
         "запасным ходом безымянный паспорт не станет (TC-741), а держать раздачу под ход, "
         "которого не будет, значит доедать полосу роя у того, кого мы и играем"
@@ -3382,11 +3382,11 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
 
     printed = capsys.readouterr().out
     assert prep.number == 2
-    assert "релиз 1 без русской озвучки (не назван) - беру 2" in printed
-    assert "релиз 2 без русской озвучки (английский)" in printed
-    assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
-    assert "включаю релиз 2, звук английский" in printed
-    assert "играю его" not in printed, "второй строки под тот же случай не заводится"
+    assert "release 1 has no Russian dub (unnamed) - taking 2" in printed
+    assert "release 2 has no Russian dub (English)" in printed
+    assert "no Russian dub in any of the checked releases (2)" in printed
+    assert "turning on release 2, sound English" in printed
+    assert "playing it" not in printed, "второй строки под тот же случай не заводится"
 
 
 def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str]) -> None:
@@ -3584,8 +3584,8 @@ def test_a_refusal_names_the_living_parts_of_the_franchise(
     with pytest.raises(NotFoundError) as caught, Progress(out=io.StringIO()) as progress:
         Bench(cast(Any, _FakeTorrServer()), prober=prober).resolve(plan, args, progress)
 
-    assert "годного релиза нет" in str(caught.value)
-    assert "в каталоге есть Тачки 2 (2011), Тачки 3 (2017) - cast тачки 2" in str(caught.value)
+    assert "no fit release" in str(caught.value)
+    assert "the catalog has Тачки 2 (2011), Тачки 3 (2017) - cast тачки 2" in str(caught.value)
     capsys.readouterr()
 
 
@@ -3745,7 +3745,7 @@ def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
     prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
-    assert "не лучше" in capsys.readouterr().out
+    assert "not better" in capsys.readouterr().out
     assert torrserver.dropped == [f"hash-{ranked[1].magnet}"], "сосед отпущен по своему хэшу"
 
 
@@ -3776,7 +3776,7 @@ def test_a_neighbour_that_missed_its_budget_is_let_go_too(
     prep = _resolve(Bench(cast(Any, torrserver), prober=read, honest_budget=0.05), ranked)
 
     assert prep.number == 1, "ответа не дождались - играем то, что уже прочитано"
-    assert "не успел ответить" in capsys.readouterr().out
+    assert "did not answer in time" in capsys.readouterr().out
     deadline = time.monotonic() + 5.0
     while slow not in torrserver.dropped and time.monotonic() < deadline:
         time.sleep(0.05)
@@ -4001,7 +4001,7 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     # так как на 3 часах его битрейт падает ниже 16 Мбит/с.
     import re
 
-    assert re.search(r"1\s+1080p\s+20.0 ГБ", printed), (
+    assert re.search(r"1\s+1080p\s+20.0 GB", printed), (
         "таблица должна строиться на настоящей длительности"
     )
 
@@ -4071,7 +4071,7 @@ def test_releases_table_judges_by_the_detected_receiver_profile(
     assert phrase("worker.receiver_profile", title=ANDROID_TV.title, how=how) in printed, (
         "человек видит, по какому профилю судит таблица"
     )
-    assert "перекодируем" not in printed, "приставка играет 18 ГБ копией - пометка врала"
+    assert "recoding parts" not in printed, "приставка играет 18 ГБ копией - пометка врала"
 
 
 def test_releases_table_says_by_which_profile_it_judges_without_a_receiver(
@@ -4101,7 +4101,8 @@ def _turned_down_on_screen(printed: str) -> list[str]:
     проверки честности и «не успел ответить». Ловится номер, а не формулировка: тест про
     ДУБЛЬ и ПРОПУСК, а не про то, какими словами отказ объяснён.
     """
-    return re.findall(r"релиз (\d+) не (?:годится|лучше|успел ответить)", printed)
+    pattern = r"release (\d+) (?:does not fit|is not better|did not answer in time)"
+    return re.findall(pattern, printed)
 
 
 def _turned_down_in_trace() -> list[str]:
@@ -4193,7 +4194,7 @@ def test_a_neighbour_that_is_no_better_is_a_record_of_the_trace_too(
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
-    assert prep.number == 1 and "релиз 2 не лучше" in printed
+    assert prep.number == 1 and "release 2 is not better" in printed
     assert _turned_down_on_screen(printed) == _turned_down_in_trace() == ["2"]
 
 
