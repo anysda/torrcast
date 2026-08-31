@@ -110,7 +110,10 @@ def test_a_command_that_needs_configuration_still_names_the_broken_file(
     ("config_text", "stderr_substring"),
     [
         ("{не json", "битый конфиг"),
-        ('{"language": "de"}', "неизвестный язык"),
+        # Неведомый язык - это тот самый случай, когда домен не вправе спросить
+        # каталог, на каком языке пожаловаться (:mod:`torrcast.domain.catalogs.tongue`):
+        # жалоба всегда по-английски, тем же выбором, что у нечитаемой настройки.
+        ('{"language": "de"}', "unknown setting language"),
     ],
     ids=["битый-json", "неведомый-язык"],
 )
