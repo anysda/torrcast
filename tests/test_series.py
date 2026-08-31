@@ -444,7 +444,7 @@ def test_season_gaps_speaks_instead_of_dropping_picture() -> None:
     )
 
     lines = season_gaps([gintama, spinoff], shown=set(), want=Episode(1, 1))
-    assert lines == ["«Гинтама» (2018): раздач 2, но сезона 1 среди них нет - названы 6, 10"]
+    assert lines == ["“Гинтама” (2018): releases 2, but none of them names season 1 - named: 6, 10"]
     # Картина, попавшая в меню, о себе не рассказывает: рассказывать не о чем.
     assert season_gaps([gintama], shown={gintama.key}, want=Episode(1, 1)) == []
     # Имена, молчащие о сезонах, не дают повода сказать «сезона нет»: это была бы ложь.

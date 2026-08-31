@@ -57,7 +57,7 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
 
     assert client.asked == []
     assert merged is _ENGLISH
-    assert "добор по «Cars 2006» не делаю" in said.text
+    assert said.text == ("not doing добор по «Cars 2006»: the search already spent the goal at 10s")
 
 
 def test_the_same_line_is_never_asked_twice() -> None:

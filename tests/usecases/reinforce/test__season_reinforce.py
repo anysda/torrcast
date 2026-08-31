@@ -82,7 +82,7 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
 
     assert client.asked == []
     assert merged is _FIFTH
-    assert "добор сезона 1 не делаю" in said.text
+    assert said.text == ("not doing добор сезона 1: the search already spent the goal at 10s")
 
 
 def test_without_a_series_in_the_pool_there_is_nothing_to_reinforce() -> None:

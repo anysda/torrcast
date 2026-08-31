@@ -495,7 +495,7 @@ def test_a_japanese_only_show_says_so_out_loud_instead_of_playing_silently() -> 
     """
     pool = [named("Аниме [TV] [12 of 12] [JAP+Sub] [2020, WEBRip] [1080p]", size_gb=8, seeders=50)]
 
-    assert sound_note(_media("jpn"), 0, pool) == "только японский звук, перевода в каталоге нет"
+    assert sound_note(_media("jpn"), 0, pool) == ("Japanese sound only, no dub in the catalog")
 
 
 def test_when_the_catalogue_may_have_a_dub_the_line_does_not_promise_it() -> None:
@@ -513,7 +513,7 @@ def test_when_the_catalogue_may_have_a_dub_the_line_does_not_promise_it() -> Non
 
     note = sound_note(_media("jpn", "eng"), 0, pool)
 
-    assert note == "только японский звук - в каталоге, возможно, есть перевод в другой раздаче"
+    assert note == "Japanese sound only - the catalog may hold a dub in another release"
     assert "--release N" not in note
 
 
@@ -523,7 +523,7 @@ def test_an_unplayable_dub_is_not_offered_as_a_way_out() -> None:
 
     note = sound_note(_media("jpn"), 0, [], selected)
 
-    assert note == "только японский звук, перевода в каталоге нет"
+    assert note == "Japanese sound only, no dub in the catalog"
     assert "--release N" not in note
 
 
@@ -537,7 +537,7 @@ def test_a_dub_that_exists_only_as_a_separate_file_is_named_as_such() -> None:
 
     note = sound_note(_media("jpn", "eng"), 0, pool)
 
-    assert note == "только японский звук - в каталоге перевод есть, но лежит отдельным файлом"
+    assert note == ("Japanese sound only - the catalog has a dub, but it sits in a separate file")
     assert "--release N" not in note, "выбирать руками нечего - совет был бы враньём"
 
 
@@ -553,7 +553,7 @@ def test_a_separate_russian_audio_file_is_read_from_the_torrent_contents() -> No
 
     assert not release.external_dub, "имя релиза симптом не выдаёт"
     assert sound_note(_media("jpn"), 0, [release], release, files) == (
-        "только японский звук - в каталоге перевод есть, но лежит отдельным файлом"
+        "Japanese sound only - the catalog has a dub, but it sits in a separate file"
     )
 
 
@@ -570,8 +570,8 @@ def test_the_line_names_the_language_it_actually_hears() -> None:
     """
     pool = [named("Кино / Movie (1999) WEB-DL 1080p", size_gb=8, seeders=100)]
 
-    assert "только французский звук" in sound_note(_media("fra"), 0, pool)
-    assert "только оригинальный звук" in sound_note(_media("swe"), 0, pool)
+    assert sound_note(_media("fra"), 0, pool) == "French sound only, no dub in the catalog"
+    assert sound_note(_media("swe"), 0, pool) == "original sound only, no dub in the catalog"
 
 
 def test_an_undetermined_track_without_any_clue_says_the_language_is_unknown() -> None:
@@ -584,9 +584,8 @@ def test_an_undetermined_track_without_any_clue_says_the_language_is_unknown() -
     pool = [named("Movie (2019) WEB-DL 1080p", size_gb=8, seeders=100)]
     release = pool[0]
 
-    assert (
-        sound_note(_media("und"), 0, pool, release)
-        == "язык дорожки неизвестен - раздача не назвала язык озвучки"
+    assert sound_note(_media("und"), 0, pool, release) == (
+        "track language unknown - the release did not name the voice language"
     )
 
 
@@ -596,14 +595,15 @@ def test_an_undetermined_track_is_called_russian_only_when_the_name_proves_it() 
     """
     proven = named("Кино / Movie (1999) WEB-DL 1080p | Дубляж", size_gb=8, seeders=100)
     assert proven.dubbed
-    assert (
-        sound_note(_media("und"), 0, [proven], proven)
-        == "звук без метки языка - по имени релиза русская"
+    assert sound_note(_media("und"), 0, [proven], proven) == (
+        "sound has no language tag - the release name says Russian"
     )
 
     mute = named("Movie (2019) WEB-DL 1080p", size_gb=8, seeders=100)
     assert not mute.dubbed
-    assert "русская" not in sound_note(_media("und"), 0, [mute], mute)
+    assert sound_note(_media("und"), 0, [mute], mute) == (
+        "track language unknown - the release did not name the voice language"
+    )
 
 
 def test_a_bare_und_track_is_not_shown_to_the_human_as_the_word_und() -> None:
@@ -677,7 +677,7 @@ def test_an_anime_bd_remux_plays_by_a_whole_file_recode_instead_of_being_refused
     ), "1080p-ремукс на 36 Мбит/с обязан играть"
     assert (
         bench._trouble(prep, pinned=False, warn_mbit=config.bitrate_hard_mbit, recode=True)
-        == "слишком тяжёлый для приёмника, ~36 Мбит/с"
+        == "too heavy for the receiver, ~36 Mbit/s"
     ), "прежним потолком он же отбраковывался - и строка отказа называет причину"
 
 
@@ -806,7 +806,7 @@ def test_a_4k_remux_stays_refused_because_a_whole_file_recode_does_not_keep_up()
             recode=True,
             hard_mbit=config.bitrate_hard_mbit,
         )
-        == "перекод такого кадра этой машине не по силам, ~33 Мбит/с"
+        == "recoding this frame is beyond this machine, ~33 Mbit/s"
     ), "молчаливое имя ловится паспортом, и отказ винит нашу машину, а не приёмник"
 
 
@@ -945,7 +945,7 @@ def test_a_light_4k_release_is_taken_and_scaled_down_instead_of_being_refused() 
             recode=False,
             hard_mbit=config.bitrate_hard_mbit,
         )
-        == "2160p - такой кадр приёмнику только через перекод"
+        == "2160p - this frame reaches the receiver only through recoding"
     ), "ужимать нечем - честный отказ, и назван он кадром, а не кодеком"
 
 
@@ -1059,7 +1059,7 @@ def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goe
     printed = capsys.readouterr().out
     assert prep.number == 2, "японский релиз годным не считается - идём дальше по очереди"
     assert prep.found.tracks[0].is_russian
-    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
+    assert "release 1 has no Russian dub (Japanese) - taking 2" in printed
 
 
 def test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian(
@@ -1100,9 +1100,10 @@ def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучший из того, что есть, а не отказ"
-    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
-    assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
-    assert "включаю релиз 1, звук японский" in printed
+    assert "release 1 has no Russian dub (Japanese) - taking 2" in printed
+    assert (
+        "no Russian dub in any of the checked releases (2) - turning on release 1, sound Japanese"
+    ) in printed
 
 
 def test_the_catalogue_hole_lands_in_the_weekly_trace(
@@ -1123,7 +1124,7 @@ def test_the_catalogue_hole_lands_in_the_weekly_trace(
     rows = records()
     mute = [r for r in rows if r.get("event") == "mute"]
     assert mute, "дыра каталога обязана быть в ленте"
-    assert (mute[-1]["release"], mute[-1]["lang"], mute[-1]["checked"]) == (1, "японский", 2)
+    assert (mute[-1]["release"], mute[-1]["lang"], mute[-1]["checked"]) == (1, "Japanese", 2)
     assert "nobody has a Russian voice track (checked 2)" in digest(rows)
 
 
@@ -1165,8 +1166,10 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
 
     printed = capsys.readouterr().out
     assert prep.number == 6, "русская дорожка нашлась ниже по очереди - её и играем"
-    assert "релиз 4 без русской озвучки (не назван) - беру 5" in printed
-    assert "играю его" not in printed, "«не назван, играю его» больше не бывает"
+    assert "release 4 has no Russian dub (unnamed) - taking 5" in printed
+    assert "nothing more honest nearby, playing it" not in printed, (
+        "«не назван, играю его» больше не бывает"
+    )
 
 
 def test_when_the_queue_runs_out_the_named_language_plays_and_the_unnamed_does_not(
@@ -1188,10 +1191,15 @@ def test_when_the_queue_runs_out_the_named_language_plays_and_the_unnamed_does_n
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "играет названный японский, а не дорожка без метки языка"
-    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
-    assert "русской озвучки нет ни в одной из проверенных раздач (3)" in printed
-    assert "включаю релиз 1, звук японский" in printed
-    assert "звук не назван" not in printed
+    assert "release 1 has no Russian dub (Japanese) - taking 2" in printed
+    assert (
+        "no Russian dub in any of the checked releases (3) - turning on release 1, sound Japanese"
+    ) in printed
+    # Отложенным не бывает безымянный: финальный ход обязан назвать НАЗВАННЫЙ язык.
+    unnamed_turned_on = (
+        "no Russian dub in any of the checked releases (3) - turning on release 1, sound unnamed"
+    )
+    assert unnamed_turned_on not in printed, "«не назван, играю его» больше не бывает"
 
 
 def test_a_native_picture_still_plays_its_only_unnamed_track(
@@ -1245,7 +1253,7 @@ def test_a_foreign_picture_whose_original_is_hieroglyphs_keeps_the_voice_gate(
 
     assert not picture.native, "иероглифы в скобке - это названное имя, а не его отсутствие"
     assert prep.number == 2, "безымянная дорожка чужой картины русской не становится"
-    assert "релиз 1 без русской озвучки (не назван) - беру 2" in capsys.readouterr().out
+    assert "release 1 has no Russian dub (unnamed) - taking 2" in capsys.readouterr().out
 
 
 def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
@@ -1293,9 +1301,9 @@ def test_a_release_name_promising_russian_does_not_save_an_unnamed_passport(
 
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
-    verdicts = [line for line in capsys.readouterr().out.splitlines() if "включаю релиз" in line]
+    marker = "no Russian dub in any of the checked releases ("
+    verdicts = [line for line in capsys.readouterr().out.splitlines() if marker in line]
     assert prep.number == 2, "обещание именем годностью не считается"
     assert verdicts == [
-        "русской озвучки нет ни в одной из проверенных раздач (2) - "
-        "включаю релиз 2, звук английский"
+        "no Russian dub in any of the checked releases (2) - turning on release 2, sound English"
     ]
