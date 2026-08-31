@@ -1,0 +1,29 @@
+usage: cast [-h] [--tv [IP]] [-tg] [--ru | --en] [--release N] [--pick N]
+            [--menu] [--file N] [--voice [N|STUDIO]] [--new] [--dry]
+            [--since SPAN] [--version]
+            [query ...]
+
+torrcast - find a release and cast it to the TV without downloading
+
+positional arguments:
+  query               the title, or stop / status
+
+options:
+  -h, --help          show this help message and exit
+  --tv [IP]           TV setup: without an address - find receivers on the
+                      network and pick from the list
+  -tg                 open the Telegram bot setup menu
+  --ru                switch to Russian and remember the choice
+  --en                switch to English and remember the choice
+  --release N         debug: release N of the chosen picture; numbers come
+                      from cast releases with the same query
+  --pick N            picture N from the menu, without asking
+  --menu              show the list of pictures and ask, instead of switching
+                      on by itself
+  --file N            debug: take file N of the release
+  --voice [N|STUDIO]  voice: number or studio - take and remember, no value -
+                      menu
+  --new               the same release, file and track from the start
+  --dry               the whole resolve without casting
+  --since SPAN        cast log: since when (2d / 12h / 30m / YYYY-MM-DD)
+  --version           show program's version number and exit

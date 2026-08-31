@@ -13,6 +13,11 @@
 # возврата: `cast doctor` штатно отвечает 2, и потерять эту двойку так же плохо, как
 # потерять строку вывода.
 #
+# Язык продукта - НАСТРОЙКА (:mod:`torrcast.domain.catalogs.tongue`), а не переменная
+# среды: `TORRCAST_LANGUAGE` читает только установщик (`scripts/installer-language-
+# contract` держит его отдельно). Поэтому у прибора две стороны - `en` и `ru`, - и обе
+# заведены полем `language` в своём же временном `TORRCAST_CONFIG`, а не окружением.
+#
 # Файлы пользователя не трогаются: конфиг, состояние и лента уводятся в свой каталог.
 set -eu
 
@@ -25,59 +30,75 @@ reference=${1:-tests/fixtures/cli-contract}
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
-TORRCAST_CONFIG="$work/config.json"
 TORRCAST_STATE="$work/state.json"
 TORRCAST_LOG="$work/log"
-export TORRCAST_CONFIG TORRCAST_STATE TORRCAST_LOG
+export TORRCAST_STATE TORRCAST_LOG
 
 # Команды без внешнего мира: справка, версия, состояние и осмотр хозяйства. Показа тут
 # нет намеренно - он ходит в сеть и к телевизору, его держат тесты и живой стенд.
 run() {
-    name=$1
-    shift
-    ".venv/bin/cast" "$@" > "$work/$name.out" 2>&1 && code=0 || code=$?
-    echo "$code" > "$work/$name.rc"
+    tongue=$1
+    name=$2
+    shift 2
+    TORRCAST_CONFIG="$work/$tongue/config.json" ".venv/bin/cast" "$@" \
+        > "$work/$tongue/$name.out" 2>&1 && code=0 || code=$?
+    echo "$code" > "$work/$tongue/$name.rc"
 }
 
-run help --help
-run version --version
-run status status
-run doctor doctor
+for tongue in en ru; do
+    mkdir -p "$work/$tongue"
+    printf '{"language": "%s"}\n' "$tongue" > "$work/$tongue/config.json"
+    run "$tongue" help --help
+    run "$tongue" version --version
+    run "$tongue" status status
+    run "$tongue" doctor doctor
+done
 
 if [ "$mode" = снять ]; then
-    mkdir -p "$reference"
-    cp "$work"/*.rc "$reference/"
-    # Вывод осмотра в эталон не кладётся: он держит пути рабочего каталога и ответ живой
-    # сети, то есть на другой машине разошёлся бы сам собой. Сверяется только его код.
-    for name in help version status; do
-        cp "$work/$name.out" "$reference/$name.out"
+    for tongue in en ru; do
+        mkdir -p "$reference/$tongue"
+        cp "$work/$tongue"/*.rc "$reference/$tongue/"
+        # Вывод осмотра в эталон не кладётся: он держит пути рабочего каталога и ответ живой
+        # сети, то есть на другой машине разошёлся бы сам собой. Сверяется только его код.
+        for name in help version status; do
+            cp "$work/$tongue/$name.out" "$reference/$tongue/$name.out"
+        done
+        rm -f "$reference/$tongue/doctor.out"
     done
-    rm -f "$reference/doctor.out"
     echo "эталон снят: $reference"
     exit 0
 fi
 
 failed=0
-# Вывод сверяется побайтово только у команд, которые внешнего мира не касаются.
-# `cast doctor` меряет живое хозяйство - маршрут до телевизора, ответ mDNS, место на
-# диске, - и пришить его вывод к эталону значило бы объявить поломкой выключенный
-# телевизор. От него берётся код возврата: двойка на нездоровом хозяйстве - это
-# договор, а содержимое строк держит зеркало `tests/usecases/test_doctor.py`.
-for name in help version status; do
-    if ! cmp -s "$work/$name.out" "$reference/$name.out"; then
-        echo "разошёлся вывод: $name" >&2
-        diff -u "$reference/$name.out" "$work/$name.out" | head -40 >&2
+for tongue in en ru; do
+    if [ ! -d "$reference/$tongue" ]; then
+        echo "нет эталона для языка $tongue: $reference/$tongue" >&2
         failed=1
+        continue
     fi
-done
-for name in help version status doctor; do
-    if ! cmp -s "$work/$name.rc" "$reference/$name.rc"; then
-        echo "разошёлся код возврата: $name - было $(cat "$reference/$name.rc"), стало $(cat "$work/$name.rc")" >&2
-        failed=1
-    fi
+    # Вывод сверяется побайтово только у команд, которые внешнего мира не касаются.
+    # `cast doctor` меряет живое хозяйство - маршрут до телевизора, ответ mDNS, место на
+    # диске, - и пришить его вывод к эталону значило бы объявить поломкой выключенный
+    # телевизор. От него берётся код возврата: двойка на нездоровом хозяйстве - это
+    # договор, а содержимое строк держит зеркало `tests/usecases/test_doctor.py`.
+    for name in help version status; do
+        if ! cmp -s "$work/$tongue/$name.out" "$reference/$tongue/$name.out"; then
+            echo "разошёлся вывод ($tongue): $name" >&2
+            diff -u "$reference/$tongue/$name.out" "$work/$tongue/$name.out" | head -40 >&2
+            failed=1
+        fi
+    done
+    for name in help version status doctor; do
+        if ! cmp -s "$work/$tongue/$name.rc" "$reference/$tongue/$name.rc"; then
+            echo "разошёлся код возврата ($tongue): $name - было" \
+                "$(cat "$reference/$tongue/$name.rc"), стало $(cat "$work/$tongue/$name.rc")" >&2
+            failed=1
+        fi
+    done
 done
 if [ "$failed" -ne 0 ]; then
     echo "договор командной строки нарушен" >&2
     exit 1
 fi
-echo "договор командной строки соблюдён: вывод трёх команд побайтово, коды возврата всех четырёх"
+echo "договор командной строки соблюдён: вывод трёх команд побайтово, коды возврата всех" \
+    "четырёх, на обоих языках (en, ru)"
