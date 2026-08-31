@@ -12,8 +12,7 @@ def en() -> dict[str, str]:
         "season.no_next_found": "«{title}» - season {season} was the last: {err}",
         "season.search_failed": "«{title}» - season {upcoming} could not be searched: {err}",
         "season.no_releases_found": (
-            "«{title}» - season {season} was the last: no releases for season "
-            "{upcoming} were found"
+            "«{title}» - season {season} was the last: no releases for season {upcoming} were found"
         ),
         "season.could_not_start": "«{title}» - season {upcoming} could not start: {err}",
     }

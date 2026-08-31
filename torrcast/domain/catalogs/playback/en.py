@@ -45,8 +45,7 @@ def en() -> dict[str, str]:
             "there are {total} video files in this release, no number {number} there"
         ),
         "playback.picking_largest_file": (
-            "there are {total} video files in this release - playing the largest, "
-            "its share {share}"
+            "there are {total} video files in this release - playing the largest, its share {share}"
         ),
         "recoder.profile_container": "weight profile: container {mbit} Mbit/s, ",
         "recoder.basis_estimate": "an estimate",

@@ -27,9 +27,9 @@ from torrcast.usecases.screen_line import screen_line
 def _timeout_prefix(secs: float) -> str:
     """Постоянная часть надписи о несостоявшемся старте - до ответа юнита."""
     marker = "\x00"
-    return phrase(
-        "playback.did_not_start_timeout", secs=f"{secs:.0f}", said=marker
-    ).split(marker)[0]
+    return phrase("playback.did_not_start_timeout", secs=f"{secs:.0f}", said=marker).split(marker)[
+        0
+    ]
 
 
 def test_a_frame_the_receiver_never_takes_is_refused_before_the_unit(

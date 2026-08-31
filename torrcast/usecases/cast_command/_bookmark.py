@@ -119,9 +119,7 @@ def _continue_picked(
         )
         if not kept:  # сериалу место уже поднято (:func:`_kept_place`) - строка соврала бы
             print(
-                phrase(
-                    "bookmark.release_named_resume", title=started.title, pos=_hms(started.pos)
-                )
+                phrase("bookmark.release_named_resume", title=started.title, pos=_hms(started.pos))
             )
     if args.pinned:
         return None

@@ -179,9 +179,10 @@ def test_a_picture_absent_from_the_answer_is_the_same_last_season(
     found = _next_season(Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=lambda *_a, **_k: [])
 
     assert found is False
-    assert phrase(
-        "season.no_releases_found", title="Сериал", season=4, upcoming=5
-    ) in capsys.readouterr().out
+    assert (
+        phrase("season.no_releases_found", title="Сериал", season=4, upcoming=5)
+        in capsys.readouterr().out
+    )
 
 
 def test_a_season_that_cannot_be_played_names_the_refusal(
@@ -201,9 +202,10 @@ def test_a_season_that_cannot_be_played_names_the_refusal(
     )
 
     assert found is False
-    assert phrase(
-        "season.could_not_start", title="Сериал", upcoming=5, err="рой мёртв"
-    ) in capsys.readouterr().out
+    assert (
+        phrase("season.could_not_start", title="Сериал", upcoming=5, err="рой мёртв")
+        in capsys.readouterr().out
+    )
     assert bench.dropped == 1, "прогретое без показа убрано"
 
 

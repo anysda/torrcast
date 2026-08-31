@@ -71,8 +71,7 @@ def test_a_moved_pointer_proves_the_picture_and_raises_the_flag(
     assert (screen.seen, screen.raised) == (True, True)
     assert marked == [feed.out]
     assert (
-        phrase("revive.picture_started", tag="[сеанс]", pos=_hms(122.0))
-        in capsys.readouterr().out
+        phrase("revive.picture_started", tag="[сеанс]", pos=_hms(122.0)) in capsys.readouterr().out
     )
 
 

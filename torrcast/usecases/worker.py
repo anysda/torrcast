@@ -94,9 +94,7 @@ def _cmd_worker(key: str, *, play: Callable[..., int] = _play) -> int:
     # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
     chosen = _worker_detect(config)
     config = tune(config, chosen.profile)
-    print(
-        phrase("worker.receiver_profile", title=chosen.profile.title, how=chosen.how), flush=True
-    )
+    print(phrase("worker.receiver_profile", title=chosen.profile.title, how=chosen.how), flush=True)
     # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
     signal.signal(signal.SIGTERM, _on_term)
     torrserver = _worker_engines(config.torrserver_url)

@@ -13,7 +13,9 @@ def en() -> dict[str, str]:
     return {
         "revive.screen_dark": "show went dark at {pos}",
         "revive.no_frame_yet": "not a single frame shown yet (started from {pos})",
-        "revive.will_raise": "{said} ({why}) - I will bring it back myself once the network returns",
+        "revive.will_raise": (
+            "{said} ({why}) - I will bring it back myself once the network returns"
+        ),
         "revive.give_up": (
             "could not bring the show back ({tries} tries, dark for {dark} s) - "
             "giving up; cast will resume from {pos}"
@@ -31,7 +33,9 @@ def en() -> dict[str, str]:
         ),
         "revive.tries_so_far": "raised {tries} out of {limit}",
         "revive.source_not_back": "the source has not returned - leaving the receiver alone",
-        "revive.dark_report": "{tag} dark for {dark} ({why}) - no picture; {spent}, giving up in {left}",
+        "revive.dark_report": (
+            "{tag} dark for {dark} ({why}) - no picture; {spent}, giving up in {left}"
+        ),
         "revive.no_network": "no network ({why}) - show is covered until {until}",
         "revive.pause_from_remote": "paused from the remote - stopping the pack",
         "revive.pause_session_lost": (
@@ -53,7 +57,9 @@ def en() -> dict[str, str]:
             "end of the picture: the pointer has stood at {pos} for {secs} s already - "
             "calling it watched"
         ),
-        "revive.closed_by_remote": "{tag} show closed from the remote at {pos} - not bringing it back",
+        "revive.closed_by_remote": (
+            "{tag} show closed from the remote at {pos} - not bringing it back"
+        ),
         "revive.source_restarted": "TorrServer restarted - returned the pack by magnet",
         "revive.source_back_readded": "the source is back - added the pack by magnet again",
     }

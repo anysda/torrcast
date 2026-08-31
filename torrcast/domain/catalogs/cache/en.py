@@ -11,13 +11,10 @@ def en() -> dict[str, str]:
         "cache.reserve_unknown_no_answer": (
             "cache reserve unknown - the torrent service is not answering"
         ),
-        "cache.reserve_unknown_silent": (
-            "cache reserve unknown - the service is silent about it"
-        ),
+        "cache.reserve_unknown_silent": ("cache reserve unknown - the service is silent about it"),
         "cache.reserve_empty": "the service cache is empty, no reserve for playback",
         "cache.reserve_unconvertible": (
-            "there is a cache reserve, cannot convert it to minutes - "
-            "the file bitrate is unknown"
+            "there is a cache reserve, cannot convert it to minutes - the file bitrate is unknown"
         ),
         "cache.reserve_under_minute": "the service cache reserve is under a minute of playback",
         "cache.reserve_minutes": (

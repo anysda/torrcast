@@ -279,9 +279,9 @@ def test_status_is_honest_when_nothing_plays(
     printed = capsys.readouterr().out
     assert printed.startswith(phrase("status.nothing_playing"))
     marker = "DURATION-MARKER"
-    head = phrase(
-        "status.last_resumable", title="Моана 2", pos="0:41:07", duration=marker
-    ).split(marker)[0]
+    head = phrase("status.last_resumable", title="Моана 2", pos="0:41:07", duration=marker).split(
+        marker
+    )[0]
     assert head in printed
 
 
@@ -303,9 +303,15 @@ def test_status_tells_about_a_show_that_died_without_a_single_frame(
     assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert phrase(
-        "status.torn", what="«Моана 2»", was=phrase("status.no_frame"), reason="приёмник бросил показ"
-    ) in printed
+    assert (
+        phrase(
+            "status.torn",
+            what="«Моана 2»",
+            was=phrase("status.no_frame"),
+            reason="приёмник бросил показ",
+        )
+        in printed
+    )
     assert phrase("status.nothing_playing") not in printed, (
         "молчаливого «всё в порядке» тут быть не должно"
     )

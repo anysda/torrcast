@@ -9,7 +9,6 @@ def ru() -> dict[str, str]:
         "voices_command.no_query": "что искать? cast voices <запрос>",
         "voices_command.head": "{title} - релиз {number}: {cut}",
         "voices_command.play_specific": (
-            "играть конкретную: cast <запрос> --voice N|СТУДИЯ   "
-            "(выбор запомнится на картину)"
+            "играть конкретную: cast <запрос> --voice N|СТУДИЯ   (выбор запомнится на картину)"
         ),
     }

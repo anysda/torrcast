@@ -177,8 +177,8 @@ def test_status_survives_dead_service(
 
     out = capsys.readouterr().out
     marker = "@"
-    prefix = phrase(
-        "status.playing", what="«Моана 2»", pos=marker, duration=marker
-    ).split(marker)[0]
+    prefix = phrase("status.playing", what="«Моана 2»", pos=marker, duration=marker).split(marker)[
+        0
+    ]
     assert prefix in out
     assert phrase("cache.reserve_unknown_no_answer") in out

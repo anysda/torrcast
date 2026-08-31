@@ -26,12 +26,13 @@ def ru() -> dict[str, str]:
         ),
         "revive.tries_so_far": "поднимал {tries} из {limit}",
         "revive.source_not_back": "источник не вернулся - приёмник не трогаю",
-        "revive.dark_report": "{tag} темнота {dark} ({why}) - картинки нет; {spent}, погашу через {left}",
+        "revive.dark_report": (
+            "{tag} темнота {dark} ({why}) - картинки нет; {spent}, погашу через {left}"
+        ),
         "revive.no_network": "сети нет ({why}) - показ обеспечен до {until}",
         "revive.pause_from_remote": "пауза на пульте - упаковку гашу",
         "revive.pause_session_lost": (
-            "сессию на паузе приёмник потерял - возвращаю показ на {pos}; "
-            "сам он не начнётся"
+            "сессию на паузе приёмник потерял - возвращаю показ на {pos}; сам он не начнётся"
         ),
         "revive.pause_restored": "показ вернул на {pos} и стоит на паузе - жду зрителя",
         "revive.receiver_dropped_show": "приёмник бросил показ",
