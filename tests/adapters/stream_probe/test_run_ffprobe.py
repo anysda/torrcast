@@ -32,7 +32,7 @@ def test_a_silent_swarm_breaks_the_wait_long_before_the_budget() -> None:
     Ffprobe на такой молча сидит весь срок, и досиживать его незачем: запасной релиз
     уже греется параллельно.
     """
-    with pytest.raises(SwarmError, match="рой молчит"):
+    with pytest.raises(SwarmError, match="swarm is silent"):
         _run_ffprobe(_HANG, timeout=30.0, alive=lambda: False)
 
 

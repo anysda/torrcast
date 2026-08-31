@@ -8,6 +8,7 @@ import subprocess
 import time
 from collections.abc import Callable
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.swarm_error import SwarmError
 
 
@@ -32,7 +33,7 @@ def _run_ffprobe(command: list[str], timeout: float, alive: Callable[[], bool] |
             if not alive():
                 proc.kill()
                 proc.communicate()
-                raise SwarmError("рой молчит - за отсрочку не пришло ни байта потока") from None
+                raise SwarmError(phrase("stream_probe.swarm_silent")) from None
             if time.monotonic() >= deadline:
                 proc.kill()
                 proc.communicate()

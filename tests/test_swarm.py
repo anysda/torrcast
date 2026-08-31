@@ -55,7 +55,7 @@ def test_run_ffprobe_returns_the_moment_the_probe_exits() -> None:
 def test_run_ffprobe_bails_at_once_on_a_swarm_declared_dead() -> None:
     """Рой признан мёртвым — обрываем ffprobe сразу, а не досиживаем весь timeout."""
     began = time.monotonic()
-    with pytest.raises(InfraError, match="рой молчит"):
+    with pytest.raises(InfraError, match="swarm is silent"):
         _run_ffprobe(["sleep", "40"], timeout=40.0, alive=lambda: False)
     assert time.monotonic() - began < 3.0
 

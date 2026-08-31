@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.probe_settings import META_GRACE
 from torrcast.domain.swarm_supply import ENOUGH, swarm_supply
@@ -77,16 +78,16 @@ class Supply:
             return ""
         try:
             if not self.server.alive():
-                return self._blame("TorrServer не отвечает")
+                return self._blame(phrase("stream_probe.service_down"))
             if not self.server.listed(self.torrent_hash):
-                self._blame("TorrServer потерял нашу раздачу")
+                self._blame(phrase("stream_probe.torrent_lost"))
             else:
                 status = self.server.status(self.torrent_hash)
                 files = status.get("file_stats")
                 if not isinstance(files, list) or not files:
                     if time.monotonic() - self.restored_at < META_GRACE:
                         return ""  # раздачу только что вернули магнитом - метаданные ещё едут
-                    self._blame("раздача осталась без трекеров - метаданных нет")
+                    self._blame(phrase("stream_probe.no_trackers"))
                 elif self.lost:
                     pass
                 else:
@@ -98,9 +99,11 @@ class Supply:
                     journal().supply(ratio, got, need, enough)
                     if enough:
                         return ""
-                    return (
-                        f"рой привозит {got:.2f} Мбит/с при нужных {need:.2f} Мбит/с - "
-                        f"снабжения не хватает ({ratio:.2f}x)"
+                    return phrase(
+                        "stream_probe.thin_swarm",
+                        got=f"{got:.2f}",
+                        need=f"{need:.2f}",
+                        ratio=f"{ratio:.2f}",
                     )
         except InfraError as exc:
             return self._blame(str(exc))
@@ -122,7 +125,8 @@ class Supply:
         try:
             self.server.add(self.magnet)
         except InfraError:
-            return why_source or "TorrServer не отвечает"  # служба ещё не поднялась
+            # служба ещё не поднялась
+            return why_source or phrase("stream_probe.service_down")
         self.lost, self.restored, self.restored_at = "", True, time.monotonic()
         return ""
 

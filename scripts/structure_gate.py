@@ -118,9 +118,6 @@ TRANSLATION_DEBT: Final = {
     # `torrcast.domain.digest._event_line`, докстрока про «отбор релиза релиз=2») - это
     # не долг одного файла, а решение архитектуры, не в силах этого наряда.
     "torrcast/adapters/stream_pack/_merged_out.py": 5,
-    "torrcast/adapters/stream_probe/pick_video_file.py": 1,
-    "torrcast/adapters/stream_probe/run_ffprobe.py": 1,
-    "torrcast/adapters/stream_probe/supply.py": 3,
     # Оба OSError идут в нитку нижнего уровня похода в Википедию, а её глотает вызывающий
     # (`torrcast.usecases.lookers.Lookers.looker`: `with contextlib.suppress(Exception)`,
     # `torrcast.adapters.wiki.wiki_blurbs.WikiBlurbs.fetch`: `except OSError`) - до

@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from torrcast.domain._name_data.data_3 import VIDEO_EXT
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 
 if TYPE_CHECKING:
@@ -25,8 +26,5 @@ def pick_video_file(files: list[TorrFile]) -> TorrFile:
     """
     videos = [f for f in files if f.name.lower().endswith(VIDEO_EXT)]
     if not videos:
-        raise NotFoundError(
-            "в раздаче нет отдельного видеофайла (похоже на образ диска) - "
-            "возьми другой релиз: cast <запрос> --release N"
-        )
+        raise NotFoundError(phrase("stream_probe.disc_image"))
     return max(videos, key=lambda f: f.size)

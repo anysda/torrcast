@@ -61,8 +61,8 @@ def test_a_dead_service_is_named_and_not_confused_with_a_thin_swarm() -> None:
     """Разница между «просел рой» и «службы не стало» - вся разница для человека."""
     supply = _supply(_Server(up=False))
 
-    assert supply.check() == "TorrServer не отвечает"
-    assert supply.lost == "TorrServer не отвечает", "авария запоминается до разбора"
+    assert supply.check() == "TorrServer does not answer"
+    assert supply.lost == "TorrServer does not answer", "авария запоминается до разбора"
 
 
 def test_a_lost_torrent_comes_back_by_the_magnet_with_its_trackers() -> None:
@@ -103,7 +103,7 @@ def test_without_a_magnet_there_is_nothing_to_restore_from() -> None:
     server = _Server(listed=False)
     supply = _supply(server, magnet="")
 
-    assert supply.check() == "TorrServer потерял нашу раздачу"
+    assert supply.check() == "TorrServer lost our torrent"
     assert server.added == []
 
 
@@ -133,7 +133,9 @@ def test_a_live_but_thin_swarm_is_measured_named_and_written_to_the_tape() -> No
     finally:
         install(Silent())
 
-    expected = "рой привозит 1.00 Мбит/с при нужных 8.00 Мбит/с - " + "снабжения не хватает (0.12x)"
+    expected = "the swarm delivers 1.00 Mbit/s against the needed 8.00 Mbit/s - " + (
+        "supply is short (0.12x)"
+    )
     assert answer == expected
     assert tape.measures == [(0.125, 1.0, 8.0, False)]
 

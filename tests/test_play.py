@@ -144,7 +144,7 @@ def test_a_release_without_a_video_file_is_a_verdict_not_an_infra_error() -> Non
     from torrcast.domain.not_found_error import NotFoundError
     from torrcast.domain.torr_file import TorrFile
 
-    with pytest.raises(NotFoundError, match="нет отдельного видеофайла"):
+    with pytest.raises(NotFoundError, match="no separate video file"):
         pick_video_file([TorrFile(0, "VIDEO_TS.VOB", 4 * 1024**3), TorrFile(1, "cover.jpg", 1)])
 
 
@@ -995,11 +995,11 @@ def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
 
     marked = [mark for mark in seen if mark[0]]
     assert marked, "темнота не названа темнотой ни разу за все 900 с"
-    assert {why for _at, why in marked} == {"TorrServer не отвечает"}, "причина не та"
+    assert {why for _at, why in marked} == {"TorrServer does not answer"}, "причина не та"
     assert len(marked) * 2 > REVIVE_LIMIT * 0.9, "отметка появилась не сразу, а под конец"
     assert seen[0] == (0.0, ""), "у живой картинки отметки темноты нет"
     printed = capsys.readouterr().out
-    assert "(TorrServer не отвечает) - картинки нет; источник не вернулся" in printed, (
+    assert "(TorrServer does not answer) - картинки нет; источник не вернулся" in printed, (
         "человеку про темноту сказано числом, а не строкой «экран: … · IDLE»"
     )
     # Граница сидит на такте опроса: с учащённым шагом окна старта последняя строка
@@ -1037,7 +1037,7 @@ def test_the_darkness_reason_follows_a_returning_source(tmp_path: Path) -> None:
     revival = _Revival(supply=_supply(service), clock=clock)
 
     assert revival.resurrect(receiver, feed, warmer, 1200.0)  # type: ignore[arg-type]
-    assert revival.why == "TorrServer не отвечает"
+    assert revival.why == "TorrServer does not answer"
     service.up = True
 
     assert revival.resurrect(receiver, feed, warmer, 1200.0)  # type: ignore[arg-type]
@@ -2647,13 +2647,13 @@ def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
     _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
-    assert "показ погас на 0:20:00 (TorrServer не отвечает)" in printed, (
+    assert "показ погас на 0:20:00 (TorrServer does not answer)" in printed, (
         "человеку сказано про источник, а не про приёмник"
     )
     rows = _events(journal)
     dark = next(r for r in rows if r["event"] == "dark")
     offline = next(r for r in rows if r["event"] == "offline")
-    assert dark["why"] == "TorrServer не отвечает" == offline["why"], "след и строка совпадают"
+    assert dark["why"] == "TorrServer does not answer" == offline["why"], "след и строка совпадают"
     assert offline["asked"] is True, "причина взята у самого источника, а не угадана"
     assert receiver.replays == [], "пока источник лежит, терпение приёмника не жжём"
 
@@ -2737,9 +2737,9 @@ def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
     _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
-    assert "источник не читается (TorrServer не отвечает) - жду его возврата" in printed
+    assert "источник не читается (TorrServer does not answer) - жду его возврата" in printed
     assert "упаковка оборвалась" not in printed, "показ не хоронит себя чужой виной"
-    assert feed.offline == "TorrServer не отвечает", "приговор упаковке снят, показ ждёт"
+    assert feed.offline == "TorrServer does not answer", "приговор упаковке снят, показ ждёт"
     rows = _events(journal)
     assert [r["asked"] for r in rows if r["event"] == "offline"] == [True]
 
@@ -2794,7 +2794,7 @@ def test_a_show_that_never_started_still_names_the_dead_source() -> None:
     service = _Service(up=False)
     supply = _supply(service)
 
-    with pytest.raises(InfraError, match="источник не читается \\(TorrServer не отвечает\\)"):
+    with pytest.raises(InfraError, match="источник не читается \\(TorrServer does not answer\\)"):
         _blame_the_end(supply, clock=FakeClock())
 
 

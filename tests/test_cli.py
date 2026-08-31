@@ -1269,10 +1269,10 @@ def test_a_disc_image_verdict_is_not_asked_twice(capsys: pytest.CaptureFixture[s
         _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
-    assert "релиз 1 не годится (в раздаче нет отдельного видеофайла" in printed
+    assert "релиз 1 не годится (the torrent has no separate video file" in printed
     assert "спрашиваю релиз 2 ещё раз" in printed, "переспрашивается промолчавший"
     assert "спрашиваю релиз 1" not in printed, "осуждённый второго спроса не получает"
-    assert printed.count("отдельного видеофайла") == 1, "приговор звучит ровно один раз"
+    assert printed.count("no separate video file") == 1, "приговор звучит ровно один раз"
 
 
 def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm() -> None:

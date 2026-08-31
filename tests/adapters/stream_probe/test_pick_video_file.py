@@ -31,7 +31,7 @@ def test_a_disc_image_is_refused_for_good_not_asked_again() -> None:
     """
     files = [TorrFile(0, "VIDEO_TS/VTS_01_1.VOB", 4 * _GB), TorrFile(1, "info.nfo", 1024)]
 
-    with pytest.raises(NotFoundError, match="похоже на образ диска"):
+    with pytest.raises(NotFoundError, match="looks like a disc image"):
         pick_video_file(files)
     assert not issubclass(NotFoundError, InfraError), "второй спрос дал бы тот же ответ"
 
