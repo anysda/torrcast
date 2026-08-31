@@ -33,7 +33,7 @@ curl -fsSL https://rutorrcast.anysda.space | sh
 ```
 
 На голом Debian 12 `curl` **не стоит**, его надо поставить первым. Бутстрапу нужны
-`curl`, `tar`, `sha256sum` и `bash`. Однострок спрашивает у GitLab последнюю версию,
+`curl`, `tar`, `sha256sum` и `bash`. Однострок спрашивает у GitHub последнюю версию,
 тащит тарбол ровно этой версии, сверяет его контрольную сумму SHA-256 и запускает
 `install.sh` уже изнутри. Запущенный не под root, бутстрап перезапускает сам себя через
 `sudo`; там, где `sudo` нет, он останавливается и печатает точную команду для root.
@@ -47,7 +47,7 @@ curl -fsSL https://rutorrcast.anysda.space | sh
 Из исходников:
 
 ```sh
-git clone https://gitlab.anysda.space/anysda/torrcast && cd torrcast
+git clone https://github.com/anysda/torrcast && cd torrcast
 sudo ./install.sh -ru
 ```
 

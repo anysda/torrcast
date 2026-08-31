@@ -40,7 +40,7 @@ curl -fsSL https://torrcast.anysda.space | sh
 
 Una instalación limpia de Debian 12 **no** incluye `curl`; hay que instalarlo primero. El
 bootstrap necesita `curl`, `tar`, `sha256sum` y `bash`. El comando de una línea le pregunta a
-GitLab por la última versión, descarga ese tarball de release exacto, verifica su suma SHA-256
+GitHub por la última versión, descarga ese tarball de release exacto, verifica su suma SHA-256
 y ejecuta el `install.sh` que hay dentro. Cuando no se ejecuta como root, el bootstrap se
 relanza a sí mismo a través de `sudo`; donde no hay `sudo`, se detiene e imprime el comando
 exacto que hay que ejecutar como root.
@@ -54,7 +54,7 @@ release con el ruso como idioma del producto. En cualquier caso la elección no 
 Desde el código fuente:
 
 ```sh
-git clone https://gitlab.anysda.space/anysda/torrcast && cd torrcast
+git clone https://github.com/anysda/torrcast && cd torrcast
 sudo ./install.sh
 ```
 

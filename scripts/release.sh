@@ -1,24 +1,24 @@
 #!/bin/sh
 # scripts/release.sh [--dry-run] <tag>   - публикация релиза torrcast, шесть шагов
-# из TC-886. Тело одно: позже .gitlab-ci.yml (TC-892) зовёт его так же по тегу,
-# только токен приедет как CI_JOB_TOKEN вместо GITLAB_TOKEN.
+# из TC-886. Тело одно: пайплайн зовёт его так же по тегу, только токен приедет
+# из секретов, а не из окружения руками.
 #
 # 1. тег - semver (vX.Y.Z), и его коммит лежит на master
 # 2. клон репы ПО ТЕГУ в mktemp -d (не рабочее дерево)
 # 3. версия из тега - в три места: version.py, pyproject.toml, install.sh
 # 4. тарбол + sha256
-# 5. заливка тарбола и sha256 в generic-реестр
-# 6. Release на теге (asset install + asset tarball), сверка permalink/latest снаружи
+# 5. Release на теге
+# 6. три ассета (тарбол, sha256, install) и сверка releases/latest снаружи
 #
 # --dry-run: 1-4 по-настоящему, 5-6 только печатает - так скрипт проверяем без
-# токена и без права писать в GitLab.
+# токена и без права писать в GitHub.
 set -eu
 
-GITLAB_API="${TORRCAST_GITLAB_API:-https://gitlab.anysda.space/api/v4}"
-GITLAB_WEB="${TORRCAST_GITLAB_WEB:-https://gitlab.anysda.space}"
-GITLAB_REPO="${TORRCAST_GITLAB_REPO:-$GITLAB_WEB/anysda/torrcast.git}"
-PROJECT_ID="${TORRCAST_PROJECT_ID:-10}"
+GITHUB_API="${TORRCAST_GITHUB_API:-https://api.github.com}"
+GITHUB_UPLOADS="${TORRCAST_GITHUB_UPLOADS:-https://uploads.github.com}"
+GITHUB_WEB="${TORRCAST_GITHUB_WEB:-https://github.com}"
 PROJECT_PATH="${TORRCAST_PROJECT_PATH:-anysda/torrcast}"
+GITHUB_REPO="${TORRCAST_GITHUB_REPO:-$GITHUB_WEB/$PROJECT_PATH.git}"
 
 die()  { printf 'ошибка: %s\n' "$*" >&2; exit 1; }
 info() { printf '%s\n' "$*" >&2; }
@@ -52,11 +52,11 @@ check_tag_format() {  # $1 - тег
 # --- 1+2. клон ПО ТЕГУ, с проверкой, что коммит лежит на master -------------
 clone_at_tag() {  # $1 - каталог назначения, $2 - тег
     dst="$1" t="$2"
-    git clone --quiet "$GITLAB_REPO" "$dst" || die "не клонируется $GITLAB_REPO"
+    git clone --quiet "$GITHUB_REPO" "$dst" || die "не клонируется $GITHUB_REPO"
     (
         cd "$dst"
         git rev-parse -q --verify "refs/tags/$t" >/dev/null 2>&1 \
-            || die "тега $t нет в $GITLAB_REPO"
+            || die "тега $t нет в $GITHUB_REPO"
         git merge-base --is-ancestor "refs/tags/$t" origin/master \
             || die "тег $t не лежит на master"
         git checkout --quiet "$t"
@@ -102,51 +102,54 @@ build_tarball() {  # $1 - рабочий каталог (внутри - src/ к�
     ( cd "$work" && sha256sum "torrcast-$ver.tar.gz" > "torrcast-$ver.tar.gz.sha256" )
 }
 
-# --- 5. заливка в generic-реестр ---------------------------------------------
-upload_package() {  # $1 - рабочий каталог, $2 - версия без v, $3 - заголовок токена
-    work="$1" ver="$2" auth="$3"
-    base="$GITLAB_API/projects/$PROJECT_ID/packages/generic/torrcast/$ver"
-    curl -fsSL -H "$auth" --upload-file "$work/torrcast-$ver.tar.gz" \
-         "$base/torrcast-$ver.tar.gz" || die "не залился тарбол"
-    curl -fsSL -H "$auth" --upload-file "$work/torrcast-$ver.tar.gz.sha256" \
-         "$base/torrcast-$ver.tar.gz.sha256" || die "не залился sha256"
-}
-
-# --- 6. Release на теге + сверка permalink/latest снаружи --------------------
-release_body() {  # $1 - тег, $2 - url install, $3 - url тарбола; описание - из $notes
+# --- 5. Release на теге -------------------------------------------------------
+release_body() {  # $1 - тег; описание - из $notes
     need python3
-    TC_TAG="$1" TC_INSTALL="$2" TC_TARBALL="$3" TC_NOTES="$notes" python3 -c '
+    TC_TAG="$1" TC_NOTES="$notes" python3 -c '
 import json
 import os
 
-body = {
-    "tag_name": os.environ["TC_TAG"],
-    "assets": {
-        "links": [
-            {"name": "install", "url": os.environ["TC_INSTALL"], "filepath": "/install"},
-            {"name": "tarball", "url": os.environ["TC_TARBALL"]},
-        ]
-    },
-}
+body = {"tag_name": os.environ["TC_TAG"], "name": os.environ["TC_TAG"]}
 notes = os.environ["TC_NOTES"]
 if notes:
     with open(notes, encoding="utf-8") as fh:
-        body["description"] = fh.read()
+        body["body"] = fh.read()
 print(json.dumps(body, ensure_ascii=False))
 '
 }
 
-publish_release() {  # $1 - тег, $2 - версия без v, $3 - заголовок токена
-    t="$1" ver="$2" auth="$3"
-    tarball_url="$GITLAB_API/projects/$PROJECT_ID/packages/generic/torrcast/$ver/torrcast-$ver.tar.gz"
-    install_url="$GITLAB_WEB/$PROJECT_PATH/-/raw/$t/install"
-    curl -fsSL -X POST -H "$auth" -H 'Content-Type: application/json' \
-        --data "$(release_body "$t" "$install_url" "$tarball_url")" \
-        "$GITLAB_API/projects/$PROJECT_ID/releases" >/dev/null || die "релиз не завёлся"
+# Печатает id созданного релиза. Разбор - питоном, а не sed: в ответе GitHub полей
+# "id" много (автор, каждый ассет), и первое попавшееся - не то, что нужно.
+create_release() {  # $1 - тег, $2 - заголовок токена
+    need python3
+    curl -fsSL -X POST -H "$2" -H 'Content-Type: application/json' \
+        -H 'X-GitHub-Api-Version: 2022-11-28' \
+        --data "$(release_body "$1")" \
+        "$GITHUB_API/repos/$PROJECT_PATH/releases" \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])'
+}
 
-    got="$(curl -fsSL "$GITLAB_API/projects/$PROJECT_ID/releases/permalink/latest" \
-           | sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p')"
-    [ "$got" = "$t" ] || die "после публикации permalink/latest отдал «$got», а не «$t»"
+# --- 6. ассеты релиза + сверка releases/latest снаружи ------------------------
+# Ассет `install` кладётся под этим именем не для красоты: короткий адрес установщика
+# редиректит на `releases/latest/download/install`, и имя там - часть адреса.
+upload_asset() {  # $1 - id релиза, $2 - путь к файлу, $3 - имя ассета, $4 - заголовок токена
+    curl -fsSL -X POST -H "$4" -H 'Content-Type: application/octet-stream' \
+        -H 'X-GitHub-Api-Version: 2022-11-28' \
+        --data-binary "@$2" \
+        "$GITHUB_UPLOADS/repos/$PROJECT_PATH/releases/$1/assets?name=$3" >/dev/null \
+        || die "не залился ассет $3"
+}
+
+# Сверка тем же способом, каким версию узнаёт бутстрап: `/releases/latest` обязан
+# перенаправить на `/releases/tag/<тег>`. Спрашиваем БЕЗ токена - так же, как аноним.
+check_latest_points_at() {  # $1 - тег
+    loc="$(curl -fsS -o /dev/null -w '%{redirect_url}' \
+                "$GITHUB_WEB/$PROJECT_PATH/releases/latest")" \
+        || die "releases/latest не отвечает"
+    case "$loc" in
+        */releases/tag/"$1") ;;
+        *) die "после публикации releases/latest ведёт на «$loc», а не на тег $1" ;;
+    esac
 }
 
 main() {
@@ -162,7 +165,7 @@ main() {
     cleanup() { [ "$dry_run" -eq 1 ] || rm -rf "$work"; }
     trap cleanup EXIT
 
-    info "[2] клонирую $GITLAB_REPO по тегу $tag"
+    info "[2] клонирую $GITHUB_REPO по тегу $tag"
     clone_at_tag "$work/src" "$tag"
 
     ver="${tag#v}"
@@ -174,22 +177,24 @@ main() {
 
     if [ "$dry_run" -eq 1 ]; then
         info "--dry-run: шаги 5-6 не выполняю, только печатаю намерение"
-        info "  [5] залил бы torrcast-$ver.tar.gz(.sha256) в $GITLAB_API/projects/$PROJECT_ID/packages/generic/torrcast/$ver/"
-        info "  [6] завёл бы Release на $tag (asset install -> /install, asset tarball), сверил бы permalink/latest = $ver"
+        info "  [5] завёл бы Release на $tag в $GITHUB_API/repos/$PROJECT_PATH/releases"
+        info "  [6] залил бы ассеты torrcast-$ver.tar.gz, torrcast-$ver.tar.gz.sha256 и install, сверил бы releases/latest = $tag"
         info "тарбол и sha256 оставлены на диске: $work - прибери сам после проверки"
         return 0
     fi
 
-    auth=""
-    [ -n "${CI_JOB_TOKEN:-}" ] && auth="JOB-TOKEN: $CI_JOB_TOKEN"
-    [ -z "$auth" ] && [ -n "${GITLAB_TOKEN:-}" ] && auth="PRIVATE-TOKEN: $GITLAB_TOKEN"
-    [ -n "$auth" ] || die "нужен токен: переменная GITLAB_TOKEN (в пайплайне - CI_JOB_TOKEN)"
+    [ -n "${GITHUB_TOKEN:-}" ] || die "нужен токен: переменная GITHUB_TOKEN"
+    auth="Authorization: Bearer $GITHUB_TOKEN"
 
-    info "[5] заливаю тарбол и sha256 в generic-реестр"
-    upload_package "$work" "$ver" "$auth"
+    info "[5] завожу Release на $tag"
+    id="$(create_release "$tag" "$auth")" || die "релиз не завёлся"
+    [ -n "$id" ] || die "GitHub не назвал id созданного релиза"
 
-    info "[6] завожу Release на $tag и сверяю permalink/latest"
-    publish_release "$tag" "$ver" "$auth"
+    info "[6] заливаю ассеты и сверяю releases/latest"
+    upload_asset "$id" "$work/torrcast-$ver.tar.gz" "torrcast-$ver.tar.gz" "$auth"
+    upload_asset "$id" "$work/torrcast-$ver.tar.gz.sha256" "torrcast-$ver.tar.gz.sha256" "$auth"
+    upload_asset "$id" "$work/src/install" "install" "$auth"
+    check_latest_points_at "$tag"
 
     info "готово: $tag опубликован"
 }

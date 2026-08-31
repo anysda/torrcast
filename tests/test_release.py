@@ -1,7 +1,7 @@
 """Ограждения `scripts/release.sh` (TC-886): шесть шагов публикации релиза.
 
 Гоняем как процесс против собственного маленького git-репозитория (клон - по
-контракту скрипта - ПО ТЕГУ, не рабочее дерево) и заглушки GitLab API, по образцу
+контракту скрипта - ПО ТЕГУ, не рабочее дерево) и заглушки GitHub, по образцу
 заглушки Prowlarr в tests/test_install.py.
 """
 
@@ -17,7 +17,7 @@ from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -115,7 +115,7 @@ def _run(
         args = ["--notes", str(notes), *args]
     env = {**os.environ, **(extra_env or {})}
     if repo_path is not None:
-        env["TORRCAST_GITLAB_REPO"] = str(repo_path)
+        env["TORRCAST_GITHUB_REPO"] = str(repo_path)
     return subprocess.run(
         [str(RELEASE_SH), *args], capture_output=True, text=True, env=env, check=False
     )
@@ -171,7 +171,7 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
     done = _run(
         "v9.9.9",
         repo_path=repo,
-        extra_env={"TORRCAST_GITLAB_API": "http://127.0.0.1:1/api/v4"},
+        extra_env={"TORRCAST_GITHUB_API": "http://127.0.0.1:1"},
     )
     assert done.returncode == 0, done.stderr
     out = done.stdout + done.stderr
@@ -225,16 +225,15 @@ def test_real_run_without_a_token_dies_before_any_upload(repo: Path) -> None:
         dry_run=False,
         repo_path=repo,
         extra_env={
-            "TORRCAST_GITLAB_API": "http://127.0.0.1:1/api/v4",
-            "GITLAB_TOKEN": "",
-            "CI_JOB_TOKEN": "",
+            "TORRCAST_GITHUB_API": "http://127.0.0.1:1",
+            "GITHUB_TOKEN": "",
         },
     )
     assert done.returncode != 0
     assert "нужен токен" in done.stderr
 
 
-# --- заглушка GitLab: реальная заливка и релиз -------------------------------
+# --- заглушка GitHub: реальная заливка и релиз -------------------------------
 
 _STUBS: list[ThreadingHTTPServer] = []
 
@@ -257,7 +256,21 @@ class _Seen:
         self.release: Any = None
 
 
-def _stub_gitlab_write() -> tuple[int, _Seen]:
+# Id созданного релиза. Намеренно НЕ совпадает с чужими id в том же ответе (author),
+# и намеренно меньше их: разбор по первому совпадению возьмёт чужой и промахнётся.
+_RELEASE_ID = 7
+
+
+def _stub_github_write() -> tuple[int, _Seen]:
+    """Заглушка на создание релиза, заливку ассетов и `/releases/latest`.
+
+    Формы взяты с живого GitHub: релиз заводится POST'ом на `/releases` и отвечает
+    телом с числовым `id`; ассет льётся POST'ом на `/releases/<id>/assets?name=ИМЯ`,
+    а имя приезжает В ЗАПРОСЕ, а не в теле; `/releases/latest` не отдаёт JSON, а
+    перенаправляет на `/releases/tag/<тег>`.
+
+    🔴 `id` намеренно НЕ первое поле ответа и рядом лежат чужие `id`: разбор по
+    первому попавшемуся (sed, регулярка) обязан здесь сломаться, а не подыграть."""
     seen = _Seen()
 
     class Handler(BaseHTTPRequestHandler):
@@ -271,27 +284,46 @@ def _stub_gitlab_write() -> tuple[int, _Seen]:
             self.end_headers()
             self.wfile.write(body)
 
-        def do_PUT(self) -> None:
-            seen.auth.append(self.headers.get("PRIVATE-TOKEN") or self.headers.get("JOB-TOKEN"))
-            length = int(self.headers.get("Content-Length") or 0)
-            self.rfile.read(length)
-            seen.uploads.append(urlparse(self.path).path)
-            return self._send(201, {})
-
         def do_POST(self) -> None:
-            if not urlparse(self.path).path.endswith("/releases"):
-                return self._send(404, {"message": "нет такого"})
+            parsed = urlparse(self.path)
             length = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(length) or b"{}")
+            raw = self.rfile.read(length)
+            seen.auth.append(self.headers.get("Authorization"))
+
+            if parsed.path.endswith("/assets"):
+                if seen.release is None:
+                    return self._send(404, {"message": "релиза ещё нет"})
+                # 🔴 Ассет кладётся В РЕЛИЗ, и живой GitHub на чужой id отвечает 404,
+                # а не молча принимает файл в никуда. Заглушка, глядящая только на
+                # хвост `/assets`, пропустила бы разбор ответа по первому попавшемуся
+                # "id" (в теле их несколько) - проверено отрицательной пробой.
+                want = f"/releases/{_RELEASE_ID}/assets"
+                if not parsed.path.endswith(want):
+                    return self._send(404, {"message": f"нет релиза по пути {parsed.path}"})
+                name = parse_qs(parsed.query).get("name", [""])[0]
+                seen.uploads.append(name)
+                return self._send(201, {"name": name})
+
+            if not parsed.path.endswith("/releases"):
+                return self._send(404, {"message": "нет такого"})
+            body = json.loads(raw or b"{}")
             seen.release = body
-            return self._send(201, body)
+            return self._send(201, {"author": {"id": 4242}, "url": "…", **body, "id": _RELEASE_ID})
 
         def do_GET(self) -> None:
-            if urlparse(self.path).path.endswith("/releases/permalink/latest"):
+            path = urlparse(self.path).path
+            if path.endswith("/releases/latest"):
+                base = path[: -len("/latest")]
                 if seen.release is None:
-                    return self._send(404, {"message": "404 Not Found"})
-                return self._send(200, {"tag_name": seen.release["tag_name"]})
+                    return self._redirect(base)
+                return self._redirect(f"{base}/tag/{seen.release['tag_name']}")
             return self._send(404, {"message": "нет такого"})
+
+        def _redirect(self, location: str) -> None:
+            self.send_response(302)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -301,49 +333,54 @@ def _stub_gitlab_write() -> tuple[int, _Seen]:
 
 @pytest.mark.machine
 def test_a_real_run_uploads_the_asset_pair_and_publishes_a_release(repo: Path) -> None:
-    port, seen = _stub_gitlab_write()
+    port, seen = _stub_github_write()
     done = _run(
         "v9.9.9",
         dry_run=False,
         repo_path=repo,
         extra_env={
-            "TORRCAST_GITLAB_API": f"http://127.0.0.1:{port}/api/v4",
-            "TORRCAST_GITLAB_WEB": f"http://127.0.0.1:{port}",
-            "GITLAB_TOKEN": "s3cr3t",
+            "TORRCAST_GITHUB_API": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_WEB": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_UPLOADS": f"http://127.0.0.1:{port}",
+            "GITHUB_TOKEN": "s3cr3t",
         },
     )
     assert done.returncode == 0, done.stderr
     assert "готово" in done.stdout + done.stderr
 
-    uploads = seen.uploads
-    assert any(p.endswith("torrcast-9.9.9.tar.gz") for p in uploads)
-    assert any(p.endswith("torrcast-9.9.9.tar.gz.sha256") for p in uploads)
-    assert all(a == "s3cr3t" for a in seen.auth)
-
-    release = seen.release
-    assert release["tag_name"] == "v9.9.9"
-    links = release["assets"]["links"]
-    install_link = next(link for link in links if link["name"] == "install")
-    tarball_link = next(link for link in links if link["name"] == "tarball")
-    assert install_link["filepath"] == "/install"
-    assert "torrcast-9.9.9.tar.gz" in tarball_link["url"]
+    # 🔴 Имена ассетов - часть адресов, по которым за релизом приходят снаружи.
+    # `install` держит короткий адрес установщика (`releases/latest/download/install`),
+    # а пара тарбол+sha256 - то, что бутстрап тащит и сверяет. Промах в имени
+    # ломает установку молча, поэтому имена сверяются целиком, а не по «есть три».
+    assert set(seen.uploads) == {
+        "torrcast-9.9.9.tar.gz",
+        "torrcast-9.9.9.tar.gz.sha256",
+        "install",
+    }
+    assert all(a == "Bearer s3cr3t" for a in seen.auth)
+    assert seen.release["tag_name"] == "v9.9.9"
 
 
 @pytest.mark.machine
-def test_a_ci_job_token_is_sent_as_job_token_header(repo: Path) -> None:
-    port, seen = _stub_gitlab_write()
+def test_the_token_travels_as_a_bearer_header_on_every_write(repo: Path) -> None:
+    """Токен обязан ехать на КАЖДОЙ пишущей ходке, а не только на создании релиза:
+    заливка ассетов идёт на другой хост (uploads.github.com), и потерять заголовок
+    именно там - отдельный способ получить релиз без единого файла."""
+    port, seen = _stub_github_write()
     done = _run(
         "v9.9.9",
         dry_run=False,
         repo_path=repo,
         extra_env={
-            "TORRCAST_GITLAB_API": f"http://127.0.0.1:{port}/api/v4",
-            "TORRCAST_GITLAB_WEB": f"http://127.0.0.1:{port}",
-            "CI_JOB_TOKEN": "ci-token",
+            "TORRCAST_GITHUB_API": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_WEB": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_UPLOADS": f"http://127.0.0.1:{port}",
+            "GITHUB_TOKEN": "s3cr3t",
         },
     )
     assert done.returncode == 0, done.stderr
-    assert all(a == "ci-token" for a in seen.auth)
+    assert len(seen.auth) == 4, f"ждали релиз + три ассета, видели {len(seen.auth)}"
+    assert all(a == "Bearer s3cr3t" for a in seen.auth)
 
 
 @pytest.mark.machine
@@ -354,36 +391,38 @@ def test_notes_land_in_the_release_description_verbatim(repo: Path, tmp_path: Pa
     text = '## torrcast 1.0.0\n\nСтрока с "кавычками", обратным слешем \\ и переносом.\n'
     notes.write_text(text, encoding="utf-8")
 
-    port, seen = _stub_gitlab_write()
+    port, seen = _stub_github_write()
     done = _run(
         "v9.9.9",
         dry_run=False,
         repo_path=repo,
         notes=notes,
         extra_env={
-            "TORRCAST_GITLAB_API": f"http://127.0.0.1:{port}/api/v4",
-            "TORRCAST_GITLAB_WEB": f"http://127.0.0.1:{port}",
-            "GITLAB_TOKEN": "s3cr3t",
+            "TORRCAST_GITHUB_API": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_WEB": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_UPLOADS": f"http://127.0.0.1:{port}",
+            "GITHUB_TOKEN": "s3cr3t",
         },
     )
     assert done.returncode == 0, done.stderr
-    assert seen.release["description"] == text
+    assert seen.release["body"] == text
 
 
 @pytest.mark.machine
 def test_without_notes_the_release_carries_no_description(repo: Path) -> None:
     """Отрицательная проба к предыдущему тесту: описание берётся из флага, а не
     появляется само. Без флага ключа нет, и прежнее тело релиза не переписывается."""
-    port, seen = _stub_gitlab_write()
+    port, seen = _stub_github_write()
     done = _run(
         "v9.9.9",
         dry_run=False,
         repo_path=repo,
         extra_env={
-            "TORRCAST_GITLAB_API": f"http://127.0.0.1:{port}/api/v4",
-            "TORRCAST_GITLAB_WEB": f"http://127.0.0.1:{port}",
-            "GITLAB_TOKEN": "s3cr3t",
+            "TORRCAST_GITHUB_API": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_WEB": f"http://127.0.0.1:{port}",
+            "TORRCAST_GITHUB_UPLOADS": f"http://127.0.0.1:{port}",
+            "GITHUB_TOKEN": "s3cr3t",
         },
     )
     assert done.returncode == 0, done.stderr
-    assert "description" not in seen.release
+    assert "body" not in seen.release

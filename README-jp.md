@@ -36,7 +36,7 @@ curl -fsSL https://torrcast.anysda.space | sh
 ```
 
 素の Debian 12 には `curl` が**入っていません**。先に入れてください。ブートストラップには
-`curl`、`tar`、`sha256sum`、`bash` が必要です。ワンライナーは GitLab に最新版を問い合わせ、
+`curl`、`tar`、`sha256sum`、`bash` が必要です。ワンライナーは GitHub に最新版を問い合わせ、
 そのリリースの tarball をダウンロードし、SHA-256 チェックサムを検証し、中の `install.sh` を
 実行します。root 以外で実行された場合、ブートストラップは `sudo` 経由で自分を起動し直します。
 `sudo` がない環境では処理を止め、root で実行すべきコマンドをそのまま表示します。
@@ -50,7 +50,7 @@ curl -fsSL https://torrcast.anysda.space | sh
 ソースから入れる場合:
 
 ```sh
-git clone https://gitlab.anysda.space/anysda/torrcast && cd torrcast
+git clone https://github.com/anysda/torrcast && cd torrcast
 sudo ./install.sh
 ```
 

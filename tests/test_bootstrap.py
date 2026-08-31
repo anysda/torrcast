@@ -1,7 +1,7 @@
 """Ограждения бутстрапа `install` (TC-886): curl -fsSL .../ | sh тащит дерево сам.
 
 Файл маленький и живёт в корне, отдельно от install.sh, поэтому и тесты - против
-живого процесса и заглушки GitLab API (по образцу заглушки Prowlarr в
+живого процесса и заглушки GitHub (по образцу заглушки Prowlarr в
 tests/test_install.py), а не разбором тела install.sh.
 """
 
@@ -67,14 +67,30 @@ def test_root_check_has_a_sandbox_escape_and_a_sudo_path_and_never_falls_through
     assert '"нужен root:' in body
 
 
-def test_a_404_before_the_first_release_speaks_plainly_instead_of_raw_json() -> None:
+def test_no_release_yet_is_told_apart_from_a_working_one_by_the_tag_in_the_location() -> None:
+    """До первого релиза `/releases/latest` уводит не на `/releases/tag/...`, а на
+    список релизов. Разбор идёт по `*/releases/tag/*`, и только эта ветка считается
+    рабочей: без неё «релизов нет» и «GitHub ответил не так» слиплись бы в один путь."""
     body = _body("latest_version")
-    assert "404)" in body
+    assert "*/releases/tag/*)" in body
     assert "no releases yet" in body
-    assert "fail " in body.split("404)", 1)[1].split(";;", 1)[0]
+    tail = body.split("*/releases/tag/*)", 1)[1]
+    assert "fail " in tail
 
 
-# --- заглушка GitLab: permalink/latest + generic-реестр ---------------------
+def test_the_version_is_learned_without_touching_the_rate_limited_api() -> None:
+    """🔴 У анонима на api.github.com 60 запросов в час НА АДРЕС, и за одним NAT этот
+    потолок общий. Бутстрап обязан спрашивать версию у обычного `/releases/latest`,
+    который перенаправляет, а не у API.
+
+    Судим по КОДУ, а не по всему файлу: комментарий рядом объясняет, почему API здесь
+    не зовут, и назвал бы адрес сам - проба ловила бы собственное объяснение."""
+    code = "\n".join(line for line in SCRIPT.splitlines() if not line.lstrip().startswith("#"))
+    assert "api.github.com" not in code
+    assert "/releases/latest" in _body("latest_version")
+
+
+# --- заглушка GitHub: releases/latest + ассеты релиза -----------------------
 
 
 def _tarball_bytes(install_body: str) -> bytes:
@@ -99,16 +115,21 @@ def _stop_stubs() -> Iterator[None]:
     _STUBS.clear()
 
 
-def _stub_gitlab(
+def _stub_github(
     tag: str | None,
     tarball: bytes | None,
     sha256_body: bytes | None,
     hits: dict[str, int] | None = None,
 ) -> int:
-    """Заглушка на permalink/latest и generic-пакет, как настоящий GitLab: tag - тег
-    С ведущей v (permalink/latest его так и отдаёт), а пакет и .sha256 живут ТОЛЬКО
-    под голой версией (release.sh срезает v перед заливкой) - путь или имя файла с
-    v в них ловят такой же 404, как в жизни, а не подыгрывают бутстрапу."""
+    """Заглушка на `/releases/latest` и ассеты релиза, как настоящий GitHub.
+
+    `/releases/latest` не отдаёт тело, а перенаправляет: есть релиз - на
+    `/releases/tag/<tag>`, нет ни одного - на `/releases`. Обе формы взяты с живого
+    github.com, а не придуманы.
+
+    tag - С ведущей v (так он стоит и в Location, и в пути ассета), а имена самих
+    файлов - ТОЛЬКО под голой версией (release.sh срезает v перед заливкой): путь или
+    имя файла с v в них ловят такой же 404, как в жизни, а не подыгрывают бутстрапу."""
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: object) -> None:
@@ -118,17 +139,23 @@ def _stub_gitlab(
             path = urlparse(self.path).path
             if hits is not None:
                 hits[path] = hits.get(path, 0) + 1
-            if path.endswith("/releases/permalink/latest"):
-                if tag is None:
-                    return self._send(404, {"message": "404 Not Found"})
-                return self._send(200, {"tag_name": tag})
+            if path.endswith("/releases/latest"):
+                base = path[: -len("/latest")]
+                where = f"{base}/tag/{tag}" if tag is not None else base
+                return self._redirect(where)
             bare = tag.removeprefix("v") if tag is not None else None
-            prefix = f"/packages/generic/torrcast/{bare}/torrcast-{bare}.tar.gz"
+            prefix = f"/releases/download/{tag}/torrcast-{bare}.tar.gz"
             if tarball is not None and path.endswith(prefix):
                 return self._send_bytes(200, tarball)
             if sha256_body is not None and path.endswith(f"{prefix}.sha256"):
                 return self._send_bytes(200, sha256_body)
             return self._send(404, {"message": "нет такого"})
+
+        def _redirect(self, location: str) -> None:
+            self.send_response(302)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def _send(self, code: int, payload: object) -> None:
             self._send_bytes(code, json.dumps(payload).encode())
@@ -154,8 +181,8 @@ def _run_bootstrap(
         **os.environ,
         "TMPDIR": str(mktmp),
         "TORRCAST_NO_ROOT": "1",
-        "TORRCAST_GITLAB_API": f"http://127.0.0.1:{port}/api/v4",
-        "TORRCAST_PROJECT_ID": "10",
+        "TORRCAST_GITHUB_WEB": f"http://127.0.0.1:{port}",
+        "TORRCAST_PROJECT_PATH": "anysda/torrcast",
         **(extra_env or {}),
     }
     return subprocess.run(
@@ -164,8 +191,8 @@ def _run_bootstrap(
 
 
 @pytest.mark.machine
-def test_no_release_yet_says_so_in_words_not_raw_404(tmp_path: Path) -> None:
-    port = _stub_gitlab(tag=None, tarball=None, sha256_body=None)
+def test_no_release_yet_says_so_in_words_not_a_bare_redirect(tmp_path: Path) -> None:
+    port = _stub_github(tag=None, tarball=None, sha256_body=None)
     done = _run_bootstrap(tmp_path, port)
     assert done.returncode == 1
     assert "no releases yet" in done.stderr
@@ -184,7 +211,7 @@ def test_a_good_release_downloads_verifies_and_hands_off_to_install_sh(
     digest = hashlib.sha256(tarball).hexdigest()
     sha_file = f"{digest}  torrcast-9.9.9.tar.gz\n".encode()
 
-    port = _stub_gitlab(tag="v9.9.9", tarball=tarball, sha256_body=sha_file)
+    port = _stub_github(tag="v9.9.9", tarball=tarball, sha256_body=sha_file)
     done = _run_bootstrap(tmp_path, port)
 
     assert done.returncode == 0, done.stderr
@@ -199,7 +226,7 @@ def test_a_bad_checksum_dies_loud_and_never_runs_install_sh(tmp_path: Path) -> N
     tarball = _tarball_bytes(stub_install)
     wrong_sha = f"{'0' * 64}  torrcast-9.9.9.tar.gz\n".encode()
 
-    port = _stub_gitlab(tag="v9.9.9", tarball=tarball, sha256_body=wrong_sha)
+    port = _stub_github(tag="v9.9.9", tarball=tarball, sha256_body=wrong_sha)
     done = _run_bootstrap(tmp_path, port)
 
     assert done.returncode != 0
@@ -220,7 +247,7 @@ def test_install_sh_exit_code_passes_through_without_a_bootstrap_wrapper(
     digest = hashlib.sha256(tarball).hexdigest()
     sha_file = f"{digest}  torrcast-9.9.9.tar.gz\n".encode()
 
-    port = _stub_gitlab(tag="v9.9.9", tarball=tarball, sha256_body=sha_file)
+    port = _stub_github(tag="v9.9.9", tarball=tarball, sha256_body=sha_file)
     done = _run_bootstrap(tmp_path, port)
 
     assert done.returncode == 2
@@ -310,20 +337,20 @@ def test_language_survives_the_restart_through_sudo(tmp_path: Path, language: st
 
 
 @pytest.mark.machine
-def test_the_tag_from_permalink_is_stripped_of_v_before_hitting_the_registry(
+def test_the_tag_is_stripped_of_v_in_the_file_name_but_not_in_the_path(
     tmp_path: Path,
 ) -> None:
-    """TC-886, регресс: permalink/latest отдаёт тег С ведущей v, а
-    generic-реестр (release.sh) кладёт пакет БЕЗ неё. Если install снова подставит
-    сырой тег в путь реестра или в имя файла, заглушка (как настоящий GitLab)
-    ответит 404, и установка упадёт."""
+    """TC-886, регресс: тег едет С ведущей v в ПУТЬ ассета и БЕЗ неё в ИМЯ файла
+    (release.sh собирает имена по голой версии). Обе половины разъезжаются в разные
+    стороны, и если install подставит одну форму в оба места, заглушка (как настоящий
+    GitHub) ответит 404, и установка упадёт."""
     marker = tmp_path / "marker"
     stub_install = f"#!/usr/bin/env bash\n[[ -n x ]] && echo ran >> {marker}\nexit 0\n"
     tarball = _tarball_bytes(stub_install)
     digest = hashlib.sha256(tarball).hexdigest()
     sha_file = f"{digest}  torrcast-9.9.9.tar.gz\n".encode()
 
-    port = _stub_gitlab(tag="v9.9.9", tarball=tarball, sha256_body=sha_file)
+    port = _stub_github(tag="v9.9.9", tarball=tarball, sha256_body=sha_file)
     done = _run_bootstrap(tmp_path, port)
 
     assert done.returncode == 0, done.stderr

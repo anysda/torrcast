@@ -32,7 +32,7 @@ curl -fsSL https://torrcast.anysda.space | sh
 ```
 
 A bare Debian 12 installation does **not** include `curl`; install it first. The
-bootstrap requires `curl`, `tar`, `sha256sum`, and `bash`. The one-liner asks GitLab for
+bootstrap requires `curl`, `tar`, `sha256sum`, and `bash`. The one-liner asks GitHub for
 the latest version, downloads that exact release tarball, verifies its SHA-256 checksum,
 and runs the `install.sh` inside it. When not run as root, the bootstrap restarts itself
 through `sudo`; where there is no `sudo`, it stops and prints the exact command to run as
@@ -47,7 +47,7 @@ release with Russian as the product language. Either way the choice is not final
 From source:
 
 ```sh
-git clone https://gitlab.anysda.space/anysda/torrcast && cd torrcast
+git clone https://github.com/anysda/torrcast && cd torrcast
 sudo ./install.sh
 ```
 
