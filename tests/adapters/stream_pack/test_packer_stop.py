@@ -25,14 +25,14 @@ def test_our_own_terminate_is_never_passed_off_as_a_crash(tmp_path: Path) -> Non
     """
     run = packer(tmp_path, stopped="показ окончен", proc=FakeProc(code=255))
 
-    assert _why(run) == "сняли сами: показ окончен"
+    assert _why(run) == "stopped ourselves: показ окончен"
 
 
 def test_a_signal_kill_is_named_by_its_number_and_nothing_is_invented(tmp_path: Path) -> None:
     """Убитый сигналом сказать не успел - за него не выдумываем."""
     run = packer(tmp_path, proc=FakeProc(code=-9), log=_log("последняя строка"))
 
-    assert _why(run) == "убит сигналом 9"
+    assert _why(run) == "killed by signal 9"
 
 
 def test_the_last_word_of_ffmpeg_goes_out_trimmed_and_without_empty_lines(
@@ -49,8 +49,8 @@ def test_the_last_word_of_ffmpeg_goes_out_trimmed_and_without_empty_lines(
 
 def test_a_silent_run_is_answered_by_its_code_or_by_its_life(tmp_path: Path) -> None:
     """ffmpeg смолчал - отвечает код; кода нет вовсе - прогон ещё жив."""
-    assert _why(packer(tmp_path, proc=FakeProc(code=0), log=_log(""))) == "молча, код 0"
-    assert _why(packer(tmp_path)) == "нет вывода"
+    assert _why(packer(tmp_path, proc=FakeProc(code=0), log=_log(""))) == "silent, code 0"
+    assert _why(packer(tmp_path)) == "no output"
 
 
 def test_stopping_a_live_run_terminates_it_and_hands_the_published_over(

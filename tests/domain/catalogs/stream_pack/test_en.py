@@ -18,3 +18,4 @@ def test_every_key_names_its_cluster() -> None:
     stray = [key for key in english() if not key.startswith("stream_pack.")]
     assert stray == []
     assert english()["stream_pack.paused_from_remote"] == "paused from the remote"
+    assert english()["stream_pack.no_output"] == "no output"

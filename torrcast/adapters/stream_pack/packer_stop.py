@@ -11,6 +11,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._segment_files import _paths
+from torrcast.domain.catalogs.phrase import phrase
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -26,10 +27,11 @@ def _why(state: _State) -> str:
     подпись нашего же SIGTERM (см. :attr:`stopped`), и выдавать её за аварию нельзя.
     """
     if state.stopped:
-        return f"сняли сами: {state.stopped}"
+        return phrase("stream_pack.stopped_ourselves", reason=state.stopped)
     code = state.proc.poll()
     if code is not None and code < 0:
-        return f"убит сигналом {-code}"  # сказать он не успел - не выдумываем за него
+        # сказать он не успел - не выдумываем за него
+        return phrase("stream_pack.killed_by_signal", signal=-code)
     lines: list[str] = []
     if state.log is not None:
         state.log.seek(0)
@@ -37,7 +39,11 @@ def _why(state: _State) -> str:
         lines = [ln for ln in text.splitlines() if ln.strip()]
     if lines:
         return lines[-1][:120]
-    return "нет вывода" if code is None else f"молча, код {code}"
+    return (
+        phrase("stream_pack.no_output")
+        if code is None
+        else phrase("stream_pack.silent_with_code", code=code)
+    )
 
 
 def _stop(

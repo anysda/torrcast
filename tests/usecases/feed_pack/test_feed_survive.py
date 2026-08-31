@@ -100,7 +100,7 @@ def test_three_breaks_in_a_row_without_a_film_on_the_disk_are_a_verdict(
     show.crashes = 3
 
     assert _survive(show, packer(tmp_path, proc=FakeProc(code=1))) is False
-    assert show.trouble() == "молча, код 1" and said == []
+    assert show.trouble() == "silent, code 1" and said == []
 
 
 def test_a_film_on_the_disk_turns_the_verdict_into_a_wait_for_the_network(
@@ -113,7 +113,7 @@ def test_a_film_on_the_disk_turns_the_verdict_into_a_wait_for_the_network(
 
     assert _survive(show, packer(tmp_path, proc=FakeProc(code=1))) is True
     assert show.fatal == "" and show.crashes == 0
-    assert show.offline == "молча, код 1"
+    assert show.offline == "silent, code 1"
     assert said and "жду возврата сети" in said[0]
 
 
@@ -134,4 +134,4 @@ def test_a_zero_on_a_torn_input_is_told_as_a_fact_and_not_as_a_forecast(
 
     said.clear()
     _survive(show, packer(tmp_path, proc=FakeProc(code=-9)))
-    assert said == ["упаковка оборвалась (убит сигналом 9) - начинаю заново, попытка 2"]
+    assert said == ["упаковка оборвалась (killed by signal 9) - начинаю заново, попытка 2"]

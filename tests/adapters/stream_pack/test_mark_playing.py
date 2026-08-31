@@ -29,4 +29,4 @@ def test_a_directory_that_is_gone_does_not_kill_the_show(
 
     said = capsys.readouterr().out
     assert str(playing_flag(gone)) in said, "названо ровно то, что не легло"
-    assert "флажок картинки не лёг" in said
+    assert "playing flag did not land" in said

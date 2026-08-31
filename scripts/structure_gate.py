@@ -109,9 +109,15 @@ TRANSLATION_DEBT: Final = {
     # Отказ ловится тут же (`except ValueError: continue`) и до человека не доходит:
     # переводить нечего, экран этой строки не видит.
     "torrcast/adapters/prowlarr/collect_rows.py": 1,
+    # "копия"/"перекод"/"склейка" тут не надпись, а хранимая метка: её сравнивают строкой
+    # в `packer_publish.py` (`how == "склейка"`) и в `torrcast/adapters/recode/note.py`
+    # (`how != "копия"`, `if how == "перекод":`) - оба файла вне этого наряда. Перевести
+    # тут, не тронув оба, значит либо сломать сравнение под `--en`, либо перевести
+    # наполовину. У `journal().mark()` в этом файле та же судьба: по всему дереву имена
+    # и числа фазы печатаются как есть, по-русски, вне зависимости от языка (см.
+    # `torrcast.domain.digest._event_line`, докстрока про «отбор релиза релиз=2») - это
+    # не долг одного файла, а решение архитектуры, не в силах этого наряда.
     "torrcast/adapters/stream_pack/_merged_out.py": 5,
-    "torrcast/adapters/stream_pack/mark_playing.py": 1,
-    "torrcast/adapters/stream_pack/packer_stop.py": 4,
     "torrcast/adapters/stream_probe/pick_video_file.py": 1,
     "torrcast/adapters/stream_probe/run_ffprobe.py": 1,
     "torrcast/adapters/stream_probe/supply.py": 3,

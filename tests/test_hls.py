@@ -1537,12 +1537,12 @@ def test_a_run_we_stopped_ourselves_is_never_reported_as_a_crash(tmp_path: Path)
     packer.stopped = "показ окончен"
     feed.packer = packer
 
-    assert packer.why() == "сняли сами: показ окончен"
+    assert packer.why() == "stopped ourselves: показ окончен"
     assert feed._survive(packer), "снятый нами прогон попытку не тратит"
     assert feed.crashes == 0 and not feed.fatal
 
     other = fake_packer(out, code=255)
-    assert other.why() == "молча, код 255", "чужое молчание врать про себя не даёт"
+    assert other.why() == "silent, code 255", "чужое молчание врать про себя не даёт"
     text = "#EXTM3U\n#EXTINF:4.000000,\nindex0.ts\n#EXTINF:2.500000,\nindex1.ts\n#EXT-X-ENDLIST\n"
     segments, ended = parse_manifest(text)
     assert segments == [("index0.ts", 4.0), ("index1.ts", 2.5)]

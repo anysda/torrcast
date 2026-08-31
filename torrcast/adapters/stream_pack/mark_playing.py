@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from torrcast.adapters.stream_pack.playing_flag import playing_flag
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.why import why
 
 
@@ -21,4 +22,4 @@ def mark_playing(out: Path) -> None:
     try:
         flag.touch()
     except OSError as trouble:
-        print(f"флажок картинки не лёг ({flag}): {why(trouble)}", flush=True)
+        print(phrase("stream_pack.flag_write_failed", flag=flag, reason=why(trouble)), flush=True)

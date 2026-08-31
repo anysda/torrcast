@@ -426,7 +426,7 @@ def test_packing_torn_off_again_and_again_is_an_honest_infra_error(
     finally:
         enough.set()  # показ сдался - сносить больше некого
         killer.join(timeout=30)
-    assert "упаковка оборвалась: убит сигналом 9" in str(caught.value)
+    assert "упаковка оборвалась: killed by signal 9" in str(caught.value)
     assert "начинаю заново" in capsys.readouterr().out, "обрыв показ переживает молча"
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны даже после аварии"
     assert not _alive(str(tmp_path)) and not _alive(hls_base(config)), "процессы не текут"
@@ -1732,7 +1732,7 @@ def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(tmp_path: Pa
 
     feed.restarted = 0.0
     feed.segment(70)
-    assert feed.trouble() == "убит сигналом 9"
+    assert feed.trouble() == "killed by signal 9"
 
 
 def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(tmp_path: Path) -> None:
@@ -1774,7 +1774,7 @@ def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(tmp_path: Path) ->
     feed.packer = fake_packer(feed.out, first=0, code=-9)
     feed.restarted = 0.0
     feed.segment(70)
-    assert said == ["упаковка оборвалась (убит сигналом 9) - начинаю заново, попытка 2"], (
+    assert said == ["упаковка оборвалась (killed by signal 9) - начинаю заново, попытка 2"], (
         f"чужая беда названа обрывом входа: {said}"
     )
 
