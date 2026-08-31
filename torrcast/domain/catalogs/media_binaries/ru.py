@@ -9,4 +9,6 @@ def ru() -> dict[str, str]:
         "media_binaries.ffprobe_missing": "ffprobe не установлен",
         "media_binaries.ffprobe_timed_out": "ffprobe не дождался потока",
         "media_binaries.ffprobe_failed": "ffprobe не прочитал поток: {reason}",
+        "media_binaries.ffprobe_not_json": "ffprobe вернул не JSON",
+        "media_binaries.ffprobe_bad_json": "ffprobe вернул не тот JSON",
     }

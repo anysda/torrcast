@@ -619,7 +619,7 @@ def test_the_deadline_is_the_packer_not_the_playhead(tmp_path) -> None:  # type:
     )
     recoder.played = 0.0
     assert recoder.slack(5) == pytest.approx(grid.start(5), abs=0.1)
-    recoder.note(4, "копия")  # упаковщик выложил уже пять сегментов
+    recoder.note(4, "copy")  # упаковщик выложил уже пять сегментов
     assert recoder.slack(5) == pytest.approx(grid.start(5) - grid.end(4), abs=0.1)
 
 
@@ -632,7 +632,7 @@ def test_what_the_packer_already_published_is_never_re_encoded(tmp_path) -> None
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     recoder.played = 0.0
-    recoder.note(3, "копия")  # упаковщик выложил v0...v3
+    recoder.note(3, "copy")  # упаковщик выложил v0...v3
     job = recoder._pick()
     assert job is not None
     assert job[0] == 4
@@ -658,7 +658,7 @@ def test_a_run_never_promises_more_than_it_can_deliver_in_time(tmp_path) -> None
         pace=Pace(presets=(("medium", 0.5), ("veryfast", 0.6))),
     )
     recoder.played = 0.0
-    recoder.note(3, "копия")
+    recoder.note(3, "copy")
     job = recoder._pick()
     assert job is not None
     assert job[0] == 4
@@ -884,7 +884,7 @@ def test_a_late_single_piece_takes_light_neighbours_into_one_run(tmp_path) -> No
         threshold=15.0,
     )
     recoder.opening(0)
-    recoder.note(3, "копия")
+    recoder.note(3, "copy")
     assert recoder._pick() == (10, 12)
 
 
@@ -903,7 +903,7 @@ def test_a_late_single_piece_does_not_take_neighbours_if_they_would_be_late(
         threshold=15.0,
     )
     recoder.opening(0)
-    recoder.note(3, "копия")
+    recoder.note(3, "copy")
     recoder.pace.factor = 0.2
     assert recoder._pick() == (5, 5)
 
@@ -922,7 +922,7 @@ def test_a_seek_makes_the_new_place_the_head_and_rewinds_the_edge(tmp_path) -> N
     )
     recoder.opening(0)
     for slot in range(12):
-        recoder.note(slot, "копия")
+        recoder.note(slot, "copy")
     recoder.opening(3)  # перемотали назад
     assert recoder.edge == 2
     assert recoder.played == grid.start(3)
@@ -1000,9 +1000,9 @@ def test_a_heavy_copy_behind_the_playhead_is_not_counted_as_late(tmp_path) -> No
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     recoder.opening(20)
-    recoder.note(3, "копия")  # кусок далеко позади показа
+    recoder.note(3, "copy")  # кусок далеко позади показа
     assert recoder.late == 0
-    recoder.note(21, "копия")
+    recoder.note(21, "copy")
     assert recoder.late == 1
 
 

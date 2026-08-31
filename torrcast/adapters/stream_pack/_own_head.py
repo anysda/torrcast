@@ -22,7 +22,10 @@ if TYPE_CHECKING:
     from torrcast.adapters.stream_pack.packer_state import _State
 
 #: Исход выкладки, у которого картинка взята из потока исходника, а не от кодировщика.
-_COPY: Final = "копия"
+#: 🔴 Ярлык внутренний ("copy"), не надпись человеку: сравнивается строкой с тем же
+#: "how", каким его вернул :func:`torrcast.adapters.stream_pack._merged_out._merged_out`
+#: и каким его сравнивает :mod:`torrcast.adapters.recode.note`.
+_COPY: Final = "copy"
 
 #: Сколько байт от начала куска хватает, чтобы увидеть его заголовок: у показа он
 #: полторы тысячи байт, и читать ради этого весь кусок незачем.

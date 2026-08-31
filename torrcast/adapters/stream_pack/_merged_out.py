@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack.bare_on_tape import bare_on_tape
 from torrcast.adapters.stream_pack.splice_on_tape import splice_on_tape
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.mixed_name import mixed_name
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.domain.track_place import TRACK_PLACE_MAX
@@ -100,10 +101,28 @@ def _merged_out(
     """
     # Копия тут меньшее зло ровно пока влезает в потолок: перекод уехал бы со своим звуком,
     # на своей сетке AAC, а это дыра на обоих стыках куска.
-    without = (copy, "копия") if copy_size and copy_size <= cap else (recode, "перекод")
+    #
+    # 🔴 "copy"/"recode"/"splice" ниже - ВНУТРЕННИЙ ярлык исхода, а не надпись человеку: его
+    # сравнивают строкой в `packer_publish.py` (`how == "splice"`), `recode/note.py`
+    # (`how != "copy"`, `how == "recode"`) и `_own_head.py` (`how != _COPY`). Перевести его
+    # каталогом значило бы под `--en` сравнивать «splice» с «склейка» и молча ловить всегда
+    # ложь - ровно та ловушка про «за (\d+) с», из-за которой вердикт съехал в другой класс.
+    # Человеку достаётся отдельное слово - переведённое, - когда `recode/note.py` строит
+    # поле `чем=` и текст `_say`; сюда оно не заходит.
+    without = (copy, "copy") if copy_size and copy_size <= cap else (recode, "recode")
 
     def leaving(pair: tuple[Path, str]) -> tuple[Path, str]:
-        """Уезжает голый перекод - значит и лента показа на нём своя, а не показа."""
+        """Уезжает голый перекод - значит и лента показа на нём своя, а не показа.
+
+        🔴 Слово сюда идёт русское и НЕ из каталога нарочно: сосед
+        (:func:`torrcast.adapters.stream_pack.bare_on_tape.bare_on_tape`) вставляет его в
+        своё предложение «... не поставить на ленту показа», а предложение это пока не
+        переведено - и второй его звавший
+        (:mod:`torrcast.adapters.stream_pack._shrunk_out`) шлёт туда такое же русское
+        «ужатие». Переведённое слово тут дало бы под английским умолчанием помесь
+        «recode не поставить на ленту показа». Переводить это место надо целиком - вместе
+        с `bare_on_tape` и `_shrunk_out`, - а не одним словом из трёх.
+        """
         if pair[0] is recode:
             on_bare(recode, copy, slot, "перекод", container, heads)
         return pair
@@ -113,16 +132,16 @@ def _merged_out(
         # Молчать об этом нельзя. Отказ склейки - это вернувшийся разрыв звука на стыке, и
         # виден он был только по полю «чем» у соседнего события: семь минут разбора вслепую
         # стоил один такой молчащий отказ (TC-800).
-        journal().mark("склейка не вышла", слот=slot)
+        journal().mark(phrase("stream_pack.merge_failed"), слот=slot)
         return leaving(without)
     if container == FMP4 and not on_tape(mixed, copy, heads[1]):
         mixed.unlink(missing_ok=True)
-        journal().mark("склейку не поставить на ленту показа", слот=slot)
+        journal().mark(phrase("stream_pack.merge_not_seated"), слот=slot)
         return leaving(without)
     picture, sound = starts_of(mixed)
     astray_picture, astray_sound = _astray(picture, want[0]), _astray(sound, want[1])
     if not astray_picture and not astray_sound:
-        return mixed, "склейка"
+        return mixed, "splice"
     mixed.unlink(missing_ok=True)
     journal().mark(
         _refusal(astray_picture, astray_sound),
@@ -131,9 +150,9 @@ def _merged_out(
         звук=_miss(sound, want[1]),
     )
     if astray_sound and not astray_picture:
-        return leaving((recode, "перекод"))
+        return leaving((recode, "recode"))
     if astray_picture and not astray_sound:
-        return copy, "копия"
+        return copy, "copy"
     return leaving(without)
 
 
@@ -155,7 +174,7 @@ def _miss(mark: float, want: float) -> float | None:
 def _refusal(astray_picture: bool, astray_sound: bool) -> str:
     """Кто именно уехал: об этом говорят разными словами, потому что лечится оно разным."""
     if astray_picture and astray_sound:
-        return "склейка не с этого места целиком"
+        return phrase("stream_pack.astray_both")
     if astray_picture:
-        return "картинка склейки не с этого места"
-    return "звук склейки не с этого места"
+        return phrase("stream_pack.astray_picture")
+    return phrase("stream_pack.astray_sound")

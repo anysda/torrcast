@@ -59,6 +59,8 @@ def en() -> dict[str, str]:
         # Показ: куски и план кодирования.
         "digest.plan_copy": "copy",
         "digest.plan_recode": "recode",
+        "digest.plan_splice": "splice",
+        "digest.plan_shrink": "shrink",
         "digest.src_packed": "live packing",
         "digest.src_warmed": "the warmed piece",
         "digest.src_warmed_copy": "the warmed copy",

@@ -103,7 +103,8 @@ def _lay_out(
         if better is not None and better.exists() and keyless(better):
             journal().mark("перекод без опорного кадра", слот=slot)
             better.unlink(missing_ok=True)
-        source, how = path, "копия"
+        # 🔴 "how" - внутренний ярлык, не надпись человеку: слово для показа берёт каталог.
+        source, how = path, "copy"
         # Чем описаны обе половины будущей склейки: картинка приезжает от кодировщика,
         # звук - из своего прогона, и заголовки у них РАЗНЫЕ (:func:`chunk_head`).
         heads = (chunk_head(state, slot, spare=True), chunk_head(state, slot, spare=False))
@@ -129,14 +130,14 @@ def _lay_out(
         # выходит ничего. Так же здесь остаётся тяжёлая копия, которую предохранитель
         # ожидания отпустил после срыва кодировщика.
         oversized = over_cap(source, state.cap)
-        if oversized and how == "склейка" and better is not None:
+        if oversized and how == "splice" and better is not None:
             source.unlink(missing_ok=True)
             try:
                 safe_recode = better.stat().st_size <= state.cap
             except OSError:
                 safe_recode = False
             if safe_recode:
-                source, how = better, "перекод"
+                source, how = better, "recode"
                 oversized = False
         # Наружу такой кусок отдавать нельзя, но и вставать на нём навсегда нельзя: он
         # детерминирован, и встреча с ним повторялась бы каждый прогон. Поэтому сначала
@@ -154,7 +155,7 @@ def _lay_out(
         # на ровной сетке это 818 ложных заявок на разбор за фильм (TC-693).
         shrunk = state.shrink(slot, size) if oversized and state.shrink is not None else False
         if shrunk is None and better is not None:
-            source, how, oversized = better, "перекод", False
+            source, how, oversized = better, "recode", False
         elif shrunk and better is not None:
             # Место и обе мерки приёмника разом: каталог прогона, слот, копия, ужатое,
             # потолок веса и контейнер - расширение склейки выбирает муксер по нему.
@@ -162,10 +163,10 @@ def _lay_out(
             source = _shrunk_out(
                 *place, merge=merge, shift_of=shift_of, keyless=keyless, starts_of=starts_of
             )
-            how = "ужатие"
+            how = "shrink"
             oversized = over_cap(source, state.cap, missing=True)
         if oversized:
-            if how == "склейка":
+            if how == "splice":
                 source.unlink(missing_ok=True)
             if state.shrink is not None:
                 # Ужать не вышло - честный пропуск: кусок не отдаём никому, но и

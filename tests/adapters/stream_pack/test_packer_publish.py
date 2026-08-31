@@ -119,7 +119,7 @@ def test_the_recoded_picture_goes_out_with_the_sound_of_the_copy(tmp_path: Path)
     _lay_out(run, _always, merge=merge, starts_of=_on_place)
 
     assert (run.out / "v0.ts").read_bytes() == b"mixed"
-    assert told == [(0, "склейка")]
+    assert told == [(0, "splice")]
     assert not (spare / "v0.ts").exists(), "лишняя копия места осталась лежать"
 
 
@@ -189,7 +189,7 @@ def test_a_piece_shrunk_in_place_is_not_reported_as_a_failed_merge(tmp_path: Pat
         starts_of=_on_place,
     )
 
-    assert told == [(0, "ужатие")], "ужатый кусок назван перекодом - это ложный стык в журнале"
+    assert told == [(0, "shrink")], "ужатый кусок назван перекодом - это ложный стык в журнале"
 
 
 def test_a_piece_shrunk_in_place_goes_out_with_the_audio_of_its_own_copy(tmp_path: Path) -> None:
@@ -230,7 +230,7 @@ def test_a_piece_shrunk_in_place_goes_out_with_the_audio_of_its_own_copy(tmp_pat
     )
 
     assert seen == [("recode", "pack")], "ужатое место ушло со звуком своего же прогона"
-    assert told == [(0, "ужатие")]
+    assert told == [(0, "shrink")]
     assert (run.out / "v0.ts").read_bytes() == b"m" * 5, "наружу ушла не склейка"
 
 
@@ -282,7 +282,7 @@ def test_the_picture_of_the_recode_lies_on_the_timeline_of_this_run(tmp_path: Pa
     ], "склейка потеряла единый сдвиг DTS захода"
     assert len(shifts) == 1, "сдвиг непрерывного захода заново подогнали на каждом куске"
     assert (run.out / "v0.ts").read_bytes() == b"mixed"
-    assert told == [(0, "склейка"), (1, "склейка")], "журнал не отличает склейку от голого перекода"
+    assert told == [(0, "splice"), (1, "splice")], "журнал не отличает склейку от голого перекода"
 
 
 def test_a_copy_over_the_ceiling_loses_even_to_a_broken_seam(tmp_path: Path) -> None:
@@ -301,7 +301,7 @@ def test_a_copy_over_the_ceiling_loses_even_to_a_broken_seam(tmp_path: Path) -> 
     _lay_out(run, _always, merge=lambda *a, **k: False)
 
     assert (run.out / "v0.ts").stat().st_size == 50
-    assert told == [(0, "перекод")]
+    assert told == [(0, "recode")]
 
 
 def test_the_ceiling_weighs_the_finished_merge_and_not_its_halves(tmp_path: Path) -> None:
@@ -380,7 +380,7 @@ def test_a_recode_without_a_leading_key_frame_is_thrown_out_instead_of_shown(
         run, _always, merge=lambda *a, **k: True, keyless=lambda piece: True, starts_of=_on_place
     )
 
-    assert told == [(0, "копия")], "кусок без картинки уехал зрителю"
+    assert told == [(0, "copy")], "кусок без картинки уехал зрителю"
     assert not (spare / "v0.ts").exists(), "негодный перекод остался лежать готовым куском"
     assert (run.out / "v0.ts").read_bytes() == b"x" * 1024, "наружу ушла не копия"
 
@@ -400,7 +400,7 @@ def test_a_recode_that_starts_with_a_key_frame_still_goes_out_as_a_merge(tmp_pat
 
     _lay_out(run, _always, merge=merge, keyless=lambda piece: False, starts_of=_on_place)
 
-    assert told == [(0, "склейка")]
+    assert told == [(0, "splice")]
 
 
 #: Заход кодировщика в пробе ниже: с какого куска сетки и по какой. Кусок без опорного
@@ -481,7 +481,7 @@ def test_a_recode_pass_on_a_flat_grid_never_lands_without_a_keyframe(
 
     # Слот 0 перекода не ждал - заход начинается с :data:`_FIRST`, и копия там честная.
     assert [pair for pair in told if pair[0] >= _FIRST] == [
-        (slot, "склейка") for slot in range(_FIRST, _LAST + 1)
+        (slot, "splice") for slot in range(_FIRST, _LAST + 1)
     ], "наружу ушла копия - потолок битрейта профиля на ровной сетке не работает"
 
 

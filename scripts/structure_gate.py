@@ -105,19 +105,9 @@ TRANSLATION_DEBT: Final = {
     # Скрипт обхода DPI говорит в журнал службы, но говорит по-русски и мимо каталога;
     # каталога он и не видит - слоёв у него нет. Долг такой же, как у пакета.
     "scripts/sni-shim.py": 15,
-    "torrcast/adapters/ffprobe/parse_media.py": 2,
     # Отказ ловится тут же (`except ValueError: continue`) и до человека не доходит:
     # переводить нечего, экран этой строки не видит.
     "torrcast/adapters/prowlarr/collect_rows.py": 1,
-    # "копия"/"перекод"/"склейка" тут не надпись, а хранимая метка: её сравнивают строкой
-    # в `packer_publish.py` (`how == "склейка"`) и в `torrcast/adapters/recode/note.py`
-    # (`how != "копия"`, `if how == "перекод":`) - оба файла вне этого наряда. Перевести
-    # тут, не тронув оба, значит либо сломать сравнение под `--en`, либо перевести
-    # наполовину. У `journal().mark()` в этом файле та же судьба: по всему дереву имена
-    # и числа фазы печатаются как есть, по-русски, вне зависимости от языка (см.
-    # `torrcast.domain.digest._event_line`, докстрока про «отбор релиза релиз=2») - это
-    # не долг одного файла, а решение архитектуры, не в силах этого наряда.
-    "torrcast/adapters/stream_pack/_merged_out.py": 5,
     # Оба OSError идут в нитку нижнего уровня похода в Википедию, а её глотает вызывающий
     # (`torrcast.usecases.lookers.Lookers.looker`: `with contextlib.suppress(Exception)`,
     # `torrcast.adapters.wiki.wiki_blurbs.WikiBlurbs.fetch`: `except OSError`) - до

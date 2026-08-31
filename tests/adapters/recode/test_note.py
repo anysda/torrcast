@@ -50,8 +50,8 @@ def test_the_edge_follows_the_last_published_piece_not_the_furthest(tmp_path: Pa
     said: list[str] = []
     state = _state(tmp_path, said)
 
-    _note(state, 9, "копия")
-    _note(state, 2, "копия")
+    _note(state, 9, "copy")
+    _note(state, 2, "copy")
 
     assert state.edge == 2
 
@@ -62,7 +62,7 @@ def test_a_published_piece_stops_holding_the_publisher(tmp_path: Path) -> None:
     state = _state(tmp_path, said)
     state.stuck[3], state.blocked = 1.0, 3
 
-    _note(state, 3, "перекод")
+    _note(state, 3, "recode")
 
     assert state.stuck == {} and state.blocked == -1
 
@@ -74,10 +74,10 @@ def test_only_a_copy_calibrates_the_profile(tmp_path: Path) -> None:
     state.spare.mkdir(parents=True)
     (tmp_path / "v0.ts").write_bytes(b"x" * int(12.0e6 * 10.0 / 8))
 
-    _note(state, 0, "склейка")
+    _note(state, 0, "splice")
     assert state.weights.measured == 0, "перекод профиль не калибрует: он мерит нас, не файл"
 
-    _note(state, 0, "копия")
+    _note(state, 0, "copy")
     assert state.weights.measured == 1 and state.weights.extra == 4.0
 
 
@@ -87,7 +87,7 @@ def test_a_heavy_piece_that_left_as_a_copy_is_counted_as_a_miss(tmp_path: Path) 
     state = _state(tmp_path, said)
     state.played = 0.0
 
-    _note(state, 1, "копия")
+    _note(state, 1, "copy")
 
     assert state.late == 1
     assert any("ушёл копией" in line for line in said)
@@ -99,7 +99,7 @@ def test_pieces_behind_the_show_are_not_counted_as_misses(tmp_path: Path) -> Non
     state = _state(tmp_path, said)
     state.played = 200.0
 
-    _note(state, 1, "копия")
+    _note(state, 1, "copy")
 
     assert state.late == 0, "считать это опозданием - врать себе в отчёте"
 
@@ -109,7 +109,7 @@ def test_a_failed_merge_is_said_out_loud_even_without_the_trace(tmp_path: Path) 
     said: list[str] = []
     state = _state(tmp_path, said)
 
-    _note(state, 4, "перекод")
+    _note(state, 4, "recode")
 
     assert any("склейка v4 не вышла" in line for line in said)
     assert state.late == 0, "перекод опозданием не считается"
@@ -130,6 +130,6 @@ def test_the_weight_that_went_out_is_read_from_the_name_the_container_gives(
     install(marks)
     (tmp_path / "v5.m4s").write_bytes(b"x" * 2_000_000)
 
-    _note(state, 5, "копия")
+    _note(state, 5, "copy")
 
     assert marks.rows[-1][1]["мбит"] != 0.0, "вес уехавшего куска обязан найтись"

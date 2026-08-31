@@ -57,7 +57,7 @@ def test_the_recoded_picture_goes_out_with_the_sound_of_the_copy(tmp_path: Path)
     )
 
     assert seen == [("spare7.ts", "v7.ts")], "звук взят не у копии"
-    assert (source.name, how) == ("mix7.ts", "склейка")
+    assert (source.name, how) == ("mix7.ts", "splice")
 
 
 def test_a_merge_that_did_not_happen_sends_the_copy_of_its_own_run_while_it_fits(
@@ -82,7 +82,7 @@ def test_a_merge_that_did_not_happen_sends_the_copy_of_its_own_run_while_it_fits
         starts_of=_on_place,
     )
 
-    assert (source, how) == (copy, "копия")
+    assert (source, how) == (copy, "copy")
 
 
 def test_a_copy_over_the_ceiling_loses_even_to_a_broken_seam(tmp_path: Path) -> None:
@@ -101,7 +101,7 @@ def test_a_copy_over_the_ceiling_loses_even_to_a_broken_seam(tmp_path: Path) -> 
         starts_of=_on_place,
     )
 
-    assert (source, how) == (recode, "перекод")
+    assert (source, how) == (recode, "recode")
 
 
 def test_a_merge_whose_sound_is_from_another_place_never_reaches_the_viewer(
@@ -127,7 +127,7 @@ def test_a_merge_whose_sound_is_from_another_place_never_reaches_the_viewer(
         starts_of=lambda piece: (_WANT, _WANT + 123.4),
     )
 
-    assert (source, how) == (recode, "перекод"), "склейка с чужим звуком уехала зрителю"
+    assert (source, how) == (recode, "recode"), "склейка с чужим звуком уехала зрителю"
     assert not (tmp_path / "mix0.ts").exists(), "склейка с чужим звуком осталась лежать"
 
 
@@ -154,7 +154,7 @@ def test_a_picture_from_another_place_sends_the_copy_and_not_the_recode(
         starts_of=lambda piece: (_WANT + 10.417, _WANT - 0.033),
     )
 
-    assert (source, how) == (copy, "копия"), "наружу ушла уехавшая картинка перекода"
+    assert (source, how) == (copy, "copy"), "наружу ушла уехавшая картинка перекода"
     assert not (tmp_path / "mix2.ts").exists()
 
 
@@ -180,7 +180,7 @@ def test_a_track_missing_from_the_head_counts_as_not_being_on_its_place(
         starts_of=lambda piece: (_WANT, math.nan),
     )
 
-    assert (source, how) == (recode, "перекод")
+    assert (source, how) == (recode, "recode")
 
 
 def test_a_merge_nobody_could_check_is_not_taken_on_trust(tmp_path: Path) -> None:
@@ -203,7 +203,7 @@ def test_a_merge_nobody_could_check_is_not_taken_on_trust(tmp_path: Path) -> Non
         starts_of=lambda piece: (math.nan, math.nan),
     )
 
-    assert (source, how) == (copy, "копия"), "несверенная склейка уехала зрителю"
+    assert (source, how) == (copy, "copy"), "несверенная склейка уехала зрителю"
     assert not (tmp_path / "mix0.ts").exists()
 
 
@@ -226,7 +226,7 @@ def test_without_a_grid_the_place_is_not_checked_at_all(tmp_path: Path) -> None:
         starts_of=lambda piece: (123.4, 456.7),
     )
 
-    assert how == "склейка" and source.name == "mix0.ts"
+    assert how == "splice" and source.name == "mix0.ts"
 
 
 def test_a_sound_within_the_threshold_still_goes_out_as_a_merge(tmp_path: Path) -> None:
@@ -250,7 +250,7 @@ def test_a_sound_within_the_threshold_still_goes_out_as_a_merge(tmp_path: Path) 
         starts_of=lambda piece: (_WANT, _WANT - TRACK_PLACE_MAX + 0.001),
     )
 
-    assert how == "склейка", "здоровый разброс дорожек отменил склейку"
+    assert how == "splice", "здоровый разброс дорожек отменил склейку"
     assert source.name == "mix0.ts"
 
 
@@ -303,8 +303,8 @@ def test_a_merge_that_did_not_come_out_is_said_out_loud(tmp_path: Path, tape: Ta
         starts_of=_on_place,
     )
 
-    assert (source, how) == (copy, "копия")
-    assert tape.named("склейка не вышла") == [{"слот": 3}]
+    assert (source, how) == (copy, "copy")
+    assert tape.named("the splice did not come out") == [{"слот": 3}]
 
 
 def test_a_splice_that_could_not_be_put_on_the_tape_does_not_go_out(
@@ -336,8 +336,8 @@ def test_a_splice_that_could_not_be_put_on_the_tape_does_not_go_out(
         on_tape=lambda *_: False,
     )
 
-    assert (source, how) == (copy, "копия") and not (tmp_path / "mix6.m4s").exists()
-    assert tape.named("склейку не поставить на ленту показа") == [{"слот": 6}]
+    assert (source, how) == (copy, "copy") and not (tmp_path / "mix6.m4s").exists()
+    assert tape.named("the splice could not be seated on the show tape") == [{"слот": 6}]
 
 
 def test_the_splice_is_put_on_the_tape_of_the_piece_it_replaces(tmp_path: Path) -> None:
@@ -399,7 +399,7 @@ def test_each_track_is_checked_against_the_place_of_its_own_tape(tmp_path: Path)
         on_tape=lambda *_: True,
     )
 
-    assert how == "склейка" and source.name == "mix2.m4s"
+    assert how == "splice" and source.name == "mix2.m4s"
 
 
 def test_the_recode_that_goes_out_is_put_on_the_show_tape(tmp_path: Path) -> None:
@@ -432,5 +432,8 @@ def test_the_recode_that_goes_out_is_put_on_the_show_tape(tmp_path: Path) -> Non
         on_bare=on_bare,
     )
 
-    assert (source, how) == (recode, "перекод")
+    assert (source, how) == (recode, "recode")
+    # Наружу выкладке уезжает внутренний ярлык `recode`, а соседу на ленту - русское
+    # слово: он вставляет его в своё непереведённое предложение, и туда же `_shrunk_out`
+    # шлёт «ужатие». Разные вокабуляры тут нарочно, см. `_merged_out.leaving`.
     assert seen == [("spare3.m4s", "v3.m4s", "перекод")]

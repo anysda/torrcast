@@ -9,4 +9,6 @@ def en() -> dict[str, str]:
         "media_binaries.ffprobe_missing": "ffprobe is not installed",
         "media_binaries.ffprobe_timed_out": "ffprobe did not wait for the stream",
         "media_binaries.ffprobe_failed": "ffprobe failed to read the stream: {reason}",
+        "media_binaries.ffprobe_not_json": "ffprobe did not return JSON",
+        "media_binaries.ffprobe_bad_json": "ffprobe returned the wrong JSON",
     }

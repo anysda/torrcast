@@ -35,7 +35,7 @@ def test_mpegts_keeps_every_piece_exactly_as_it_was(tmp_path: Path) -> None:
     piece = run.run / "v1.ts"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(run, 1, piece, "ужатие") is piece
+    assert _own_head(run, 1, piece, "shrink") is piece
 
 
 def test_the_encoder_run_leaves_its_head_beside_the_piece_it_prepared(tmp_path: Path) -> None:
@@ -45,7 +45,7 @@ def test_the_encoder_run_leaves_its_head_beside_the_piece_it_prepared(tmp_path: 
     piece = run.run / "v4.m4s"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(run, 4, piece, "копия") is piece
+    assert _own_head(run, 4, piece, "copy") is piece
     assert (run.out / head_name(4)).read_bytes() == _RECODE_HEAD
 
 
@@ -56,7 +56,7 @@ def test_a_copy_after_a_copy_goes_out_untouched(tmp_path: Path) -> None:
     piece = run.run / "v2.m4s"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(run, 2, piece, "копия") is piece
+    assert _own_head(run, 2, piece, "copy") is piece
 
 
 def test_a_shrunk_piece_carries_the_head_of_the_encoder_that_made_it(tmp_path: Path) -> None:
@@ -67,7 +67,7 @@ def test_a_shrunk_piece_carries_the_head_of_the_encoder_that_made_it(tmp_path: P
     piece = spare / "v2.m4s"
     piece.write_bytes(_FRAMES)
 
-    headed = _own_head(run, 2, piece, "ужатие")
+    headed = _own_head(run, 2, piece, "shrink")
 
     assert headed != piece
     assert headed.read_bytes() == _RECODE_HEAD + _FRAMES
@@ -79,11 +79,11 @@ def test_the_copy_after_a_shrunk_place_takes_the_shared_head_back(tmp_path: Path
     (spare / head_name(2)).write_bytes(_RECODE_HEAD)
     run = packer(tmp_path, container=FMP4, out=out, spare=spare)
     (spare / "v2.m4s").write_bytes(_FRAMES)
-    _own_head(run, 2, spare / "v2.m4s", "ужатие")
+    _own_head(run, 2, spare / "v2.m4s", "shrink")
     piece = run.run / "v3.m4s"
     piece.write_bytes(_FRAMES)
 
-    headed = _own_head(run, 3, piece, "копия")
+    headed = _own_head(run, 3, piece, "copy")
 
     assert headed.read_bytes() == _COPY_HEAD + _FRAMES
 
@@ -95,11 +95,11 @@ def test_two_shrunk_places_in_a_row_with_one_head_pay_for_it_once(tmp_path: Path
     (spare / head_name(3)).write_bytes(_RECODE_HEAD)
     run = packer(tmp_path, container=FMP4, out=out, spare=spare)
     (spare / "v2.m4s").write_bytes(_FRAMES)
-    _own_head(run, 2, spare / "v2.m4s", "ужатие")
+    _own_head(run, 2, spare / "v2.m4s", "shrink")
     piece = spare / "v3.m4s"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(run, 3, piece, "ужатие") is piece
+    assert _own_head(run, 3, piece, "shrink") is piece
 
 
 def test_a_second_encoder_pass_with_another_preset_gets_its_own_head(tmp_path: Path) -> None:
@@ -111,7 +111,7 @@ def test_a_second_encoder_pass_with_another_preset_gets_its_own_head(tmp_path: P
     piece = spare / "v5.m4s"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(run, 5, piece, "перекод").read_bytes() == b"init-high-100" + _FRAMES
+    assert _own_head(run, 5, piece, "recode").read_bytes() == b"init-high-100" + _FRAMES
 
 
 def test_a_head_that_arrived_after_the_copy_left_does_not_speak_for_it(tmp_path: Path) -> None:
@@ -120,14 +120,14 @@ def test_a_head_that_arrived_after_the_copy_left_does_not_speak_for_it(tmp_path:
     run = packer(tmp_path, container=FMP4, out=out, spare=spare)
     copied = run.run / "v2.m4s"
     copied.write_bytes(_FRAMES)
-    _own_head(run, 2, copied, "копия")
+    _own_head(run, 2, copied, "copy")
     # Кодировщик дописал место 2 уже после того, как оно уехало копией.
     (spare / head_name(2)).write_bytes(_RECODE_HEAD)
     (spare / head_name(3)).write_bytes(_RECODE_HEAD)
     piece = spare / "v3.m4s"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(run, 3, piece, "ужатие").read_bytes() == _RECODE_HEAD + _FRAMES
+    assert _own_head(run, 3, piece, "shrink").read_bytes() == _RECODE_HEAD + _FRAMES
 
 
 def test_the_place_that_went_out_is_written_down_beside_the_encoder_pieces(
@@ -139,7 +139,7 @@ def test_the_place_that_went_out_is_written_down_beside_the_encoder_pieces(
     piece = run.run / "v2.m4s"
     piece.write_bytes(_FRAMES)
 
-    _own_head(run, 2, piece, "копия")
+    _own_head(run, 2, piece, "copy")
 
     assert (spare / head_name(2, HEAD_SENT)).read_bytes() == _COPY_HEAD
 
@@ -150,13 +150,13 @@ def test_what_the_previous_place_had_is_asked_of_the_disk_not_of_the_run(tmp_pat
     (spare / head_name(2)).write_bytes(_RECODE_HEAD)
     first = packer(tmp_path, container=FMP4, out=out, spare=spare)
     (spare / "v2.m4s").write_bytes(_FRAMES)
-    _own_head(first, 2, spare / "v2.m4s", "ужатие")
+    _own_head(first, 2, spare / "v2.m4s", "shrink")
 
     fresh = packer(tmp_path, container=FMP4, out=out, spare=spare, first=3)
     piece = fresh.run / "v3.m4s"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(fresh, 3, piece, "копия").read_bytes() == _COPY_HEAD + _FRAMES
+    assert _own_head(fresh, 3, piece, "copy").read_bytes() == _COPY_HEAD + _FRAMES
 
 
 def test_the_first_place_of_a_run_takes_its_head_without_asking(tmp_path: Path) -> None:
@@ -167,7 +167,7 @@ def test_the_first_place_of_a_run_takes_its_head_without_asking(tmp_path: Path) 
     piece = fresh.run / "v9.m4s"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(fresh, 9, piece, "копия").read_bytes() == _COPY_HEAD + _FRAMES
+    assert _own_head(fresh, 9, piece, "copy").read_bytes() == _COPY_HEAD + _FRAMES
 
 
 def test_a_show_without_a_single_encoder_pass_prepends_nothing_at_all(tmp_path: Path) -> None:
@@ -177,7 +177,7 @@ def test_a_show_without_a_single_encoder_pass_prepends_nothing_at_all(tmp_path: 
     piece = fresh.run / "v9.m4s"
     piece.write_bytes(_FRAMES)
 
-    assert _own_head(fresh, 9, piece, "копия") is piece
+    assert _own_head(fresh, 9, piece, "copy") is piece
 
 
 #: Кусок, собранный муксером самостоятельно: ``ftyp moov`` впереди и фрагмент за ними.
@@ -192,7 +192,7 @@ def test_a_splice_that_carries_its_own_head_is_not_headed_a_second_time(tmp_path
     piece = run.run / "v3.m4s"
     piece.write_bytes(_OWN + b"\x00\x00\x00\x0emoof" + _FRAMES)
 
-    assert _own_head(run, 3, piece, "ужатие") is piece
+    assert _own_head(run, 3, piece, "shrink") is piece
     assert piece.read_bytes().startswith(_OWN)
 
 
@@ -203,6 +203,6 @@ def test_the_neighbour_is_told_which_head_the_splice_took_outside(tmp_path: Path
     piece = run.run / "v3.m4s"
     piece.write_bytes(_OWN + b"\x00\x00\x00\x0emoof" + _FRAMES)
 
-    _own_head(run, 3, piece, "ужатие")
+    _own_head(run, 3, piece, "shrink")
 
     assert (spare / head_name(3, HEAD_SENT)).read_bytes() == _OWN

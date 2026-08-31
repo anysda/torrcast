@@ -57,6 +57,8 @@ def ru() -> dict[str, str]:
         # Показ: куски и план кодирования.
         "digest.plan_copy": "копия",
         "digest.plan_recode": "перекод",
+        "digest.plan_splice": "склейка",
+        "digest.plan_shrink": "ужатие",
         "digest.src_packed": "живая упаковка",
         "digest.src_warmed": "прогретое",
         "digest.src_warmed_copy": "прогретую копию",

@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 
@@ -53,9 +54,9 @@ def parse_media(text: str) -> Media:
     try:
         payload: Any = json.loads(text)
     except ValueError as exc:
-        raise InfraError("ffprobe вернул не JSON") from exc
+        raise InfraError(phrase("media_binaries.ffprobe_not_json")) from exc
     if not isinstance(payload, dict):
-        raise InfraError("ffprobe вернул не тот JSON")
+        raise InfraError(phrase("media_binaries.ffprobe_bad_json"))
     fmt = payload.get("format")
     duration = float((fmt or {}).get("duration") or 0.0) if isinstance(fmt, dict) else 0.0
     raw = payload.get("streams")
