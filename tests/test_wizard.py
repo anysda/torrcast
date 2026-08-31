@@ -10,6 +10,7 @@ from tgbot.transport import _TelegramResult
 from tgbot.wizard import wizard
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.config import Config as ProductConfig
+from torrcast.runtime.wire import wire
 
 
 def test_failure_stays_in_menu_accepts_proxy_and_rechecks(
@@ -48,8 +49,9 @@ def test_without_a_flag_the_menu_speaks_the_language_of_the_product_setting(
     """`cast -tg` после `cast --ru` обязан поднять меню по-русски, а не по-английски."""
     monkeypatch.setenv(CONFIG_ENV, str(tmp_path / "config.json"))
     save_config(ProductConfig(tv="10.0.0.50", language="ru"))
+    wire()
     output: list[str] = []
 
     assert wizard(read=lambda _prompt: "0", write=output.append) == 0
 
-    assert output == [i18n("menu", "ru")]
+    assert output == [i18n("menu")]

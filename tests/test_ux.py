@@ -18,17 +18,20 @@ import pytest
 from tests.fakes import composition, terminal
 from tests.fakes.show_unit import FakeShowUnit
 from tgbot.bot import Bot
+from tgbot.catalogs.en import en as english
+from tgbot.catalogs.ru import ru as russian
 from tgbot.config import Config as BotConfig
 from tgbot.i18n import i18n
-from tgbot.language import language as chosen_language
 from tgbot.telegram_api import TelegramApi
 from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
+from torrcast.adapters.filesystem.state.chosen_language import chosen_language
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.tongue import _follow_tongue, tongue
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
@@ -683,11 +686,11 @@ def test_the_cancel_button_takes_the_whole_dialog_away_without_a_failure(
     #: Отказа в чате нет - есть всплывающая подсказка, которая мусора не оставляет.
     #: Строка отказа берётся у самого каталога и на языке настройки продукта: впиши её
     #: сюда руками по-русски - и сторож промолчал бы на английский ответ бота.
-    failure = i18n("failed", chosen_language(), detail="").rstrip()
+    failure = i18n("failed", detail="").rstrip()
     assert failure and not any(failure in text for _message_id, text, _buttons in api.sent), (
         api.sent
     )
-    assert api.answers == [i18n("cancelled", chosen_language())]
+    assert api.answers == [i18n("cancelled")]
     #: И подсказки про Enter в карточке тоже нет: клавиатуры в чате не существует.
     assert not any("Enter" in text for _message_id, text, _buttons in api.sent)
     assert not any("Enter" in text for text in api.edited)
@@ -1710,66 +1713,110 @@ def test_a_series_named_by_its_only_season_still_plays(
     assert "none of them names season 1" not in printed, "отказа больше нет"
 
 
+class _ChatApi:
+    """Записывает сообщения бота без сети; в чат отвечает настоящий цикл."""
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    def send(
+        self,
+        _chat_id: str,
+        text: str,
+        _buttons: Any = None,
+        reply_to_message_id: int | None = None,
+    ) -> int:
+        del reply_to_message_id
+        self.sent.append(text)
+        return len(self.sent)
+
+    def answer(self, _callback_id: str, _text: str = "") -> object:
+        return object()
+
+    def edit(self, _chat_id: str, _message_id: int, _text: str, _buttons: Any = None) -> object:
+        return object()
+
+    def delete(self, _chat_id: str, _message_id: int) -> object:
+        return object()
+
+
+def _ask(bot: Bot, text: str, message_id: int) -> None:
+    """Одно сообщение в чат от клиента, у которого язык интерфейса английский."""
+    bot.dispatch(
+        {
+            "message": {
+                "chat": {"id": -100},
+                "from": {"language_code": "en"},
+                "message_id": message_id,
+                "text": text,
+            }
+        }
+    )
+
+
 def test_the_bot_answers_in_the_language_the_previous_cast_command_remembered() -> None:
     """🔴 TC-929: `cast --ru` из чата меняет язык СЛЕДУЮЩЕГО ответа без рестарта юнита.
 
     Планка тут та же, что у соседних проб бота: подделан только ``Api``, а команда идёт
     настоящая - через :func:`torrcast.cli.main.main`. Прочитай бот язык один раз при
     старте, флаг подействовал бы лишь после перезапуска, и владелец сказал бы «не
-    работает». Бот тут заводится ДО переключения нарочно.
+    работает». Бот тут заводится ДО переключения нарочно. Сборка ставит ровно живого
+    читателя настройки (:func:`_follow_tongue`): это и есть держатель, чья свежесть
+    меряется, - остальной внешний мир пробе не нужен.
     """
-
-    class Api:
-        def __init__(self) -> None:
-            self.sent: list[str] = []
-
-        def send(
-            self,
-            _chat_id: str,
-            text: str,
-            _buttons: Any = None,
-            reply_to_message_id: int | None = None,
-        ) -> int:
-            del reply_to_message_id
-            self.sent.append(text)
-            return len(self.sent)
-
-        def answer(self, _callback_id: str, _text: str = "") -> object:
-            return object()
-
-        def edit(self, _chat_id: str, _message_id: int, _text: str, _buttons: Any = None) -> object:
-            return object()
-
-        def delete(self, _chat_id: str, _message_id: int) -> object:
-            return object()
-
-    def ask(text: str, message_id: int) -> None:
-        """Одно сообщение в чат от клиента, у которого язык интерфейса английский."""
-        bot.dispatch(
-            {
-                "message": {
-                    "chat": {"id": -100},
-                    "from": {"language_code": "en"},
-                    "message_id": message_id,
-                    "text": text,
-                }
-            }
-        )
-
-    api = Api()
+    api = _ChatApi()
     previous = _environment_port()
-    bot = Bot(BotConfig("token", "-100"), api=cast(TelegramApi, api), assemble=lambda: None)
+    bot = Bot(
+        BotConfig("token", "-100"),
+        api=cast(TelegramApi, api),
+        assemble=lambda: _follow_tongue(chosen_language),
+    )
     try:
-        ask("cast", 1)
-        assert api.sent == [i18n("help", "en")], "до переключения бот отвечает по-английски"
+        _ask(bot, "cast", 1)
+        assert api.sent == [english()["help"]], "до переключения бот отвечает по-английски"
 
-        ask("cast --ru", 2)
+        _ask(bot, "cast --ru", 2)
         bot.run_one()
 
-        ask("cast", 3)
+        _ask(bot, "cast", 3)
     finally:
         configure_choice(previous)
 
     assert load_config().language == "ru", "флаг из чата обязан лечь в настройку продукта"
-    assert api.sent[-1] == i18n("help", "ru")
-    assert api.sent[-1] != i18n("help", "en"), "русский и английский ответы обязаны различаться"
+    assert api.sent[-1] == russian()["help"]
+    assert api.sent[-1] != english()["help"], "русский и английский ответы обязаны различаться"
+
+
+def test_an_external_switch_moves_the_next_reply_even_after_a_chat_switch() -> None:
+    """🔴 TC-943: чатный `cast --ru` не запирает держатель от внешнего `cast --en`.
+
+    Команда языка из чата исполняется В процессе бота - и не смеет превращать живого
+    читателя настройки в снимок на старте. Иначе следующий консольный `cast --en`
+    перепишет настройку, а бот продолжит говорить по-русски: причём своими строками
+    по-английски (они перечитывали настройку сами), а надписями домена по-русски -
+    ровно та двуязычная смесь, ради которой держатель сводился в один.
+    """
+    api = _ChatApi()
+    previous = _environment_port()
+    bot = Bot(
+        BotConfig("token", "-100"),
+        api=cast(TelegramApi, api),
+        assemble=lambda: _follow_tongue(chosen_language),
+    )
+    try:
+        _ask(bot, "cast", 1)
+        assert api.sent == [english()["help"]]
+
+        _ask(bot, "cast --ru", 2)
+        bot.run_one()
+        assert load_config().language == "ru"
+
+        # Так выглядит консольный `cast --en` соседнего процесса: та же настройка, тот же файл.
+        save_config(Config(tv="10.0.0.50", language="en"))
+
+        _ask(bot, "cast", 3)
+    finally:
+        configure_choice(previous)
+
+    assert api.sent[-1] == english()["help"], "следующий ответ - на новом языке настройки"
+    assert tongue() == "en", "держатель не заморожен чатным переключением"

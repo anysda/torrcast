@@ -10,7 +10,6 @@ from typing import Any
 
 from tgbot.config import Config
 from tgbot.i18n import _failure_detail, i18n
-from tgbot.language import language as chosen_language
 from tgbot.restore_flag_dashes import restore_flag_dashes
 from tgbot.telegram_api import TelegramApi
 from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
@@ -55,7 +54,7 @@ class Bot:
         self._control = TelegramControl(self._api, config.chat_id)
         configure_choice(self._choice)
         self._offset = 0
-        self._commands: Queue[tuple[list[str], str]] = Queue()
+        self._commands: Queue[list[str]] = Queue()
         self._busy = False
         self._busy_lock = threading.Lock()
 
@@ -67,9 +66,9 @@ class Bot:
 
     def run_one(self) -> None:
         """Исполнить следующую команду там, откуда вызван цикл команд."""
-        args, language = self._commands.get()
+        args = self._commands.get()
         try:
-            self._run(args, language)
+            self._run(args)
         finally:
             with self._busy_lock:
                 self._busy = False
@@ -102,22 +101,23 @@ class Bot:
         ):
             return
         # Язык - настройка продукта, а не свойство клиента чата: по `language_code`
-        # у владельца один ответ выходил двумя языками разом. Спрашивается на КАЖДУЮ
-        # команду, потому что бот живёт долго (:mod:`tgbot.language`).
-        language = chosen_language()
+        # у владельца один ответ выходил двумя языками разом. Спрашивает его сама
+        # надпись у единого держателя, при каждом ответе заново: бот живёт долго, и
+        # `cast --ru`, посланный из этого же чата или с консоли, обязан подействовать
+        # со следующей же команды, а не после рестарта юнита (:mod:`tgbot.i18n`).
         try:
             args = shlex.split(restore_flag_dashes(text))[1:]
         except ValueError as error:
-            self._api.send(self._config.chat_id, i18n("failed", language, detail=str(error)))
+            self._api.send(self._config.chat_id, i18n("failed", detail=str(error)))
             return
         if not args:
-            self._api.send(self._config.chat_id, i18n("help", language))
+            self._api.send(self._config.chat_id, i18n("help"))
             return
         message_id = message.get("message_id")
         command_id = int(message_id) if isinstance(message_id, int) else 0
         begin_choice = args != ["stop"]
-        if not self._enqueue(args, language, begin_choice=begin_choice, command_id=command_id):
-            self._api.send(self._config.chat_id, i18n("busy", language))
+        if not self._enqueue(args, begin_choice=begin_choice, command_id=command_id):
+            self._api.send(self._config.chat_id, i18n("busy"))
             return
 
     def _callback(self, callback: dict[str, Any]) -> None:
@@ -130,31 +130,30 @@ class Bot:
         callback_id, data = callback.get("id"), callback.get("data")
         if not isinstance(callback_id, str) or not isinstance(data, str):
             return
-        language = chosen_language()
         controlled = self._control.command(data)
         if controlled is not None:
             if controlled == "stop":
-                self._enqueue(["stop"], language)
-            self._api.answer(callback_id, i18n("control_done", language))
+                self._enqueue(["stop"])
+            self._api.answer(callback_id, i18n("control_done"))
             return
         message_id = int(message.get("message_id", 0))
         if self._choice.cancel(data, message_id):
             # 🔴 TC-926. Отмена отвечается ВСПЛЫВАЮЩЕЙ подсказкой, а не сообщением: сам
             # диалог сейчас будет убран целиком (:meth:`_run`), и новое сообщение в чате
             # пережило бы уборку мусором. Подсказка следа за собой не оставляет.
-            self._api.answer(callback_id, i18n("cancelled", language))
+            self._api.answer(callback_id, i18n("cancelled"))
             return
         accepted = self._choice.accept(data, message_id)
-        self._api.answer(callback_id, i18n("chosen" if accepted else "choice_expired", language))
+        self._api.answer(callback_id, i18n("chosen" if accepted else "choice_expired"))
 
-    def _run(self, args: list[str], language: str) -> None:
+    def _run(self, args: list[str]) -> None:
         """Исполнить настоящую команду torrcast и назвать отказ в чате."""
         try:
             code = self._command(args)
         except Exception as error:
             self._api.send(
                 self._config.chat_id,
-                i18n("failed", language, detail=_failure_detail(error, language)),
+                i18n("failed", detail=_failure_detail(error)),
             )
             return
         if code == EXIT_CANCELLED:
@@ -163,7 +162,7 @@ class Bot:
             # промолчи бот на любой ненулевой - и настоящий отказ ушёл бы в ту же тишину.
             self._choice.clean()
         elif code:
-            self._api.send(self._config.chat_id, i18n("failed", language, detail=str(code)))
+            self._api.send(self._config.chat_id, i18n("failed", detail=str(code)))
         elif args == ["stop"]:
             self._control.clean()
             self._choice.clean()
@@ -176,7 +175,6 @@ class Bot:
     def _enqueue(
         self,
         args: list[str],
-        language: str,
         *,
         begin_choice: bool = False,
         command_id: int = 0,
@@ -187,8 +185,8 @@ class Bot:
                 return False
             self._busy = True
             if begin_choice:
-                self._choice.begin(language, command_id)
-        self._commands.put((args, language))
+                self._choice.begin(command_id)
+        self._commands.put(args)
         return True
 
 

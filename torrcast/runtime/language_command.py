@@ -9,7 +9,7 @@ from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
+from torrcast.domain.catalogs.tongue import EN, RU
 
 #: Имя языка внутри подтверждения - не надпись продукта, а название САМОГО языка, и
 #: оно пишется его собственным письмом всегда, независимо от того, на какой каталог
@@ -25,7 +25,12 @@ def language_command(language: str) -> int:
     save_config(config)
     # Названная рядом работа идёт в ТОМ ЖЕ процессе (`cast --ru мумия`), и надписи в ней
     # обязаны быть уже новыми: следующего запуска, который перечитает настройку, тут нет.
-    _choose_tongue(language)
+    # Дернать держатель НАСИЛЬНО не нужно и вредно: собранный корнем процесс держит
+    # ЖИВОГО читателя настройки (:func:`torrcast.domain.catalogs.tongue._follow_tongue`),
+    # и свежая запись видна ему со следующей же надписи сама. Замороженный же снимок
+    # (:func:`~torrcast.domain.catalogs.tongue._choose_tongue`) отрезал бы долгоживущего
+    # бота от смены языка снаружи: чатный `cast --ru` запирал бы надписи домена на
+    # русском, и после консольного `cast --en` человек читал бы чат на двух языках разом.
     name = _LANGUAGE_NAMES.get(language, language)
     PrintConsole().write(phrase("runtime.announced_language", name=name))
     return 0

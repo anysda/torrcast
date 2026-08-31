@@ -24,10 +24,9 @@ _ENTER_HINT = "Enter "
 class TelegramChoiceEnvironment(_SystemChoiceEnvironment):
     """Оставляет правила выбора прежними, заменяя лишь терминальный ввод-вывод."""
 
-    def __init__(self, api: TelegramApi, chat_id: str, language: str = "en") -> None:
+    def __init__(self, api: TelegramApi, chat_id: str) -> None:
         self._api = api
         self._chat_id = chat_id
-        self._language = language
         self._condition = threading.Condition()
         self._session = ""
         self._answer: int | None = None
@@ -36,10 +35,9 @@ class TelegramChoiceEnvironment(_SystemChoiceEnvironment):
         self._command_id = 0
         self._message_ids: list[int] = []
 
-    def begin(self, language: str, command_id: int) -> None:
+    def begin(self, command_id: int) -> None:
         """Открыть независимый вопрос для новой команды чата."""
         with self._condition:
-            self._language = language
             self._session = secrets.token_hex(4)
             self._answer = None
             self._cancelled = False
@@ -59,7 +57,7 @@ class TelegramChoiceEnvironment(_SystemChoiceEnvironment):
             self._chat_id,
             self._callback_data,
             cancel={
-                "text": i18n("cancel", self._language),
+                "text": i18n("cancel"),
                 "callback_data": f"drop:{self._session}",
             },
         )
@@ -113,11 +111,11 @@ class TelegramChoiceEnvironment(_SystemChoiceEnvironment):
                 # 🔴 TC-926. Отмена возвращается из ожидания ОТДЕЛЬНЫМ родом, а не номером
                 # и не отказом: номера у неё нет, а отказ уехал бы в чат строкой «Каст не
                 # начался». Дальше её несёт код возврата (:data:`EXIT_CANCELLED`).
-                raise CancelledError(i18n("cancelled", self._language))
+                raise CancelledError(i18n("cancelled"))
             if not answered or self._answer is None:
-                raise self.not_found_error(i18n("choice_timeout", self._language))
+                raise self.not_found_error(i18n("choice_timeout"))
             if not 1 <= self._answer <= count:
-                raise self.not_found_error(i18n("choice_expired", self._language))
+                raise self.not_found_error(i18n("choice_expired"))
             return self._answer
 
     def cancel(self, data: str, message_id: int) -> bool:

@@ -21,6 +21,11 @@ from torrcast.runtime.wire import wire
 def test_the_choice_is_written_to_the_settings_and_named_aloud(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Команда в бою всегда идёт после сборки (:func:`torrcast.runtime.main.main`),
+    поэтому и тут держатель ставится корнем, а не берётся из воздуха.
+    """
+    wire()
+
     assert language_command("ru") == 0
 
     assert load_config().language == "ru"
@@ -36,6 +41,8 @@ def test_the_confirmation_speaks_the_language_it_switched_to(
     ("English"), и строка со строчной "english" обязана считаться таким же провалом,
     как и русский текст на английском флаге.
     """
+    wire()
+
     assert language_command("en") == 0
     assert capsys.readouterr().out == "language: English\n"
 

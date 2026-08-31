@@ -9,8 +9,9 @@ from pathlib import Path
 import pytest
 
 from tests.runtime.slot_contract import slots
+from tgbot.catalogs.en import en as english
+from tgbot.catalogs.ru import ru as russian
 from tgbot.i18n import i18n
-from tgbot.language import language
 from torrcast.adapters.console.console.progress import Progress
 from torrcast.adapters.filesystem.state.file_state_store import FileStateStore
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -118,17 +119,11 @@ def test_an_external_language_change_reaches_a_live_process_at_once() -> None:
     """Ботный процесс не держит язык, с которым однажды вызвали ``wire``."""
     save_config(Config(tv="10.0.0.50", language="en"))
     wire()
-    assert (i18n("busy", language()), tongue()) == (
-        "Another cast request is still being handled.",
-        "en",
-    )
+    assert (i18n("busy"), tongue()) == (english()["busy"], "en")
 
     save_config(Config(tv="10.0.0.50", language="ru"))
 
-    assert (i18n("busy", language()), tongue()) == (
-        "Предыдущий запрос cast ещё выполняется.",
-        "ru",
-    )
+    assert (i18n("busy"), tongue()) == (russian()["busy"], "ru")
 
 
 def test_the_environment_cannot_override_the_product_setting(
@@ -138,10 +133,7 @@ def test_the_environment_cannot_override_the_product_setting(
     save_config(Config(tv="10.0.0.50", language="en"))
     wire()
 
-    assert (i18n("busy", language()), tongue()) == (
-        "Another cast request is still being handled.",
-        "en",
-    )
+    assert (i18n("busy"), tongue()) == (english()["busy"], "en")
 
 
 #: Вопрос задаётся СВЕЖЕМУ процессу и по одному модулю за раз, потому что оба соседа

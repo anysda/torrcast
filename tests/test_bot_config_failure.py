@@ -47,14 +47,14 @@ class _Api:
         return len(self.sent)
 
 
-def _broken_reply(path: Path, monkeypatch: pytest.MonkeyPatch, language: str) -> str:
-    """Ответ бота на команду, упавшую о неразобранную настройку, языком зрителя.
+def _broken_reply(path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Ответ бота на команду, упавшую о неразобранную настройку.
 
-    🔴 Язык ПРОДУКТА тут английский и другим быть не может: язык лежит в настройке,
-    а настройка и есть та, что не читается
+    🔴 Язык такого ответа - всегда английский: язык лежит в настройке, а настройка
+    и есть та, что не читается
     (:func:`torrcast.adapters.filesystem.state.chosen_language.chosen_language`).
-    Поэтому готовая строка отказа приезжает английской при любом зрителе, и мера
-    языка зрителя - только на русском заходе.
+    Единый держатель второго источника языка не знает, поэтому и рамка ответа, и
+    слово беды внутри неё вырождаются в английский при любой прошлой настройке.
     """
     path.write_text("[]\n", encoding="utf-8")
     monkeypatch.setenv("TORRCAST_CONFIG", str(path))
@@ -70,7 +70,6 @@ def _broken_reply(path: Path, monkeypatch: pytest.MonkeyPatch, language: str) ->
         command=command,
         assemble=lambda: None,
     )
-    monkeypatch.setattr("tgbot.bot.chosen_language", lambda: language)
     bot.dispatch({"message": {"chat": {"id": -100}, "message_id": 1, "text": "cast film"}})
     bot.run_one()
 
@@ -78,41 +77,24 @@ def _broken_reply(path: Path, monkeypatch: pytest.MonkeyPatch, language: str) ->
     return api.sent[0]
 
 
-def test_a_broken_configuration_reply_is_entirely_english_under_english(
+def test_a_broken_configuration_reply_is_entirely_english(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Английскому зрителю кириллица не уезжает ни в рамке ответа, ни внутри неё."""
-    reply = _broken_reply(tmp_path / "config.json", monkeypatch, "en")
+    """Неразобранная настройка не читается - и кириллица не уезжает ни в рамке
+    ответа, ни внутри неё, каким бы ни был язык до поломки."""
+    reply = _broken_reply(tmp_path / "config.json", monkeypatch)
 
     assert not _CYRILLIC.search(reply), reply
     assert "expected a JSON object" in reply, reply
 
 
-def test_a_broken_configuration_reply_is_russian_past_the_frame_too(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """🔴 Мера про НУТРО ответа, а не про его рамку.
-
-    ``Каст не начался: {detail}`` русская сама по себе, поэтому «в ответе есть
-    кириллица» зеленело бы и на прежнем ``str(error)``: рамка русская, беда внутри
-    английская. Спрашивается ровно то, что чинилось, - слово беды
-    (:func:`tgbot.i18n._failure_detail`), и вслух называется английский текст, которого
-    в ответе быть не должно.
-    """
-    reply = _broken_reply(tmp_path / "config.json", monkeypatch, "ru")
-
-    assert "ожидался объект JSON" in reply, reply
-    assert "expected a JSON object" not in reply, reply
-
-
-def test_the_broken_file_is_named_to_the_viewer_in_both_languages(
+def test_the_broken_file_is_named_to_the_viewer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Путь до битого файла - половина пользы жалобы, и он переживает перевод."""
     path = tmp_path / "config.json"
 
-    assert str(path) in _broken_reply(path, monkeypatch, "en")
-    assert str(path) in _broken_reply(path, monkeypatch, "ru")
+    assert str(path) in _broken_reply(path, monkeypatch)
 
 
 def test_saving_over_a_broken_configuration_still_fails(

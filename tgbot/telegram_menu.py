@@ -26,7 +26,8 @@ class TelegramMenu:
         self._chat_id = chat_id
         self._callback = callback
         #: Готовая кнопка отмены: карточка её только ставит, а надпись и адрес ответа
-        #: знает окружение выбора - у него язык и номер вопроса.
+        #: знает окружение выбора - у него номер вопроса, а язык называет надписи
+        #: единый держатель продукта (:mod:`tgbot.i18n`).
         self._cancel = cancel
         self._lines: list[str] = []
         self._buttons: list[list[dict[str, str]]] = []
