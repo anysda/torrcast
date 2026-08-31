@@ -1066,9 +1066,7 @@ def test_the_spot_shrink_without_a_recoder_skips_the_place_once(tmp_path: Path) 
     feed = Feed(source="u", audio=0, out=out, grid=Grid.uniform(600.0), log=said.append)
     assert feed._shrink(5, MAX_SEGMENT_BYTES + 1) is False
     assert 5 in feed.skipped
-    middle = phrase(
-        "feed.skip_heavy", slot="SLOT-MARK", weight="WEIGHT-MARK", reason="REASON-MARK"
-    )
+    middle = phrase("feed.skip_heavy", slot="SLOT-MARK", weight="WEIGHT-MARK", reason="REASON-MARK")
     middle = middle.split("SLOT-MARK")[1].split("WEIGHT-MARK")[0]
     assert len(said) == 1 and middle in said[0]
     assert feed._shrink(5, MAX_SEGMENT_BYTES + 1) is False

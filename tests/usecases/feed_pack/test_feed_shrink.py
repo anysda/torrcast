@@ -14,11 +14,11 @@ from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN
 from torrcast.adapters.recode.pace import Pace
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.packer_publish import _lay_out
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.digest._session_block import _session_block
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.domain.segment_container import FMP4
-from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.shrunk_splice_events import (
     SHRUNK,
     SHRUNK_SPLICE_ATTEMPT,
