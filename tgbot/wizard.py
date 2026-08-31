@@ -5,13 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from tgbot.config import Config
+from tgbot.enable_bot_unit import enable_bot_unit
 from tgbot.i18n import i18n
 from tgbot.proxy import proxy as parse_proxy
 from tgbot.transport import _TelegramResult, transport
+from torrcast.domain.infra_error import InfraError
 
 _Reader = Callable[[str], str]
 _Writer = Callable[[str], None]
 _Checker = Callable[[str, str, str, str, float], _TelegramResult]
+_Service = Callable[[], None]
 text = i18n
 
 
@@ -27,6 +30,29 @@ def _diagnosis(result: _TelegramResult) -> str:
     if result.status in {400, 401, 403}:
         return text(f"http_{result.status}")
     return text("http_other", status=result.status, detail=result.detail)
+
+
+def _raise_bot(service: _Service, write: _Writer) -> None:
+    """Поднять службу бота и назвать исход словами.
+
+    🔴 Настройка, которую некому исполнять, - не настройка. До 31-08-2026 мастер
+    заканчивался на «сохранено»: человек видел проверочную надпись в чате (её шлёт сам
+    мастер) и считал бота живым, а Telegram не опрашивал никто, и следующая команда
+    уходила в пустоту. Отсюда шаг: настроил - значит служба поднята и переживёт
+    перезагрузку (:func:`~torrcast.adapters.systemd.enable_bot_unit.enable_bot_unit`).
+
+    Отказ не роняет мастер и не отменяет сохранённую настройку: она уже проверена
+    живьём и годна. Но и молчать о нём нельзя - молчание тут неотличимо от успеха,
+    поэтому причина идёт человеку вместе с командой, которой службу поднять руками.
+    ``OSError`` ловится рядом с нашим отказом нарочно: на машине без systemd вызова
+    не существует вовсе, и голый трейсбек съел бы весь исход настройки.
+    """
+    try:
+        service()
+    except (InfraError, OSError) as error:
+        write(text("service_down", detail=str(error)))
+        return
+    write(text("service_up"))
 
 
 def _offer_proxy(config: Config, read: _Reader, write: _Writer) -> bool:
@@ -48,6 +74,7 @@ def wizard(
     read: _Reader = input,
     write: _Writer = print,
     checker: _Checker = transport,
+    service: _Service = enable_bot_unit,
     timeout: float = 20.0,
 ) -> int:
     """Показывать меню до явного выхода; сохранять только после живой проверки.
@@ -105,6 +132,7 @@ def wizard(
             if result.status == 200:
                 config.save()
                 write(text("success"))
+                _raise_bot(service, write)
         elif choice == "5":
             removed = Config.remove()
             config = Config()

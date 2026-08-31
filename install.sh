@@ -2499,6 +2499,38 @@ JSON
     info "Prowlarr apikey stored in $CONFIG_DIR/config.json" "apikey Prowlarr перенесён в $CONFIG_DIR/config.json"
 }
 
+# --- 6.4 Служба Telegram-бота ------------------------------------------------
+# 🔴 Бот - не команда, а служба: он живёт между командами и обязан пережить
+# перезагрузку. До 31-08-2026 его не заводил никто. `cast -tg` сохранял настройку и
+# слал в чат проверочную надпись (её шлёт сам мастер), человек считал бота живым - а
+# опрашивать Telegram было некому, и всякая команда из чата уходила в пустоту.
+# Юнит кладётся на диск всегда, включается - только при настроенном Telegram: пустой
+# конфиг гонял бы бота по кругу падений. Обычно включает его сам мастер
+# (torrcast/adapters/systemd/enable_bot_unit.py), здесь - ради переустановки: машина,
+# настроенная раньше, обязана вернуться с живым ботом и уже с новым кодом.
+setup_bot_unit() {
+    if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
+        skip "torrcast-bot.service unit (sandbox)" "юнит torrcast-bot.service (песочница)"
+        return 0
+    fi
+    # ⚠️ Спрашиваем ДО правки юнита, как и run_service: `enable --now` уже поднятую
+    # службу не перезапустит, и бот остался бы жить со старым кодом после обновления.
+    local was_up=0
+    systemctl is-active --quiet torrcast-bot.service && was_up=1
+    write_unit torrcast-bot "Telegram-бот torrcast" "$PREFIX/venv/bin/torrcast-bot" || true
+    local ready=''
+    ready="$(jq -r '((.token // "") != "") and ((.chat_id // "") != "")' "$CONFIG_DIR/config.json" 2>/dev/null || true)"
+    if [ "$ready" != true ]; then
+        info "Telegram bot is not set up yet - set it up with: cast -tg" \
+             "Telegram-бот ещё не настроен - настрой командой: cast -tg"
+        return 0
+    fi
+    systemctl enable --now torrcast-bot.service
+    [ "$was_up" = 1 ] && systemctl restart torrcast-bot.service
+    info "Telegram bot service is up" "служба Telegram-бота поднята"
+    return 0
+}
+
 # --- 6.5 Приёмник ------------------------------------------------------------
 # Последний кусок настройки, и ручным он быть не должен: «установка кончилась, теперь
 # позови cast --tv» - это шаг, стоящий прямо на входе в продукт. Поэтому приёмник
@@ -2791,7 +2823,7 @@ main() {
         phase_done 'Prowlarr'
     fi
     has indexers   && { install_indexers; phase_done 'индексеры'; }
-    has config     && { setup_config;     phase_done 'конфиг'; }
+    has config     && { setup_config; setup_bot_unit; phase_done 'конфиг'; }
     has hls        && { setup_hls;        phase_done 'раздача'; }
     has receiver   && { setup_receiver;   phase_done 'приёмник'; }
 

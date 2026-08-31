@@ -59,7 +59,8 @@ release numbers, seeders and timings move with the answers of the indexers and t
   takes to keep the picture from buffering.
 - **It speaks English and Russian.** `cast --en` and `cast --ru` switch the whole product:
   labels, messages, the bot's replies and the voice it looks for.
-- **A Telegram bot.** `cast -tg`, and the TV can be driven from a chat.
+- **A Telegram bot.** `cast -tg`, and the TV can be driven from a chat. The setup
+  puts the bot on a service, so the chat answers after a reboot too.
 - **Honest.** Not one silent substitution. Every automatic decision gets its own plain
   line:
 

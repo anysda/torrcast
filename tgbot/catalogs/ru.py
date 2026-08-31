@@ -19,6 +19,14 @@ def ru() -> dict[str, str]:
         "testing": "Проверяю getMe и отправляю живое пробное сообщение...",
         "test_message": "Проверка настройки Telegram torrcast: бот может писать сюда.",
         "success": "Живая проверка прошла; конфиг сохранён с режимом 0600.",
+        "service_up": (
+            "Служба бота поднята и включена: отвечает сейчас и вернётся после перезагрузки "
+            "(systemctl status torrcast-bot)."
+        ),
+        "service_down": (
+            "Сохранено, но служба бота не поднялась: {detail}. Пока её нет, чат не читает "
+            "никто; подними руками: systemctl enable --now torrcast-bot."
+        ),
         "removed": "Настройка Telegram удалена.",
         "nothing_removed": "Настройки Telegram не было.",
         "invalid_choice": "Нет такого шага меню.",

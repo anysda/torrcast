@@ -19,6 +19,14 @@ def en() -> dict[str, str]:
         "testing": "Checking getMe and sending a live test message...",
         "test_message": "torrcast Telegram setup test: the bot can post here.",
         "success": "Live check passed; configuration saved with mode 0600.",
+        "service_up": (
+            "The bot service is up and enabled: it answers now and returns after a reboot "
+            "(systemctl status torrcast-bot)."
+        ),
+        "service_down": (
+            "Saved, but the bot service did not come up: {detail}. Until it does, nobody "
+            "reads the chat; start it by hand: systemctl enable --now torrcast-bot."
+        ),
         "removed": "Telegram setup removed.",
         "nothing_removed": "There was no Telegram setup to remove.",
         "invalid_choice": "Unknown menu step.",

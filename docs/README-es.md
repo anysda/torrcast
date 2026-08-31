@@ -65,7 +65,9 @@ cambian con las respuestas de los indexadores y del enjambre.
   solo lo justo para que no haya pausas de búfer.
 - **Habla inglés y ruso.** `cast --en` y `cast --ru` cambian el producto entero: los
   rótulos, los mensajes, las respuestas del bot y la pista de audio que va a buscar.
-- **Bot de Telegram.** `cast -tg`, y el televisor se maneja desde un chat.
+- **Bot de Telegram.** `cast -tg`, y el televisor se maneja desde un chat. La
+  configuración deja el bot como servicio, así que el chat responde también tras
+  reiniciar.
 - **Honesto.** Ni una sustitución silenciosa. Cada decisión automática tiene su línea
   clara:
 
