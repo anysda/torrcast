@@ -76,7 +76,8 @@ main() {
     # а имя внутри .sha256 обязано побайтово совпасть с локальным именем файла.
     tag="$(latest_version)"
     ver="${tag#v}"
-    say "torrcast $ver" "торкаст $ver"
+    # Имя продукта не переводится и не транслитерируется: torrcast на обоих языках.
+    say "torrcast $ver" "torrcast $ver"
 
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
