@@ -265,7 +265,10 @@ def test_the_warmed_counter_names_only_what_the_show_can_take(tmp_path: Path) ->
 
     assert feed._warm(1) is None, "потолок показа изменился - счёт прогрева меряет не то"
     assert warmer.warmed == pytest.approx(grid.span(0)), "тяжёлая копия зачлась прогретой"
-    assert f"прогрето {_hms(grid.span(0))} из" in warmer.line(), "строка врёт про запас"
+    head_prefix = phrase(
+        "warm.progress_head", warmed=_hms(grid.span(0)), duration="DURATION-MARK"
+    ).split("DURATION-MARK")[0]
+    assert head_prefix in warmer.line(), "строка врёт про запас"
     assert vault.slots() == {0, 1}, "укладка потеряла кусок - прогрев переложит его заново"
     assert warmer._missing() == (2, grid.count - 1), "прогрев вернулся за уложенным куском"
 
@@ -339,7 +342,8 @@ def test_the_budget_evicts_other_shows_by_age_and_never_the_own(tmp_path: Path) 
     assert mine.fit(100) == "", "место обязано найтись за счёт чужого"
     assert not (root / "старый").exists(), "давний чужой каталог не вытеснен"
     assert (root / "свежий").exists() and mine.have(0), "вытеснено лишнее"
-    assert "бюджет" in mine.fit(1 << 40), "бюджет не удержан"
+    budget_head = phrase("warm.budget_exhausted", budget="BUDGET-MARK").split("BUDGET-MARK")[0]
+    assert budget_head in mine.fit(1 << 40), "бюджет не удержан"
 
 
 def test_the_warm_budget_accepts_the_worst_measured_evening(tmp_path: Path) -> None:
@@ -363,7 +367,9 @@ def test_the_budget_leaves_the_disk_room_to_breathe(tmp_path: Path) -> None:
         tmp_path, budget=1 << 62, floor=FREE_FLOOR, free_of=lambda root: need + FREE_FLOOR - 1
     )
     refusal = vault.fit(need)
-    assert "на разделе свободно" in refusal and "запас" in refusal, (
+    floor_head = phrase("warm.floor_reached", free="FREE-MARK").split("FREE-MARK")[0]
+    floor_tail = phrase("warm.floor_reached", free="FREE-MARK").split("FREE-MARK")[1]
+    assert floor_head in refusal and floor_tail in refusal, (
         "наш бюджет не должен скрывать нехватку чужого места"
     )
 
@@ -388,7 +394,11 @@ def test_warming_lays_the_whole_clip_on_disk_and_reports_it(clip: str, tmp_path:
 
     assert warmer.done, f"прогрев не дошёл до конца: {warmer.line()}"
     assert warmer.warmed == pytest.approx(grid.duration), "прогрето меньше, чем сказано"
-    assert "прогрето" in warmer.line() and "интернет больше не нужен" in warmer.line()
+    head_prefix = phrase("warm.progress_head", warmed="WARMED-MARK", duration="d").split(
+        "WARMED-MARK"
+    )[0]
+    done_tail = phrase("warm.done_note", head="HEAD-MARK").split("HEAD-MARK")[1]
+    assert head_prefix in warmer.line() and done_tail in warmer.line()
     for slot in range(grid.count):
         assert vault.path(slot).stat().st_size > 0, f"кусок {segment_name(slot)} пуст"
     assert not (vault.dir / "run").exists(), "каталог прогона остался мусором"
@@ -644,15 +654,16 @@ def test_the_done_flag_counts_only_what_the_show_can_take(tmp_path: Path) -> Non
 
     # Оба состояния снимаем в переменные: сверяются они парой, и читать признак прямо в
     # `assert` нельзя - тайпчекер запомнит первый ответ и второй счёт просто выкинет.
+    done_tail = phrase("warm.done_note", head="HEAD-MARK").split("HEAD-MARK")[1]
     heavy, said = warmer.done, warmer.line()
     assert warmer.warmed < grid.duration
     assert not heavy, "тяжёлая копия зачлась готовой - строка соврёт про сеть"
-    assert "интернет больше не нужен" not in said
+    assert done_tail not in said
 
     vault.path(1).write_bytes(b"x" * 4096)  # точечный перекод лёг поверх копии
     whole, told = warmer.done, warmer.line()
     assert whole, "перекод лёг поверх тяжёлой копии, а готово не наступило"
-    assert "интернет больше не нужен" in told
+    assert done_tail in told
 
 
 def test_the_chain_outlives_a_film_whose_heavy_pieces_stay_copies(tmp_path: Path) -> None:
@@ -835,8 +846,11 @@ def test_the_budget_is_rechecked_as_the_run_lays_pieces(
     )
     warmer._run(0, grid.count - 1)
 
-    assert warmer.trouble.startswith("бюджет"), f"прогрев не встал: {warmer.trouble!r}"
-    assert any("прогрев встал" in line for line in said), "остановка прошла молча"
+    budget_head = phrase("warm.budget_exhausted", budget="BUDGET-MARK").split("BUDGET-MARK")[0]
+    assert warmer.trouble.startswith(budget_head), f"прогрев не встал: {warmer.trouble!r}"
+    note = phrase("warm.trouble_note", head="HEAD-MARK", trouble="T-MARK")
+    trouble_mark = note.split("HEAD-MARK")[1].split("T-MARK")[0]
+    assert any(trouble_mark in line for line in said), "остановка прошла молча"
     laid = len(list(warmer.vault.dir.glob("v*.ts")))
     assert 0 < laid < grid.count, f"уложено {laid} из {grid.count} - не похоже на стоп по ходу"
 
@@ -948,7 +962,8 @@ def test_warming_freezes_while_the_live_recoder_has_a_run_in_flight(tmp_path: Pa
     warmer._throttle(packer)
     assert packer.proc.signals == [signal.SIGSTOP], "прогрев не уступил живому перекоду"
     assert warmer.idle is True, "прогрев не отметил, что замер"
-    assert "уступил перекоду" in warmer.line(), "строка прогрева не называет причину паузы"
+    rival = phrase("warm.busy_rival")
+    assert rival in warmer.line(), "строка прогрева не называет причину паузы"
 
     warmer.rival.working = False
     warmer._throttle(packer)
@@ -1400,13 +1415,15 @@ def test_a_piece_laid_off_the_grid_never_reaches_the_show(
     assert warmer.skews == {_LAID: 1}, f"промах не посчитан: {warmer.skews}"
     assert warmer.misgrid == _LAID, "заход, промахнувшийся мимо сетки, не оборван"
     assert warmer.trouble == "", "первый промах обязан кончаться перекладкой, а не дырой"
-    assert any("перекладываю" in line for line in said), f"о промахе не сказано: {said}"
+    retry_tail = phrase("warm.skew_retry", where="WHERE-MARK").split("WHERE-MARK")[1]
+    assert any(retry_tail in line for line in said), f"о промахе не сказано: {said}"
 
     warmer._run(_LAID, _LAID)
     assert warmer.skews == {_LAID: SKEW_TRIES}, "второй промах не посчитан"
     assert not vault.path(_LAID).exists(), "кусок мимо сетки остался лежать в показе"
     assert warmer.trouble, "второй промах на том же месте прошёл молча"
-    assert "непрогрет" in warmer.line(), f"дыра не названа дырой: {warmer.line()}"
+    hole_tail = phrase("warm.skew_hole", where="WHERE-MARK").split("WHERE-MARK")[1]
+    assert hole_tail in warmer.line(), f"дыра не названа дырой: {warmer.line()}"
     assert not warmer.done, "«прогрето целиком» при дыре в прогретом"
 
     shutdown()

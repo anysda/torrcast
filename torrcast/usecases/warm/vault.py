@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import torrcast.usecases.warm._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.warm._vault_disk import (
@@ -164,7 +165,7 @@ class Vault:
             )
             _state._environment.remove_tree(gone)
         if need > self.budget - _weigh(self.root):
-            return f"бюджет диска {self.budget / 1e9:.0f} ГБ исчерпан"
+            return phrase("warm.budget_exhausted", budget=f"{self.budget / 1e9:.0f}")
         if need + self.floor > self.free():
-            return f"на разделе свободно {self.free() / 1e9:.1f} ГБ - это последний запас"
+            return phrase("warm.floor_reached", free=f"{self.free() / 1e9:.1f}")
         return ""

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import torrcast.usecases.warm._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm.segment_start import _Clock, segment_start
 from torrcast.usecases.warm.settings import SKEW_MAX, SKEW_TRIES
 from torrcast.usecases.warm.stall import _stall
@@ -19,11 +20,11 @@ if TYPE_CHECKING:
     from torrcast.usecases.warm.warmer_state import _State
 
 #: Кусок лёг на своё место сетки.
-FIT: Final = "годен"
+FIT: Final = phrase("warm.fit")
 #: Кусок лёг раньше своей границы: он уже стёрт и в показ не пойдёт.
-SKEW: Final = "мимо сетки"
+SKEW: Final = phrase("warm.skew")
 #: Сверить было НЕЧЕМ. Не приговор куску, а признание сторожа: кусок остался лежать.
-BLIND: Final = "не сверен"
+BLIND: Final = phrase("warm.blind")
 
 
 def _inspect(
@@ -119,19 +120,21 @@ def _verify(state: _State, slot: int, began_of: Callable[[Path], _Clock] = segme
     _state._environment.mark(
         "кусок прогрева мимо сетки", слот=slot, сдвиг=round(began - want, 3), дыра=hole
     )
-    where = f"v{slot} на {want / 60:.0f}-й минуте лёг мимо сетки ({began - want:+.2f} с)"
+    where = phrase(
+        "warm.skew_where", slot=slot, minute=f"{want / 60:.0f}", diff=f"{began - want:+.2f}"
+    )
     if hole:
-        _stall(state, f"{where} - это место осталось непрогретым")
+        _stall(state, phrase("warm.skew_hole", where=where))
     else:
-        state._say(f"{where} - перекладываю его заново")
+        state._say(phrase("warm.skew_retry", where=where))
     return SKEW
 
 
 def _blind(state: _State, slot: int, clock: _Clock) -> str:
     """Сверить было нечем: сказать об этом вслух и оставить кусок лежать."""
-    why = "таймкод не прочитан" if clock.movie else "лента прогона, а не фильма"
+    why = phrase("warm.blind_why_timecode") if clock.movie else phrase("warm.blind_why_not_movie")
     state.unchecked += 1
     if state.unchecked == 1:
         _state._environment.mark("укладку прогрева не с чем сверить", слот=slot, почему=why)
-        state._say(f"сетку прогрева сверять нечем ({why}) - сторож укладки тут слеп")
+        state._say(phrase("warm.blind_note", why=why))
     return BLIND

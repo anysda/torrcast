@@ -7,6 +7,7 @@ import os
 from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import lay, vault, world
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm._vault_disk import _title, _touched
 from torrcast.usecases.warm.settings import META, SPOT_LAY
 from torrcast.usecases.warm.vault import Vault
@@ -96,10 +97,12 @@ def test_a_budget_and_a_disk_are_two_different_refusals(
     store = vault(tmp_path, budget=1000, floor=0)
     lay(store, 0, size=900)
 
-    assert "бюджет диска" in store.fit(500), "упёртый бюджет назвался чем-то другим"
+    budget_head = phrase("warm.budget_exhausted", budget="BUDGET-MARK").split("BUDGET-MARK")[0]
+    assert budget_head in store.fit(500), "упёртый бюджет назвался чем-то другим"
 
     roomy = vault(tmp_path, key="просторная", budget=1 << 40, floor=1 << 62)
-    assert "последний запас" in roomy.fit(1), "запас раздела назвался бюджетом"
+    floor_tail = phrase("warm.floor_reached", free="FREE-MARK").split("FREE-MARK")[1]
+    assert floor_tail in roomy.fit(1), "запас раздела назвался бюджетом"
 
 
 def test_clearing_hands_the_catalogue_to_the_environment(

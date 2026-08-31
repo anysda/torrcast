@@ -111,6 +111,8 @@ from torrcast.domain.catalogs.trace.en import en as trace_en
 from torrcast.domain.catalogs.trace.ru import ru as trace_ru
 from torrcast.domain.catalogs.voices_command.en import en as voices_command_en
 from torrcast.domain.catalogs.voices_command.ru import ru as voices_command_ru
+from torrcast.domain.catalogs.warm.en import en as warm_en
+from torrcast.domain.catalogs.warm.ru import ru as warm_ru
 from torrcast.domain.catalogs.watch.en import en as watch_en
 from torrcast.domain.catalogs.watch.ru import ru as watch_ru
 from torrcast.domain.catalogs.worker.en import en as worker_en
@@ -172,6 +174,7 @@ _CLUSTERS: Final = (
     (notes_en, notes_ru),
     (cmd_play_en, cmd_play_ru),
     (reinforce_en, reinforce_ru),
+    (warm_en, warm_ru),
 )
 
 

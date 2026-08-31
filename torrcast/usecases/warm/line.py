@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.warm._state as _state
+from torrcast.domain.catalogs.phrase import phrase
 
 if TYPE_CHECKING:
     from torrcast.usecases.warm.warmer_state import _State
@@ -15,13 +16,19 @@ if TYPE_CHECKING:
 
 def _line(state: _State) -> str:
     """Строка о прогреве для журнала и статуса — та самая «прогрето 42 мин из 96»."""
-    head = f"прогрето {_state._hms(state.warmed)} из {_state._hms(state.grid.duration)}"
+    head = phrase(
+        "warm.progress_head",
+        warmed=_state._hms(state.warmed),
+        duration=_state._hms(state.grid.duration),
+    )
     if state.done:
-        done = f"{head} - фильм целиком на диске, интернет больше не нужен"
-        return done if state.after is None else f"{done}; следующая: {_line(state.after)}"
+        done = phrase("warm.done_note", head=head)
+        if state.after is None:
+            return done
+        return phrase("warm.next_note", done=done, next=_line(state.after))
     if state.trouble:
-        return f"{head} - прогрев встал: {state.trouble}"
+        return phrase("warm.trouble_note", head=head, trouble=state.trouble)
     if not state.idle:
-        return f"{head} - грею дальше"
-    why = "уступил перекоду" if state._busy_rival() else "жду запаса показа"
-    return f"{head} - грею дальше ({why})"
+        return phrase("warm.warming_on", head=head)
+    why = phrase("warm.busy_rival") if state._busy_rival() else phrase("warm.waiting_slot")
+    return phrase("warm.warming_why", head=head, why=why)

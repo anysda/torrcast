@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import grid, lay, warmer, world
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm.segment_start import _Clock
 from torrcast.usecases.warm.settings import SKEW_MAX, SKEW_TRIES
 from torrcast.usecases.warm.verify import BLIND, FIT, SKEW, _inspect, _verify
@@ -69,8 +70,9 @@ def test_the_second_miss_on_the_same_place_is_a_hole(tmp_path: Path) -> None:
         warm.misgrid = -1
         _verify(warm, 2, began)
 
+    hole_tail = phrase("warm.skew_hole", where="WHERE-MARK").split("WHERE-MARK")[1]
     assert warm.skews[2] == SKEW_TRIES
-    assert "осталось непрогретым" in warm.trouble, "прогрев ходит кругами по одному месту"
+    assert hole_tail in warm.trouble, "прогрев ходит кругами по одному месту"
 
 
 def test_the_origin_of_the_timeline_is_added_to_the_border(tmp_path: Path) -> None:
@@ -112,7 +114,9 @@ def test_an_unreadable_piece_is_not_called_fit(tmp_path: Path) -> None:
     assert _verify(warm, 2, _began({})) != FIT, "сторож зелен там, где мерить не может"
     assert warm.unchecked == 1
     assert fake.marks[0][0] == "укладку прогрева не с чем сверить"
-    assert "сверять нечем" in said[0] and "слеп" in said[0]
+    why = phrase("warm.blind_why_timecode")
+    blind_head = phrase("warm.blind_note", why="WHY-MARK").split("WHY-MARK")[0]
+    assert blind_head in said[0] and why in said[0]
 
 
 def test_the_counter_of_the_run_is_never_compared_to_the_grid(tmp_path: Path) -> None:

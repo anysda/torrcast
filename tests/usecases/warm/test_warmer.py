@@ -16,6 +16,7 @@ from tests.usecases.warm.world import (
     warmer,
     world,
 )
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm.settings import GUARD_HIGH
 from torrcast.usecases.warm.warmer_state import _State
 
@@ -33,7 +34,10 @@ def test_the_warming_is_the_state_it_stands_on(tmp_path: Path) -> None:
     warm = warmer(tmp_path)
 
     assert isinstance(warm, _State)
-    assert warm.line().startswith("прогрето"), "строка о себе потерялась"
+    head = phrase("warm.progress_head", warmed="HEAD-MARK", duration="HEAD-MARK").split(
+        "HEAD-MARK"
+    )[0]
+    assert warm.line().startswith(head), "строка о себе потерялась"
 
 
 def test_the_thread_starts_the_work_and_the_stop_ends_it(tmp_path: Path) -> None:
@@ -85,7 +89,8 @@ def test_a_whole_film_says_it_is_ready_and_moves_to_the_next_episode(tmp_path: P
 
     warm._work()
 
-    assert any("интернет больше не нужен" in line for line in said)
+    done_tail = phrase("warm.done_note", head="HEAD-MARK").split("HEAD-MARK")[1]
+    assert any(done_tail in line for line in said)
     assert fake.named("прогрев готов")["секунд"] == round(warm.grid.duration)
     assert (fake.events[0][0], fake.events[0][1]) == ("warmth", ("ready",))
     assert warm.after is following, "цепочка не тронулась после готовой серии"
@@ -116,7 +121,8 @@ def test_a_tight_budget_stops_the_work_before_the_run(tmp_path: Path) -> None:
     warm._work()
 
     assert taken == [], "заход пошёл в упёртый бюджет"
-    assert "бюджет диска" in warm.trouble
+    budget_head = phrase("warm.budget_exhausted", budget="BUDGET-MARK").split("BUDGET-MARK")[0]
+    assert budget_head in warm.trouble
 
 
 def test_a_run_reserves_only_its_nearest_piece(tmp_path: Path) -> None:
