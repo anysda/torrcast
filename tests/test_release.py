@@ -39,8 +39,11 @@ def _write_repo(root: Path) -> None:
     os.chmod(root / "install.sh", 0o755)  # как реальный install.sh в репе (100755)
     (root / "install").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
     (root / "README.md").write_text("# torrcast\n", encoding="utf-8")
+    docs = root / "docs"
+    docs.mkdir()
     for tongue in ("jp", "es", "ru"):
-        (root / f"README-{tongue}.md").write_text(f"# torrcast ({tongue})\n", encoding="utf-8")
+        (docs / f"README-{tongue}.md").write_text(f"# torrcast ({tongue})\n", encoding="utf-8")
+    (docs / "demo.gif").write_bytes(b"GIF89a")
     (root / "LICENSE").write_text("MIT\n", encoding="utf-8")
     scripts = root / "scripts"
     scripts.mkdir()
@@ -193,9 +196,15 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
         assert "torrcast/domain/version.py" in names
         assert "pyproject.toml" in names
         assert "install.sh" in names
-        # Английский README ссылается на три перевода: уехавший без них ведёт
-        # установленную копию на файлы, которых в ней нет.
-        assert {"README.md", "README-jp.md", "README-es.md", "README-ru.md"} <= set(names)
+        # Английский README ссылается на три перевода и на гифку: уехавший без них
+        # ведёт установленную копию на файлы, которых в ней нет.
+        assert {
+            "README.md",
+            "docs/README-jp.md",
+            "docs/README-es.md",
+            "docs/README-ru.md",
+            "docs/demo.gif",
+        } <= set(names)
         assert "tests" not in names and not any(n.startswith("tests/") for n in names)
 
         version_py = tar.extractfile("torrcast/domain/version.py")

@@ -1121,9 +1121,13 @@ def _translation_list_violations(modules: list[Module]) -> list[Violation]:
 #: `README-old.md`, `README-en.md`, `READMEv2.md` - ровно тот приём, которым правило
 #: обходят не со зла. Переводы названы поимённо ради многоязычной витрины (TC-931) -
 #: они живут списком независимо от того, приехал файл в дерево уже сегодня или нет.
+#: Переводы лежат в `docs/` рядом с `docs/demo.gif`: в корне витрины остаётся один
+#: `README.md`, а маска «любой .md в docs/» открыла бы туда дорогу всей кухне.
 #: `README-en.md` в списке нет и не будет: английский README - это `README.md`, и второе
 #: имя для него означало бы две расходящиеся витрины вместо одной.
-_ALLOWED_MARKDOWN: Final = frozenset({"README.md", "README-ru.md", "README-jp.md", "README-es.md"})
+_ALLOWED_MARKDOWN: Final = frozenset(
+    {"README.md", "docs/README-ru.md", "docs/README-jp.md", "docs/README-es.md"}
+)
 
 
 def _document_violations(root: Path) -> list[Violation]:

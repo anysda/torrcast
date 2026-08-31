@@ -827,6 +827,7 @@ def _git_tree(tmp_path: Path, names: tuple[str, ...]) -> Path:
     """Настоящий git-репозиторий с отслеженными файлами - мера правила это `git ls-files`,
     и синтетическим каталогом без `.git` её не проверить."""
     for name in names:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text("", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     if names:
@@ -842,7 +843,10 @@ def test_document_rule_allows_readme_alone(tmp_path: Path) -> None:
 
 @pytest.mark.machine
 def test_document_rule_allows_readme_and_its_translations(tmp_path: Path) -> None:
-    root = _git_tree(tmp_path, ("README.md", "README-ru.md", "README-jp.md", "README-es.md"))
+    root = _git_tree(
+        tmp_path,
+        ("README.md", "docs/README-ru.md", "docs/README-jp.md", "docs/README-es.md"),
+    )
     assert structure_gate._document_violations(root) == []
 
 
@@ -850,10 +854,13 @@ def test_document_rule_allows_readme_and_its_translations(tmp_path: Path) -> Non
 def test_document_rule_turns_red_on_a_third_markdown_that_looks_legitimate(
     tmp_path: Path,
 ) -> None:
-    """`README-en.md` ловит подмену точного списка маской - `docs/notes.md` бы не поймал."""
-    root = _git_tree(tmp_path, ("README.md", "README-en.md"))
+    """`README-en.md` ловит подмену точного списка маской - `docs/notes.md` бы не поймал.
+
+    Переводы переехали в `docs/`, и маска «любой .md в docs/» пустила бы туда кухню;
+    `README-ru.md` из корня ловит вторую половину того же приёма."""
+    root = _git_tree(tmp_path, ("README.md", "README-en.md", "README-ru.md"))
     violations = structure_gate._document_violations(root)
-    assert [item.path for item in violations] == ["README-en.md"]
+    assert [item.path for item in violations] == ["README-en.md", "README-ru.md"]
     assert {item.rule for item in violations} == {"документы"}
 
 
