@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.proven_native import proven_native
 from torrcast.domain.picture import Picture
@@ -57,7 +58,6 @@ def _as_is(
         return stays
     progress.phase("")  # вердикт - итог уже законченного круга, и печатается после него
     progress.note(
-        f"под этим именем в каталоге лежит картина {found[0].year} года, "
-        f"а не {about.year} - другой там нет"
+        phrase("reinforce.year_mismatch", found_year=found[0].year, about_year=about.year)
     )
     return stays

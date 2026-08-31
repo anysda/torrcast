@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, row
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.reinforce._voice_reinforce import _voice_reinforce
@@ -33,10 +34,7 @@ def test_the_year_in_the_line_splits_the_hundred_rows_of_the_indexer() -> None:
     assert client.asked == ["Cars 2006"]
     assert len(merged) == 2, "выдача склеена, а не заменена"
     assert [(p.title, len(p.releases)) for p in wider] == [("Тачки", 2)]
-    assert said.text == (
-        "«Тачки» по-русски есть только там, где играть нечем - "
-        "добрал по «Cars 2006»: раздач стало 2"
-    )
+    assert said.text == phrase("reinforce.voice_note", title="Тачки", exact="Cars 2006", now=2)
 
 
 def test_a_namesake_of_another_year_is_not_brought_in() -> None:
@@ -57,7 +55,9 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
 
     assert client.asked == []
     assert merged is _ENGLISH
-    assert said.text == ("not doing добор по «Cars 2006»: the search already spent the goal at 10s")
+    assert said.text == (
+        "not doing top up via «Cars 2006»: the search already spent the goal at 10s"
+    )
 
 
 def test_the_same_line_is_never_asked_twice() -> None:

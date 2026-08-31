@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.release import Release
 
 if TYPE_CHECKING:
@@ -27,18 +28,18 @@ def _foreign_note(foreign: list[Release], menu: frozenset[str], progress: Progre
     guests = [p for p in cluster(foreign) if p.key not in menu]
     if not guests:
         return
-    who = (
-        ", ".join(sorted({r.indexer for p in guests for r in p.releases if r.indexer}))
-        or "опоздавший индексер"
-    )
+    named = ", ".join(sorted({r.indexer for p in guests for r in p.releases if r.indexer}))
+    who = named or phrase("reinforce.late_indexer")
     names = ", ".join(f"«{p.title}» ({p.year or '?'})" for p in guests[:KIN_SHOWN])
     if len(guests) > KIN_SHOWN:
-        names += f" и ещё {len(guests) - KIN_SHOWN}"
+        names += phrase("reinforce.and_more", n=len(guests) - KIN_SHOWN)
+    tail = (
+        phrase("reinforce.not_listed_singular")
+        if len(guests) == 1
+        else phrase("reinforce.not_listed_plural")
+    )
     progress.note(
-        f"«{who}» доехал после списка: привёз {names} - "
-        + (
-            "в списке её не было, в отбор она не пойдёт"
-            if len(guests) == 1
-            else "в списке их не было, в отбор они не пойдут"
-        )
+        phrase("reinforce.arrived_after_list", who=who)
+        + phrase("reinforce.foreign_brought", names=names)
+        + tail
     )

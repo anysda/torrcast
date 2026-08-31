@@ -555,7 +555,10 @@ def test_долив_опоздавшего_пополняет_пул_выбра�
 
     assert len(fresh.picture.releases) == 2
     assert fresh.picture.key == plan.picture.key, "картина та же - подменять её долив не вправе"
-    assert "доехал после списка: раздач 2 вместо 1" in said
+    line = phrase("reinforce.arrived_after_list", who="Nyaa.si") + phrase(
+        "reinforce.topup_counts", now=2, was=1
+    )
+    assert line in said
 
 
 def test_долив_называет_вслух_смену_верха_отбора() -> None:
@@ -565,7 +568,7 @@ def test_долив_называет_вслух_смену_верха_отбор
     fresh, said = _topup(plan, [_raw("Кино / Movie (1999) BDRip 1080p x264", "c", 900)])
 
     assert fresh.ranked[0].seeders == 900, "обсиженная раздача встала верхом отбора"
-    assert "верх отбора другой" in said
+    assert phrase("reinforce.topup_changed") in said
 
 
 def test_долив_не_вносит_в_список_картину_которой_в_меню_не_было() -> None:
@@ -577,8 +580,9 @@ def test_долив_не_вносит_в_список_картину_котор�
     fresh, said = _topup(plan, [_raw("Другое / Other (2001) BDRip 1080p", "d", 900)])
 
     assert fresh is plan, "чужая картина плана не меняет вовсе"
-    assert "привёз «Другое» (2001)" in said, "опоздавшего и привезённое называют вслух"
-    assert "в списке её не было, в отбор она не пойдёт" in said
+    brought = phrase("reinforce.foreign_brought", names="«Другое» (2001)")
+    assert brought in said, "опоздавшего и привезённое называют вслух"
+    assert phrase("reinforce.not_listed_singular") in said
 
 
 def test_долив_молчит_про_картину_которая_в_меню_есть() -> None:
@@ -611,8 +615,11 @@ def test_чужая_картина_не_глушит_долив_в_свою() ->
     )
 
     assert len(fresh.picture.releases) == 2, "своя раздача долилась"
-    assert "доехал после списка: раздач 2 вместо 1" in said
-    assert "привёз «Другое» (2001)" in said
+    line = phrase("reinforce.arrived_after_list", who="Nyaa.si") + phrase(
+        "reinforce.topup_counts", now=2, was=1
+    )
+    assert line in said
+    assert phrase("reinforce.foreign_brought", names="«Другое» (2001)") in said
 
 
 def test_пустой_долив_оставляет_план_прежним() -> None:
@@ -4423,7 +4430,11 @@ def test_потолок_прячет_картину_и_добор_её_дост�
         "картина с именем запроса встаёт впереди соседей по подстроке"
     )
     assert found[0].year == 2009
-    assert "упёрлась в потолок" in out.getvalue(), "подмена не молчаливая"
+    middle = phrase(
+        "reinforce.ceiling_note", name="NAME-MARK", refined="REFINED-MARK", title="T", year="Y"
+    )
+    middle = middle.split("NAME-MARK»")[1].split("«REFINED-MARK")[0]
+    assert middle in out.getvalue(), "подмена не молчаливая"
 
 
 def test_уточнение_не_идёт_за_именем_без_поручительства() -> None:
@@ -4467,7 +4478,11 @@ def test_уточнение_не_берёт_картину_с_чужим_име�
 
     assert client.asked == ["девять 2009"], "круг был - но ничего подписанного «девять»"
     assert [p.title for p in found] == ["Девять ярдов"], "соседи добором не считаются"
-    assert "упёрлась в потолок" not in out.getvalue(), "не случилось - не говорим"
+    middle = phrase(
+        "reinforce.ceiling_note", name="NAME-MARK", refined="REFINED-MARK", title="T", year="Y"
+    )
+    middle = middle.split("NAME-MARK»")[1].split("«REFINED-MARK")[0]
+    assert middle not in out.getvalue(), "не случилось - не говорим"
 
 
 def test_повод_потолка_узок() -> None:

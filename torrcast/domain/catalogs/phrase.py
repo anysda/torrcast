@@ -68,6 +68,8 @@ from torrcast.domain.catalogs.receiver.en import en as receiver_en
 from torrcast.domain.catalogs.receiver.ru import ru as receiver_ru
 from torrcast.domain.catalogs.recode.en import en as recode_en
 from torrcast.domain.catalogs.recode.ru import ru as recode_ru
+from torrcast.domain.catalogs.reinforce.en import en as reinforce_en
+from torrcast.domain.catalogs.reinforce.ru import ru as reinforce_ru
 from torrcast.domain.catalogs.releases.en import en as releases_en
 from torrcast.domain.catalogs.releases.ru import ru as releases_ru
 from torrcast.domain.catalogs.revive.en import en as revive_en
@@ -169,6 +171,7 @@ _CLUSTERS: Final = (
     (voices_command_en, voices_command_ru),
     (notes_en, notes_ru),
     (cmd_play_en, cmd_play_ru),
+    (reinforce_en, reinforce_ru),
 )
 
 

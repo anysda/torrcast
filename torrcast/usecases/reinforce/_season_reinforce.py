@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.same_name import same_name
 from torrcast.domain.picture import Picture
@@ -72,7 +73,8 @@ def _season_reinforce(
         return raw, cluster(_catalogue_port().to_releases(raw)), found
     # Сезонная строка - такой же второй круг, как и добор вторым языком, и цель тратит
     # так же (TC-228). Остатка нет - честнее отказать сразу, чем платить полный круг.
-    if (spare := _no_budget(client, f"добор сезона {want.season}", progress)) is None:
+    reason = phrase("reinforce.season_reason", season=want.season)
+    if (spare := _no_budget(client, reason, progress)) is None:
         return raw, cluster(_catalogue_port().to_releases(raw)), found
     # 🔴 Оригинала у вожака нет - опора только справка, и её догадка (Origin.guessed)
     # ключом фильтра быть не вправе: имя, лишь признанное похожим, бывает чужой
@@ -91,7 +93,7 @@ def _season_reinforce(
     # запросом, сезонная строка это тот же круг по индексерам ради той же выдачи.
     if not base or slugify(season_query) == slugify(name):
         return raw, cluster(_catalogue_port().to_releases(raw)), found
-    progress.phase(f"поиск «{season_query}»")
+    progress.phase(phrase("reinforce.search_phase", name=season_query))
     extra = _ask(client, season_query, progress)
     progress.phase("")
     want_orig = slugify(lead.original or base)
@@ -107,5 +109,5 @@ def _season_reinforce(
         return raw, cluster(_catalogue_port().to_releases(raw)), found
     pictures = cluster(_catalogue_port().to_releases(merged))
     wider = pick_franchise(query, pictures)
-    progress.note(f"сезона {want.season} в выдаче не было - добрал по «{season_query}»")
+    progress.note(phrase("reinforce.season_note", season=want.season, query=season_query))
     return merged, pictures, wider

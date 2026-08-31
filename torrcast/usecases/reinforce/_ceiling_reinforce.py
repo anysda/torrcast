@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.catalog_has_name import catalog_has_name
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.passport_source import PassportSource
@@ -61,7 +62,8 @@ def _ceiling_reinforce(
     """
     from torrcast.domain.cluster import cluster
 
-    if (spare := _no_budget(client, f"уточнение по «{name}»", progress)) is None:
+    reason = phrase("reinforce.refine_reason", name=name)
+    if (spare := _no_budget(client, reason, progress)) is None:
         return raw, pictures, found
     about = (passport or _passport_port())(
         name, series=_asked_kind(_leading(found), args), budget=spare
@@ -69,7 +71,7 @@ def _ceiling_reinforce(
     if about.guessed or about.year is None:
         return raw, pictures, found
     refined = f"{name} {about.year}"
-    progress.phase(f"поиск «{refined}»")
+    progress.phase(phrase("reinforce.search_phase", name=refined))
     merged = _catalogue_port().merge(raw, _ask(client, refined, progress))
     progress.phase("")
     if len(merged) == len(raw):
@@ -84,8 +86,8 @@ def _ceiling_reinforce(
         return raw, pictures, found
     kept = [p for p in found if p.key not in {q.key for q in vouched}]
     first = vouched[0]
+    year = str(first.year) if first.year is not None else phrase("reinforce.year_unknown")
     progress.note(
-        f"по «{name}» выдача упёрлась в потолок каталога, а самой картины в ней нет - "
-        f"добрал по «{refined}»: «{first.title}» ({first.year or 'год не назван'})"
+        phrase("reinforce.ceiling_note", name=name, refined=refined, title=first.title, year=year)
     )
     return merged, wider, vouched + kept

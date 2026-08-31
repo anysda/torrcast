@@ -6,6 +6,7 @@ from typing import Any
 
 from tests.usecases.reinforce.stand import Said, pictures, row
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.raw_result import RawResult
@@ -29,7 +30,10 @@ def test_the_late_indexer_fills_the_pool_of_the_chosen_picture() -> None:
 
     assert len(fresh.picture.releases) == 2
     assert fresh.picture.key == plan.picture.key, "подменять картину долив не вправе"
-    assert "доехал после списка: раздач 2 вместо 1" in said.text
+    line = phrase("reinforce.arrived_after_list", who="Nyaa.si") + phrase(
+        "reinforce.topup_counts", now=2, was=1
+    )
+    assert line in said.text
 
 
 def test_a_new_top_of_the_queue_is_said_out_loud() -> None:
@@ -37,7 +41,7 @@ def test_a_new_top_of_the_queue_is_said_out_loud() -> None:
     _plan, fresh, said = _poured([row("Кино / Movie (1999) BDRip 1080p x264", "c", seeders=900)])
 
     assert fresh.ranked[0].seeders == 900
-    assert "верх отбора другой" in said.text
+    assert phrase("reinforce.topup_changed") in said.text
 
 
 def test_a_picture_outside_the_menu_does_not_enter_it() -> None:
@@ -45,7 +49,7 @@ def test_a_picture_outside_the_menu_does_not_enter_it() -> None:
     plan, fresh, said = _poured([row("Другое / Other (2001) BDRip 1080p", "d", seeders=900)])
 
     assert fresh is plan, "чужая картина плана не меняет вовсе"
-    assert "привёз «Другое» (2001)" in said.text
+    assert phrase("reinforce.foreign_brought", names="«Другое» (2001)") in said.text
 
 
 def test_an_empty_late_batch_leaves_the_plan_as_it_was() -> None:

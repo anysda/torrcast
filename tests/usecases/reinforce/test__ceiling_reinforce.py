@@ -6,6 +6,7 @@ from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, pictures, row
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
@@ -44,7 +45,10 @@ def test_the_ceiling_hid_the_picture_and_the_refined_query_gets_it_out() -> None
     assert client.asked == ["девять 2009"], "второй круг - уточнённым запросом"
     assert [picture.title for picture in found] == ["Девять", "Девять ярдов"]
     assert len(raw) == 2, "выдачи склеиваются, а не заменяются"
-    assert "упёрлась в потолок каталога" in said.text, "подмена не молчаливая"
+    line = phrase(
+        "reinforce.ceiling_note", name="девять", refined="девять 2009", title="Девять", year="2009"
+    )
+    assert line in said.text, "подмена не молчаливая"
 
 
 def test_a_name_without_a_vouch_orders_no_circle() -> None:

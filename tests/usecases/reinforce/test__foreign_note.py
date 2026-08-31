@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.reinforce.stand import Said, pictures, releases, row
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.reinforce._foreign_note import KIN_SHOWN, _foreign_note
 
 _GUEST = [row("Другое / Other (2001) BDRip 1080p", "d", indexer="Nyaa.si")]
@@ -14,8 +15,11 @@ def test_the_late_guest_is_named_out_loud() -> None:
 
     _foreign_note(releases(_GUEST), frozenset(), said)
 
-    assert "«Nyaa.si» доехал после списка: привёз «Другое» (2001)" in said.text
-    assert "в списке её не было, в отбор она не пойдёт" in said.text
+    line = phrase("reinforce.arrived_after_list", who="Nyaa.si") + phrase(
+        "reinforce.foreign_brought", names="«Другое» (2001)"
+    )
+    assert line in said.text
+    assert phrase("reinforce.not_listed_singular") in said.text
 
 
 def test_a_picture_from_the_menu_gets_no_line() -> None:
@@ -40,7 +44,8 @@ def test_a_crowd_of_guests_speaks_in_plural_and_is_cut_short() -> None:
     _foreign_note(releases(rows), frozenset(), said)
 
     assert said.text.count("«Картина") == KIN_SHOWN, "имён ровно три, остальные счётом"
-    assert "и ещё 2 - в списке их не было, в отбор они не пойдут" in said.text
+    tail = phrase("reinforce.and_more", n=2) + " - " + phrase("reinforce.not_listed_plural")
+    assert tail in said.text
 
 
 def test_nothing_foreign_means_no_line_at_all() -> None:

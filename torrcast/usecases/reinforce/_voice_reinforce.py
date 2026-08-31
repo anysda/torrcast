@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
@@ -72,9 +73,9 @@ def _voice_reinforce(
     # Тем же именем второй раз ходить незачем: это тот же круг ради той же выдачи.
     if slugify(exact) == slugify(name):
         return raw, cluster(_catalogue_port().to_releases(raw)), found
-    if _no_budget(client, f"добор по «{exact}»", progress) is None:
+    if _no_budget(client, phrase("reinforce.voice_reason", exact=exact), progress) is None:
         return raw, cluster(_catalogue_port().to_releases(raw)), found
-    progress.phase(f"поиск «{exact}»")
+    progress.phase(phrase("reinforce.search_phase", name=exact))
     extra = _ask(client, exact, progress)
     progress.phase("")
     want_orig = slugify(lead.original or "")
@@ -97,8 +98,5 @@ def _voice_reinforce(
     if now <= was:
         # Прибавка ушла мимо картины - тогда второго захода как будто и не было.
         return raw, cluster(_catalogue_port().to_releases(raw)), found
-    progress.note(
-        f"«{lead.title}» по-русски есть только там, где играть нечем - "
-        f"добрал по «{exact}»: раздач стало {now}"
-    )
+    progress.note(phrase("reinforce.voice_note", title=lead.title, exact=exact, now=now))
     return merged, pictures, wider

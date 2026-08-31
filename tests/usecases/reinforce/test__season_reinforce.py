@@ -6,6 +6,7 @@ from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, row
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
@@ -40,7 +41,7 @@ def test_the_season_pack_is_asked_for_by_the_original_name() -> None:
     assert client.asked == ["Angel S01"]
     assert len(merged) == 2, "выдача склеена, а не заменена"
     assert [(p.title, len(p.releases)) for p in wider] == [("Ангел", 2)]
-    assert said.text == "сезона 1 в выдаче не было - добрал по «Angel S01»"
+    assert said.text == phrase("reinforce.season_note", season=1, query="Angel S01")
 
 
 def test_a_namesake_with_another_original_is_not_sewn_to_ours() -> None:
@@ -82,7 +83,7 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
 
     assert client.asked == []
     assert merged is _FIFTH
-    assert said.text == ("not doing добор сезона 1: the search already spent the goal at 10s")
+    assert said.text == ("not doing top up season 1: the search already spent the goal at 10s")
 
 
 def test_without_a_series_in_the_pool_there_is_nothing_to_reinforce() -> None:

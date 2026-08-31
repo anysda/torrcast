@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.profile import Profile
 from torrcast.usecases.reinforce._foreign_note import _foreign_note
 from torrcast.usecases.reinforce.configure import _catalogue_port
@@ -83,10 +84,12 @@ def _topup(
     # 🔴 TC-703. Признак неполноты каталога переезжает на пересобранный план: без
     # него поздний отказ (:func:`unfit_line`) снова звучал бы приговором картине.
     fresh.waiting = plan.waiting
-    who = ", ".join(sorted({r.indexer for r in add if r.indexer})) or "опоздавший индексер"
+    named = ", ".join(sorted({r.indexer for r in add if r.indexer}))
+    who = named or phrase("reinforce.late_indexer")
     changed = bool(plan.ranked) and fresh.ranked[0].magnet != plan.ranked[0].magnet
-    progress.note(
-        f"«{who}» доехал после списка: раздач {len(fresh.picture.releases)}"
-        f" вместо {len(plan.picture.releases)}" + (", верх отбора другой" if changed else "")
+    counts = phrase(
+        "reinforce.topup_counts", now=len(fresh.picture.releases), was=len(plan.picture.releases)
     )
+    tail = phrase("reinforce.topup_changed") if changed else ""
+    progress.note(phrase("reinforce.arrived_after_list", who=who) + counts + tail)
     return fresh

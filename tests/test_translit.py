@@ -364,7 +364,7 @@ def test_a_series_missing_the_wanted_season_is_topped_up_by_the_season_string() 
     packs = [r for p in plans for r in p.picture.releases if r.covers(1)]
     assert packs, "сезон-пак первого сезона добрался в план"
     assert all(slugify(r.original or "") == "angel" for r in packs), "чужого аниме в пуле нет"
-    assert "сезона 1 в выдаче не было - добрал по «Angel S01»" in said
+    assert phrase("reinforce.season_note", season=1, query="Angel S01") in said
 
 
 def test_a_full_season_pool_skips_the_season_string_top_up() -> None:
@@ -436,7 +436,7 @@ def test_a_guess_the_reference_confirms_still_tops_up_the_season() -> None:
     assert "Saltburn S01" in client.asked, "сезонная строка по подтверждённой догадке спрошена"
     packs = [r for p in plans for r in p.picture.releases if r.covers(1)]
     assert packs, "сезон-пак первого сезона добрался в план"
-    assert "сезона 1 в выдаче не было - добрал по «Saltburn S01»" in said
+    assert phrase("reinforce.season_note", season=1, query="Saltburn S01") in said
 
 
 def test_nothing_found_in_russian_is_searched_by_translit() -> None:
@@ -669,7 +669,7 @@ def test_the_titled_number_reaches_the_season_top_up_whole() -> None:
     assert about.asked, "добор до справки дошёл"
     assert set(about.asked) == {"бен 10"}, "справку спросили целой строкой, а не обрубком «бен»"
     assert "Ben 10 S02" in client.asked
-    assert "добрал по «Ben 10 S02»" in said
+    assert phrase("reinforce.season_note", season=2, query="Ben 10 S02") in said
     assert plans
 
 
@@ -713,7 +713,10 @@ def test_a_named_part_is_not_thrown_away_by_the_year_of_the_first_one() -> None:
     plans, said = search_circle(client, "тачки 2", about)
 
     assert [p.picture.year for p in plans] == [2011]
-    assert "в каталоге лежит картина" not in said
+    prefix = phrase("reinforce.year_mismatch", found_year="FY-MARK", about_year="AY-MARK").split(
+        "FY-MARK"
+    )[0]
+    assert prefix not in said
 
 
 def test_a_year_that_disagrees_without_a_part_number_is_named_but_not_taken_away() -> None:
@@ -732,7 +735,8 @@ def test_a_year_that_disagrees_without_a_part_number_is_named_but_not_taken_away
     plans, said = search_circle(client, "тачки", about)
 
     assert [p.picture.year for p in plans] == [2011]
-    assert "под этим именем в каталоге лежит картина 2011 года, а не 2006" in said
+    line = phrase("reinforce.year_mismatch", found_year=2011, about_year=2006)
+    assert line in said
 
 
 def test_other_word_order_is_found_and_said_out_loud() -> None:
@@ -979,7 +983,8 @@ def test_the_reference_year_never_takes_away_what_the_russian_query_found() -> N
     assert [p.picture.title for p in plans] == ["Крестьяне"]
     assert len(plans[0].picture.releases) == 6, "живой 1080p остался в руках"
     assert "ничего не нашлось" not in said
-    assert "под этим именем в каталоге лежит картина 2023 года, а не 1935" in said
+    line = phrase("reinforce.year_mismatch", found_year=2023, about_year=1935)
+    assert line in said
 
     ascent, told = search_circle(_namesakes(), "восхождение", about)
 
@@ -1624,7 +1629,9 @@ def test_a_picture_dubbed_only_in_unplayable_releases_is_asked_by_original_and_y
     plans, said = search_circle(client, "тачки", about)
 
     assert client.asked == ["тачки", "Cars", "Cars 2006"]
-    assert "«Тачки» по-русски есть только там, где играть нечем - добрал по «Cars 2006»" in said
+    line = phrase("reinforce.voice_note", title="Тачки", exact="Cars 2006", now=0)
+    line = line.split(": ", 1)[0]
+    assert line in said
     top = plans[0].ranked[0]
     assert top.dubbed, "верхом стоит раздача с русской дорожкой, а не англоязычный рип"
     assert "BDRip 1080p | D" in top.raw_name
@@ -1676,7 +1683,10 @@ def test_a_dub_locked_behind_the_bitrate_ceiling_is_asked_by_original_and_year()
     plans, said = search_circle(client, "тачки 2", about)
 
     assert client.asked == ["тачки", "Cars", "Cars 2 2011"]
-    assert "«Тачки 2» по-русски есть только там, где играть нечем" in said
+    prefix = phrase(
+        "reinforce.voice_note", title="Тачки 2", exact="EXACT-MARK", now="NOW-MARK"
+    ).split(" - ")[0]
+    assert prefix in said
     top = plans[0].ranked[0]
     assert top.dubbed and top.height == 1080, "верх - честный 1080p с дубляжом"
     assert "Leonardo" in top.raw_name

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.reinforce.stand import Said, franchise, row
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.origin import Origin
 from torrcast.usecases.reinforce._as_is import _as_is
 
@@ -22,7 +23,8 @@ def test_the_year_gate_never_takes_away_what_was_found() -> None:
     _raw, _pictures, stays = _as_is(_ROWS, found, Origin(year=1935), said)
 
     assert [picture.title for picture in stays] == ["Крестьяне"]
-    assert "в каталоге лежит картина 2023 года, а не 1935 - другой там нет" in said.text
+    line = phrase("reinforce.year_mismatch", found_year=2023, about_year=1935)
+    assert line in said.text
 
 
 def test_the_pictures_are_rebuilt_from_the_catalogue_rows() -> None:
