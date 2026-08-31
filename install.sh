@@ -394,8 +394,11 @@ TLS_DIR="$CONFIG_DIR/tls"
 # рисовалка отстала, и заткнула бы вместе с собой установку. Строку пишет один
 # `printf` в режиме дописывания, поэтому она доезжает целиком.
 UI_CHANNEL="${TORRCAST_UI_CHANNEL:-}"
+#: Разделитель полей внутри одной строки канала. Пробел тут не годится: в имени
+#: приёмника он бывает («Гостиная ТВ»), а строка канала должна делиться однозначно.
+UI_TAB=$'\t'
 
-ui_say() {  # $1 - метка (P фаза, W внимание, D ошибка, E конец), дальше текст
+ui_say() {  # $1 - метка (P фаза, W внимание, R приёмник, D ошибка, E конец), дальше текст
     local tag="$1"; shift
     [ -n "$UI_CHANNEL" ] || return 0
     printf '%s %s\n' "$tag" "$*" >>"$UI_CHANNEL" 2>/dev/null || true
@@ -2483,6 +2486,55 @@ JSON
 # выбирать без терминала: стандартный вход закрыт нарочно. Никого не нашли (телевизор выключен или в
 # другой сети) - установке это не мешает: не хватает ровно одной строки конфига, и её
 # допишет повторный ./install.sh при включённом телевизоре.
+#: Итог фазы приёмника - в рисовалку, каналом прогресса. Едут ВИД, имя и адрес, а
+#: не готовая строка: язык знает рисовалка, и английская установка не увидит
+#: кириллицы даже случайно. Строку из этого собирает :func:`ui_recv_fill`.
+receiver_said() {  # $1 - адрес, $2 - имя (может быть пустым)
+    # mock - headless-стенд, каста наружу у него нет вовсе, и «телевизор настроен»
+    # про него было бы враньём: вид отдельный, надпись у него своя.
+    if [ "$1" = mock ]; then ui_say R mock; return 0; fi
+    ui_say R "set$UI_TAB$2$UI_TAB$1"
+    return 0
+}
+
+#: Имя приёмника из строки, которую печатает `cast --tv`: «ТВ: <имя> - <адрес>».
+#: Имени у устройства может не быть вовсе - тогда строка это «ТВ: <адрес>», и имя
+#: пустое. Второй раз сеть не сканируем: разбираем то, что уже напечатано.
+receiver_name() {  # $1 - вывод cast --tv, $2 - адрес; имя на stdout
+    local line name
+    while IFS= read -r line; do
+        case $line in
+            'ТВ: '*" - $2"|'TV: '*" - $2")
+                name=${line#*': '}
+                printf '%s' "${name% - $2}"
+                return 0
+                ;;
+        esac
+    done <<EOF
+$1
+EOF
+    return 0
+}
+
+#: Найденные приёмники из того же вывода: «  N. имя - адрес», ровно строки меню
+#: `cast --tv`. Ни одной такой строки - значит не нашли никого.
+receiver_choice() {  # $1 - вывод cast --tv
+    local line rest found=0
+    while IFS= read -r line; do
+        case $line in
+            '  '[1-9]*'. '*' - '*) ;;
+            *) continue ;;
+        esac
+        rest=${line#*'. '}
+        if [ "$found" = 0 ]; then ui_say R many; found=1; fi
+        ui_say R "dev$UI_TAB${rest% - *}$UI_TAB${rest##* - }"
+    done <<EOF
+$1
+EOF
+    if [ "$found" = 0 ]; then ui_say R none; fi
+    return 0
+}
+
 setup_receiver() {
     local cfg="$CONFIG_DIR/config.json" tv
     [ -f "$cfg" ] || return 0  # фаза config выключена - настраивать не во что
@@ -2491,15 +2543,27 @@ setup_receiver() {
     tv="$(jq -r '.tv // empty' "$cfg")"
     if [ -n "$tv" ]; then
         skip "receiver is already configured: $tv" "приёмник уже настроен: $tv"
+        # Имени в конфиге нет, там только адрес. Достать его новым поиском значило бы
+        # лезть в сеть ради красивой строки - итоговый экран назовёт адрес, и всё.
+        receiver_said "$tv" ''
         return 0
     fi
     [ -x "$BIN_DIR/cast" ] || return 0  # пакет не ставился - фаза torrcast выключена
     log "receiver" "приёмник"
     # TORRCAST_CONFIG - чтобы песочница писала в СВОЙ конфиг, а не в общесистемный:
     # без неё `cast` читал бы /etc/torrcast/config.json независимо от TORRCAST_CONFIG_DIR.
-    if TORRCAST_CONFIG="$cfg" "$BIN_DIR/cast" --tv </dev/null; then
+    # Вывод забираем в переменную и тут же выкладываем в журнал целиком: имя найденного
+    # и список нескольких берутся ИЗ НЕГО. Поиск - секунды mDNS, и второй такой ради
+    # одной строки на итоговом экране человек ждать не обязан.
+    local out rc=0
+    out="$(TORRCAST_CONFIG="$cfg" "$BIN_DIR/cast" --tv </dev/null 2>&1)" || rc=$?
+    if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+    if [ "$rc" = 0 ]; then
+        tv="$(jq -r '.tv // empty' "$cfg")"
+        receiver_said "$tv" "$(receiver_name "$out" "$tv")"
         return 0
     fi
+    receiver_choice "$out"
     info "no receiver selected; run cast --tv <ip> with its address, or cast --tv to choose by number; if the list is empty, turn the TV on first" \
         "приёмник не выбран; выполни cast --tv <ip> с адресом нужного или cast --tv для выбора номером; если список пуст, сначала включи телевизор"
 }
@@ -2891,27 +2955,81 @@ SPIN=( '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏' )
 # --- справка, которая остаётся на экране после выхода ---
 # Колонка команд добита пробелами прямо в литерале: в кириллице ${#s} считает
 # байты, если локаль не UTF-8, поэтому ширину тут никто не измеряет - она задана.
-FIN_CMD=( 'cast <запрос>    ' 'cast --tv        ' 'cast stop        ' 'cast status      ' 'cast --help      ' )
-FIN_TXT=( 'найти и включить на ТВ' 'выбрать телевизор' 'снять каст' 'что играет сейчас' 'все ключи' )
+# Дверь в другой язык названа В ТОМ языке, в который ведёт: `English` латиницей
+# в русской колонке и `русский` кириллицей в английской. Показывается ровно одна
+# дверь - та, в которую человеку идти; язык установки уже лежит в конфиге
+# продукта (`.language=$LANGUAGE`), так что колонка и продукт говорят об одном.
+# В тир M строка про язык НЕ входит: там место ровно на одну команду, и это
+# `cast --tv` - телевизор нужен продукту, а язык человек только что выбрал сам.
+FIN_CMD=( 'cast <запрос>    ' 'cast --tv        ' 'cast stop        ' 'cast status      ' 'cast --help      ' 'cast --en        ' )
+FIN_TXT=( 'найти и включить на ТВ' 'выбрать телевизор' 'снять каст' 'что играет сейчас' 'все ключи' 'English' )
 FIN_W=39
-FIN_CMD_S=( 'cast <запрос>  ' 'cast --tv      ' 'cast --help    ' )
-FIN_TXT_S=( 'включить на ТВ' 'выбрать ТВ' 'все ключи' )
+FIN_CMD_S=( 'cast <запрос>  ' 'cast --tv      ' 'cast --help    ' 'cast --en      ' )
+FIN_TXT_S=( 'включить на ТВ' 'выбрать ТВ' 'все ключи' 'English' )
 FIN_W_S=29
 FIN_CMD_M=( 'cast --tv ' )
 FIN_TXT_M=( 'выбрать ТВ' )
 FIN_W_M=20
 
 if [ "$LANGUAGE" = en ]; then
-  FIN_CMD=( 'cast <query>      ' 'cast --tv         ' 'cast stop         ' 'cast status       ' 'cast --help       ' )
-  FIN_TXT=( 'find and play on TV' 'choose a TV' 'stop casting' 'show what is playing' 'show all options' )
+  FIN_CMD=( 'cast <query>      ' 'cast --tv         ' 'cast stop         ' 'cast status       ' 'cast --help       ' 'cast --ru         ' )
+  FIN_TXT=( 'find and play on TV' 'choose a TV' 'stop casting' 'show what is playing' 'show all options' 'русский' )
   FIN_W=41
-  FIN_CMD_S=( 'cast <query>  ' 'cast --tv     ' 'cast --help   ' )
-  FIN_TXT_S=( 'play on TV' 'choose a TV' 'show all options' )
+  FIN_CMD_S=( 'cast <query>  ' 'cast --tv     ' 'cast --help   ' 'cast --ru     ' )
+  FIN_TXT_S=( 'play on TV' 'choose a TV' 'show all options' 'русский' )
   FIN_W_S=30
   FIN_CMD_M=( 'cast --tv ' )
   FIN_TXT_M=( 'choose a TV' )
   FIN_W_M=20
 fi
+
+# --- мерка для ЧУЖИХ строк ---------------------------------------------------
+# Свои надписи добиты пробелами в литерале и меряться не обязаны. Имя приёмника
+# приезжает из сети любой длины, и его мерить приходится - а ${#s} в неUTF-8
+# локали считает БАЙТЫ, и «Гостиная» вышла бы шириной 16. Поэтому один раз
+# спрашиваем сам shell, чем он считает, и в байтовом режиме идём по байтам,
+# засчитывая только ведущие: у UTF-8 продолжение всегда 10xxxxxx.
+UI_CHARS=0
+ui_probe_chars() {
+  local probe='ё'
+  if (( ${#probe} == 1 )); then UI_CHARS=1; else UI_CHARS=0; fi
+  return 0
+}
+ui_probe_chars
+
+LEN=0
+ui_len() {  # $1 - строка -> LEN, длина в ЗНАКОМЕСТАХ
+  if (( UI_CHARS )); then LEN=${#1}; return 0; fi
+  local i n=${#1} v b seen=0
+  for (( i = 0; i < n; i++ )); do
+    b=${1:i:1}
+    if [ "$b" = "'" ]; then v=39; else printf -v v '%d' "'$b"; fi
+    (( v < 0 )) && v=$(( v + 256 ))
+    (( v < 128 || v > 191 )) && seen=$(( seen + 1 ))
+  done
+  LEN=$seen
+  return 0
+}
+
+CUT=''
+ui_cut() {  # $1 - строка, $2 - сколько знакомест -> CUT; РЕЖЕТ, а не переносит
+  local s=$1 max=$2
+  (( max < 0 )) && max=0
+  if (( UI_CHARS )); then CUT=${s:0:max}; return 0; fi
+  local i=0 n=${#s} v b seen=0
+  while (( i < n )); do
+    b=${s:i:1}
+    if [ "$b" = "'" ]; then v=39; else printf -v v '%d' "'$b"; fi
+    (( v < 0 )) && v=$(( v + 256 ))
+    if (( v < 128 || v > 191 )); then
+      (( seen == max )) && break
+      seen=$(( seen + 1 ))
+    fi
+    i=$(( i + 1 ))
+  done
+  CUT=${s:0:i}
+  return 0
+}
 
 # --- геометрия ---
 TROWS=24; TCOLS=80
@@ -2981,7 +3099,7 @@ ui_layout() {
   ui_pick_help
 }
 
-HELP_TIER=0; HELP_H=0; HELP_W=0; HELP_GAP=1
+HELP_TIER=0; HELP_H=0; HELP_W=0; HELP_GAP=1; HELP_DROP=0
 FIN_BX=0; FIN_TOP=0; FIN_HX=0; FIN_HY=0
 ui_pick_help() {
   # Лого садится РОВНО в центр рамки, справка ложится под ним. Ярус справки
@@ -2990,19 +3108,229 @@ ui_pick_help() {
   FIN_BX=$(( (INNER_W - BANNER_W) / 2 )); (( FIN_BX < 0 )) && FIN_BX=0
   FIN_TOP=$(( (INNER_H - BANNER_H) / 2 )); (( FIN_TOP < 0 )) && FIN_TOP=0
   local room=$(( INNER_H - FIN_TOP - BANNER_H ))
-  HELP_TIER=0; HELP_H=0; HELP_W=0; HELP_GAP=1
-  if   (( INNER_W >= FIN_W   + 2 && room > ${#FIN_CMD[@]}   )); then
-    HELP_TIER=1; HELP_H=${#FIN_CMD[@]};   HELP_W=$FIN_W
-  elif (( INNER_W >= FIN_W_S + 2 && room > ${#FIN_CMD_S[@]} )); then
-    HELP_TIER=2; HELP_H=${#FIN_CMD_S[@]}; HELP_W=$FIN_W_S
-  elif (( INNER_W >= FIN_W_M + 2 && room > ${#FIN_CMD_M[@]} )); then
-    HELP_TIER=3; HELP_H=${#FIN_CMD_M[@]}; HELP_W=$FIN_W_M
-  elif (( INNER_W >= FIN_W_M + 2 && room >= ${#FIN_CMD_M[@]} )); then
-    # места под пустую строку-разделитель нет, а под саму строку есть
-    HELP_TIER=3; HELP_H=${#FIN_CMD_M[@]}; HELP_W=$FIN_W_M; HELP_GAP=0
+  HELP_TIER=0; HELP_H=0; HELP_W=0; HELP_GAP=1; HELP_DROP=0
+  # Подсказку `cast --tv` колонка отдаёт блоку приёмника там, где та же подсказка
+  # у блока и есть весь смысл: строка «выбери сам: cast --tv» и строка
+  # «cast --tv  выбрать ТВ» рядом - не две подсказки, а одна и эхо.
+  case $UI_RECV_KIND in many|none) HELP_DROP=1 ;; esac
+  # Блок приёмника не роскошь: молчать про приёмник экран больше не вправе,
+  # поэтому его ЧЕСТНЫЙ минимум входит в счёт ярусов наравне со справкой, и
+  # ярус уступает ему строки. Минимум, а не полный размер: список из десяти
+  # найденных не вправе стереть колонку команд целиком.
+  ui_recv_want
+  local floor=$MIN
+  local h1=$(( ${#FIN_CMD[@]} - HELP_DROP ))
+  local h2=$(( ${#FIN_CMD_S[@]} - HELP_DROP ))
+  local h3=$(( ${#FIN_CMD_M[@]} - HELP_DROP ))
+  # Каждый ярус пробуется дважды: с отбивкой от лого и без неё. Пустая строка
+  # под лого - украшение, а строка команды и строка про приёмник - смысл,
+  # поэтому украшение уступает им, и уступает ПЕРВЫМ: тир целиком дороже
+  # отбивки. Прежде так умел один тир M; на 24x80 шестая команда (`cast --en`)
+  # вместе с приёмником просит 1 + 6 + 1 = 8 строк против семи под
+  # отцентрованным лого, и без этого правила экран падал бы сразу на тир S.
+  # Лого при этом не двигается ни на строку: центр рамки остаётся центром.
+  local gap
+  for gap in 1 0; do
+    (( INNER_W >= FIN_W + 2 && room >= gap + h1 + floor )) || continue
+    HELP_TIER=1; HELP_H=$h1; HELP_W=$FIN_W; HELP_GAP=$gap; break
+  done
+  if (( ! HELP_TIER )); then
+    for gap in 1 0; do
+      (( INNER_W >= FIN_W_S + 2 && room >= gap + h2 + floor )) || continue
+      HELP_TIER=2; HELP_H=$h2; HELP_W=$FIN_W_S; HELP_GAP=$gap; break
+    done
+  fi
+  if (( ! HELP_TIER )); then
+    for gap in 1 0; do
+      (( INNER_W >= FIN_W_M + 2 && room >= gap + h3 + floor )) || continue
+      HELP_TIER=3; HELP_H=$h3; HELP_W=$FIN_W_M; HELP_GAP=$gap; break
+    done
   fi
   FIN_HX=$(( (INNER_W - HELP_W) / 2 )); (( FIN_HX < 0 )) && FIN_HX=0
   FIN_HY=$(( FIN_TOP + BANNER_H + HELP_GAP ))
+  ui_recv_block $(( room - HELP_GAP - HELP_H ))
+  RECV_Y=$(( FIN_HY + HELP_H + RECV_GAP ))
+  return 0
+}
+
+# --- блок про приёмник -------------------------------------------------------
+#: Что установка нашла и прописала. Приезжает каналом из фазы `receiver`, вида
+#: `set` (найден и прописан либо уже был в конфиге), `mock` (headless-стенд),
+#: `many` (нашлось несколько) и `none` (не нашлось никого). Пустой вид - фаза
+#: приёмника не работала вовсе, и экран остаётся ровно таким, каким был.
+UI_RECV_KIND=''; UI_RECV_NAME=''; UI_RECV_ADDR=''; UI_RECV_DEV=()
+RECV_LINES=(); RECV_H=0; RECV_GAP=0; RECV_X=0; RECV_Y=0
+
+ui_recv() {  # $1 - вид, дальше через табуляцию имя и адрес
+  local kind=${1%%"$UI_TAB"*} rest=''
+  case $1 in *"$UI_TAB"*) rest=${1#*"$UI_TAB"} ;; esac
+  case $kind in
+    set)  UI_RECV_KIND='set'; UI_RECV_NAME=${rest%%"$UI_TAB"*}; UI_RECV_ADDR=${rest#*"$UI_TAB"} ;;
+    mock) UI_RECV_KIND=mock ;;
+    none) UI_RECV_KIND=none ;;
+    many) UI_RECV_KIND=many; UI_RECV_DEV=() ;;
+    dev)  UI_RECV_DEV+=( "$rest" ) ;;
+  esac
+  return 0
+}
+
+LINE=''
+ui_fit() {  # $1 голова, $2 имя, $3 хвост -> LINE; режется ИМЯ, а не хвост
+  # Длинное имя приёмника режем, а не переносим: перенос сдвинул бы весь экран на
+  # строку вверх и унёс верх рамки. Резать при этом надо имя - адрес и слово
+  # «настроен» человек обязан увидеть целиком, они и есть ответ.
+  local hw tw room
+  ui_len "$1"; hw=$LEN
+  ui_len "$3"; tw=$LEN
+  room=$(( INNER_W - hw - tw ))
+  (( room < 0 )) && room=0
+  ui_cut "$2" "$room"
+  LINE="$1$CUT$3"
+  ui_len "$LINE"
+  if (( LEN > INNER_W )); then ui_cut "$LINE" "$INNER_W"; LINE=$CUT; fi
+  return 0
+}
+
+ui_recv_plain() {  # $1 - готовая строка -> LINE, урезанная под рамку
+  LINE=$1
+  ui_len "$LINE"
+  if (( LEN > INNER_W )); then ui_cut "$LINE" "$INNER_W"; LINE=$CUT; fi
+  return 0
+}
+
+ui_recv_pick() {  # $1 длинная надпись, $2 короткая -> LINE
+  # У ОСМЫСЛЕННОГО текста запасная короткая форма, а не обрезка на полуслове:
+  # «приёмник не найден: включи телевизор и» - это уже не подсказка, потому что
+  # обрезалось ровно то, что человеку и надо сделать.
+  ui_len "$1"
+  if (( LEN <= INNER_W )); then LINE=$1; return 0; fi
+  ui_recv_plain "$2"
+  return 0
+}
+
+ROOM=0
+ui_name_room() {  # $1 голова, $2 хвост, $3 имя; успех - имя влезает осмысленно
+  local hw tw
+  ui_len "$1"; hw=$LEN
+  ui_len "$2"; tw=$LEN
+  ROOM=$(( INNER_W - hw - tw ))
+  ui_len "$3"
+  # Либо имя влезает целиком, либо от него остаётся хотя бы четыре знака. Одна
+  # буква именем не является: «приёмник Г, адрес ...» не называет ничего.
+  (( ROOM >= LEN || ROOM >= 4 ))
+}
+
+#: Полный размер блока (WANT) и его честный минимум (MIN). Минимум у списка -
+#: четыре строки: заголовок, ОДНО имя с адресом, счёт остатка и призыв выбрать.
+#: Меньше нельзя: список без счёта остатка читается как полный, а он таким уже не
+#: будет, и человек решит, что видел все найденные приёмники.
+WANT=0; MIN=0
+ui_recv_want() {
+  case $UI_RECV_KIND in
+    many)
+      WANT=$(( ${#UI_RECV_DEV[@]} + 2 ))  # заголовок, список, призыв
+      MIN=$WANT; (( MIN > 4 )) && MIN=4
+      ;;
+    '')   WANT=0; MIN=0 ;;
+    *)    WANT=1; MIN=1 ;;
+  esac
+  return 0
+}
+
+ui_recv_many() {  # $1 - сколько строк можно занять; список найденных
+  local room=$1 n=${#UI_RECV_DEV[@]} head cta shown extra i
+  if [ "$LANGUAGE" = ru ]; then
+    ui_recv_pick 'нашлось несколько приёмников:' 'приёмников несколько:'; head=$LINE
+    ui_recv_pick 'выбрать нужный надо самому: cast --tv' 'выбери свой: cast --tv'; cta=$LINE
+  else
+    ui_recv_pick 'several receivers found:' 'receivers found:'; head=$LINE
+    ui_recv_pick 'choose the one you need: cast --tv' 'choose yours: cast --tv'; cta=$LINE
+  fi
+  if   (( room >= n + 2 )); then shown=$n; extra=0
+  elif (( room >= 4 ));     then shown=$(( room - 3 )); extra=$(( n - shown ))
+  else
+    # Тесно. Остаётся одно, и это не список, а то, что выбор за человеком: список
+    # без счёта остатка прочитался бы как полный, а он таким уже не будет.
+    if [ "$LANGUAGE" = ru ]; then ui_recv_pick "приёмников найдено $n - выбери свой: cast --tv" "приёмников $n: cast --tv"
+    else ui_recv_pick "found $n receivers - choose yours: cast --tv" "$n receivers: cast --tv"; fi
+    RECV_LINES=( "$LINE" )
+    return 0
+  fi
+  RECV_LINES=( "$head" )
+  for (( i = 0; i < shown; i++ )); do
+    ui_fit '  ' "${UI_RECV_DEV[i]%%"$UI_TAB"*}" " - ${UI_RECV_DEV[i]#*"$UI_TAB"}"
+    RECV_LINES+=( "$LINE" )
+  done
+  if (( extra > 0 )); then
+    if [ "$LANGUAGE" = ru ]; then ui_recv_plain "  и ещё $extra"
+    else ui_recv_plain "  and $extra more"; fi
+    RECV_LINES+=( "$LINE" )
+  fi
+  ui_recv_plain "$cta"; RECV_LINES+=( "$LINE" )
+  return 0
+}
+
+ui_recv_set() {  # -> LINE: приёмник найден и прописан либо уже стоял в конфиге
+  local head long short
+  if [ "$LANGUAGE" = ru ]; then
+    head='приёмник '; long=", адрес $UI_RECV_ADDR, настроен"; short=" - $UI_RECV_ADDR"
+  else
+    head='receiver '; long=" at $UI_RECV_ADDR is configured"; short=" - $UI_RECV_ADDR"
+  fi
+  if [ -n "$UI_RECV_NAME" ]; then
+    if ui_name_room "$head" "$long" "$UI_RECV_NAME"; then
+      ui_fit "$head" "$UI_RECV_NAME" "$long"; return 0
+    fi
+    if ui_name_room "$head" "$short" "$UI_RECV_NAME"; then
+      ui_fit "$head" "$UI_RECV_NAME" "$short"; return 0
+    fi
+  fi
+  # Имени у устройства нет (или его нет в конфиге при повторной установке, где
+  # лежит только адрес), либо от него в рамке не осталось бы и слога. Тогда адрес
+  # и есть всё имя, которое можно назвать честно.
+  if [ "$LANGUAGE" = ru ]; then ui_recv_pick "приёмник по адресу $UI_RECV_ADDR, настроен" "приёмник $UI_RECV_ADDR настроен"
+  else ui_recv_pick "receiver at $UI_RECV_ADDR is configured" "receiver $UI_RECV_ADDR is set"; fi
+  return 0
+}
+
+ui_recv_fill() {  # $1 - сколько строк можно занять; собрать RECV_LINES
+  RECV_LINES=()
+  case $UI_RECV_KIND in
+    set)
+      ui_recv_set
+      RECV_LINES=( "$LINE" )
+      ;;
+    mock)
+      if [ "$LANGUAGE" = ru ]; then ui_recv_pick 'приёмник mock: headless-стенд, каста наружу нет' 'приёмник mock: каста наружу нет'
+      else ui_recv_pick 'receiver mock: headless stand, no casting out' 'receiver mock: no casting out'; fi
+      RECV_LINES=( "$LINE" )
+      ;;
+    none)
+      if [ "$LANGUAGE" = ru ]; then ui_recv_pick 'приёмник не найден: включи телевизор и выполни cast --tv' 'приёмника нет: включи ТВ, cast --tv'
+      else ui_recv_pick 'no receiver found: turn the TV on and run cast --tv' 'no receiver: turn the TV on, cast --tv'; fi
+      RECV_LINES=( "$LINE" )
+      ;;
+    many) ui_recv_many "$1" ;;
+  esac
+  return 0
+}
+
+ui_recv_block() {  # $1 - строк под блок вместе с отбивкой от справки
+  RECV_LINES=(); RECV_H=0; RECV_GAP=0; RECV_X=0
+  local slots=$1 w=0 one
+  [ -n "$UI_RECV_KIND" ] || return 0
+  (( slots < 1 )) && return 0
+  ui_recv_want
+  # Пустая строка между справкой и блоком - только когда блок и без неё влезает
+  # целиком: отбивка красивее, но резать из-за неё список нельзя.
+  (( slots > WANT )) && RECV_GAP=1
+  ui_recv_fill $(( slots - RECV_GAP ))
+  RECV_H=${#RECV_LINES[@]}
+  if (( RECV_H < 1 )); then RECV_GAP=0; return 0; fi
+  for one in "${RECV_LINES[@]}"; do
+    ui_len "$one"; (( LEN > w )) && w=$LEN
+  done
+  RECV_X=$(( (INNER_W - w) / 2 )); (( RECV_X < 0 )) && RECV_X=0
   return 0
 }
 
@@ -3165,13 +3493,25 @@ ui_draw_final() {
   # Итоговый экран: лого уже стоит в FIN_TOP/FIN_BX и уже фирменного зелёного -
   # посадка привела его именно туда. Дорисовываем справку, лого перерисовываем
   # тем же цветом в те же клетки, поэтому стыка не видно вовсе.
+  # Раскладку пересчитываем прямо тут: пока шла установка, про приёмник ещё
+  # ничего не было известно, а ярус справки и место под блок считаются от него.
+  # Лого при этом не двигается - FIN_TOP и FIN_BX от приёмника не зависят вовсе,
+  # иначе посадка привела бы его не туда, где он останется.
+  ui_pick_help
   local buf="$SYNC_ON" k
-  local -a cmds=() txts=()
+  local -a cmds=() txts=() only_cmd=() only_txt=()
   case $HELP_TIER in
     1) cmds=( "${FIN_CMD[@]}" );   txts=( "${FIN_TXT[@]}" ) ;;
     2) cmds=( "${FIN_CMD_S[@]}" ); txts=( "${FIN_TXT_S[@]}" ) ;;
     3) cmds=( "${FIN_CMD_M[@]}" ); txts=( "${FIN_TXT_M[@]}" ) ;;
   esac
+  if (( HELP_DROP )); then
+    for (( k = 0; k < ${#cmds[@]}; k++ )); do
+      case ${cmds[k]} in 'cast --tv'|'cast --tv '*) continue ;; esac
+      only_cmd+=( "${cmds[k]}" ); only_txt+=( "${txts[k]}" )
+    done
+    cmds=( "${only_cmd[@]}" ); txts=( "${only_txt[@]}" )
+  fi
 
   local blank; printf -v blank '%*s' "$INNER_W" ''
   buf+="$NC"
@@ -3186,15 +3526,22 @@ ui_draw_final() {
     buf+="${CSI}$(( INNER_TOP + FIN_HY + k ));$(( INNER_LEFT + FIN_HX ))H"
     buf+="${BRAND}${cmds[k]}${DIMW}${txts[k]}${NC}"
   done
+  # Куда установка будет кастовать - рядом со справкой команд, тем же столбцом.
+  # Без этой строки человек дочитывал финал и не знал, что приёмник уже прописан.
+  for (( k = 0; k < RECV_H; k++ )); do
+    buf+="${CSI}$(( INNER_TOP + RECV_Y + k ));$(( INNER_LEFT + RECV_X ))H"
+    buf+="${NC}${RECV_LINES[k]}"
+  done
   # Путь к журналу - последней строкой ВНУТРИ рамки, а не под ней. Под рамкой
   # его пришлось бы печатать второй строкой после [OK], экран уехал бы на строку
   # вверх и унёс верх рамки - ровно то, из-за чего итоговая строка одна.
-  if [ -n "$UI_JOURNAL_SHOW" ] && (( INNER_W >= 30 && FIN_HY + HELP_H < INNER_H - 1 )); then
-    if [ "$LANGUAGE" = ru ]; then
-      buf+="${CSI}$(( INNER_TOP + INNER_H - 1 ));${INNER_LEFT}H${DIMW}журнал установки: ${UI_JOURNAL}${NC}"
-    else
-      buf+="${CSI}$(( INNER_TOP + INNER_H - 1 ));${INNER_LEFT}H${DIMW}installation log: ${UI_JOURNAL}${NC}"
-    fi
+  if [ -n "$UI_JOURNAL_SHOW" ] && (( INNER_W >= 30 && RECV_Y + RECV_H < INNER_H - 1 )); then
+    # Путь к журналу длины не выбирает - его задаёт mktemp, - и в узкой рамке он
+    # затирал правую грань собой. Мерка под рукой, поэтому режем: рвать рамку
+    # ради конца пути нельзя, а начало его всё равно называет каталог.
+    if [ "$LANGUAGE" = ru ]; then ui_recv_plain "журнал установки: ${UI_JOURNAL}"
+    else ui_recv_plain "installation log: ${UI_JOURNAL}"; fi
+    buf+="${CSI}$(( INNER_TOP + INNER_H - 1 ));${INNER_LEFT}H${DIMW}${LINE}${NC}"
   fi
   buf+="${NC}${CSI}$(( UI_BASE + 2 ));1H${CSI}2K${CSI}$(( UI_BASE + 3 ));1H${CSI}2K"
   buf+="${CSI}$(( UI_BASE + 2 ));1H"
@@ -3361,6 +3708,7 @@ ui_drain() {  # вычитать всё, что приехало в канал; 
     case $tag in
       P) UI_DONE=$(( UI_DONE + 1 )); UI_PHASE=$rest ;;
       W) ui_note "$rest" ;;
+      R) ui_recv "$rest" ;;
       D) UI_DIED=1; UI_DIE_MSG=$rest ;;
       E) UI_RC=$rest; UI_ENDED=1 ;;
     esac

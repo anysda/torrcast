@@ -46,6 +46,12 @@ ENTRY = "# --- Точка входа ---"
 SYNC_ON = "\x1b[?2026h"
 SYNC_OFF = "\x1b[?2026l"
 CYRILLIC = re.compile(r"[\u0400-\u052f\u1c80-\u1c8f\u2de0-\u2dff\ua640-\ua69f\ufe2e-\ufe2f]+")
+#: 🔴 TC-948. Единственная кириллица, законная в английском кадре: подпись двери в
+#: русский. Дверь обязана быть названа ТЕМ языком, в который ведёт, иначе она не
+#: дверь, а загадка. Вырезается ровно эта пара «ключ + подпись», поэтому любое
+#: другое русское слово в английской заставке сторож ловит как ловил. Чтобы вырез
+#: не стал слепым пятном, сама дверь ниже проверяется на присутствие.
+LANG_DOOR = re.compile(r"cast --ru\s+русский")
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 #: Стенд плато: одна долгая фаза. Две передние закрываются ДО запуска заданий,
@@ -258,7 +264,7 @@ def _shape(run: Run, total: int) -> None:
 def _language_coverage(run: Run, language: str) -> tuple[int, int, int, list[str]]:
     """Охват кадрового языкового прибора и найденные кириллические слова."""
     frames = run.screen_frames
-    visible = tuple(ANSI.sub("", frame) for frame in frames)
+    visible = tuple(LANG_DOOR.sub("", ANSI.sub("", frame)) for frame in frames)
     nonempty = sum(bool(frame.strip()) for frame in visible)
     phases = sum(bool(re.search(r"(?:phase|фаза) \d+/\d+:", frame)) for frame in visible)
     characters = sum(len(frame) for frame in visible)
@@ -308,9 +314,13 @@ def test_english_frames_have_no_cyrillic_and_russian_frames_do(tmp_path: Path) -
         final = ANSI.sub("", run.screen_frames[-1])
         if language == "en":
             assert "find and play on TV" in final, f"финальный английский кадр не снят: {coverage}"
+            assert LANG_DOOR.search(final), f"дверь в русский пропала из кадра: {coverage}"
             assert not found, f"кириллица в английских кадрах ({coverage}): {'; '.join(found)}"
         else:
             assert "найти и включить на ТВ" in final, f"финальный русский кадр не снят: {coverage}"
+            assert "cast --en" in final and "English" in final, (
+                f"дверь в английский пропала из кадра: {coverage}"
+            )
             assert found, f"русские кадры не содержат кириллицы: {coverage}"
         print(f"{coverage}, кириллических кадров {len(found)}")
 

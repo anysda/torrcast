@@ -29,6 +29,7 @@ torrcast-bot = "tgbot.bot:_bot"
 dev = [
     "grimp>=3.15",
     "mypy>=1.11",
+    "pyte>=0.8",
     "pytest>=8.3",
     "pytest-deadfixtures>=3.1",
     "pytest-testmon>=2.1",
