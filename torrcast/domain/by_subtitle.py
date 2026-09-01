@@ -11,7 +11,10 @@ def _by_subtitle(query: str, pictures: list[Picture]) -> list[Picture]:
     wanted = slugify(query)
     if not wanted:
         return []
-    items = [p for p in pictures if wanted in _subtitles(p)]
+    # Подписью картину зовут и КУСКОМ: «Kaede to Suzu» при подписи «Kaede to Suzu The
+    # Animation». Сличение подписи целиком отвечало пустотой ровно там, где человек назвал
+    # картину почти дословно.
+    items = [p for p in pictures if any(wanted in slug for slug in _subtitles(p))]
     items.sort(
         key=lambda p: (
             p.sort_year is None,

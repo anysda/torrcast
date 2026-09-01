@@ -114,3 +114,27 @@ def test_a_typo_in_the_name_keeps_the_number_of_the_part() -> None:
         "Терминатор",
         "Терминатор 2: Судный день",
     ]
+
+
+def test_a_subtitle_named_by_a_piece_still_reaches_its_picture() -> None:
+    """🔴 TC-967. Запрос подписью доставался однофамильцу с мёртвым роем, и только ему.
+
+    Каталог собрал две группы: `love-me`, где сериал лежит целиком, и
+    `love-me-kaede-to-suzu` - одинокая раздача с чужой озвучкой и парой сидов. Запрос
+    «Kaede to Suzu» входит подстрокой во вторую и не входит в ключ первой, а подпись
+    сличалась целиком, поэтому живая картина в меню не доезжала вовсе.
+
+    Подписью картину зовут и КУСКОМ. В меню, как и в TC-246, встают обе стороны выбора,
+    живая - следом за названной точно, и дефолт садится на неё.
+    """
+    names = [
+        "[SakuraCircle] Love Me: Kaede to Suzu The Animation - 01 (らぶみー 第1巻) - Softsubs",
+        "[SakuraCircle] Love Me: Kaede to Suzu The Animation - 02 (らぶみー 第2巻) - Softsubs",
+        "Love Me! Kaede to Suzu - 01 (UKR DVO)",
+    ]
+    pool = cluster([parse_release_name(name) for name in names])
+
+    assert [p.title for p in pick_franchise("Kaede to Suzu", pool)] == [
+        "Love Me! Kaede to Suzu - 01",
+        "Love Me: Kaede to Suzu The Animation",
+    ]
