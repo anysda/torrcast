@@ -299,10 +299,51 @@ def test_the_gate_asks_the_second_carrier_only_when_the_role_stays_unanswered() 
     # Роль закрыта - остальные её носители не спрашиваются вовсе: обращение к трекеру
     # стоит суток его ступени бана.
     assert '[ -z "$covered" ] || break' in gate
-    assert 'if [ -z "$id" ] && [ -n "${CATALOG_STANDBY[$def]:-}" ]; then' in gate
+    assert 'if [ -z "$id" ] && [ -n "$(catalog_standby_get "$def")" ]; then' in gate
     # Заведённый гейтом не заводится ещё раз догревом.
-    assert "CATALOG_PROMOTED[$iname]=1" in _body("promote_standby")
-    assert '[ -z "${CATALOG_PROMOTED[$iname]:-}" ] || continue' in _install_indexers()
+    assert 'CATALOG_PROMOTED+=("$iname")' in _body("promote_standby")
+    assert 'catalog_promoted "$iname" && continue' in _install_indexers()
+
+
+@pytest.mark.machine
+def test_unsupported_os_refuses_before_any_installation_work(tmp_path: Path) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    uname = fake_bin / "uname"
+    uname.write_text("#!/bin/sh\nprintf 'FreeBSD\\n'\n", encoding="utf-8")
+    uname.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    run = subprocess.run(
+        ["bash", str(REPO / "install.sh"), "-ru"],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=5,
+        check=False,
+    )
+
+    assert run.returncode == 2
+    assert run.stdout == ""
+    assert run.stderr == "ошибка: нужен Debian/Ubuntu или macOS\n"
+
+
+def test_macos_reaches_packages_without_bash4_or_linux_locale_work() -> None:
+    locale = _body("setup_locale")
+    packages = _body("install_packages")
+
+    assert locale.index('[ "${OS_FAMILY:-linux}" = macos ]') < locale.index(
+        'locale_build "$LOCALE"'
+    )
+    assert "локалью управляет macOS; системные файлы менять не нужно" in locale
+    assert packages.index('[ "${OS_FAMILY:-linux}" = macos ]') < packages.index(
+        "apt_candidate_version"
+    )
+    assert "Homebrew не установлен; установите его: https://brew.sh" in packages
+    for bash4 in ("declare -A", "local -n"):
+        assert bash4 not in SCRIPT
+    assert "exec 8<> <(:)" in SCRIPT and 'exec 9<"$UI_CHANNEL"' in SCRIPT
 
 
 def test_a_cut_catalog_is_not_a_successful_install() -> None:
