@@ -169,10 +169,10 @@ class Bot:
             self._control.clean()
             self._choice.clean()
         else:
+            self._choice.clean_search()
             title = self._title()
             if title:
-                self._choice.clean_search()
-                self._observer.sync()
+                self._observer.sync(title)
 
     def _enqueue(
         self,

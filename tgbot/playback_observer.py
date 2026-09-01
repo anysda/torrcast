@@ -26,9 +26,9 @@ class PlaybackObserver:
         self._interval = interval
         self._shown = ""
 
-    def sync(self) -> None:
+    def sync(self, title: str | None = None) -> None:
         """Одним шагом привести сообщение к текущему снимку продукта."""
-        title = self._title()
+        title = self._title() if title is None else title
         if title:
             self._control.show(title)
         else:

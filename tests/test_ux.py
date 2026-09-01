@@ -342,10 +342,12 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
     composition.use_indexers(monkeypatch, Twins)
     api = Api()
     previous = _environment_port()
+    titles = iter(["Мумия (2026)", "Мумия (1999)"])
     bot = Bot(
         BotConfig("token", "-100"),
         api=cast(TelegramApi, api),
         assemble=lambda: None,
+        title=lambda: next(titles),
     )
     try:
         bot.dispatch(

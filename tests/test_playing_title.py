@@ -22,3 +22,21 @@ def test_title_includes_year_and_episode_from_snapshot(monkeypatch: pytest.Monke
     monkeypatch.setattr("tgbot.playing_title.playback_session", Session)
 
     assert playing_title() == "Desperate Housewives (2004) s1e18"
+
+
+def test_inactive_show_does_not_fall_back_to_the_last_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Session:
+        def active(self) -> bool:
+            return False
+
+        def key(self) -> str:
+            raise AssertionError("у мёртвого юнита ключ не спрашивают")
+
+        def snapshot(self, _key: str) -> object:
+            raise AssertionError("последний сохранённый показ не является живым")
+
+    monkeypatch.setattr("tgbot.playing_title.playback_session", Session)
+
+    assert playing_title() == ""
