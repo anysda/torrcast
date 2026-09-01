@@ -4,19 +4,34 @@
 install.sh гоняется в настоящем pty, поток скармливается pyte и сверяется ровно то, что
 человек видит. Своего прибора у обновления нет нарочно - иначе он мерил бы свою правду.
 
-Отличий от установки ровно три, и каждое тут названо: последнее слово («обновлено», а не
-«установлено»), последний экран (список изменений, а не подсказка по командам) и шапка
-(переход `1.0.0 → 1.0.2`). Всё остальное обязано совпасть, и это тоже проверяется.
+Отличий от установки ЧЕТЫРЕ, и каждое тут названо: последнее слово («обновлено», а не
+«установлено»), последний экран (список изменений, а не подсказка по командам), шапка
+(переход `1.0.0 → 1.0.2`) и отпечаток установленного пакета в самой строке `[OK]`,
+которого у установки нет. Всё остальное обязано совпасть, и это тоже проверяется.
+
+⚠️ «Обычная установка осталась той же» - про ЗАСТАВКУ, не про работу: класть загрузчик в
+`$PREFIX` фаза `torrcast` теперь стала при ЛЮБОЙ установке, и это правка обычной
+установки (сторож - `tests/test_install.py`, тест про загрузчик рядом с venv).
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
 import pytest
 
-from tests.test_installfinal import NARROW, WIDE, Frame, _landed, _unbroken, frame
+from tests.test_installfinal import (
+    NARROW,
+    SCRIPT,
+    WIDE,
+    Frame,
+    _landed,
+    _unbroken,
+    frame,
+)
+from torrcast.usecases.upgrade import CATALOG_CUT
 
 REPO = Path(__file__).parents[1]
 CHANGELOG = (REPO / "docs" / "changelog").read_text(encoding="utf-8")
@@ -120,3 +135,96 @@ def test_an_ordinary_install_is_left_exactly_as_it_was() -> None:
     assert "[OK] torrcast 1.0.0 installed successfully." in shot.text, shot.show()
     assert "cast --help" in shot.text, shot.show()
     assert "→" not in shot.row("[OK]"), shot.show()
+
+
+def _fingerprint(tree: Path) -> str:
+    """Отпечаток дерева, посчитанный НЕЗАВИСИМО от установщика - питоном, по файлам.
+
+    Иначе сторож покупается любой константой: «sha256 » и двенадцать знаков на экране
+    сами по себе не говорят, чей это отпечаток и от чего он посчитан. Повторяется тут
+    ровно то, что делает ``py_manifest``: строка ``<sha256>  ./путь`` на каждый файл
+    (кроме байт-кода), порядок байтовый, и уже над этим списком - второй sha256.
+    """
+    files = sorted(
+        "./" + p.relative_to(tree).as_posix()
+        for p in tree.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts
+    )
+    manifest = "\n".join(
+        f"{hashlib.sha256((tree / name[2:]).read_bytes()).hexdigest()}  {name}" for name in files
+    )
+    return hashlib.sha256((manifest + "\n").encode()).hexdigest()[:12]
+
+
+@pytest.mark.machine
+def test_the_fingerprint_of_the_installed_package_is_the_fourth_difference() -> None:
+    """🔴 Четвёртое отличие: отпечаток установленного пакета, и он ТОЛЬКО у обновления.
+
+    Обновлённому нечем проверить, что переставили именно его копию, кроме этого числа,
+    поэтому мера не довольствуется формой строки: то же число считается заново питоном
+    по дереву репы. Совпало - на экране отпечаток настоящего пакета, а не украшение.
+
+    Второй мерой тут стоит целость рамки, и она не про красоту: рамка ростом в экран,
+    и отпечаток, напечатанный ОТДЕЛЬНОЙ строкой под `[OK]`, уносил её верх за экран.
+    Так и было в первой сборке, и увидел это только кадр.
+
+    Прогон тут не как у прочих кадров: гоняется фаза `torrcast` (в ней и живёт
+    `verify_torrcast`, который отпечаток считает), а venv в песочнице подделан -
+    настоящий тут не собрать. Версия, от которой идём, взята заведомо младше сборки:
+    сборка не помечена, и её номер - тот, что стоит в install.sh.
+    """
+    stamped = re.findall(r"^VERSION='([^']*)'$", SCRIPT, re.M)[0]
+    older = "0.9.0"
+    assert older != stamped, "версия перехода совпала со сборкой - обновления не будет"
+
+    shot = frame("one", upgrade=older, phases="torrcast")
+    _landed(shot)
+    _unbroken(shot)
+
+    line = shot.row("[OK]")
+    assert f"[OK] torrcast {older} → {stamped} обновлено." in line, shot.show()
+    assert f"sha256 {_fingerprint(REPO / 'torrcast')}" in line, shot.show()
+
+
+@pytest.mark.machine
+def test_a_narrow_screen_drops_the_fingerprint_and_keeps_the_frame() -> None:
+    """Мерка ширины настоящая: в узкий экран отпечаток не лезет и уступает строке.
+
+    🔴 Мера тут - РАВЕНСТВО строки целиком, а не отсутствие слова «sha256». Заставка
+    выключает перенос, поэтому лишнее не переезжает на следующую строку, а срезается
+    краем экрана: код, печатающий отпечаток безусловно, оставляет от него один мусорный
+    знак в хвосте - «обновлено. a». Проверка «sha256 в кадре нет» такой брак покупает
+    молча, и куплен он был: первая проба этого сторожа прошла зелёной.
+    """
+    shot = frame("one", cols=NARROW, upgrade="0.9.0", phases="torrcast")
+    _landed(shot)
+    _unbroken(shot)
+
+    stamped = re.findall(r"^VERSION='([^']*)'$", SCRIPT, re.M)[0]
+    assert shot.row("[OK]").strip() == f"[OK] torrcast 0.9.0 → {stamped} обновлено.", shot.show()
+
+
+@pytest.mark.machine
+def test_an_ordinary_install_prints_no_fingerprint_line() -> None:
+    """Та же фаза без обновления: отпечаток в журнале есть, а на экране его нет.
+
+    Без этой половины первый сторож зелен и у скрипта, который печатает отпечаток
+    всегда, - то есть отличием строка быть перестала бы, а докстрока файла врала бы
+    дальше.
+    """
+    shot = frame("one", phases="torrcast")
+    _landed(shot)
+
+    assert "installed successfully" in shot.text, shot.show()
+    assert "sha256" not in shot.text, shot.show()
+
+
+def test_the_code_that_means_a_trimmed_catalog_is_one_number_and_not_two() -> None:
+    """🔴 Двойка живёт в двух местах: `EXIT_CATALOG_CUT` в установщике и `CATALOG_CUT`
+    в сценарии обновления. Каждая сторона прибита своим тестом, друг к другу - ничем,
+    и разъедутся они молча: обновление начнёт звать провалом штатный исход установки.
+    Значение читается из install.sh ФОРМОЙ, а не повторяется тут числом.
+    """
+    found = re.findall(r"^EXIT_CATALOG_CUT=([0-9]+)$", SCRIPT, re.M)
+    assert len(found) == 1, "EXIT_CATALOG_CUT в install.sh нет или он не один"
+    assert int(found[0]) == CATALOG_CUT

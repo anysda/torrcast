@@ -7,6 +7,7 @@
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -877,3 +878,78 @@ def test_the_closing_line_says_updated_even_without_a_terminal(
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert done.stdout.strip() == expected, done.stdout + done.stderr
+
+
+def fake_venv(box: Path) -> None:
+    """Venv-заглушка в ``$PREFIX``: без неё настоящую фазу ``torrcast`` не прогнать.
+
+    Настоящий venv тут не построить (``python3 -m venv`` на машине набора упирается в
+    отсутствующий ensurepip), а pip тащил бы колесо из сети. Подделываются РОВНО две
+    внешние вещи - pip и python самого venv'а; всё остальное в фазе настоящее: и порядок
+    вызовов, и ``install -m 0755``, и сверка :func:`verify_torrcast`. Пакет в
+    site-packages - копия дерева репы, поэтому сверка обязана сойтись, а ``prune_torrcast``
+    работает по копии и до репы не дотягивается.
+    """
+    site = box / "site"
+    shutil.copytree(
+        REPO / "torrcast", site / "torrcast", ignore=shutil.ignore_patterns("__pycache__")
+    )
+    binder = box / "venv" / "bin"
+    binder.mkdir(parents=True)
+    (binder / "python").write_text(
+        '#!/bin/sh\ncase "$*" in\n'
+        f"  *sysconfig*) printf '%s\\n' {shlex.quote(str(site))} ;;\n"
+        f"  *torrcast*) printf '%s\\n' {shlex.quote(str(site / 'torrcast'))} ;;\n"
+        "  *) exit 1 ;;\nesac\n",
+        encoding="utf-8",
+    )
+    for name in ("pip", "cast"):
+        (binder / name).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    for name in ("python", "pip", "cast"):
+        (binder / name).chmod(0o755)
+
+
+@pytest.mark.machine
+def test_the_loader_lands_next_to_the_venv_for_upgrade_to_have_something_to_call(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-887. Ровно этой строкой установки и жив ``cast --upgrade``.
+
+    Обновление зовёт не второй загрузчик на питоне, а тот самый sh-файл из корня репы, и
+    берёт его из ``$PREFIX``. В колесо он не попадает - pip ставит пакеты, - значит
+    положить его туда обязана фаза установки. Перестанет класть - свежепоставленная копия
+    ответит «нечем обновляться», продукт карточки умрёт, и ни один текстовый сторож этого
+    не заметит: снятая строка не меняет ни слова в остальном скрипте. Поэтому мера гоняет
+    НАСТОЯЩУЮ фазу до конца и смотрит, что после неё лежит в ``$PREFIX``.
+    """
+    box = tmp_path / "box"
+    box.mkdir()
+    fake_venv(box)
+    done = subprocess.run(
+        [str(REPO / "install.sh")],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            **os.environ,
+            "TORRCAST_PHASES": "torrcast",
+            "TORRCAST_NO_ROOT": "1",
+            "TORRCAST_NO_SYSTEMD": "1",
+            "TORRCAST_PREFIX": str(box),
+            "TORRCAST_BIN_DIR": str(tmp_path / "bin"),
+            "TORRCAST_CONFIG_DIR": str(tmp_path / "etc"),
+            "TORRCAST_STATE_DIR": str(tmp_path / "var"),
+            "TORRCAST_MOTD": str(tmp_path / "motd"),
+            "TORRCAST_MOTD_D": str(tmp_path / "motd.d"),
+            # Выбор индекса уже сделан: pick_pip_index не пойдёт спрашивать сеть.
+            "PIP_INDEX_URL": "http://127.0.0.1:9/simple",
+        },
+    )
+
+    printed = done.stdout + done.stderr
+    assert done.returncode == 0, printed
+    landed = box / "install"
+    lying = sorted(item.name for item in box.iterdir())
+    assert landed.is_file(), f"загрузчика в $PREFIX нет, лежит: {lying}"
+    assert landed.stat().st_mode & 0o111, f"загрузчик не исполняем: {landed.stat().st_mode:o}"
+    assert landed.read_bytes() == (REPO / "install").read_bytes(), "в $PREFIX лёг не тот файл"

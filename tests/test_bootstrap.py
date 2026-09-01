@@ -11,6 +11,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import tarfile
 import threading
@@ -24,6 +25,7 @@ import pytest
 REPO = Path(__file__).parents[1]
 BOOTSTRAP = REPO / "install"
 SCRIPT = BOOTSTRAP.read_text(encoding="utf-8")
+INSTALLER = (REPO / "install.sh").read_text(encoding="utf-8")
 
 
 def _body(name: str) -> str:
@@ -173,10 +175,22 @@ def _stub_github(
 
 
 def _run_bootstrap(
-    tmp_path: Path, port: int, extra_env: dict[str, str] | None = None
+    tmp_path: Path,
+    port: int,
+    extra_env: dict[str, str] | None = None,
+    sealed: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    """Прогон загрузчика против заглушки GitHub.
+
+    ``sealed`` запирает временный каталог на запись: тогда любой ``mktemp -d`` под
+    ``set -eu`` роняет заход с ненулевым кодом. Это мера ОТСУТСТВИЯ работы, а не
+    опрятности: пустой каталог одинаково выходит и у того, кто ничего не делал, и у
+    того, кто прибрал за собой.
+    """
     mktmp = tmp_path / "mktmp"
     mktmp.mkdir()
+    if sealed:
+        mktmp.chmod(0o555)
     env = {
         **os.environ,
         "TMPDIR": str(mktmp),
@@ -185,9 +199,13 @@ def _run_bootstrap(
         "TORRCAST_PROJECT_PATH": "anysda/torrcast",
         **(extra_env or {}),
     }
-    return subprocess.run(
-        ["sh", str(BOOTSTRAP)], capture_output=True, text=True, env=env, check=False
-    )
+    try:
+        return subprocess.run(
+            ["sh", str(BOOTSTRAP)], capture_output=True, text=True, env=env, check=False
+        )
+    finally:
+        if sealed:
+            mktmp.chmod(0o755)
 
 
 @pytest.mark.machine
@@ -364,8 +382,13 @@ def test_the_same_version_is_named_latest_without_touching_a_single_file(
     """🔴 Второй вход (TC-887): установлено ровно то, что выпущено - работы нет ВОВСЕ.
 
     Проверяется не слово на экране, а отсутствие работы: заглушку спросили один раз, за
-    тегом, и ни за тарболом, ни за сверкой к ней не пришли. Временный каталог пуст не
-    потому, что за собой прибрали, - его не заводили.
+    тегом, и ни за тарболом, ни за сверкой к ней не пришли.
+
+    🔴 Временный каталог тут ЗАПЕРТ на запись, и это не придирка. Прежняя мера смотрела,
+    что каталог пуст, - и покупалась ранним выходом, переставленным ПОСЛЕ ``mktemp -d``
+    с ``trap rm -rf``: прибрал за собой, и зелено. Именно так эту меру и купили при
+    разборе. Запертый каталог такой покупки не принимает: ``mktemp -d`` в нём не
+    заводится вовсе, и заход падает ненулевым кодом.
     """
     marker = tmp_path / "marker"
     stub_install = f"#!/usr/bin/env bash\necho ran >> {marker}\nexit 0\n"
@@ -379,7 +402,7 @@ def test_the_same_version_is_named_latest_without_touching_a_single_file(
         sha256_body=f"{digest}  torrcast-9.9.9.tar.gz\n".encode(),
         hits=hits,
     )
-    done = _run_bootstrap(tmp_path, port, {"TORRCAST_UPGRADE_FROM": "9.9.9"})
+    done = _run_bootstrap(tmp_path, port, {"TORRCAST_UPGRADE_FROM": "9.9.9"}, sealed=True)
 
     assert done.returncode == 0, done.stderr
     assert "9.9.9 is already the latest version" in done.stderr
@@ -463,3 +486,26 @@ def test_the_upgrade_has_no_second_download_body_of_its_own() -> None:
         if "releases/latest" in text or "sha256sum" in text or "tarfile" in text:
             knowing.append(str(module.relative_to(REPO)))
     assert knowing == []
+
+
+@pytest.mark.machine
+def test_a_language_nobody_knows_is_refused_by_a_code_that_means_only_that(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-887. Двойка занята, и занята штатным исходом.
+
+    Установщик отдаёт 2, когда каталог индексеров вышел беднее полного (EXIT_CATALOG_CUT),
+    и `cast --upgrade` считает такой исход успехом - иначе всякий, кто ставил продукт с
+    неполным каталогом, читал бы «обновление не прошло» после успешного обновления.
+    Загрузчик стоит на том же тракте, и его собственный отказ обязан звучать другим
+    числом: иначе непонятое значение TORRCAST_LANGUAGE доехало бы до человека словом
+    «обновлено», хотя не тронуто ничего. Значение читается из install.sh формой.
+    """
+    cut = re.findall(r"^EXIT_CATALOG_CUT=([0-9]+)$", INSTALLER, re.M)
+    assert len(cut) == 1, "EXIT_CATALOG_CUT в install.sh нет или он не один"
+
+    done = _run_bootstrap(tmp_path, 1, {"TORRCAST_LANGUAGE": "de"}, sealed=True)
+
+    assert "TORRCAST_LANGUAGE must be en or ru" in done.stderr
+    assert done.returncode != int(cut[0]), "отказ разбора звучит кодом урезанного каталога"
+    assert done.returncode == 1, done.returncode

@@ -24,7 +24,11 @@ UPGRADE_FROM="${TORRCAST_UPGRADE_FROM:-}"
 
 case "$LANGUAGE" in
     en|ru) ;;
-    *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 2 ;;
+    # 🔴 TC-887. Код 1, а НЕ 2. Двойка занята штатным исходом установщика - урезанным
+    # каталогом индексеров (EXIT_CATALOG_CUT в install.sh), - и `cast --upgrade` читает
+    # её как «поставилось, но беднее полного». Отдай отсюда двойку, и отказ разбора
+    # доехал бы до человека словом «обновлено», хотя не тронуто ничего.
+    *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 1 ;;
 esac
 
 say() { if [ "$LANGUAGE" = ru ]; then printf '%s\n' "$2" >&2; else printf '%s\n' "$1" >&2; fi; }

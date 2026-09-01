@@ -33,6 +33,8 @@ from pathlib import Path
 import pyte
 import pytest
 
+from tests.test_install import fake_venv
+
 REPO = Path(__file__).parents[1]
 SCRIPT = (REPO / "install.sh").read_text(encoding="utf-8")
 
@@ -130,11 +132,18 @@ class Frame:
 
 
 def _capture(
-    case: str, cols: int, language: str, rows: int, locale: str, upgrade: str, version: str
+    case: str,
+    cols: int,
+    language: str,
+    rows: int,
+    locale: str,
+    upgrade: str,
+    version: str,
+    phases: str,
 ) -> Frame:
     box = Path(tempfile.mkdtemp(prefix=f"tc939-{case}-"))
     try:
-        return _run(case, cols, language, box, rows, locale, upgrade, version)
+        return _run(case, cols, language, box, rows, locale, upgrade, version, phases)
     finally:
         shutil.rmtree(box, ignore_errors=True)
 
@@ -165,7 +174,11 @@ def _run(
     locale: str,
     upgrade: str = "",
     version: str = "",
+    phases: str = "receiver",
 ) -> Frame:
+    # Фаза пакета зовёт pip и python venv'а; настоящих тут нет, и подделаны ровно они.
+    if "torrcast" in phases:
+        fake_venv(box)
     for name in ("bin", "cfg", "state", "hls", "motd.d"):
         (box / name).mkdir()
     tv = BEFORE.get(case)
@@ -201,7 +214,9 @@ def _run(
             "TORRCAST_INSTALL_LOG": str(box / "install.log"),
             "TORRCAST_MOTD": str(box / "motd"),
             "TORRCAST_MOTD_D": str(box / "motd.d"),
-            "TORRCAST_PHASES": "receiver",
+            "TORRCAST_PHASES": phases,
+            # Выбор индекса уже сделан: pick_pip_index не пойдёт спрашивать сеть.
+            "PIP_INDEX_URL": "http://127.0.0.1:9/simple",
             **({"TORRCAST_UPGRADE_FROM": upgrade} if upgrade else {}),
         },
         start_new_session=True,
@@ -232,7 +247,7 @@ def _run(
     )
 
 
-_CACHE: dict[tuple[str, int, str, int, str, str, str], Frame] = {}
+_CACHE: dict[tuple[str, int, str, int, str, str, str, str], Frame] = {}
 
 
 def frame(
@@ -243,14 +258,16 @@ def frame(
     locale: str = "C.UTF-8",
     upgrade: str = "",
     version: str = "",
+    phases: str = "receiver",
 ) -> Frame:
     """Кадр случая. Прогон стоит секунду, поэтому одинаковые не повторяются.
 
     ``upgrade`` - версия, от которой идёт обновление: непустая переводит установщик во
     второй вход (TC-887). ``version`` - номер, которым помечена сборка: непустой гоняет
-    копию установщика с этой версией, как её собрал бы release.sh.
+    копию установщика с этой версией, как её собрал бы release.sh. ``phases`` - какие
+    фазы установки гонять; всё, кроме приёмника, требует venv-заглушки в песочнице.
     """
-    key = (case, cols, language, rows, locale, upgrade, version)
+    key = (case, cols, language, rows, locale, upgrade, version, phases)
     if key not in _CACHE:
         _CACHE[key] = _capture(*key)
     return _CACHE[key]

@@ -20,5 +20,5 @@ def _configure_upgrade(session: Callable[[], int]) -> None:
 
 
 def upgrade(command: Callable[[], int] | None = None) -> int:
-    """``cast --upgrade`` — обновить продукт до последней выпущенной версии."""
+    """``cast --upgrade`` - обновить продукт до последней выпущенной версии."""
     return (_SESSION if command is None else command)()
