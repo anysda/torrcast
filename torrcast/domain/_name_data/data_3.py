@@ -37,7 +37,8 @@ _EPISODE_ONLY_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile("\\b(?P<episode>\\d{1,3})\\s*-?\\s*(?:я|ая)?\\s*сери", re.IGNORECASE),
 )
 _FANSUB_EPISODE_RE: Final = re.compile(
-    "^\\[[^\\[\\]]+\\]\\s*(?P<name>[^\\[\\]()]+?)\\s+-\\s+(?P<episode>\\d{1,3})(?:v\\d)?\\s*(?=[\\[(]|$)"
+    "^\\[[^\\[\\]]+\\]\\s*(?P<name>[^\\[\\]()]+?)\\s+-\\s+(?P<episode>\\d{1,3})"
+    "(?:\\s*-\\s*(?P<last>\\d{1,3}))?(?:v\\d)?\\s*(?=[\\[(]|$)"
 )
 VIDEO_EXT: Final = (".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm", ".m4v", ".mpg")
 _JUNK_RE: Final = re.compile(

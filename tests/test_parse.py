@@ -1519,6 +1519,31 @@ def test_a_fansub_series_is_one_picture_not_one_per_episode() -> None:
     assert len(pictures[0].releases) == 3
 
 
+def test_a_fansub_pack_of_episodes_joins_the_picture_of_its_own_episodes() -> None:
+    """🔴 TC-967. Фансаб выкладывает и пачкой: «- 01-03» это три серии, а не первая.
+
+    Диапазон не читался, поэтому имя пачки не подчищалось вовсе - «... - 01-03 - English
+    Softsubs» оставалось названием, - и самая живая раздача каталога уходила в отдельную
+    картину мимо той, где лежат её же серии поштучно. В живой выдаче это стоило 168 сидов:
+    человек их не видел.
+    """
+    names = [
+        "[SakuraCircle] Love Me: Kaede to Suzu The Animation - 01 (らぶみー 第1巻) - Softsubs",
+        "[SakuraCircle] Love Me: Kaede to Suzu The Animation - 02 (らぶみー 第2巻) - Softsubs",
+        "[SakuraCircle] Love Me: Kaede to Suzu The Animation - 01-03 (らぶみー 第１-３巻) - Subs",
+    ]
+    pack = parse_release_name(names[2])
+
+    assert pack.title == "Love Me: Kaede to Suzu The Animation"
+    assert pack.episodes == (1, 2, 3)
+    assert pack.episode is None
+
+    pictures = cluster([parse_release_name(name) for name in names])
+
+    assert len(pictures) == 1
+    assert len(pictures[0].releases) == 3
+
+
 #: Номер части у кино выглядит так же - и обязан остаться номером части.
 NOT_FANSUB = (
     "[Rutor] Форсаж - 8 (2017) BDRip 1080p",

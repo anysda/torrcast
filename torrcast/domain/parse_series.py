@@ -19,6 +19,13 @@ def _parse_series(
     text = _CODEC_TOKEN_RE.sub(" ", text)
     seasons = _season_span(text)
     episodes = _episode_span(text)
+    number = int(fansub.group("episode")) if fansub else None
+    if fansub and (last := fansub.group("last")):
+        # Фансаб выкладывает и пачкой: «- 01-03» это три серии, а не первая. Пока
+        # диапазон не читался, имя пачки не подчищалось вовсе и раздача уходила в
+        # отдельную картину мимо той, где лежат её же серии поштучно.
+        episodes = episodes or tuple(range(number or 1, int(last) + 1))
+        number = None
     if seasons:
         return (seasons[0], None, seasons, episodes, True)
     found = _parse_episode(text)
@@ -39,7 +46,6 @@ def _parse_series(
             episodes,
             True,
         )
-    number = int(fansub.group("episode")) if fansub else None
     for pattern in _SEASON_ONLY_RES:
         match = pattern.search(text)
         if match:
