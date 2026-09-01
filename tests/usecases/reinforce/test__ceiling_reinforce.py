@@ -46,7 +46,7 @@ def test_the_ceiling_hid_the_picture_and_the_refined_query_gets_it_out() -> None
     assert [picture.title for picture in found] == ["Девять", "Девять ярдов"]
     assert len(raw) == 2, "выдачи склеиваются, а не заменяются"
     line = phrase(
-        "reinforce.ceiling_note", name="девять", refined="девять 2009", title="Девять", year="2009"
+        "reinforce.ceiling_note", name="девять", refined="девять 2009", title="Nine", year="2009"
     )
     assert line in said.text, "подмена не молчаливая"
 

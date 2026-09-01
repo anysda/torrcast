@@ -18,6 +18,7 @@ from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.transliterate import transliterate
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
+from torrcast.usecases.choice._named import _spoken
 from torrcast.usecases.discover._asked_kind import _asked_kind
 from torrcast.usecases.discover._passport_pick import _passport_pick
 from torrcast.usecases.discover._query_note import _query_note
@@ -124,7 +125,7 @@ def _second_language(
     if hearsay is None:
         # Справка нашла лишь похожее имя - это другая картина, и за ней не идут вовсе.
         progress.phase("")
-        progress.note(phrase("discover.gate_other_picture", name=name, other=about.name))
+        progress.note(phrase("discover.gate_other_picture", name=name, other=_spoken(about)))
         return _as_is(raw, found, about, progress)
     first_pictures = cluster(_search_state._search_catalogue.to_releases(raw))
     if (named := _passport_pick(first_pictures, about, found)) is not None:

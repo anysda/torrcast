@@ -6,6 +6,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 from torrcast.domain.seasons_named import seasons_named
+from torrcast.usecases.choice._named import _title
 
 
 def season_gaps(found: list[Picture], shown: set[str], want: Episode | None) -> list[str]:
@@ -40,7 +41,7 @@ def season_gaps(found: list[Picture], shown: set[str], want: Episode | None) -> 
         lines.append(
             phrase(
                 "discover.season_gap",
-                title=picture.title,
+                title=_title(picture),
                 year=picture.year or "?",
                 count=len(picture.releases),
                 season=asked,

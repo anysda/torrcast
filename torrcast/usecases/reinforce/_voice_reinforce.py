@@ -10,6 +10,7 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
+from torrcast.usecases.choice._named import _title
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._no_budget import _no_budget
 from torrcast.usecases.reinforce.configure import _catalogue_port
@@ -98,5 +99,5 @@ def _voice_reinforce(
     if now <= was:
         # Прибавка ушла мимо картины - тогда второго захода как будто и не было.
         return raw, cluster(_catalogue_port().to_releases(raw)), found
-    progress.note(phrase("reinforce.voice_note", title=lead.title, exact=exact, now=now))
+    progress.note(phrase("reinforce.voice_note", title=_title(lead), exact=exact, now=now))
     return merged, pictures, wider

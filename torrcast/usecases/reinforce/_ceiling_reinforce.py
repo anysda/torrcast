@@ -10,6 +10,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.passport_source import PassportSource
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
+from torrcast.usecases.choice._named import _title
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._asked_kind import _asked_kind
 from torrcast.usecases.discover._no_budget import _no_budget
@@ -88,6 +89,6 @@ def _ceiling_reinforce(
     first = vouched[0]
     year = str(first.year) if first.year is not None else phrase("reinforce.year_unknown")
     progress.note(
-        phrase("reinforce.ceiling_note", name=name, refined=refined, title=first.title, year=year)
+        phrase("reinforce.ceiling_note", name=name, refined=refined, title=_title(first), year=year)
     )
     return merged, wider, vouched + kept

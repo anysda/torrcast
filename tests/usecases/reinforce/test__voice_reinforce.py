@@ -34,7 +34,7 @@ def test_the_year_in_the_line_splits_the_hundred_rows_of_the_indexer() -> None:
     assert client.asked == ["Cars 2006"]
     assert len(merged) == 2, "выдача склеена, а не заменена"
     assert [(p.title, len(p.releases)) for p in wider] == [("Тачки", 2)]
-    assert said.text == phrase("reinforce.voice_note", title="Тачки", exact="Cars 2006", now=2)
+    assert said.text == phrase("reinforce.voice_note", title="Cars", exact="Cars 2006", now=2)
 
 
 def test_a_namesake_of_another_year_is_not_brought_in() -> None:
