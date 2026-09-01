@@ -536,7 +536,7 @@ become_root() {
         #: выше, а за sudo их не передать - перезапуск идёт без аргументов, чтобы разбор
         #: не поехал второй раз. Поэтому названный ключом язык встаёт в тот же канал.
         [ -n "$LANGUAGE_NAMED" ] && keep+=("TORRCAST_LANGUAGE=$LANGUAGE_NAMED")
-        exec "$SUDO" -- env "${keep[@]}" "$SELF"
+        exec "$SUDO" -- env ${keep[@]+"${keep[@]}"} "$SELF"
     fi
     die "run as root" "запускать от root"
 }
@@ -578,8 +578,12 @@ job_start() {  # $1 - имя задания, дальше команда с ар
     # часам: снаружи видно только «сколько прошло до того, как его дождались», а это
     # совсем другое число.
     (
-        local began="$SECONDS"
-        trap 'rc=$?; printf "%s" "$rc" >"$JOB_DIR/$name.rc"; printf "%s" "$((SECONDS - began))" >"$JOB_DIR/$name.took"' EXIT
+        JOB_EXIT_BEGAN="$SECONDS"
+        # Bash 3.2 runs this EXIT trap after the function's local scope is gone.  Keep
+        # the name in the child shell itself, otherwise macOS expands an unset `name`
+        # under set -u and loses both the real failure code and timing.
+        JOB_EXIT_NAME="$name"
+        trap 'rc=$?; printf "%s" "$rc" >"$JOB_DIR/$JOB_EXIT_NAME.rc"; printf "%s" "$((SECONDS - JOB_EXIT_BEGAN))" >"$JOB_DIR/$JOB_EXIT_NAME.took"' EXIT
         "$@" >"$JOB_DIR/$name.out" 2>&1
     ) &
     JOB_NAMES+=("$name")
@@ -594,7 +598,13 @@ job_wait() {  # $1 - имя задания; печатает его вывод, 
     for (( i = 0; i < ${#JOB_NAMES[@]}; i++ )); do
         [ "${JOB_NAMES[$i]}" = "$name" ] || continue
         unset 'JOB_NAMES[i]' 'JOB_PIDS[i]'
-        JOB_NAMES=("${JOB_NAMES[@]}"); JOB_PIDS=("${JOB_PIDS[@]}")
+        # Bash 3.2 treats expansion of an assigned-but-empty array as an unbound
+        # variable under set -u.  Compact only when an element survived the unset.
+        if (( ${#JOB_NAMES[@]} )); then
+            JOB_NAMES=("${JOB_NAMES[@]}"); JOB_PIDS=("${JOB_PIDS[@]}")
+        else
+            JOB_NAMES=(); JOB_PIDS=()
+        fi
         break
     done
     [ -s "$JOB_DIR/$name.out" ] && cat "$JOB_DIR/$name.out"
@@ -693,7 +703,12 @@ ts_cache_ram() {
 disk_free() {  # $1 каталог
     local dir="$1"
     while [ ! -d "$dir" ] && [ "$dir" != "/" ]; do dir="$(dirname "$dir")"; done
-    df -P -B1 "$dir" 2>/dev/null | awk 'NR==2{print $4}'
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        # BSD df has no GNU -B1.  -k is specified in 1024-byte blocks on macOS.
+        df -Pk "$dir" 2>/dev/null | awk 'NR==2{printf "%.0f", $4 * 1024}'
+    else
+        df -P -B1 "$dir" 2>/dev/null | awk 'NR==2{print $4}'
+    fi
 }
 
 # Кэш раздачи НА ДИСКЕ, байты: свободное место минус то, что диску нужно на прогрев,
@@ -750,14 +765,26 @@ warm_used() {
     # бы как ноль МОЛЧА, весь бюджет прогрева зарезервировался бы поверх уже занятого -
     # ровно та ошибка, ради которой функция и написана. Арифметика оболочки
     # 64-битная и локали не знает.
-    used="$(find "$dir" -type f -name 'v*.ts' -printf '%s\n' 2>/dev/null | {
-        sum=0
-        while IFS= read -r size; do
-            case "$size" in ''|*[!0-9]*) continue ;; esac
-            sum=$(( sum + size ))
-        done
-        printf '%s' "$sum"
-    })"
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        # BSD find не знает -printf: размеры спрашиваем у BSD stat.
+        used="$(find "$dir" -type f -name 'v*.ts' -exec stat -f '%z' {} + 2>/dev/null | {
+            sum=0
+            while IFS= read -r size; do
+                case "$size" in ''|*[!0-9]*) continue ;; esac
+                sum=$(( sum + size ))
+            done
+            printf '%s' "$sum"
+        })"
+    else
+        used="$(find "$dir" -type f -name 'v*.ts' -printf '%s\n' 2>/dev/null | {
+            sum=0
+            while IFS= read -r size; do
+                case "$size" in ''|*[!0-9]*) continue ;; esac
+                sum=$(( sum + size ))
+            done
+            printf '%s' "$sum"
+        })"
+    fi
     case "$used" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
     printf '%s' "$used"
 }
@@ -1417,7 +1444,12 @@ stray_files() {  # $1 - каталог установленного пакета
     local pkg="$1" src="$2" rel dir stem
     (
         cd "$pkg" || return 1
-        LC_ALL=C find . -type f -printf '%P\n' | LC_ALL=C sort
+        if [ "${OS_FAMILY:-linux}" = macos ]; then
+            # BSD find не знает -printf: срезаем ./ у выдачи сами.
+            LC_ALL=C find . -type f | sed 's|^\./||' | LC_ALL=C sort
+        else
+            LC_ALL=C find . -type f -printf '%P\n' | LC_ALL=C sort
+        fi
     ) | while IFS= read -r rel; do
         case "$rel" in
             __pycache__/*)    dir="." ;;
@@ -1621,7 +1653,11 @@ MemorySwapMax=0"
     curl -fsS -X POST "$TS_URL/settings" -H 'Content-Type: application/json' \
         -d "{\"action\":\"set\",\"sets\":$sets}" >/dev/null
     if [ "$TS_DISK" = disk ]; then
-        info "$((TS_CACHE / 1024 / 1024)) MiB disk cache ($TS_CACHE_DIR), survives service restarts; $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) MiB free, service limit $((budget / 1024 / 1024)) MiB, retrackers enabled" "кэш $((TS_CACHE / 1024 / 1024)) МиБ на диске ($TS_CACHE_DIR), переживает перезапуск службы, свободно на разделе $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) МиБ, потолок службы $((budget / 1024 / 1024)) МиБ, ретрекеры включены"
+        if [ "${OS_FAMILY:-linux}" = macos ]; then
+            info "$((TS_CACHE / 1024 / 1024)) MiB disk cache ($TS_CACHE_DIR), survives service restarts; $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) MiB free, soft GOMEMLIMIT $((budget / 1024 / 1024)) MiB, no hard service limit, retrackers enabled" "кэш $((TS_CACHE / 1024 / 1024)) МиБ на диске ($TS_CACHE_DIR), переживает перезапуск службы, свободно на разделе $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) МиБ, мягкий GOMEMLIMIT $((budget / 1024 / 1024)) МиБ, жёсткого потолка службы нет, ретрекеры включены"
+        else
+            info "$((TS_CACHE / 1024 / 1024)) MiB disk cache ($TS_CACHE_DIR), survives service restarts; $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) MiB free, service limit $((budget / 1024 / 1024)) MiB, retrackers enabled" "кэш $((TS_CACHE / 1024 / 1024)) МиБ на диске ($TS_CACHE_DIR), переживает перезапуск службы, свободно на разделе $(( $(disk_free "$TS_CACHE_DIR") / 1024 / 1024 )) МиБ, потолок службы $((budget / 1024 / 1024)) МиБ, ретрекеры включены"
+        fi
     else
         info "$((TS_CACHE / 1024 / 1024)) MiB memory cache with $(( $(host_memory) / 1024 / 1024 )) MiB host memory, service limit $((budget / 1024 / 1024)) MiB, retrackers enabled" "кэш $((TS_CACHE / 1024 / 1024)) МиБ в памяти при $(( $(host_memory) / 1024 / 1024 )) МиБ памяти машины, потолок службы $((budget / 1024 / 1024)) МиБ, ретрекеры включены"
     fi
@@ -1701,15 +1737,16 @@ PROBE_FLOOR="${TORRCAST_PROBE_FLOOR:-1024}"
 SHIM_DEAD_GRACE="${TORRCAST_SHIM_DEAD_GRACE:-12}"
 SHIM_PID="$SHIM_DIR/shim.pid"
 probe_whole() {  # $1 имя, $2 путь, $3 тело POST (пусто - GET), $4 адрес origin'а (пусто - как ляжет DNS)
+    # Форма с `+`: bash 3.2 (macOS) под set -u считает пустой массив unbound.
     local pin=()
     [ -n "${4:-}" ] && pin=(--resolve "$1:443:$4")
     if [ -n "$3" ]; then
         curl -fsS -m "$PROBE_TIMEOUT" --speed-time "$PROBE_STALL" --speed-limit "$PROBE_FLOOR" \
-            -o /dev/null -A "$UA" "${pin[@]}" -H 'Content-Type: application/json' \
+            -o /dev/null -A "$UA" ${pin[@]+"${pin[@]}"} -H 'Content-Type: application/json' \
             -X POST -d "$3" "https://$1$2" 2>/dev/null
     else
         curl -fsS -m "$PROBE_TIMEOUT" --speed-time "$PROBE_STALL" --speed-limit "$PROBE_FLOOR" \
-            -o /dev/null -A "$UA" "${pin[@]}" "https://$1$2" 2>/dev/null
+            -o /dev/null -A "$UA" ${pin[@]+"${pin[@]}"} "https://$1$2" 2>/dev/null
     fi
 }
 
@@ -2416,7 +2453,7 @@ check_indexers() {  # $1 - apikey; дальше тройки «номер<TAB>и
         if [ -z "$n" ]; then
             info "⚠ $iname: no response within $PL_SEARCH_TIMEOUT s" "⚠ $iname: не ответил за $PL_SEARCH_TIMEOUT с"
         else
-            info "$iname: $n results in test search '$PL_SEARCH_PROBE'" "$iname: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
+            info "$iname: $n results in test search '$PL_SEARCH_PROBE'" "$iname: $n раздач в проверочном поиске «${PL_SEARCH_PROBE}»"
         fi
     done
 }
@@ -2461,7 +2498,8 @@ catalog_standby_get() {
 
 catalog_promoted() {
     local wanted="$1" name
-    for name in "${CATALOG_PROMOTED[@]}"; do [ "$name" = "$wanted" ] && return 0; done
+    # Форма с `+`: bash 3.2 (macOS) под set -u считает пустой массив unbound.
+    for name in ${CATALOG_PROMOTED[@]+"${CATALOG_PROMOTED[@]}"}; do [ "$name" = "$wanted" ] && return 0; done
     return 1
 }
 
@@ -2527,7 +2565,7 @@ catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - с
             # бы урезанным полный каталог либо смолчала бы о пустом.
             if [ -z "$id" ] && [ -n "$(catalog_standby_get "$def")" ]; then
                 info "role '$name_en' is unanswered - adding fallback source $iname (Prowlarr checks it; this may take up to two minutes)" \
-                    "роль «$name_ru» пока без ответа - завожу запасной источник $iname (Prowlarr щупает его сам, это до двух минут)"
+                    "роль «${name_ru}» пока без ответа - завожу запасной источник $iname (Prowlarr щупает его сам, это до двух минут)"
                 promote_standby "$key" "$def"
                 id="$STANDBY_ID"
             fi
@@ -2544,7 +2582,7 @@ catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - с
                 why_en="$why_en${why_en:+, }$iname (added but returned no results)"
                 why_ru="$why_ru${why_ru:+, }$iname (заведён, но не отдал ничего)"
             else
-                info "$iname responds: $n results in test search '$PL_SEARCH_PROBE'" "$iname отвечает: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
+                info "$iname responds: $n results in test search '$PL_SEARCH_PROBE'" "$iname отвечает: $n раздач в проверочном поиске «${PL_SEARCH_PROBE}»"
                 covered=1
             fi
         done
@@ -2679,7 +2717,7 @@ install_indexers() {
     # замечает, а следующий заход установки заведёт его сам. Без опорных пул пуст у 97
     # запросов из 99 (TC-692), поэтому переспрашиваются только они, и отдельной строкой.
     local names="" ready=()
-    for spec in "${late[@]}"; do
+    for spec in ${late[@]+"${late[@]}"}; do
         iname="${spec%%$'\t'*}"
         # Кого гейт завёл сам, догреву поручать нечего (:data:`CATALOG_PROMOTED`): второе
         # добавление того же источника - лишнее обращение и лишняя строка про ожидание.
@@ -3065,15 +3103,6 @@ main() {
     has sources    && job_start sources    check_sources
     has prowlarr   && job_start prowlarr   install_prowlarr
     log "in background: ffmpeg, TorrServer, Prowlarr, sources - their complete output will follow" "в фоне: ffmpeg, TorrServer, Prowlarr, источники - их вывод придёт целиком"
-
-    if [ "${OS_FAMILY:-linux}" = macos ]; then
-        has sources    && { job_wait sources || die "source certificates were not installed - see the reason above" "сертификаты источников не установились - причина в строках выше"; phase_done 'источники'; }
-        has prowlarr   && { job_wait prowlarr || die "Prowlarr was not installed - see the reason above" "Prowlarr не поставился - причина в строках выше"; phase_done 'Prowlarr'; }
-        has ffmpeg     && { job_wait ffmpeg || die "ffmpeg was not installed - see the reason above" "ffmpeg не поставился - причина в строках выше"; phase_done 'ffmpeg'; }
-        has torrserver && { job_wait torrserver || die "TorrServer was not installed - see the reason above" "TorrServer не поставился - причина в строках выше"; phase_done 'TorrServer'; }
-        [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
-        die "launchd services are not implemented yet" "службы launchd пока не реализованы"
-    fi
 
     # Самое долгое (venv и колёса с pypi) держим на переднем плане: пока идёт оно,
     # соседи успевают скачаться, подняться и ответить.
