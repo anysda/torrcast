@@ -104,6 +104,8 @@ from torrcast.domain.catalogs.systemd.en import en as systemd_en
 from torrcast.domain.catalogs.systemd.ru import ru as systemd_ru
 from torrcast.domain.catalogs.telegram_config.en import en as telegram_config_en
 from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
+from torrcast.domain.catalogs.telegram.en import en as telegram_en
+from torrcast.domain.catalogs.telegram.ru import ru as telegram_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
 from torrcast.domain.catalogs.torrserver.en import en as torrserver_en
 from torrcast.domain.catalogs.torrserver.ru import ru as torrserver_ru
@@ -141,6 +143,7 @@ _CLUSTERS: Final = (
     (stream_en, stream_ru),
     (trace_en, trace_ru),
     (telegram_config_en, telegram_config_ru),
+    (telegram_en, telegram_ru),
     (ports_en, ports_ru),
     (profile_detector_en, profile_detector_ru),
     (runtime_en, runtime_ru),

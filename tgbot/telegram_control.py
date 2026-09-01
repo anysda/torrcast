@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from contextlib import suppress
 from pathlib import Path
 
@@ -19,7 +20,10 @@ class TelegramControl:
         self._api = api
         self._chat_id = chat_id
         self._path = path or Path(f"/tmp/torrcast-telegram-{os.getuid()}.ctl")
-        self._message_id = 0
+        self._message_path = self._path.with_suffix(self._path.suffix + ".message")
+        self._message_id = self._remembered_message()
+        self._text = ""
+        self._lock = threading.Lock()
         os.environ[CTL_ENV] = str(self._path)
 
     @staticmethod
@@ -39,16 +43,49 @@ class TelegramControl:
         ]
 
     def show(self, text: str) -> int:
-        """Показать пульт одним сообщением после запуска каста."""
-        self._message_id = self._api.send(self._chat_id, text, self.buttons())
-        return self._message_id
+        """Создать пульт или поправить его прежнее сообщение на месте."""
+        with self._lock:
+            if self._message_id:
+                if text != self._text:
+                    self._api.edit(self._chat_id, self._message_id, text, self.buttons())
+                    self._text = text
+                return self._message_id
+            self._message_id = self._api.send(self._chat_id, text, self.buttons())
+            self._text = text
+            if self._message_id:
+                self._message_path.write_text(str(self._message_id), encoding="ascii")
+            return self._message_id
 
     def clean(self) -> None:
         """Убрать пульт, не связывая успех остановки с правами Telegram."""
-        if self._message_id:
+        with self._lock:
+            if not self._message_id:
+                return
+            deleted = False
             with suppress(Exception):
-                self._api.delete(self._chat_id, self._message_id)
+                result = self._api.delete(self._chat_id, self._message_id)
+                deleted = getattr(result, "status", 200) == 200
+            if not deleted:
+                with suppress(Exception):
+                    self._api.edit(
+                        self._chat_id, self._message_id, self._stopped_text(), None
+                    )
             self._message_id = 0
+            self._text = ""
+            self._message_path.unlink(missing_ok=True)
+
+    def _remembered_message(self) -> int:
+        """Вернуть пульт прежнего процесса, если его номер записан целым."""
+        with suppress(OSError, ValueError):
+            return int(self._message_path.read_text(encoding="ascii"))
+        return 0
+
+    @staticmethod
+    def _stopped_text() -> str:
+        """Назвать мёртвый пульт каталогом продукта без цикла импортов."""
+        from torrcast.domain.catalogs.phrase import phrase
+
+        return phrase("telegram.nothing_playing")
 
     def command(self, data: str) -> str | None:
         """Записать команду показа; stop оставить команде приложения."""

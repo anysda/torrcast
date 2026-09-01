@@ -10,6 +10,7 @@ from typing import Any
 
 from tgbot.config import Config
 from tgbot.i18n import _failure_detail, i18n
+from tgbot.playback_observer import PlaybackObserver
 from tgbot.restore_flag_dashes import restore_flag_dashes
 from tgbot.telegram_api import TelegramApi
 from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
@@ -52,6 +53,7 @@ class Bot:
         assemble()
         self._choice = TelegramChoiceEnvironment(self._api, config.chat_id)
         self._control = TelegramControl(self._api, config.chat_id)
+        self._observer = PlaybackObserver(self._control, self._title)
         configure_choice(self._choice)
         self._offset = 0
         self._commands: Queue[list[str]] = Queue()
@@ -61,6 +63,9 @@ class Bot:
     def run(self) -> None:
         """Оставить CLI главный поток, а получение callback вынести в рабочий."""
         threading.Thread(target=self.poll, daemon=True, name="telegram-polling").start()
+        threading.Thread(
+            target=self._observer.run, daemon=True, name="telegram-playback"
+        ).start()
         while True:
             self.run_one()
 
@@ -170,7 +175,7 @@ class Bot:
             title = self._title()
             if title:
                 self._choice.clean_search()
-                self._control.show(title)
+                self._observer.sync()
 
     def _enqueue(
         self,
