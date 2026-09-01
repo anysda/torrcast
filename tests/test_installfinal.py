@@ -129,15 +129,43 @@ class Frame:
         return "\n".join([rule, *(f"|{line}|" for line in self.lines), rule])
 
 
-def _capture(case: str, cols: int, language: str, rows: int, locale: str) -> Frame:
+def _capture(
+    case: str, cols: int, language: str, rows: int, locale: str, upgrade: str, version: str
+) -> Frame:
     box = Path(tempfile.mkdtemp(prefix=f"tc939-{case}-"))
     try:
-        return _run(case, cols, language, box, rows, locale)
+        return _run(case, cols, language, box, rows, locale, upgrade, version)
     finally:
         shutil.rmtree(box, ignore_errors=True)
 
 
-def _run(case: str, cols: int, language: str, box: Path, rows: int, locale: str) -> Frame:
+def _staged(box: Path, version: str) -> Path:
+    """Копия установщика с проставленной версией - ровно то, что делает release.sh.
+
+    🔴 Копией, а не правкой дерева: ченджлог показывается ТОЙ версии, чей раздел в нём
+    заведён, и проверить эту привязку можно только на сборке с настоящим номером. Правка
+    самого install.sh ради теста была бы правкой измеряемого.
+    """
+    staged = box / "repo"
+    (staged / "docs").mkdir(parents=True)
+    shutil.copy2(REPO / "docs" / "changelog", staged / "docs" / "changelog")
+    body = re.sub(r"^VERSION='[^']*'$", f"VERSION='{version}'", SCRIPT, count=1, flags=re.M)
+    assert f"VERSION='{version}'" in body, "версия не встала в копию установщика"
+    (staged / "install.sh").write_text(body, encoding="utf-8")
+    (staged / "install.sh").chmod(0o755)
+    return staged / "install.sh"
+
+
+def _run(
+    case: str,
+    cols: int,
+    language: str,
+    box: Path,
+    rows: int,
+    locale: str,
+    upgrade: str = "",
+    version: str = "",
+) -> Frame:
     for name in ("bin", "cfg", "state", "hls", "motd.d"):
         (box / name).mkdir()
     tv = BEFORE.get(case)
@@ -150,8 +178,9 @@ def _run(case: str, cols: int, language: str, box: Path, rows: int, locale: str)
 
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    script = _staged(box, version) if version else REPO / "install.sh"
     child = subprocess.Popen(
-        ["bash", str(REPO / "install.sh"), *(("-ru",) if language == "ru" else ())],
+        ["bash", str(script), *(("-ru",) if language == "ru" else ())],
         stdin=slave,
         stdout=slave,
         stderr=slave,
@@ -173,6 +202,7 @@ def _run(case: str, cols: int, language: str, box: Path, rows: int, locale: str)
             "TORRCAST_MOTD": str(box / "motd"),
             "TORRCAST_MOTD_D": str(box / "motd.d"),
             "TORRCAST_PHASES": "receiver",
+            **({"TORRCAST_UPGRADE_FROM": upgrade} if upgrade else {}),
         },
         start_new_session=True,
     )
@@ -202,7 +232,7 @@ def _run(case: str, cols: int, language: str, box: Path, rows: int, locale: str)
     )
 
 
-_CACHE: dict[tuple[str, int, str, int, str], Frame] = {}
+_CACHE: dict[tuple[str, int, str, int, str, str, str], Frame] = {}
 
 
 def frame(
@@ -211,9 +241,16 @@ def frame(
     language: str = "ru",
     rows: int = ROWS,
     locale: str = "C.UTF-8",
+    upgrade: str = "",
+    version: str = "",
 ) -> Frame:
-    """Кадр случая. Прогон стоит секунду, поэтому одинаковые не повторяются."""
-    key = (case, cols, language, rows, locale)
+    """Кадр случая. Прогон стоит секунду, поэтому одинаковые не повторяются.
+
+    ``upgrade`` - версия, от которой идёт обновление: непустая переводит установщик во
+    второй вход (TC-887). ``version`` - номер, которым помечена сборка: непустой гоняет
+    копию установщика с этой версией, как её собрал бы release.sh.
+    """
+    key = (case, cols, language, rows, locale, upgrade, version)
     if key not in _CACHE:
         _CACHE[key] = _capture(*key)
     return _CACHE[key]

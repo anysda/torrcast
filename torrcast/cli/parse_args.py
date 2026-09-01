@@ -119,5 +119,10 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         "--since", metavar=phrase("cli.metavar_since"), help=phrase("cli.help_since")
     )
     parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--upgrade",
+        action="store_true",
+        help=phrase("cli.help_upgrade"),
+    )
     parser.add_argument("--version", action="version", version=f"torrcast {__version__}")
     return Args(**vars(parser.parse_args(argv)))

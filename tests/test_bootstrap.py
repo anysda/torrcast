@@ -355,3 +355,111 @@ def test_the_tag_is_stripped_of_v_in_the_file_name_but_not_in_the_path(
 
     assert done.returncode == 0, done.stderr
     assert marker.read_text(encoding="utf-8") == "ran\n"
+
+
+@pytest.mark.machine
+def test_the_same_version_is_named_latest_without_touching_a_single_file(
+    tmp_path: Path,
+) -> None:
+    """🔴 Второй вход (TC-887): установлено ровно то, что выпущено - работы нет ВОВСЕ.
+
+    Проверяется не слово на экране, а отсутствие работы: заглушку спросили один раз, за
+    тегом, и ни за тарболом, ни за сверкой к ней не пришли. Временный каталог пуст не
+    потому, что за собой прибрали, - его не заводили.
+    """
+    marker = tmp_path / "marker"
+    stub_install = f"#!/usr/bin/env bash\necho ran >> {marker}\nexit 0\n"
+    tarball = _tarball_bytes(stub_install)
+    digest = hashlib.sha256(tarball).hexdigest()
+    hits: dict[str, int] = {}
+
+    port = _stub_github(
+        tag="v9.9.9",
+        tarball=tarball,
+        sha256_body=f"{digest}  torrcast-9.9.9.tar.gz\n".encode(),
+        hits=hits,
+    )
+    done = _run_bootstrap(tmp_path, port, {"TORRCAST_UPGRADE_FROM": "9.9.9"})
+
+    assert done.returncode == 0, done.stderr
+    assert "9.9.9 is already the latest version" in done.stderr
+    assert not marker.exists(), "установщик всё-таки позвали"
+    assert not list((tmp_path / "mktmp").iterdir())
+    assert list(hits) == ["/anysda/torrcast/releases/latest"], hits
+
+
+@pytest.mark.machine
+def test_a_newer_version_names_the_move_and_tells_the_installer_where_it_came_from(
+    tmp_path: Path,
+) -> None:
+    """Переход называется человеку, а установщику - версия, от которой идём.
+
+    Второе важнее первого: ровно по этой переменной install.sh рисует заставку
+    обновления вместо заставки установки, и без неё человек получил бы «установлено»
+    там, где его обновили.
+    """
+    marker = tmp_path / "marker"
+    stub_install = (
+        f'#!/usr/bin/env bash\necho "from ${{TORRCAST_UPGRADE_FROM:-нет}}" >> {marker}\nexit 0\n'
+    )
+    tarball = _tarball_bytes(stub_install)
+    digest = hashlib.sha256(tarball).hexdigest()
+
+    port = _stub_github(
+        tag="v9.9.9",
+        tarball=tarball,
+        sha256_body=f"{digest}  torrcast-9.9.9.tar.gz\n".encode(),
+    )
+    done = _run_bootstrap(tmp_path, port, {"TORRCAST_UPGRADE_FROM": "1.0.0"})
+
+    assert done.returncode == 0, done.stderr
+    assert "torrcast 1.0.0 → 9.9.9" in done.stderr
+    assert marker.read_text(encoding="utf-8") == "from 1.0.0\n"
+
+
+@pytest.mark.machine
+def test_the_upgrade_speaks_the_tongue_it_was_given(tmp_path: Path) -> None:
+    port = _stub_github(tag="v9.9.9", tarball=None, sha256_body=None)
+    done = _run_bootstrap(
+        tmp_path, port, {"TORRCAST_UPGRADE_FROM": "9.9.9", "TORRCAST_LANGUAGE": "ru"}
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert "torrcast 9.9.9 - уже последняя версия" in done.stderr
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="под root отказа по правам не бывает")
+@pytest.mark.machine
+def test_an_upgrade_without_root_names_the_way_to_repeat_instead_of_reinstalling(
+    tmp_path: Path,
+) -> None:
+    """🔴 Обновление без прав не подменяется установкой с нуля через sudo-однострок.
+
+    Односторок потерял бы и версию, от которой идём, и заставку обновления: человек
+    просил обновить, а получил бы полную переустановку. Сеть при этом не трогается вовсе
+    - отказ стоит до всякого запроса.
+    """
+    hits: dict[str, int] = {}
+    port = _stub_github(tag="v9.9.9", tarball=None, sha256_body=None, hits=hits)
+    env = {"TORRCAST_UPGRADE_FROM": "1.0.0", "TORRCAST_NO_ROOT": ""}
+    done = _run_bootstrap(tmp_path, port, env)
+
+    assert done.returncode == 1
+    assert "root is required: sudo cast --upgrade" in done.stderr
+    assert hits == {}, "за тегом сходили, хотя прав на установку нет"
+
+
+def test_the_upgrade_has_no_second_download_body_of_its_own() -> None:
+    """🔴 Загрузчик один, входов два. Второе тело закачки разъехалось бы с первым.
+
+    Сторож смотрит не на слова, а на места, где второе тело могло бы завестись: отдельный
+    upgrade.sh в дереве и знание о выпусках внутри пакета. Питон обязан знать про
+    обновление ровно одно - какой файл запустить.
+    """
+    assert not (REPO / "upgrade.sh").exists(), "заведён второй вход со своим телом"
+    knowing = []
+    for module in (REPO / "torrcast").rglob("*.py"):
+        text = module.read_text(encoding="utf-8")
+        if "releases/latest" in text or "sha256sum" in text or "tarfile" in text:
+            knowing.append(str(module.relative_to(REPO)))
+    assert knowing == []

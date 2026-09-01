@@ -51,6 +51,11 @@ PREFIX="${TORRCAST_PREFIX:-/opt/torrcast}"
 CONFIG_DIR="${TORRCAST_CONFIG_DIR:-/etc/torrcast}"
 STATE_DIR="${TORRCAST_STATE_DIR:-/var/lib/torrcast}"
 BIN_DIR="${TORRCAST_BIN_DIR:-/usr/local/bin}"
+#: 🔴 TC-887. Версия, от которой идёт обновление; ставит её загрузчик (`install`), когда
+#: его позвал `cast --upgrade`. Установщик от этого не меняет НИ ОДНОГО своего действия -
+#: он остаётся идемпотентным, - меняются только слова: итоговое слово, шапка заставки и
+#: последний экран. Пусто либо равно своей же версии - обычная установка.
+UPGRADE_FROM="${TORRCAST_UPGRADE_FROM:-}"
 #: Молчание при повторной установке берёт язык из живого конфига - и говорит на нём же.
 #: jq тут ещё не гарантирован (его ставит фаза пакетов), поэтому читаем sed'ом строго
 #: en|ru: чужое содержимое поля означает ровно «выбора нет», и ответ - дефолт.
@@ -1209,6 +1214,13 @@ install_torrcast() {
     installed="$(torrcast_site_dir)" ||
         die "torrcast package cannot be imported from $PREFIX/venv - installation failed" "пакет torrcast не импортируется из $PREFIX/venv - установка не состоялась"
     prune_torrcast "$installed" "$REPO_DIR/torrcast"
+    # 🔴 TC-887. Загрузчик кладётся рядом с venv, потому что `cast --upgrade` зовёт ЕГО, а
+    # не второй такой же на питоне. В колесо он не попадает: pip ставит пакеты, а это
+    # sh-скрипт из корня репы - тем же порядком, каким сюда едут sni-shim.py и индексеры.
+    # Без него `cast --upgrade` скажет, чем обновиться, а не промолчит: см. cli/upgrade.
+    if [ -f "$REPO_DIR/install" ] && ! cmp -s "$REPO_DIR/install" "$PREFIX/install"; then
+        install -m 0755 "$REPO_DIR/install" "$PREFIX/install"
+    fi
     verify_torrcast "$installed"
 }
 
@@ -1326,6 +1338,11 @@ verify_torrcast() {  # $1 — каталог установленного пак
     count="$(printf '%s\n' "$repo_side" | grep -c .)"
     sum="$(printf '%s\n' "$repo_side" | sha256sum | cut -c1-12)"
     info "venv vs repository check: $count files match (sha256 $sum)" "сверка venv ↔ репа: $count файлов совпадают (sha256 $sum)"
+    # 🔴 TC-887. Отпечаток обязан доехать до ЭКРАНА, а не только до журнала: под заставкой
+    # весь `info` уходит в журнал, и обновление отчиталось бы одним словом «обновлено» -
+    # то есть ничем проверяемым. Считает его работник в своей подоболочке, поэтому едет он
+    # тем же каналом, что и приёмник с фазами, а не переменной, которой рисовалка не увидит.
+    ui_say S "$sum"
 }
 
 # --- 3. TorrServer ----------------------------------------------------------
@@ -2852,7 +2869,16 @@ main() {
     fi
     [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
 
-    log "done - try: cast <title>" "готово - смотри: cast <название>"
+    # 🔴 TC-887. Закрывающее слово принадлежит РАБОТЕ, а не заставке. Под заставкой его
+    # печатает финальный блок, а без терминала - вот эта строка, и промолчи она про
+    # обновление, человек, обновившийся из скрипта или по ssh, прочёл бы «готово -
+    # смотри: cast» и не узнал бы из вывода, состоялся переход или его просто поставили
+    # заново.
+    if upgrading; then
+        log "torrcast $UPGRADE_FROM → $VERSION updated" "torrcast $UPGRADE_FROM → $VERSION обновлено"
+    else
+        log "done - try: cast <title>" "готово - смотри: cast <название>"
+    fi
     # «Готово» сказано, когда `cast` и правда может играть. Если что-то ещё догревается -
     # это отдельная строка ПОСЛЕ него, а не задержка перед ним.
     if [ -s "$LATE_NOTES" ]; then
@@ -2945,6 +2971,37 @@ ui_version() {  # VERSION из pyproject.toml, без форка
                 return 0 ;;
         esac
     done < "$f"
+    return 0
+}
+
+#: Правда ли, что это обновление, а не установка. Спрашивать ТОЛЬКО после `ui_version`:
+#: до неё VERSION - литерал из этого файла, и на свежесобранном тарболе он совпал бы с
+#: чем угодно. Равенство версий тут значит «обновлять не с чего»: загрузчик до сюда с
+#: такой парой не доходит вовсе, а прямой зов install.sh с этой переменной остаётся
+#: обычной идемпотентной переустановкой, а не заставкой про несуществующий переход.
+upgrading() { [ -n "$UPGRADE_FROM" ] && [ "$UPGRADE_FROM" != "$VERSION" ]; }
+
+#: Записи ченджлога версии $1 на языке установки. Читаются из РАСПАКОВАННОГО дерева, а
+#: не вторым походом в сеть: у анонима на api.github.com 60 запросов в час на адрес, и
+#: описание релиза стоило бы ровно того же потолка, что и узнавание тега.
+#: Формат построчный: `[версия]` открывает раздел, `en текст` / `ru текст` - запись.
+CHANGELOG=()
+ui_changelog() {  # $1 - версия -> CHANGELOG
+    CHANGELOG=()
+    local file="$REPO_DIR/docs/changelog" line inside=0 tag
+    [ -r "$file" ] || return 0
+    while IFS= read -r line; do
+        case $line in
+            ''|'#'*) continue ;;
+            '['*']')
+                if [ "$line" = "[$1]" ]; then inside=1; else inside=0; fi
+                continue ;;
+        esac
+        (( inside )) || continue
+        tag=${line%% *}
+        [ "$tag" = "$LANGUAGE" ] || continue
+        CHANGELOG+=( "${line#* }" )
+    done < "$file"
     return 0
 }
 
@@ -3118,6 +3175,59 @@ ui_cut() {  # $1 - строка, $2 - сколько знакомест -> CUT; 
   return 0
 }
 
+# --- колонка последнего экрана у обновления ----------------------------------
+# 🔴 TC-887. Рендер итогового экрана ОДИН (`ui_draw_final`), текста в нём два. Обновление
+# своей заставки не заводит: заведи - и вторая разъехалась бы с первой на первой же
+# правке геометрии. Меняются ровно колонки и их объявленная ширина, а ширина тут не
+# литерал, а МЕРКА: записи ченджлога приезжают из файла любой длины, ровно как имя
+# приёмника, и врать о своей ширине им нечем.
+UI_TIER_CMD=(); UI_TIER_TXT=(); UI_TIER_W=0
+ui_changelog_tier() {  # $1 - сколько записей влезает, $2 - знакомест под текст
+  local rows=$1 room=$2 i wide=0
+  UI_TIER_CMD=(); UI_TIER_TXT=(); UI_TIER_W=0
+  for (( i = 0; i < ${#CHANGELOG[@]} && i < rows; i++ )); do
+    ui_cut "${CHANGELOG[i]}" "$room"
+    UI_TIER_CMD+=( '· ' )
+    UI_TIER_TXT+=( "$CUT" )
+    ui_len "$CUT"; (( LEN > wide )) && wide=$LEN
+  done
+  UI_TIER_W=$(( wide + 2 ))
+  return 0
+}
+
+ui_changelog_load() {
+  upgrading || return 0
+  ui_changelog "$VERSION"
+  if (( ${#CHANGELOG[@]} == 0 )); then
+    # 🔴 Пусто - говорим ПУСТО. Показать записи чужой версии значило бы соврать в лицо
+    # ровно там, где человек читает, за что заплатил обновлением. Раздел ченджлога
+    # заводится под конкретную версию, и её же тут спрашивают: поднимется версия, а
+    # раздела под неё не заведут - экран скажет об этом, а не покажет прошлогоднее.
+    if [ "$LANGUAGE" = ru ]; then CHANGELOG=( 'список изменений этой версии не заполнен' )
+    else CHANGELOG=( 'the changelog for this version is not filled in' ); fi
+  fi
+  return 0
+}
+
+# 🔴 Ширина записи меряется от РАМКИ, а не назначается числом. Число тут было бы тем же
+# враньём, что и объявленная ширина колонки: у справки тексты свои и известны заранее, а
+# записи ченджлога приезжают из файла - на широком экране литерал резал бы их посреди
+# слова, хотя места хватало. Ярусы отличаются числом СТРОК: узкому экрану нужно меньше
+# записей, а не более короткие. Зовётся из `ui_layout`, поэтому переживает и resize.
+ui_final_text() {
+  upgrading || return 0
+  local room=$(( INNER_W - 8 ))
+  (( room < 12 )) && room=$(( INNER_W - 4 ))
+  (( room < 1 )) && room=1
+  ui_changelog_tier 6 "$room"; FIN_CMD=( "${UI_TIER_CMD[@]}" ); FIN_TXT=( "${UI_TIER_TXT[@]}" )
+  FIN_W=$UI_TIER_W
+  ui_changelog_tier 4 "$room"; FIN_CMD_S=( "${UI_TIER_CMD[@]}" ); FIN_TXT_S=( "${UI_TIER_TXT[@]}" )
+  FIN_W_S=$UI_TIER_W
+  ui_changelog_tier 1 "$room"; FIN_CMD_M=( "${UI_TIER_CMD[@]}" ); FIN_TXT_M=( "${UI_TIER_TXT[@]}" )
+  FIN_W_M=$UI_TIER_W
+  return 0
+}
+
 # --- геометрия ---
 TROWS=24; TCOLS=80
 INNER_W=0; INNER_H=0; BOX_H=0
@@ -3183,6 +3293,9 @@ ui_layout() {
   SHOW_VER=1
   (( TCOLS < 26 )) && SHOW_VER=0
 
+  # Колонка обновления зависит от ширины рамки, поэтому строится ЗДЕСЬ, а не однажды:
+  # иначе после resize ярусы остались бы с шириной прежнего окна.
+  ui_final_text
   ui_pick_help
 }
 
@@ -3199,7 +3312,12 @@ ui_pick_help() {
   # Подсказку `cast --tv` колонка отдаёт блоку приёмника там, где та же подсказка
   # у блока и есть весь смысл: строка «выбери сам: cast --tv» и строка
   # «cast --tv  выбрать ТВ» рядом - не две подсказки, а одна и эхо.
-  case $UI_RECV_KIND in many|none) HELP_DROP=1 ;; esac
+  # У ченджлога подсказки `cast --tv` нет вовсе, и отдавать блоку приёмника ему нечего:
+  # без этой оговорки счёт ярусов отнял бы у колонки строку, которой в ней нет, и
+  # последняя запись молча не доехала бы до экрана.
+  if ! upgrading; then
+    case $UI_RECV_KIND in many|none) HELP_DROP=1 ;; esac
+  fi
   # Блок приёмника не роскошь: молчать про приёмник экран больше не вправе,
   # поэтому его ЧЕСТНЫЙ минимум входит в счёт ярусов наравне со справкой, и
   # ярус уступает ему строки. Минимум, а не полный размер: список из десяти
@@ -3550,7 +3668,11 @@ ui_build_status() { # $1 pct  $2 frame -> STATUS
 
   local sp=${SPIN[(fr / 2) % ${#SPIN[@]}]}
   local left
-  if (( SHOW_VER )); then
+  if (( SHOW_VER )) && upgrading; then
+    # Шапка обновления говорит ПЕРЕХОД, а не версию: «version 1.0.1» на экране
+    # обновления не отвечает на единственный вопрос, который тут задают, - откуда и куда.
+    left="${GREEN}${BOLD}${sp}${NC} torrcast  ${DIMG}${UPGRADE_FROM} → ${VERSION}${NC}"
+  elif (( SHOW_VER )); then
     left="${GREEN}${BOLD}${sp}${NC} torrcast  ${DIMG}version ${VERSION}${NC}"
   else
     left="${GREEN}${BOLD}${sp}${NC} torrcast"
@@ -3764,6 +3886,9 @@ ui_open_sleepfd() {
 UI_TOTAL=0; UI_DONE=0; UI_PHASE=''
 UI_WARN=(); UI_WARN_H=0; UI_WARN_MORE=0
 UI_DIED=0; UI_ENDED=0; UI_RC=0
+#: Отпечаток установленного пакета, каким его посчитала сверка venv ↔ репа
+#: (:func:`verify_torrcast`). Пусто - сверка не отработала, и врать про неё нечем.
+UI_SUM=''
 #: Текст `die` держим отдельно от журнала НАМЕРЕННО. Фазы идут фоном, и своё
 #: «ошибка: ...» такая фаза пишет в журнал СВОЕГО задания; в общий журнал он
 #: выливается только когда до неё доберётся `job_wait`. Развал наступает раньше,
@@ -3814,6 +3939,7 @@ ui_drain() {  # вычитать всё, что приехало в канал; 
       W) ui_note "$rest" ;;
       R) ui_recv "$rest" ;;
       D) UI_DIED=1; UI_DIE_MSG=$rest ;;
+      S) UI_SUM=$rest ;;
       E) UI_RC=$rest; UI_ENDED=1 ;;
     esac
   done
@@ -3906,6 +4032,9 @@ UI_DRY_MS=0
 ui_run() {  # $1 - dry|real, $2 - секунды для dry
   local mode="$1"
   ui_version
+  # Текст ченджлога читается ОДНАЖДЫ, а колонки из него строит раскладка
+  # (`ui_layout`): ширина записи зависит от рамки, а рамка переживает resize.
+  ui_changelog_load
   ui_pick_color
   ui_palette
   ui_count_phases
@@ -4114,10 +4243,31 @@ ui_run() {  # $1 - dry|real, $2 - секунды для dry
 
   # Строка не должна переноситься: перенос выталкивает верх рамки за экран
   # и справка, ради которой всё затевалось, уезжает вверх.
-  if (( TCOLS >= 44 )); then
+  # Порог тут не число, а МЕРКА: строка обновления короче строки установки, и общий
+  # литерал молча отнимал бы у неё слова там, где места хватало. Меряется то, что
+  # печатается, - иначе первая же правка текста разошлась бы с порогом и не сказала.
+  if upgrading; then
+    if [ "$LANGUAGE" = ru ]; then
+      FINAL_SAY="torrcast $UPGRADE_FROM → $VERSION обновлено."
+    else
+      FINAL_SAY="torrcast $UPGRADE_FROM → $VERSION updated successfully."
+    fi
+    ui_len "[OK] $FINAL_SAY"
+    (( LEN > TCOLS )) && FINAL_SAY="torrcast $UPGRADE_FROM → $VERSION"
+    printf '%s%s[OK]%s %s\n' "$BRAND" "$BOLD" "$NC" "$FINAL_SAY"
+  elif (( TCOLS >= 44 )); then
+    # Итоговое слово обновления - «обновлено», и оно двуязычно: заставку обновления
+    # человек видит уже на языке своей настройки, и одно английское слово в самом конце
+    # читалось бы обрывом. Переход стоит тут же: строка обязана отвечать «откуда куда»
+    # и без заставки - под `TORRCAST_PLAIN`, в ssh из скрипта и в записи прогона.
     printf '%s%s[OK]%s torrcast %s installed successfully.\n' "$BRAND" "$BOLD" "$NC" "$VERSION"
   else
     printf '%s%s[OK]%s torrcast %s\n' "$BRAND" "$BOLD" "$NC" "$VERSION"
+  fi
+  # Отпечаток - второй строкой и только у обновления: у установки сверять новый пакет
+  # не с чем, а обновление он и доказывает - что в venv лёг именно приехавший код.
+  if upgrading && [ -n "$UI_SUM" ]; then
+    printf '%s     sha256 %s%s\n' "$DIMW" "$UI_SUM" "$NC"
   fi
   ui_cleanup
   rm -f "$UI_CHANNEL"

@@ -22,6 +22,7 @@ def ru() -> dict[str, str]:
         "cli.help_voice": "озвучка: номер или студия - взять и запомнить, без значения - меню",
         "cli.help_new": "та же раздача, файл и дорожка с начала",
         "cli.help_dry": "весь резолв без каста",
+        "cli.help_upgrade": "обновить torrcast до последнего релиза",
         "cli.metavar_since": "СРОК",
         "cli.help_since": "cast log: с какого момента (2d / 12h / 30m / ГГГГ-ММ-ДД)",
         "cli.terminated_by_sigterm": "команда прервана сигналом SIGTERM",

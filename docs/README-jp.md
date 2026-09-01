@@ -123,6 +123,7 @@ cast voices <query>     # テレビへ送られるリリースの音声トラッ
 cast releases <query>   # 作品ごとのリリース一覧
 cast -tg                # Telegram ボットの設定
 cast --tv               # ネットワーク上の受信機を探す
+sudo cast --upgrade     # 最新リリースへ更新する（最新なら、そう伝える）
 cast -h                 # すべてのフラグのヘルプ
 ```
 

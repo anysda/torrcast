@@ -5,12 +5,22 @@
 # версии, сверяет sha256, распаковывает в mktemp -d и зовёт install.sh оттуда.
 # Всё тело - внутри функций: оборванная закачка (curl режет на середине) ничего
 # не выполнит, потому что не доедет до вызова main в конце файла.
+#
+# 🔴 TC-887. Загрузчик тут ОДИН, а входа в него два, и это не совпадение, а решение:
+# `cast --upgrade` зовёт этот же файл (install.sh кладёт его в $PREFIX/install), а
+# не второй такой же на питоне. Отличается только преддверие - названная версия, от
+# которой идём, - а узнавание тега, закачка, сверка sha256, распаковка и передача
+# install.sh общие обоим входам. Заведи обновление своей закачкой, и два тела разъедутся
+# ровно там, где чинить будут только одно из них.
 set -eu
 
 BOOTSTRAP_URL="${TORRCAST_BOOTSTRAP_URL:-https://torrcast.anysda.space}"
 GITHUB_WEB="${TORRCAST_GITHUB_WEB:-https://github.com}"
 PROJECT_PATH="${TORRCAST_PROJECT_PATH:-anysda/torrcast}"
 LANGUAGE="${TORRCAST_LANGUAGE:-en}"
+#: Установленная версия, от которой идёт обновление. Непустое значение - это и есть
+#: второй вход: работа начинается со сверки версий, а не со скачивания.
+UPGRADE_FROM="${TORRCAST_UPGRADE_FROM:-}"
 
 case "$LANGUAGE" in
     en|ru) ;;
@@ -34,6 +44,13 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "$1 is required but is not in P
 become_root() {
     [ -n "${TORRCAST_NO_ROOT:-}" ] && return 0
     [ "$(id -u)" -eq 0 ] && return 0
+    # 🔴 Обновление под sudo НЕ перезапускается одностроком. Односторок - это установка
+    # с нуля: он потерял бы и версию, от которой идём, и заставку обновления, и человек
+    # получил бы вместо `cast --upgrade` полную переустановку, о которой не просил.
+    # Поэтому тут именно строка «повтори вот так», а не тихая подмена работы.
+    if [ -n "$UPGRADE_FROM" ]; then
+        fail "root is required: sudo cast --upgrade" "нужен root: sudo cast --upgrade"
+    fi
     if command -v sudo >/dev/null 2>&1; then
         say "not root - restarting through sudo" "не root - перезапуск через sudo"
         # Язык через sudo сносим, только если он НАЗВАН в окружении однострока (TC-955):
@@ -86,7 +103,25 @@ main() {
     tag="$(latest_version)"
     ver="${tag#v}"
     # Имя продукта не переводится и не транслитерируется: torrcast на обоих языках.
-    say "torrcast $ver" "torrcast $ver"
+    if [ -n "$UPGRADE_FROM" ]; then
+        # 🔴 Совпало - работы нет ВОВСЕ: ни временного каталога, ни закачки, ни единого
+        # тронутого файла. Ровно этим `cast --upgrade` отличается от «переустановить и
+        # посмотреть, что выйдет»: у переустановки тот же исход стоит полного прогона
+        # установщика, перезаписи юнитов и перезапуска служб под идущим показом.
+        # Выход отсюда стоит ДО mktemp нарочно: так «не тронул ничего» держится кодом,
+        # а не обещанием прибрать за собой.
+        if [ "$ver" = "$UPGRADE_FROM" ]; then
+            say "torrcast $ver is already the latest version" \
+                "torrcast $ver - уже последняя версия"
+            return 0
+        fi
+        say "torrcast $UPGRADE_FROM → $ver" "torrcast $UPGRADE_FROM → $ver"
+        # Дальше по цепочке это читает install.sh из тарбола: он и рисует заставку
+        # обновления вместо заставки установки.
+        export TORRCAST_UPGRADE_FROM="$UPGRADE_FROM"
+    else
+        say "torrcast $ver" "torrcast $ver"
+    fi
 
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT

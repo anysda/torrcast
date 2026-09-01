@@ -44,6 +44,7 @@ def _write_repo(root: Path) -> None:
     for tongue in ("jp", "es", "ru"):
         (docs / f"README-{tongue}.md").write_text(f"# torrcast ({tongue})\n", encoding="utf-8")
     (docs / "demo.gif").write_bytes(b"GIF89a")
+    (docs / "changelog").write_text("[9.9.9]\nen it works\nru работает\n", encoding="utf-8")
     (root / "LICENSE").write_text("MIT\n", encoding="utf-8")
     scripts = root / "scripts"
     scripts.mkdir()
@@ -204,6 +205,10 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
             "docs/README-es.md",
             "docs/README-ru.md",
             "docs/demo.gif",
+            # 🔴 TC-887. Ченджлог уезжает вместе с продуктом: его читает последний экран
+            # обновления, и релиз без него говорил бы «изменений не знаю» у каждого, кто
+            # обновился. Тарбол собирается белым списком, поэтому забыть тут - молча.
+            "docs/changelog",
         } <= set(names)
         assert "tests" not in names and not any(n.startswith("tests/") for n in names)
 

@@ -1,6 +1,6 @@
 usage: cast [-h] [--tv [IP]] [-tg] [--ru | --en] [--release N] [--pick N]
             [--menu] [--file N] [--voice [N|СТУДИЯ]] [--new] [--dry]
-            [--since СРОК] [--version]
+            [--since СРОК] [--upgrade] [--version]
             [query ...]
 
 torrcast - найти релиз и кастить его на ТВ без скачивания
@@ -25,4 +25,5 @@ options:
   --new               та же раздача, файл и дорожка с начала
   --dry               весь резолв без каста
   --since СРОК        cast log: с какого момента (2d / 12h / 30m / ГГГГ-ММ-ДД)
+  --upgrade           обновить torrcast до последнего релиза
   --version           show program's version number and exit

@@ -11,16 +11,19 @@ from torrcast.cli.language import _configure_language
 from torrcast.cli.main import _configure_main
 from torrcast.cli.status import _configure_status
 from torrcast.cli.stop import _configure_stop
+from torrcast.cli.upgrade import _configure_upgrade
 from torrcast.runtime.configure_command import configure_command
 from torrcast.runtime.language_command import language_command
 from torrcast.runtime.status_command import status_command
 from torrcast.runtime.stop_command import stop_command
+from torrcast.runtime.upgrade_command import upgrade_command
 
 
 def configure_cli() -> None:
-    """Раздать слою команд режим stdin и четыре собранные команды."""
+    """Раздать слою команд режим stdin и пять собранных команд."""
     _configure_main(terminal)
     _configure_status(status_command)
     _configure_stop(stop_command)
     _configure_settings(configure_command)
     _configure_language(language_command)
+    _configure_upgrade(upgrade_command)

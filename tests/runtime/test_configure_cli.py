@@ -13,6 +13,7 @@ from torrcast.runtime.configure_command import configure_command
 from torrcast.runtime.language_command import language_command
 from torrcast.runtime.status_command import status_command
 from torrcast.runtime.stop_command import stop_command
+from torrcast.runtime.upgrade_command import upgrade_command
 
 #: Модули команд, а не одноимённые единицы из пакета: `torrcast.cli.main` - это функция.
 main_module = module_of("torrcast.cli.main")
@@ -20,6 +21,7 @@ status_module = module_of("torrcast.cli.status")
 stop_module = module_of("torrcast.cli.stop")
 configure_module = module_of("torrcast.cli.configure")
 language_module = module_of("torrcast.cli.language")
+upgrade_module = module_of("torrcast.cli.upgrade")
 
 
 def test_every_slot_of_the_command_layer_is_filled_by_the_root() -> None:
@@ -31,3 +33,4 @@ def test_every_slot_of_the_command_layer_is_filled_by_the_root() -> None:
     assert stop_module._SESSION is stop_command
     assert configure_module._SETTINGS is configure_command
     assert language_module._REMEMBER is language_command
+    assert upgrade_module._SESSION is upgrade_command

@@ -133,6 +133,7 @@ cast voices <consulta>  # las pistas de audio del release que irá al televisor
 cast releases <consulta> # la tabla de releases, por película
 cast -tg                # configuración del bot de Telegram
 cast --tv               # buscar receptores en la red
+sudo cast --upgrade     # actualizar a la última versión, o decir que ya está
 cast -h                 # ayuda con todas las opciones
 ```
 

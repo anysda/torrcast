@@ -30,6 +30,7 @@ def en() -> dict[str, str]:
         "cli.help_voice": "voice: number or studio - take and remember, no value - menu",
         "cli.help_new": "the same release, file and track from the start",
         "cli.help_dry": "the whole resolve without casting",
+        "cli.help_upgrade": "update torrcast to the latest release",
         "cli.metavar_since": "SPAN",
         "cli.help_since": "cast log: since when (2d / 12h / 30m / YYYY-MM-DD)",
         "cli.terminated_by_sigterm": "command interrupted by SIGTERM",

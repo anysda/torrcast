@@ -84,7 +84,8 @@ substitute_version() {  # $1 - каталог клона, $2 - версия бе
 
 # --- 4. тарбол белым списком + sha256 ----------------------------------------
 # Едут: torrcast/, tgbot/ (их ставит hatchling, see pyproject packages), install.sh,
-# install (bootstrap), pyproject.toml, все четыре README с гифкой из docs/, LICENSE и пять
+# install (bootstrap), pyproject.toml, все четыре README с гифкой из docs/, ченджлог
+# (docs/changelog: его читает последний экран обновления), LICENSE и пять
 # файлов из scripts/,
 # которых install.sh реально зовёт по REPO_DIR (sni-shim.py и определения индексеров).
 # tests/, scripts/test-gate и прочая разработческая обвязка НЕ едут.
@@ -95,7 +96,7 @@ build_tarball() {  # $1 - рабочий каталог (внутри - src/ к�
     cp "$src/install.sh" "$src/install" "$src/pyproject.toml" "$src/LICENSE" "$pkg/"
     cp "$src/README.md" "$pkg/"
     cp "$src/docs/README-jp.md" "$src/docs/README-es.md" "$src/docs/README-ru.md" \
-       "$src/docs/demo.gif" "$pkg/docs/"
+       "$src/docs/demo.gif" "$src/docs/changelog" "$pkg/docs/"
     cp "$src/scripts/sni-shim.py" "$src/scripts/anilibria.yml" "$src/scripts/jacred.yml" \
        "$src/scripts/anilibria-indexer.py" "$src/scripts/jacred-indexer.py" "$pkg/scripts/"
     find "$pkg" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true

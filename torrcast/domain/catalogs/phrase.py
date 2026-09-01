@@ -111,6 +111,8 @@ from torrcast.domain.catalogs.torrserver.en import en as torrserver_en
 from torrcast.domain.catalogs.torrserver.ru import ru as torrserver_ru
 from torrcast.domain.catalogs.trace.en import en as trace_en
 from torrcast.domain.catalogs.trace.ru import ru as trace_ru
+from torrcast.domain.catalogs.upgrade.en import en as upgrade_en
+from torrcast.domain.catalogs.upgrade.ru import ru as upgrade_ru
 from torrcast.domain.catalogs.voices_command.en import en as voices_command_en
 from torrcast.domain.catalogs.voices_command.ru import ru as voices_command_ru
 from torrcast.domain.catalogs.warm.en import en as warm_en
@@ -169,6 +171,7 @@ _CLUSTERS: Final = (
     (doctor_en, doctor_ru),
     (showing_en, showing_ru),
     (stop_en, stop_ru),
+    (upgrade_en, upgrade_ru),
     (watch_en, watch_ru),
     (worker_en, worker_ru),
     (configure_en, configure_ru),

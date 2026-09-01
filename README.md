@@ -112,6 +112,11 @@ The install finds the receiver on its own, over mDNS and by walking the local su
 If there are several, `cast --tv` shows the list and `cast --tv <ip>` writes the address
 down directly.
 
+An installed copy updates itself: `sudo cast --upgrade` asks GitHub for the latest
+version and, if it differs from the installed one, pulls it and runs the same install.
+If the versions match it says so and touches nothing at all. It refuses to interrupt a
+show that is running, and it leaves the receiver and the settings as they are.
+
 ## Commands
 
 ```text
@@ -125,6 +130,7 @@ cast voices <query>     # the audio tracks of the release that will go to the TV
 cast releases <query>   # the table of releases, by picture
 cast -tg                # Telegram bot setup
 cast --tv               # find the receivers on the network
+sudo cast --upgrade     # update to the latest release, or say it is already the latest
 cast -h                 # help on every flag
 ```
 

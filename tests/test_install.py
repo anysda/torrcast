@@ -826,3 +826,54 @@ def test_a_torn_install_leaves_no_copy_of_the_old_package(tmp_path: Path) -> Non
     )
     assert done.returncode == 0, done.stdout + done.stderr
     assert sorted(item.name for item in site.iterdir()) == ["torrcast"], done.stdout
+
+
+def _upgrading_predicate() -> str:
+    """Однострочное определение ``upgrading()`` из install.sh, целиком и как есть."""
+    found = [line for line in SCRIPT.splitlines() if line.startswith("upgrading() {")]
+    assert len(found) == 1, "предиката upgrading() в install.sh нет или он не один"
+    return found[0]
+
+
+def _closing_line_block() -> str:
+    """Настоящий блок закрывающей строки из install.sh, вырезанный по её тексту.
+
+    Вырезается ФОРМОЙ, а не значением: пропадёт ветка обновления или переедет строка -
+    вырезка не сойдётся и проба упадёт, а не тихо проверит копию прошлой правки.
+    """
+    head = SCRIPT.split("    if upgrading; then\n", 1)
+    assert len(head) == 2, "в install.sh нет ветки закрывающей строки по upgrading"
+    block, rest = head[1].split("\n    fi\n", 1)
+    assert "done - try: cast <title>" in block, "вырезан не тот блок"
+    assert "done - try: cast <title>" not in rest, "закрывающая строка есть и вне ветки"
+    return "    if upgrading; then\n" + block + "\n    fi\n"
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(
+    ("upgrade_from", "expected"),
+    [("", "готово - смотри: cast <название>"), ("1.0.1", "torrcast 1.0.1 → 9.9.9 обновлено")],
+)
+def test_the_closing_line_says_updated_even_without_a_terminal(
+    upgrade_from: str, expected: str
+) -> None:
+    """🔴 TC-887. Без терминала заставки нет, и закрывающее слово печатает эта строка.
+
+    Поймано стендом: обновление по ssh заканчивалось словами «готово - смотри: cast»,
+    и из вывода нельзя было узнать, состоялся переход или продукт поставили заново.
+    """
+    script = "\n".join(
+        [
+            "VERSION=9.9.9",
+            f"UPGRADE_FROM={shlex.quote(upgrade_from)}",
+            "LANGUAGE=ru",
+            'log() { if [ "$LANGUAGE" = ru ]',
+            '      then printf "%s\\n" "$2"; else printf "%s\\n" "$1"; fi; }',
+            _upgrading_predicate(),
+            _closing_line_block(),
+        ]
+    )
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.strip() == expected, done.stdout + done.stderr

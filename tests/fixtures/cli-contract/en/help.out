@@ -1,6 +1,6 @@
 usage: cast [-h] [--tv [IP]] [-tg] [--ru | --en] [--release N] [--pick N]
             [--menu] [--file N] [--voice [N|STUDIO]] [--new] [--dry]
-            [--since SPAN] [--version]
+            [--since SPAN] [--upgrade] [--version]
             [query ...]
 
 torrcast - find a release and cast it to the TV without downloading
@@ -26,4 +26,5 @@ options:
   --new               the same release, file and track from the start
   --dry               the whole resolve without casting
   --since SPAN        cast log: since when (2d / 12h / 30m / YYYY-MM-DD)
+  --upgrade           update torrcast to the latest release
   --version           show program's version number and exit

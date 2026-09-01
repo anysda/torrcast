@@ -18,6 +18,7 @@ from torrcast.cli.releases import releases
 from torrcast.cli.status import status
 from torrcast.cli.stop import stop
 from torrcast.cli.telegram import telegram
+from torrcast.cli.upgrade import upgrade
 from torrcast.cli.voices import voices
 from torrcast.cli.worker import worker
 from torrcast.domain.args import Args
@@ -48,6 +49,7 @@ _COMMANDS: Mapping[str, Callable[[Args], int]] = {
     "voices": voices,
     "worker": worker,
     "play": play,
+    "upgrade": lambda _args: upgrade(),
 }
 
 
