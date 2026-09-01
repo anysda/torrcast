@@ -12,6 +12,7 @@ from torrcast.domain.cluster import cluster
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
+from torrcast.domain.romaji import romaji
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.transliterate import transliterate
@@ -149,7 +150,14 @@ def _second_language(
     # Одна новая картина бывает второй, несклеившейся языковой половиной той же картины.
     # Всё сверх неё - оригинал расширил предмет поиска вместо уточнения. На ПУСТОЙ первой
     # выдаче расширять нечего, и мерка молчит (:func:`_widened_subject`, TC-866).
-    proven = bool(about.title) or alt == about.name or alt == transliterate(name)
+    proven = (
+        bool(about.title)
+        or alt == about.name
+        or alt == transliterate(name)
+        # Романизация - те же слова запроса другой записью, ручается она за себя ровно
+        # как транслит: чужой картины принести не может.
+        or alt == romaji(name)
+    )
     if not confirmed_alt and _widened_subject(len(pictures), len(first_pictures)):
         outcome = phrase(
             "discover.retry_more_pictures",

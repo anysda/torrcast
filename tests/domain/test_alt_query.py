@@ -43,3 +43,8 @@ def test_a_one_word_query_without_any_answer_is_taken_in_latin_letters() -> None
 def test_a_long_query_with_nothing_found_gets_no_second_name() -> None:
     """Многословный запрос вслепую транслитерировать нечего: имя так не пишут."""
     assert alt_query("Заброшенный дом", []) == ""
+
+
+def test_a_multiword_name_already_written_in_another_alphabet_gets_it_back() -> None:
+    """🔴 TC-963. Гейт стоит против русской фразы, а японское имя кириллицей пропускает."""
+    assert alt_query("Каэдэ и Судзу", []) == "kaede to suzu"

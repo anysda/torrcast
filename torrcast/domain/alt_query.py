@@ -10,6 +10,7 @@ from torrcast.domain.akin import _akin
 from torrcast.domain.catalogs.tongue import EN, tongue
 from torrcast.domain.franchise_name import franchise_name
 from torrcast.domain.release import Release
+from torrcast.domain.romaji import romaji
 from torrcast.domain.slugify import slugify
 from torrcast.domain.transliterate import transliterate
 
@@ -43,7 +44,12 @@ def alt_query(query: str, releases: Iterable[Release], known: str = "", native: 
         if name and (not _CYRILLIC.search(name)) and (slugify(name) != wanted):
             return name
     words = slugify(query).split("-")
-    return transliterate(query) if pool or len(words) == 1 else ""
+    if pool or len(words) == 1:
+        return transliterate(query)
+    # Многословное имя вслепую транслитерировать нечем - кроме случая, когда оно само
+    # уже написано латиницей по смыслу: японское имя кириллицей раскладывается на моры
+    # целиком, и тогда второй заход идёт не побуквенным транслитом, а по Хепбёрну.
+    return romaji(query)
 
 
 __all__ = ["alt_query"]
