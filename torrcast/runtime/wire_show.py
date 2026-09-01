@@ -1,4 +1,4 @@
-"""Проводка показа: тут его сценарии видят медиатракт, приёмник и юнит systemd.
+"""Проводка показа: тут его сценарии видят медиатракт, приёмник и юнит платформы.
 
 Зовёт её композиционный корень (:func:`torrcast.runtime.wire.wire`), и только он."""
 
@@ -6,7 +6,7 @@ from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.adapters.filesystem.state.load_config import load_config
-from torrcast.adapters.http_server.stream_serve import HlsServer, hls_base, start_play_unit
+from torrcast.adapters.http_server.stream_serve import HlsServer, hls_base
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.adapters.recode.encode import Encode
@@ -28,6 +28,7 @@ from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.runtime.native_picture import native_picture
+from torrcast.runtime.show_unit import start_play_unit
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.usecases.cast_command._play_state import _configure_cast_command
 from torrcast.usecases.playback._show_state import _configure_playback
@@ -41,8 +42,9 @@ from torrcast.usecases.worker_loop import _configure_worker_loop
 
 def wire_show() -> None:
     """Отдать показу его внешний мир: приёмник, упаковку, кодировщики и команды ``cast``."""
-    # Юнит показа поднимает systemd, а не CLI: свой внешний мир он получает здесь же и
-    # целиком, иначе показ узнавал бы имя `TorrServer` из строки уже внутри юнита.
+    # Юнит показа поднимает система запуска платформы, а не CLI: свой внешний мир он
+    # получает здесь же и целиком, иначе показ узнавал бы имя `TorrServer` из строки
+    # уже внутри юнита.
     _configure_worker(TorrServer, make_receiver, Supply, load_config, detector.detect)
     _configure_worker_loop(trace_thresholds)
     # Команды ``cast`` берут свой внешний мир тем же порядком: службу раздач, настройки,

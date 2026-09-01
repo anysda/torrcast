@@ -11,7 +11,6 @@ from torrcast.adapters.filesystem.state.file_state_store import FileStateStore
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
-from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.warm_environment import environment as warm_environment
 from torrcast.domain.catalogs.tongue import _follow_tongue
 from torrcast.ports.journal.slot import install as install_journal
@@ -19,6 +18,7 @@ from torrcast.ports.progress.slot import install as install_progress
 from torrcast.ports.show_unit.slot import install as install_unit
 from torrcast.ports.state_store.slot import install as install_state
 from torrcast.runtime.configure_cli import configure_cli
+from torrcast.runtime.show_unit import show_unit
 from torrcast.runtime.wire_feed import wire_feed
 from torrcast.runtime.wire_search import wire_search
 from torrcast.runtime.wire_show import wire_show
@@ -43,7 +43,9 @@ def wire() -> None:
     _follow_tongue(chosen_language)
     install_progress(Progress)
     install_state(FileStateStore())
-    install_unit(TransientShowUnit())
+    # Юнит показа - платформенный: systemd на Linux, launchd на macOS. Выбор делает
+    # корень и делает один раз на обе половины (:mod:`torrcast.runtime.show_unit`).
+    install_unit(show_unit())
     # 🔴 Прогреву внешний мир приходит не портом, а мешком-средой, и раздавал его
     # побочный эффект импорта снесённого плоского фасада `torrcast/warm.py`. Фасад не
     # импортировал никто, поэтому живой показ падал на первом же обращении прогрева к
