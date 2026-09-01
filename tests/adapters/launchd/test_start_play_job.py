@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from torrcast.adapters.launchd._launchd_call import LaunchdCall
-from torrcast.adapters.launchd.start_play_job import start_play_job
+from torrcast.adapters.launchd.start_play_job import _JOB_PATH, start_play_job
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.unit_naming import _JOB_KEY_ENV, _PASS_ENV, _UNIT_NAME
 
@@ -74,7 +74,26 @@ def test_the_handles_of_this_run_and_the_key_are_passed_into_the_job(
     start_play_job("бочи-1", call=_answers([]))
 
     env = _plist(files)["EnvironmentVariables"]
-    assert env == {_PASS_ENV[0]: "/иное/место", _JOB_KEY_ENV: "бочи-1"}
+    assert env == {"PATH": _JOB_PATH, _PASS_ENV[0]: "/иное/место", _JOB_KEY_ENV: "бочи-1"}
+
+
+def test_the_job_gets_a_path_with_homebrew_not_the_callers_bare_one(
+    files: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 PATH задания назван явно и ведёт в каталоги Homebrew, а не унаследован.
+
+    У launchd PATH голый (``/usr/bin:/bin:/usr/sbin:/sbin``), и под ``sudo`` у процесса
+    ``cast`` ровно тот же secure_path: наследование оставило бы задание без ffmpeg,
+    который ставится в ``/usr/local/bin`` или ``/opt/homebrew/bin``.
+    """
+    monkeypatch.setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+    start_play_job("бочи-1", call=_answers([]))
+
+    env = _plist(files)["EnvironmentVariables"]
+    assert isinstance(env, dict)
+    assert env["PATH"] == _JOB_PATH
+    assert "/usr/local/bin" in _JOB_PATH.split(":")
+    assert "/opt/homebrew/bin" in _JOB_PATH.split(":")
 
 
 def test_a_previous_show_is_put_out_before_the_new_one_starts(files: Path) -> None:

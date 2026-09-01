@@ -6,6 +6,7 @@ import os
 import plistlib
 import sys
 from collections.abc import Sequence
+from typing import Final
 
 from torrcast.adapters.launchd._job_files import _log_path, _plist_path
 from torrcast.adapters.launchd._launchd_call import LaunchdCall, _domain, _launchd
@@ -13,6 +14,14 @@ from torrcast.adapters.launchd.stop_play_job import stop_play_job
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.unit_naming import _JOB_KEY_ENV, _PASS_ENV, _UNIT_NAME
+
+#: PATH задания показа. У launchd он голый - ``/usr/bin:/bin:/usr/sbin:/sbin``, и под
+#: ``sudo`` у процесса ``cast`` ровно тот же secure_path (замер 02-09-2026 на macOS 26):
+#: наследовать ``os.environ["PATH"]`` значило бы оставить задание без ffmpeg, который
+#: ставится в ``/usr/local/bin`` (Intel; сюда же ссылку кладёт установщик на кремнии)
+#: или ``/opt/homebrew/bin`` (кремний Apple). Поэтому PATH назван явно, как это делает
+#: ``write_unit`` в ``install.sh``, а не взят из окружения зовущего.
+_JOB_PATH: Final = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 
 def start_play_job(
@@ -45,6 +54,7 @@ def start_play_job(
     stop_play_job(unit, call=call)
     _log_path(unit).unlink(missing_ok=True)
     env = {name: os.environ[name] for name in _PASS_ENV if name in os.environ}
+    env["PATH"] = _JOB_PATH
     env[_JOB_KEY_ENV] = key
     command = list(program) if program is not None else [
         sys.executable, "-m", "torrcast.runtime", "--play-key", key,
