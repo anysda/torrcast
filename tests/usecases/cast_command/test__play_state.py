@@ -29,6 +29,7 @@ def test_a_second_word_of_the_root_replaces_the_first() -> None:
             _play_state._play_pinned,
             _play_state._play_merge,
             _play_state._play_releases,
+            _play_state._play_origin,
         )
 
         assert _play_state._play_settings is previous

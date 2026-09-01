@@ -17,14 +17,16 @@ from torrcast.domain.release import Release
 from torrcast.ports.torrent_engines import TorrentEngines
 
 if TYPE_CHECKING:
+    from torrcast.domain.facts.origin import Origin
     from torrcast.usecases.facts import FactPicture, Facts
 
 
 #: Внешний мир команды показа. Всё это кладёт композиционный корень
 #: (:mod:`torrcast.runtime.wire`): сценарий знает, ЧТО ему нужно - служба раздач, файл
 #: настроек, паспорт приёмника, справка о картинах, происхождение картины, порядок
-#: последней таблицы релизов и разбор сырой выдачи каталога, - а КТО за этим стоит, не
-#: его дело. До слова корня имён тут нет вовсе: молчаливой подделки у сети не бывает.
+#: последней таблицы релизов, разбор сырой выдачи каталога и чтение кэша справки, - а
+#: КТО за этим стоит, не его дело. До слова корня имён тут нет вовсе: молчаливой
+#: подделки у сети не бывает.
 #:
 #: ⚠️ Имена длиннее очевидных нарочно. Плоский namespace прежнего монолита
 #: (:mod:`torrcast.cli`) вписывает в КАЖДУЮ свою часть globals всех остальных, и короткий
@@ -37,6 +39,7 @@ _play_native: Callable[[Picture, str], None]
 _play_pinned: Callable[[str, str, int], str]
 _play_merge: Callable[..., list[RawResult]]
 _play_releases: Callable[[list[RawResult]], list[Release]]
+_play_origin: Callable[[str, bool | None], Origin | None]
 
 
 def _configure_cast_command(
@@ -48,10 +51,11 @@ def _configure_cast_command(
     pinned: Callable[[str, str, int], str],
     merge: Callable[..., list[RawResult]],
     releases: Callable[[list[RawResult]], list[Release]],
+    origin: Callable[[str, bool | None], Origin | None],
 ) -> None:
     """Назначить команде показа её внешний мир."""
     global _play_engines, _play_settings, _play_detect, _play_facts
-    global _play_native, _play_pinned, _play_merge, _play_releases
+    global _play_native, _play_pinned, _play_merge, _play_releases, _play_origin
     _play_engines = engines
     _play_settings = settings
     _play_detect = detect
@@ -60,3 +64,4 @@ def _configure_cast_command(
     _play_pinned = pinned
     _play_merge = merge
     _play_releases = releases
+    _play_origin = origin

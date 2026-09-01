@@ -25,6 +25,7 @@ from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.supply import Supply
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.torr_server import TorrServer
+from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.runtime.native_picture import native_picture
 from torrcast.runtime.trace_thresholds import trace_thresholds
@@ -46,7 +47,8 @@ def wire_show() -> None:
     _configure_worker_loop(trace_thresholds)
     # Команды ``cast`` берут свой внешний мир тем же порядком: службу раздач, настройки,
     # паспорт приёмника, справку о картинах, происхождение картины, память показанной
-    # таблицы и разбор сырой выдачи каталога. Имён этих в сценариях больше нет ни строкой.
+    # таблицы, разбор сырой выдачи каталога и чтение кэша справки (имя играющей картины
+    # для строки занятого телевизора). Имён этих в сценариях больше нет ни строкой.
     _configure_cast_command(
         TorrServer,
         load_config,
@@ -56,6 +58,7 @@ def wire_show() -> None:
         pins.recalled,
         merge,
         to_releases,
+        FACTS.cache.read,
     )
     _configure_releases_command(load_config, MenuFacts, detector.detect, pins.remember)
     _configure_voices_command(load_config, TorrServer, native_picture)

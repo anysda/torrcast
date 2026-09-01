@@ -76,7 +76,7 @@ def _cmd_play(
     # Один телевизор - один показ. Сироты уже убраны выше, поэтому непустая отметка
     # раздачи здесь значит ровно «на экране прямо сейчас идёт наш показ».
     live = state.showing()
-    _say_showing(live)
+    _say_showing(live, origin=_state._play_origin)
     found_entry = state.find(args.title_query)
     watched = False
     # Бухгалтерия досмотра трогает только тот путь, который сам решает, что играть дальше.

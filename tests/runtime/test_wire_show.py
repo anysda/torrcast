@@ -32,6 +32,7 @@ from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.supply import Supply
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.torr_server import TorrServer
+from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.runtime.native_picture import native_picture
 from torrcast.runtime.trace_thresholds import trace_thresholds
@@ -96,6 +97,7 @@ def test_the_show_gets_the_real_media_pipeline_and_the_real_receiver() -> None:
     assert _play_state._play_pinned == pins.recalled
     assert _play_state._play_merge is merge
     assert _play_state._play_releases is to_releases
+    assert _play_state._play_origin == FACTS.cache.read
     assert _releases_command._releases_settings is load_config
     assert _releases_command._releases_facts is MenuFacts
     assert _releases_command._releases_detect == detector.detect

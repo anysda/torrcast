@@ -35,9 +35,11 @@ from torrcast.domain.catalogs.tongue import _follow_tongue, tongue
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
+from torrcast.domain.facts.origin import Origin
 from torrcast.domain.media import Media
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.torr_file import TorrFile
+from torrcast.runtime.facts_wiring import FACTS
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.configure import configure as configure_choice
 from torrcast.usecases.playback._launch import _await_playing
@@ -1503,12 +1505,15 @@ def test_a_second_cast_says_the_tv_is_busy_with_our_show(
     этом по погасшей картинке.
     """
     _live_show(show_unit)
+    # Справку об играющей картине первый показ уже записал в кэш: имя для строки - с
+    # языковой стороны продукта, а не записанное в состоянии русское.
+    FACTS.cache.write("Матрица", False, Origin(title="The Matrix", year=1999))
     _answers(monkeypatch, "2", "")
 
     assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert "the TV is already showing «Матрица»" in printed, printed
+    assert "the TV is already showing “The Matrix”" in printed, printed
     assert "0:02:08" in printed, "видно и то, докуда досмотрели"
     assert "this show will be interrupted" in printed, printed
 
