@@ -541,6 +541,43 @@ def test_a_mac_without_homebrew_gets_it_from_the_installer_itself(tmp_path: Path
     )
 
 
+def test_case_arms_inside_command_substitutions_keep_their_balancing_paren() -> None:
+    """Рукав case внутри $(...) пишется со скобкой: `(шаблон)`, не `шаблон)`.
+
+    Стоковый bash 3.2 мака ищет конец подстановки простым счётом скобок: непарная `)`
+    рукава обрезает её, и установка умирает «command substitution: syntax error»
+    посреди фазы (куплено живым прогоном на bash 3.2.57 в warm_used). Страхуем весь
+    install.sh, а не одно найденное место.
+
+    Мера зеркалит сам дефект: считаем скобки так же наивно, как bash 3.2, - и смотрим
+    на ТЕРМИНАТОР подстановки. Здоровая подстановка кончается своей скобкой; если её
+    обрезал рукав case (тело при этом усечено, по esac ориентироваться нельзя),
+    последним словом тела стоит «шаблон» рукава сразу после `in` или `;;`.
+    """
+    offenders: list[str] = []
+    i = 0
+    while True:
+        start = SCRIPT.find("$(", i)
+        if start < 0:
+            break
+        depth, k = 1, start + 2
+        while k < len(SCRIPT) and depth:
+            if SCRIPT[k] == "(":
+                depth += 1
+            elif SCRIPT[k] == ")":
+                depth -= 1
+            k += 1
+        body = SCRIPT[start + 2 : k - 1]
+        i = k
+        if "case " not in body:
+            continue
+        tail = re.search(r"(\S[^()\s]*)$", body)
+        if tail and re.search(r"(?:\bin|;;)\s*$", body[: tail.start(1)]):
+            offenders.append(tail.group(1))
+
+    assert offenders == [], f"рукавы case внутри $() без парной скобки: {offenders!r}"
+
+
 def test_a_cut_catalog_is_not_a_successful_install() -> None:
     """🔴 TC-692. Пустой каталог под видом успеха - неправда и для человека, и для
     автоматики: последнее слово установки называет урез и возвращает ненулевой код."""

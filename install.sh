@@ -773,12 +773,16 @@ warm_used() {
     # бы как ноль МОЛЧА, весь бюджет прогрева зарезервировался бы поверх уже занятого -
     # ровно та ошибка, ради которой функция и написана. Арифметика оболочки
     # 64-битная и локали не знает.
+    # ⚠️ Рукава case внутри $(...) пишутся СО СКОБКОЙ - (`(''|*[!0-9]*)`). Стоковый
+    # bash 3.2 мака ищет конец подстановки простым счётом скобок и обрезает её на
+    # непарной `)` рукава: установка умирала на «command substitution: syntax error»
+    # посреди фазы TorrServer (куплено живым прогоном на bash 3.2.57).
     if [ "${OS_FAMILY:-linux}" = macos ]; then
         # BSD find не знает -printf: размеры спрашиваем у BSD stat.
         used="$(find "$dir" -type f -name 'v*.ts' -exec stat -f '%z' {} + 2>/dev/null | {
             sum=0
             while IFS= read -r size; do
-                case "$size" in ''|*[!0-9]*) continue ;; esac
+                case "$size" in (''|*[!0-9]*) continue ;; esac
                 sum=$(( sum + size ))
             done
             printf '%s' "$sum"
@@ -787,7 +791,7 @@ warm_used() {
         used="$(find "$dir" -type f -name 'v*.ts' -printf '%s\n' 2>/dev/null | {
             sum=0
             while IFS= read -r size; do
-                case "$size" in ''|*[!0-9]*) continue ;; esac
+                case "$size" in (''|*[!0-9]*) continue ;; esac
                 sum=$(( sum + size ))
             done
             printf '%s' "$sum"
