@@ -1120,6 +1120,41 @@ APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl python3-venv)
 # входит в brew python. Формулами ставятся только jq, Python >= 3.11 и ffmpeg >= 7.
 BREW_PACKAGES=(jq python@3.11 ffmpeg)
 
+#: Официальный установщик Homebrew. Переопределение - для стендовой проверки шва,
+#: живой URL меняется только вслед за brew.sh.
+HOMEBREW_INSTALL_URL="${TORRCAST_HOMEBREW_URL:-https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh}"
+
+homebrew_bin() {  # печатает путь к brew; код 1 - его нет
+    local found
+    found="$(command -v brew 2>/dev/null || true)"
+    [ -n "$found" ] || found=/opt/homebrew/bin/brew
+    [ -x "$found" ] || return 1
+    printf '%s' "$found"
+}
+
+#: Homebrew ставим САМИ, официальным установщиком. Под root он не работает вовсе
+#: («Don't run this as root!»), поэтому ставит позвавший sudo. И строго безголово:
+#: без NONINTERACTIVE=1 установщик с tty на stdin звонит и ждёт нажатия RETURN
+#: (wait_for_user), вися установку насмерть. Вслух, а не молча: чужой пакетный
+#: менеджер на машине человека - событие, о котором говорят. Весь вывод шага - в
+#: stderr: brew_as_invoker зовут и из $(...), где чужой stdout стал бы «ответом» brew.
+install_homebrew() {
+    loud "Homebrew is not installed - installing it as $SUDO_USER (https://brew.sh)" \
+        "Homebrew не установлен - ставлю его под $SUDO_USER (https://brew.sh)"
+    local script; script="$(mktemp "${TMPDIR:-/tmp}/homebrew-install.XXXXXX")"
+    fetch -o "$script" "$HOMEBREW_INSTALL_URL" \
+        || die "could not download the Homebrew installer from $HOMEBREW_INSTALL_URL" \
+            "не скачался установщик Homebrew: $HOMEBREW_INSTALL_URL"
+    # mktemp даёт 0600 владельцу-root, а читать файл будет позвавший sudo - без этого
+    # bash отвечает Permission denied (куплено живым прогоном на маке).
+    chmod 0644 "$script"
+    # NONINTERACTIVE сажаем через env ПОСЛЕ sudo: sudo режет чужие переменные окружения.
+    "$SUDO" -H -u "$SUDO_USER" env NONINTERACTIVE=1 /bin/bash "$script" >&2 \
+        || die "the Homebrew installer failed" "установщик Homebrew не отработал"
+    rm -f "$script"
+    hash -r
+}
+
 brew_as_invoker() {
     [ -n "${SUDO_USER:-}" ] || die \
         "Homebrew cannot run as root and SUDO_USER is empty; run this installer with sudo from a regular account" \
@@ -1127,11 +1162,15 @@ brew_as_invoker() {
     id "$SUDO_USER" >/dev/null 2>&1 || die \
         "sudo invoker $SUDO_USER does not exist" "позвавшего sudo пользователя $SUDO_USER не существует"
     local brew_bin
-    brew_bin="$(command -v brew 2>/dev/null || true)"
-    [ -n "$brew_bin" ] || brew_bin=/opt/homebrew/bin/brew
-    [ -x "$brew_bin" ] || die \
-        "Homebrew is not installed; install it as $SUDO_USER: https://brew.sh" \
-        "Homebrew не установлен; установите его под $SUDO_USER: https://brew.sh"
+    # Установка живёт в самом шве, а не шагом фазы: фазы зовут выборочно
+    # (TORRCAST_PHASES), и шаг можно было бы пропустить, а мимо шва не пройти.
+    # Идемпотентность - проверкой «уже есть» выше: повторные вызовы ничего не ставят.
+    if ! brew_bin="$(homebrew_bin)"; then
+        install_homebrew
+        brew_bin="$(homebrew_bin)" || die \
+            "the Homebrew installer finished but brew still does not run" \
+            "установщик Homebrew отработал, а brew всё ещё не запускается"
+    fi
     # brew получает uid позвавшего sudo пользователя, а не запрещённый ему uid root.
     "$SUDO" -H -u "$SUDO_USER" "$brew_bin" "$@"
 }

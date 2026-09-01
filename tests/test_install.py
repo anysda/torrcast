@@ -413,6 +413,134 @@ def test_macos_uses_brew_ffmpeg_and_installs_no_keychain_trust() -> None:
     assert "update-ca-certificates --fresh" in _body("retire_old_shim")
 
 
+def test_brew_as_invoker_installs_homebrew_instead_of_asking_a_human() -> None:
+    """Мак без Homebrew - не «установите его руками», а установка самой установкой.
+
+    Шов один (brew_as_invoker), и установка живёт в нём: фазы зовут выборочно
+    (TORRCAST_PHASES), отдельный шаг фазы можно было бы пропустить, а мимо шва не
+    пройти. Честные отказы на бессмысленном запуске остаются."""
+    seam = _body("brew_as_invoker")
+    installer = _body("install_homebrew")
+
+    assert "install_homebrew" in seam
+    assert "install it as $SUDO_USER" not in seam
+    # Отказы, которые законны: пустой SUDO_USER и несуществующий позвавший.
+    assert "SUDO_USER пуст" in seam
+    assert "не существует" in seam
+    # Под root Homebrew не работает вовсе - ставит позвавший sudo, и строго безголово:
+    # без NONINTERACTIVE=1 установщик ждёт нажатия RETURN и вешает установку насмерть.
+    assert '"$SUDO" -H -u "$SUDO_USER" env NONINTERACTIVE=1 /bin/bash "$script"' in installer
+    # mktemp даёт 0600 владельцу-root, а читает файл позвавший sudo (живой прогон на
+    # маке: Permission denied). Файл обязан стать читаемым до передачи.
+    assert 'chmod 0644 "$script"' in installer
+    # Чужой пакетный менеджер на машине человека ставится вслух, а не молча:
+    # `loud` уходит в ленту под рамкой заставки и не тонет в журнале.
+    assert "https://brew.sh" in installer
+    assert "loud" in installer
+
+
+@pytest.mark.machine
+def test_a_mac_without_homebrew_gets_it_from_the_installer_itself(tmp_path: Path) -> None:
+    """Фаза packages на маке без Homebrew ставит его сама, позвавшим sudo, безголово.
+
+    Мера - поведение шва, а не его текст: подставные uname (Darwin), sudo (пишет
+    вызов и исполняет) и установщик Homebrew (кладёт подставной brew). Второй прогон
+    обязан пройти мимо установки: brew уже есть, ставить заново нельзя.
+    """
+    box = tmp_path / "box"
+    bindir = box / "bin"
+    bindir.mkdir(parents=True)
+    uname = bindir / "uname"
+    uname.write_text(
+        "#!/bin/sh\ncase \"$1\" in -m) printf 'arm64\\n';; *) printf 'Darwin\\n';; esac\n",
+        encoding="utf-8",
+    )
+    uname.chmod(0o755)
+    sudo_log = box / "sudo.log"
+    sudo = bindir / "sudo"
+    sudo.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> "{sudo_log}"\n'
+        'while :; do case "${1:-}" in -H) shift ;; -u) shift 2 ;; *) break ;; esac; done\n'
+        'exec "$@"\n',
+        encoding="utf-8",
+    )
+    sudo.chmod(0o755)
+    brew_log = box / "brew.log"
+    # Подставной установщик Homebrew: без NONINTERACTIVE=1 отказывает, как настоящий,
+    # который ждал бы RETURN; с ним - кладёт подставной brew.
+    installer = box / "homebrew-install.sh"
+    installer.write_text(
+        "#!/bin/bash\n"
+        'if [ "${NONINTERACTIVE:-}" != 1 ]; then\n'
+        '    printf "Homebrew installer would wait for RETURN here\\n" >&2\n'
+        "    exit 1\n"
+        "fi\n"
+        f"cat > \"{bindir}/brew\" <<'BREW'\n"
+        "#!/bin/bash\n"
+        f'printf "%s\\n" "$*" >> "{brew_log}"\n'
+        'if [ "$1" = "--prefix" ]; then printf "%s\\n" "' + str(box / "prefix") + '"; fi\n'
+        "BREW\n"
+        f'chmod +x "{bindir}/brew"\n'
+        'printf "fake homebrew installed\\n" >&2\n',
+        encoding="utf-8",
+    )
+    user = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "SUDO_USER": user,
+        "TORRCAST_SUDO": str(sudo),
+        "TORRCAST_HOMEBREW_URL": f"file://{installer}",
+        "TORRCAST_PHASES": "packages",
+        "TORRCAST_NO_ROOT": "1",
+        "TORRCAST_NO_SYSTEMD": "1",
+        "TORRCAST_PREFIX": str(box / "opt"),
+        "TORRCAST_CONFIG_DIR": str(box / "etc"),
+        "TORRCAST_STATE_DIR": str(box / "var"),
+        "TORRCAST_BIN_DIR": str(box / "usr-bin"),
+        "TORRCAST_MOTD": str(box / "motd"),
+        "TORRCAST_MOTD_D": str(box / "motd.d"),
+    }
+
+    first = subprocess.run(
+        [str(REPO / "install.sh"), "-ru"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        check=False,
+    )
+
+    shown = first.stdout + first.stderr
+    assert first.returncode == 0, shown
+    assert "ставлю его под" in shown, f"установка Homebrew прошла молча: {shown!r}"
+    calls = sudo_log.read_text(encoding="utf-8").splitlines()
+    setup = [line for line in calls if "homebrew-install" in line]
+    assert len(setup) == 1, f"установщик Homebrew позван не ровно один раз: {calls!r}"
+    assert f"-u {user}" in setup[0], f"Homebrew ставит не позвавший sudo: {setup[0]!r}"
+    assert "NONINTERACTIVE=1" in setup[0], f"установщику дали повеситься на RETURN: {setup[0]!r}"
+    assert "install jq python@3.11 ffmpeg" in brew_log.read_text(encoding="utf-8")
+
+    # Второй прогон по уже поставленному: brew на месте, ставить заново нельзя.
+    second = subprocess.run(
+        [str(REPO / "install.sh"), "-ru"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        check=False,
+    )
+
+    shown = second.stdout + second.stderr
+    assert second.returncode == 0, shown
+    assert "ставлю его под" not in shown, f"Homebrew переставляется поверх живого: {shown!r}"
+    calls = sudo_log.read_text(encoding="utf-8").splitlines()
+    assert len([line for line in calls if "homebrew-install" in line]) == 1, (
+        f"установщик Homebrew позван повторно: {calls!r}"
+    )
+
+
 def test_a_cut_catalog_is_not_a_successful_install() -> None:
     """🔴 TC-692. Пустой каталог под видом успеха - неправда и для человека, и для
     автоматики: последнее слово установки называет урез и возвращает ненулевой код."""
