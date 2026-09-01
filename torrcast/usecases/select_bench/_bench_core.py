@@ -13,6 +13,7 @@ from torrcast.domain.pick_settings import (
     PICK_BUDGET,
     PROBE_BUDGET,
     VERDICT_BUDGET,
+    VOICE_BUDGET,
 )
 from torrcast.domain.prewarm_settings import MAX_LIVE
 from torrcast.domain.profile import CAUTIOUS, Profile
@@ -39,6 +40,7 @@ class _BenchCore:
         prober: Callable[..., Media] | None = None,
         pick_budget: float | None = None,
         verdict_budget: float | None = None,
+        voice_budget: float | None = None,
         honest_budget: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -53,6 +55,7 @@ class _BenchCore:
         #: Потолки фазы отбора: обход очереди, приговоры и ожидание честного запасного.
         self.pick_budget = PICK_BUDGET if pick_budget is None else pick_budget
         self.verdict_budget = VERDICT_BUDGET if verdict_budget is None else verdict_budget
+        self.voice_budget = VOICE_BUDGET if voice_budget is None else voice_budget
         self.honest_budget = HONEST_BUDGET if honest_budget is None else honest_budget
         #: Часы отбора: все его сроки меряются отсюда, а не стенными часами напрямую.
         self.clock = clock

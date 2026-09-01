@@ -143,6 +143,32 @@ def test_a_walk_cut_by_the_budget_gets_no_spare_at_all(
     assert "включаю релиз" not in printed, "срезанный обход запасного хода не получает"
 
 
+def test_the_hunt_for_a_track_nobody_has_stops_paying_and_plays_what_there_is(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-968. У поиска дорожки свой потолок, и кончается он тем же запасным ходом.
+
+    Как только паспорт первой раздачи прямо назвал чужой язык, показывать зрителю уже есть
+    что, и каждая следующая раздача спрашивается ровно об одном - нет ли дорожки у неё.
+    Замер стенда на картине без русской озвучки вовсе: половина времени до картинки уходила
+    на мёртвые рои, спрошенные только про звук, а кончалось это всё равно здесь.
+
+    Бюджет поиска обнулён - значит после первого же отложенного платить нечем, и обход
+    отдаёт отложенное, а не идёт по хвосту за ответом, который уже получил.
+    """
+    pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(5)]
+    japanese = Media(
+        RUNTIME, (AudioTrack(index=0, language="jpn"),), "h264", height=1080, width=1920
+    )
+    bench = Bench(Torrents(), prober=probes(pool, *[japanese] * 5), voice_budget=0.0)
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert prep.number == 1
+    said = capsys.readouterr().out
+    assert "русской озвучки нет ни в одной из проверенных раздач (1)" in said, said
+
+
 def test_an_exhausted_queue_still_plays_the_named_foreign_track(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

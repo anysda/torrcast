@@ -78,3 +78,25 @@ def test_a_release_that_has_a_voice_is_let_go_rather_than_kept_as_a_spare() -> N
     )
 
     assert (tally.mute, forgotten) == (None, [3])
+
+
+def test_the_patience_shrinks_to_the_voice_budget_once_a_spare_is_in_hand() -> None:
+    """🔴 TC-968. Пока показывать нечего - ждём как ждали; отложили запасного - терпение своё.
+
+    Мера тут секунды, а не попытки: одна молчащая раздача стоит трёх ответивших, и на стенде
+    ровно она и держала показ. Остаток бюджета убывает на то, что обход уже потратил.
+    """
+    tally = _Tally(voice_budget=4.0)
+    assert tally.patience(deadline=100.0, entered=10.0) == 100.0, "запасного нет - потолка нет"
+
+    tally.mute = _judged(1, Media(tracks=(AudioTrack(index=0, language="jpn"),)))
+    assert tally.patience(deadline=100.0, entered=10.0) == 14.0
+
+    tally.hunted = 2.5
+    assert tally.patience(deadline=100.0, entered=20.0) == 21.5, "остаток бюджета, а не бюджет"
+
+    tally.hunted = 0.0
+    assert tally.patience(deadline=12.0, entered=10.0) == 12.0, "потолок фазы ниже - он и главный"
+
+    tally.hunted = 9.0
+    assert tally.patience(deadline=100.0, entered=30.0) == 30.0, "перебрал - ждать нечего"

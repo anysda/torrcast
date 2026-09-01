@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from torrcast.domain.pick_settings import MAX_TRIES, VOICE_BUDGET
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turned_down
 
@@ -17,6 +18,8 @@ from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turne
 class _Tally:
     """Что обход очереди уже узнал: осечки поимённо, их цена и отложенный без голоса."""
 
+    #: Во что вправе обойтись поиск дорожки на языке зрителя (:data:`VOICE_BUDGET`).
+    voice_budget: float = VOICE_BUDGET
     #: Осечки строками «номер - почему»: из них складывается отказ.
     tried: list[str] = field(default_factory=list)
     #: Приговоры по номерам релизов: нужны строке о снижении ступени (TC-187), чтобы
@@ -37,6 +40,10 @@ class _Tally:
     #: Сколько релизов обход забраковал именно звуком: по этому счёту отказ называет
     #: причину своим именем, а не общим «годного релиза нет» (:func:`_bench_refusal`).
     voiceless: int = 0
+    #: Секунды, потраченные обходом ПОСЛЕ того, как запасной ход уже в руках: столько
+    #: стоит человеку поиск дорожки, которой может не оказаться ни у кого
+    #: (:data:`VOICE_BUDGET`).
+    hunted: float = 0.0
 
     def note(
         self, number: int, prep: _Prep, why: str, since: float, clock: Callable[[], float]
@@ -53,9 +60,50 @@ class _Tally:
         else:
             _turned_down(self.judged, number, why)
         self.silents += 1 if _silenced(prep) else 0
+        spent = clock() - since
+        if self.mute is not None:
+            # Запасной ход уже отложен, а значит эта раздача спрошена ровно об одном - нет
+            # ли дорожки у НЕЁ. Такое ожидание и есть цена поиска (:meth:`affordable`).
+            self.hunted += spent
         if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
             self.verdicts += 1
-            self.priced += clock() - since
+            self.priced += spent
+
+    def patience(self, deadline: float, entered: float) -> float:
+        """До какого мгновения ждать ЭТУ раздачу: у поиска дорожки терпение своё.
+
+        🔴 TC-968. Пока запасного хода нет, ждём как ждали - до конца бюджета фазы: обход
+        ищет годный релиз, и показывать без него нечего. Как только отложенный появился,
+        каждая следующая раздача спрашивается уже только про звук, и терпения ей достаётся
+        ровно столько, сколько осталось от :data:`VOICE_BUDGET`. Мёртвый рой на этом месте
+        держал показ по 6-10 с (замер стенда), и держал он его ни за чем: ответ, который
+        придёт после, известен заранее с той же вероятностью, а картинка уже готова.
+        """
+        if self.mute is None:
+            return deadline
+        return min(deadline, entered + max(self.voice_budget - self.hunted, 0.0))
+
+    def affordable(self, verdict_budget: float) -> bool:
+        """Есть ли ещё чем платить за следующую раздачу очереди.
+
+        Платят двумя разными кошельками, и пустой любой из них останавливает обход.
+
+        Первый - приговоры (:data:`MAX_TRIES`, :data:`VERDICT_BUDGET`): три штуки пол,
+        дальше секунды.
+
+        🔴 TC-968. Второй - **поиск дорожки на языке зрителя** (:data:`VOICE_BUDGET`).
+        Пока запасного хода нет, обход ищет годный релиз и платит за это первым кошельком.
+        Как только паспорт хотя бы одной раздачи прямо назвал свои языки и искомого среди
+        них не оказалось, показывать зрителю уже есть что, и всё дальнейшее ожидание
+        покупает ровно одну надежду - что ниже по очереди дорожка найдётся. У этой надежды
+        своя цена и свой потолок: за ним обход отдаёт отложенное, а не молчит ещё минуту.
+
+        Замер стенда: очередь из пяти, раздачи 1-2 ответили паспортом за 1.2 и 1.8 с,
+        раздачи 3-5 оказались мёртвыми роями и стоили 9 с отсрочек - половину времени до
+        картинки, и все три были спрошены только про звук.
+        """
+        priced = self.verdicts < MAX_TRIES or self.priced < verdict_budget
+        return priced and self.hunted < self.voice_budget
 
     def hold(self, prep: _Prep, voiceless: bool, forget: Callable[[_Prep], None]) -> None:
         """Отложить кандидата, чей язык звука НАЗВАН; остальных - отпустить.

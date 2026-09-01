@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.pick_settings import MAX_TRIES
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.rank.heard import heard
@@ -77,7 +76,7 @@ class Bench(_BenchPrewarm):
         # Верх и запасной готовятся независимо: паспорт второго релиза не ждёт первого.
         for number in _bench_front(queue, 1):
             self.start(plan, number)
-        tally = _Tally()
+        tally = _Tally(self.voice_budget)
         weak: tuple[float, _Prep] | None = None
         exhausted = False
         reached = 0
@@ -104,7 +103,7 @@ class Bench(_BenchPrewarm):
             entered = self.clock()
             asking = phrase("select_bench.voice_search_phase", number=attempt, total=len(queue))
             voice_search = "" if args.pinned else asking
-            self._wait(prep, progress, prefix=voice_search, limit=deadline)
+            self._wait(prep, progress, prefix=voice_search, limit=tally.patience(deadline, entered))
             # Ошибка самой службы раздачи относится ко всей очереди, а не к одному
             # рою. Перебирать остальные релизы бессмысленно: они пойдут через тот же
             # мёртвый порт и лишь размножат одну строку, после чего итог ещё и свалит
@@ -153,9 +152,9 @@ class Bench(_BenchPrewarm):
             if weak is None or prep is not weak[1]:
                 tally.hold(prep, voiceless, self._forget)
             progress.phase("")
-            # Три приговора - пол, дальше решают секунды: дешёвые приговоры (SD-рип,
-            # vp9) места следующей раздаче больше не занимают, дорогие занимают.
-            affordable = tally.verdicts < MAX_TRIES or tally.priced < self.verdict_budget
+            # Три приговора - пол, дальше секунды; а поиск дорожки на языке зрителя
+            # платит из своего кошелька и своим потолком (:meth:`_Tally.affordable`).
+            affordable = tally.affordable(self.verdict_budget)
             goes_on = following is not None and affordable and self.clock() < deadline
             tail = phrase("select_bench.tail_take", following=following) if goes_on else ""
             head = (
@@ -173,6 +172,8 @@ class Bench(_BenchPrewarm):
         # про непроверенный хвост очереди не знает ничего, и отдавать зрителю чужой язык
         # вместо того, чтобы назвать нехватку своим именем, тут не за что: ниже стоят
         # нетронутые раздачи, и ход у человека есть - выбрать релиз руками.
+        # 🔴 TC-968. Исключение одно - потолок ПОИСКА ДОРОЖКИ: тот обход спрашивал хвост
+        # об одном, ответ получал один и тот же, и встал не от беды, а по цене.
         if weak is not None:
             ratio, prep = weak
             tally.judged.pop(prep.number, None)
@@ -180,7 +181,7 @@ class Bench(_BenchPrewarm):
             print(phrase("select_bench.no_swarm_capacity", number=prep.number, ratio=r))
             self._announce(plan, prep, queue, tally.judged, reached)
             return prep
-        if tally.mute is not None and exhausted:
+        if tally.mute is not None and (exhausted or tally.hunted >= self.voice_budget):
             return self._mute_fallback(
                 plan, tally.mute, queue, tally.judged, reached, len(tally.tried)
             )
