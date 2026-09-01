@@ -419,7 +419,8 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
         for _message_id, text, buttons in api.sent
         if buttons and buttons[0][0]["callback_data"].startswith("control:")
     ]
-    assert controls == ["Мумия (2026)", "Мумия (1999)"]
+    assert controls == ["Мумия (2026)"]
+    assert "Мумия (1999)" in api.edited, "следующий показ переписал прежний пульт"
     assert "playing “The Mummy” (1999)" in capsys.readouterr().out
 
 

@@ -102,10 +102,10 @@ from torrcast.domain.catalogs.stream_probe.en import en as stream_probe_en
 from torrcast.domain.catalogs.stream_probe.ru import ru as stream_probe_ru
 from torrcast.domain.catalogs.systemd.en import en as systemd_en
 from torrcast.domain.catalogs.systemd.ru import ru as systemd_ru
-from torrcast.domain.catalogs.telegram_config.en import en as telegram_config_en
-from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
 from torrcast.domain.catalogs.telegram.en import en as telegram_en
 from torrcast.domain.catalogs.telegram.ru import ru as telegram_ru
+from torrcast.domain.catalogs.telegram_config.en import en as telegram_config_en
+from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
 from torrcast.domain.catalogs.torrserver.en import en as torrserver_en
 from torrcast.domain.catalogs.torrserver.ru import ru as torrserver_ru

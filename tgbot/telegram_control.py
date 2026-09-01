@@ -16,11 +16,20 @@ VOL_STEP = 0.02
 class TelegramControl:
     """Рисует пульт и кладёт одноразовые команды процессу показа."""
 
-    def __init__(self, api: TelegramApi, chat_id: str, path: Path | None = None) -> None:
+    def __init__(
+        self,
+        api: TelegramApi,
+        chat_id: str,
+        path: Path | None = None,
+        *,
+        remember: bool = True,
+    ) -> None:
         self._api = api
         self._chat_id = chat_id
         self._path = path or Path(f"/tmp/torrcast-telegram-{os.getuid()}.ctl")
-        self._message_path = self._path.with_suffix(self._path.suffix + ".message")
+        self._message_path = (
+            self._path.with_suffix(self._path.suffix + ".message") if remember else None
+        )
         self._message_id = self._remembered_message()
         self._text = ""
         self._lock = threading.Lock()
@@ -52,7 +61,7 @@ class TelegramControl:
                 return self._message_id
             self._message_id = self._api.send(self._chat_id, text, self.buttons())
             self._text = text
-            if self._message_id:
+            if self._message_id and self._message_path is not None:
                 self._message_path.write_text(str(self._message_id), encoding="ascii")
             return self._message_id
 
@@ -67,15 +76,16 @@ class TelegramControl:
                 deleted = getattr(result, "status", 200) == 200
             if not deleted:
                 with suppress(Exception):
-                    self._api.edit(
-                        self._chat_id, self._message_id, self._stopped_text(), None
-                    )
+                    self._api.edit(self._chat_id, self._message_id, self._stopped_text(), None)
             self._message_id = 0
             self._text = ""
-            self._message_path.unlink(missing_ok=True)
+            if self._message_path is not None:
+                self._message_path.unlink(missing_ok=True)
 
     def _remembered_message(self) -> int:
         """Вернуть пульт прежнего процесса, если его номер записан целым."""
+        if self._message_path is None:
+            return 0
         with suppress(OSError, ValueError):
             return int(self._message_path.read_text(encoding="ascii"))
         return 0

@@ -8,30 +8,23 @@ from collections.abc import Callable, Sequence
 from queue import Queue
 from typing import Any
 
+from tgbot.command_result import command_result
 from tgbot.config import Config
 from tgbot.i18n import _failure_detail, i18n
 from tgbot.playback_observer import PlaybackObserver
+from tgbot.playing_title import playing_title
 from tgbot.restore_flag_dashes import restore_flag_dashes
 from tgbot.telegram_api import TelegramApi
 from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
 from tgbot.telegram_control import TelegramControl
+from tgbot.telegram_progress import TelegramProgress
 from torrcast.cli.main import main as run_cast
 from torrcast.domain.exit_codes import EXIT_CANCELLED
-from torrcast.runtime.playback_session import playback_session
+from torrcast.ports.progress.slot import install as install_progress
 from torrcast.runtime.wire import wire
 from torrcast.usecases.choice.configure import configure as configure_choice
 
 _Command = Callable[[Sequence[str] | None], int]
-
-
-def _playing_title() -> str:
-    """Взять название и год из структурированного состояния продукта."""
-    session = playback_session()
-    shown = session.snapshot(session.key() if session.active() else "")
-    if shown is None:
-        return ""
-    year = f" ({shown.year})" if shown.year else ""
-    return shown.title + year + (f" {shown.label}" if shown.label else "")
 
 
 class Bot:
@@ -44,16 +37,19 @@ class Bot:
         api: TelegramApi | None = None,
         command: _Command = run_cast,
         assemble: Callable[[], None] = wire,
-        title: Callable[[], str] = _playing_title,
+        title: Callable[[], str] = playing_title,
     ) -> None:
         self._config = config
+        injected_api = api is not None
         self._api = api or TelegramApi(config.token, config.proxy, timeout=25.0)
         self._command = command
         self._title = title
         assemble()
         self._choice = TelegramChoiceEnvironment(self._api, config.chat_id)
-        self._control = TelegramControl(self._api, config.chat_id)
+        self._control = TelegramControl(self._api, config.chat_id, remember=not injected_api)
         self._observer = PlaybackObserver(self._control, self._title)
+        self._progress = TelegramProgress(self._api, config.chat_id)
+        install_progress(self._progress.new)
         configure_choice(self._choice)
         self._offset = 0
         self._commands: Queue[list[str]] = Queue()
@@ -63,9 +59,7 @@ class Bot:
     def run(self) -> None:
         """Оставить CLI главный поток, а получение callback вынести в рабочий."""
         threading.Thread(target=self.poll, daemon=True, name="telegram-polling").start()
-        threading.Thread(
-            target=self._observer.run, daemon=True, name="telegram-playback"
-        ).start()
+        threading.Thread(target=self._observer.run, daemon=True, name="telegram-playback").start()
         while True:
             self.run_one()
 
@@ -154,20 +148,23 @@ class Bot:
     def _run(self, args: list[str]) -> None:
         """Исполнить настоящую команду torrcast и назвать отказ в чате."""
         try:
-            code = self._command(args)
+            result = command_result(self._command, args)
         except Exception as error:
-            self._api.send(
-                self._config.chat_id,
-                i18n("failed", detail=_failure_detail(error)),
-            )
+            self._choice.clean_search()
+            self._progress.finish(i18n("failed", detail=_failure_detail(error)))
             return
+        code = result.code
+        if not code:
+            self._progress.finish()
         if code == EXIT_CANCELLED:
             # 🔴 TC-926. Человек передумал - в чат не летит ничего, а весь предпоказный
             # диалог убирается целиком, тем же порядком, что и по ⏹. Код назван ПОИМЁННО:
             # промолчи бот на любой ненулевой - и настоящий отказ ушёл бы в ту же тишину.
+            self._progress.finish()
             self._choice.clean()
         elif code:
-            self._api.send(self._config.chat_id, i18n("failed", detail=str(code)))
+            self._choice.clean_search()
+            self._progress.finish(i18n("failed", detail=result.detail))
         elif args == ["stop"]:
             self._control.clean()
             self._choice.clean()
@@ -191,6 +188,7 @@ class Bot:
             self._busy = True
             if begin_choice:
                 self._choice.begin(command_id)
+                self._progress.begin()
         self._commands.put(args)
         return True
 

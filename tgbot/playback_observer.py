@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Final
 
 from tgbot.telegram_control import TelegramControl
@@ -37,8 +38,6 @@ class PlaybackObserver:
     def run(self) -> None:
         """Бесконечно сверять снимок; временный отказ чтения не убивает наблюдателя."""
         while True:
-            try:
+            with suppress(Exception):
                 self.sync()
-            except Exception:
-                pass
             threading.Event().wait(self._interval)

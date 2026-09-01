@@ -69,9 +69,7 @@ def test_restart_reuses_and_cleans_the_remembered_control(tmp_path: Path) -> Non
     first = TelegramControl(cast(TelegramApi, api), "-100", path)
     first.show("Мумия (1999)")
 
-    PlaybackObserver(
-        TelegramControl(cast(TelegramApi, api), "-100", path), lambda: ""
-    ).sync()
+    PlaybackObserver(TelegramControl(cast(TelegramApi, api), "-100", path), lambda: "").sync()
 
     assert api.sent == [(40, "Мумия (1999)")]
     assert api.deleted == [40]
