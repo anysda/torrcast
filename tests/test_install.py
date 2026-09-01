@@ -6,6 +6,7 @@
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -30,6 +31,25 @@ def _body(name: str) -> str:
 
 def _install_indexers() -> str:
     return SCRIPT.split("install_indexers() {", 1)[1].split("# --- 6.", 1)[0]
+
+
+def test_every_subscripted_shell_name_is_initialized() -> None:
+    """An orphaned array name becomes arithmetic under ``set -u``.
+
+    ``${UNKNOWN[key]:-}`` looks guarded, but Bash evaluates ``key`` as an
+    arithmetic subscript before applying ``:-``.  Keep every subscripted name
+    tied to an assignment somewhere in the installer; ``BASH_SOURCE`` is the
+    one array Bash itself initializes.
+    """
+    subscripted = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\[[^]]+\]", SCRIPT))
+    initialized = set(
+        re.findall(
+            r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)(?:\[[^]]*\])?=",
+            SCRIPT,
+        )
+    )
+
+    assert subscripted - initialized - {"BASH_SOURCE"} == set()
 
 
 def test_indexers_are_added_one_at_a_time() -> None:
