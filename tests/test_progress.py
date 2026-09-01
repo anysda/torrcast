@@ -390,7 +390,7 @@ def test_stop_reports_the_playing_record_and_asks_the_unit_before_killing_it(
     assert main(["stop"]) == 0
 
     assert order == ["key", "stop"]
-    assert "«Моана 2»" in capsys.readouterr().out
+    assert "“Моана 2”" in capsys.readouterr().out
 
 
 def test_stop_kills_the_unit_and_reports_the_fixed_position(

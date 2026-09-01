@@ -15,7 +15,7 @@ def en() -> dict[str, str]:
         "status.at": "at {pos}",
         "status.torn": "the show broke off: {what} - {was} ({reason})",
         "status.nothing_playing": "nothing is playing",
-        "status.last_resumable": "last: «{title}» at {pos} / {duration}",
+        "status.last_resumable": "last: “{title}” at {pos} / {duration}",
         "status.playing": "playing {what} - {pos} / {duration}",
         "status.dark": "the show went dark: {what} - {pos} / {duration}",
         "status.dark_wait": (

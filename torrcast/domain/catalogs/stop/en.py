@@ -7,5 +7,5 @@ def en() -> dict[str, str]:
     """Вернуть английский каталог кластера остановки показа."""
     return {
         "stop.nothing_playing": "nothing is playing",
-        "stop.stopped": "stopped: «{title}» at {pos} / {duration}",
+        "stop.stopped": "stopped: “{title}” at {pos} / {duration}",
     }

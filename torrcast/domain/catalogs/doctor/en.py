@@ -7,5 +7,5 @@ def en() -> dict[str, str]:
     """Вернуть английский каталог кластера самопроверки."""
     return {
         "doctor.all_clear": "all clear",
-        "doctor.problems": "problems: {bad} - see the «bad» lines above",
+        "doctor.problems": "problems: {bad} - see the “bad” lines above",
     }

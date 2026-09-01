@@ -1418,7 +1418,7 @@ def test_a_dry_run_names_the_chosen_file_not_the_request_echo(
     said = capsys.readouterr().out
     assert "Cyberpunk.S01E03.mkv" in said, "сухой прогон называет ВЫБРАННЫЙ файл"
     tail = phrase("cmd_play.dry_no_cast", about="ABOUT-MARK", base="BASE-MARK")
-    tail = tail.split("BASE-MARK»")[1]
+    tail = tail.split("BASE-MARK”")[1]
     assert tail in said
 
 

@@ -56,7 +56,7 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
     assert client.asked == []
     assert merged is _ENGLISH
     assert said.text == (
-        "not doing top up via «Cars 2006»: the search already spent the goal at 10s"
+        "not doing top up via “Cars 2006”: the search already spent the goal at 10s"
     )
 
 

@@ -88,7 +88,7 @@ def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
 
     assert client.asked == []
     assert [picture.title for picture in found] == ["Девять ярдов"]
-    assert said.text == "not doing refine by «девять»: the search already spent the goal at 10s"
+    assert said.text == "not doing refine by “девять”: the search already spent the goal at 10s"
 
 
 def test_a_stranger_from_the_refined_circle_is_not_taken() -> None:

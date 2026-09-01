@@ -142,6 +142,20 @@ def test_english_catalogs_contain_no_cyrillic() -> None:
     assert not offenders, f"{coverage}; " + "; ".join(offenders)
 
 
+def test_english_catalogs_hold_no_guillemets() -> None:
+    """Английская сторона набирает “лапки”: ёлочка - кавычка русского набора."""
+    catalogs = _catalogs()
+    coverage = _coverage(catalogs)
+    offenders = [
+        f"cluster {cluster}: key {key!r} holds a guillemet {character!r}"
+        for cluster, english, _ in catalogs
+        for key, value in english.items()
+        for character in value
+        if character in "«»"
+    ]
+    assert not offenders, f"{coverage}; " + "; ".join(offenders)
+
+
 def test_every_catalog_value_renders_in_both_languages() -> None:
     catalogs = _catalogs()
     coverage = _coverage(catalogs)

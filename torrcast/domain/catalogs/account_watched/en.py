@@ -8,5 +8,5 @@ def en() -> dict[str, str]:
     return {
         "account_watched.next_label": "playing {label}",
         "account_watched.from_start": "playing from the start",
-        "account_watched.done": "«{title}»{what} watched to {stopped} of {dur} - {decision}",
+        "account_watched.done": "“{title}”{what} watched to {stopped} of {dur} - {decision}",
     }

@@ -4476,7 +4476,7 @@ def test_потолок_прячет_картину_и_добор_её_дост�
     middle = phrase(
         "reinforce.ceiling_note", name="NAME-MARK", refined="REFINED-MARK", title="T", year="Y"
     )
-    middle = middle.split("NAME-MARK»")[1].split("«REFINED-MARK")[0]
+    middle = middle.split("NAME-MARK”")[1].split("“REFINED-MARK")[0]
     assert middle in out.getvalue(), "подмена не молчаливая"
 
 
@@ -4524,7 +4524,7 @@ def test_уточнение_не_берёт_картину_с_чужим_име�
     middle = phrase(
         "reinforce.ceiling_note", name="NAME-MARK", refined="REFINED-MARK", title="T", year="Y"
     )
-    middle = middle.split("NAME-MARK»")[1].split("«REFINED-MARK")[0]
+    middle = middle.split("NAME-MARK”")[1].split("“REFINED-MARK")[0]
     assert middle not in out.getvalue(), "не случилось - не говорим"
 
 
