@@ -59,6 +59,7 @@ case "$(uname -s 2>/dev/null || true)" in
         exit 2
         ;;
 esac
+MACHINE_ARCH="$(uname -m 2>/dev/null || true)"
 
 #: Названный в этот заход язык - единственный, которым повторная установка вправе
 #: переписать язык живого конфига (см. setup_config).
@@ -1052,6 +1053,26 @@ setup_locale() {
 #: python3-venv обязателен: на голом Debian `python3 -m venv` без него не работает.
 APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl python3-venv)
 
+# На macOS curl, bsdtar, LibreSSL и системное доверие уже даёт сама ОС; python venv
+# входит в brew python. Формулами ставятся только jq, Python >= 3.11 и ffmpeg >= 7.
+BREW_PACKAGES=(jq python@3.11 ffmpeg)
+
+brew_as_invoker() {
+    [ -n "${SUDO_USER:-}" ] || die \
+        "Homebrew cannot run as root and SUDO_USER is empty; run this installer with sudo from a regular account" \
+        "Homebrew не работает под root, а SUDO_USER пуст; запусти установщик через sudo из обычной учётной записи"
+    id "$SUDO_USER" >/dev/null 2>&1 || die \
+        "sudo invoker $SUDO_USER does not exist" "позвавшего sudo пользователя $SUDO_USER не существует"
+    local brew_bin
+    brew_bin="$(command -v brew 2>/dev/null || true)"
+    [ -n "$brew_bin" ] || brew_bin=/opt/homebrew/bin/brew
+    [ -x "$brew_bin" ] || die \
+        "Homebrew is not installed; install it as $SUDO_USER: https://brew.sh" \
+        "Homebrew не установлен; установите его под $SUDO_USER: https://brew.sh"
+    # brew получает uid позвавшего sudo пользователя, а не запрещённый ему uid root.
+    "$SUDO" -H -u "$SUDO_USER" "$brew_bin" "$@"
+}
+
 # Самый свежий интерпретатор не ниже 3.11. Явный TORRCAST_PYTHON уважаем как есть.
 pick_python() {
     [ -n "$PYTHON" ] && return 0
@@ -1151,6 +1172,23 @@ ffmpeg_ours_ok() {  # 0 = /usr/local/bin/ffmpeg на месте, годной в
 
 install_ffmpeg() {
     local have reject="" mine
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        have="$(ffmpeg_version ffmpeg || true)"
+        [ -n "$have" ] && version_ge "$have" "$FFMPEG_MIN" 2>/dev/null || brew_as_invoker install ffmpeg
+        hash -r
+        local ff fp probe
+        ff="$(brew_as_invoker --prefix ffmpeg)/bin/ffmpeg"
+        fp="$(brew_as_invoker --prefix ffmpeg)/bin/ffprobe"
+        have="$(ffmpeg_version "$ff")"
+        version_ge "$have" "$FFMPEG_MIN" 2>/dev/null \
+            || die "Homebrew installed ffmpeg $have, need >= $FFMPEG_MIN" "Homebrew поставил ffmpeg $have, нужно ≥ $FFMPEG_MIN"
+        probe="$(mktemp -d)"
+        ffmpeg_smoke "$probe" "$ff" "$fp" || die \
+            "Homebrew ffmpeg $have failed the MPEG-TS check" "ffmpeg $have из Homebrew не прошёл проверку MPEG-TS"
+        rm -rf "$probe"
+        info "Homebrew ffmpeg $have ($ff)" "ffmpeg $have из Homebrew ($ff)"
+        return
+    fi
     # Своя сборка уже стоит - ничего не качаем. Переставить принудительно: удалить
     # /usr/local/bin/ffmpeg (так же переставляются TorrServer и Prowlarr) и запустить
     # установку снова.
@@ -1236,10 +1274,13 @@ apt_candidate_version() {  # $1 - имя пакета
 install_packages() {
     log "dependencies" "зависимости"
     if [ "${OS_FAMILY:-linux}" = macos ]; then
-        command -v brew >/dev/null 2>&1 || die \
-            "Homebrew is not installed; install it: https://brew.sh" \
-            "Homebrew не установлен; установите его: https://brew.sh"
-        die "macOS package installation is not implemented yet" "установка пакетов на macOS пока не реализована"
+        brew_as_invoker install "${BREW_PACKAGES[@]}"
+        export PATH="$(brew_as_invoker --prefix)/bin:$PATH"
+        pick_python
+        info "macOS supplies curl, bsdtar, LibreSSL and CA trust; Homebrew supplies jq, python venv and ffmpeg" \
+            "macOS даёт curl, bsdtar, LibreSSL и доверие CA; Homebrew даёт jq, python venv и ffmpeg"
+        info "interpreter $PYTHON ($("$PYTHON" -c 'import sys; print(sys.version.split()[0])'))" "интерпретатор $PYTHON ($("$PYTHON" -c 'import sys; print(sys.version.split()[0])'))"
+        return
     fi
     local want=() missing=() pkg updated=0
     # Пакетный ffmpeg берём, только если он годен: он тут запасной аэродром, чтобы не
@@ -1475,6 +1516,13 @@ verify_torrcast() {  # $1 — каталог установленного пак
 }
 
 # --- 3. TorrServer ----------------------------------------------------------
+torrserver_asset_name() {  # $1 - ОС, $2 - uname -m
+    local os arch
+    case "$1" in linux) os=linux ;; macos) os=darwin ;; *) return 1 ;; esac
+    case "$2" in x86_64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; armv7l) arch=arm7 ;; *) return 1 ;; esac
+    printf 'TorrServer-%s-%s' "$os" "$arch"
+}
+
 install_torrserver() {
     local budget place where upgraded=0
     place="$(ts_cache_place)" || die "could not calculate TorrServer cache size - see the reason above" "не рассчитался размер кэша TorrServer - причина выше"
@@ -1502,15 +1550,12 @@ install_torrserver() {
     if [ "$installed" = "$TS_VERSION" ]; then
         skip "TorrServer binary $installed" "бинарь TorrServer $installed"
     else
-        local arch url
-        case "$(uname -m)" in
-            x86_64)  arch=amd64 ;;
-            aarch64) arch=arm64 ;;
-            armv7l)  arch=arm7 ;;
-            *) die "no TorrServer build for $(uname -m)" "нет сборки TorrServer под $(uname -m)" ;;
-        esac
+        local asset url
+        asset="$(torrserver_asset_name "$OS_FAMILY" "$MACHINE_ARCH")" || die \
+            "no TorrServer build for $OS_FAMILY/$MACHINE_ARCH; see YouROK/TorrServer releases" \
+            "нет сборки TorrServer под $OS_FAMILY/$MACHINE_ARCH; см. релизы YouROK/TorrServer"
         url="$(gh_release YouROK/TorrServer "$TS_VERSION" TorrServer exact \
-            | jq -r --arg n "TorrServer-linux-$arch" \
+            | jq -r --arg n "$asset" \
                    '.assets[]|select(.name==$n)|.browser_download_url')" || url=""
         # Пина нет на месте загрузки. На чистой машине ставить нечего, а взять вместо
         # него неизвестную версию ровно той службы, чей дефект мы ловим, - это и есть та
@@ -1519,7 +1564,7 @@ install_torrserver() {
         # умирать: остаёмся на нём и говорим об этом вслух.
         if [ -z "$url" ] || [ "$url" = null ]; then
             [ -n "$installed" ] \
-                || die "pinned TorrServer-linux-$arch build ($TS_VERSION) was not found" "не нашёл пиненную сборку TorrServer-linux-$arch ($TS_VERSION)"
+                || die "pinned $asset build ($TS_VERSION) was not found; see YouROK/TorrServer releases" "не нашёл пиненную сборку $asset ($TS_VERSION); см. релизы YouROK/TorrServer"
             loud "TorrServer remains at $installed: pinned $TS_VERSION is absent from the download site" \
                 "TorrServer остаётся на $installed: пиненного $TS_VERSION на месте загрузки нет"
             info "update the pin in the TS_VERSION line in install.sh; versions are listed in YouROK/TorrServer releases" \
@@ -1533,6 +1578,8 @@ install_torrserver() {
             upgraded=1
         fi
     fi
+
+    [ "${OS_FAMILY:-linux}" != macos ] || return 0
 
     # Два потолка вокруг кэша, и оба не для красоты.
     # GOMEMLIMIT - мягкий: он не запрещает расти, а заставляет сборщик мусора Go
@@ -1678,6 +1725,27 @@ retire_old_shim() {
     info "old single-host shim removed - the shared shim replaces it" "прежний одиночный шим убран - его место занимает общий"
 }
 
+remove_shim_trust() {  # $1 - сертификат, чей отпечаток снимается
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        local fingerprint
+        fingerprint="$(openssl x509 -in "$1" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g')"
+        [ -z "$fingerprint" ] || security delete-certificate -Z "$fingerprint" /Library/Keychains/System.keychain >/dev/null 2>&1 || true
+    else
+        rm -f /usr/local/share/ca-certificates/torrcast-shim.crt
+        update-ca-certificates --fresh >/dev/null 2>&1 || true
+    fi
+}
+
+install_shim_trust() {  # $1 - доверенный корень SNI-шима
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        remove_shim_trust "$1"
+        security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$1"
+    else
+        install -m 0644 "$1" /usr/local/share/ca-certificates/torrcast-shim.crt
+        update-ca-certificates >/dev/null 2>&1
+    fi
+}
+
 setup_shim() {  # $1 - имена, которые ведём через шим (через запятую), дальше маршруты имя=кандидат[,…]
     local pins="$1"; shift
     local routes=("$@") spec spec_host spec_path spec_body sans="" changed=0 probes=""
@@ -1711,8 +1779,11 @@ setup_shim() {  # $1 - имена, которые ведём через шим (
     fi
     # Prowlarr — .NET, и доверяет он системному хранилищу; своего для процесса ему не
     # задать (SSL_CERT_FILE он игнорирует — проверено). Ключ остаётся доступным только root.
-    install -m 0644 "$SHIM_DIR/shim.crt" /usr/local/share/ca-certificates/torrcast-shim.crt
-    update-ca-certificates >/dev/null 2>&1
+    install_shim_trust "$SHIM_DIR/shim.crt"
+
+    # Следующий заход добавит launchd. До него сертификат уже честно установлен, но
+    # процесс шима на macOS запускать и изображать работающим нельзя.
+    [ "${OS_FAMILY:-linux}" != macos ] || return 0
 
     [ "$(cat "$SHIM_DIR/routes" 2>/dev/null)" = "$(printf '%s\n' "${routes[@]}")" ] || changed=1
     printf '%s\n' "${routes[@]}" >"$SHIM_DIR/routes"
@@ -1881,7 +1952,7 @@ check_sources() {
     if [ "${#pins[@]}" -eq 0 ]; then
         info "all trackers respond by name - keeping the shim ready; it will recheck automatically" "все трекеры отвечают по имени - шим держим наготове, он перепроверит сам"
     fi
-    setup_shim "$(IFS=,; printf '%s' "${pins[*]}")" "${routes[@]}"
+    setup_shim "$(IFS=,; printf '%s' ${pins[@]+"${pins[*]}"})" "${routes[@]}"
 
     # «Шим поднят» и «через него отвечает» - разные утверждения, и второе проверяется
     # второй пробой: имя уже прибито к шиму, поэтому та же проба идёт сквозь него.
@@ -2008,12 +2079,53 @@ trim_yts() {  # $1 - каталог с определениями; 0 - подр�
 # Качаем с GitHub, как и TorrServer. Родной prowlarr.servarr.com части адресов отдаёт
 # 403: зависеть от того, чей IP спрашивает, установка не должна. Сборка та же самая,
 # версия совпадает. Запасной путь остался вторым.
-PL_FALLBACK="${TORRCAST_PL_FALLBACK:-https://prowlarr.servarr.com/v1/update/master/updatefile?os=linux&runtime=netcore&arch=x64}"
+prowlarr_asset_name() {  # $1 - ОС, $2 - uname -m
+    local os arch
+    case "$1" in linux) os=linux ;; macos) os=osx ;; *) return 1 ;; esac
+    case "$2" in x86_64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) return 1 ;; esac
+    # У закреплённого релиза нет osx-core-x64 tar.gz: zip приложения не заменяем
+    # правдоподобной ссылкой на несуществующий архив.
+    [ "$os/$arch" != osx/x64 ] || return 1
+    printf '%s-core-%s.tar.gz' "$os" "$arch"
+}
+
+prowlarr_fallback_url() {  # $1 - ОС, $2 - uname -m
+    local os arch
+    case "$1" in linux) os=linux ;; macos) os=osx ;; *) return 1 ;; esac
+    case "$2" in x86_64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) return 1 ;; esac
+    [ "$os/$arch" != osx/x64 ] || return 1
+    printf 'https://prowlarr.servarr.com/v1/update/master/updatefile?os=%s&runtime=netcore&arch=%s' "$os" "$arch"
+}
+
+install_prowlarr_binary() {
+    [ ! -x "$PREFIX/prowlarr/Prowlarr" ] || { skip "Prowlarr binary" "бинарь Prowlarr"; return; }
+    local url asset fallback
+    asset="$(prowlarr_asset_name "$OS_FAMILY" "$MACHINE_ARCH")" || die \
+        "no Prowlarr archive for $OS_FAMILY/$MACHINE_ARCH; see Prowlarr/Prowlarr releases" \
+        "нет архива Prowlarr под $OS_FAMILY/$MACHINE_ARCH; см. релизы Prowlarr/Prowlarr"
+    fallback="${TORRCAST_PL_FALLBACK:-$(prowlarr_fallback_url "$OS_FAMILY" "$MACHINE_ARCH")}" || die \
+        "no Prowlarr fallback for $OS_FAMILY/$MACHINE_ARCH" "нет запасной сборки Prowlarr под $OS_FAMILY/$MACHINE_ARCH"
+    url="$(gh_release Prowlarr/Prowlarr "$PL_VERSION" Prowlarr \
+        | jq -r --arg suffix "$asset" '[.assets[]?|select(.name|endswith($suffix))][0]
+                 .browser_download_url // empty')" || url=""
+    if [ -z "$url" ]; then
+        info "GitHub did not provide the build - trying $fallback" "GitHub сборку не отдал - иду на $fallback"
+        url="$fallback"
+    fi
+    info "downloading $url" "качаю $url"
+    install -d -m 0755 "$PREFIX/prowlarr"
+    fetch -o "$PREFIX/prowlarr.tar.gz" "$url" || die "could not download Prowlarr: $url" "не скачался Prowlarr: $url"
+    tar -oxzf "$PREFIX/prowlarr.tar.gz" -C "$PREFIX/prowlarr" --strip-components=1
+    rm -f "$PREFIX/prowlarr.tar.gz"
+    [ -x "$PREFIX/prowlarr/Prowlarr" ] || die "Prowlarr archive did not contain a binary" "распаковка Prowlarr не дала бинаря"
+}
 
 install_prowlarr() {
     log "Prowlarr ($PL_URL, public indexers)" "Prowlarr ($PL_URL, публичные индексеры)"
     pick_python
     install -d -m 0755 "$PREFIX/prowlarr-data"
+    install_prowlarr_binary
+    [ "${OS_FAMILY:-linux}" != macos ] || return 0
 
     # AniLibria отдаёт поиск релизов и их торренты двумя открытыми
     # REST-запросами. Местный адаптер склеивает их в обычную схему
@@ -2056,26 +2168,6 @@ install_prowlarr() {
         info "⚠ Prowlarr indexer catalog is unavailable - fetching definitions from GitHub" "⚠ каталог индексеров Prowlarr недоступен - определения возьмём с GitHub"
         hosts_pin indexers.prowlarr.com
         job_start defs seed_definitions
-    fi
-
-    if [ -x "$PREFIX/prowlarr/Prowlarr" ]; then
-        skip "Prowlarr binary" "бинарь Prowlarr"
-    else
-        local url
-        url="$(gh_release Prowlarr/Prowlarr "$PL_VERSION" Prowlarr \
-            | jq -r '[.assets[]?|select(.name|test("linux-core-x64\\.tar\\.gz$"))][0]
-                     .browser_download_url // empty')" || url=""
-        if [ -z "$url" ]; then
-            info "GitHub did not provide the build - trying $PL_FALLBACK" "GitHub сборку не отдал - иду на $PL_FALLBACK"
-            url="$PL_FALLBACK"
-        fi
-        info "downloading $url" "качаю $url"
-        install -d -m 0755 "$PREFIX/prowlarr"
-        fetch -o "$PREFIX/prowlarr.tar.gz" "$url" || die "could not download Prowlarr: $url" "не скачался Prowlarr: $url"
-        # В архиве верхний каталог `Prowlarr/` — срезаем, чтобы путь был предсказуем.
-        tar -xzf "$PREFIX/prowlarr.tar.gz" -C "$PREFIX/prowlarr" --strip-components=1
-        rm -f "$PREFIX/prowlarr.tar.gz"
-        [ -x "$PREFIX/prowlarr/Prowlarr" ] || die "Prowlarr archive did not contain a binary" "распаковка Prowlarr не дала бинаря"
     fi
 
     # Конфиг пишем ДО первого старта: иначе Prowlarr сядет на 0.0.0.0 и включит
@@ -2973,6 +3065,15 @@ main() {
     has sources    && job_start sources    check_sources
     has prowlarr   && job_start prowlarr   install_prowlarr
     log "in background: ffmpeg, TorrServer, Prowlarr, sources - their complete output will follow" "в фоне: ffmpeg, TorrServer, Prowlarr, источники - их вывод придёт целиком"
+
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        has sources    && { job_wait sources || die "source certificates were not installed - see the reason above" "сертификаты источников не установились - причина в строках выше"; phase_done 'источники'; }
+        has prowlarr   && { job_wait prowlarr || die "Prowlarr was not installed - see the reason above" "Prowlarr не поставился - причина в строках выше"; phase_done 'Prowlarr'; }
+        has ffmpeg     && { job_wait ffmpeg || die "ffmpeg was not installed - see the reason above" "ffmpeg не поставился - причина в строках выше"; phase_done 'ffmpeg'; }
+        has torrserver && { job_wait torrserver || die "TorrServer was not installed - see the reason above" "TorrServer не поставился - причина в строках выше"; phase_done 'TorrServer'; }
+        [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
+        die "launchd services are not implemented yet" "службы launchd пока не реализованы"
+    fi
 
     # Самое долгое (venv и колёса с pypi) держим на переднем плане: пока идёт оно,
     # соседи успевают скачаться, подняться и ответить.

@@ -42,14 +42,28 @@ def test_every_subscripted_shell_name_is_initialized() -> None:
     one array Bash itself initializes.
     """
     subscripted = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\[[^]]+\]", SCRIPT))
+    code = "\n".join(line for line in SCRIPT.splitlines() if not re.match(r"^\s*#", line))
     initialized = set(
         re.findall(
             r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)(?:\[[^]]*\])?=",
-            SCRIPT,
+            code,
         )
     )
 
     assert subscripted - initialized - {"BASH_SOURCE"} == set()
+
+
+def test_commented_array_declarations_do_not_satisfy_the_initialization_guard() -> None:
+    code = "# LOST=()\nprintf '%s' \"${LOST[item]:-}\"\n"
+    subscripted = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\[[^]]+\]", code))
+    uncommented = "\n".join(line for line in code.splitlines() if not re.match(r"^\s*#", line))
+    initialized = set(
+        re.findall(
+            r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)(?:\[[^]]*\])?=",
+            uncommented,
+        )
+    )
+    assert subscripted - initialized == {"LOST"}
 
 
 def test_indexers_are_added_one_at_a_time() -> None:
@@ -360,10 +374,37 @@ def test_macos_reaches_packages_without_bash4_or_linux_locale_work() -> None:
     assert packages.index('[ "${OS_FAMILY:-linux}" = macos ]') < packages.index(
         "apt_candidate_version"
     )
-    assert "Homebrew не установлен; установите его: https://brew.sh" in packages
+    assert 'brew_as_invoker install "${BREW_PACKAGES[@]}"' in packages
+    assert '"$SUDO" -H -u "$SUDO_USER" "$brew_bin" "$@"' in SCRIPT
+    assert "SUDO_USER пуст" in SCRIPT
     for bash4 in ("declare -A", "local -n"):
         assert bash4 not in SCRIPT
     assert "exec 8<> <(:)" in SCRIPT and 'exec 9<"$UI_CHANNEL"' in SCRIPT
+
+
+def test_release_assets_are_selected_by_os_and_architecture() -> None:
+    torrserver = _body("torrserver_asset_name")
+    prowlarr = _body("prowlarr_asset_name")
+
+    assert "linux) os=linux" in torrserver and "macos) os=darwin" in torrserver
+    assert "x86_64) arch=amd64" in torrserver
+    assert "aarch64|arm64) arch=arm64" in torrserver
+    assert "linux) os=linux" in prowlarr and "macos) os=osx" in prowlarr
+    assert "x86_64) arch=x64" in prowlarr
+    assert "aarch64|arm64) arch=arm64" in prowlarr
+    assert "endswith($suffix)" in _body("install_prowlarr_binary")
+
+
+def test_macos_uses_brew_ffmpeg_and_system_keychain_trust() -> None:
+    ffmpeg = _body("install_ffmpeg")
+    trust = _body("install_shim_trust")
+    remove = _body("remove_shim_trust")
+
+    assert ffmpeg.index('[ "${OS_FAMILY:-linux}" = macos ]') < ffmpeg.index("static ffmpeg build")
+    assert "brew_as_invoker install ffmpeg" in ffmpeg
+    assert "security add-trusted-cert" in trust
+    assert "security delete-certificate" in remove
+    assert "update-ca-certificates --fresh" in remove
 
 
 def test_a_cut_catalog_is_not_a_successful_install() -> None:
