@@ -17,3 +17,9 @@ en the update refuses to interrupt a show that is running
 ru обновление не прерывает идущий показ
 en the receiver and the settings survive the update
 ru приёмник и настройки переживают обновление
+en the Telegram bot reports progress and controls any show
+ru бот в Telegram докладывает ход каста и управляет показом
+en search reads a fansub episode pack as a range of episodes
+ru поиск читает сборку серий фансаба как диапазон
+en one more open indexer joins the catalog
+ru в каталоге появился ещё один открытый индексер
