@@ -43,6 +43,23 @@ case "$LANGUAGE" in
     en|ru|"") ;;
     *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 2 ;;
 esac
+
+# Отказываем чужой ОС до чтения конфигов, временных файлов и поднятия прав. Дальше
+# ветки именуются этой один раз измеренной платформой: подделка uname тем самым
+# проверяет ровно входной барьер, а не случайный вызов глубоко в установке.
+case "$(uname -s 2>/dev/null || true)" in
+    Linux)  OS_FAMILY=linux ;;
+    Darwin) OS_FAMILY=macos ;;
+    *)
+        if [ "$LANGUAGE" = ru ]; then
+            printf 'ошибка: нужен Debian/Ubuntu или macOS\n' >&2
+        else
+            printf 'error: Debian/Ubuntu or macOS is required\n' >&2
+        fi
+        exit 2
+        ;;
+esac
+
 #: Названный в этот заход язык - единственный, которым повторная установка вправе
 #: переписать язык живого конфига (см. setup_config).
 LANGUAGE_NAMED="$LANGUAGE"
@@ -537,8 +554,16 @@ become_root() {
 #
 # 🔴 Провал задания не тонет: `job_wait` возвращает его код, а вызывающий говорит о нём
 # словами и роняет установку там же, где ронял бы последовательный код.
-declare -A JOB_PID=()
+JOB_NAMES=()
+JOB_PIDS=()
 JOB_DIR=""
+
+job_pid_get() {
+    local wanted="$1" i
+    for (( i = 0; i < ${#JOB_NAMES[@]}; i++ )); do
+        [ "${JOB_NAMES[$i]}" = "$wanted" ] && { printf '%s' "${JOB_PIDS[$i]}"; return; }
+    done
+}
 
 job_start() {  # $1 - имя задания, дальше команда с аргументами
     local name="$1"; shift
@@ -556,14 +581,21 @@ job_start() {  # $1 - имя задания, дальше команда с ар
         trap 'rc=$?; printf "%s" "$rc" >"$JOB_DIR/$name.rc"; printf "%s" "$((SECONDS - began))" >"$JOB_DIR/$name.took"' EXIT
         "$@" >"$JOB_DIR/$name.out" 2>&1
     ) &
-    JOB_PID[$name]=$!
+    JOB_NAMES+=("$name")
+    JOB_PIDS+=("$!")
 }
 
 job_wait() {  # $1 - имя задания; печатает его вывод, возвращает его код
-    local name="$1" pid="${JOB_PID[$1]:-}"
+    local name="$1" pid i
+    pid="$(job_pid_get "$name")"
     [ -n "$pid" ] || return 0  # задание не запускалось - фаза выключена в PHASES
     wait "$pid" 2>/dev/null || true
-    unset "JOB_PID[$name]"
+    for (( i = 0; i < ${#JOB_NAMES[@]}; i++ )); do
+        [ "${JOB_NAMES[$i]}" = "$name" ] || continue
+        unset 'JOB_NAMES[i]' 'JOB_PIDS[i]'
+        JOB_NAMES=("${JOB_NAMES[@]}"); JOB_PIDS=("${JOB_PIDS[@]}")
+        break
+    done
     [ -s "$JOB_DIR/$name.out" ] && cat "$JOB_DIR/$name.out"
     # Сколько фаза шла на самом деле. Не украшение: у параллельных фаз время из журнала
     # больше не читается (все их строки приезжают разом), а без него не видно, во что
@@ -621,6 +653,12 @@ proc_mask() {  # $1 - начало строки запуска; печатает
 # именно на разнице между «памятью в meminfo» и реальным потолком контейнер и вставал.
 host_memory() {
     local mem lim
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        # macOS не даёт процессу отдельного cgroup-потолка: hw.memsize здесь и есть
+        # физическая память машины, без выдуманного второго ограничения.
+        sysctl -n hw.memsize
+        return
+    fi
     mem=$(( $(awk '/^MemTotal:/{print $2}' /proc/meminfo) * 1024 ))
     while read -r lim; do
         case "$lim" in ''|*[!0-9]*) continue ;; esac
@@ -817,7 +855,11 @@ run_service() {  # $1 имя, $2 описание, $3 команда, $4 - ли�
 $quoted
 EOF
         # shellcheck disable=SC2086
-        setsid nohup $3 >"$PREFIX/$1.log" 2>&1 </dev/null &
+        if [ "${OS_FAMILY:-linux}" = macos ]; then
+            nohup $3 >"$PREFIX/$1.log" 2>&1 </dev/null &
+        else
+            setsid nohup $3 >"$PREFIX/$1.log" 2>&1 </dev/null &
+        fi
         return 0
     fi
     # Изменившийся юнит - это не только daemon-reload: `enable --now` уже поднятую
@@ -933,6 +975,10 @@ locale_present() {  # $1 - имя локали
     return 1
 }
 
+sed_in_place() {
+    if [ "${OS_FAMILY:-linux}" = macos ]; then sed -i '' "$@"; else sed -i "$@"; fi
+}
+
 # Собрать локаль, если её ещё нет. Возвращает 0, только когда после всех попыток она
 # реально есть в системе: собрать может быть нечем (нет ни locale-gen, ни localedef -
 # так бывает на урезанных образах), и это штатная ветка, а не ошибка.
@@ -960,6 +1006,12 @@ locale_build() {  # $1 - имя локали
 # строку в конфигах не переписываем.
 setup_locale() {
     log "UTF-8 locale ($LOCALE)" "локаль UTF-8 ($LOCALE)"
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        # launchd и приложения macOS получают язык из пользовательских Preferences;
+        # Linux-файлов /etc/default/locale и /etc/environment здесь нет и не нужно.
+        skip "locale is managed by macOS; no system files to change" "локалью управляет macOS; системные файлы менять не нужно"
+        return
+    fi
     locale_build "$LOCALE" || true
     # Цель не вышла - отступаем на C.UTF-8, и вслух: русская сортировка пропадёт, но
     # показывать это как успех нельзя.
@@ -990,7 +1042,7 @@ setup_locale() {
     # Подстраховка для систем, где строки с envfile в pam.d нет: /etc/environment
     # pam_env читает всегда.
     if ! grep -qs "^LANG=$LOCALE\$" /etc/environment; then
-        [ -f /etc/environment ] && sed -i '/^LANG=/d' /etc/environment
+        [ -f /etc/environment ] && sed_in_place '/^LANG=/d' /etc/environment
         printf 'LANG=%s\n' "$LOCALE" >> /etc/environment
     fi
     export LANG="$LOCALE"
@@ -1028,6 +1080,21 @@ FFMPEG_URL="${TORRCAST_FFMPEG_URL:-https://github.com/BtbN/FFmpeg-Builds/release
 #: проекта, не johnvansickle, и на MPEG-TS её всё равно проверяет ffmpeg_smoke ниже.
 FFMPEG_URL2="${TORRCAST_FFMPEG_URL2:-https://repo.jellyfin.org/files/ffmpeg/linux/latest-7.x/amd64/jellyfin-ffmpeg_7.1.4-3_portable_linux64-gpl.tar.xz}"
 
+# Debian сохраняет свою точную семантику dpkg. На macOS сравниваются версии соседних
+# бинарей, где достаточно последовательности числовых компонентов (6.1, 7.1.1 и т.п.).
+version_ge() {
+    if [ "${OS_FAMILY:-linux}" = linux ]; then
+        dpkg --compare-versions "$1" ge "$2"
+    else
+        python3 - "$1" "$2" <<'PY'
+import re, sys
+def parts(value):
+    return tuple(int(item) for item in re.findall(r"\d+", value))
+raise SystemExit(0 if parts(sys.argv[1]) >= parts(sys.argv[2]) else 1)
+PY
+    fi
+}
+
 ffmpeg_version() {  # $1 — путь/имя бинаря; печатает голую версию либо ничего
     "$1" -version 2>/dev/null | head -1 | awk '{print $3}' | sed 's/^[^0-9]*//'
 }
@@ -1047,8 +1114,14 @@ ffmpeg_smoke() {  # $1 — каталог для файла, $2/$3 — ffmpeg/ff
 #: пакета, ни в состояние, ни в /dev/shm с сегментами: установка отчитывается зелёным,
 #: а показ разваливается на первом же файле. Такой ffmpeg считаем негодным независимо
 #: от версии - и ставим свою статическую сборку.
-ffmpeg_confined() {  # $1 — имя/путь бинаря; 0 = заперт в снапе
-    local real; real="$(readlink -f "$(command -v -- "$1" 2>/dev/null || true)" 2>/dev/null || true)"
+ffmpeg_confined() {  # $1 - имя/путь бинаря; 0 = заперт в снапе
+    local real target
+    target="$(command -v -- "$1" 2>/dev/null || true)"
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$target" 2>/dev/null || true)"
+    else
+        real="$(readlink -f "$target" 2>/dev/null || true)"
+    fi
     case "$real" in
         /snap/*|/var/lib/snapd/*) return 0 ;;
         *) return 1 ;;
@@ -1066,7 +1139,7 @@ ffmpeg_ours_ok() {  # 0 = /usr/local/bin/ffmpeg на месте, годной в
     local mine probe rc=1
     mine="$(ffmpeg_version /usr/local/bin/ffmpeg || true)"
     [ -n "$mine" ] || return 1
-    dpkg --compare-versions "$mine" ge "$FFMPEG_MIN" 2>/dev/null || return 1
+    version_ge "$mine" "$FFMPEG_MIN" 2>/dev/null || return 1
     probe="$(mktemp -d)"
     # Строку про пройденный MPEG-TS уводим в stderr: stdout тут - это версия, которую
     # читает вызывающий, и чужая строка в нём стала бы «версией».
@@ -1096,7 +1169,7 @@ install_ffmpeg() {
         reject=1
     fi
     if [ -z "$reject" ] && [ -n "$have" ] \
-        && dpkg --compare-versions "$have" ge "$FFMPEG_MIN" 2>/dev/null; then
+        && version_ge "$have" "$FFMPEG_MIN" 2>/dev/null; then
         # Версия - только полдела: проверяем найденный на PATH бинарь в деле, тем же
         # MPEG-TS, что и свою сборку. Не пережил - ставим свою.
         local ff fp probe
@@ -1139,7 +1212,7 @@ install_ffmpeg() {
     install -m 0755 "$(dirname "$bin")/ffprobe" /usr/local/bin/ffprobe
     hash -r
     local now; now="$(ffmpeg_version /usr/local/bin/ffmpeg)"
-    dpkg --compare-versions "$now" ge "$FFMPEG_MIN" 2>/dev/null \
+    version_ge "$now" "$FFMPEG_MIN" 2>/dev/null \
         || die "installed ffmpeg $now is still older than $FFMPEG_MIN" "поставился ffmpeg $now - это всё ещё ниже $FFMPEG_MIN"
     ffmpeg_smoke "$work" || die "ffmpeg build $now failed the MPEG-TS check - use another URL" "сборка ffmpeg $now не пережила MPEG-TS - другой URL"
     rm -rf "$work"
@@ -1162,6 +1235,12 @@ apt_candidate_version() {  # $1 - имя пакета
 
 install_packages() {
     log "dependencies" "зависимости"
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        command -v brew >/dev/null 2>&1 || die \
+            "Homebrew is not installed; install it: https://brew.sh" \
+            "Homebrew не установлен; установите его: https://brew.sh"
+        die "macOS package installation is not implemented yet" "установка пакетов на macOS пока не реализована"
+    fi
     local want=() missing=() pkg updated=0
     # Пакетный ffmpeg берём, только если он годен: он тут запасной аэродром, чтобы не
     # качать статическую сборку там, где системный уже свежее нижней границы (Ubuntu
@@ -1179,7 +1258,7 @@ install_packages() {
     for pkg in "${APT_PACKAGES[@]}"; do
         if [ "$pkg" = ffmpeg ] && [ -n "$apt_ff" ] \
             && ! dpkg -s ffmpeg >/dev/null 2>&1 \
-            && ! dpkg --compare-versions "$apt_ff" ge "$FFMPEG_MIN" 2>/dev/null; then
+            && ! version_ge "$apt_ff" "$FFMPEG_MIN" 2>/dev/null; then
             info "repository has ffmpeg $apt_ff (need >= $FFMPEG_MIN) - not installing the package; using a static build" \
                 "в репозитории ffmpeg $apt_ff (нужно ≥ $FFMPEG_MIN) - пакет не ставлю, беру статическую сборку"
             continue
@@ -1341,7 +1420,11 @@ py_manifest() {  # $1 — каталог пакета torrcast
     (
         cd "$1" || return 1
         LC_ALL=C find . -name __pycache__ -prune -o -type f -print0 |
-            LC_ALL=C sort -z | xargs -0r sha256sum
+            if [ "${OS_FAMILY:-linux}" = macos ]; then
+                LC_ALL=C sort -z | xargs -0 shasum -a 256
+            else
+                LC_ALL=C sort -z | xargs -0r sha256sum
+            fi
     )
 }
 
@@ -1378,7 +1461,11 @@ verify_torrcast() {  # $1 — каталог установленного пак
     fi
 
     count="$(printf '%s\n' "$repo_side" | grep -c .)"
-    sum="$(printf '%s\n' "$repo_side" | sha256sum | cut -c1-12)"
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        sum="$(printf '%s\n' "$repo_side" | shasum -a 256 | cut -c1-12)"
+    else
+        sum="$(printf '%s\n' "$repo_side" | sha256sum | cut -c1-12)"
+    fi
     info "venv vs repository check: $count files match (sha256 $sum)" "сверка venv ↔ репа: $count файлов совпадают (sha256 $sum)"
     # 🔴 TC-887. Отпечаток обязан доехать до ЭКРАНА, а не только до журнала: под заставкой
     # весь `info` уходит в журнал, и обновление отчиталось бы одним словом «обновлено» -
@@ -1908,7 +1995,7 @@ trim_yts() {  # $1 - каталог с определениями; 0 - подр�
     elif grep -q "^ *limit: $YTS_LIMIT\$" "$file"; then
         skip "yts results limited to $YTS_LIMIT titles" "выдача yts подрезана до $YTS_LIMIT картин"
     elif grep -q '^ *limit: 50$' "$file"; then
-        sed -i "s/^\\( *\\)limit: 50\$/\\1limit: $YTS_LIMIT/" "$file"
+        sed_in_place "s/^\\( *\\)limit: 50\$/\\1limit: $YTS_LIMIT/" "$file"
         info "yts results limited to $YTS_LIMIT titles - the full response exceeds the channel limit" "выдача yts подрезана до $YTS_LIMIT картин - полную канал рвёт по объёму"
         return 0
     else
@@ -2257,9 +2344,10 @@ EXIT_CATALOG_CUT=2
 #: 🔴 TC-705. Запасные носители ролей: готовое тело запроса по definitionName. Их
 #: добавляет догрев, уже после «готово», - но если роль осталась без ответа, гейт заводит
 #: запасного сам: вердикт о каталоге нельзя выносить о том, чего не спрашивали.
-declare -A CATALOG_STANDBY=()
+CATALOG_STANDBY_KEYS=()
+CATALOG_STANDBY_VALUES=()
 #: Кого гейт завёл сам (по имени в Prowlarr): догреву его добавлять больше нечего.
-declare -A CATALOG_PROMOTED=()
+CATALOG_PROMOTED=()
 #: Запасной, который на добавлении отказал, а роль его ждёт: едет в тот же переспрос, что
 #: и отказавшие на глазах, - первый повтор там после полной паузы.
 CATALOG_RETRY=()
@@ -2267,13 +2355,31 @@ CATALOG_RETRY=()
 #: его переменной, а не печатью - печать у него занята строкой для человека.
 STANDBY_ID=""
 
+catalog_standby_set() {
+    CATALOG_STANDBY_KEYS+=("$1")
+    CATALOG_STANDBY_VALUES+=("$2")
+}
+
+catalog_standby_get() {
+    local wanted="$1" i
+    for (( i = 0; i < ${#CATALOG_STANDBY_KEYS[@]}; i++ )); do
+        [ "${CATALOG_STANDBY_KEYS[$i]}" = "$wanted" ] && { printf '%s' "${CATALOG_STANDBY_VALUES[$i]}"; return; }
+    done
+}
+
+catalog_promoted() {
+    local wanted="$1" name
+    for name in "${CATALOG_PROMOTED[@]}"; do [ "$name" = "$wanted" ] && return 0; done
+    return 1
+}
+
 # Завести запасного носителя роли прямо сейчас, на глазах у человека. Зовут отсюда только
 # тогда, когда роль осталась без ответа: тогда его добавление - не задержка перед
 # «готово», а единственный способ узнать, урезан каталог или цел.
 promote_standby() {  # $1 - apikey, $2 - definitionName; ответ - в :data:`STANDBY_ID`
     local key="$1" def="$2" spec iname ibody answer status
     STANDBY_ID=""
-    spec="${CATALOG_STANDBY[$def]:-}"
+    spec="$(catalog_standby_get "$def")"
     [ -n "$spec" ] || return 0
     IFS=$'\t' read -r iname ibody <<<"$spec"
     answer="$(mktemp)"
@@ -2282,7 +2388,7 @@ promote_standby() {  # $1 - apikey, $2 - definitionName; ответ - в :data:`
         -d "$ibody" 2>/dev/null)" || status=000
     # Завёлся он или отказал - догреву его больше не поручаем: второе обращение к тому же
     # источнику в ту же минуту ничего не меняет, а ступень бана у трекера продлевает.
-    CATALOG_PROMOTED[$iname]=1
+    CATALOG_PROMOTED+=("$iname")
     if [[ "$status" = 2* ]]; then
         STANDBY_ID="$(jq -r '.id // empty' "$answer" 2>/dev/null)"
         info "added $iname" "добавлен $iname"
@@ -2327,7 +2433,7 @@ catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - с
             # Роль ещё никем не закрыта, а этого носителя заводит догрев: заводим здесь.
             # Ровно за это установка и платит секундами - и платит там, где иначе назвала
             # бы урезанным полный каталог либо смолчала бы о пустом.
-            if [ -z "$id" ] && [ -n "${CATALOG_STANDBY[$def]:-}" ]; then
+            if [ -z "$id" ] && [ -n "$(catalog_standby_get "$def")" ]; then
                 info "role '$name_en' is unanswered - adding fallback source $iname (Prowlarr checks it; this may take up to two minutes)" \
                     "роль «$name_ru» пока без ответа - завожу запасной источник $iname (Prowlarr щупает его сам, это до двух минут)"
                 promote_standby "$key" "$def"
@@ -2412,7 +2518,7 @@ install_indexers() {
             # Запасной носитель роли кладёт своё тело под руку гейту: если роль замолчит,
             # гейт заведёт его сам, не дожидаясь догрева (:data:`CATALOG_STANDBY`).
             if core_indexer "$def"; then
-                CATALOG_STANDBY[$def]="$(printf '%s\t%s' "$name" "$body")"
+                catalog_standby_set "$def" "$(printf '%s\t%s' "$name" "$body")"
             fi
             continue
         fi
@@ -2485,7 +2591,7 @@ install_indexers() {
         iname="${spec%%$'\t'*}"
         # Кого гейт завёл сам, догреву поручать нечего (:data:`CATALOG_PROMOTED`): второе
         # добавление того же источника - лишнее обращение и лишняя строка про ожидание.
-        [ -z "${CATALOG_PROMOTED[$iname]:-}" ] || continue
+        catalog_promoted "$iname" && continue
         ready+=("$spec")
         names="$names${names:+, }$iname"
     done
@@ -3303,7 +3409,14 @@ ui_read_size() {
 }
 
 ui_try_banner() { # $1 - имя массива; ставит BANNER*, если влезает с запасом на отскок
-  local -n src=$1
+  local src=()
+  case "$1" in
+    B_FULL)  src=("${B_FULL[@]}") ;;
+    B_MID)   src=("${B_MID[@]}") ;;
+    B_TINY)  src=("${B_TINY[@]}") ;;
+    B_MICRO) src=("${B_MICRO[@]}") ;;
+    *) return 1 ;;
+  esac
   local h=${#src[@]} w=0 l
   for l in "${src[@]}"; do (( ${#l} > w )) && w=${#l}; done
   (( INNER_W < w + 1 || INNER_H < h + 1 )) && return 1
@@ -3913,7 +4026,11 @@ ui_open_sleepfd() {
   # прогоном на чистом стенде: установка обрывалась на 2 фазе из 12 и не
   # говорила ни слова. Группа `{ ...; }` глушит только сам `exec`, а stderr
   # оболочки остаётся на терминале.
-  { exec {SLEEPFD}<> <(:); } 2>/dev/null || SLEEPFD=''
+  if [ "${OS_FAMILY:-linux}" = macos ]; then
+    { exec 8<> <(:); } 2>/dev/null && SLEEPFD=8 || SLEEPFD=''
+  else
+    { exec {SLEEPFD}<> <(:); } 2>/dev/null || SLEEPFD=''
+  fi
   # Проверяем, что пауза действительно ждёт. Если дескриптор отдаёт EOF сразу,
   # цикл превратится в busy-loop на всю длительность - уходим на sleep.
   local t0
@@ -4106,7 +4223,12 @@ ui_run() {  # $1 - dry|real, $2 - секунды для dry
   # подоболочке под живым errexit - снятие -e тут её не касается.
   set +e
 
-  exec {UI_CFD}<"$UI_CHANNEL"
+  if [ "${OS_FAMILY:-linux}" = macos ]; then
+    exec 9<"$UI_CHANNEL"
+    UI_CFD=9
+  else
+    exec {UI_CFD}<"$UI_CHANNEL"
+  fi
 
   ui_tty_grab
   trap ui_cleanup EXIT
