@@ -8,7 +8,6 @@ build/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
-uv.lock
 .serena/
 tmp-ref/
 .testmondata
