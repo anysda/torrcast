@@ -70,9 +70,7 @@ class _SystemChoiceEnvironment:
         return NotFoundError
 
     def read_command(self) -> str | None:
-        name = os.environ.get(self.ctl_env)
-        if not name:
-            return None
+        name = os.environ.get(self.ctl_env, f"/tmp/torrcast-telegram-{os.getuid()}.ctl")
         path = Path(name)
         try:
             line = path.read_text("utf-8").strip()
