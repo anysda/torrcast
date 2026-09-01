@@ -13,12 +13,13 @@ from tests.usecases.choice.world import Outside, film, outside, plan
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.origin import Origin
 from torrcast.usecases.choice._named import (
     _BLURB_INDENT,
     _also,
     _different_display_names,
     _named,
-    _prepare_title,
+    _spoken,
     _title,
 )
 from torrcast.usecases.choice.menu_blocks import menu_blocks
@@ -86,16 +87,41 @@ def test_a_glued_line_is_silent_when_localized_names_only_differ_by_case() -> No
         _choose_tongue(RU)
 
 
-def test_an_english_menu_marks_an_unknown_english_title_without_transliteration() -> None:
-    """Без original английское имя неизвестно: мусорная транслитерация его не выдумывает."""
+def test_a_reference_name_is_spoken_from_the_language_side() -> None:
+    """Имя картины из справки - с языковой стороны продукта; пустого оригинала не бывает."""
+    about = Origin(title="Nine", year=2009, name="Девять")
+
+    _choose_tongue(EN)
+    try:
+        assert _spoken(about) == "Nine"
+        assert _spoken(Origin(name="Сваты")) == "Сваты", "выдуманного имени у картины нет"
+    finally:
+        _choose_tongue(RU)
+    assert _spoken(about) == "Девять"
+
+
+def test_an_english_menu_names_a_russian_only_picture_as_is_with_a_mark() -> None:
+    """Английского имени нет вовсе: пункт меню зовётся СОБСТВЕННЫМ именем с пометкой.
+
+    Заглушка вместо имени («English title unavailable») оставляла человека без того,
+    единственного, по чему пункт выбирают: выбрать то, у чего нет имени, нельзя.
+    Транслитом имя тоже не выдумывается - выдуманного имени у картины нет. Пометка же -
+    только у пункта меню: в строках-рассказах хвост читался бы как часть названия.
+    """
     picture = plan("Дюна: Пророчество 1", 2024).picture
 
     _choose_tongue(EN)
     try:
-        _prepare_title(picture)
-        assert _title(picture) == "English title unavailable"
+        assert _title(picture) == "Дюна: Пророчество 1"
+        assert _named(picture) == "Дюна: Пророчество 1 (2024)"
+        assert _named(picture, item=True) == "Дюна: Пророчество 1 (2024) - Russian title only"
     finally:
         _choose_tongue(RU)
+
+
+def test_a_russian_only_mark_is_silent_in_the_russian_menu() -> None:
+    """Под RU пометки нет: русское имя в русском меню - обычное дело."""
+    assert _named(plan("Дюна: Пророчество 1", 2024).picture) == "Дюна: Пророчество 1 (2024)"
 
 
 def test_a_picture_with_no_known_year_says_so_instead_of_dropping_the_brackets() -> None:

@@ -21,6 +21,7 @@ from tests.fakes import composition
 from tests.usecases.choice.branches import Branch, branches
 from tests.usecases.choice.world import Outside, outside
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.tongue import RU, _choose_tongue
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
@@ -63,6 +64,12 @@ class _Facts:
 
     def get(self, *_rest: object) -> Fact:
         return Fact()
+
+
+@pytest.fixture(autouse=True)
+def _russian_catalog() -> None:
+    """Русские ожидания этого зеркала явно выбирают русский каталог."""
+    _choose_tongue(RU)
 
 
 class _NoPassport:

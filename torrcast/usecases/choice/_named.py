@@ -6,6 +6,7 @@ import re
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.catalogs.tongue import EN, tongue
+from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.transliterate import transliterate
 
@@ -15,24 +16,31 @@ _CYRILLIC = re.compile("[А-Яа-яЁё]")
 
 
 def _title(picture: Picture) -> str:
-    """Имя картины для человека: оригинальное в английском интерфейсе."""
+    """Имя картины для человека: оригинальное в английском интерфейсе.
+
+    Английского имени нет вовсе - показывается СОБСТВЕННОЕ имя картины, а не заглушка
+    и не транслит: выбрать пункт, у которого нет имени, человек не может. О том, что
+    имя одно и оно по-русски, пункт говорит пометкой (:func:`_named`).
+    """
     if tongue() != EN:
         return picture.title
-    if picture.original:
-        return picture.original
-    return picture.shown or picture.title
+    return picture.original or picture.title
 
 
-def _prepare_title(picture: Picture) -> None:
-    """Готовит латинскую подпись живой выдачи, если её знает каталог."""
-    if tongue() == EN and not picture.original and _CYRILLIC.search(picture.title):
-        picture.shown = phrase("choice.english_title_unknown")
+def _russian_only(picture: Picture) -> bool:
+    """Имя картины показано как есть: английской подписи у неё нет вовсе."""
+    return tongue() == EN and not picture.original and bool(_CYRILLIC.search(picture.title))
 
 
-def _prepare_titles(pictures: list[Picture]) -> None:
-    """Готовит подписи всей живой выдачи перед её первым сообщением."""
-    for picture in pictures:
-        _prepare_title(picture)
+def _spoken(about: Origin) -> str:
+    """Имя картины из справки с языковой стороны продукта: под EN - оригинал статьи.
+
+    Оригинала у статьи нет (отечественная картина) - остаётся её русское имя: другого
+    у картины нет, а выдуманное (транслит) было бы враньём наружу.
+    """
+    if tongue() != EN:
+        return about.name
+    return about.title or about.name
 
 
 def _also(picture: Picture) -> str:
@@ -53,13 +61,22 @@ def _different_display_names(picture: Picture) -> bool:
     return _also(picture).casefold() != _title(picture).casefold()
 
 
-def _named(picture: Picture, aside: bool = False) -> str:
+def _named(picture: Picture, aside: bool = False, item: bool = False) -> str:
     """Название с годом; ``aside`` - картина стоит после нумерованной линейки франшизы.
 
     Подпись объясняет, почему пункт уехал вниз: номера части у неё нет, и в линейку по
     номерам ей вставать не с чем (:func:`~torrcast.domain.outside_numbering.outside_numbering`).
+
+    ``item`` - имя собирается для ПУНКТА МЕНЮ, и только там к имени без английской
+    подписи добавляется пометка (:func:`_russian_only`): выбирают пункт по имени, и
+    человек обязан видеть, что имя это одно и оно по-русски. В строках-рассказах
+    (``taking ...``, ``you asked for ...``) пометки нет - там имя называется, а не
+    выбирается, и хвост читался бы как часть названия.
     """
     marks = phrase("choice.series_mark") if picture.kind == "tv" else ""
     if aside:
         marks += phrase("choice.no_part_mark")
-    return f"{_title(picture)} ({picture.year or '?'}{marks})"
+    named = f"{_title(picture)} ({picture.year or '?'}{marks})"
+    if item and _russian_only(picture):
+        named += phrase("choice.russian_title_only")
+    return named

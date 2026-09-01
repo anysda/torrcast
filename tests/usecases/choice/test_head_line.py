@@ -5,12 +5,21 @@
 
 from __future__ import annotations
 
+import pytest
+
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.tongue import RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture
 from torrcast.usecases.choice.head_line import head_line
 
 CARS = Picture(title="Тачки", year=2006, kind="movie", part=1, original=None, releases=[])
+
+
+@pytest.fixture(autouse=True)
+def _russian_catalog() -> None:
+    """Русские ожидания этого зеркала явно выбирают русский каталог."""
+    _choose_tongue(RU)
 
 
 def test_the_number_the_title_and_the_year_are_the_whole_line_without_a_reference() -> None:

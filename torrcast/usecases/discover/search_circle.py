@@ -22,7 +22,7 @@ from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
-from torrcast.usecases.choice._named import _also, _different_display_names, _prepare_titles, _title
+from torrcast.usecases.choice._named import _also, _different_display_names, _title
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._reread import _relayout, _titled_number
@@ -137,10 +137,9 @@ def search_circle(
         raise NotFoundError(phrase("discover.nothing_parsed", name=name))
     if not found:
         raise NotFoundError(_nothing(name, index, pictures))
-    _prepare_titles(found)
     lead = _leading(found)
-    if other := other_words(name, lead):
-        progress.note(phrase("discover.catalog_alias", name=name, other=other))
+    if lead is not None and other_words(name, lead):
+        progress.note(phrase("discover.catalog_alias", name=name, other=_title(lead)))
     if lead is not None and lead.also:
         # Склейка картин (:func:`~torrcast.domain.glue.glue`) - решение автоматическое, и молчать
         # о нём нельзя: человек спросил одно имя, а в меню и в отборе теперь оба.
@@ -195,6 +194,6 @@ def search_circle(
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
         raise NotFoundError(
-            phrase("discover.no_season_releases", title=found[0].title, season=want.season)
+            phrase("discover.no_season_releases", title=_title(found[0]), season=want.season)
         )
     return plans

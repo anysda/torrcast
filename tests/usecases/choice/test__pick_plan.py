@@ -13,11 +13,18 @@ import pytest
 
 from tests.usecases.choice.world import Outside, Waited, film, parts, plan
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.tongue import RU, _choose_tongue
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice.swap_note import swap_note
 
 VHS = film("Cars 2006 DVDRip XviD", seeders=100, codec="XviD", quality=None)
+
+
+@pytest.fixture(autouse=True)
+def _russian_catalog() -> None:
+    """Русские ожидания этого зеркала явно выбирают русский каталог."""
+    _choose_tongue(RU)
 
 
 def test_the_menu_is_printed_before_the_question_so_the_number_has_a_meaning() -> None:

@@ -10,6 +10,8 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Iterable
 
+import pytest
+
 from tests.usecases.choice.world import Outside, Paint, outside, parts, plan
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
@@ -24,6 +26,12 @@ CARS = ("Тачки", 2006)
 CARS2 = ("Тачки 2", 2011)
 MATRIX = ("Матрица", 1999)
 DRESSED = Fact(rating="IMDb 7.1", runtime="1 ч 57 мин")
+
+
+@pytest.fixture(autouse=True)
+def _russian_catalog() -> None:
+    """Русские ожидания этого зеркала явно выбирают русский каталог."""
+    _choose_tongue(RU)
 
 
 class Empty:

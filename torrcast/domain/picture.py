@@ -16,8 +16,6 @@ class Picture:
     year: int | None
     kind: Kind = "movie"
     original: str | None = None
-    #: Подпись, подготовленная текущим показом, когда английского original нет.
-    shown: str = ""
     part: int | None = None
     also: str = ""
     aliases: tuple[str, ...] = ()

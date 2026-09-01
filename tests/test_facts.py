@@ -11,7 +11,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.articles import MOANA
+from torrcast.domain.catalogs.tongue import RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import SOURCE_WIKI
@@ -19,6 +22,12 @@ from torrcast.domain.facts.shorten import shorten
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts as Facts
 from torrcast.usecases.choice.menu_blocks import menu_blocks
+
+
+@pytest.fixture(autouse=True)
+def _russian_catalog() -> None:
+    """Русские ожидания этого зеркала явно выбирают русский каталог."""
+    _choose_tongue(RU)
 
 
 def test_the_passport_entry_point_answers_from_the_same_cache() -> None:

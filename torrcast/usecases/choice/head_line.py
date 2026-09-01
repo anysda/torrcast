@@ -23,5 +23,6 @@ def head_line(number: int, picture: Picture, fact: Fact, aside: bool = False) ->
     (:func:`~torrcast.usecases.choice._dress._dress`). Обе печати обязаны собирать её одинаково -
     иначе строка «дополнилась» бы на самом деле подменой соседнего пункта.
     """
-    said = " · ".join(x for x in (_named(picture, aside), fact.rating, fact.runtime) if x)
+    named = _named(picture, aside, item=True)
+    said = " · ".join(x for x in (named, fact.rating, fact.runtime) if x)
     return f"  {number}. {said}"

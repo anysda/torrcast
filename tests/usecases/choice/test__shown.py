@@ -10,9 +10,12 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
+import pytest
+
 from tests.articles import MOANA as MOANA_ARTICLE
 from tests.fakes.blurb_store import FakeBlurbStore
 from tests.usecases.choice.world import Outside, Waited, parts
+from torrcast.domain.catalogs.tongue import RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.usecases.choice._shown import _shown
@@ -23,6 +26,12 @@ MOANA = (
     ("Моана", 2016, 222),
     ("Моана 2", 2024, 140),
 )
+
+
+@pytest.fixture(autouse=True)
+def _russian_catalog() -> None:
+    """Русские ожидания этого зеркала явно выбирают русский каталог."""
+    _choose_tongue(RU)
 
 
 def test_the_list_waits_for_the_blurb_but_never_for_its_ornaments() -> None:
