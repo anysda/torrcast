@@ -6,12 +6,22 @@ from dataclasses import dataclass, field
 @dataclass
 class FakeUpgradeEnvironment:
     root: bool = True
+    sudo: bool = False
     installed_loader: str = "/opt/torrcast/install"
     result: int = 0
+    elevated_result: int = 0
     handed: list[tuple[str, str, str]] = field(default_factory=list)
+    elevations: int = 0
 
     def is_root(self) -> bool:
         return self.root
+
+    def can_elevate(self) -> bool:
+        return self.sudo
+
+    def elevate(self) -> int:
+        self.elevations += 1
+        return self.elevated_result
 
     def loader(self) -> str:
         return self.installed_loader

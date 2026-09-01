@@ -52,10 +52,15 @@ become_root() {
     # с нуля: он потерял бы и версию, от которой идём, и заставку обновления, и человек
     # получил бы вместо `cast --upgrade` полную переустановку, о которой не просил.
     # Поэтому тут именно строка «повтори вот так», а не тихая подмена работы.
+    have_sudo=""
+    command -v sudo >/dev/null 2>&1 && have_sudo=1
     if [ -n "$UPGRADE_FROM" ]; then
-        fail "root is required: sudo cast --upgrade" "нужен root: sudo cast --upgrade"
+        [ -n "$have_sudo" ] \
+            && fail "root is required: sudo cast --upgrade" "нужен root: sudo cast --upgrade"
+        fail "root is required: run cast --upgrade as root" \
+             "нужен root: запусти cast --upgrade от root"
     fi
-    if command -v sudo >/dev/null 2>&1; then
+    if [ -n "$have_sudo" ]; then
         say "not root - restarting through sudo" "не root - перезапуск через sudo"
         # Язык через sudo сносим, только если он НАЗВАН в окружении однострока (TC-955):
         # экспорт дефолта отсюда сбрасывал бы язык из живого конфига при каждом
@@ -66,8 +71,10 @@ become_root() {
             curl -fsSL "$1" | sh
         ' _ "$BOOTSTRAP_URL" "$GITHUB_WEB" "$PROJECT_PATH" "${TORRCAST_LANGUAGE:-}"
     fi
-    fail "root is required: sudo sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\"" \
-        "нужен root: sudo sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\""
+    # Сюда доходят только там, где sudo нет вовсе: советовать его тут значило бы
+    # послать человека за командой, которой у него на машине не существует.
+    fail "root is required: run it as root: sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\"" \
+        "нужен root: запусти от root: sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\""
 }
 
 # Печатает тег последней версии в stdout. Спрашивается не API, а сам `/releases/latest`:

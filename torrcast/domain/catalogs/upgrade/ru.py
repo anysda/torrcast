@@ -6,10 +6,11 @@ from __future__ import annotations
 def ru() -> dict[str, str]:
     """Вернуть русский каталог кластера обновления."""
     return {
-        "upgrade.needs_root": "нужен root: sudo cast --upgrade",
+        "upgrade.needs_root": "нужен root: запусти cast --upgrade от root",
+        "upgrade.elevating": "не root - перезапуск через sudo",
         "upgrade.no_loader": (
             "эта копия поставлена раньше, чем появился cast --upgrade; обнови её один раз"
-            ' командой sudo sh -c "curl -fsSL https://torrcast.anysda.space | sh"'
+            " командой curl -fsSL https://torrcast.anysda.space | sh"
         ),
         "upgrade.show_is_on": (
             "сейчас играет «{what}», а обновление перезапускает юниты, которыми показ"

@@ -110,11 +110,13 @@ Desde el código fuente:
 
 ```sh
 git clone https://github.com/anysda/torrcast && cd torrcast
-sudo ./install.sh
+./install.sh
 ```
 
 La opción nombra el idioma a mano: `-en` instala la copia en inglés y `-ru` la rusa. Sin
-opción, una instalación limpia escribe inglés.
+opción, una instalación limpia escribe inglés. El root lo pide el propio instalador: si
+lo ejecutas como usuario normal, se reinicia solo a través de `sudo`, y en la máquina
+donde ya eres root no hace falta `sudo` en absoluto.
 
 La instalación encuentra el receptor sola, por mDNS y recorriendo las subredes locales. Si
 hay varios, `cast --tv` muestra la lista y `cast --tv <ip>` escribe la dirección
@@ -133,7 +135,7 @@ cast voices <consulta>  # las pistas de audio del release que irá al televisor
 cast releases <consulta> # la tabla de releases, por película
 cast -tg                # configuración del bot de Telegram
 cast --tv               # buscar receptores en la red
-sudo cast --upgrade     # actualizar a la última versión, o decir que ya está
+cast --upgrade          # actualizar a la última versión, o decir que ya está
 cast -h                 # ayuda con todas las opciones
 ```
 

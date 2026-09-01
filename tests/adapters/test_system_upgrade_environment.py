@@ -73,3 +73,59 @@ def test_the_temporary_copy_does_not_outlive_the_run(
 
     left = Path(capfd.readouterr().out.strip())
     assert not left.exists() and not left.parent.exists()
+
+
+def _fake_sudo(tmp_path: Path) -> Path:
+    """Подставной sudo: записывает, как его позвали, и ничего не запускает.
+
+    🔴 Настоящий sudo тут не годится ни при каком раскладе: он и правда поднимет права
+    и запустит настоящее обновление машины, на которой идёт прогон.
+    """
+    calls = tmp_path / "sudo_calls.txt"
+    sudo = tmp_path / "sudo"
+    sudo.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{calls}"\n', encoding="utf-8")
+    sudo.chmod(0o755)
+    return calls
+
+
+def test_without_sudo_the_rights_cannot_be_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.delenv("TORRCAST_ELEVATED", raising=False)
+
+    assert SystemUpgradeEnvironment().can_elevate() is False
+
+
+def test_a_run_already_raised_once_does_not_raise_itself_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Без этой метки sudo, который прав не дал, увёл бы обновление в бесконечную
+    цепочку самоподнятий - каждое со своим приглашением пароля."""
+    _fake_sudo(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("TORRCAST_ELEVATED", "1")
+
+    assert SystemUpgradeEnvironment().can_elevate() is False
+
+
+def test_the_raise_repeats_the_same_command_by_its_full_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """За sudo PATH уже не наш (`secure_path` в sudoers), поэтому команда называется
+    абсолютом, а метка «нас уже поднимали» едет явным `env`: окружение sudo вытирает."""
+    calls = _fake_sudo(tmp_path)
+    cast = tmp_path / "cast"
+    cast.write_text("#!/bin/sh\n", encoding="utf-8")
+    cast.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.delenv("TORRCAST_ELEVATED", raising=False)
+    monkeypatch.setattr("sys.argv", ["cast", "--upgrade"])
+
+    environment = SystemUpgradeEnvironment()
+
+    assert environment.can_elevate() is True
+    assert environment.elevate() == 0
+    assert calls.read_text(encoding="utf-8").strip() == (
+        f"-- env TORRCAST_ELEVATED=1 {cast} --upgrade"
+    )

@@ -101,11 +101,13 @@ curl -fsSL https://torrcast.anysda.space | sh
 
 ```sh
 git clone https://github.com/anysda/torrcast && cd torrcast
-sudo ./install.sh
+./install.sh
 ```
 
 フラグで言語を明示できます。`-en` は英語版、`-ru` はロシア語版です。フラグなしの新規
-インストールは英語になります。
+インストールは英語になります。root 権限はインストーラ自身が求めます。一般ユーザーで
+実行すると `sudo` 経由で自分を起動し直しますし、すでに root の機械では `sudo` は
+まったく要りません。
 
 受信機はインストールが自分で見つけます。mDNS と、ローカルのサブネットを順に当たる方法です。
 複数ある場合は `cast --tv` が一覧を出し、`cast --tv <ip>` がアドレスを直接書き込みます。
@@ -123,7 +125,7 @@ cast voices <query>     # テレビへ送られるリリースの音声トラッ
 cast releases <query>   # 作品ごとのリリース一覧
 cast -tg                # Telegram ボットの設定
 cast --tv               # ネットワーク上の受信機を探す
-sudo cast --upgrade     # 最新リリースへ更新する（最新なら、そう伝える）
+cast --upgrade          # 最新リリースへ更新する（最新なら、そう伝える）
 cast -h                 # すべてのフラグのヘルプ
 ```
 

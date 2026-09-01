@@ -18,12 +18,44 @@ from pathlib import Path
 #: спрашивали одно и то же место.
 PREFIX = "/opt/torrcast"
 
+#: Метка «нас уже поднимали через sudo». 🔴 Едет за sudo ЯВНЫМ `env`, а не окружением:
+#: sudo окружение вытирает, и без метки sudo, который прав не дал (так бывает при
+#: собственном `runas` в sudoers), увёл бы обновление в бесконечную цепочку
+#: самоподнятий - каждое со своим приглашением пароля.
+ELEVATED = "TORRCAST_ELEVATED"
+
 
 class SystemUpgradeEnvironment:
-    """Права, путь до загрузчика и его запуск копией во временном каталоге."""
+    """Права, поднятие прав, путь до загрузчика и его запуск копией во временном каталоге."""
 
     def is_root(self) -> bool:
         return os.geteuid() == 0
+
+    def can_elevate(self) -> bool:
+        if os.environ.get(ELEVATED):
+            return False
+        return bool(shutil.which("sudo")) and bool(self._myself())
+
+    def elevate(self) -> int:
+        """Позвать себя же под sudo и отдать наверх его код возврата.
+
+        Потоки не перехватываются, и это не мелочь: приглашение пароля рисует sudo, и
+        рисовать его он обязан в терминал человека. Своего приглашения тут нет и быть не
+        может - пароль идёт мимо продукта, из `/dev/tty` прямо в sudo.
+        """
+        done = subprocess.run(
+            ["sudo", "--", "env", f"{ELEVATED}=1", self._myself(), *sys.argv[1:]],
+            check=False,
+        )
+        return done.returncode
+
+    def _myself(self) -> str:
+        """Чем звать эту же команду заново, либо пусто, если себя не найти.
+
+        Абсолютом: за sudo PATH уже не наш (`secure_path` в sudoers), и голое имя
+        разрешалось бы в чужом окружении.
+        """
+        return shutil.which(sys.argv[0]) or ""
 
     def loader(self) -> str:
         path = Path(os.environ.get("TORRCAST_PREFIX", PREFIX)) / "install"

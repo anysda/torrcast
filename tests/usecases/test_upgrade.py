@@ -142,3 +142,33 @@ def test_the_words_are_resolved_before_the_tree_is_rewritten(
 
     assert _upgrade(environment=environment, console=console).run() == EXIT_INFRA
     assert console.messages == [said]
+
+
+def test_without_root_but_with_sudo_the_command_repeats_itself_instead_of_refusing() -> None:
+    """Отказ по правам - последнее средство, а не первое: пока есть чем поднять права,
+    человеку незачем узнавать про них вовсе, он просто вводит пароль самому sudo."""
+    console = FakeConsole()
+    environment = FakeUpgradeEnvironment(root=False, sudo=True)
+
+    assert _upgrade(environment=environment, console=console).run() == EXIT_OK
+    assert console.messages == [phrase("upgrade.elevating")]
+    assert environment.elevations == 1
+    assert environment.handed == [], "работа ушла загрузчику от не-root"
+
+
+def test_the_code_of_the_raised_run_comes_back_undressed() -> None:
+    """Поднятая работа - та же работа: её код возврата и есть ответ команды. Отказ
+    sudo (не тот пароль) обязан доехать отказом, а не «обновлено»."""
+    environment = FakeUpgradeEnvironment(root=False, sudo=True, elevated_result=1)
+
+    assert _upgrade(environment=environment).run() == 1
+
+
+def test_a_running_show_is_asked_about_before_the_password() -> None:
+    """Показ спрашивается раньше прав и в этом случае тоже: спросить пароль, чтобы
+    следом отказать из-за идущей серии, - худший из возможных порядков."""
+    session = FakePlaybackSession(playing=True)
+    environment = FakeUpgradeEnvironment(root=False, sudo=True)
+
+    assert _upgrade(session, environment).run() == EXIT_INFRA
+    assert environment.elevations == 0

@@ -49,6 +49,11 @@ class Upgrade:
         if refusal:
             self._console.write(refusal)
             return EXIT_INFRA
+        if not self._environment.is_root():
+            # Прав нет, но есть чем их поднять: команда не падает с просьбой повторить
+            # её руками, а повторяет себя сама. Пароль спросит сам sudo.
+            self._console.write(phrase("upgrade.elevating"))
+            return self._environment.elevate()
         loader = self._environment.loader()
         # Надписи разрешаются в строки ДО передачи работы загрузчику - и это не стиль.
         # 🔴 Пока идёт установка, pip сносит и переписывает файлы того самого пакета, из
@@ -81,7 +86,10 @@ class Upgrade:
             if not what:
                 return phrase("upgrade.show_is_on_unnamed")
             return phrase("upgrade.show_is_on", what=what)
-        if not self._environment.is_root():
+        if not self._environment.is_root() and not self._environment.can_elevate():
+            # Отказ по правам остаётся отказом только там, где поднять их нечем: нет
+            # sudo, либо им уже поднимались и root всё равно не вышел. Во всех остальных
+            # случаях человеку тут говорить нечего - см. :meth:`run`.
             return phrase("upgrade.needs_root")
         if not self._environment.loader():
             return phrase("upgrade.no_loader")

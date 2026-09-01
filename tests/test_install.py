@@ -953,3 +953,150 @@ def test_the_loader_lands_next_to_the_venv_for_upgrade_to_have_something_to_call
     assert landed.is_file(), f"загрузчика в $PREFIX нет, лежит: {lying}"
     assert landed.stat().st_mode & 0o111, f"загрузчик не исполняем: {landed.stat().st_mode:o}"
     assert landed.read_bytes() == (REPO / "install").read_bytes(), "в $PREFIX лёг не тот файл"
+
+
+def _rights_stand(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    """Стенд поднятия прав: `id`, всегда говорящий «не root», и подставной sudo.
+
+    🔴 Настоящий sudo в этой проверке участвовать не может НИ НА КАКОМ шаге: найдя его,
+    установщик поднимется по-настоящему и пойдёт ставить продукт на машину, которая об
+    этом не просила. Ровно так и вышло при первом замере вживую - поддельный `id`
+    первым в PATH, настоящий sudo в хвосте того же PATH, полная установка от root.
+    Поэтому чем поднимать права, установщику называют явно (`TORRCAST_SUDO`), а
+    подставка только записывает, как её позвали, и ничего не запускает.
+    """
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "id").write_text("#!/bin/sh\nprintf '1000\\n'\n", encoding="utf-8")
+    (bindir / "id").chmod(0o755)
+    calls = tmp_path / "sudo_calls.txt"
+    sudo = tmp_path / "sudo"
+    sudo.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{calls}"\n', encoding="utf-8")
+    sudo.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "TORRCAST_SUDO": str(sudo),
+    }
+    env.pop("TORRCAST_NO_ROOT", None)
+    env.pop("TORRCAST_LANGUAGE", None)
+    return env, calls
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize("language", ["ru", "en"])
+def test_a_plain_user_is_restarted_through_sudo_with_the_named_tongue(
+    tmp_path: Path, language: str
+) -> None:
+    """Не root - установщик не просит повторить себя руками, а перезапускает себя сам.
+
+    Замер поведением: смотрим не текст install.sh, а то, чем на самом деле позвали
+    sudo. Язык обязан ехать за sudo аргументом `env`, а не переменной окружения:
+    настоящий sudo окружение вытирает молча (та же грабля куплена бутстрапом).
+    """
+    env, calls = _rights_stand(tmp_path)
+
+    done = subprocess.run(
+        [str(REPO / "install.sh"), f"-{language}"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert calls.exists(), f"sudo ни разу не был позван (stderr: {done.stderr!r})"
+    asked = calls.read_text(encoding="utf-8").strip()
+    assert f"TORRCAST_LANGUAGE={language}" in asked, (
+        f"названный язык не пережил перезапуск через sudo: {asked!r}"
+    )
+    assert asked.endswith(str(REPO / "install.sh")), (
+        f"sudo позвали не установщиком, а чем-то ещё: {asked!r}"
+    )
+    assert "restarting through sudo" in done.stderr or "перезапуск через sudo" in done.stderr
+
+
+@pytest.mark.machine
+def test_silence_about_the_tongue_stays_silence_across_sudo(tmp_path: Path) -> None:
+    """🔴 TC-955. Не названный в этот заход язык за sudo не подставляется умолчанием:
+    иначе повторная установка не-root'ом перебивала бы язык живого конфига."""
+    env, calls = _rights_stand(tmp_path)
+
+    subprocess.run([str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False)
+
+    asked = calls.read_text(encoding="utf-8").strip()
+    assert "TORRCAST_LANGUAGE" not in asked, f"молчание доехало словом: {asked!r}"
+
+
+@pytest.mark.machine
+def test_without_sudo_the_way_out_is_named_without_naming_sudo(tmp_path: Path) -> None:
+    """Машина, где человек уже root, а sudo не поставлен вовсе (обычное дело в LXC),
+    получала от нас команду, которой у неё нет. Отказ обязан звать к root, а не к sudo.
+    """
+    env, _ = _rights_stand(tmp_path)
+    env["TORRCAST_SUDO"] = str(tmp_path / "no-such-sudo")
+
+    done = subprocess.run(
+        [str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False
+    )
+
+    assert done.returncode == 1
+    assert "run as root" in done.stderr
+    assert "sudo" not in done.stderr, f"sudo нет, а совет про sudo есть: {done.stderr!r}"
+
+
+def test_the_rights_are_asked_about_before_anything_is_done() -> None:
+    """Поднятие стоит первым в main и раньше первой правки на диске: спросить пароль
+    посреди установки значило бы бросить машину на полпути."""
+    body = _body("become_root")
+    main = SCRIPT.split("main() {", 1)[1]
+
+    assert body.index('[ "$(id -u)" -eq 0 ]') < body.index('command -v "$SUDO"')
+    assert main.index("become_root") < main.index("cleanup_login_notice")
+
+
+@pytest.mark.machine
+def test_every_override_survives_the_restart_through_sudo(tmp_path: Path) -> None:
+    """🔴 Куплено живым прогоном: `TORRCAST_PHASES="torrcast" ./install.sh` не-root'ом
+    перезапустился под sudo БЕЗ этой переменной и вместо одной названной фазы прошёл
+    установку целиком. Молчаливая потеря переопределения хуже отказа - человек просил
+    одно, а машине сделали другое. Поэтому за sudo едут все TORRCAST_*, а не те, о
+    которых вспомнил автор поднятия: мерка тут - переменная, которую поднятие не
+    называет по имени нигде."""
+    env, calls = _rights_stand(tmp_path)
+    env["TORRCAST_PHASES"] = "torrcast"
+    env["TORRCAST_PREFIX"] = str(tmp_path / "prefix")
+
+    subprocess.run([str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False)
+
+    asked = calls.read_text(encoding="utf-8").strip()
+    assert "TORRCAST_PHASES=torrcast" in asked, f"названные фазы потерялись за sudo: {asked!r}"
+    assert f"TORRCAST_PREFIX={tmp_path / 'prefix'}" in asked, (
+        f"названный корень установки потерялся за sudo: {asked!r}"
+    )
+
+
+@pytest.mark.machine
+@pytest.mark.skipif(os.geteuid() == 0, reason="root читает и нечитаемое - мерить нечем")
+def test_a_config_the_user_cannot_read_does_not_replace_the_restart_with_a_refusal(
+    tmp_path: Path,
+) -> None:
+    """🔴 Куплено живым прогоном на машине с уже поставленным продуктом. Конфиг лежит
+    под root'ом, а язык из него установщик читает ДО поднятия прав: `[ -f ]` отвечал
+    «да», sed падал «Permission denied», и `set -e` ронял установку ещё до первого её
+    слова. Обычный пользователь получал отказ прав вместо перезапуска под sudo - то
+    есть ровно на той машине, ради которой поднятие и заводилось."""
+    env, calls = _rights_stand(tmp_path)
+    etc = tmp_path / "etc"
+    etc.mkdir()
+    (etc / "config.json").write_text('{"language": "ru"}\n', encoding="utf-8")
+    (etc / "config.json").chmod(0)
+    env["TORRCAST_CONFIG_DIR"] = str(etc)
+
+    done = subprocess.run(
+        [str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False
+    )
+
+    assert calls.exists(), (
+        f"перезапуска не было, установка легла раньше него (stderr: {done.stderr!r})"
+    )
+    assert "Permission denied" not in done.stderr
