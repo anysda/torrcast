@@ -395,16 +395,22 @@ def test_release_assets_are_selected_by_os_and_architecture() -> None:
     assert "endswith($suffix)" in _body("install_prowlarr_binary")
 
 
-def test_macos_uses_brew_ffmpeg_and_system_keychain_trust() -> None:
+def test_macos_uses_brew_ffmpeg_and_installs_no_keychain_trust() -> None:
+    """The macOS keychain refuses unattended trust, so no trusted root is installed
+    there at all; Prowlarr relaxes checks for local addresses only (see
+    tests/test_install_launchd.py)."""
     ffmpeg = _body("install_ffmpeg")
-    trust = _body("install_shim_trust")
-    remove = _body("remove_shim_trust")
 
     assert ffmpeg.index('[ "${OS_FAMILY:-linux}" = macos ]') < ffmpeg.index("static ffmpeg build")
     assert "brew_as_invoker install ffmpeg" in ffmpeg
-    assert "security add-trusted-cert" in trust
-    assert "security delete-certificate" in remove
-    assert "update-ca-certificates --fresh" in remove
+    # brew's prefix is on nobody's default PATH; link the tools where login shells,
+    # sudo and launchd jobs all see them.
+    assert 'ln -sfn "$ff" "$BIN_DIR/ffmpeg"' in ffmpeg
+    assert 'ln -sfn "$fp" "$BIN_DIR/ffprobe"' in ffmpeg
+    assert "security add-trusted-cert" not in SCRIPT
+    assert "security delete-certificate" not in SCRIPT
+    assert "remove_shim_trust" not in SCRIPT
+    assert "update-ca-certificates --fresh" in _body("retire_old_shim")
 
 
 def test_a_cut_catalog_is_not_a_successful_install() -> None:

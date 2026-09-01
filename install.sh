@@ -428,7 +428,15 @@ UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrom
 # голый http на IP: ни серта, ни имени, ни DNS в пути показа. Адрес раздачи не
 # настраивается — код сам берёт тот интерфейс, с которого хост виден телевизору.
 # TORRCAST_HLS_BASE_URL — запасной выход, если прямой путь не заработает.
-HLS_DIR="${TORRCAST_HLS_DIR:-/dev/shm/torrcast}"
+if [ "$OS_FAMILY" = macos ]; then
+    # macOS has no /dev/shm or a tmpfs mounted by default.  A RAM disk would have to be
+    # recreated and mounted before every service starts, so use the OS temporary-data
+    # area instead.  This is reliable across boots, but writes the 0.5-1.2 GiB segment
+    # window to disk during a show; setup_hls says that cost out loud.
+    HLS_DIR="${TORRCAST_HLS_DIR:-/var/tmp/torrcast}"
+else
+    HLS_DIR="${TORRCAST_HLS_DIR:-/dev/shm/torrcast}"
+fi
 HLS_PORT="${TORRCAST_HLS_PORT:-8080}"
 HLS_TRANSPORT="${TORRCAST_TRANSPORT:-http}"
 HLS_BASE_URL="${TORRCAST_HLS_BASE_URL:-}"
@@ -890,6 +898,16 @@ EOF
         fi
         return 0
     fi
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        local fresh=0 was_up=0 label="org.torrcast.$1"
+        launchctl print "system/$label" >/dev/null 2>&1 && was_up=1
+        write_unit "$1" "$2" "$3" "$quoted" && fresh=1
+        if [ "$fresh" = 1 ] || [ "$was_up" = 0 ]; then
+            launchd_bootout "$label"
+            launchctl bootstrap system "/Library/LaunchDaemons/$label.plist"
+        fi
+        return 0
+    fi
     # Изменившийся юнит - это не только daemon-reload: `enable --now` уже поднятую
     # службу не перезапустит, и она осталась бы жить со СТАРЫМИ потолками памяти. На
     # чистой машине перезапускать нечего, на обновлении - обязательно.
@@ -906,11 +924,29 @@ EOF
     return 0
 }
 
+# bootout у launchd асинхронен: задание уходит из области не сразу, и поспешный
+# bootstrap того же label кончается гонкой - замер на стенде: bootstrap ответил 0,
+# а завершившийся чуть позже bootout снял уже НОВУЮ регистрацию, и служба исчезла
+# (`launchctl print`: Could not find service). Поэтому ждём, пока области не
+# перестанет его видеть.
+launchd_bootout() {  # $1 - label; снимает задание и ждёт, пока область его держит
+    launchctl bootout "system/$1" >/dev/null 2>&1 || true
+    local i=0
+    while launchctl print "system/$1" >/dev/null 2>&1; do
+        i=$((i + 1))
+        [ "$i" -ge 30 ] && return 1
+        sleep 1
+    done
+    return 0
+}
+
 # Погасить службу, чтобы следующий run_service поднял её заново: `enable --now` и
 # pgrep в песочнице живой процесс не трогают, а после обновления кода это и нужно.
 stop_service() {  # $1 имя, $2 начало строки запуска для песочницы
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
         pkill -f -- "$(proc_mask "$2")" >/dev/null 2>&1 || true
+    elif [ "${OS_FAMILY:-linux}" = macos ]; then
+        launchctl bootout "system/org.torrcast.$1" >/dev/null 2>&1 || true
     else
         systemctl stop "$1.service" >/dev/null 2>&1 || true
     fi
@@ -1213,7 +1249,12 @@ install_ffmpeg() {
         ffmpeg_smoke "$probe" "$ff" "$fp" || die \
             "Homebrew ffmpeg $have failed the MPEG-TS check" "ffmpeg $have из Homebrew не прошёл проверку MPEG-TS"
         rm -rf "$probe"
-        info "Homebrew ffmpeg $have ($ff)" "ffmpeg $have из Homebrew ($ff)"
+        # brew кладёт бинари в /opt/homebrew/bin, которого нет ни у launchd, ни у
+        # sudo, ни у нелогинного ssh - только у терминала через path_helper. Ссылки в
+        # /usr/local/bin (он в /etc/paths) делают ffmpeg/ffprobe видимыми отовсюду.
+        ln -sfn "$ff" "$BIN_DIR/ffmpeg"
+        ln -sfn "$fp" "$BIN_DIR/ffprobe"
+        info "Homebrew ffmpeg $have ($ff), linked into $BIN_DIR" "ffmpeg $have из Homebrew ($ff), ссылки в $BIN_DIR"
         return
     fi
     # Своя сборка уже стоит - ничего не качаем. Переставить принудительно: удалить
@@ -1557,7 +1598,14 @@ torrserver_asset_name() {  # $1 - ОС, $2 - uname -m
 
 install_torrserver() {
     local budget place where upgraded=0
-    place="$(ts_cache_place)" || die "could not calculate TorrServer cache size - see the reason above" "не рассчитался размер кэша TorrServer - причина выше"
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        # launchd has no cgroup-like hard memory ceiling.  Keeping TorrServer's cache
+        # in RAM would therefore leave its measured 2x heap amplification unbounded;
+        # use the independently sized disk budget and retain only Go's soft limit.
+        place="disk $(ts_cache_disk)" || die "could not calculate TorrServer cache size - see the reason above" "не рассчитался размер кэша TorrServer - причина выше"
+    else
+        place="$(ts_cache_place)" || die "could not calculate TorrServer cache size - see the reason above" "не рассчитался размер кэша TorrServer - причина выше"
+    fi
     TS_DISK="${place%% *}"
     TS_CACHE="${TORRCAST_TS_CACHE:-${place#* }}"
     if [ "$TS_DISK" = disk ]; then
@@ -1611,8 +1659,6 @@ install_torrserver() {
         fi
     fi
 
-    [ "${OS_FAMILY:-linux}" != macos ] || return 0
-
     # Два потолка вокруг кэша, и оба не для красоты.
     # GOMEMLIMIT - мягкий: он не запрещает расти, а заставляет сборщик мусора Go
     # работать раньше и чаще, и именно он снимает тот самый двукратный перерасход над
@@ -1625,11 +1671,18 @@ install_torrserver() {
     # (Restart=on-failure): показ прервётся, но машина останется живой - а вставший колом
     # хозяин без ssh это ровно то, что мы чиним.
     [ "$upgraded" = 0 ] || stop_service torrserver "$PREFIX/bin/TorrServer"
-    run_service torrserver "TorrServer для torrcast" \
-        "$PREFIX/bin/TorrServer --port $TS_PORT --ip $TS_HOST --path $PREFIX/torrserver" \
-        "Environment=GOMEMLIMIT=${budget}B
+    local memory_knobs="Environment=GOMEMLIMIT=${budget}B"
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        loud "launchd has no enforceable memory ceiling; TorrServer uses a disk cache and only the soft GOMEMLIMIT guard" \
+            "у launchd нет исполняемого жёсткого потолка памяти; TorrServer использует кэш на диске и только мягкий GOMEMLIMIT"
+    else
+        memory_knobs="$memory_knobs
 MemoryMax=$(( budget + 256 * 1024 * 1024 ))
 MemorySwapMax=0"
+    fi
+    run_service torrserver "TorrServer для torrcast" \
+        "$PREFIX/bin/TorrServer --port $TS_PORT --ip $TS_HOST --path $PREFIX/torrserver" \
+        "$memory_knobs"
     wait_http "$TS_URL/echo" 60 || die "TorrServer did not start at $TS_URL" "TorrServer не поднялся на $TS_URL"
 
     # Кэш там, где его больше поместилось, публичные ретрекеры в magnet'ы, DHT и PEX
@@ -1762,25 +1815,22 @@ retire_old_shim() {
     info "old single-host shim removed - the shared shim replaces it" "прежний одиночный шим убран - его место занимает общий"
 }
 
-remove_shim_trust() {  # $1 - сертификат, чей отпечаток снимается
-    if [ "${OS_FAMILY:-linux}" = macos ]; then
-        local fingerprint
-        fingerprint="$(openssl x509 -in "$1" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g')"
-        [ -z "$fingerprint" ] || security delete-certificate -Z "$fingerprint" /Library/Keychains/System.keychain >/dev/null 2>&1 || true
-    else
-        rm -f /usr/local/share/ca-certificates/torrcast-shim.crt
-        update-ca-certificates --fresh >/dev/null 2>&1 || true
-    fi
-}
-
 install_shim_trust() {  # $1 - доверенный корень SNI-шима
     if [ "${OS_FAMILY:-linux}" = macos ]; then
-        remove_shim_trust "$1"
-        security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$1"
-    else
-        install -m 0644 "$1" /usr/local/share/ca-certificates/torrcast-shim.crt
-        update-ca-certificates >/dev/null 2>&1
+        # На macOS доверенный корень НЕ ставится вовсе: ни системный, ни
+        # пользовательский домен keychain не принимает его из неинтерактивной сессии
+        # (оба отказа SecTrustSettings сняты живьём), а просить человека доделать
+        # установку руками продукт не вправе. Вместо доверия Prowlarr на этой
+        # платформе отпускает проверку сертификата до шима (см. install_prowlarr), и
+        # это ничего не снимает со сквозной проверки: на обходных маршрутах шим сам
+        # спрашивает источник по IP без SNI и его серт не проверяет
+        # (_plain_context в sni-shim.py) - ни на одной платформе.
+        loud "the shim root is not trusted on macOS (the keychain refuses unattended trust); Prowlarr skips certificate checks up to the shim only - see the Prowlarr phase" \
+            "корень шима на macOS не становится доверенным (keychain не принимает его без рук); Prowlarr снимает проверку серта только до шима - см. фазу Prowlarr"
+        return 0
     fi
+    install -m 0644 "$1" /usr/local/share/ca-certificates/torrcast-shim.crt
+    update-ca-certificates >/dev/null 2>&1
 }
 
 setup_shim() {  # $1 - имена, которые ведём через шим (через запятую), дальше маршруты имя=кандидат[,…]
@@ -1818,10 +1868,6 @@ setup_shim() {  # $1 - имена, которые ведём через шим (
     # задать (SSL_CERT_FILE он игнорирует — проверено). Ключ остаётся доступным только root.
     install_shim_trust "$SHIM_DIR/shim.crt"
 
-    # Следующий заход добавит launchd. До него сертификат уже честно установлен, но
-    # процесс шима на macOS запускать и изображать работающим нельзя.
-    [ "${OS_FAMILY:-linux}" != macos ] || return 0
-
     [ "$(cat "$SHIM_DIR/routes" 2>/dev/null)" = "$(printf '%s\n' "${routes[@]}")" ] || changed=1
     printf '%s\n' "${routes[@]}" >"$SHIM_DIR/routes"
     # Чем шим перещупывает источники (:data:`SHIMS` без кандидатов). Файлом, а не строкой
@@ -1855,6 +1901,14 @@ Environment=TORRCAST_PROBE_STALL=$PROBE_STALL
 Environment=TORRCAST_PROBE_FLOOR=$PROBE_FLOOR
 Environment=TORRCAST_PROBE_UA=$UA
 Sockets=torrcast-shim.socket"
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        # Python has no standard binding for launch_activate_socket.  Let the shim bind
+        # its own port: launchd still restarts it, but connections see refusal during
+        # that restart instead of waiting in a launchd-owned socket backlog.
+        knobs="${knobs%$'\n'Sockets=torrcast-shim.socket}"
+        info "the macOS shim owns its listening port; a restart can briefly refuse connections (no socket activation)" \
+            "на macOS порт слушает сам шим; при перезапуске возможен краткий отказ соединений (без socket activation)"
+    fi
     # Маска - начало строки запуска, без маршрутов: у живого процесса они прежние, а
     # погасить надо именно его.
     if [ "$changed" = 1 ]; then
@@ -1863,7 +1917,7 @@ Sockets=torrcast-shim.socket"
     fi
     # Socket-unit владеет портом независимо от процесса: во время рестарта входящие
     # соединения ждут новый шим в backlog, а не получают Connection refused.
-    if [ -z "${TORRCAST_NO_SYSTEMD:-}" ]; then
+    if [ -z "${TORRCAST_NO_SYSTEMD:-}" ] && [ "${OS_FAMILY:-linux}" != macos ]; then
         local socket_unit=/etc/systemd/system/torrcast-shim.socket socket_body
         socket_body="[Unit]
 Description=Сокет TLS-шима
@@ -1898,7 +1952,7 @@ WantedBy=sockets.target"
     # этому месту на диске, поэтому «Socket service not loaded, refusing» здесь
     # невозможен, и стража не нужна: падение может значить только чужой процесс на
     # порту, а такое проглатывать нельзя.
-    if [ -z "${TORRCAST_NO_SYSTEMD:-}" ]; then
+    if [ -z "${TORRCAST_NO_SYSTEMD:-}" ] && [ "${OS_FAMILY:-linux}" != macos ]; then
         systemctl enable --now torrcast-shim.socket
     fi
 }
@@ -2134,27 +2188,92 @@ prowlarr_fallback_url() {  # $1 - ОС, $2 - uname -m
     printf 'https://prowlarr.servarr.com/v1/update/master/updatefile?os=%s&runtime=netcore&arch=%s' "$os" "$arch"
 }
 
+# Apple Silicon не исполняет arm64-код без подписи вовсе: сборка Prowlarr её не
+# несёт, и launchd получает OS_REASON_EXEC ещё до первой строки журнала (замер на
+# стенде: бинарь жив, `file` видит Mach-O arm64, а запуск кончается SIGKILL).
+# Ad-hoc подпись (`codesign -s -`) ничего не удостоверяет - она даёт ядру
+# обязательный для arm64 дескриптор кода; ставится локально, без сети и keychain.
+# Идемпотентно: уже подписанное (codesign -v) не трогаем.
+sign_macho_tree() {  # $1 - каталог; ad-hoc подписывает каждый неподписанный Mach-O
+    local f signed=0
+    while IFS= read -r f; do
+        case "$(file -b "$f" 2>/dev/null)" in
+            *Mach-O*)
+                codesign -v "$f" 2>/dev/null && continue
+                codesign --sign - --force "$f" >/dev/null \
+                    || die "ad-hoc signing failed: $f" "ad-hoc подпись не встала: $f"
+                signed=$(( signed + 1 ))
+                ;;
+        esac
+    done <<EOF
+$(find "$1" -type f)
+EOF
+    [ "$signed" = 0 ] || info "ad-hoc signed $signed Mach-O files (Apple Silicon refuses unsigned arm64 code)" \
+        "ad-hoc подписаны файлы Mach-O: $signed (Apple Silicon не исполняет неподписанный arm64-код)"
+}
+
 install_prowlarr_binary() {
-    [ ! -x "$PREFIX/prowlarr/Prowlarr" ] || { skip "Prowlarr binary" "бинарь Prowlarr"; return; }
-    local url asset fallback
-    asset="$(prowlarr_asset_name "$OS_FAMILY" "$MACHINE_ARCH")" || die \
-        "no Prowlarr archive for $OS_FAMILY/$MACHINE_ARCH; see Prowlarr/Prowlarr releases" \
-        "нет архива Prowlarr под $OS_FAMILY/$MACHINE_ARCH; см. релизы Prowlarr/Prowlarr"
-    fallback="${TORRCAST_PL_FALLBACK:-$(prowlarr_fallback_url "$OS_FAMILY" "$MACHINE_ARCH")}" || die \
-        "no Prowlarr fallback for $OS_FAMILY/$MACHINE_ARCH" "нет запасной сборки Prowlarr под $OS_FAMILY/$MACHINE_ARCH"
-    url="$(gh_release Prowlarr/Prowlarr "$PL_VERSION" Prowlarr \
-        | jq -r --arg suffix "$asset" '[.assets[]?|select(.name|endswith($suffix))][0]
-                 .browser_download_url // empty')" || url=""
-    if [ -z "$url" ]; then
-        info "GitHub did not provide the build - trying $fallback" "GitHub сборку не отдал - иду на $fallback"
-        url="$fallback"
+    if [ -x "$PREFIX/prowlarr/Prowlarr" ]; then
+        skip "Prowlarr binary" "бинарь Prowlarr"
+    else
+        local url asset fallback
+        asset="$(prowlarr_asset_name "$OS_FAMILY" "$MACHINE_ARCH")" || die \
+            "no Prowlarr archive for $OS_FAMILY/$MACHINE_ARCH; see Prowlarr/Prowlarr releases" \
+            "нет архива Prowlarr под $OS_FAMILY/$MACHINE_ARCH; см. релизы Prowlarr/Prowlarr"
+        fallback="${TORRCAST_PL_FALLBACK:-$(prowlarr_fallback_url "$OS_FAMILY" "$MACHINE_ARCH")}" || die \
+            "no Prowlarr fallback for $OS_FAMILY/$MACHINE_ARCH" "нет запасной сборки Prowlarr под $OS_FAMILY/$MACHINE_ARCH"
+        url="$(gh_release Prowlarr/Prowlarr "$PL_VERSION" Prowlarr \
+            | jq -r --arg suffix "$asset" '[.assets[]?|select(.name|endswith($suffix))][0]
+                     .browser_download_url // empty')" || url=""
+        if [ -z "$url" ]; then
+            info "GitHub did not provide the build - trying $fallback" "GitHub сборку не отдал - иду на $fallback"
+            url="$fallback"
+        fi
+        info "downloading $url" "качаю $url"
+        install -d -m 0755 "$PREFIX/prowlarr"
+        fetch -o "$PREFIX/prowlarr.tar.gz" "$url" || die "could not download Prowlarr: $url" "не скачался Prowlarr: $url"
+        tar -oxzf "$PREFIX/prowlarr.tar.gz" -C "$PREFIX/prowlarr" --strip-components=1
+        rm -f "$PREFIX/prowlarr.tar.gz"
+        [ -x "$PREFIX/prowlarr/Prowlarr" ] || die "Prowlarr archive did not contain a binary" "распаковка Prowlarr не дала бинаря"
     fi
-    info "downloading $url" "качаю $url"
-    install -d -m 0755 "$PREFIX/prowlarr"
-    fetch -o "$PREFIX/prowlarr.tar.gz" "$url" || die "could not download Prowlarr: $url" "не скачался Prowlarr: $url"
-    tar -oxzf "$PREFIX/prowlarr.tar.gz" -C "$PREFIX/prowlarr" --strip-components=1
-    rm -f "$PREFIX/prowlarr.tar.gz"
-    [ -x "$PREFIX/prowlarr/Prowlarr" ] || die "Prowlarr archive did not contain a binary" "распаковка Prowlarr не дала бинаря"
+    # Подпись нужна и на повторном заходе: стоящий бинарь мог остаться от захода,
+    # оборванного до неё.
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        sign_macho_tree "$PREFIX/prowlarr"
+    fi
+}
+
+# На macOS доверенного корня шима в keychain нет (почему - говорит install_shim_trust),
+# поэтому Prowlarr на этой платформе отпускает проверку сертификата ровно для имён,
+# чьи ВСЕ адреса локальны: DisabledForLocalAddresses у X509CertificateValidationService
+# резолвит имя из URL (Dns.GetHostEntry, читающий и /etc/hosts) и снимает проверку,
+# только когда каждый полученный адрес - loopback/private по IsLocalAddress(). Имена
+# трекеров прибиты к шиму через hosts на 127.0.0.1, поэтому под правило попадают только
+# они, а индексеры с публичными адресами проверяются по-прежнему - «не проверять вообще»
+# (Disabled) здесь нарочно НЕ стоит. На Linux работает системное доверие корню шима, и
+# функция ничего не делает.
+# Задаётся через API, а не правкой config.xml: Prowlarr переписывает config.xml при
+# каждом старте и отбрасывает элемент, вставленный снаружи (замер на стенде: после
+# рестарта службы элемент исчезал) - правка файла жила бы ровно до первого
+# перезапуска. Свою же настройку, записанную через API, он персистит сам. Поэтому
+# зовётся только после того, как служба поднялась и отвечает.
+prowlarr_cert_relax() {
+    [ "${OS_FAMILY:-linux}" = macos ] || return 0
+    local key current
+    key="$(prowlarr_apikey)"
+    [ -n "$key" ] || die "could not read apikey from Prowlarr config.xml" "не вычитал apikey из config.xml Prowlarr"
+    current="$(curl -fsS "$PL_URL/api/v1/config/host" -H "X-Api-Key: $key" | jq -r '.certificateValidation // empty')"
+    if [ "$current" = disabledForLocalAddresses ]; then
+        skip "certificate validation relaxed for local addresses" "проверка серта уже ослаблена для локальных адресов"
+    else
+        curl -fsS -X PUT "$PL_URL/api/v1/config/host" -H "X-Api-Key: $key" -H 'Content-Type: application/json' \
+            --data "$(curl -fsS "$PL_URL/api/v1/config/host" -H "X-Api-Key: $key" \
+                | jq -c '.certificateValidation = "disabledForLocalAddresses"')" >/dev/null \
+            || die "Prowlarr refused certificateValidation=disabledForLocalAddresses" "Prowlarr не принял certificateValidation=disabledForLocalAddresses"
+        info "certificate validation now relaxed for local addresses via the Prowlarr API" "проверка серта ослаблена для локальных адресов через API Prowlarr"
+    fi
+    loud "on macOS Prowlarr skips TLS certificate verification only for names resolving to local addresses (the shim names pinned to 127.0.0.1); indexers with public addresses are still verified" \
+        "на macOS Prowlarr снимает проверку серта только для имён, резолвящихся в локальные адреса (имена шима прибиты к 127.0.0.1); индексеры с публичными адресами проверяются по-прежнему"
 }
 
 install_prowlarr() {
@@ -2162,7 +2281,6 @@ install_prowlarr() {
     pick_python
     install -d -m 0755 "$PREFIX/prowlarr-data"
     install_prowlarr_binary
-    [ "${OS_FAMILY:-linux}" != macos ] || return 0
 
     # AniLibria отдаёт поиск релизов и их торренты двумя открытыми
     # REST-запросами. Местный адаптер склеивает их в обычную схему
@@ -2230,6 +2348,9 @@ XML
     run_service prowlarr "Prowlarr для torrcast" \
         "$PREFIX/prowlarr/Prowlarr -nobrowser -data=$PREFIX/prowlarr-data" "$PL_IPV4"
     wait_http "$PL_URL/ping" 120 || die "Prowlarr did not start at $PL_URL" "Prowlarr не поднялся на $PL_URL"
+    # Только для macOS и только после того, как служба отвечает: настройка едет через
+    # API, а не через config.xml (причина - в комментарии функции). На Linux - no-op.
+    prowlarr_cert_relax
 
     # Определения должны лежать на месте раньше, чем у Prowlarr спросят схему, - иначе
     # индексеров в ней просто не окажется. Служба поднимается ровно столько же времени,
@@ -2819,7 +2940,11 @@ setup_bot_unit() {
     # ⚠️ Спрашиваем ДО правки юнита, как и run_service: `enable --now` уже поднятую
     # службу не перезапустит, и бот остался бы жить со старым кодом после обновления.
     local was_up=0
-    systemctl is-active --quiet torrcast-bot.service && was_up=1
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        launchctl print system/org.torrcast.torrcast-bot >/dev/null 2>&1 && was_up=1
+    else
+        systemctl is-active --quiet torrcast-bot.service && was_up=1
+    fi
     write_unit torrcast-bot "Telegram-бот torrcast" "$PREFIX/venv/bin/torrcast-bot" || true
     local ready=''
     ready="$(jq -r '((.token // "") != "") and ((.chat_id // "") != "")' "$CONFIG_DIR/config.json" 2>/dev/null || true)"
@@ -2828,8 +2953,13 @@ setup_bot_unit() {
              "Telegram-бот ещё не настроен - настрой командой: cast -tg"
         return 0
     fi
-    systemctl enable --now torrcast-bot.service
-    [ "$was_up" = 1 ] && systemctl restart torrcast-bot.service
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        [ "$was_up" = 0 ] || launchd_bootout org.torrcast.torrcast-bot
+        launchctl bootstrap system /Library/LaunchDaemons/org.torrcast.torrcast-bot.plist
+    else
+        systemctl enable --now torrcast-bot.service
+        [ "$was_up" = 1 ] && systemctl restart torrcast-bot.service
+    fi
     info "Telegram bot service is up" "служба Telegram-бота поднята"
     return 0
 }
@@ -2949,6 +3079,53 @@ setup_receiver() {
 # в его журнале и в именах файлов приезжает кракозябрами. Значение то же, которое
 # выбрала фаза `locale`.
 write_unit() {  # $1 имя, $2 описание, $3 команда, $4 - лишние строки секции [Service]
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        local label="org.torrcast.$1" path="/Library/LaunchDaemons/org.torrcast.$1.plist"
+        local env_xml="" line knob name value
+        while IFS= read -r line; do
+            case "$line" in Environment=*) knob="${line#Environment=}" ;; *) continue ;; esac
+            case "$knob" in \"*\") knob="${knob#\"}"; knob="${knob%\"}" ;; esac
+            name="${knob%%=*}"; value="${knob#*=}"
+            value="${value//&/\&amp;}"; value="${value//</\&lt;}"; value="${value//>/\&gt;}"
+            env_xml="$env_xml        <key>$name</key><string>$value</string>"$'\n'
+        done <<EOF
+${4:-}
+EOF
+        local command="$3"
+        command="${command//&/\&amp;}"; command="${command//</\&lt;}"; command="${command//>/\&gt;}"
+        # У launchd свой PATH (/usr/bin:/bin:/usr/sbin:/sbin), Homebrew в него не
+        # входит: команда вида `python3.11 ...` под заданием умерла бы с «not found».
+        # Отдаём тот PATH, под которым идёт сама установка, - фаза `packages` уже
+        # добавила туда префикс Homebrew.
+        local path_xml="$PATH"
+        path_xml="${path_xml//&/\&amp;}"; path_xml="${path_xml//</\&lt;}"; path_xml="${path_xml//>/\&gt;}"
+        local body
+        body="$(cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>Label</key><string>$label</string>
+    <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>exec $command</string></array>
+    <key>EnvironmentVariables</key><dict>
+        <key>LANG</key><string>$LOCALE</string>
+        <key>PATH</key><string>$path_xml</string>
+$env_xml    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+    <key>ThrottleInterval</key><integer>5</integer>
+    <key>StandardOutPath</key><string>$PREFIX/$1.log</string>
+    <key>StandardErrorPath</key><string>$PREFIX/$1.log</string>
+</dict></plist>
+PLIST
+)"
+        if [ -f "$path" ] && [ "$(cat "$path")" = "$body" ]; then
+            skip "$1 launchd job" "задание launchd $1"
+            return 1
+        fi
+        printf '%s\n' "$body" >"$path"
+        chmod 0644 "$path"
+        return 0
+    fi
     local path="/etc/systemd/system/$1.service"
     local body
     body="$(cat <<UNIT
@@ -2984,6 +3161,10 @@ UNIT
 setup_hls() {
     log "HLS delivery ($HLS_TRANSPORT, port $HLS_PORT, segments in $HLS_DIR)" "раздача HLS ($HLS_TRANSPORT, порт $HLS_PORT, сегменты в $HLS_DIR)"
     install -d -m 0755 "$HLS_DIR"
+    if [ "${OS_FAMILY:-linux}" = macos ] && [ -z "${TORRCAST_HLS_DIR:-}" ]; then
+        loud "macOS has no default tmpfs: each show writes its 0.5-1.2 GiB HLS segment window to $HLS_DIR on disk" \
+            "у macOS нет штатного tmpfs: каждый показ пишет окно HLS-сегментов 0.5-1.2 ГиБ на диск в $HLS_DIR"
+    fi
     if [ "$HLS_TRANSPORT" != "https" ]; then
         info "delivery address follows the route to the TV - no certificate, hostname, or DNS" "адрес раздачи собирается по маршруту до ТВ - ни серта, ни имени, ни DNS"
         return
