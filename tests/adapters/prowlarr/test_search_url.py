@@ -8,8 +8,8 @@ def test_адрес_ведёт_в_агрегат_prowlarr_со_всеми_кат
     url = search_url("http://127.0.0.1:9696", "KEY", "матрица", 100)
     assert url.startswith("http://127.0.0.1:9696/api/v1/search?apikey=KEY")
     assert "&type=search" in url
-    assert "&categories=2000&categories=5000&categories=8000" in url
-    assert len(CATEGORIES) == 3
+    assert "&categories=2000&categories=5000&categories=6000&categories=8000" in url
+    assert len(CATEGORIES) == 4
     assert "&indexerIds=" not in url
 
 

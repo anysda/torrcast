@@ -64,7 +64,7 @@ def test_search_builds_expected_url() -> None:
     assert isinstance(session, _FakeSession)
     assert session.url.startswith("http://127.0.0.1:9696/api/v1/search?apikey=KEY")
     assert "&type=search" in session.url
-    assert "&categories=2000&categories=5000&categories=8000" in session.url
+    assert "&categories=2000&categories=5000&categories=6000&categories=8000" in session.url
 
 
 def test_search_reports_empty_result_as_not_found() -> None:

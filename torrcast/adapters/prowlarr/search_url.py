@@ -11,7 +11,9 @@ from torrcast.domain.wire_query import wire_query
 #: ``/api/v2.0/indexers/all/results`` - это Jackett, у Prowlarr на него 404.
 SEARCH_PATH: Final = "/api/v1/search"
 #: Кино, сериалы и «Other» - под последней RuTor отдаёт вообще всё (категорий у него нет).
-CATEGORIES: Final = (2000, 5000, 8000)
+#: Четвёртая добавлена ради источника, у которого вся выдача лежит под одной категорией:
+#: без неё индексер отвечает, а раздачи не проходят фильтр вовсе.
+CATEGORIES: Final = (2000, 5000, 6000, 8000)
 
 
 def search_url(
