@@ -21,9 +21,15 @@ def _prints(answer: str, code: int = 0) -> LaunchdCall:
     ("answer", "alive"),
     [
         ("\tstate = running\n", True),
+        # Первые миллисекунды после ``bootstrap`` задание - ``xpcproxy``: launchd
+        # собирает процесс, журнала ещё нет. Посчитав его мёртвым, ``cast`` бросал
+        # живой показ на первом опросе с «в журнале пусто» вместо настоящей причины.
+        ("\tstate = xpcproxy\n", True),
         ("\tstate = not running\n", False),
         # Регистрация переживает процесс: «знает такое задание» - ещё не «показ идёт».
         ("\tstate = not running\n\tlast exit code = 0\n", False),
+        # Вложенные секции ``print`` со своими ``state`` за показ не считаются.
+        ("\tstate = not running\n\tsockets = {\n\t\tstate = xpcproxy\n\t}\n", False),
         ("", False),
     ],
 )

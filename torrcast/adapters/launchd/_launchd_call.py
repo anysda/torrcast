@@ -36,8 +36,15 @@ def _running(answer: str) -> bool:
     оно ``not running``. Строка состояния читается только на верхнем уровне ответа -
     вглубь (по сокетам и конечным точкам) у задания свои ``state``, и чужая ``active``
     объявила бы живым погасший показ.
+
+    🔴 ``xpcproxy`` - тоже живой: так выглядит задание в первые миллисекунды после
+    ``bootstrap``, пока launchd собирает процесс (замер 02-09-2026 на macOS 26: окно
+    ~10 мс, журнала в нём ещё нет). Посчитав его мёртвым, ``cast`` бросал живой показ
+    на первом же опросе и докладывал «в журнале пусто», пока задание писало настоящую
+    причину строкой ниже.
     """
-    return "\tstate = running" in answer.splitlines()
+    alive = ("\tstate = running", "\tstate = xpcproxy")
+    return any(state in answer.splitlines() for state in alive)
 
 
 def _launchd(tool: str, *args: str) -> subprocess.CompletedProcess[str]:
