@@ -46,6 +46,8 @@ from torrcast.domain.catalogs.http_server.en import en as http_server_en
 from torrcast.domain.catalogs.http_server.ru import ru as http_server_ru
 from torrcast.domain.catalogs.hunt.en import en as hunt_en
 from torrcast.domain.catalogs.hunt.ru import ru as hunt_ru
+from torrcast.domain.catalogs.launchd.en import en as launchd_en
+from torrcast.domain.catalogs.launchd.ru import ru as launchd_ru
 from torrcast.domain.catalogs.main_config.en import en as main_config_en
 from torrcast.domain.catalogs.main_config.ru import ru as main_config_ru
 from torrcast.domain.catalogs.media_binaries.en import en as media_binaries_en
@@ -181,6 +183,7 @@ _CLUSTERS: Final = (
     (cmd_play_en, cmd_play_ru),
     (reinforce_en, reinforce_ru),
     (warm_en, warm_ru),
+    (launchd_en, launchd_ru),
 )
 
 
