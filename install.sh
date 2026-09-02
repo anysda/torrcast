@@ -77,6 +77,12 @@ BIN_DIR="${TORRCAST_BIN_DIR:-/usr/local/bin}"
 #: обязательно: настоящий sudo в проверке поднятия участвовать не может, он запустил бы
 #: настоящую установку на машине, которая её не просила.
 SUDO="${TORRCAST_SUDO:-sudo}"
+#: Куда кладётся правило sudoers, открывающее обычному пользователю мака запуск cast
+#: под root (:func:`setup_cast_sudoers`), и чем оно проверяется до записи. Оба
+#: переопределения - для песочницы тестов: настоящие /etc/sudoers.d и visudo в ней
+#: участвовать не могут, это чужая машина.
+SUDOERS_D="${TORRCAST_SUDOERS_D:-/etc/sudoers.d}"
+VISUDO="${TORRCAST_VISUDO:-visudo}"
 #: 🔴 TC-887. Версия, от которой идёт обновление; ставит её загрузчик (`install`), когда
 #: его позвал `cast --upgrade`. Установщик от этого не меняет НИ ОДНОГО своего действия -
 #: он остаётся идемпотентным, - меняются только слова: итоговое слово, шапка заставки и
@@ -1482,8 +1488,8 @@ install_torrcast() {
     "$PREFIX/venv/bin/pip" install --quiet "$REPO_DIR"
     "$PREFIX/venv/bin/pip" install --quiet --force-reinstall --no-deps --no-cache-dir "$REPO_DIR"
     install -d -m 0755 "$BIN_DIR"
-    # Симлинк перезаписываем всегда: это дёшево и чинит битую ссылку.
-    ln -sfn "$PREFIX/venv/bin/cast" "$BIN_DIR/cast"
+    install_cast_command
+    setup_cast_sudoers
     installed="$(torrcast_site_dir)" ||
         die "torrcast package cannot be imported from $PREFIX/venv - installation failed" "пакет torrcast не импортируется из $PREFIX/venv - установка не состоялась"
     prune_torrcast "$installed" "$REPO_DIR/torrcast"
@@ -1495,6 +1501,88 @@ install_torrcast() {
         install -m 0755 "$REPO_DIR/install" "$PREFIX/install"
     fi
     verify_torrcast "$installed"
+}
+
+# Команда `cast` в PATH. На Linux - симлинк на консольный скрипт venv: там весь показ
+# и так делается из-под root. На маке обычный пользователь root'ом не ходит, а показ
+# обязан работать под root: macOS выдаёт доступ к локальной сети «ответственному
+# процессу», и у неподписанного задания launchd его нет (Errno 65, не лечится ни
+# повтором, ни таймаутом), тогда как root свободен от TCC вовсе. Замеры живого стенда:
+# один и тот же щуп до телевизора проходит из ssh-сессии и из launchd-задания под
+# root - и не проходит из того же задания под обычным пользователем в любой области.
+# Побочно root решает и владение конфигом: /etc/torrcast/config.json нарочно 0600 root
+# (в нём apikey), и делить его по группе - значит ослаблять эту раскладку.
+# Поэтому на маке $BIN_DIR/cast - обёртка: не-root перезапускает себя через sudo -n
+# (право даёт именное правило, которое пишет :func:`setup_cast_sudoers`), а дальше всё
+# идёт тем же кодом, что под root доказано живьём.
+install_cast_command() {
+    if [ "${OS_FAMILY:-linux}" != macos ]; then
+        # Симлинк перезаписываем всегда: это дёшево и чинит битую ссылку.
+        ln -sfn "$PREFIX/venv/bin/cast" "$BIN_DIR/cast"
+        return 0
+    fi
+    local tmp; tmp="$(mktemp /tmp/torrcast-cast.XXXXXX)"
+    # Пути BIN_DIR и PREFIX запекаются в текст в момент установки, \$@ и \$(id -u) -
+    # нет: они принадлежат обёртке, а не установщику.
+    # 🔴 sudo на маке срезает PATH до /usr/bin:/bin:/usr/sbin:/sbin - Homebrew-овых
+    # ffmpeg/ffprobe там нет. PATH выставляет сама обёртка УЖЕ под root: разрешить
+    # переменные в команде sudo (`sudo VAR=...`) правило без SETENV не даст.
+    cat >"$tmp" <<CAST
+#!/bin/sh
+# torrcast. Показ на маке работает под root (см. install.sh, install_cast_command):
+# обычный пользователь перезапускается через sudo -n по именному правилу из
+# $SUDOERS_D/torrcast. Без правила sudo -n откажет сам, не спрашивая пароль.
+if [ "\$(id -u)" -ne 0 ]; then
+    exec /usr/bin/sudo -n $BIN_DIR/cast "\$@"
+fi
+PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH
+exec $PREFIX/venv/bin/cast "\$@"
+CAST
+    if [ -f "$BIN_DIR/cast" ] && cmp -s "$tmp" "$BIN_DIR/cast"; then
+        rm -f "$tmp"
+        skip "$BIN_DIR/cast" "$BIN_DIR/cast"
+        return 0
+    fi
+    # 🔴 Сносим цель ДО записи: прежний $BIN_DIR/cast - симлинк на venv, и запись
+    # поверх него пошла бы СКВОЗЬ ссылку, затерев консольный скрипт пакета.
+    rm -f "$BIN_DIR/cast"
+    install -m 0755 "$tmp" "$BIN_DIR/cast"
+    rm -f "$tmp"
+}
+
+# Именное правило sudoers, открывающее позвавшему установку человеку запуск cast под
+# root без пароля - ровно один путь, без подстановок. 🔴 Это беспарольный root на один
+# бинарь: на личном ноутбуке администратора, который минуту назад сам набрал
+# `sudo ./install.sh`, прав не прибавляет, но факт обязан быть сказан вслух (`loud`),
+# с путём правила и именем того, кому оно выдано. Молчаливая выдача - брак.
+# 🔴 Написанный файл проверяется visudo ДО установки: битый файл в /etc/sudoers.d ломает
+# sudo на всей машине, а это ноутбук владельца.
+setup_cast_sudoers() {
+    [ "${OS_FAMILY:-linux}" = macos ] || return 0
+    local rule_file="$SUDOERS_D/torrcast"
+    if [ -z "${SUDO_USER:-}" ]; then
+        loud "no sudo invoker is known - the sudoers rule for cast is not written; run the installer through sudo from a regular account" \
+            "позвавший sudo неизвестен - правило sudoers для cast не написано; запусти установщик через sudo из обычной учётной записи"
+        return 0
+    fi
+    local rule="$SUDO_USER ALL=(root) NOPASSWD: $BIN_DIR/cast"
+    if [ -f "$rule_file" ] && [ "$(cat "$rule_file")" = "$rule" ]; then
+        skip "$rule_file" "$rule_file"
+        return 0
+    fi
+    local tmp; tmp="$(mktemp /tmp/torrcast-sudoers.XXXXXX)"
+    printf '%s\n' "$rule" >"$tmp"
+    if ! "$VISUDO" -cf "$tmp" >/dev/null 2>&1; then
+        rm -f "$tmp"
+        die "the sudoers rule for cast did not pass visudo - it was NOT installed" \
+            "правило sudoers для cast не прошло visudo - оно НЕ установлено"
+    fi
+    install -d -m 0755 "$SUDOERS_D"
+    install -m 0440 "$tmp" "$rule_file"
+    rm -f "$tmp"
+    loud "macOS hides the local network from unsigned jobs, so cast on this Mac runs as root: $SUDO_USER is granted passwordless sudo for the single command $BIN_DIR/cast (rule $rule_file)" \
+        "macOS закрывает локальную сеть от неподписанных заданий, поэтому cast на этом маке работает от root: $SUDO_USER выдан беспарольный sudo ровно на одну команду $BIN_DIR/cast (правило $rule_file)"
 }
 
 # 🔴 TC-713. Следы оборванной установки. Снося прежний пакет, pip сперва переименовывает
