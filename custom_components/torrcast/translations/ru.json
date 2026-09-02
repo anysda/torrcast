@@ -1,0 +1,26 @@
+{
+  "config": {
+    "flow_title": "torrcast ({name})",
+    "step": {
+      "user": {
+        "title": "torrcast",
+        "description": "Адрес машины, на которой стоит torrcast.",
+        "data": {
+          "host": "Адрес",
+          "port": "Порт"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "torrcast",
+        "description": "Добавить {name} в Home Assistant?"
+      }
+    },
+    "error": {
+      "cannot_connect": "torrcast не отвечает по этому адресу"
+    },
+    "abort": {
+      "already_configured": "Этот torrcast уже добавлен",
+      "cannot_connect": "torrcast не отвечает по этому адресу"
+    }
+  }
+}

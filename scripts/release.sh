@@ -5,10 +5,11 @@
 #
 # 1. тег - semver (vX.Y.Z), и его коммит лежит на master
 # 2. клон репы ПО ТЕГУ в mktemp -d (не рабочее дерево)
-# 3. версия из тега - в три места: version.py, pyproject.toml, install.sh
-# 4. тарбол + sha256
+# 3. версия из тега - в четыре места: version.py, pyproject.toml, install.sh,
+#    manifest.json интеграции Home Assistant
+# 4. тарбол + sha256 + zip интеграции для HACS
 # 5. Release на теге
-# 6. три ассета (тарбол, sha256, install) и сверка releases/latest снаружи
+# 6. четыре ассета (тарбол, sha256, install, zip) и сверка releases/latest снаружи
 #
 # --dry-run: 1-4 по-настоящему, 5-6 только печатает - так скрипт проверяем без
 # токена и без права писать в GitHub.
@@ -63,7 +64,7 @@ clone_at_tag() {  # $1 - каталог назначения, $2 - тег
     )
 }
 
-# --- 3. версия из тега в три места -------------------------------------------
+# --- 3. версия из тега в четыре места ----------------------------------------
 substitute_version() {  # $1 - каталог клона, $2 - версия без v
     src="$1" ver="$2"
     # Версия в дереве - любая: она уже менялась и будет меняться. Литерал прежней
@@ -73,6 +74,11 @@ substitute_version() {  # $1 - каталог клона, $2 - версия бе
         "$src/torrcast/domain/version.py"
     sed -i "s/^version = \"$any_ver\"\$/version = \"$ver\"/" "$src/pyproject.toml"
     sed -i "s/^VERSION='$any_ver'\$/VERSION='$ver'/" "$src/install.sh"
+    # Запятая после версии зависит от того, последний ли это ключ манифеста, а
+    # порядок ключей - дело hassfest, не наше. Отсюда необязательная запятая и в
+    # подстановке, и в сверке ниже.
+    sed -i "s/^  \"version\": \"$any_ver\"\(,\{0,1\}\)\$/  \"version\": \"$ver\"\1/" \
+        "$src/custom_components/torrcast/manifest.json"
 
     grep -q "^__version__ = \"$ver\"\$" "$src/torrcast/domain/version.py" \
         || die "версия не встала в torrcast/domain/version.py"
@@ -80,6 +86,21 @@ substitute_version() {  # $1 - каталог клона, $2 - версия бе
         || die "версия не встала в pyproject.toml"
     grep -q "^VERSION='$ver'\$" "$src/install.sh" \
         || die "версия не встала в install.sh"
+    grep -q "^  \"version\": \"$ver\",\{0,1\}\$" \
+        "$src/custom_components/torrcast/manifest.json" \
+        || die "версия не встала в custom_components/torrcast/manifest.json"
+}
+
+# --- 4. zip интеграции для HACS ----------------------------------------------
+# В корне архива лежит СОДЕРЖИМОЕ `custom_components/torrcast` (manifest.json рядом с
+# `__init__.py`), а не сам каталог: так собирает релизы сам HACS, и так их и ждёт
+# `zip_release` из `hacs.json`. Архив кладётся питоном, который скрипту нужен и без
+# него, - лишней зависимости от `zip` тут не заводится.
+build_hass_zip() {  # $1 - рабочий каталог (внутри - src/ клон)
+    work="$1" home="$1/src/custom_components/torrcast"
+    need python3
+    find "$home" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+    ( cd "$home" && python3 -m zipfile -c "$work/torrcast-hass.zip" ./* )
 }
 
 # --- 4. тарбол белым списком + sha256 ----------------------------------------
@@ -189,17 +210,18 @@ main() {
     clone_at_tag "$work/src" "$tag"
 
     ver="${tag#v}"
-    info "[3] подставляю версию $ver в три места"
+    info "[3] подставляю версию $ver в четыре места"
     substitute_version "$work/src" "$ver"
 
-    info "[4] собираю tarball + sha256"
+    info "[4] собираю tarball + sha256 + zip интеграции"
     build_tarball "$work" "$ver"
+    build_hass_zip "$work"
 
     if [ "$dry_run" -eq 1 ]; then
         info "--dry-run: шаги 5-6 не выполняю, только печатаю намерение"
         info "  [5] завёл бы Release на $tag в $GITHUB_API/repos/$PROJECT_PATH/releases"
-        info "  [6] залил бы ассеты torrcast-$ver.tar.gz, torrcast-$ver.tar.gz.sha256 и install, сверил бы releases/latest = $tag"
-        info "тарбол и sha256 оставлены на диске: $work - прибери сам после проверки"
+        info "  [6] залил бы ассеты torrcast-$ver.tar.gz, torrcast-$ver.tar.gz.sha256, install и torrcast-hass.zip, сверил бы releases/latest = $tag"
+        info "тарбол, sha256 и zip оставлены на диске: $work - прибери сам после проверки"
         return 0
     fi
 
@@ -214,6 +236,7 @@ main() {
     upload_asset "$id" "$work/torrcast-$ver.tar.gz" "torrcast-$ver.tar.gz" "$auth"
     upload_asset "$id" "$work/torrcast-$ver.tar.gz.sha256" "torrcast-$ver.tar.gz.sha256" "$auth"
     upload_asset "$id" "$work/src/install" "install" "$auth"
+    upload_asset "$id" "$work/torrcast-hass.zip" "torrcast-hass.zip" "$auth"
     check_latest_points_at "$tag"
 
     info "готово: $tag опубликован"

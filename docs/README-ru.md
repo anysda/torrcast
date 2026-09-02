@@ -112,6 +112,19 @@ git clone https://github.com/anysda/torrcast && cd torrcast
 установку. Совпала - говорит об этом и не трогает ни единого файла. Идущий показ он не
 обрывает, а приёмник и настройки оставляет как есть.
 
+## Home Assistant
+
+У torrcast есть интеграция для Home Assistant: она ставится через HACS как custom
+repository, а машину с torrcast Home Assistant дальше находит сам, по mDNS. На дашборде
+появляется карточка медиаплеера: показ, пауза, стоп, следующая серия, громкость и
+перемотка.
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=anysda&repository=torrcast&category=integration)
+
+Интеграция ходит по локальной сети к torrcast, поставленному на Linux. Попросить голосом
+показать что-нибудь по названию понимает только LLM-ассистент Home Assistant, встроенный
+Assist умеет паузу, стоп, следующую серию и громкость.
+
 ## Команды
 
 ```text

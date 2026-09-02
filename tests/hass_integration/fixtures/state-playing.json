@@ -1,0 +1,15 @@
+{
+  "version": "0.99.99",
+  "tv": "TV",
+  "state": "playing",
+  "title": "Игра престолов",
+  "shown_as": "Игра престолов s01e03",
+  "season": 1,
+  "episode": 3,
+  "position": 1234.5,
+  "duration": 3480.0,
+  "volume": 0.4,
+  "warm": 37,
+  "disk_free": 51234567890,
+  "last_error": null
+}

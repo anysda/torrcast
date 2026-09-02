@@ -13,6 +13,7 @@ import os
 import subprocess
 import tarfile
 import threading
+import zipfile
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -38,6 +39,12 @@ def _write_repo(root: Path) -> None:
         '[project]\nname = "torrcast"\nversion = "1.0.0"\n', encoding="utf-8"
     )
     (root / "install.sh").write_text("#!/usr/bin/env bash\nVERSION='1.0.0'\n", encoding="utf-8")
+    integration = root / "custom_components" / "torrcast"
+    integration.mkdir(parents=True)
+    (integration / "manifest.json").write_text(
+        '{\n  "domain": "torrcast",\n  "version": "1.0.0"\n}\n', encoding="utf-8"
+    )
+    (integration / "__init__.py").write_text('"""Интеграция."""\n', encoding="utf-8")
     os.chmod(root / "install.sh", 0o755)  # как реальный install.sh в репе (100755)
     (root / "install").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
     (root / "README.md").write_text("# torrcast\n", encoding="utf-8")
@@ -232,6 +239,19 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
         # собственным шебангом, не через `sh`, и без исполняемого бита это упадёт.
         assert tar.getmember("install.sh").mode & 0o111, "install.sh в тарболе не +x"
 
+    # HACS тащит не тарбол, а свой zip, и раскладывает его содержимое прямо в
+    # `custom_components/torrcast`. Каталог внутри архива означал бы интеграцию,
+    # которую Home Assistant не найдёт, а версия из тега - ту же версию, что у
+    # остальных трёх мест: HACS показывает её как версию установленного.
+    zip_path = Path(work) / "torrcast-hass.zip"
+    assert zip_path.is_file()
+    with zipfile.ZipFile(zip_path) as archive:
+        inside = archive.namelist()
+        assert "manifest.json" in inside
+        assert "__init__.py" in inside
+        assert not any(name.startswith("custom_components/") for name in inside)
+        assert '"version": "9.9.9"' in archive.read("manifest.json").decode()
+
     import shutil
 
     shutil.rmtree(work, ignore_errors=True)
@@ -384,6 +404,7 @@ def test_a_real_run_uploads_the_asset_pair_and_publishes_a_release(repo: Path) -
         "torrcast-9.9.9.tar.gz",
         "torrcast-9.9.9.tar.gz.sha256",
         "install",
+        "torrcast-hass.zip",
     }
     assert all(a == "Bearer s3cr3t" for a in seen.auth)
     assert seen.release["tag_name"] == "v9.9.9"
@@ -416,6 +437,7 @@ def test_a_lagging_latest_redirect_is_waited_out_not_called_a_failure(repo: Path
         "torrcast-9.9.9.tar.gz",
         "torrcast-9.9.9.tar.gz.sha256",
         "install",
+        "torrcast-hass.zip",
     }
 
 
@@ -460,7 +482,7 @@ def test_the_token_travels_as_a_bearer_header_on_every_write(repo: Path) -> None
         },
     )
     assert done.returncode == 0, done.stderr
-    assert len(seen.auth) == 4, f"ждали релиз + три ассета, видели {len(seen.auth)}"
+    assert len(seen.auth) == 5, f"ждали релиз + четыре ассета, видели {len(seen.auth)}"
     assert all(a == "Bearer s3cr3t" for a in seen.auth)
 
 

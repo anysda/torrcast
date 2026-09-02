@@ -112,6 +112,18 @@ git clone https://github.com/anysda/torrcast && cd torrcast
 受信機はインストールが自分で見つけます。mDNS と、ローカルのサブネットを順に当たる方法です。
 複数ある場合は `cast --tv` が一覧を出し、`cast --tv <ip>` がアドレスを直接書き込みます。
 
+## Home Assistant
+
+torrcast には Home Assistant 用の統合があります。HACS にカスタムリポジトリとして追加すると、
+あとは Home Assistant が mDNS で torrcast のマシンを自分で見つけます。ダッシュボードには
+メディアプレーヤーのカードが現れます。再生、一時停止、停止、次のエピソード、音量、シークです。
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=anysda&repository=torrcast&category=integration)
+
+統合は Linux に入れた torrcast とローカルネットワークで話します。声で作品名を頼めるのは
+Home Assistant の LLM アシスタントだけで、内蔵の Assist は一時停止・停止・次のエピソード・
+音量までです。
+
 ## コマンド
 
 ```text

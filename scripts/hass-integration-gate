@@ -1,0 +1,43 @@
+#!/bin/sh
+# Прогон тестов интеграции Home Assistant. Отдельно от `scripts/test-gate` намеренно:
+# Home Assistant в зависимостях torrcast не значится и значиться не будет, а тянет он за
+# собой полтысячи пакетов. Венв тут свой, `.venv-hass`, и в дерево он не коммитится.
+#
+#   scripts/hass-integration-gate            весь набор
+#   scripts/hass-integration-gate -k имя     часть набора; хвост уезжает в pytest как есть
+#
+# Версия пакета названа точным числом: `0.13.355` везёт ровно Home Assistant 2026.8.1,
+# который стоит на боевом узле. Плавающая верхняя версия меряла бы бету, а не то, куда
+# интеграция поедет.
+#
+# `--confcutdir` отрезает `tests/conftest.py` ядра: он поднимает песочницу torrcast и
+# требует пакет со всеми зависимостями, а к интеграции отношения не имеет.
+set -eu
+
+VENV=.venv-hass
+PYTHON="$VENV/bin/python"
+PACKAGE="pytest-homeassistant-custom-component==0.13.355"
+
+if [ ! -x "$PYTHON" ]; then
+    echo "завожу венв $VENV под Home Assistant"
+    if command -v uv >/dev/null 2>&1; then
+        uv venv --python 3.13 "$VENV"
+    else
+        python3 -m venv "$VENV"
+    fi
+fi
+
+if ! "$PYTHON" -c 'import pytest_homeassistant_custom_component' >/dev/null 2>&1; then
+    echo "ставлю $PACKAGE"
+    if command -v uv >/dev/null 2>&1; then
+        uv pip install --python "$PYTHON" "$PACKAGE"
+    else
+        "$PYTHON" -m pip install --quiet "$PACKAGE"
+    fi
+fi
+
+TORRCAST_HASS_GATE=1 exec "$PYTHON" -m pytest \
+    --confcutdir=tests/hass_integration \
+    -o asyncio_mode=auto \
+    -p no:cacheprovider \
+    tests/hass_integration "$@"
