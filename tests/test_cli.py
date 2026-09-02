@@ -3076,7 +3076,9 @@ def test_enter_picks_the_picture_the_honest_line_is_about(
     plans = [top, movie]
     assert first_alive(plans) == 2, "рой верхней картины мёртв"
 
-    picked = _pick_plan(plans, asked="naruto", environment=cast(Any, FakeChoiceEnvironment()))
+    picked = _pick_plan(
+        plans, asked="naruto", environment=cast(Any, FakeChoiceEnvironment()), menu=True
+    )
 
     assert menu_blocks(plans)[0][0].startswith("  1. Наруто (2002)")
     assert (

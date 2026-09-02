@@ -26,7 +26,6 @@ from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.facts.fact import Fact
-from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._choose import _choose
@@ -150,11 +149,6 @@ def test_the_warm_and_the_take_cannot_disagree(branch: Branch) -> None:
     дефолта франшизы. Зеркало и утверждает ровно это - вопрос поднят БЕЗ дефолта.
     """
     world = Outside(answers=[branch.answer] if branch.answer is not None else [])
-
-    if branch.refuses:
-        with pytest.raises(NotFoundError):
-            _walked(branch, world)
-        return
 
     menu, taken, bench = _walked(branch, world)
 

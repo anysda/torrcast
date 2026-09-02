@@ -70,6 +70,14 @@ def ru() -> dict[str, str]:
             "«{name}»: первой части в выдаче нет, и другую часть сам не включаю - есть "
             "«{picture}», спроси её номером «{name} {part}»"
         ),
+        "choice.lone_other_part_taken": (
+            "«{name}»: первой части в выдаче нет - беру первую живую «{picture}», "
+            "часть {part}; другая: cast {name} --menu"
+        ),
+        "choice.guard_taken": "{guard}; беру первую живую «{taken}»; другая: cast {asked} --menu",
+        "choice.default_taken": (
+            "беру первую живую «{picture}» - подошло картин {total}; другая: cast {asked} --menu"
+        ),
         "choice.named_unplayable": (
             "«{name}» - это {whom}; не играет: {why}; вместо неё другую картину "
             "(«{taken}») сам не включаю - вот что есть, назови номер"

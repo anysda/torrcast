@@ -72,6 +72,17 @@ def en() -> dict[str, str]:
             "“{name}”: part one is not in the results, and another part I do not start "
             "on my own - there is “{picture}”, ask for it by number: “{name} {part}”"
         ),
+        "choice.lone_other_part_taken": (
+            "“{name}”: part one is not in the results - taking the first live one, "
+            "“{picture}”, part {part}; another one: cast {name} --menu"
+        ),
+        "choice.guard_taken": (
+            "{guard}; taking the first live one, “{taken}”; another one: cast {asked} --menu"
+        ),
+        "choice.default_taken": (
+            "taking the first live one, “{picture}” - {total} pictures matched; another "
+            "one: cast {asked} --menu"
+        ),
         "choice.named_unplayable": (
             "“{name}” is {whom}; it does not play: {why}; another picture (“{taken}”) I "
             "do not start instead on my own - here is what there is, name the number"

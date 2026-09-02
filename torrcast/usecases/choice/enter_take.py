@@ -8,14 +8,17 @@ from torrcast.usecases.choice.absent_first_part import absent_first_part
 from torrcast.usecases.choice.absent_part_line import absent_part_line
 from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.default_line import default_line
+from torrcast.usecases.choice.default_taken_line import default_taken_line
 from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.choice.lone_other_part import lone_other_part
+from torrcast.usecases.choice.lone_other_part_taken_line import lone_other_part_taken_line
 from torrcast.usecases.choice.named_elsewhere import named_elsewhere
 from torrcast.usecases.choice.named_take import named_take
 from torrcast.usecases.choice.named_taken_line import named_taken_line
 from torrcast.usecases.choice.namesake_line import namesake_line
 from torrcast.usecases.choice.namesake_take import namesake_take
 from torrcast.usecases.choice.part_one_swap import part_one_swap
+from torrcast.usecases.choice.part_one_taken_line import part_one_taken_line
 from torrcast.usecases.choice.take import Take
 from torrcast.usecases.choice.taken_line import taken_line
 
@@ -39,17 +42,9 @@ def enter_take(
     дефолт - первая живая картина - и есть спрошенная. Молчаливым это решение не бывает:
     :func:`taken_line` называет взятую картину, число подошедших и ход к любой другой.
 
-    🔴 TC-373. Перескочив через спрошенную часть франшизы (её нет в выдаче или играть
-    ей нечем), дефолт вставал на ДРУГУЮ часть - и Enter включал «Тачки 2» вместо
-    просимых «Тачек». Такому дефолту не бывать (:func:`part_one_swap`).
-
-    🔴 TC-814. Тот же страж на ветке «картина одна»: меню тут не задавалось вовсе, и
-    «лёд» молча включал «Лёд 3». Единственная найденная чужая часть спрошенной
-    франшизы - это отказ (:func:`lone_other_part`), а не показ.
-
-    🔴 TC-715. И дефолта нет там, где запрос назвал картину ЦЕЛИКОМ, а дефолт встаёт на
-    другую: «блич s1e1» уезжал с «Блича» 2004 года на «Тысячелетнюю кровавую войну»,
-    «чернобыль s1e5» - на «Зону отчуждения» мимо обоих «Чернобылей».
+    Стражи части и точного имени не отменяют дефолт на обычном пути: без ``--menu``
+    первая живая картина берётся вслух, а строка называет причину и дверь к списку.
+    Только явный ``--menu`` отдаёт номер человеку.
 
     🔴 TC-812. Оба этих стража - и «имя названо целиком» (:func:`named_elsewhere`), и
     тёзки по году - на обычном пути больше НЕ СПРАШИВАЮТ: решение владельца 26-08-2026 -
@@ -83,8 +78,12 @@ def enter_take(
     if len(plans) == 1:
         if note := lone_other_part(plans, asked):
             if not menu:
-                return Take(1, takes=False, refusal=note, why="чужая часть, отказ")
-            # Ключ --menu пропускается ВПЕРЁД отказа (TC-812): список поднимается и из
+                return Take(
+                    1,
+                    note=lone_other_part_taken_line(plans, asked),
+                    why="чужая часть, взята первая живая",
+                )
+            # Ключ --menu сохраняет страж перед вопросом: список поднимается и из
             # одного пункта, строка печатается НАД ним, чтобы видно было, ЧТО нашлось, -
             # а дефолта она не отменяет: Enter по-прежнему берёт единственный пункт.
             heading = note
@@ -110,14 +109,18 @@ def enter_take(
             if taken := namesake_take(plans):
                 return Take(taken, note=namesake_line(plans, taken, asked), why="тёзки по году")
     if note := part_one_swap(plans, asked):
-        # Дефолт подменил бы спрошенную часть другой - тогда его нет вовсе: строка
-        # называет, что с первой частью, список на экране, номер зовёт человек.
+        if not menu:
+            return Take(
+                default,
+                note=part_one_taken_line(plans, default, asked, note),
+                why="страж первой части, взята первая живая",
+            )
+        # За --menu строка называет, что с первой частью, а номер зовёт человек.
         return Take(
             default, takes=False, asks=True, note=note, heading=heading, why="страж первой части"
         )
     if note := named_elsewhere(plans, asked):
-        # Дефолт ушёл бы с картины, чьё имя названо целиком (TC-715) - тогда его нет
-        # вовсе: строка называет обе картины и причину, номер зовёт человек.
+        # За явным --menu строка называет обе картины и причину, номер зовёт человек.
         return Take(
             default,
             takes=False,
@@ -125,6 +128,12 @@ def enter_take(
             note=note,
             heading=heading,
             why="имя названо, дефолт мимо",
+        )
+    if not menu:
+        return Take(
+            default,
+            note=default_taken_line(plans, default, asked),
+            why="взята первая живая",
         )
     return Take(
         default,

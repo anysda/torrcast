@@ -29,14 +29,11 @@ def test_each_rule_names_its_number_and_names_itself(branch: Branch) -> None:
     # Номер есть у ЛЮБОГО приговора, даже когда Enter не берёт ничего: греть кого-то
     # под меню всё равно надо, и целиться прогреву больше не во что.
     assert 1 <= take.number <= len(menu), "приговор обязан назвать картину для прогрева"
-    if branch.refuses:
-        assert take.refusal, "ветка отказа обязана назвать причину"
-        assert not take.takes
-    elif branch.takes:
+    if branch.takes:
         assert take.takes, "Enter берёт картину - значит у вопроса есть дефолт"
         assert take.number == branch.takes
     else:
-        assert not take.takes, "номер зовёт человек - дефолта у вопроса нет"
+        assert not take.takes, "за явным меню номер зовёт человек"
         assert take.asks, "без дефолта вопрос обязан подняться со списком"
 
 

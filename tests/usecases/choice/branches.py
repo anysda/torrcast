@@ -38,11 +38,8 @@ class Branch:
     pick: int | None = None
     #: Флаг ``--menu``: список поднимается там, где о выборе сказать нечего.
     flag: bool = False
-    #: Номер, который называет человек. ``None`` - человек жмёт Enter, и картину
-    #: называет дефолт; число - вопрос задан БЕЗ дефолта, и брать некому, кроме человека.
+    #: Номер, который называет человек за явным ``--menu``.
     answer: int | None = None
-    #: Ветка кончается отказом: взятия нет вовсе.
-    refuses: bool = False
     #: Номер картины меню, которую по этой ветке включит Enter; 0 - взятия нет.
     takes: int = 0
 
@@ -102,13 +99,15 @@ def branches() -> list[Branch]:
     """Все ветки взятия по одной, в порядке, в котором их перебирает сама ступень."""
     return [
         Branch("номер флагом", _mummy, "мумия", pick=2, takes=2),
-        Branch("чужая часть, отказ", _ice, "лёд", refuses=True),
+        Branch("чужая часть, взята первая живая", _ice, "лёд", takes=1),
         Branch("картина одна", _ice, "лёд 3", takes=1),
         Branch("дефолт без вопроса", _cars, "тачки", takes=1),
         Branch("спрошенной части нет", _cars_without_the_first, "тачки", takes=1),
         Branch("имя названо целиком", _bleach, "блич", takes=2),
         Branch("тёзки по году", _mummy, "мумия", takes=3),
-        Branch("страж первой части", _cars_on_tape, "тачки", answer=3),
+        Branch("страж первой части, взята первая живая", _cars_on_tape, "тачки", takes=2),
+        Branch("страж первой части", _cars_on_tape, "тачки", flag=True, answer=3),
         Branch("имя названо, дефолт мимо", _bleach, "блич", flag=True, answer=2),
-        Branch("дефолт с вопросом", _moana, "моана", takes=2),
+        Branch("взята первая живая", _moana, "моана", takes=2),
+        Branch("дефолт с вопросом", _moana, "моана", flag=True, takes=2),
     ]

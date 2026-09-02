@@ -39,7 +39,7 @@ def test_the_menu_is_printed_before_the_question_so_the_number_has_a_meaning() -
         ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
     )
 
-    picked = _pick_plan(moana, asked="моана", environment=world)
+    picked = _pick_plan(moana, asked="моана", environment=world, menu=True)
 
     assert world.said[0].splitlines() == [
         "  1. Моана: романтика золотого века (1926)",
@@ -58,7 +58,7 @@ def test_the_number_the_person_answered_is_the_picture_that_goes_on() -> None:
         ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
     )
 
-    assert _pick_plan(moana, asked="моана", environment=world) is moana[0]
+    assert _pick_plan(moana, asked="моана", environment=world, menu=True) is moana[0]
 
 
 def test_namesakes_by_year_are_taken_liveliest_without_a_question() -> None:
@@ -151,29 +151,23 @@ def test_lone_other_part_still_speaks_up_under_menu_without_a_terminal() -> None
     ), "отказ остался строкой"
 
 
-def test_the_only_picture_found_being_another_part_of_the_franchise_is_refused() -> None:
-    """🔴 TC-814. Одна картина, и она чужая часть - отказ, а не молчаливый показ.
-
-    `cast лёд` включал «Лёд 3» 2024 года, ни словом об этом не сказав: меню при одной
-    картине не задаётся, и страж перескока сюда не доходил.
-    """
+def test_the_only_picture_found_being_another_part_starts_out_loud() -> None:
+    """Без ``--menu`` единственная чужая часть берётся вслух и без вопроса."""
     world = Outside()
     ice = [plan("Лёд 3", 2024, part=3, seeders=3)]
 
-    with pytest.raises(NotFoundError) as refusal:
-        _pick_plan(ice, asked="лёд", environment=world)
-
-    assert str(refusal.value) == phrase(
-        "choice.lone_other_part", name="лёд", picture="Лёд 3 (2024)", part=3
-    )
-    assert world.asked == [], "выбирать было не из чего, и вопроса тут нет"
+    assert _pick_plan(ice, asked="лёд", environment=world) is ice[0]
+    assert world.said == [
+        phrase("choice.lone_other_part_taken", name="лёд", picture="Лёд 3 (2024)", part=3)
+    ]
+    assert world.asked == [], "без --menu вопроса быть не должно"
 
 
 def test_the_menu_flag_passes_ahead_of_the_lone_other_part_refusal() -> None:
     """🔴 TC-812. ``--menu`` пропускается вперёд отказа: список поднимается и из одного пункта.
 
-    «лёд» нашёл только «Лёд 3» - без флага это отказ (молча такое не включаем), а с
-    флагом человек просил список: строка про чужую часть печатается над ним, и ответ
+    «лёд» нашёл только «Лёд 3»; с флагом человек просил список: строка про чужую часть
+    печатается над ним, и ответ
     называет сам человек.
     """
     world = Outside(answers=[1])
@@ -263,7 +257,7 @@ def test_the_printed_menu_remembers_its_order_for_the_next_run() -> None:
         ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
     )
 
-    _pick_plan(moana, asked="моана", environment=world)
+    _pick_plan(moana, asked="моана", environment=world, menu=True)
 
     assert world.remembered == [
         (
@@ -321,19 +315,15 @@ def test_without_a_terminal_we_refuse_out_loud_and_say_how_to_name_the_picture()
     )
 
     with pytest.raises(NotFoundError) as refusal:
-        _pick_plan(moana, asked="моана", environment=world)
+        _pick_plan(moana, asked="моана", environment=world, menu=True)
 
     assert str(refusal.value) == phrase("choice.blind_refusal", total=3, example="Моана")
     assert world.asked == [], "спрашивать было некого, и висеть мы не стали"
 
 
-def test_a_default_that_would_swap_a_part_of_the_franchise_is_taken_away_entirely() -> None:
-    """🔴 TC-373. Дефолта нет вовсе: строка про первую часть, а номер называет человек.
-
-    Вопрос задаётся БЕЗ дефолта - пустой Enter тут не ответ: он включил бы «Тачки 2»
-    вместо просимых «Тачек», то есть ровно ту подмену, о которой строка и говорит.
-    """
-    world = Outside(answers=[3])
+def test_a_default_that_swaps_a_part_starts_the_first_alive_out_loud() -> None:
+    """Без ``--menu`` страж остаётся строкой, а первая живая часть начинает показ."""
+    world = Outside()
     cars = [
         plan("Тачки", 2006, part=1, pool=[VHS]),
         plan("Тачки 2", 2011, part=2, seeders=40),
@@ -342,14 +332,20 @@ def test_a_default_that_would_swap_a_part_of_the_franchise_is_taken_away_entirel
 
     picked = _pick_plan(cars, asked="тачки", environment=world)
 
-    assert world.said[1] == phrase(
-        "choice.part_one_dead_why",
-        picture="Тачки (2006)",
-        why=phrase("choice.why_nothing_playable"),
-    )
-    assert world.asked == [(phrase("choice.question"), 3, None)], "дефолта у вопроса нет"
-    assert picked is cars[2]
-    assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
+    assert world.said == [
+        phrase(
+            "choice.guard_taken",
+            guard=phrase(
+                "choice.part_one_dead_why",
+                picture="Тачки (2006)",
+                why=phrase("choice.why_nothing_playable"),
+            ),
+            taken="Тачки 2 (2011)",
+            asked="тачки",
+        )
+    ]
+    assert world.asked == [], "без --menu вопроса быть не должно"
+    assert picked is cars[1]
 
 
 def test_a_part_that_is_not_in_the_results_at_all_takes_the_liveliest_out_loud() -> None:
@@ -551,7 +547,7 @@ def test_the_answered_menu_is_unsubscribed_from_the_reference_and_closed() -> No
         ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
     )
 
-    _pick_plan(moana, facts, asked="моана", environment=world)
+    _pick_plan(moana, facts, asked="моана", environment=world, menu=True)
 
     assert facts._seen is None
     assert world.painted is not None and world.painted.closed
