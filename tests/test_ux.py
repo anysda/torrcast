@@ -1821,19 +1821,23 @@ def test_the_bot_answers_in_the_language_the_previous_cast_command_remembered() 
         assemble=lambda: _follow_tongue(chosen_language),
     )
     try:
-        _ask(bot, "cast", 1)
-        assert api.sent == [english()["help"]], "до переключения бот отвечает по-английски"
+        _ask(bot, 'cast "', 1)
+        assert api.sent == [english()["failed"].format(detail="No closing quotation")], (
+            "до переключения бот отвечает по-английски"
+        )
 
         _ask(bot, "cast --ru", 2)
         bot.run_one()
 
-        _ask(bot, "cast", 3)
+        _ask(bot, 'cast "', 3)
     finally:
         configure_choice(previous)
 
     assert load_config().language == "ru", "флаг из чата обязан лечь в настройку продукта"
-    assert api.sent[-1] == russian()["help"]
-    assert api.sent[-1] != english()["help"], "русский и английский ответы обязаны различаться"
+    assert api.sent[-1] == russian()["failed"].format(detail="No closing quotation")
+    assert api.sent[-1] != english()["failed"].format(detail="No closing quotation"), (
+        "русский и английский ответы обязаны различаться"
+    )
 
 
 def test_an_external_switch_moves_the_next_reply_even_after_a_chat_switch() -> None:
@@ -1853,8 +1857,8 @@ def test_an_external_switch_moves_the_next_reply_even_after_a_chat_switch() -> N
         assemble=lambda: _follow_tongue(chosen_language),
     )
     try:
-        _ask(bot, "cast", 1)
-        assert api.sent == [english()["help"]]
+        _ask(bot, 'cast "', 1)
+        assert api.sent == [english()["failed"].format(detail="No closing quotation")]
 
         _ask(bot, "cast --ru", 2)
         bot.run_one()
@@ -1863,9 +1867,11 @@ def test_an_external_switch_moves_the_next_reply_even_after_a_chat_switch() -> N
         # Так выглядит консольный `cast --en` соседнего процесса: та же настройка, тот же файл.
         save_config(Config(tv="10.0.0.50", language="en"))
 
-        _ask(bot, "cast", 3)
+        _ask(bot, 'cast "', 3)
     finally:
         configure_choice(previous)
 
-    assert api.sent[-1] == english()["help"], "следующий ответ - на новом языке настройки"
+    assert api.sent[-1] == english()["failed"].format(detail="No closing quotation"), (
+        "следующий ответ - на новом языке настройки"
+    )
     assert tongue() == "en", "держатель не заморожен чатным переключением"

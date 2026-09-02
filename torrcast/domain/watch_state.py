@@ -46,6 +46,11 @@ class WatchState:
         """Самая свежая запись — то, что показывает ``cast status``."""
         return max(self.entries.items(), key=lambda item: item[1].updated, default=None)
 
+    def latest_serial(self) -> tuple[str, Entry] | None:
+        """Самый свежий настоящий сериал, пропуская фильмы и ложные одиночные серии."""
+        serials = [(key, entry) for key, entry in self.entries.items() if entry.serial]
+        return max(serials, key=lambda item: item[1].updated, default=None)
+
     def held(self) -> set[str]:
         """Хэши раздач, которые сейчас кто-то держит: непустой :attr:`Entry.torrent`.
 

@@ -54,7 +54,7 @@ def _raises(error: BaseException) -> Callable[[Args], int]:
 @pytest.mark.parametrize(
     ("argv", "command"),
     [
-        ([], "status"),
+        ([], "play"),
         (["--tv", "10.0.0.50"], "configure"),
         (["stop"], "stop"),
         (["status"], "status"),

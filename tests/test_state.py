@@ -99,6 +99,26 @@ def test_showing_is_none_when_nothing_holds_a_torrent() -> None:
     assert state.showing() is None
 
 
+def test_latest_serial_skips_a_newer_movie_and_a_false_one_episode_series() -> None:
+    """Умолчание выбирает настоящий сериал по времени, а не последнюю картину вообще."""
+    state = State()
+    state.entries["tv:киберпанк:2022"] = series(updated="2026-09-01T20:00:00+03:00")
+    state.entries["movie:тачки:2006"] = Entry(
+        title="Тачки", magnet="m", kind="movie", updated="2026-09-02T20:00:00+03:00"
+    )
+    state.entries["tv:осечка:2026"] = Entry(
+        title="Осечка",
+        magnet="m",
+        kind="tv",
+        episodes=[[1, 1, 0]],
+        updated="2026-09-02T21:00:00+03:00",
+    )
+
+    latest = state.latest_serial()
+
+    assert latest is not None and latest[0] == "tv:киберпанк:2022"
+
+
 def test_missing_state_file_is_empty_not_error() -> None:
     """Отсутствующий файл состояния — не ошибка."""
     assert not State.load().entries

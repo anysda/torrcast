@@ -13,9 +13,9 @@ def test_a_command_word_in_the_query_names_the_command(word: str) -> None:
     assert Args(query=[word]).command == word
 
 
-def test_an_empty_query_is_status_and_with_an_address_it_is_configuration() -> None:
-    """Пустой запрос - это «что играет»; пустой запрос с ``--tv`` - установка."""
-    assert Args(query=[]).command == "status"
+def test_an_empty_query_is_play_and_with_an_address_it_is_configuration() -> None:
+    """Пустой запрос - показ по умолчанию; пустой запрос с ``--tv`` - установка."""
+    assert Args(query=[]).command == "play"
     assert Args(query=[], tv="10.0.0.50").command == "configure"
     assert Args(query=[], tv="?").command == "configure"
 
@@ -26,7 +26,7 @@ def test_a_bare_language_flag_is_its_own_command_but_yields_to_named_work() -> N
     assert Args(query=["мумия"], language="ru").command == "play"
     assert Args(query=[], language="ru", tv="10.0.0.50").command == "configure"
     assert Args(query=[], language="ru", telegram=True).command == "telegram"
-    assert Args(query=[]).command == "status"
+    assert Args(query=[]).command == "play"
 
 
 def test_a_play_key_outranks_everything_else() -> None:

@@ -16,6 +16,18 @@ def test_a_bare_query_is_all_that_is_needed() -> None:
     assert not args.from_start and not args.dry
 
 
+def test_no_query_names_the_show_command_and_status_stays_explicit() -> None:
+    """Голый ``cast`` показывает картину; сводку просит только ``cast status``."""
+    assert parse_args([]).command == "play"
+    assert parse_args(["status"]).command == "status"
+
+
+def test_from_start_without_a_query_is_the_default_show_from_its_start() -> None:
+    args = parse_args(["--new"])
+
+    assert args.command == "play" and args.from_start
+
+
 def test_tv_without_an_address_asks_for_the_menu() -> None:
     """``--tv`` без адреса - это меню: значение-заглушка адресом не бывает никогда."""
     assert parse_args(["--tv"]).tv == TV_MENU

@@ -67,6 +67,33 @@ def test_a_saved_movie_is_continued_without_a_single_question() -> None:
     assert code == EXIT_OK
 
 
+def test_an_unnamed_show_resumes_the_latest_serial_not_the_newer_movie() -> None:
+    """Пустой запрос получает имя в сценарии и дальше идёт обычной дорогой resume."""
+    state = WatchState()
+    state.entries["tv:кино:2022"] = entry(
+        query="кино",
+        kind="tv",
+        season=1,
+        episode=2,
+        episodes=[[1, 1, 0, GB], [1, 2, 1, GB]],
+        updated="2026-09-01",
+    )
+    state.entries["movie:новинка:2026"] = entry(query="новинка", updated="2026-09-02")
+    watch_store().save(state)
+    resumed: list[str] = []
+
+    def resume(_config: object, key: str, *_args: object, **_rest: object) -> int:
+        resumed.append(key)
+        return EXIT_OK
+
+    args = Args(query=[])
+    code = _cmd_play(args, resume=resume, choose=_never)
+
+    assert code == EXIT_OK
+    assert args.query == ["кино"]
+    assert resumed == ["tv:кино:2022"]
+
+
 def test_a_watched_movie_is_started_over_and_says_so() -> None:
     """Досмотренный фильм играется с начала - и это тоже ранний выход, а не поиск."""
     _remember(entry(query="кино", pos=7100.0))

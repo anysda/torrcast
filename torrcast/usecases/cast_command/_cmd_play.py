@@ -19,6 +19,7 @@ from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.usecases.cast_command._account_watched import _account_watched
 from torrcast.usecases.cast_command._bookmark import _from_start, _kept_place
 from torrcast.usecases.cast_command._choose import _choose
+from torrcast.usecases.cast_command._default_query import _default_query
 from torrcast.usecases.cast_command._entry_for import _entry_for
 from torrcast.usecases.cast_command._kept_dead import _kept_dead
 from torrcast.usecases.cast_command._notes import _notes
@@ -73,6 +74,8 @@ def _cmd_play(
     chosen = _state._play_detect(config)
     config = tune_profile(config, chosen.profile)
     state = watch_store().load()
+    if not args.query:
+        args.query = [_default_query(state)]
     # Один телевизор - один показ. Сироты уже убраны выше, поэтому непустая отметка
     # раздачи здесь значит ровно «на экране прямо сейчас идёт наш показ».
     live = state.showing()

@@ -87,6 +87,32 @@ def test_plain_cast_command_runs_without_forcing_terminal_menu_flag() -> None:
     assert api.sent == ["Мумия (2026)"]
 
 
+def test_plain_cast_without_a_query_runs_the_default_show() -> None:
+    api = _Api()
+    commands: list[list[str]] = []
+    previous = _environment_port()
+
+    def command(argv: object) -> int:
+        commands.append(list(cast(list[str], argv)))
+        return 0
+
+    try:
+        bot = Bot(
+            Config("token", "-100"),
+            api=cast(TelegramApi, api),
+            command=command,
+            assemble=lambda: None,
+            title=lambda: "Киберпанк s1e2",
+        )
+        bot.dispatch({"message": {"chat": {"id": -100}, "message_id": 10, "text": "Cast"}})
+        bot.run_one()
+    finally:
+        configure(previous)
+
+    assert commands == [[]]
+    assert api.sent == ["Киберпанк s1e2"]
+
+
 def test_chat_menu_flag_reaches_the_cli_unchanged() -> None:
     """Настоящий CLI остаётся в главном потоке и вправе ставить сигналы."""
     api = _Api()

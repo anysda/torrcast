@@ -109,9 +109,6 @@ class Bot:
         except ValueError as error:
             self._api.send(self._config.chat_id, i18n("failed", detail=str(error)))
             return
-        if not args:
-            self._api.send(self._config.chat_id, i18n("help"))
-            return
         message_id = message.get("message_id")
         command_id = int(message_id) if isinstance(message_id, int) else 0
         begin_choice = args != ["stop"]

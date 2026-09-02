@@ -104,7 +104,7 @@ class Args:
         if self.query and self.query[0] in words:
             return self.query[0]
         if not self.query:
-            return "configure" if self.tv else "status"
+            return "configure" if self.tv else "play"
         return "play"
 
     @property
