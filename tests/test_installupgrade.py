@@ -6,7 +6,7 @@ install.sh гоняется в настоящем pty, поток скармли
 
 Отличий от установки ЧЕТЫРЕ, и каждое тут названо: последнее слово («обновлено», а не
 «установлено»), последний экран (список изменений, а не подсказка по командам), шапка
-(переход `1.0.0 → 1.0.2`) и отпечаток установленного пакета в самой строке `[OK]`,
+(переход `1.0.0 → 1.0.3`) и отпечаток установленного пакета в самой строке `[OK]`,
 которого у установки нет. Всё остальное обязано совпасть, и это тоже проверяется.
 
 ⚠️ «Обычная установка осталась той же» - про ЗАСТАВКУ, не про работу: класть загрузчик в
@@ -39,11 +39,21 @@ CHANGELOG = (REPO / "docs" / "changelog").read_text(encoding="utf-8")
 #: файла: заглушка привязана к номеру версии, и тест, знающий номер наизусть, разошёлся
 #: бы с ней молча - ровно в тот раз, когда номер поднимут.
 RELEASED = re.findall(r"^\[([0-9.]+)\]$", CHANGELOG, re.M)[0]
+#: Номер, которым помечена сборка. Тоже читается из дерева, а не наизусть: install.sh
+#: печатает его человеку, и тест с зашитым номером краснеет на каждом подъёме версии.
+STAMPED = re.findall(r"^VERSION='([^']*)'$", SCRIPT, re.M)[0]
 FROM = "1.0.0"
 
 
 def _entries(tongue: str) -> list[str]:
+    """Записи ТОЛЬКО своего раздела: сразу за ним в файле лежит прошлый выпуск.
+
+    Раздел кончается следующей шапкой `[версия]`. Без этой границы записи прошлого
+    номера читаются как свои, и сторож «чужих записей не показывать» покупается молча
+    в первый же подъём версии.
+    """
     inside = CHANGELOG.split(f"[{RELEASED}]", 1)[1]
+    inside = re.split(r"^\[[0-9.]+\]$", inside, maxsplit=1, flags=re.M)[0]
     return [line[3:] for line in inside.splitlines() if line.startswith(f"{tongue} ")]
 
 
@@ -132,7 +142,7 @@ def test_an_ordinary_install_is_left_exactly_as_it_was() -> None:
     shot = frame("mock", WIDE, "ru")
     _landed(shot)
 
-    assert "[OK] torrcast 1.0.0 installed successfully." in shot.text, shot.show()
+    assert f"[OK] torrcast {STAMPED} installed successfully." in shot.text, shot.show()
     assert "cast --help" in shot.text, shot.show()
     assert "→" not in shot.row("[OK]"), shot.show()
 
@@ -173,16 +183,15 @@ def test_the_fingerprint_of_the_installed_package_is_the_fourth_difference() -> 
     настоящий тут не собрать. Версия, от которой идём, взята заведомо младше сборки:
     сборка не помечена, и её номер - тот, что стоит в install.sh.
     """
-    stamped = re.findall(r"^VERSION='([^']*)'$", SCRIPT, re.M)[0]
     older = "0.9.0"
-    assert older != stamped, "версия перехода совпала со сборкой - обновления не будет"
+    assert older != STAMPED, "версия перехода совпала со сборкой - обновления не будет"
 
     shot = frame("one", upgrade=older, phases="torrcast")
     _landed(shot)
     _unbroken(shot)
 
     line = shot.row("[OK]")
-    assert f"[OK] torrcast {older} → {stamped} обновлено." in line, shot.show()
+    assert f"[OK] torrcast {older} → {STAMPED} обновлено." in line, shot.show()
     assert f"sha256 {_fingerprint(REPO / 'torrcast')}" in line, shot.show()
 
 
@@ -200,8 +209,7 @@ def test_a_narrow_screen_drops_the_fingerprint_and_keeps_the_frame() -> None:
     _landed(shot)
     _unbroken(shot)
 
-    stamped = re.findall(r"^VERSION='([^']*)'$", SCRIPT, re.M)[0]
-    assert shot.row("[OK]").strip() == f"[OK] torrcast 0.9.0 → {stamped} обновлено.", shot.show()
+    assert shot.row("[OK]").strip() == f"[OK] torrcast 0.9.0 → {STAMPED} обновлено.", shot.show()
 
 
 @pytest.mark.machine
