@@ -624,7 +624,7 @@ job_start() {  # $1 - имя задания, дальше команда с ар
     # часам: снаружи видно только «сколько прошло до того, как его дождались», а это
     # совсем другое число.
     (
-        JOB_EXIT_BEGAN="$SECONDS"
+        export JOB_EXIT_BEGAN="$SECONDS"
         # Bash 3.2 runs this EXIT trap after the function's local scope is gone.  Keep
         # the name in the child shell itself, otherwise macOS expands an unset `name`
         # under set -u and loses both the real failure code and timing.
@@ -683,7 +683,7 @@ late_run() {  # $1/$2 - английское/русское имя, дальше
     (
         trap '' HUP
         if [ "$LANGUAGE" = ru ]; then w_start=начал; w_done=готово; w_fail="НЕ вышло"; w_tail="на показ не влияет"
-        else w_start=started; w_done=done; w_fail="FAILED"; w_tail="playback is not affected"; fi
+        else w_start=started; w_done="done"; w_fail="FAILED"; w_tail="playback is not affected"; fi
         printf '%s | %s: %s\n' "$(date '+%F %T')" "$w_start" "$note"
         # Итог пишем в обеих ветках: догрев не обязан удаться, но обязан сказать.
         # 🔴 TC-638. Тело идёт под голым `set -e`, а ветку «не вышло» пишет ловушка
@@ -1306,7 +1306,9 @@ install_ffmpeg() {
     local have reject="" mine
     if [ "${OS_FAMILY:-linux}" = macos ]; then
         have="$(ffmpeg_version ffmpeg || true)"
-        [ -n "$have" ] && version_ge "$have" "$FFMPEG_MIN" 2>/dev/null || brew_as_invoker install ffmpeg
+        if [ -z "$have" ] || ! version_ge "$have" "$FFMPEG_MIN" 2>/dev/null; then
+            brew_as_invoker install ffmpeg
+        fi
         hash -r
         local ff fp probe
         ff="$(brew_as_invoker --prefix ffmpeg)/bin/ffmpeg"
@@ -1412,7 +1414,8 @@ install_packages() {
     log "dependencies" "зависимости"
     if [ "${OS_FAMILY:-linux}" = macos ]; then
         brew_as_invoker install "${BREW_PACKAGES[@]}"
-        export PATH="$(brew_as_invoker --prefix)/bin:$PATH"
+        PATH="$(brew_as_invoker --prefix)/bin:$PATH"
+        export PATH
         pick_python
         info "macOS supplies curl, bsdtar, LibreSSL and CA trust; Homebrew supplies jq, python venv and ffmpeg" \
             "macOS даёт curl, bsdtar, LibreSSL и доверие CA; Homebrew даёт jq, python venv и ffmpeg"
@@ -3094,6 +3097,7 @@ setup_config() {
         # лежал; ключ -en / -ru сменить его вправе, человек его для того и набрал.
         skip "$CONFIG_DIR/config.json (updating apikey; transport and temp come from code)" "$CONFIG_DIR/config.json (обновляю apikey, транспорт и темп беру из кода)"
         local lang_step=''
+        # shellcheck disable=SC2016  # jq, не shell, раскрывает $l.
         [ -z "$LANGUAGE_NAMED" ] || lang_step=' | .language=$l'
         local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
         jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" --arg l "$LANGUAGE_NAMED" \
@@ -3146,9 +3150,9 @@ setup_bot_unit() {
         systemctl is-active --quiet torrcast-bot.service && was_up=1
     fi
     write_unit torrcast-bot "Telegram-бот torrcast" "$PREFIX/venv/bin/torrcast-bot" || true
-    local ready=''
-    ready="$(jq -r '((.token // "") != "") and ((.chat_id // "") != "")' "$CONFIG_DIR/config.json" 2>/dev/null || true)"
-    if [ "$ready" != true ]; then
+    local bot_ready=''
+    bot_ready="$(jq -r '((.token // "") != "") and ((.chat_id // "") != "")' "$CONFIG_DIR/config.json" 2>/dev/null || true)"
+    if [ "$bot_ready" != true ]; then
         info "Telegram bot is not set up yet - set it up with: cast -tg" \
              "Telegram-бот ещё не настроен - настрой командой: cast -tg"
         return 0
@@ -3192,7 +3196,7 @@ receiver_name() {  # $1 - вывод cast --tv, $2 - адрес; имя на std
         case $line in
             'ТВ: '*" - $2"|'TV: '*" - $2")
                 name=${line#*': '}
-                printf '%s' "${name% - $2}"
+                printf '%s' "${name% - "$2"}"
                 return 0
                 ;;
         esac
