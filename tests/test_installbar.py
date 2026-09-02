@@ -127,6 +127,10 @@ class Run:
     work: dict[str, tuple[int, int]]  # работник -> (начал, кончил)
     rc: int
     screen_frames: tuple[str, ...]
+    #: Весь поток pty целиком. Кадры заставки - только то, что ушло внутри DECSET
+    #: 2026, а развал печатается ПОСЛЕ него: искать ложную строку в кадрах значило
+    #: бы искать её там, где её не бывает даже на сломанном дереве.
+    stream: str
 
     def took(self, mark: int) -> int | None:
         """Момент, когда полоса впервые показала `mark` закрытых фаз."""
@@ -157,6 +161,48 @@ def _fake(work: dict[str, float]) -> str:
             f'sleep {secs}; printf "%s\\n" "$EPOCHREALTIME" >"$TC909_MARK.{name}.done"; }}'
         )
     return "\n".join(out) + "\n\n"
+
+
+def _rights(box: Path) -> dict[str, str]:
+    """Стенд поднятия прав: обычный пользователь и шов, кончающийся `exec`.
+
+    🔴 Настоящий sudo в этой проверке участвовать не может НИ НА КАКОМ шаге: найдя
+    его, установщик поднялся бы по-настоящему и пошёл ставить продукт на машину,
+    которая об этом не просила (куплено потерей, см. `_rights_stand` в
+    test_install.py). Поэтому uid тут не меняется вовсе - подставка делает ровно то
+    единственное, чем поднятие ломало заставку: заменяет процесс через `exec`.
+    Канал прогресса это уносит при ЛЮБОМ sudo, даже всё сохраняющем: `UI_CHANNEL` -
+    обычная переменная оболочки, она не экспортируется никуда и `exec` не переживает.
+    Второго круга не будет: подставка метит окружение, а подставной `id` после метки
+    отвечает «root» - иначе поднятие звало бы себя вечно.
+    """
+    bindir = box / "rights"
+    bindir.mkdir()
+    fake_id = bindir / "id"
+    fake_id.write_text(
+        '#!/bin/sh\n[ "$1" = -u ] || exec /usr/bin/id "$@"\n'
+        '[ -n "${TC988_ELEVATED:-}" ] && { printf "0\\n"; exit 0; }\nprintf "1000\\n"\n',
+        encoding="utf-8",
+    )
+    fake_id.chmod(0o755)
+    sudo = box / "sudo"
+    sudo.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> "{bindir / "sudo_calls.txt"}"\n'
+        "while [ $# -gt 0 ]; do\n"
+        "  case $1 in -H) shift ;; --) shift; break ;; *) break ;; esac\n"
+        "done\n"
+        'TC988_ELEVATED=1 exec "$@"\n',
+        encoding="utf-8",
+    )
+    sudo.chmod(0o755)
+    return {
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "TORRCAST_SUDO": str(sudo),
+        # Ambient-переменная гейта выключила бы ровно то, что мерится; пустое
+        # значение читается установщиком как «не задано».
+        "TORRCAST_NO_ROOT": "",
+    }
 
 
 def _pty_run(
@@ -201,11 +247,25 @@ def _ms(path: Path) -> int:
     return int(float(path.read_text(encoding="utf-8").strip().replace(",", ".")) * 1000)
 
 
-def _stand(text: str, box: Path, phases: str, work: dict[str, float], language: str = "en") -> Run:
-    """Поднять стенд на данном тексте install.sh и снять обе линии."""
+def _stand(
+    text: str,
+    box: Path,
+    phases: str,
+    work: dict[str, float],
+    language: str = "en",
+    rights: dict[str, str] | None = None,
+) -> Run:
+    """Поднять стенд на данном тексте install.sh и снять обе линии.
+
+    `rights` - стенд поднятия прав (:func:`_rights`). Пусто - поднятие выключено
+    через `TORRCAST_NO_ROOT`, как у всех мер про полосу, кроме одной.
+    """
     assert ENTRY in text, "не найдена точка входа: подделку некуда вставить"
     script = box / "install.sh"
     script.write_text(text.replace(ENTRY, _fake(work) + ENTRY, 1), encoding="utf-8")
+    # Перезапуск идёт по `$SELF`, то есть запуском самого файла, а не `bash файл`:
+    # без бита исполнения поднятие упёрлось бы в отказ прав, а не в то, что мерится.
+    script.chmod(0o755)
     for name in ("bin", "cfg", "state", "hls", "motd.d"):
         (box / name).mkdir()
     trace, mark = box / "ui.trace", box / "work"
@@ -215,7 +275,7 @@ def _stand(text: str, box: Path, phases: str, work: dict[str, float], language: 
             "TERM": "xterm-256color",
             "LINES": str(ROWS),
             "COLUMNS": str(COLS),
-            "TORRCAST_NO_ROOT": "1",
+            **({"TORRCAST_NO_ROOT": "1"} if rights is None else rights),
             "TORRCAST_NO_SYSTEMD": "1",
             "TORRCAST_PREFIX": str(box),
             "TORRCAST_BIN_DIR": str(box / "bin"),
@@ -252,6 +312,7 @@ def _stand(text: str, box: Path, phases: str, work: dict[str, float], language: 
         done,
         rc,
         screen_frames,
+        stream,
     )
 
 
@@ -298,6 +359,31 @@ def _plateau(run: Run) -> tuple[int, int]:
     """Плато на делении перед долгой фазой: (кадров, охват в мс)."""
     stay = run.held(BEFORE)
     return len(stay), (stay[-1] - stay[0]) if len(stay) > 1 else 0
+
+
+#: 🔴 TC-988. Возврат поднятия внутрь работника - ровно та правка, против которой
+#: поставлен сторож ниже. Больше не меняется ничего: полоса, знаменатель и посадка
+#: целы, ломается только то, что `exec` уносит форкнутого работника вместе с каналом.
+INSIDE_WORKER = (
+    (
+        "main() {\n    cleanup_login_notice\n",
+        "main() {\n    become_root\n    cleanup_login_notice\n",
+    ),
+    (
+        "else\n    become_root\n    if [[ -t 1 && -z ${TORRCAST_PLAIN:-} ]]; then\n"
+        '        ui_run real\n    else\n        main "$@"\n    fi\nfi\n',
+        "elif [[ -t 1 && -z ${TORRCAST_PLAIN:-} ]]; then\n    ui_run real\nelse\n"
+        '    main "$@"\nfi\n',
+    ),
+)
+
+
+def _elevation_inside_worker() -> str:
+    text = SCRIPT
+    for old, new in INSIDE_WORKER:
+        assert old in text, f"возврат не на что наложить:\n{old}"
+        text = text.replace(old, new, 1)
+    return text
 
 
 @pytest.mark.machine
@@ -418,3 +504,55 @@ def test_the_same_move_on_another_phase_is_caught_too(tmp_path: Path) -> None:
     assert took < ended - LAG_FRAMES * FRAME_MS, (
         f"опережение не поймано: деление взято на {ended - took} мс от конца работы"
     )
+
+
+#: Ложная строка развала: её печатает `ui_collapse`, когда работник кончился, а
+#: фазы не добраны. Ищется по обоим языкам - заставка говорит на языке человека.
+BROKE_OFF = ("installation broke off", "установка оборвалась")
+
+
+def _rights_run(text: str, box: Path) -> tuple[Run, str, Path]:
+    """Прогон под заставкой ОБЫЧНЫМ пользователем: поднятие идёт по-настоящему."""
+    rights = _rights(box)
+    run = _stand(text, box, HOLD_PHASES, HOLD_WORK, rights=rights)
+    return run, run.stream, box / "rights" / "sudo_calls.txt"
+
+
+@pytest.mark.machine
+def test_the_bar_walks_when_a_plain_user_is_the_one_who_started_it(tmp_path: Path) -> None:
+    """🔴 TC-988. Полоса идёт и у того, кто позвал установщик БЕЗ sudo.
+
+    Мерился всегда `sudo ./install.sh`, то есть вход, на котором поднятие
+    возвращается сразу и `exec` не случается вовсе. Человек и однострок ходят
+    другим входом, и на нём заставка мерила пустой канал: полоса стояла на 0 %
+    всю установку, а в конце врала «оборвалась» на прошедшей установке.
+    """
+    run, stream, calls = _rights_run(SCRIPT, tmp_path)
+
+    assert calls.exists(), "поднятие не звалось вовсе: мера ничего не проверила"
+    _shape(run, HOLD_TOTAL)
+    # Нуля среди делений может и не быть: поднятие с перезапуском стоит времени, и
+    # первая (мгновенная) фаза успевает закрыться до первого же кадра. Мерка тут -
+    # что полоса ИДЁТ и доходит до конца, а не с какого деления её застали.
+    marks = sorted({done for _, done in run.frames})
+    assert marks[-1] == HOLD_TOTAL, f"полоса не дошла до конца шкалы: {marks}"
+    assert len(marks) >= 3, f"полоса показала меньше трёх делений: {marks}"
+    assert run.rc == 0, f"установка не дошла до конца: rc={run.rc}"
+    for lie in BROKE_OFF:
+        assert lie not in stream, f"прошедшая установка названа оборванной: {lie!r}"
+
+
+@pytest.mark.machine
+def test_elevation_moved_back_into_the_worker_freezes_the_bar_at_zero(tmp_path: Path) -> None:
+    """🔴 Отрицательная проба: поднятие возвращено в `main` - полоса встаёт на нуле.
+
+    Ровно тот отказ, который владелец предъявил дословно: ни одного деления за
+    всю установку, ложная строка развала и НОЛЬ кодом возврата под ней.
+    """
+    run, stream, calls = _rights_run(_elevation_inside_worker(), tmp_path)
+
+    assert calls.exists(), "поднятие не звалось вовсе: мера ничего не проверила"
+    assert len(run.frames) >= 20, f"кадров {len(run.frames)}: мерить не на чем"
+    assert {done for _, done in run.frames} == {0}, "полоса всё же сдвинулась"
+    assert any(lie in stream for lie in BROKE_OFF), "ложная строка развала не найдена"
+    assert run.rc == 0, f"ноль кодом возврата под ложью не воспроизведён: rc={run.rc}"

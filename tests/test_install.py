@@ -1322,13 +1322,35 @@ def test_without_sudo_the_way_out_is_named_without_naming_sudo(tmp_path: Path) -
 
 
 def test_the_rights_are_asked_about_before_anything_is_done() -> None:
-    """Поднятие стоит первым в main и раньше первой правки на диске: спросить пароль
-    посреди установки значило бы бросить машину на полпути."""
+    """Поднятие стоит раньше и заставки, и первой правки на диске: спросить пароль
+    посреди установки значило бы бросить машину на полпути, а спросить его ВНУТРИ
+    заставки - уронить её (TC-988, поднятие кончается `exec`)."""
     body = _body("become_root")
-    main = SCRIPT.split("main() {", 1)[1]
+    entry = SCRIPT.split("# --- Точка входа ---", 1)[1]
 
     assert body.index('[ "$(id -u)" -eq 0 ]') < body.index('command -v "$SUDO"')
-    assert main.index("become_root") < main.index("cleanup_login_notice")
+    assert "become_root" not in SCRIPT.split("main() {", 1)[1].split("\n}\n", 1)[0], (
+        "поднятие снова внутри main, то есть внутри форкнутого работника заставки"
+    )
+    assert entry.index("become_root") < entry.index("ui_run real")
+    assert entry.index("become_root") < entry.index('main "$@"')
+
+
+@pytest.mark.machine
+def test_the_restart_hands_root_its_own_home(tmp_path: Path) -> None:
+    """🔴 TC-990. Поднятие идёт с `-H`, иначе у root остаётся HOME позвавшего.
+
+    Тогда pip дважды за установку отказывается от кэша вслух («The cache has been
+    disabled ... you should use sudo's -H flag») - и сам же называет этот ключ.
+    Debian сбрасывает HOME и без ключа, macOS его хранит (`env_keep += "HOME MAIL"`),
+    поэтому мерка тут - как позвали sudo, а не что вышло на этой машине.
+    """
+    env, calls = _rights_stand(tmp_path)
+
+    subprocess.run([str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False)
+
+    asked = calls.read_text(encoding="utf-8").strip()
+    assert asked.split()[0] == "-H", f"поднятие идёт без -H: {asked!r}"
 
 
 @pytest.mark.machine
@@ -1377,6 +1399,71 @@ def test_a_config_the_user_cannot_read_does_not_replace_the_restart_with_a_refus
         f"перезапуска не было, установка легла раньше него (stderr: {done.stderr!r})"
     )
     assert "Permission denied" not in done.stderr
+
+
+def _borrowed_home_stand(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
+    """Стенд «мы уже root, а HOME чужой» - то самое, что даёт `sudo ./install.sh`.
+
+    🔴 Настоящего root тут нет и не будет: `id` подставной, а `sudo` в этой ветке
+    установщик не зовёт вовсе (:func:`become_root` уходит по первой же проверке).
+    Прибор - подставной `rm`: он записывает HOME в момент ПЕРВОГО действия установки
+    на диске (`cleanup_login_notice`) и передаёт вызов настоящему `rm`. Меряется
+    поведение, а не текст: важно, чем HOME СТАЛ, а не какой ключ где написан.
+    """
+    bindir = tmp_path / "shim"
+    bindir.mkdir()
+    seen = tmp_path / "home_seen.txt"
+    (bindir / "id").write_text(
+        '#!/bin/sh\n[ "$1" = -u ] || exec /usr/bin/id "$@"\nprintf "0\\n"\n', encoding="utf-8"
+    )
+    (bindir / "id").chmod(0o755)
+    (bindir / "rm").write_text(
+        f'#!/bin/sh\nprintf "%s\\n" "$HOME" >> "{seen}"\nexec /bin/rm "$@"\n', encoding="utf-8"
+    )
+    (bindir / "rm").chmod(0o755)
+    borrowed = tmp_path / "borrowed"
+    borrowed.mkdir()
+    for name in ("bin", "cfg", "state", "hls", "motd.d"):
+        (tmp_path / name).mkdir()
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "HOME": str(borrowed),
+        "SUDO_USER": os.environ.get("USER", "tester"),
+        "TORRCAST_PLAIN": "1",
+        "TORRCAST_NO_SYSTEMD": "1",
+        "TORRCAST_PHASES": "none",
+        "TORRCAST_PREFIX": str(tmp_path / "prefix"),
+        "TORRCAST_BIN_DIR": str(tmp_path / "bin"),
+        "TORRCAST_CONFIG_DIR": str(tmp_path / "cfg"),
+        "TORRCAST_STATE_DIR": str(tmp_path / "state"),
+        "TORRCAST_HLS_DIR": str(tmp_path / "hls"),
+        "TORRCAST_MOTD": str(tmp_path / "motd"),
+        "TORRCAST_MOTD_D": str(tmp_path / "motd.d"),
+    }
+    env.pop("TORRCAST_NO_ROOT", None)
+    env.pop("TORRCAST_LANGUAGE", None)
+    return env, seen, borrowed
+
+
+@pytest.mark.machine
+def test_root_with_a_borrowed_home_takes_its_own_back(tmp_path: Path) -> None:
+    """🔴 TC-990. `sudo ./install.sh` человек набирает сам, и за нашим `-H` там уже
+    никого нет: HOME остаётся его, pip от root отказывается от кэша и говорит об
+    этом дважды за установку. Замер на стенде с макоподобным sudoers показал ровно
+    это: `./install.sh` обычным пользователем - ноль предупреждений, `sudo
+    ./install.sh` там же - два. Поэтому дом чинится по факту, а не по тому, кто нас
+    поднял."""
+    env, seen, borrowed = _borrowed_home_stand(tmp_path)
+
+    done = subprocess.run(
+        [str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False
+    )
+
+    assert seen.exists(), f"установка не дошла до первого действия: {done.stderr[-800:]!r}"
+    took = seen.read_text(encoding="utf-8").splitlines()[0]
+    assert took != str(borrowed), "root пошёл ставить с домом позвавшего человека"
+    assert took == os.path.expanduser("~root"), f"дом взят не root'ов: {took!r}"
 
 
 def _defs_stand(tmp_path: Path, payload: bytes) -> tuple[list[str], dict[str, str], Path]:
