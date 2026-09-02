@@ -85,11 +85,6 @@ class Entry(_Playing):
             return ""
         return f"s{self.season}e{self.episode}"
 
-    @property
-    def shown_as(self) -> str:
-        """Как показ зовёт эту картину человеку: «Название» с подписью серии."""
-        return f"«{self.title}»" + (f" {self.label}" if self.label else "")
-
     def where(self, season: int, episode: int) -> int:
         """Место серии в списке серий раздачи; ``-1`` — такой серии в раздаче нет."""
         for at, item in enumerate(self.episodes):

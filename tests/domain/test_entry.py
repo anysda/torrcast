@@ -124,7 +124,6 @@ def test_one_episode_in_a_release_is_a_parsing_slip_and_not_a_series() -> None:
 
     assert not one.serial
     assert one.label == "", "у не-сериала подписи серии нет"
-    assert one.shown_as == "«Картина»"
 
 
 def test_a_real_series_is_named_with_its_episode_wherever_it_is_shown() -> None:
@@ -133,7 +132,6 @@ def test_a_real_series_is_named_with_its_episode_wherever_it_is_shown() -> None:
 
     assert entry.serial
     assert entry.label == "s1e2"
-    assert entry.shown_as == "«Сериал» s1e2"
 
 
 def test_an_episode_is_found_by_both_its_numbers_and_a_missing_one_is_said_to_be_missing() -> None:
