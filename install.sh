@@ -5011,7 +5011,10 @@ ui_run() {  # $1 - dry|real, $2 - секунды для dry
     printf '%s%s[OK]%s torrcast %s\n' "$BRAND" "$BOLD" "$NC" "$VERSION"
   fi
   local note
-  for note in "${UI_FINAL_NOTES[@]}"; do
+  # 🔴 bash 3.2 на маке зовёт пустой массив под `set -u` несвязанным, поэтому
+  # раскрытие ограждено. Пустым он бывает штатно: на повторной установке правило
+  # sudoers уже лежит, и setup_cast_sudoers уходит через skip, ничего не пометив.
+  for note in ${UI_FINAL_NOTES[@]+"${UI_FINAL_NOTES[@]}"}; do
     if [ "$LANGUAGE" = ru ]; then
       printf '%sвнимание:%s %s\n' "${CSI}1;33m" "$NC" "$note"
     else

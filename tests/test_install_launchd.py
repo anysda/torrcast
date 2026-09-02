@@ -181,6 +181,9 @@ def test_empty_arrays_survive_bash32_set_u() -> None:
     assert guarded in _body("catalog_promoted")
     assert '${keep[@]+"${keep[@]}"}' in SCRIPT
     assert '${pin[@]+"${pin[@]}"}' in _body("probe_whole")
+    # Пустым UI_FINAL_NOTES бывает штатно: на повторной установке
+    # setup_cast_sudoers уходит через skip и не помечает ни одной строки.
+    assert '${UI_FINAL_NOTES[@]+"${UI_FINAL_NOTES[@]}"}' in _body("ui_run")
 
 
 def test_no_bare_variable_touches_multibyte_text() -> None:
