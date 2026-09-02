@@ -205,3 +205,35 @@ def test_the_form_word_still_keeps_a_film_out_of_the_series_pool() -> None:
     )
 
     assert len(found) == 2
+
+
+def test_a_film_and_a_series_glued_into_one_picture_come_out_a_series() -> None:
+    """🔴 Единственное правило, сводящее РАЗНЫЕ виды, отдаёт вид сериала, а не большей кучки.
+
+    Вид решался порядком склейки - той кучкой, где раздач больше, - и «Байки Мэтра»
+    выходили полным метром: без пометки в меню и без права на правила вида.
+    """
+    found = glue(
+        [
+            Picture(
+                title="Байки Мэтра",
+                year=2008,
+                kind="movie",
+                original="Cars Toon: Mater's Tall Tales",
+                releases=[
+                    Release(raw_name="Cars Toon 1", title="Байки Мэтра"),
+                    Release(raw_name="Cars Toon 2", title="Байки Мэтра"),
+                ],
+            ),
+            Picture(
+                title="Байки Мэтра",
+                year=2008,
+                kind="tv",
+                original="Mater's Tall Tales",
+                releases=[Release(raw_name="Mater's Tall Tales [S01-03]", title="Байки Мэтра")],
+            ),
+        ]
+    )
+
+    assert len(found) == 1
+    assert found[0].kind == "tv"

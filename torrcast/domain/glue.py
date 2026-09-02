@@ -9,6 +9,7 @@ from torrcast.domain.adaptationless import _adaptationless
 from torrcast.domain.compose import _compose
 from torrcast.domain.editionless import _editionless
 from torrcast.domain.formless import _formless
+from torrcast.domain.glued_kind import _glued_kind
 from torrcast.domain.glued_year import _glued_year
 from torrcast.domain.in_digits import in_digits
 from torrcast.domain.kind import Kind
@@ -161,8 +162,9 @@ def glue(pictures: list[Picture]) -> list[Picture]:
             key=lambda p: (-len(p.releases), p.title, p.original or ""),
         )
         releases = [r for p in merged for r in p.releases]
-        year = _glued_year(merged[0].kind, merged, releases)
-        fresh = _compose(merged[0].kind, year, releases)
+        kind = _glued_kind(merged)
+        year = _glued_year(kind, merged, releases)
+        fresh = _compose(kind, year, releases)
         fresh.also = next((p.title for p in merged if slugify(p.title) != slugify(fresh.title)), "")
         out.append(fresh)
     return out
