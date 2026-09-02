@@ -27,6 +27,19 @@ grep -Fq '"language": "$LANGUAGE"' install.sh || fail 'new config does not store
 grep -Fq '[ -z "$4" ] || export TORRCAST_LANGUAGE="$4"' install \
     || fail 'bootstrap does not forward the named language through sudo'
 
+# Локаль принадлежит процессам продукта, а не машине. Эти пины называют именно
+# операции записи: значение LOCALE и даже чтение системных файлов договор не нарушают.
+grep -Fq 'update-locale' install.sh \
+    && fail 'locale phase writes the product language with update-locale'
+grep -Eq '(>|>>)[[:space:]]*/etc/(default/locale|environment)' install.sh \
+    && fail 'locale phase redirects the product language into a system locale file'
+grep -Eq "sed_in_place .*\/etc\/(default\/locale|environment)" install.sh \
+    && fail 'locale phase edits a system locale file in place'
+grep -Fq "LANG='\$LOCALE'" install.sh \
+    || fail 'cast wrapper does not set the product locale'
+grep -Fq "LC_ALL='\$LOCALE'" install.sh \
+    || fail 'cast wrapper does not pin every locale category'
+
 box=$(mktemp -d)
 trap 'rm -rf "$box"' EXIT HUP INT TERM
 

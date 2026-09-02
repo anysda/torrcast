@@ -1114,8 +1114,7 @@ locale_build() {  # $1 - имя локали
     locale_present "$1"
 }
 
-# Приводим систему к UTF-8. Идемпотентно: собранную локаль не пересобираем, готовую
-# строку в конфигах не переписываем.
+# Готовим UTF-8 для процессов torrcast. Идемпотентно: собранную локаль не пересобираем.
 setup_locale() {
     log "UTF-8 locale ($LOCALE)" "локаль UTF-8 ($LOCALE)"
     if [ "${OS_FAMILY:-linux}" = macos ]; then
@@ -1141,23 +1140,6 @@ setup_locale() {
         LOCALE="$ready"
     fi
 
-    # Вход по ssh берёт LANG отсюда (pam_env с envfile=/etc/default/locale).
-    if [ "$(sed -n 's/^LANG=//p' /etc/default/locale 2>/dev/null | head -1)" = "$LOCALE" ]; then
-        skip "LANG=$LOCALE in /etc/default/locale" "LANG=$LOCALE в /etc/default/locale"
-    elif command -v update-locale >/dev/null 2>&1; then
-        update-locale "LANG=$LOCALE"
-        info "LANG=$LOCALE -> /etc/default/locale" "LANG=$LOCALE → /etc/default/locale"
-    else
-        printf 'LANG=%s\n' "$LOCALE" > /etc/default/locale
-        info "LANG=$LOCALE -> /etc/default/locale" "LANG=$LOCALE → /etc/default/locale"
-    fi
-    # Подстраховка для систем, где строки с envfile в pam.d нет: /etc/environment
-    # pam_env читает всегда.
-    if ! grep -qs "^LANG=$LOCALE\$" /etc/environment; then
-        [ -f /etc/environment ] && sed_in_place '/^LANG=/d' /etc/environment
-        printf 'LANG=%s\n' "$LOCALE" >> /etc/environment
-    fi
-    export LANG="$LOCALE"
 }
 
 # --- 1. Зависимости ---------------------------------------------------------
@@ -1541,8 +1523,9 @@ install_torrcast() {
     verify_torrcast "$installed"
 }
 
-# Команда `cast` в PATH. На Linux - симлинк на консольный скрипт venv: там весь показ
-# и так делается из-под root. На маке обычный пользователь root'ом не ходит, а показ
+# Команда `cast` в PATH. На Linux обёртка отдаёт собранную локаль только процессу
+# продукта: менять язык ssh, консоли, других пользователей и служб установщик не вправе.
+# На маке обычный пользователь root'ом не ходит, а показ
 # обязан работать под root: macOS выдаёт доступ к локальной сети «ответственному
 # процессу», и у неподписанного задания launchd его нет (Errno 65, не лечится ни
 # повтором, ни таймаутом), тогда как root свободен от TCC вовсе. Замеры живого стенда:
@@ -1555,8 +1538,24 @@ install_torrcast() {
 # идёт тем же кодом, что под root доказано живьём.
 install_cast_command() {
     if [ "${OS_FAMILY:-linux}" != macos ]; then
-        # Симлинк перезаписываем всегда: это дёшево и чинит битую ссылку.
-        ln -sfn "$PREFIX/venv/bin/cast" "$BIN_DIR/cast"
+        local tmp; tmp="$(mktemp /tmp/torrcast-cast.XXXXXX)"
+        cat >"$tmp" <<CAST
+#!/bin/sh
+LANG='$LOCALE'
+LC_ALL='$LOCALE'
+export LANG LC_ALL
+exec $PREFIX/venv/bin/cast "\$@"
+CAST
+        if [ -f "$BIN_DIR/cast" ] && cmp -s "$tmp" "$BIN_DIR/cast"; then
+            rm -f "$tmp"
+            skip "$BIN_DIR/cast" "$BIN_DIR/cast"
+            return 0
+        fi
+        # Прежняя команда была симлинком: удалить его нужно до install, иначе запись
+        # пройдёт сквозь ссылку и затрёт консольный скрипт внутри venv.
+        rm -f "$BIN_DIR/cast"
+        install -m 0755 "$tmp" "$BIN_DIR/cast"
+        rm -f "$tmp"
         return 0
     fi
     local tmp; tmp="$(mktemp /tmp/torrcast-cast.XXXXXX)"

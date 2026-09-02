@@ -197,17 +197,23 @@ def test_no_bare_variable_touches_multibyte_text() -> None:
     assert offenders == []
 
 
-def test_macos_cast_is_a_root_rexec_wrapper_not_a_symlink() -> None:
+def test_cast_wrappers_keep_their_platform_specific_scope() -> None:
     """macOS grants local-network access per "responsible process" and an unsigned
     launchd job has none (Errno 65); root is outside TCC entirely. So on a Mac the
     show runs as root, and `cast` in PATH is a wrapper that re-execs itself through
     `sudo -n` - never a symlink a regular user would follow into permission errors.
-    Linux keeps the plain symlink: its whole tract already works as root."""
+    Linux gives the product locale to cast itself, without changing the host locale."""
     body = _body("install_cast_command")
-    linux = body.split('if [ "${OS_FAMILY:-linux}" != macos ]; then', 1)[1].split("return 0", 1)[0]
-    macos = body.split("return 0", 1)[1]
+    linux, separator, macos = body.partition(
+        '    fi\n    local tmp; tmp="$(mktemp /tmp/torrcast-cast.XXXXXX)"'
+    )
 
-    assert 'ln -sfn "$PREFIX/venv/bin/cast" "$BIN_DIR/cast"' in linux
+    assert separator
+    assert "LANG='$LOCALE'" in linux
+    assert "LC_ALL='$LOCALE'" in linux
+    assert 'exec $PREFIX/venv/bin/cast "\\$@"' in linux
+    assert 'rm -f "$BIN_DIR/cast"' in linux
+    assert 'cmp -s "$tmp" "$BIN_DIR/cast"' in linux
     assert "ln -sfn" not in macos
     assert 'exec /usr/bin/sudo -n $BIN_DIR/cast "\\$@"' in macos
     # sudo cuts PATH to /usr/bin:/bin:... and the Homebrew ffmpeg/ffprobe vanish;
