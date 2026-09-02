@@ -377,9 +377,12 @@ def test_macos_reaches_packages_without_bash4_or_linux_locale_work() -> None:
     assert 'brew_as_invoker install "${BREW_PACKAGES[@]}"' in packages
     assert '"$SUDO" -H -u "$SUDO_USER" "$brew_bin" "$@"' in SCRIPT
     assert "SUDO_USER пуст" in SCRIPT
-    for bash4 in ("declare -A", "local -n"):
-        assert bash4 not in SCRIPT
-    assert "exec 8<> <(:)" in SCRIPT and 'exec 9<"$UI_CHANNEL"' in SCRIPT
+    # Совместимость со штатным bash мака мерится целиком в tests/test_installold.py:
+    # там разбор ВСЕГО файла на конструкции 4+/5+ и живой прогон заставки под настоящим
+    # 3.2.57. Список из двух имён здесь был снимком, а не правилом, и молчал бы на
+    # третьей конструкции. Мака же касается только номер канала: автономер {fd} - это
+    # 4.1, поэтому на старом интерпретаторе девятка называется руками.
+    assert 'exec 9<"$UI_CHANNEL"' in SCRIPT
 
 
 def test_release_assets_are_selected_by_os_and_architecture() -> None:
