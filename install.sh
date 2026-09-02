@@ -2261,12 +2261,23 @@ seed_definitions() {
     fi
     log "indexer definitions from GitHub" "определения индексеров с GitHub"
     local tmp; tmp="$(mktemp -d)"
-    if fetch -o "$tmp/defs.tar.gz" "$DEFS_TARBALL" \
-       && tar -xzf "$tmp/defs.tar.gz" -C "$tmp" --wildcards '*/definitions/v11/*.yml'; then
+    # 🔴 TC-989. Распаковываем архив ЦЕЛИКОМ, а нужное отбирает `find` строкой ниже -
+    # он это и так делал. Отбор шаблоном самим tar'ом непереносим в обе стороны: на
+    # маке tar - это bsdtar, и он падает целиком («Option --wildcards is not
+    # supported»), а без ключа тот же шаблон падает уже у GNU tar («Используйте
+    # --wildcards ... Не найден в архиве», код 2). Замер цены на том же архиве:
+    # 585 файлов и 5.1 МБ против 546 и 4.5 МБ - лишние 39 файлов это README,
+    # .github и определения прежних схем, и все они уезжают с `rm -rf` ниже.
+    # Скачивание и распаковка разведены НАМЕРЕННО: одна ветка на двоих говорила
+    # «определения не скачались» там, где скачалось всё и упала распаковка, и уводила
+    # искать сеть. Человек при этом получал 3 индексера вместо 7.
+    if ! fetch -o "$tmp/defs.tar.gz" "$DEFS_TARBALL"; then
+        info "⚠ definitions could not be downloaded - only built-in indexers remain" "⚠ определения не скачались - останутся только встроенные индексеры"
+    elif ! tar -xzf "$tmp/defs.tar.gz" -C "$tmp"; then
+        info "⚠ the definitions archive did not unpack - only built-in indexers remain" "⚠ архив определений не распаковался - останутся только встроенные индексеры"
+    else
         find "$tmp" -path '*/definitions/v11/*.yml' -exec install -m 0644 {} "$dir/" \;
         info "installed $(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) definitions" "разложено $(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) определений"
-    else
-        info "⚠ definitions could not be downloaded - only built-in indexers remain" "⚠ определения не скачались - останутся только встроенные индексеры"
     fi
     rm -rf "$tmp"
 }

@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 from collections.abc import Iterator
@@ -1376,3 +1377,93 @@ def test_a_config_the_user_cannot_read_does_not_replace_the_restart_with_a_refus
         f"перезапуска не было, установка легла раньше него (stderr: {done.stderr!r})"
     )
     assert "Permission denied" not in done.stderr
+
+
+def _defs_stand(tmp_path: Path, payload: bytes) -> tuple[list[str], dict[str, str], Path]:
+    """Стенд определений индексеров: tar как на маке и архив с диска.
+
+    Подделан ровно tar, и подделан ОДНОЙ чертой bsdtar - тем, что чужого ключа GNU
+    он не знает и падает целиком, а не молча. Всё остальное уходит настоящему tar,
+    поэтому распаковка меряется настоящая.
+    """
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    real_tar = shutil.which("tar")
+    assert real_tar, "в системе нет tar: мерить распаковку нечем"
+    (bindir / "tar").write_text(
+        "#!/bin/sh\n"
+        'for a in "$@"; do [ "$a" = --wildcards ] && { '
+        'echo "bsdtar: Option --wildcards is not supported" >&2; exit 1; }; done\n'
+        f'exec {real_tar} "$@"\n',
+        encoding="utf-8",
+    )
+    (bindir / "tar").chmod(0o755)
+    archive = tmp_path / "defs.tar.gz"
+    archive.write_bytes(payload)
+    for name in ("cfg", "state"):
+        (tmp_path / name).mkdir()
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "TORRCAST_NO_ROOT": "1",
+        "TORRCAST_NO_SYSTEMD": "1",
+        "TORRCAST_PLAIN": "1",
+        "TORRCAST_PHASES": "none",
+        "TORRCAST_PREFIX": str(tmp_path / "prefix"),
+        "TORRCAST_CONFIG_DIR": str(tmp_path / "cfg"),
+        "TORRCAST_STATE_DIR": str(tmp_path / "state"),
+        "TORRCAST_DEFS_TARBALL": archive.as_uri(),
+    }
+    env.pop("TORRCAST_LANGUAGE", None)
+    # Позиционные доводы сбрасываются: сорсинг отдал бы путь установщику как ключ.
+    call = ["bash", "-c", 'p="$1"; set --; . "$p"; seed_definitions', "_", str(REPO / "install.sh")]
+    return call, env, tmp_path / "prefix" / "prowlarr-data" / "Definitions"
+
+
+def _defs_archive(tmp_path: Path, count: int = 4) -> bytes:
+    """Архив по образу Prowlarr/Indexers: определения v11 и мусор рядом с ними."""
+    box = tmp_path / "src" / "Indexers-master"
+    (box / "definitions" / "v11").mkdir(parents=True)
+    (box / "definitions" / "v9").mkdir(parents=True)
+    for i in range(count):
+        (box / "definitions" / "v11" / f"probe{i}.yml").write_text(
+            f"id: probe{i}\n", encoding="utf-8"
+        )
+    (box / "definitions" / "v9" / "old.yml").write_text("id: old\n", encoding="utf-8")
+    (box / "README.md").write_text("# indexers\n", encoding="utf-8")
+    tarball = tmp_path / "src" / "made.tar.gz"
+    with tarfile.open(tarball, "w:gz") as archive:
+        archive.add(box, arcname="Indexers-master")
+    return tarball.read_bytes()
+
+
+@pytest.mark.machine
+def test_the_definitions_unpack_where_tar_is_bsdtar(tmp_path: Path) -> None:
+    """🔴 TC-989. `--wildcards` - ключ GNU. На маке tar это bsdtar, и он падает
+    целиком, а установка списывала это на «определения не скачались», хотя
+    скачалось всё. Человек получал 3 индексера вместо 7 и совет искать сеть."""
+    call, env, landed = _defs_stand(tmp_path, _defs_archive(tmp_path))
+
+    done = subprocess.run(call, capture_output=True, text=True, env=env, check=False)
+
+    printed = done.stdout + done.stderr
+    assert done.returncode == 0, printed
+    laid = sorted(item.name for item in landed.glob("*.yml"))
+    assert [name for name in laid if name.startswith("probe")] == [
+        f"probe{i}.yml" for i in range(4)
+    ], f"определения не разложены, на диске: {laid}"
+    assert "installed 6 definitions" in printed, printed
+    assert "could not be downloaded" not in printed, printed
+
+
+@pytest.mark.machine
+def test_a_broken_archive_is_not_called_a_failed_download(tmp_path: Path) -> None:
+    """Одна ветка на скачивание и распаковку врала о причине и уводила искать сеть.
+    Скачалось - значит скачалось, и сказано об этом должно быть про распаковку."""
+    call, env, _ = _defs_stand(tmp_path, b"\x1f\x8b\x08\x00not a tarball at all")
+
+    done = subprocess.run(call, capture_output=True, text=True, env=env, check=False)
+
+    printed = done.stdout + done.stderr
+    assert "did not unpack" in printed, printed
+    assert "could not be downloaded" not in printed, printed
