@@ -988,7 +988,10 @@ stop_service() {  # $1 имя, $2 начало строки запуска дл�
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
         pkill -f -- "$(proc_mask "$2")" >/dev/null 2>&1 || true
     elif [ "${OS_FAMILY:-linux}" = macos ]; then
-        launchd_bootout "org.torrcast.$1"
+        # Ждём освобождения области, но отказом ожидания установку не рвём: при
+        # `set -e` голый вызов убил бы её молча, без строки причины, а застрявший
+        # bootout - это в худшем случае служба со старым кодом, а не отказ.
+        launchd_bootout "org.torrcast.$1" || true
     else
         systemctl stop "$1.service" >/dev/null 2>&1 || true
     fi
