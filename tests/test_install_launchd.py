@@ -295,6 +295,7 @@ def _run_cast_install(
     stubs = (
         "skip() { printf 'already in place: %s\\n' \"$1\"; }\n"
         "loud() { printf 'warning: %s\\n' \"$1\"; }\n"
+        'final_loud() { loud "$1" "$2"; }\n'
         "die() { printf 'error: %s\\n' \"$1\" >&2; exit 1; }"
     )
     exports = "\n".join(f"{name}={shlex.quote(value)}" for name, value in env.items())

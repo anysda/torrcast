@@ -482,7 +482,7 @@ UI_CHANNEL="${TORRCAST_UI_CHANNEL:-}"
 #: приёмника он бывает («Гостиная ТВ»), а строка канала должна делиться однозначно.
 UI_TAB=$'\t'
 
-ui_say() {  # $1 - метка (P фаза, W внимание, R приёмник, D ошибка, E конец), дальше текст
+ui_say() {  # $1 - метка (P фаза, A итог, R приёмник, D ошибка, E конец), дальше текст
     local tag="$1"; shift
     [ -n "$UI_CHANNEL" ] || return 0
     printf '%s %s\n' "$tag" "$*" >>"$UI_CHANNEL" 2>/dev/null || true
@@ -518,17 +518,20 @@ die()  {
     ui_say D "$text"
     exit 1
 }
-# Для того, что установку не роняет, но заметно урезает результат: обычная строка
-# info тонет в потоке установки, а это надо увидеть.
-# 🔴 TC-885. `loud` установку не роняет, разваливать из-за него анимацию не за
-# что - но и утонуть он не имеет права. Он уходит в ЛЕНТУ под рамкой: рамка
-# ужимается на строку, лента остаётся на экране до конца и переживает итоговый
-# экран справки (:func:`ui_note`).
+# Для того, что установку не роняет, но заметно урезает результат. Под заставкой
+# строка остаётся в журнале: отдельной панели для неё на экране больше нет.
 loud() {
     local text
     if [ "$LANGUAGE" = ru ]; then text="$2"; printf '\033[1;33mвнимание:\033[0m %s\n' "$text" >&2
     else text="$1"; printf '\033[1;33mwarning:\033[0m %s\n' "$text" >&2; fi
-    ui_say W "$text"
+}
+# Выдачу права нельзя прятать в журнале. Эти строки рисовалка повторяет после
+# успешного итога; без заставки `loud` уже печатает их человеку сам.
+final_loud() {
+    local text
+    if [ "$LANGUAGE" = ru ]; then text="$2"; else text="$1"; fi
+    loud "$1" "$2"
+    ui_say A "$text"
 }
 has()  { [[ " $PHASES " == *" $1 "* ]]; }
 
@@ -1597,7 +1600,7 @@ setup_cast_sudoers() {
     [ "${OS_FAMILY:-linux}" = macos ] || return 0
     local rule_file="$SUDOERS_D/torrcast"
     if [ -z "${SUDO_USER:-}" ]; then
-        loud "no sudo invoker is known - the sudoers rule for cast is not written; run the installer through sudo from a regular account" \
+        final_loud "no sudo invoker is known - the sudoers rule for cast is not written; run the installer through sudo from a regular account" \
             "позвавший sudo неизвестен - правило sudoers для cast не написано; запусти установщик через sudo из обычной учётной записи"
         return 0
     fi
@@ -1616,7 +1619,7 @@ setup_cast_sudoers() {
     install -d -m 0755 "$SUDOERS_D"
     install -m 0440 "$tmp" "$rule_file"
     rm -f "$tmp"
-    loud "macOS hides the local network from unsigned jobs, so cast on this Mac runs as root: $SUDO_USER is granted passwordless sudo for the single command $BIN_DIR/cast (rule $rule_file)" \
+    final_loud "macOS hides the local network from unsigned jobs, so cast on this Mac runs as root: $SUDO_USER is granted passwordless sudo for the single command $BIN_DIR/cast (rule $rule_file)" \
         "macOS закрывает локальную сеть от неподписанных заданий, поэтому cast на этом маке работает от root: $SUDO_USER выдан беспарольный sudo ровно на одну команду $BIN_DIR/cast (правило $rule_file)"
 }
 
@@ -3590,11 +3593,9 @@ main() {
 # запасной путь, а развилка идёт по ВЕРСИИ ИНТЕРПРЕТАТОРА (см. UI_HAS_*).
 #
 # Перенос авторазворота строк (DECAWM off) - решение уже этой правки, у
-# референса его нет. У референса все строки свои и заведомо короткие, а тут в
-# ленту под рамкой приезжает ЧУЖОЙ текст `loud` любой длины. Одна перенесённая
-# строка сдвигает весь экран на строку вверх и уносит верх рамки; мерить длину
-# кириллицы нечем (${#s} в неUTF-8 локали считает байты, а установка локаль как
-# раз чинит). Автозаворот выключен - лишнее просто обрезается краем окна.
+# референса его нет. Одна перенесённая строка сдвигает весь экран на строку
+# вверх и уносит верх рамки. Автозаворот выключен: лишнее просто обрезается
+# краем окна.
 
 # --- возможности интерпретатора ---
 # 🔴 Развилка идёт по ВЕРСИИ BASH, а не по OS_FAMILY, и это разница по существу.
@@ -3620,7 +3621,7 @@ SYNC_ON="${CSI}?2026h"; SYNC_OFF="${CSI}?2026l"
 WRAP_OFF="${CSI}?7l";  WRAP_ON="${CSI}?7h"
 CLEAR="${CSI}2J";      HOME_POS="${CSI}H"
 NC="${CSI}0m";         BOLD="${CSI}1m"
-DIMW="${CSI}0;2m";     WARNC="${CSI}1;33m"
+DIMW="${CSI}0;2m"
 
 VERSION='1.0.0'
 DEFAULT_DURATION=21
@@ -3641,10 +3642,6 @@ STEP_Y=100
 #: Он привязан к длине кадра: пересчитывать вместе с `FRAME_MS`, иначе посадка
 #: перестанет умещаться в отведённое ей время и лого будет доезжать рывком.
 UI_LAND_RESERVE_MS=2800
-#: Сколько строк `loud` держим в ленте под рамкой. Больше - и рамка съедается
-#: лентой; на всё сверх этого лента говорит числом, а полностью они в журнале.
-UI_WARN_MAX=3
-
 ui_version() {  # VERSION из pyproject.toml, без форка
     local line f="$REPO_DIR/pyproject.toml"
     [ -r "$f" ] || return 0
@@ -3963,10 +3960,10 @@ ui_try_banner() { # $1 - имя массива; ставит BANNER*, если �
 
 ui_layout() {
   ui_read_size
-  # Рамка на всю ширину; снизу лента внимания, пустая строка и две строки статусбара.
-  BOX_H=$(( TROWS - 3 - UI_WARN_H ))
+  # Рамка на всю ширину; снизу две строки статусбара.
+  BOX_H=$(( TROWS - 3 ))
   (( BOX_H < 4 )) && BOX_H=4
-  UI_BASE=$(( BOX_H + UI_WARN_H ))
+  UI_BASE=$BOX_H
   INNER_W=$(( TCOLS - 2 ))
   INNER_H=$(( BOX_H - 2 ))
 
@@ -4282,14 +4279,6 @@ ui_draw_border() {
     buf+="${CSI}$(( row + INNER_TOP ));1H│${NC}${blank}${FRAMEC}│"
   done
   buf+="${CSI}${BOX_H};1H╰${line}╯${NC}"
-  # Лента внимания под рамкой, потом пустая строка перед статусбаром.
-  for (( row = 0; row < UI_WARN_H; row++ )); do
-    if [ "$LANGUAGE" = ru ]; then
-      buf+="${CSI}$(( BOX_H + 1 + row ));1H${CSI}2K${WARNC}внимание:${NC} ${UI_WARN[row]}"
-    else
-      buf+="${CSI}$(( BOX_H + 1 + row ));1H${CSI}2K${WARNC}warning:${NC} ${UI_WARN[row]}"
-    fi
-  done
   buf+="${CSI}$(( UI_BASE + 1 ));1H${CSI}2K"
   buf+="$SYNC_OFF"
   printf '%s' "$buf"
@@ -4629,7 +4618,7 @@ ui_open_sleepfd() {
 
 # --- канал прогресса на стороне рисовалки ------------------------------------
 UI_TOTAL=0; UI_DONE=0; UI_PHASE=''
-UI_WARN=(); UI_WARN_H=0; UI_WARN_MORE=0
+UI_FINAL_NOTES=()
 UI_DIED=0; UI_ENDED=0; UI_RC=0
 #: Отпечаток установленного пакета, каким его посчитала сверка venv ↔ репа
 #: (:func:`verify_torrcast`). Пусто - сверка не отработала, и врать про неё нечем.
@@ -4661,28 +4650,13 @@ ui_count_phases() {
   return 0
 }
 
-ui_note() {  # $1 - строка `loud`; в ленту под рамкой
-  if (( UI_WARN_H < UI_WARN_MAX )); then
-    UI_WARN[UI_WARN_H]="$1"
-    UI_WARN_H=$(( UI_WARN_H + 1 ))
-  else
-    # Лента не растёт дальше: рамка тут дороже. Первые строки - причины,
-    # поздние обычно их следствия, поэтому держим первые, а про остальные
-    # говорим числом. Целиком они всё равно в журнале.
-    UI_WARN_MORE=$(( UI_WARN_MORE + 1 ))
-    UI_WARN[UI_WARN_MAX - 1]="и ещё $UI_WARN_MORE строк - все в журнале"
-  fi
-  NEED_RESIZE=1
-  return 0
-}
-
 ui_drain() {  # вычитать всё, что приехало в канал; без единого форка
   local line tag rest
   while IFS= read -r -u "$UI_CFD" line; do
     tag=${line%% *}; rest=${line#* }
     case $tag in
       P) UI_DONE=$(( UI_DONE + 1 )); UI_PHASE=$rest ;;
-      W) ui_note "$rest" ;;
+      A) UI_FINAL_NOTES+=( "$rest" ) ;;
       R) ui_recv "$rest" ;;
       D) UI_DIED=1; UI_DIE_MSG=$rest ;;
       S) UI_SUM=$rest ;;
@@ -5029,6 +5003,14 @@ ui_run() {  # $1 - dry|real, $2 - секунды для dry
   else
     printf '%s%s[OK]%s torrcast %s\n' "$BRAND" "$BOLD" "$NC" "$VERSION"
   fi
+  local note
+  for note in "${UI_FINAL_NOTES[@]}"; do
+    if [ "$LANGUAGE" = ru ]; then
+      printf '%sвнимание:%s %s\n' "${CSI}1;33m" "$NC" "$note"
+    else
+      printf '%swarning:%s %s\n' "${CSI}1;33m" "$NC" "$note"
+    fi
+  done
   ui_cleanup
   rm -f "$UI_CHANNEL"
   return "$UI_RC"

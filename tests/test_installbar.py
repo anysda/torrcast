@@ -414,6 +414,37 @@ def test_english_frames_have_no_cyrillic_and_russian_frames_do(tmp_path: Path) -
 
 
 @pytest.mark.machine
+@pytest.mark.parametrize(
+    ("language", "hidden", "final"),
+    (
+        ("en", "ordinary degradation", "passwordless sudo was granted"),
+        ("ru", "обычное ухудшение", "беспарольный sudo выдан"),
+    ),
+)
+def test_warnings_stay_in_the_log_but_sudo_notices_follow_success(
+    tmp_path: Path, language: str, hidden: str, final: str
+) -> None:
+    """The warning panel is gone; only a rights notice survives after [OK]."""
+    injected = SCRIPT.replace(
+        "main() {\n    cleanup_login_notice\n",
+        "main() {\n"
+        "    loud 'ordinary degradation' 'обычное ухудшение'\n"
+        "    final_loud 'passwordless sudo was granted' 'беспарольный sudo выдан'\n"
+        "    cleanup_login_notice\n",
+        1,
+    )
+    run = _stand(injected, tmp_path, HOLD_PHASES, HOLD_WORK, language)
+    _shape(run, HOLD_TOTAL)
+    visible = ANSI.sub("", run.stream)
+    journal = (tmp_path / "install.log").read_text(encoding="utf-8")
+
+    assert hidden in journal and final in journal
+    assert hidden not in visible
+    assert "и ещё" not in visible
+    assert visible.index("[OK]") < visible.index(final)
+
+
+@pytest.mark.machine
 def test_the_bar_holds_its_mark_for_as_long_as_the_phase_is_still_working(
     tmp_path: Path,
 ) -> None:
