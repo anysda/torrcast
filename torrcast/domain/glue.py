@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from torrcast.domain._name_data.data_2 import _ALTERNATIVE_PICTURE_RE, _ALTERNATIVE_TITLE_RE, _ROMAN
+from torrcast.domain.adaptationless import _adaptationless
 from torrcast.domain.compose import _compose
 from torrcast.domain.editionless import _editionless
 from torrcast.domain.formless import _formless
@@ -40,7 +41,11 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         # Хвост издания снимается ПЕРЕД словом формы: «Gekijouban X. Полное издание»
         # должно дойти до голого «x», а порядок наоборот оставил бы слово формы
         # прикрытым хвостом и до него бы не добрался.
-        return _formless(_editionless(identity(name)))
+        #
+        # Примета экранизации («The Animation») снимается ЗДЕСЬ ЖЕ, но по своему списку:
+        # о виде она не говорит, и потому её же снимает ключ франшизы. Слово формы там
+        # снимать нельзя, а тут - нужно, и поэтому списка два, а не один.
+        return _adaptationless(_formless(_editionless(identity(name))))
 
     def alternative_release(release: Release) -> bool:
         title = release.raw_name.split(" / ", 1)[0]

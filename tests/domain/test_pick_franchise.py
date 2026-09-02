@@ -119,13 +119,15 @@ def test_a_typo_in_the_name_keeps_the_number_of_the_part() -> None:
 def test_a_subtitle_named_by_a_piece_still_reaches_its_picture() -> None:
     """🔴 TC-967. Запрос подписью доставался однофамильцу с мёртвым роем, и только ему.
 
-    Каталог собрал две группы: `love-me`, где сериал лежит целиком, и
-    `love-me-kaede-to-suzu` - одинокая раздача с чужой озвучкой и парой сидов. Запрос
-    «Kaede to Suzu» входит подстрокой во вторую и не входит в ключ первой, а подпись
-    сличалась целиком, поэтому живая картина в меню не доезжала вовсе.
+    Ключом группы стоит `love-me`: подпись отрезана двоеточием ещё в имени франшизы.
+    Запрос «Kaede to Suzu» в этот ключ не входит вовсе, и никакой поиск по ключу до
+    картины не достанет - доводит её только сличение подписи КУСКОМ. Снять его, и
+    выдача по этому запросу становится пустой.
 
-    Подписью картину зовут и КУСКОМ. В меню, как и в TC-246, встают обе стороны выбора,
-    живая - следом за названной точно, и дефолт садится на неё.
+    🔴 TC-969. Раздача с украинской озвучкой стоит тут же и отдельным пунктом БОЛЬШЕ не
+    встаёт: разводили её с остальными суффикс «The Animation» и голое «- 01» без
+    скобочной группы, а работа это одна и та же. Живой рой и мёртвая раздача лежат
+    теперь в одной картине, и выбирать между двумя строками меню человеку не нужно.
     """
     names = [
         "[SakuraCircle] Love Me: Kaede to Suzu The Animation - 01 (らぶみー 第1巻) - Softsubs",
@@ -133,8 +135,32 @@ def test_a_subtitle_named_by_a_piece_still_reaches_its_picture() -> None:
         "Love Me! Kaede to Suzu - 01 (UKR DVO)",
     ]
     pool = cluster([parse_release_name(name) for name in names])
+    found = pick_franchise("Kaede to Suzu", pool)
 
-    assert [p.title for p in pick_franchise("Kaede to Suzu", pool)] == [
-        "Love Me! Kaede to Suzu - 01",
-        "Love Me: Kaede to Suzu The Animation",
+    assert [p.title for p in found] == ["Love Me: Kaede to Suzu The Animation"]
+    assert len(found[0].releases) == len(names)
+
+
+def test_the_live_swarm_is_reached_through_the_bare_name() -> None:
+    """🔴 TC-969. «У меня почти ничего не нашлось» при живом рое в сорок сидов.
+
+    Выдача звала один сериал двумя именами, и по голому «Sakusei Byoutou» человек
+    попадал в мёртвую однофамилицу, а рой оставался вне меню.
+
+    Сторож стоит на ОБА конца сразу, и в этом весь смысл. Починить склейку мало: имена
+    сойдутся, картина вберёт живой набор, а ключ франшизы слово удержит - и голый запрос
+    по точному ключу уедет в соседнюю картину-фильм, у которой сидов нет. Починить один
+    ключ тоже мало: картины останутся врозь. Красным этот тест становится и от того, и
+    от другого отката.
+    """
+    names = [
+        "[SakuraCircle] Sakusei Byoutou The Animation - 01 (搾精病棟) - English Softsubs",
+        "[SakuraCircle] Sakusei Byoutou The Animation - 02 (搾精病棟) - English Softsubs",
+        "[AmateurSubs] Sakusei Byoutou - 03 (English subs) [DVDRip 576p]",
+        "[SourCream Subs] Sakusei Byoutou (Sectia de Extragere a Spermei) [1920x1080]",
     ]
+    pool = cluster([parse_release_name(name) for name in names])
+    found = pick_franchise("Sakusei Byoutou", pool)
+
+    assert found[0].kind == "tv"
+    assert len(found[0].releases) == 3

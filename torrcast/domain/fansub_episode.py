@@ -4,14 +4,33 @@ from __future__ import annotations
 
 import re
 
+from torrcast.domain._name_data.data_2 import _BARE_EPISODE_RE, _BRACKETS_RE
 from torrcast.domain._name_data.data_3 import _FANSUB_EPISODE_RE
 from torrcast.domain.find_year import _find_year
 
 
 def _fansub_episode(text: str) -> re.Match[str] | None:
+    """Раскладка фансаба «имя - НОМЕР»: имя картины и номер серии в ней.
+
+    🔴 Скобочная группа в :data:`_FANSUB_EPISODE_RE` стоит не для порядка: она и есть
+    признак, что номер после тире - серия, а не номер продолжения. Без неё «Терминатор -
+    2» прочиталось бы серией вместо второй части, поэтому у раскладки без группы
+    (:data:`_BARE_EPISODE_RE`) спрашивается другой признак той же руки - ВЕДУЩИЙ НОЛЬ.
+    Серии нумеруют «- 01», продолжения так не нумеруют никогда: пишут «Korashime 2».
+    Мера тут - форма записи, а не величина, и граница у неё названа вслух: серия,
+    записанная и без ведущего нуля, и без группы, этим правилом не берётся, а её раздача
+    остаётся отдельной картиной.
+
+    🔴 Второй заход идёт по тексту БЕЗ скобок, и это не удобство, а сама починка.
+    Обе раскладки требуют, чтобы за номером стояла скобка или конец строки, - а у
+    раздачи без группы впереди скобка сплошь и рядом стоит ПОСРЕДИ имени
+    («Shoujo kara Shoujo e... (少女から娼女へ...) OVA - 02»), и по сырому тексту имя до
+    номера не дочитывается вовсе. Скобки с имени всё равно снимает разбор
+    (:func:`~torrcast.domain.title_zone._title_zone`) - тут они снимаются строкой раньше.
+    """
     if _find_year(text)[0] is not None:
         return None
-    return _FANSUB_EPISODE_RE.match(text)
+    return _FANSUB_EPISODE_RE.match(text) or _BARE_EPISODE_RE.match(_BRACKETS_RE.sub(" ", text))
 
 
 __all__ = ["_fansub_episode"]

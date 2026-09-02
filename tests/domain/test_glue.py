@@ -166,3 +166,42 @@ def test_a_documentary_about_the_picture_is_not_its_edition() -> None:
     )
 
     assert len(found) == 2
+
+
+def test_the_adaptation_mark_does_not_split_one_picture_in_two() -> None:
+    """🔴 TC-969. Выдача звала один и тот же сериал то «Sakusei Byoutou», то «Sakusei
+    Byoutou The Animation», и в меню он стоял двумя пунктами: живым и мёртвым."""
+    found = glue(
+        [
+            _picture("Sakusei Byoutou", None),
+            _picture("Sakusei Byoutou The Animation", None),
+        ]
+    )
+
+    assert len(found) == 1
+    assert len(found[0].releases) == 2
+
+
+def test_the_form_word_still_keeps_a_film_out_of_the_series_pool() -> None:
+    """Встречный сторож: слово ФОРМЫ между видами не шум, а единственная улика, и
+    примета экранизации снимается по своему списку, а не заодно с ним."""
+    found = glue(
+        [
+            Picture(
+                title="Naruto Shippuuden",
+                year=None,
+                kind="tv",
+                releases=[Release(raw_name="Naruto Shippuuden", title="Naruto Shippuuden")],
+            ),
+            Picture(
+                title="Naruto Shippuuden Movie",
+                year=None,
+                kind="movie",
+                releases=[
+                    Release(raw_name="Naruto Shippuuden Movie", title="Naruto Shippuuden Movie")
+                ],
+            ),
+        ]
+    )
+
+    assert len(found) == 2

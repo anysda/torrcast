@@ -14,3 +14,14 @@ def test_a_title_that_is_a_franchise_by_itself_keeps_its_own_name() -> None:
 
 def test_two_different_franchises_do_not_share_a_key() -> None:
     assert franchise_key("Матрица") != franchise_key("Брат")
+
+
+def test_the_adaptation_mark_does_not_start_a_second_franchise() -> None:
+    """🔴 TC-969. Склейка сводила картины, а франшизы оставались две, и запрос по голому
+    имени попадал по точному ключу в соседку без сидов - живой рой оставался вне меню."""
+    assert franchise_key("Sakusei Byoutou The Animation") == franchise_key("Sakusei Byoutou")
+
+
+def test_the_form_word_still_tells_a_film_from_a_series() -> None:
+    """Слово ФОРМЫ тут не снимается: им и отличается «Naruto Shippuuden Movie» от сериала."""
+    assert franchise_key("Naruto Shippuuden Movie") != franchise_key("Naruto Shippuuden")
