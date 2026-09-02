@@ -15,8 +15,8 @@ from pytest_homeassistant_custom_component.common import (  # type: ignore[impor
 
 from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, sent, snapshot
 
-#: Entity id the recorded fixture's receiver ("TV") slugifies to.
-PLAYER = "media_player.torrcast_tv"
+#: Entity id the recorded fixture's receiver ("192.168.1.90") slugifies to.
+PLAYER = "media_player.torrcast_192_168_1_90"
 
 
 @pytest.fixture(autouse=True)
@@ -61,14 +61,14 @@ async def test_the_snapshot_becomes_attributes(hass: HomeAssistant, aioclient_mo
     entry = await _added(hass, aioclient_mock, snapshot())
     assert entry.runtime_data.update_interval == timedelta(seconds=5)
     shown = hass.states.get(PLAYER).attributes
-    assert shown["media_title"] == "Игра престолов s01e03"
+    assert shown["media_title"] == "Чернобыль 1 s1e1"
     assert shown["media_season"] == "1"
-    assert shown["media_episode"] == "3"
-    assert shown["media_position"] == 1234
-    assert shown["media_duration"] == 3480
-    assert shown["volume_level"] == 0.4
-    assert shown["warm"] == 37
-    assert shown["disk_free"] == 51234567890
+    assert shown["media_episode"] == "1"
+    assert shown["media_position"] == 2
+    assert shown["media_duration"] == 3536
+    assert shown["volume_level"] == 0.3333333432674408
+    assert shown["warm"] == 0
+    assert shown["disk_free"] == 67472654336
 
 
 async def test_entity_is_named_after_torrcast_and_its_receiver(
@@ -125,10 +125,15 @@ async def test_empty_fields_do_not_break_the_entity(
         ("media_pause", {}, "/api/control", {"cmd": "toggle"}),
         ("media_play", {}, "/api/control", {"cmd": "toggle"}),
         ("media_stop", {}, "/api/control", {"cmd": "stop"}),
-        ("media_seek", {"seek_position": 1300}, "/api/control", {"cmd": "seekby", "arg": 65.5}),
+        (
+            "media_seek",
+            {"seek_position": 1300},
+            "/api/control",
+            {"cmd": "seekby", "arg": 1297.3},
+        ),
         ("volume_set", {"volume_level": 0.7}, "/api/control", {"cmd": "volume", "arg": 0.7}),
-        ("volume_up", {}, "/api/control", {"cmd": "volume", "arg": 0.45}),
-        ("volume_down", {}, "/api/control", {"cmd": "volume", "arg": 0.35}),
+        ("volume_up", {}, "/api/control", {"cmd": "volume", "arg": 0.383}),
+        ("volume_down", {}, "/api/control", {"cmd": "volume", "arg": 0.283}),
         ("media_next_track", {}, "/api/next", None),
     ],
 )
