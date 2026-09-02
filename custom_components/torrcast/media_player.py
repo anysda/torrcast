@@ -34,6 +34,16 @@ STATES: dict[str, MediaPlayerState] = {
 }
 
 
+def _device_name(tv: Any) -> str:
+    """§4.1/§4.2 of the design want the receiver in the name, next to torrcast itself.
+
+    HA turns this into both the card's title and the entity_id (``has_entity_name``
+    with no entity-level name falls back to the device name); a bare receiver here
+    is how ``media_player.192_168_1_90`` slipped past the spec.
+    """
+    return f"torrcast {tv}" if tv else "torrcast"
+
+
 async def async_setup_entry(
     # The platform contract names `hass` first even where the body has no use for it;
     # dropping the parameter would break the call, not tidy it up.
@@ -71,7 +81,7 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._attr_unique_id)},
             manufacturer="torrcast",
-            name=snapshot.get("tv") or "torrcast",
+            name=_device_name(snapshot.get("tv")),
             sw_version=snapshot.get("version"),
             configuration_url=coordinator.base_url,
         )

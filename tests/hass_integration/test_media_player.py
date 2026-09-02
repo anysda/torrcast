@@ -15,7 +15,8 @@ from pytest_homeassistant_custom_component.common import (  # type: ignore[impor
 
 from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, sent, snapshot
 
-PLAYER = "media_player.tv"
+#: Entity id the recorded fixture's receiver ("TV") slugifies to.
+PLAYER = "media_player.torrcast_tv"
 
 
 @pytest.fixture(autouse=True)
@@ -70,6 +71,34 @@ async def test_the_snapshot_becomes_attributes(hass: HomeAssistant, aioclient_mo
     assert shown["disk_free"] == 51234567890
 
 
+async def test_entity_is_named_after_torrcast_and_its_receiver(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """§4.1/§4.2: два стенда обязаны звучать по-разному, и оба - словом torrcast."""
+    await _added(hass, aioclient_mock, snapshot(tv="192.168.1.90"))
+    state = hass.states.get("media_player.torrcast_192_168_1_90")
+    assert state is not None, "entity_id без приёмника в имени - сущность не найдена"
+    assert state.name == "torrcast 192.168.1.90"
+
+
+async def test_a_second_receiver_gets_its_own_entity(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Другой приёмник в сети - другая сущность, не переезд той же карточки."""
+    await _added(hass, aioclient_mock, snapshot(tv="192.168.1.91"))
+    assert hass.states.get("media_player.torrcast_192_168_1_91") is not None
+    assert hass.states.get("media_player.torrcast_192_168_1_90") is None
+
+
+async def test_a_missing_receiver_does_not_spell_out_none(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Приёмник не найден - карточка называется просто torrcast, не torrcast_none."""
+    await _added(hass, aioclient_mock, snapshot(tv=None))
+    assert hass.states.get("media_player.torrcast") is not None
+    assert hass.states.get("media_player.torrcast_none") is None
+
+
 async def test_empty_fields_do_not_break_the_entity(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
@@ -77,7 +106,7 @@ async def test_empty_fields_do_not_break_the_entity(
     bare = {"version": "0.99.99", "tv": "TV", "state": "idle"}
     entry = await _added(hass, aioclient_mock, bare)
     assert entry.runtime_data.update_interval == timedelta(seconds=30)
-    shown = hass.states.get(PLAYER)
+    shown = hass.states.get("media_player.torrcast_tv")
     assert shown is not None, "на снимке из пустых полей сущность не завелась вовсе"
     assert shown.state == "idle"
     assert shown.attributes.get("media_title") is None
