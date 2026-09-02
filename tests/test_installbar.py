@@ -445,6 +445,30 @@ def test_warnings_stay_in_the_log_but_sudo_notices_follow_success(
 
 
 @pytest.mark.machine
+def test_failure_shows_only_the_tail_and_the_journal_path(tmp_path: Path) -> None:
+    """A long worker log is kept on disk; one screenful reaches the terminal."""
+    needle = '    if [ -n "$CATALOG_CUT_EN" ]; then\n'
+    injected = SCRIPT.replace(
+        needle,
+        "    for i in {1..120}; do printf 'long journal line %03d\\n' \"$i\"; done\n"
+        "    die 'measured failure' 'измеренный отказ'\n" + needle,
+        1,
+    )
+    run = _stand(injected, tmp_path, HOLD_PHASES, HOLD_WORK)
+    visible = ANSI.sub("", run.stream)
+    journal_path = tmp_path / "install.log"
+    journal = journal_path.read_text(encoding="utf-8")
+
+    assert run.rc != 0
+    assert len(journal.splitlines()) >= 120
+    assert "long journal line 101" not in visible
+    assert "long journal line 102" in visible
+    assert "long journal line 120" in visible
+    assert "measured failure" in visible
+    assert f"installation log: {journal_path}" in visible
+
+
+@pytest.mark.machine
 def test_the_bar_holds_its_mark_for_as_long_as_the_phase_is_still_working(
     tmp_path: Path,
 ) -> None:
