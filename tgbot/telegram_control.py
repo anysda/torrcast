@@ -8,9 +8,21 @@ from contextlib import suppress
 from pathlib import Path
 
 from tgbot.telegram_api import TelegramApi
+from tgbot.transport import _TelegramResult
 from torrcast.domain.debug_handles import CTL_ENV
 
 VOL_STEP = 0.02
+
+
+class _TelegramError(Exception):
+    """Отказ Bot API пульту показа: названы статус и подробность, токена в строке нет."""
+
+
+def _refused(result: _TelegramResult) -> _TelegramError:
+    """Назвать отказ раздельно: беда сети (статус 0) пройдёт сама, 401 - нет."""
+    if result.status == 0:
+        return _TelegramError(f"network: {result.detail}")
+    return _TelegramError(f"HTTP {result.status}: {result.detail}")
 
 
 class TelegramControl:
@@ -52,14 +64,23 @@ class TelegramControl:
         ]
 
     def show(self, text: str) -> int:
-        """Создать пульт или поправить его прежнее сообщение на месте."""
+        """Создать пульт или поправить его прежнее сообщение на месте.
+
+        Отказ Telegram не прячется за нулевым номером: он поднимается
+        (:class:`_TelegramError`), чтобы наблюдатель назвал его в следе.
+        """
         with self._lock:
             if self._message_id:
                 if text != self._text:
-                    self._api.edit(self._chat_id, self._message_id, text, self.buttons())
+                    result = self._api.edit(self._chat_id, self._message_id, text, self.buttons())
+                    if getattr(result, "status", 200) != 200:
+                        raise _refused(result)
                     self._text = text
                 return self._message_id
-            self._message_id = self._api.send(self._chat_id, text, self.buttons())
+            result = self._api.post(self._chat_id, text, self.buttons())
+            if result.status != 200 or not isinstance(result.value, dict):
+                raise _refused(result)
+            self._message_id = int(result.value.get("message_id", 0))
             self._text = text
             if self._message_id and self._message_path is not None:
                 self._message_path.write_text(str(self._message_id), encoding="ascii")

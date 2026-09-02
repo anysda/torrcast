@@ -3,4 +3,8 @@
 
 def en() -> dict[str, str]:
     """Return English Telegram playback captions."""
-    return {"telegram.nothing_playing": "Nothing is playing."}
+    return {
+        "telegram.nothing_playing": "Nothing is playing.",
+        "telegram.observer_refused": "Telegram refused the playback remote: {detail}",
+        "telegram.observer_recovered": "Telegram accepts the playback remote again.",
+    }

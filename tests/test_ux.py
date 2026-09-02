@@ -24,6 +24,7 @@ from tgbot.config import Config as BotConfig
 from tgbot.i18n import i18n
 from tgbot.telegram_api import TelegramApi
 from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
+from tgbot.transport import _TelegramResult
 from torrcast.adapters.filesystem.state.chosen_language import chosen_language
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
@@ -326,6 +327,16 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
                 self.pick_ready.set()
             return message_id
 
+        def post(
+            self,
+            chat_id: str,
+            text: str,
+            buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> _TelegramResult:
+            message_id = self.send(chat_id, text, buttons, reply_to_message_id)
+            return _TelegramResult(200, "", {"message_id": message_id})
+
         def answer(self, _callback_id: str, _text: str = "") -> object:
             return object()
 
@@ -453,6 +464,16 @@ def test_menu_card_is_removed_once_the_cast_actually_starts(
             if buttons and str(buttons[0][0].get("callback_data", "")).startswith("pick:"):
                 self.pick_ready.set()
             return message_id
+
+        def post(
+            self,
+            chat_id: str,
+            text: str,
+            buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> _TelegramResult:
+            message_id = self.send(chat_id, text, buttons, reply_to_message_id)
+            return _TelegramResult(200, "", {"message_id": message_id})
 
         def answer(self, _callback_id: str, _text: str = "") -> object:
             return object()
@@ -587,6 +608,16 @@ def test_the_cancel_button_takes_the_whole_dialog_away_without_a_failure(
             if buttons and str(buttons[0][0].get("callback_data", "")).startswith("pick:"):
                 self.pick_ready.set()
             return message_id
+
+        def post(
+            self,
+            chat_id: str,
+            text: str,
+            buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> _TelegramResult:
+            message_id = self.send(chat_id, text, buttons, reply_to_message_id)
+            return _TelegramResult(200, "", {"message_id": message_id})
 
         def answer(self, _callback_id: str, text: str = "") -> object:
             self.answers.append(text)
@@ -753,6 +784,16 @@ def test_bot_understands_the_menu_flag_after_telegram_autocorrects_the_dash(
             if buttons and str(buttons[0][0].get("callback_data", "")).startswith("pick:"):
                 self.pick_ready.set()
             return message_id
+
+        def post(
+            self,
+            chat_id: str,
+            text: str,
+            buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> _TelegramResult:
+            message_id = self.send(chat_id, text, buttons, reply_to_message_id)
+            return _TelegramResult(200, "", {"message_id": message_id})
 
         def answer(self, _callback_id: str, _text: str = "") -> object:
             return object()

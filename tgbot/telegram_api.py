@@ -29,6 +29,23 @@ class TelegramApi:
         reply_to_message_id: int | None = None,
     ) -> int:
         """Послать одно тихое сообщение и вернуть его номер."""
+        result = self.post(chat_id, text, buttons, reply_to_message_id)
+        if isinstance(result.value, dict):
+            return int(result.value.get("message_id", 0))
+        return 0
+
+    def post(
+        self,
+        chat_id: str,
+        text: str,
+        buttons: list[list[dict[str, str]]] | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> _TelegramResult:
+        """Послать одно тихое сообщение и вернуть весь исход, не только номер.
+
+        Пульту показа нужен статус отказа: беда сети и 401 - разные беды, а голый
+        номер сообщения прячет обе за нулём (:class:`tgbot.telegram_control.TelegramControl`).
+        """
         params: dict[str, object] = {
             "chat_id": chat_id,
             "text": text,
@@ -38,10 +55,7 @@ class TelegramApi:
             params["reply_markup"] = json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
         if reply_to_message_id is not None:
             params["reply_to_message_id"] = reply_to_message_id
-        result = self._client.call("sendMessage", **params)
-        if isinstance(result.value, dict):
-            return int(result.value.get("message_id", 0))
-        return 0
+        return self._client.call("sendMessage", **params)
 
     def edit(
         self,

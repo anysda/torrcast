@@ -100,6 +100,24 @@ class TelegramChoiceEnvironment(_SystemChoiceEnvironment):
         self._menu = None
         self._command_id = 0
 
+    def command_id(self) -> int:
+        """Номер сообщения нынешней команды: наблюдатель запоминает его на старте показа."""
+        return self._command_id
+
+    def clean_command(self, command_id: int) -> None:
+        """Снять сообщение команды, чей показ кончился; нынешнюю чужую не трогать.
+
+        Зовёт наблюдатель с номером, запомненным на СТАРТЕ кончившегося показа:
+        если чат уже заняла следующая команда, её сообщение остаётся - её показ
+        ещё не кончался и даже не начался.
+        """
+        if not command_id:
+            return
+        with suppress(Exception):
+            self._api.delete(self._chat_id, command_id)
+        if command_id == self._command_id:
+            self._command_id = 0
+
     def ask(self, question: str, count: int, default: int | None = 1) -> int:
         """Ждать callback человека вместо чтения stdin; отмену поднять своим родом."""
         del question, default

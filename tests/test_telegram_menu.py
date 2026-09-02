@@ -6,6 +6,7 @@ from typing import cast
 
 from tgbot.telegram_api import TelegramApi
 from tgbot.telegram_menu import TelegramMenu
+from tgbot.transport import _TelegramResult
 
 
 class _Api:
@@ -15,6 +16,7 @@ class _Api:
         self.sent: list[tuple[str, str, object]] = []
         self.edited: list[tuple[str, int, str, object]] = []
         self.replied: list[int | None] = []
+        self.deleted: list[int] = []
 
     def send(
         self,
@@ -27,7 +29,19 @@ class _Api:
         self.sent.append((chat_id, text, buttons))
         return 42
 
-    def delete(self, _chat_id: str, _message_id: int) -> object:
+    def post(
+        self,
+        chat_id: str,
+        text: str,
+        buttons: object = None,
+        reply_to_message_id: int | None = None,
+    ) -> _TelegramResult:
+        self.replied.append(reply_to_message_id)
+        self.sent.append((chat_id, text, buttons))
+        return _TelegramResult(200, "", {"message_id": 42})
+
+    def delete(self, _chat_id: str, message_id: int) -> object:
+        self.deleted.append(message_id)
         return object()
 
     def edit(self, chat_id: str, message_id: int, text: str, buttons: object = None) -> object:

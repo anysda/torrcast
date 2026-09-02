@@ -90,3 +90,31 @@ def test_search_answer_replies_to_the_command_without_buttons() -> None:
         ("-100", "играю «Блич (2004)»; всего подошло картин 2; другая: cast блич --menu", None)
     ]
     assert api.replied == [7]
+
+
+def test_the_ended_show_retires_its_own_command_and_not_the_running_dialog() -> None:
+    """Конец показа снимает сообщение СВОЕЙ команды, чужая нынешняя остаётся.
+
+    Наблюдатель зовёт уборку с номером, запомненным на старте кончившегося показа:
+    если чат уже заняла следующая команда, её сообщение - не след старого показа.
+    """
+    api = _Api()
+    environment = TelegramChoiceEnvironment(cast(TelegramApi, api), "-100")
+    environment.begin(7)
+
+    environment.clean_command(7)
+    assert api.deleted == [7]
+    assert environment.command_id() == 0, "снятая команда не убирается дважды"
+
+    # Щель между показами: команда 9 уже заняла чат, а кончился показ команды 7.
+    environment.begin(7)
+    environment.begin(9)
+    environment.clean_command(7)
+
+    assert api.deleted == [7, 7]
+    assert environment.command_id() == 9, "чужая нынешняя команда остаётся нетронутой"
+
+    environment.clean_command(9)
+    environment.clean()
+
+    assert api.deleted == [7, 7, 9], "обе команды сняты своими концами, повторной уборки нет"

@@ -7,6 +7,7 @@ from typing import cast
 from tgbot.bot import Bot
 from tgbot.config import Config
 from tgbot.telegram_api import TelegramApi
+from tgbot.transport import _TelegramResult
 from torrcast.usecases.choice.configure import _environment_port, configure
 
 
@@ -27,6 +28,17 @@ class _Api:
         del reply_to_message_id
         self.sent.append(text)
         return 1
+
+    def post(
+        self,
+        _chat_id: str,
+        text: str,
+        _buttons: object = None,
+        reply_to_message_id: int | None = None,
+    ) -> _TelegramResult:
+        del reply_to_message_id
+        self.sent.append(text)
+        return _TelegramResult(200, "", {"message_id": 1})
 
     def delete(self, _chat_id: str, message_id: int) -> object:
         self.deleted.append(message_id)
@@ -165,6 +177,15 @@ def test_stop_cleans_the_whole_cast_chat_even_when_command_deletion_is_refused()
             self.next_id += 1
             return self.next_id
 
+        def post(
+            self,
+            _chat_id: str,
+            text: str,
+            _buttons: object = None,
+            reply_to_message_id: int | None = None,
+        ) -> _TelegramResult:
+            return _TelegramResult(200, "", {"message_id": self.send(_chat_id, text)})
+
         def delete(self, _chat_id: str, message_id: int) -> object:
             self.deleted.append(message_id)
             if message_id == 9:
@@ -219,3 +240,42 @@ def test_stop_cleans_the_whole_cast_chat_even_when_command_deletion_is_refused()
 
     assert commands == [["мумия"], ["stop"]]
     assert set(api.deleted) == {9, 21, 22, 23}
+
+
+def test_the_ended_show_leaves_neither_remote_nor_command_in_the_chat() -> None:
+    """Конец показа сам по себе (титры, пульт телевизора) чистит чат как `cast stop`."""
+    api = _Api()
+    commands: list[list[str]] = []
+    previous = _environment_port()
+
+    def command(argv: object) -> int:
+        commands.append(list(cast(list[str], argv)))
+        return 0
+
+    try:
+        bot = Bot(
+            Config("token", "-100"),
+            api=cast(TelegramApi, api),
+            command=command,
+            assemble=lambda: None,
+            title=lambda: "Мумия (2026)",
+        )
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 9,
+                    "text": "cast мумия",
+                }
+            }
+        )
+        bot.run_one()
+        assert api.deleted == [], "пока идёт показ, команда и пульт остаются в чате"
+
+        bot._observer.sync("")  # тик наблюдателя после конца показа
+    finally:
+        configure(previous)
+
+    assert commands == [["мумия"]]
+    assert set(api.deleted) == {1, 9}, "сняты и пульт, и сообщение команды"

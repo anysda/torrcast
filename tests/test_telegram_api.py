@@ -41,3 +41,17 @@ def test_send_can_reply_and_delete_uses_the_bot_api_method() -> None:
     assert client.calls[0][0] == "sendMessage"
     assert client.calls[0][1]["reply_to_message_id"] == 7
     assert client.calls[1] == ("deleteMessage", {"chat_id": "-100", "message_id": 18})
+
+
+def test_post_returns_the_whole_result_for_the_caller_who_needs_the_status() -> None:
+    """Номер сообщения прячет отказ за нулём; пульту нужен сам статус."""
+    api = TelegramApi("secret")
+    client = _Client(_TelegramResult(401, "Unauthorized"))
+    api._client = cast(_TelegramClient, client)
+
+    result = api.post("-100", "пульт")
+
+    assert result.status == 401
+    assert result.detail == "Unauthorized"
+    assert client.calls[0][0] == "sendMessage"
+    assert client.calls[0][1]["disable_notification"] is True

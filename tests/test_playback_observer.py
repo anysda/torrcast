@@ -3,9 +3,13 @@
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from tgbot.playback_observer import PlaybackObserver
 from tgbot.telegram_api import TelegramApi
+from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
 from tgbot.telegram_control import TelegramControl
+from tgbot.transport import _TelegramResult
 
 
 class _Api:
@@ -14,10 +18,10 @@ class _Api:
         self.edited: list[tuple[int, str, object]] = []
         self.deleted: list[int] = []
 
-    def send(self, _chat: str, text: str, _buttons: object = None) -> int:
+    def post(self, _chat: str, text: str, _buttons: object = None) -> _TelegramResult:
         message_id = 40 + len(self.sent)
         self.sent.append((message_id, text))
-        return message_id
+        return _TelegramResult(200, "", {"message_id": message_id})
 
     def edit(self, _chat: str, message_id: int, text: str, buttons: object = None) -> object:
         self.edited.append((message_id, text, buttons))
@@ -74,3 +78,127 @@ def test_restart_reuses_and_cleans_the_remembered_control(tmp_path: Path) -> Non
     assert api.sent == [(40, "Мумия (1999)")]
     assert api.deleted == [40]
     assert not path.with_suffix(".message").exists()
+
+
+class _Refusing(_Api):
+    """Отказывает пульту заданным исходом, пока его не «починили» снаружи."""
+
+    def __init__(self, refusal: _TelegramResult) -> None:
+        super().__init__()
+        self.refusal = refusal
+
+    def post(self, chat: str, text: str, buttons: object = None) -> _TelegramResult:
+        if self.refusal.status != 200:
+            return self.refusal
+        return super().post(chat, text, buttons)
+
+    def edit(self, chat: str, message_id: int, text: str, buttons: object = None) -> object:
+        if self.refusal.status != 200:
+            return self.refusal
+        return super().edit(chat, message_id, text, buttons)
+
+
+def test_telegram_refusal_is_named_once_per_state_change_not_per_tick(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Отказ повторяется на каждом тике, а строка в журнале - одна на смену состояния."""
+    api = _Refusing(_TelegramResult(401, "Unauthorized"))
+    title = ["Мумия (1999)"]
+    observer = PlaybackObserver(
+        TelegramControl(cast(TelegramApi, api), "-100", tmp_path / "control"),
+        lambda: title[0],
+    )
+
+    observer.sync()
+    observer.sync()
+    observer.sync()
+
+    refused = capsys.readouterr().err.splitlines()
+    assert len(refused) == 1, "три тика отказа - одна строка, а не три"
+    assert "401" in refused[0]
+
+    api.refusal = _TelegramResult(200)
+    observer.sync()
+
+    recovered = capsys.readouterr().err.splitlines()
+    assert len(recovered) == 1, "возврат работы - тоже одна строка"
+    assert "401" not in recovered[0]
+
+    api.refusal = _TelegramResult(401, "Unauthorized")
+    # Пульт с неизменным текстом чат не трогает вовсе: отказ ловит тот тик,
+    # которому есть что послать, - здесь сменившуюся серию.
+    title[0] = "Мумия (1999) s1e2"
+    observer.sync()
+    observer.sync()
+
+    assert [line for line in capsys.readouterr().err.splitlines() if "401" in line] == [refused[0]]
+
+
+def test_network_trouble_and_a_dead_token_are_named_apart(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Беда сети пройдёт сама, 401 - нет: строки обязаны различаться.
+
+    Смена рода называется, лишь устоявшись: одиночный тик чужого рода среди
+    сплошных отказов прежнего - шум сети и строки не стоит.
+    """
+    api = _Refusing(_TelegramResult(0, "Timeout"))
+    observer = PlaybackObserver(
+        TelegramControl(cast(TelegramApi, api), "-100", tmp_path / "control"),
+        lambda: "Мумия (1999)",
+    )
+
+    observer.sync()
+
+    network = capsys.readouterr().err.strip()
+    assert "Timeout" in network
+    assert "401" not in network
+
+    api.refusal = _TelegramResult(401, "Unauthorized")
+    observer.sync()
+    api.refusal = _TelegramResult(0, "Timeout")
+    observer.sync()
+
+    assert not capsys.readouterr().err, "одиночный чужой тик - шум, а не смена беды"
+
+    api.refusal = _TelegramResult(401, "Unauthorized")
+    observer.sync()
+    observer.sync()
+    observer.sync()
+
+    dead_token = capsys.readouterr().err.strip()
+    assert "401" in dead_token
+    assert dead_token != network
+
+
+def test_the_ended_show_takes_its_command_message_and_not_the_next_one(
+    tmp_path: Path,
+) -> None:
+    """Конец показа убирает и пульт, и команду; команде занявшей чат - рано.
+
+    Пока показ идёт, в чате живут оба сообщения. Номер команды запоминается на
+    старте показа: при щели между показами снимается команда КОНЧИВШЕГОСЯ, а не та,
+    что уже заняла чат следующим запросом.
+    """
+    api = _Api()
+    choice = TelegramChoiceEnvironment(cast(TelegramApi, api), "-100")
+    observer = PlaybackObserver(
+        TelegramControl(cast(TelegramApi, api), "-100", tmp_path / "control"),
+        lambda: "",
+        choice,
+    )
+
+    choice.begin(7)
+    observer.sync("Мумия (1999)")
+    assert api.deleted == [], "пока идёт показ, в чате остаются и команда, и пульт"
+
+    choice.begin(9)
+    observer.sync("")
+
+    assert api.deleted == [40, 7], "конец показа снял пульт и команду кончившегося"
+    assert choice.command_id() == 9, "команда нового диалога пережила щель между показами"
+
+    observer.sync("Блич (2004)")
+    observer.sync("")
+
+    assert api.deleted == [40, 7, 41, 9], "и её снимает конец уже своего показа"

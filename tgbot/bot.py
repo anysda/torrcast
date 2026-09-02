@@ -47,7 +47,7 @@ class Bot:
         assemble()
         self._choice = TelegramChoiceEnvironment(self._api, config.chat_id)
         self._control = TelegramControl(self._api, config.chat_id, remember=not injected_api)
-        self._observer = PlaybackObserver(self._control, self._title)
+        self._observer = PlaybackObserver(self._control, self._title, self._choice)
         self._progress = TelegramProgress(self._api, config.chat_id)
         install_progress(self._progress.new)
         configure_choice(self._choice)
