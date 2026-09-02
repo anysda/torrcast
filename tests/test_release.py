@@ -32,6 +32,8 @@ def _write_repo(root: Path) -> None:
     )
     (root / "tgbot").mkdir()
     (root / "tgbot" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "hass").mkdir()
+    (root / "hass" / "__init__.py").write_text("", encoding="utf-8")
     (root / "pyproject.toml").write_text(
         '[project]\nname = "torrcast"\nversion = "1.0.0"\n', encoding="utf-8"
     )
@@ -195,6 +197,9 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
     with tarfile.open(tar_path) as tar:
         names = tar.getnames()
         assert "torrcast/domain/version.py" in names
+        # Мост Home Assistant - такой же пакет продукта, как бот: без него установленная
+        # копия поднимала бы юнит torrcast-ha на несуществующую точку входа.
+        assert "hass/__init__.py" in names
         assert "pyproject.toml" in names
         assert "install.sh" in names
         # Английский README ссылается на три перевода и на гифку: уехавший без них

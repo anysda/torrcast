@@ -38,6 +38,12 @@ STOP, VOLUME = "stop", "volume"
 COMMANDS = (TOGGLE, SEEKBY, VOLUME, STOP)
 
 _Command = Callable[[Sequence[str] | None], int]
+_Work = Callable[[], None]
+
+
+def _spawn(work: _Work) -> None:
+    """Отпустить работу в свой поток: команда идёт минутами, а ответ карточке - сразу."""
+    threading.Thread(target=work, name="torrcast-ha-command", daemon=True).start()
 
 
 class Bridge:
@@ -51,12 +57,14 @@ class Bridge:
         settings: Callable[[], Config] = load_config,
         volume: Volume | None = None,
         motion: Motion | None = None,
+        spawn: Callable[[_Work], None] = _spawn,
     ) -> None:
         self._session = playback_session() if session is None else session
         self._command = command
         self._settings = settings
         self._volume = volume
         self._motion = motion or Motion()
+        self._spawn = spawn
         self._lock = threading.Lock()
         self._starting = False
         self._last_error = ""
@@ -129,9 +137,7 @@ class Bridge:
                 raise RefusedError(BUSY)
             self._starting = True
             self._last_error = ""  # прошлый отказ живёт до начала следующего показа
-        threading.Thread(
-            target=self._run, args=(args,), name="torrcast-ha-command", daemon=True
-        ).start()
+        self._spawn(lambda: self._run(args))
         return secrets.token_hex(4)
 
     def _run(self, args: list[str]) -> None:
