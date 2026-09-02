@@ -37,7 +37,7 @@ def _account_watched(state: WatchState, found: tuple[str, Entry]) -> tuple[tuple
     print(
         phrase(
             "account_watched.done",
-            title=entry.title,
+            title=entry.spoken,
             what=what,
             stopped=_hms(stopped),
             dur=_hms(entry.dur),

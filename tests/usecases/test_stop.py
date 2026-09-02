@@ -29,3 +29,18 @@ def test_stop_reports_empty_session() -> None:
     Stop(session, console).run()
 
     assert console.messages == [phrase("stop.nothing_playing")]
+
+
+def test_stop_names_the_picture_by_its_original_under_english(_english: None) -> None:
+    """Под EN stopped зовёт картину тем же именем, что строка запуска показа."""
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie",
+        shown=PlaybackSnapshot("movie", "Ванпанчмен", 65, 3600, original="One Punch Man"),
+    )
+    console = FakeConsole()
+
+    assert Stop(session, console).run() == 0
+    assert console.messages == [
+        phrase("stop.stopped", title="One Punch Man", pos="0:01:05", duration="1:00:00")
+    ]

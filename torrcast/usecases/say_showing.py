@@ -50,18 +50,22 @@ def _say_showing(
 def _showing_name(entry: Entry, origin: Callable[[str, bool | None], Origin | None] | None) -> str:
     """Имя играющей картины с языковой стороны продукта.
 
-    В записи показа английского имени нет и быть не может (её формат менять нельзя),
-    а спросить справку в момент строки - сеть там, где человек ждёт меню. Поэтому
-    читается КЭШ справки (:meth:`torrcast.adapters.wiki.facts_file_cache.FactsFileCache.read`):
-    первый показ этой картины уже спрашивал её паспорт и записал ответ на диск. Порядок
-    рядов - как у памяти дорожек (:func:`torrcast.runtime.native_picture.native_picture`):
-    сначала ряд с типом записи, затем ряд без типа.
+    Под EN картину зовёт её оригинальное имя из самой записи (:attr:`Entry.original`).
+    Записей прежних версий оно не знает - для них читается КЭШ справки
+    (:meth:`torrcast.adapters.wiki.facts_file_cache.FactsFileCache.read`): первый показ
+    этой картины уже спрашивал её паспорт и записал ответ на диск. Порядок рядов - как у
+    памяти дорожек (:func:`torrcast.runtime.native_picture.native_picture`): сначала ряд
+    с типом записи, затем ряд без типа.
 
     Кэш молчит или английского имени в нём нет (отечественная картина) - показывается
     записанное имя как есть. Молчать о том, что играет, нельзя, а придуманного имени
     (транслита) у картины нет: честная строка с русским именем лучше выдуманной.
     """
-    if tongue() != EN or origin is None:
+    if tongue() != EN:
+        return entry.title
+    if entry.original:
+        return entry.original
+    if origin is None:
         return entry.title
     about = origin(entry.title, entry.kind == "tv") or origin(entry.title, None)
     if about and about.title and not _CYRILLIC.search(about.title):

@@ -12,4 +12,4 @@ def playing_title() -> str:
     if shown is None:
         return ""
     year = f" ({shown.year})" if shown.year else ""
-    return shown.title + year + (f" {shown.label}" if shown.label else "")
+    return shown.spoken + year + (f" {shown.label}" if shown.label else "")

@@ -108,4 +108,5 @@ class UnitPlaybackSession:
             torrent_hash=_torrent_hash(entry.magnet),
             done=entry.done,
             year=entry.year,
+            original=entry.original,
         )

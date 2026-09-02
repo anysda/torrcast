@@ -19,6 +19,7 @@ from torrcast.domain.json_model import json_model
 from torrcast.domain.json_number import json_number
 from torrcast.domain.json_rows import json_rows
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.watch_ratios import WATCHED_RATIO
 
 __all__ = ["Entry", "EntryKind"]
@@ -84,6 +85,11 @@ class Entry(_Playing):
         if not self.serial or self.season is None or self.episode is None:
             return ""
         return f"s{self.season}e{self.episode}"
+
+    @property
+    def spoken(self) -> str:
+        """Имя картины для человека: под EN - оригинальное, если оно записано."""
+        return spoken_title(self.title, self.original)
 
     def where(self, season: int, episode: int) -> int:
         """Место серии в списке серий раздачи; ``-1`` — такой серии в раздаче нет."""

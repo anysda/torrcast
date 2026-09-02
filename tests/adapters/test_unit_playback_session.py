@@ -30,6 +30,7 @@ class _Entry:
     vbps_estimated: bool = False
     done: bool = False
     year: int = 0
+    original: str = ""
 
 
 @dataclass
@@ -107,6 +108,16 @@ def test_without_a_key_the_freshest_record_answers() -> None:
     shown = wiring.session().snapshot("")
 
     assert shown is not None and (shown.key, shown.title) == ("свежая", "Другое")
+
+
+def test_the_snapshot_carries_the_original_name_of_the_picture() -> None:
+    """Оригинальное имя доезжает до снимка: под EN печатается оно, а не запись."""
+    wiring = _Wiring()
+    wiring.state.entries["движется"] = _Entry(original="Moana 2")
+
+    shown = wiring.session().snapshot("движется")
+
+    assert shown is not None and shown.original == "Moana 2"
 
 
 def test_an_empty_state_has_nothing_to_show() -> None:

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from torrcast.domain.spoken_title import spoken_title
+
 
 @dataclass(frozen=True, slots=True)
 class PlaybackSnapshot:
@@ -22,10 +24,17 @@ class PlaybackSnapshot:
     torrent_hash: str = ""
     done: bool = False
     year: int = 0
+    #: Оригинальное имя картины из записи: под EN печатается оно, а не :attr:`title`.
+    original: str = ""
+
+    @property
+    def spoken(self) -> str:
+        """Имя картины для человека: под EN - оригинальное, если оно записано."""
+        return spoken_title(self.title, self.original)
 
     @property
     def shown_as(self) -> str:
-        return f"«{self.title}»" + (f" {self.label}" if self.label else "")
+        return f"«{self.spoken}»" + (f" {self.label}" if self.label else "")
 
     @property
     def resumable(self) -> bool:

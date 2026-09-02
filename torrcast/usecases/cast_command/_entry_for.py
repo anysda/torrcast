@@ -58,6 +58,9 @@ def _entry_for(
         title=plan.picture.title,
         magnet=release.magnet,
         year=plan.picture.year or 0,
+        # Оригинальное имя - рядом с записанным: под EN показ зовёт картину им, и снимок
+        # сессии обязан назвать её так же, как назвала строка запуска.
+        original=plan.picture.original or "",
         kind="tv" if plan.picture.kind == "tv" else "movie",
         file_idx=video.index,
         audio=audio,

@@ -78,7 +78,7 @@ def _continue(
                 return None  # серии в этой раздаче нет - честно идём искать релиз сезона
             entry = jumped
         elif entry.done:  # конец раздачи: сама собой следующая серия не появится
-            print(phrase("select.replay_from_start", title=entry.title, label=entry.label))
+            print(phrase("select.replay_from_start", title=entry.spoken, label=entry.label))
             first = entry.episodes[0]
             entry = entry.jump(first[0], first[1]) or entry
         if _buried(config, entry, args, own, dead):
@@ -114,5 +114,5 @@ def _buried(
     args.bury(entry.magnet)
     named = f" {entry.label}" if entry.label else ""
     place = phrase("select.buried_place", pos=_hms(entry.pos)) if entry.pos > 0 else ""
-    print(phrase("select.buried_note", title=entry.title, named=named, why=why, place=place))
+    print(phrase("select.buried_note", title=entry.spoken, named=named, why=why, place=place))
     return True

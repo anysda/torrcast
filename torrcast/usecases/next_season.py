@@ -67,7 +67,7 @@ def _next_season(
     words = (entry.query or slugify(entry.title)).replace("-", " ").split()
     args = Args(query=[*words, f"s{season + 1}e1"])
     print(
-        phrase("season.searching_next", title=entry.title, season=season, upcoming=season + 1),
+        phrase("season.searching_next", title=entry.spoken, season=season, upcoming=season + 1),
         flush=True,
     )
     journal().mark("поиск следующего сезона", сезон=season + 1)
@@ -77,14 +77,14 @@ def _next_season(
         except NotFoundError as err:
             # Следующего сезона не нашлось - это ответ, а не молчаливый выход.
             print(
-                phrase("season.no_next_found", title=entry.title, season=season, err=err),
+                phrase("season.no_next_found", title=entry.spoken, season=season, err=err),
                 flush=True,
             )
             return False
         except TorrcastError as err:
             # Поиск не состоялся (индексеры, сеть): «последний» здесь было бы ложью.
             print(
-                phrase("season.search_failed", title=entry.title, upcoming=season + 1, err=err),
+                phrase("season.search_failed", title=entry.spoken, upcoming=season + 1, err=err),
                 flush=True,
             )
             return False
@@ -93,7 +93,7 @@ def _next_season(
             print(
                 phrase(
                     "season.no_releases_found",
-                    title=entry.title,
+                    title=entry.spoken,
                     season=season,
                     upcoming=season + 1,
                 ),
@@ -107,7 +107,7 @@ def _next_season(
             bench.drop_all()  # прогретое без показа - мусор в рое
             # Сезон есть, но играть его нечем: отказ отбора называет причину сам.
             print(
-                phrase("season.could_not_start", title=entry.title, upcoming=season + 1, err=err),
+                phrase("season.could_not_start", title=entry.spoken, upcoming=season + 1, err=err),
                 flush=True,
             )
             return False

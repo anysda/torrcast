@@ -76,7 +76,7 @@ class Status:
             self._console.write(
                 phrase(
                     "status.last_resumable",
-                    title=shown.title,
+                    title=shown.spoken,
                     pos=self._hms(shown.position),
                     duration=self._hms(shown.duration),
                 )

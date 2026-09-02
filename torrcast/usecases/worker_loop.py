@@ -88,7 +88,7 @@ def _worker_loop(
         entry = _duration(key, entry, source)
         supply.file_index, supply.duration = entry.file_idx, entry.dur
         watch = Watch(key=key, entry=entry)
-        title = " ".join(filter(None, (entry.title, entry.label)))
+        title = " ".join(filter(None, (entry.spoken, entry.label)))
         # 🔴 Подпись показа - единственное, что уезжает на ЭКРАН, и подмена озвучки
         # обязана доехать именно туда: запомненной студии в этом релизе не нашлось,
         # играет другая, а зритель сидит перед телевизором, а не перед терминалом

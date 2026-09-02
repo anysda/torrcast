@@ -203,3 +203,25 @@ def test_an_unknown_key_in_a_saved_record_is_ignored_instead_of_crashing() -> No
 
     assert entry.title == "X"
     assert entry.magnet == "m"
+
+
+def test_the_record_names_the_picture_by_its_original_under_english(_english: None) -> None:
+    """Под EN запись зовёт картину тем же именем, что строка запуска."""
+    entry = Entry(title="Ванпанчмен", magnet="m", original="One Punch Man")
+
+    assert entry.spoken == "One Punch Man"
+
+
+def test_the_record_keeps_the_recorded_name_under_russian(_russian_product: None) -> None:
+    entry = Entry(title="Ванпанчмен", magnet="m", original="One Punch Man")
+
+    assert entry.spoken == "Ванпанчмен"
+
+
+def test_a_picture_without_an_original_is_named_as_recorded(_english: None) -> None:
+    """Граница способа: отечественной картины и записи прежней версии оригинала не знают.
+
+    Печатается записанное имя как есть: выдуманного (транслита) у картины нет, а молчать
+    о том, что играет, нельзя.
+    """
+    assert Entry(title="Луна", magnet="m").spoken == "Луна"
