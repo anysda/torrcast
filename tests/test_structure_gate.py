@@ -794,15 +794,16 @@ def test_the_rule_proves_its_zero_on_the_whole_live_tree() -> None:
     """Охват правила равен дереву на диске, а не тому, до чего оно случайно дошло.
 
     Числа берутся с двух сторон: файлы считаются прямо на диске, места - разбором.
-    Совпали - значит зелень правила стоит на 975 файлах и 597 найденных местах, а не
-    на пустоте.
+    Совпали - значит зелень правила стоит на всех файлах дерева и на всех найденных
+    местах, а не на пустоте. Список каталогов тут повторяет
+    :func:`scripts.structure_gate._load_modules`: разойдись они - охват молча съёжится.
     """
     root = Path(structure_gate.__file__).parents[1]
     modules = structure_gate._load_modules(root)
     measured, seen, places = structure_gate.translation_volume(modules)
     on_disk = [
         path.relative_to(root).as_posix()
-        for folder in ("torrcast", "tgbot")
+        for folder in ("torrcast", "tgbot", "hass")
         for path in (root / folder).rglob("*.py")
     ]
     on_disk += [name for name in structure_gate.SCRIPTS if (root / name).exists()]

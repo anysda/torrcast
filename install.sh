@@ -3189,10 +3189,16 @@ setup_ha_unit() {
         systemctl is-active --quiet torrcast-ha.service && was_up=1
     fi
     write_unit torrcast-ha "мост torrcast для Home Assistant" "$PREFIX/venv/bin/torrcast-ha" || true
+    # Юнита на диске нет - поднимать нечего. Так выглядит установка без прав на
+    # /etc/systemd: у бота эта же ветка не срабатывает лишь потому, что он уходит раньше
+    # по ненастроенному токену. Мосту настраивать нечего, и без этой развилки песочница
+    # ловила бы отказ `enable` на несуществующей службе.
     if [ "${OS_FAMILY:-linux}" = macos ]; then
+        [ -f /Library/LaunchDaemons/org.torrcast.torrcast-ha.plist ] || return 0
         [ "$was_up" = 0 ] || launchd_bootout org.torrcast.torrcast-ha
         launchctl bootstrap system /Library/LaunchDaemons/org.torrcast.torrcast-ha.plist
     else
+        [ -f /etc/systemd/system/torrcast-ha.service ] || return 0
         systemctl enable --now torrcast-ha.service
         [ "$was_up" = 1 ] && systemctl restart torrcast-ha.service
     fi
