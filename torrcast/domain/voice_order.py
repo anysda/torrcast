@@ -2,7 +2,13 @@
 
 from typing import Final
 
-from torrcast.domain.audio_track import STEP_NATIVE, STEP_RU_PLAIN, STEP_SERVICE, AudioTrack
+from torrcast.domain.audio_track import (
+    STEP_ENGLISH,
+    STEP_NATIVE,
+    STEP_RU_PLAIN,
+    STEP_SERVICE,
+    AudioTrack,
+)
 from torrcast.domain.catalogs.tongue import EN
 
 #: Ярусы английской лестницы. Ярус старше ступени: он говорит, на каком ЯЗЫКЕ звучит
@@ -12,8 +18,8 @@ _EN_SOUND: Final = 0
 _EN_ORIGIN: Final = 1
 _EN_TRANSLATION: Final = 2
 _EN_SERVICE: Final = 3
-#: Под русской ручкой яруса нет вовсе: у всех дорожек он один и тот же, а значит порядок
-#: решают ровно те три ключа, что решали его до появления языка продукта.
+#: Под русской ручкой яруса нет вовсе: у всех дорожек он один и тот же. Язык дорожки там
+#: решает не ярус, а своя ступень (:data:`STEP_ENGLISH`) - английская выше оригинала.
 _ONE_TIER: Final = 0
 
 
@@ -61,6 +67,13 @@ def voice_order(
     step = track.rank_step
     if native and step == STEP_RU_PLAIN:
         step = STEP_NATIVE
+    # На русской лестнице английская дорожка - своя ступень между «прочим русским» и
+    # оригиналом: «русской нет - включай английскую», а фолбек на оригинал и чужой дубляж
+    # - только когда нет и её. Ступень ставится тут, а не в :attr:`AudioTrack.step`: под
+    # английской ручкой та же дорожка судится по виду перевода внутри своего яруса.
+    # Служебную дорожку это не поднимает - её слушать не хотели ни на каком языке.
+    if language != EN and track.is_english and step != STEP_SERVICE:
+        step = STEP_ENGLISH
     studio = track.studio
     return (_tier(track, language), step, -(studio.fame if studio else 0), track.index)
 

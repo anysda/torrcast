@@ -23,14 +23,53 @@ def ladder(tracks: tuple[AudioTrack, ...], language: str, native: bool = False) 
 
 
 def test_the_russian_ladder_survives_the_english_one_word_for_word() -> None:
-    """🔴 Русскоязычный продукт обязан играть по-русски: под ``--ru`` порядок прежний.
+    """🔴 Русскоязычный продукт обязан играть по-русски: под ``--ru`` русский дубляж
+    наверху, а дальше - английская дорожка, оригинал и служебная, в этом порядке.
 
     Сторож поставлен против ровно одной беды - подъёма английского звука БЕЗ учёта языка
     продукта. Отрицательная проба к нему такая: сделать ярус безусловным
     (:func:`~torrcast.domain.voice_order._tier` без проверки языка) - и русский дубляж
     уедет со своего первого места под английский, а проверка покраснеет.
     """
-    assert ladder(ANIME, RU) == [1, 0, 2, 3]
+    assert ladder(ANIME, RU) == [1, 2, 0, 3]
+
+
+def test_the_english_voice_is_the_first_fallback_of_the_russian_ladder() -> None:
+    """🔴 Под ``--ru`` нет русской - включай английскую: она выше оригинала, а не ниже.
+
+    До этой ступени английский дубляж не отличался от любого чужого и лежал НИЖЕ
+    оригинала. Отрицательная проба: снять ступень
+    (:data:`~torrcast.domain.audio_track.STEP_ENGLISH` в
+    :func:`~torrcast.domain.voice_order.voice_order`) - и на этом наборе без русской
+    дорожки выбор возвращается на японский оригинал.
+    """
+    assert ladder(ANIME[:1] + ANIME[2:], RU) == [2, 0, 3]
+
+
+def test_the_original_beats_any_other_foreign_voice_but_not_the_english_one() -> None:
+    """Лестница целиком: английская → оригинал → все остальные, служебные - в самом низу.
+
+    Дорожки живые («Тачки 3», WEB-DL 1080p, и английский комментарий из того же набора),
+    русские из набора убраны.
+    """
+    tracks = (
+        AudioTrack(index=0, language="ukr", title="Дубляж"),
+        AudioTrack(index=1, language="eng", title="Оригинал"),
+        AudioTrack(index=2, language="kaz", title="Дубляж"),
+        AudioTrack(index=3, language="eng", title="Director commentary"),
+    )
+
+    assert ladder(tracks, RU) == [1, 0, 2, 3]
+
+
+def test_the_original_wins_only_when_there_is_neither_russian_nor_english() -> None:
+    """Нет ни русской, ни английской - играет оригинал, а не чужой дубляж."""
+    tracks = (
+        AudioTrack(index=0, language="jpn", title="Original"),
+        AudioTrack(index=1, language="ukr", title="Дубляж"),
+    )
+
+    assert ladder(tracks, RU) == [0, 1]
 
 
 def test_the_russian_ladder_of_a_native_picture_survives_it_too() -> None:

@@ -62,9 +62,15 @@ _VOICE_STEPS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
 STEP_NATIVE: Final = -1
 #: Ступени, на которые встаёт нерусская дорожка и служебная.
 STEP_RU_PLAIN: Final = len(_VOICE_STEPS)
-STEP_ORIGINAL: Final = STEP_RU_PLAIN + 1
-STEP_FOREIGN: Final = STEP_RU_PLAIN + 2
-STEP_SERVICE: Final = STEP_RU_PLAIN + 3
+#: Ступень английской дорожки на РУССКОЙ лестнице: ниже любой русской, выше оригинала
+#: («нет русской - включай английскую, а не оригинал»). Как и STEP_NATIVE, её ставит не
+#: сама дорожка, а лестница (:func:`~torrcast.domain.voice_order.voice_order`): под
+#: английской ручкой та же дорожка судится по виду перевода внутри своего яруса, и
+#: :attr:`AudioTrack.step` про неё врёт в обе стороны сразу.
+STEP_ENGLISH: Final = STEP_RU_PLAIN + 1
+STEP_ORIGINAL: Final = STEP_RU_PLAIN + 2
+STEP_FOREIGN: Final = STEP_RU_PLAIN + 3
+STEP_SERVICE: Final = STEP_RU_PLAIN + 4
 #: Технический хвост заголовка: «DUB (Rus) / AC3 / 6 ch / 384 kbps / 48 kHz». Человеку
 #: в строке запуска он не нужен, а подписью озвучки (она же ключ памяти) быть мешает.
 _TECH_RE: Final = re.compile(
