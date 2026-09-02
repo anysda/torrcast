@@ -44,3 +44,20 @@ def test_a_bare_number_without_a_leading_zero_stays_part_of_the_name() -> None:
     """🔴 Граница правила: «Korashime - 2» это продолжение, а не вторая серия. Серии
     нумеруют «- 02», продолжения так не нумеруют никогда."""
     assert _fansub_episode("Korashime - 2 [1080p]") is None
+
+
+def test_a_three_digit_number_is_a_piece_of_the_name_not_an_episode() -> None:
+    """🔴 Вторая половина границы - ШИРИНА. Трёхзначный ведущим нулём неотличим от куска
+    имени, а год, который спас бы разбор, у раздачи есть не всегда. Замерено: на
+    замороженной выдаче и на фикстурах трёхзначных этой раскладкой взято НОЛЬ."""
+    assert _fansub_episode("James Bond - 007") is None
+    assert _fansub_episode("James Bond - 007 [1080p]") is None
+
+
+def test_a_three_digit_episode_still_reads_when_the_group_vouches_for_it() -> None:
+    """Плата за ширину не задевает длинный сериал: там улику даёт группа, и подпорка
+    ведущим нулём не нужна вовсе."""
+    found = _fansub_episode("[Erai-raws] One Piece - 007 [1080p]")
+
+    assert found is not None
+    assert found.group("episode") == "007"
