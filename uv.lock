@@ -858,6 +858,7 @@ dependencies = [
     { name = "pychromecast" },
     { name = "pysocks" },
     { name = "requests" },
+    { name = "zeroconf" },
 ]
 
 [package.dev-dependencies]
@@ -879,6 +880,7 @@ requires-dist = [
     { name = "pychromecast", specifier = ">=14" },
     { name = "pysocks", specifier = ">=1.7" },
     { name = "requests", specifier = ">=2.32" },
+    { name = "zeroconf", specifier = ">=0.130" },
 ]
 
 [package.metadata.requires-dev]
