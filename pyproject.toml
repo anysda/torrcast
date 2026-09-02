@@ -19,11 +19,16 @@ dependencies = [
     # Не catt: он гонит любой URL через yt-dlp и не умеет подсказки формата HLS,
     # без которых Default Media Receiver отвечает LOAD ERROR.
     "PyChromecast>=14",
+    # Мост Home Assistant объявляет себя по mDNS (hass/announce.py). Библиотека и так
+    # приезжает вместе с PyChromecast - он ищет приёмники ею же, - но зависимость
+    # названа прямо: транзитивная держится чужим решением, а мост зовёт её сам.
+    "zeroconf>=0.130",
 ]
 
 [project.scripts]
 cast = "torrcast.runtime.main:main"
 torrcast-bot = "tgbot.bot:_bot"
+torrcast-ha = "hass.main:main"
 
 [dependency-groups]
 dev = [
@@ -40,7 +45,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["torrcast", "tgbot"]
+packages = ["torrcast", "tgbot", "hass"]
 
 [tool.ruff]
 line-length = 100
@@ -66,13 +71,13 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "scripts/vulture-whitelist.py" = ["F821", "B018"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["torrcast", "tgbot"]
+known-first-party = ["torrcast", "tgbot", "hass"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 incremental = false
-files = ["torrcast", "tgbot", "tests", "scripts"]
+files = ["torrcast", "tgbot", "hass", "tests", "scripts"]
 # Белый список vulture переехал в `scripts`, то есть в охват mypy, но кодом он не
 # является: имена в нём намеренно нигде не определены, их читает только vulture.
 exclude = ['scripts/vulture-whitelist\.py$']

@@ -3168,7 +3168,40 @@ setup_bot_unit() {
     return 0
 }
 
-# --- 6.5 Приёмник ------------------------------------------------------------
+# --- 6.5 Служба моста Home Assistant -----------------------------------------
+# Мост - тоже служба, а не команда: карточка плеера опрашивает его постоянно, и после
+# перезагрузки он обязан подняться сам. Мастера у него нет и не нужно: настраивать
+# нечего, порт один, а телевизор он читает из общего конфига. Поэтому в отличие от бота
+# юнит включается сразу - пустого конфига, от которого мост падал бы по кругу, тут не
+# бывает: без телевизора он честно отвечает карточке, что показывать некуда.
+setup_ha_unit() {
+    if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
+        info "systemd is off - the torrcast-ha.service unit is not written (sandbox)" \
+             "systemd выключен - юнит torrcast-ha.service не кладу (песочница)"
+        return 0
+    fi
+    # ⚠️ Спрашиваем ДО правки юнита, как и у бота: `enable --now` уже поднятую службу не
+    # перезапустит, и мост остался бы жить со старым кодом после обновления.
+    local was_up=0
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        launchctl print system/org.torrcast.torrcast-ha >/dev/null 2>&1 && was_up=1
+    else
+        systemctl is-active --quiet torrcast-ha.service && was_up=1
+    fi
+    write_unit torrcast-ha "мост torrcast для Home Assistant" "$PREFIX/venv/bin/torrcast-ha" || true
+    if [ "${OS_FAMILY:-linux}" = macos ]; then
+        [ "$was_up" = 0 ] || launchd_bootout org.torrcast.torrcast-ha
+        launchctl bootstrap system /Library/LaunchDaemons/org.torrcast.torrcast-ha.plist
+    else
+        systemctl enable --now torrcast-ha.service
+        [ "$was_up" = 1 ] && systemctl restart torrcast-ha.service
+    fi
+    info "Home Assistant bridge service is up on port 8479" \
+         "служба моста Home Assistant поднята на порту 8479"
+    return 0
+}
+
+# --- 6.6 Приёмник ------------------------------------------------------------
 # Последний кусок настройки, и ручным он быть не должен: «установка кончилась, теперь
 # позови cast --tv» - это шаг, стоящий прямо на входе в продукт. Поэтому приёмник
 # подхватывается здесь же, штатным сценарием `cast --tv`: единственный найденный в
@@ -3518,7 +3551,7 @@ main() {
         phase_done 'Prowlarr'
     fi
     has indexers   && { install_indexers; phase_done 'индексеры'; }
-    has config     && { setup_config; setup_bot_unit; phase_done 'конфиг'; }
+    has config     && { setup_config; setup_bot_unit; setup_ha_unit; phase_done 'конфиг'; }
     has hls        && { setup_hls;        phase_done 'раздача'; }
     has receiver   && { setup_receiver;   phase_done 'приёмник'; }
 

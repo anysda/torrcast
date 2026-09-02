@@ -202,14 +202,18 @@ def _load_modules(root: Path) -> list[Module]:
     Всё правило «перевод» (:func:`_translation_violations`) меряет ровно то, что тут
     собрано. `scripts/*.py`, не названные в :data:`SCRIPTS` поимённо, сюда не попадают
     вовсе - решение названное, а не тихое: `scripts/` в продукт не отгружается
-    (``pyproject.toml``, ``packages = ["torrcast", "tgbot"]``), человек этих строк не
+    (``pyproject.toml``, ``packages`` без него), человек этих строк не
     видит никогда, а десятки вспомогательных прогонялок сценария (`tvjournal.py`,
     `packbench.py` и соседи) держат кириллицу в `--help` открыто, для себя же. Единственное
     исключение - `scripts/sni-shim.py`: он поднимается службой из `install.sh` и часть
     каталога достижима только через него, поэтому мерить его нечем нельзя.
     """
     result: list[Module] = []
-    package_paths = [*(root / "torrcast").rglob("*.py"), *(root / "tgbot").rglob("*.py")]
+    package_paths = [
+        *(root / "torrcast").rglob("*.py"),
+        *(root / "tgbot").rglob("*.py"),
+        *(root / "hass").rglob("*.py"),
+    ]
     for path in sorted(package_paths):
         relative_path = path.relative_to(root)
         source = path.read_text(encoding="utf-8")

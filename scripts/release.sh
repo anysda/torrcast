@@ -83,7 +83,7 @@ substitute_version() {  # $1 - каталог клона, $2 - версия бе
 }
 
 # --- 4. тарбол белым списком + sha256 ----------------------------------------
-# Едут: torrcast/, tgbot/ (их ставит hatchling, see pyproject packages), install.sh,
+# Едут: torrcast/, tgbot/, hass/ (их ставит hatchling, see pyproject packages), install.sh,
 # install (bootstrap), pyproject.toml, все четыре README с гифкой из docs/, ченджлог
 # (docs/changelog: его читает последний экран обновления), LICENSE и пять
 # файлов из scripts/,
@@ -92,7 +92,7 @@ substitute_version() {  # $1 - каталог клона, $2 - версия бе
 build_tarball() {  # $1 - рабочий каталог (внутри - src/ клон), $2 - версия без v
     work="$1" ver="$2" src="$1/src" pkg="$1/pkg"
     mkdir "$pkg" "$pkg/scripts" "$pkg/docs"
-    cp -a "$src/torrcast" "$src/tgbot" "$pkg/"
+    cp -a "$src/torrcast" "$src/tgbot" "$src/hass" "$pkg/"
     cp "$src/install.sh" "$src/install" "$src/pyproject.toml" "$src/LICENSE" "$pkg/"
     cp "$src/README.md" "$pkg/"
     cp "$src/docs/README-jp.md" "$src/docs/README-es.md" "$src/docs/README-ru.md" \
