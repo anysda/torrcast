@@ -109,12 +109,14 @@ def test_telegram_refusal_is_named_once_per_state_change_not_per_tick(
         lambda: title[0],
     )
 
-    observer.sync()
-    observer.sync()
-    observer.sync()
+    # 🔴 Тиков шесть, а не три. Демпфер смены рода (:data:`_STEADY_TICKS`) сам держит
+    # три тика молча, поэтому на окне в три тика сторож зелен и со снятым дедупом по
+    # прежнему отказу: замер даёт 1/1/1/1 строку как есть и 1/2/3/4 без него.
+    for _ in range(6):
+        observer.sync()
 
     refused = capsys.readouterr().err.splitlines()
-    assert len(refused) == 1, "три тика отказа - одна строка, а не три"
+    assert len(refused) == 1, "шесть тиков отказа - одна строка, а не эхо каждые три"
     assert "401" in refused[0]
 
     api.refusal = _TelegramResult(200)
@@ -128,8 +130,8 @@ def test_telegram_refusal_is_named_once_per_state_change_not_per_tick(
     # Пульт с неизменным текстом чат не трогает вовсе: отказ ловит тот тик,
     # которому есть что послать, - здесь сменившуюся серию.
     title[0] = "Мумия (1999) s1e2"
-    observer.sync()
-    observer.sync()
+    for _ in range(6):
+        observer.sync()
 
     assert [line for line in capsys.readouterr().err.splitlines() if "401" in line] == [refused[0]]
 
@@ -193,10 +195,21 @@ def test_the_ended_show_takes_its_command_message_and_not_the_next_one(
     assert api.deleted == [], "пока идёт показ, в чате остаются и команда, и пульт"
 
     choice.begin(9)
+    # 🔴 Тик при ЖИВОМ показе уже ПОСЛЕ прихода команды 9 - это и есть та гонка, ради
+    # которой номер запоминается на старте. Без него сторож зелен и тогда, когда номер
+    # перезапоминается каждым тиком, а конец показа 7 уносит чужую команду 9.
+    observer.sync("Мумия (1999) s1e2")
     observer.sync("")
 
     assert api.deleted == [40, 7], "конец показа снял пульт и команду кончившегося"
     assert choice.command_id() == 9, "команда нового диалога пережила щель между показами"
+
+    # Простой после конца показа: снятое не снимается вторично. Без этой проверки
+    # сторож зелен и тогда, когда наблюдатель шлёт `deleteMessage` на давно мёртвый
+    # номер каждые две секунды всё время, пока показа нет.
+    observer.sync("")
+
+    assert api.deleted == [40, 7], "простой не снимает уже снятое ещё раз"
 
     observer.sync("Блич (2004)")
     observer.sync("")
