@@ -342,8 +342,8 @@ def test_slow_extra_indexer_does_not_hold_the_ready_catalog() -> None:
 
     assert len(results) == 4
     assert elapsed < 0.5
-    # 🔴 TC-703. Ручка публичная: кто ещё в пути - признак неполноты выдачи, и о нём
-    # спрашивают те, кто говорит человеку про каталог.
+    # Кто ещё в пути - признак неполноты выдачи, и спрашивает его лента:
+    # поле `late` следа круга.
     assert client.waiting() == ("Nyaa.si",)
 
 

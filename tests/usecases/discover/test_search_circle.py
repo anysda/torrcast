@@ -71,19 +71,30 @@ def test_without_prowlarr_the_search_is_an_infra_failure_not_a_refusal() -> None
         search_circle(Config(), Args(query=["тачки"]), Said(), indexer=lambda *_a, **_k: Indexer())
 
 
-def test_the_count_of_the_late_travels_with_every_plan() -> None:
-    """🔴 TC-703. Признак неполноты каталога нужен отказу по пустой очереди, а он поздний."""
+def test_the_circle_tells_nothing_about_who_fell_or_is_late() -> None:
+    """Источники выпали или ещё в пути - человеку о составе каталога не говорят.
+
+    Такие строки шли на экран в четырёх кругах поиска из пяти, а разбора не несли:
+    круг целиком и так пишется в ленту (поля ``silent``, ``banned``, ``late`` следа
+    круга) - она и осталась единственным прибором на «ничего не нашлось».
+    """
     wire_catalogue()
-    client = Indexer(answers={"тачки": _CARS}, waiting=("JacRed",))
-    plans = search_circle(
+    client = Indexer(
+        answers={"тачки": _CARS}, silent=("Knaben",), banned=("RuTor",), waiting=("JacRed",)
+    )
+    said = Said()
+
+    search_circle(
         _CONFIG,
         Args(query=["тачки"]),
-        Said(),
+        said,
         indexer=lambda *_a, **_k: client,
         passport=lambda *_a, **_k: Origin(),
     )
 
-    assert all(plan.waiting() == ("JacRed",) for plan in plans)
+    fallen = ("Knaben", "RuTor", "JacRed")
+    named = [note for note in said.notes if any(who in note for who in fallen)]
+    assert named == [], "строки про состав индексеров с экрана ушли"
 
 
 _QUINN = [

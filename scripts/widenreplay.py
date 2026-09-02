@@ -87,15 +87,11 @@ class SavedIndexer:
 
     cap_floor = 0.0
     over_goal = False
-    #: В сохранённой выдаче молчунов и выпавших нет: пул снят с ответивших.
-    silent: tuple[str, ...] = ()
-    banned: tuple[str, ...] = ()
 
     def __init__(self, pools: dict[str, list[list[RawResult]]]) -> None:
         self.pools = pools
         self.asked: list[str] = []
         self.missed: list[str] = []
-        self.reported_silent: set[str] = set()
         #: Что отдано на каждый спрошенный запрос - чтобы цену отказа считать по ТОЙ ЖЕ
         #: выдаче, которую получил боевой круг, а не по повторному чтению пула.
         self.given: dict[str, list[RawResult]] = {}
@@ -114,9 +110,6 @@ class SavedIndexer:
 
     def spare(self) -> float:
         return SPARE
-
-    def waiting(self) -> tuple[str, ...]:
-        return ()
 
 
 class Quiet:

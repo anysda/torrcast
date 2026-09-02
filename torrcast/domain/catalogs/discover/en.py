@@ -6,19 +6,6 @@ from __future__ import annotations
 def en() -> dict[str, str]:
     """Вернуть английский каталог кластера поиска."""
     return {
-        "discover.indexer_silent": "did not answer",
-        "discover.indexer_banned": "unavailable",
-        "discover.indexer_one_gone": "indexer {name} {why} - the listing may be worse for it",
-        "discover.indexer_many_gone": (
-            "indexers dropped out of the catalog: {listed} - the listing may be worse for it"
-        ),
-        "discover.indexer_one_late": (
-            "indexer {name} is still on the way - the listing lacks it for now, it may still arrive"
-        ),
-        "discover.indexer_many_late": (
-            "indexers still on the way: {listed} - the listing lacks them for now, "
-            "they may still arrive"
-        ),
         "discover.budget_gone": "not doing {what}: the search already spent the goal at {goal}s",
         "discover.budget_gone_anyway": (
             "doing {what} anyway, on its own {seconds}s: the search already spent "
@@ -88,12 +75,6 @@ def en() -> dict[str, str]:
         ),
         "discover.unfit_none_fit": (
             "no fit release: releases in the listing {total}, selection rejected every one ({why})"
-        ),
-        "discover.unfit_incomplete_tail": (
-            ", but the listing is incomplete - {late} still on the way"
-        ),
-        "discover.unfit_come_back": (
-            "{line}: come back later - a full listing may still turn up a fit rip"
         ),
         "discover.unfit_final": (
             "{line} - the picture exists, but its releases do not fit: name it differently "

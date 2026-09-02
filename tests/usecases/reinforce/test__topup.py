@@ -89,19 +89,6 @@ def test_the_old_releases_stay_the_very_same_objects() -> None:
     assert any(release is was for release in fresh.picture.releases)
 
 
-def test_the_count_of_the_late_survives_the_topup() -> None:
-    """🔴 TC-703. Один доехал, другой ещё в пути - пересобранный план обязан это помнить."""
-    picture = pictures([row("Кино / Movie (1999) BDRip 1080p", "a", seeders=100)])[0]
-    plan = plan_for(picture, Args(query=["кино"]), Config())
-    plan.late = lambda: [row("Кино / Movie (1999) BDRip 2160p", "b", seeders=900)]
-    plan.waiting = lambda: ("JacRed",)
-
-    fresh = _topup(plan, Args(query=["кино"]), Config(), CAUTIOUS, Said(), frozenset())
-
-    assert fresh is not plan, "долив собрал новый план"
-    assert fresh.waiting() == ("JacRed",)
-
-
 def test_the_measured_runtime_survives_the_topup() -> None:
     """🔴 TC-819. Долив собирает план заново, а замер длительности обратно в прикидку
     не превращается: иначе опоздавший индексер вернул бы воротам «45 минут» рядом с

@@ -41,13 +41,3 @@ def test_a_named_release_is_the_whole_queue_and_says_nothing_extra(
 
     assert _bench_queue(plan(ranked), Args(query=["кино"], release=2)) == [2]
     assert capsys.readouterr().out == ""
-
-
-def test_an_empty_queue_names_the_indexers_still_on_their_way() -> None:
-    """🔴 TC-703. Спрошен был не весь каталог - отказ обязан это сказать, а не судить."""
-    image = rel(name="Кино / Movie (1999) BDRemux 2160p ISO", size_gb=41.0, quality=None)
-    unfit = plan([image], recode_at=0.0)
-    unfit.waiting = lambda: ("JacRed",)
-
-    with pytest.raises(NotFoundError, match="но выдача неполная - JacRed ещё в пути"):
-        _bench_queue(unfit, _ASKED)

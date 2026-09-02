@@ -640,22 +640,12 @@ class _Spent:
         #: (:attr:`torrcast.adapters.prowlarr.prowlarr.Prowlarr.over_goal`). Подделка обязана
         #: обещать это поле: без него охранник читал бы у настоящего клиента то, чего у неё нет.
         self.over_goal = False
-        #: Счёт выпавших и опоздавших - часть договора клиента
-        #: (:class:`~torrcast.ports.torrent_catalogue.indexer_client.IndexerClient`):
-        #: круг говорит человеку и о том, чего в выдаче нет. Тут не выпал никто.
-        self.silent: tuple[str, ...] = ()
-        self.banned: tuple[str, ...] = ()
-        self.reported_silent: set[str] = set()
 
     def spare(self) -> float:
         return self._spare
 
     def late(self) -> list[Any]:
         return []
-
-    def waiting(self) -> tuple[str, ...]:
-        """В пути никого: круг тут отвечает разом (TC-703)."""
-        return ()
 
 
 def _budget(spare: float) -> tuple[float | None, str]:

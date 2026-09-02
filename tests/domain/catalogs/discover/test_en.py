@@ -21,4 +21,4 @@ def test_english_catalog_holds_no_russian() -> None:
 def test_every_key_names_its_cluster() -> None:
     stray = [key for key in english() if not key.startswith("discover.")]
     assert stray == []
-    assert english()["discover.indexer_silent"] == "did not answer"
+    assert english()["discover.nothing_found"] == "nothing found for “{name}”"

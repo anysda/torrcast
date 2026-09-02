@@ -77,7 +77,7 @@ def _voice_reinforce(
     if _no_budget(client, phrase("reinforce.voice_reason", exact=exact), progress) is None:
         return raw, cluster(_catalogue_port().to_releases(raw)), found
     progress.phase(phrase("reinforce.search_phase", name=exact))
-    extra = _ask(client, exact, progress)
+    extra = _ask(client, exact)
     progress.phase("")
     want_orig = slugify(lead.original or "")
     keep = [

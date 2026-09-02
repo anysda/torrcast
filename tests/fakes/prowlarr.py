@@ -21,12 +21,6 @@ class FakeProwlarr:
         #: двигает первый и читает второй, и молчаливой подделки у них не бывает.
         self.cap_floor = 1.0
         self.over_goal = False
-        #: Счёт выпавших и опоздавших - часть договора клиента
-        #: (:class:`~torrcast.ports.torrent_catalogue.indexer_client.IndexerClient`):
-        #: круг говорит человеку и о том, чего в выдаче нет. Тут не выпал никто.
-        self.silent: tuple[str, ...] = ()
-        self.banned: tuple[str, ...] = ()
-        self.reported_silent: set[str] = set()
 
     def __call__(self, url: str, apikey: str) -> FakeProwlarr:
         return self
@@ -41,10 +35,6 @@ class FakeProwlarr:
     def late(self) -> list[RawResult]:
         """Опоздавших нет: круг тут отвечает разом (TC-118)."""
         return []
-
-    def waiting(self) -> tuple[str, ...]:
-        """В пути никого: круг тут отвечает разом (TC-703)."""
-        return ()
 
     def spare(self) -> float:
         """Остаток цели: тут поиск мгновенный, поэтому цела вся (TC-228)."""

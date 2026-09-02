@@ -94,7 +94,7 @@ def _season_reinforce(
     if not base or slugify(season_query) == slugify(name):
         return raw, cluster(_catalogue_port().to_releases(raw)), found
     progress.phase(phrase("reinforce.search_phase", name=season_query))
-    extra = _ask(client, season_query, progress)
+    extra = _ask(client, season_query)
     progress.phase("")
     want_orig = slugify(lead.original or base)
     # Берём лишь раздачи ТОГО ЖЕ оригинала и ровно нужного сезона: чужое одноимённое

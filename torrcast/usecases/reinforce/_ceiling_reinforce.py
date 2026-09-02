@@ -73,7 +73,7 @@ def _ceiling_reinforce(
         return raw, pictures, found
     refined = f"{name} {about.year}"
     progress.phase(phrase("reinforce.search_phase", name=refined))
-    merged = _catalogue_port().merge(raw, _ask(client, refined, progress))
+    merged = _catalogue_port().merge(raw, _ask(client, refined))
     progress.phase("")
     if len(merged) == len(raw):
         return raw, pictures, found

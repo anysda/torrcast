@@ -83,12 +83,6 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 class _FakeProwlarr:
     def __init__(self, url: str, apikey: str) -> None:
         self.url = url
-        #: Счёт выпавших и опоздавших - часть договора клиента
-        #: (:class:`~torrcast.ports.torrent_catalogue.indexer_client.IndexerClient`):
-        #: круг говорит человеку и о том, чего в выдаче нет. Тут не выпал никто.
-        self.silent: tuple[str, ...] = ()
-        self.banned: tuple[str, ...] = ()
-        self.reported_silent: set[str] = set()
 
     def search(self, query: str) -> list[RawResult]:
         return list(FOUND)
@@ -96,10 +90,6 @@ class _FakeProwlarr:
     def late(self) -> list[RawResult]:
         """Опоздавших нет: круг тут отвечает разом (TC-118)."""
         return []
-
-    def waiting(self) -> tuple[str, ...]:
-        """В пути никого: круг тут отвечает разом (TC-703)."""
-        return ()
 
     def spare(self) -> float:
         """Остаток цели: тут поиск мгновенный, поэтому цела вся (TC-228)."""
@@ -177,43 +167,30 @@ def test_the_happy_path_asks_nothing_at_all(
     assert not set(printed) & set("→⚠▶≥")
 
 
-def test_silent_indexer_is_named_once_during_search(
+def test_the_search_says_nothing_about_the_fallen_indexers(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Урезанная выдача не выглядит полной: промолчавший источник назван на экране."""
+    """Молчуны и заблокированные на экран не идут: строки о составе каталога сняты.
 
-    class _SilentProwlarr(_FakeProwlarr):
+    Такие строки стояли в четырёх кругах поиска из пяти, а прибором на «ничего не
+    нашлось» остаётся лента: круг пишется туда целиком, с полями ``silent``,
+    ``banned`` и ``late``.
+    """
+
+    class _FallenProwlarr(_FakeProwlarr):
         def __init__(self, url: str, apikey: str) -> None:
             super().__init__(url, apikey)
             self.silent = ("Knaben",)
+            self.banned = ("RuTor",)
 
-    composition.use_indexers(monkeypatch, _SilentProwlarr)
+    composition.use_indexers(monkeypatch, _FallenProwlarr)
     _answers(monkeypatch, "2", "")
 
     assert main(["моана"]) == 0
     printed = capsys.readouterr().out
-    line = "indexer Knaben did not answer - the listing may be worse for it"
-    assert printed.count(line) == 1
-
-
-def test_banned_indexer_is_named_too(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """🔴 TC-510. Выпасть из каталога можно двумя способами, и оба видны человеку: молчун
-    не ответил нам, а заблокированного мы и не спрашивали (TC-259). Строка при этом одна
-    и на весь поиск одна - разводить их по кругам поиска незачем."""
-
-    class _BannedProwlarr(_FakeProwlarr):
-        def __init__(self, url: str, apikey: str) -> None:
-            super().__init__(url, apikey)
-            self.banned = ("Knaben",)
-
-    composition.use_indexers(monkeypatch, _BannedProwlarr)
-    _answers(monkeypatch, "2", "")
-
-    assert main(["моана"]) == 0
-    printed = capsys.readouterr().out
-    assert printed.count("indexer Knaben unavailable - the listing may be worse for it") == 1
+    assert "Knaben" not in printed and "RuTor" not in printed
+    assert "the listing may be worse" not in printed
+    assert "on the way" not in printed
 
 
 def test_the_question_says_out_loud_what_enter_will_start(

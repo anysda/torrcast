@@ -48,7 +48,7 @@ def _second_circle(
     progress.phase(phrase("discover.search_phase", query=asked))
     client.cap_floor = GOAL
     try:
-        second = _ask(client, asked, progress)
+        second = _ask(client, asked)
         # Пока шёл второй круг, один из запросов мог завершиться уже после кворума.
         # Список картин человеку ещё не показан, поэтому готовый хвост можно включить в
         # тот же отбор без ожидания и без подмены уже прочитанного меню. Особенно важен

@@ -101,11 +101,10 @@ class Indexer:
         self._spare = spare
         self.asked: list[str] = []
         self.floors: list[float] = []
-        #: Счёт молчунов - тот же, что читает круг поиска у боевого клиента.
+        #: Кто молчит, кого увёл Prowlarr и кто ещё в пути: подделка несёт эти счёты,
+        #: как боевой клиент, - и пин в том, что круг поиска их человеку не выносит.
         self.silent = silent
         self.banned = banned
-        self.reported_silent: set[str] = set()
-        #: Кто ещё в пути: круг ушёл по опорным, а эти не успели (TC-118).
         self._waiting = waiting
         #: Частный бюджет за целью ещё не выдан - как у свежего клиента поиска.
         self.over_goal = False

@@ -12,9 +12,7 @@ if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
 
 
-def unfit_line(
-    plan: Plan, drops: dict[str, int], kin: list[Picture], late: tuple[str, ...] = ()
-) -> str:
+def unfit_line(plan: Plan, drops: dict[str, int], kin: list[Picture]) -> str:
     """Отказ, когда ворота отбора не пропустили НИ ОДНОГО релиза картины (TC-432).
 
     Пустая очередь - это картина, в выдаче которой одни игры, книги, образы дисков или
@@ -39,23 +37,9 @@ def unfit_line(
 
     Строка называет выдачу и причины: счёт отсева (:func:`queue_drops`) гарантирует,
     что сумма причин сходится с пулом, - ни одна раздача не пропадает молча.
-
-    🔴 TC-703. ``late`` - индексеры, которые в эту выдачу не успели (:meth:`Plan.waiting`),
-    и когда они есть, отказ обязан их назвать. Без этого строка врёт интонацией:
-    «картина есть, а раздачи её негодны» - это утверждение обо ВСЁМ каталоге, человек
-    принимает его за приговор и второй раз не заходит. Замер владельца: раздач у сериала
-    существовало 131, отбор судил 2, а четверть каталога в ту секунду была в пути.
-    Ход при неполной выдаче поэтому другой и он один: зайти позже, когда доедут
-    остальные, - переименовывать картину незачем, её нашли.
-
-    Полная выдача не платит за это ни словом: ``late`` пуст - строка ровно прежняя.
     """
     why = ", ".join(f"{reason} - {count}" for reason, count in drops.items())
     line = phrase("discover.unfit_none_fit", total=len(plan.picture.releases), why=why)
-    if late:
-        line += phrase("discover.unfit_incomplete_tail", late=", ".join(late))
     if offer := kin_line(kin):
         return f"{line}\n{offer}"
-    if late:
-        return phrase("discover.unfit_come_back", line=line)
     return phrase("discover.unfit_final", line=line)

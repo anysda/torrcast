@@ -50,7 +50,7 @@ def _relayout(
         return query, name, index, []
     fixed, moved = split_franchise_index(swapped)
     progress.phase(phrase("discover.search_phase", query=fixed))
-    raw = _ask(client, fixed, progress)
+    raw = _ask(client, fixed)
     if not raw:
         return query, name, index, []
     progress.note(phrase("discover.relayout_note", query=query, swapped=swapped))
@@ -88,7 +88,7 @@ def _titled_number(
     if _no_budget(client, phrase("discover.search_whole_label", query=query), progress) is None:
         return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []
     progress.phase(phrase("discover.search_phase", query=query))
-    merged = _search_state._search_catalogue.merge(raw, _ask(client, query, progress))
+    merged = _search_state._search_catalogue.merge(raw, _ask(client, query))
     progress.phase("")
     if len(merged) == len(raw):
         return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []

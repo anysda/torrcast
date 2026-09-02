@@ -60,39 +60,3 @@ def test_without_kin_the_move_is_another_name_or_another_day() -> None:
 
     assert "картина есть, а раздачи её негодны" in line
     assert "назови её иначе или зайди позже" in line
-
-
-def test_an_incomplete_pool_is_named_and_the_verdict_is_dropped() -> None:
-    """🔴 TC-703. Часть каталога ещё в пути - «раздачи её негодны» было бы приговором."""
-    plan = _plan([_IMAGE])
-
-    line = unfit_line(plan, queue_drops(plan, []), [], ("JacRed",))
-
-    assert "но выдача неполная - JacRed ещё в пути" in line
-    assert "зайди позже - с полной выдачей годный рип может и найтись" in line
-    assert "картина есть, а раздачи её негодны" not in line
-    assert line.count("\n") == 0, "отказ остаётся одной строкой"
-
-
-def test_an_incomplete_pool_is_named_even_when_kin_is_offered() -> None:
-    """Живой сосед по франшизе неполноты каталога не отменяет - названы оба."""
-    rows = [_IMAGE, _CARS_2]
-    lead = franchise("тачки", rows)[0]
-    plan = _plan(rows)
-    kin = _kin(lead, pictures(rows), {lead.key})
-
-    line = unfit_line(plan, queue_drops(plan, []), kin, ("JacRed",))
-
-    assert "но выдача неполная - JacRed ещё в пути" in line
-    assert "в каталоге есть Тачки 2 (2011)" in line
-
-
-def test_a_complete_pool_pays_for_this_with_not_a_single_word() -> None:
-    """Никто не опоздал - строка ровно та же, что и была: счастливый путь не засоряем."""
-    plan = _plan([_IMAGE])
-
-    assert unfit_line(plan, queue_drops(plan, []), []) == unfit_line(
-        plan, queue_drops(plan, []), [], ()
-    )
-    assert "в пути" not in unfit_line(plan, queue_drops(plan, []), [])
-    assert "неполная" not in unfit_line(plan, queue_drops(plan, []), [])

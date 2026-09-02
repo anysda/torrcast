@@ -79,7 +79,7 @@ def search_circle(
         config.prowlarr_url, config.prowlarr_apikey
     )
     progress.phase(phrase("discover.search_phase", query=name))
-    raw = _ask(client, name, progress)
+    raw = _ask(client, name)
     if not raw:
         # Ни одной строки - повод заподозрить забытую раскладку (:func:`unswap_layout`).
         # Проверка стоит один заход к индексерам и только там, где иначе был бы отказ.
@@ -188,9 +188,6 @@ def search_circle(
         # Опоздавший индексер (круг ушёл по кворуму, TC-118) доедет уже после меню -
         # ручку долива несёт план, а зовут её один раз и после ответа (:func:`_topup`).
         plan.late = client.late
-        # 🔴 TC-703. Кто ещё в пути - признак неполноты выдачи: без него отказ по пустой
-        # очереди звучит приговором картине (:func:`unfit_line`).
-        plan.waiting = client.waiting
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
         raise NotFoundError(

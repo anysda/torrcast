@@ -187,18 +187,6 @@ def test_the_measured_runtime_is_not_overwritten_by_the_facts() -> None:
     assert runtime and runtime[-1]["src"] == "passport"
 
 
-def test_the_count_of_the_late_survives_the_rebuild_on_the_real_runtime() -> None:
-    """🔴 TC-703. Справка пересобирает план, а признак неполноты каталога нужен позже него."""
-    install(_Noted())
-    plan = _plan(_interstellar())
-    plan.waiting = lambda: ("JacRed",)
-
-    fresh = _timed(plan, _Facts(_INTERSTELLAR), Args(query=["кино"]), Config())
-
-    assert fresh is not plan, "справка собрала новый план"
-    assert fresh.waiting() == ("JacRed",)
-
-
 def test_the_memory_of_the_studio_survives_the_rebuild_on_the_real_runtime() -> None:
     """🔴 TC-701. Справка пересобирает план, а память студии решает его порядок.
 

@@ -14,9 +14,6 @@ class _Prowlarr:
         self.over_goal = False
         self.asked: list[str] = []
         self.budget = 8.0
-        self.silent: tuple[str, ...] = ("Nyaa",)
-        self.banned: tuple[str, ...] = ()
-        self.reported_silent: set[str] = set()
 
     def search(self, query: str, limit: int = 100) -> list[RawResult]:
         self.asked.append(query)
@@ -28,9 +25,6 @@ class _Prowlarr:
     def spare(self) -> float:
         return self.budget
 
-    def waiting(self) -> tuple[str, ...]:
-        return ("RuTor",)
-
 
 def test_the_real_client_of_an_adapter_answers_the_whole_contract() -> None:
     """Клиент адаптера подходит договору целиком - и лишние доводы ему не мешают."""
@@ -39,8 +33,6 @@ def test_the_real_client_of_an_adapter_answers_the_whole_contract() -> None:
     assert [row.title for row in carried.search("кино")] == ["кино"]
     assert carried.late() == []
     assert carried.spare() == 8.0
-    assert (carried.silent, carried.banned, carried.waiting()) == (("Nyaa",), (), ("RuTor",))
-    assert carried.reported_silent == set(), "про выпавших человеку ещё не говорили"
 
 
 def test_the_floor_of_the_next_circle_is_a_slot_the_top_up_moves() -> None:

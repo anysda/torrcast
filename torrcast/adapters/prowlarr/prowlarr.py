@@ -47,9 +47,9 @@ class Prowlarr(_State):
     def waiting(self) -> tuple[str, ...]:
         """Имена тех, кто ещё в пути: их части каталога в этой выдаче нет (TC-118).
 
-        🔴 TC-703. Это признак НЕПОЛНОТЫ выдачи, и спрашивают его те, кто говорит
-        человеку про каталог: круг поиска (:func:`torrcast.usecases.discover._ask._ask`) и
-        отказ по пустой очереди (:func:`torrcast.usecases.discover.unfit_line.unfit_line`).
+        Человеку об этом не говорят - спрашивает этот счёт только лента
+        (:func:`~torrcast.adapters.prowlarr.circle_trace.circle_trace`, поле ``late``):
+        разбор «ничего не нашлось» без него слепнет.
         """
         return self._circle.waiting()
 

@@ -6,18 +6,6 @@ from __future__ import annotations
 def ru() -> dict[str, str]:
     """Вернуть русский каталог кластера поиска."""
     return {
-        "discover.indexer_silent": "не ответил",
-        "discover.indexer_banned": "недоступен",
-        "discover.indexer_one_gone": "индексер {name} {why} - выдача может быть хуже",
-        "discover.indexer_many_gone": (
-            "индексеры выпали из каталога: {listed} - выдача может быть хуже"
-        ),
-        "discover.indexer_one_late": (
-            "индексер {name} ещё в пути - выдача пока без него, он может доехать"
-        ),
-        "discover.indexer_many_late": (
-            "индексеры ещё в пути: {listed} - выдача пока без них, они могут доехать"
-        ),
         "discover.budget_gone": "{what} не делаю: поиск уже съел цель в {goal} с",
         "discover.budget_gone_anyway": (
             "{what} всё равно делаю в свои {seconds} с: поиск уже съел цель в {goal} с"
@@ -85,10 +73,6 @@ def ru() -> dict[str, str]:
         ),
         "discover.unfit_none_fit": (
             "годного релиза нет: раздач в выдаче {total}, и все до одной отсеял отбор ({why})"
-        ),
-        "discover.unfit_incomplete_tail": ", но выдача неполная - {late} ещё в пути",
-        "discover.unfit_come_back": (
-            "{line}: зайди позже - с полной выдачей годный рип может и найтись"
         ),
         "discover.unfit_final": (
             "{line} - картина есть, а раздачи её негодны: назови её иначе или зайди позже - "
