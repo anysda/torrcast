@@ -31,6 +31,7 @@ def test_macos_services_use_persistent_launchd_jobs() -> None:
     bootout = _body("launchd_bootout")
     assert 'launchd_bootout "$label"' in run
     assert 'launchctl print "system/$1"' in bootout
+    assert '[ "$i" -ge 180 ]' in bootout
     assert 'path="/Library/LaunchDaemons/org.torrcast.$1.plist"' in write
     assert "<key>RunAtLoad</key><true/>" in write
     assert "<key>KeepAlive</key>" in write
@@ -59,6 +60,10 @@ def test_macos_does_not_claim_linux_only_guarantees() -> None:
     assert 'if [ "${OS_FAMILY:-linux}" = macos ]; then' in shim
     assert "no socket activation" in shim
     assert "${knobs%$'\\n'Sockets=torrcast-shim.socket}" in shim
+    assert "Environment=TORRCAST_FLUSH_DNS=macos" in shim
+    assert "Environment=TORRCAST_DNS_FALLBACK=1.1.1.1,9.9.9.9" in shim
+    assert "Environment=TORRCAST_PIN_ADDRESSES=127.0.0.1,::1" in shim
+    assert "Environment=TORRCAST_LISTEN_IPV6=1" in shim
 
 
 def test_macos_signs_prowlarr_adhoc() -> None:

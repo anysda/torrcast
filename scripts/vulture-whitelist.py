@@ -48,6 +48,8 @@ protocol_version
 server_version
 daemon_threads
 request_queue_size
+# `socketserver.TCPServer` reads this class setting when it creates the listener.
+address_family
 # `server_name` и `server_port` обычно проставляет сам `server_bind`, а читает их
 # обработчик (заголовки ответа и `address_string`). Когда слушающий сокет приходит
 # готовым от systemd, `server_bind` не зовётся вовсе, и поля выставляются руками.

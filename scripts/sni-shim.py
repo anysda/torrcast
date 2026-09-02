@@ -26,54 +26,13 @@
   в `Host` и в проверке серта. Заодно это лечит угон DNS: подставной адрес отдаёт
   самоподписанный серт, проверка его не принимает, и шим уходит на следующий адрес.
 
-Кандидаты пробуются по порядку, сработавший запоминается до первой осечки. Осечка - это
-не только оборванное соединение: ответ 5xx тоже уводит на следующего кандидата, потому
-что это не ответ трекера, а его отсутствие, и клиент (Prowlarr) читает такой ответ как
-«повтори» - повторяет сам, с отсрочкой и по тому же адресу. Пока у нас есть запасной
-адрес, отдавать наверх повод для повтора незачем; кончились кандидаты - отдаём чужой
-отказ как есть.
-
-Прибитое имя - это АРЕНДА, а не запись навсегда. Слушающий сокет держит systemd, поэтому
-штатный рестарт процесса не рвёт входящие соединения: они ждут новый процесс в очереди.
-Отдельный сторож снимает строки из `/etc/hosts`, только если процесса непрерывно нет
-дольше порога. Иначе шим был бы единой точкой отказа на все свои имена сразу: при
-настоящей смерти имя вело бы на 127.0.0.1 навсегда. Без строки оно идёт своим прямым
-путём - хуже, чем через шим, но это деградация, а не смерть каталога.
-
-Решение «прямо или через шим» тоже не вечное: канал режет по имени не всегда, обрыв
-приходит и уходит в пределах часа. Поэтому шим ПЕРЕРЕШАЕТ его фоном (:class:`Watch`),
-щупая источник НАПРЯМУЮ, мимо `/etc/hosts` - проба сквозь себя же всегда отвечала бы
-«всё хорошо». Цена ошибки несимметрична: лишний обход здорового имени не стоит почти
-ничего, а пропущенный обход больного - это молчащий индексер до следующей установки.
-Отсюда и перекос: на любом сомнении ведём через шим, а снимаем обход только после
-нескольких проверок подряд, где имя ответило целиком.
-
-Наверх шим всегда просит `gzip`, а вниз отдаёт распакованным, если клиент сжатого не
-просил. Это не экономия трафика, а обход той же болезни: рвётся поток на ОБЪЁМЕ тела,
-и сжатая выдача чаще остаётся ниже порога обрыва (замер на yts.gg: 60 КБ голого тела
-обрываются на 15 КБ и висят до таймаута, те же данные в gzip - 4.8 КБ и целиком за
-0.9 с). Prowlarr сжатия не просит (видно в pcap), и попросить его за Prowlarr больше
-некому.
-
-🔴 TC-696. Сжатия одного не хватает там, где клиент просит много: Prowlarr спрашивает
-у Knaben сразу 100 раздач (число зашито в его сборке, настройки нет), а канал рвёт
-тело на ~17-19 КБ, даже сжатое - обречен и такой ответ. Поэтому у маршрута бывает
-ПОСТРАНИЧНЫЙ обход (:attr:`Route.page`): запрос с JSON-телом вида ``{"from": N,
-"size": M}`` разбивается на страницы по ``page`` строк, каждая едет по каналу своим
-мелким ответом, а клиенту склеивается одна выдача - их он и просил. Мелкий ответ
-порогу не подвластен (замер: 20 раздач - 8.7 КБ сжатых при пороге ~15-19 КБ), а склейка
-происходит уже на петле, где канала нет. Страницы идут строго по одной - залп
-одновременных запросов это то, за что трекер раздаёт баны. Каталог кончился раньше
-(страница пришла короче запрошенной) - цепочка обрывается сама; середина цепочки
-оборвалась - отдаём уже собранное: часть выдачи честнее, чем повод к повтору.
-
 К одному хосту шим держит не больше двух запросов зараз: фронт трекера, спрошенный
 по IP, столько и тянет, а лишним параллельным отвечает 504 на шестнадцатой секунде -
 после серии таких индексер уезжает в бан на три часа. Лишние ждут очереди, а не летят
 на хост. Счёт очереди у каждого хоста свой: больной сосед чужие не задерживает, и
 одиночный запрос на пустой очереди не ждёт вовсе.
 
-Слушает только 127.0.0.1; наружу не смотрит и ничего не кэширует.
+Слушает только петлю; наружу не смотрит и ничего не кэширует.
 
 Дом обхода - этот отдельный скрипт, а не адаптер пакета, и это решение, а не
 случайность: процесс у шима свой (systemd держит его сокет сквозь рестарт, чтобы не
@@ -195,7 +154,7 @@ _PROBE_UA = (
 
 
 def _nameservers() -> list[str]:
-    """Адреса DNS из `/etc/resolv.conf` - только IPv4, только те, что там указаны."""
+    """Read IPv4 DNS from resolv.conf, followed by explicit service fallbacks."""
     out: list[str] = []
     try:
         with open("/etc/resolv.conf", encoding="utf-8", errors="replace") as handle:
@@ -205,7 +164,18 @@ def _nameservers() -> list[str]:
                     out.append(parts[1])
     except OSError:
         pass
+    for server in (os.environ.get("TORRCAST_DNS_FALLBACK") or "").replace(",", " ").split():
+        if ":" not in server and server not in out:
+            out.append(server)
     return out
+
+
+def _flush_system_dns() -> None:
+    """Make macOS forget answers collected before our hosts change."""
+    if os.environ.get("TORRCAST_FLUSH_DNS") != "macos":
+        return
+    subprocess.run(["/usr/bin/dscacheutil", "-flushcache"], check=False)
+    subprocess.run(["/usr/bin/killall", "-HUP", "mDNSResponder"], check=False)
 
 
 def _skip_name(data: bytes, pos: int) -> int:
@@ -423,7 +393,8 @@ def set_pins(path: str, wanted: Iterable[str], owned: Iterable[str]) -> bool:
     except OSError:
         return False
     lines = [line for line in was.splitlines() if not _ours(line, mine)]
-    lines += [f"127.0.0.1 {host} {_PIN_MARK}" for host in wanted]
+    addresses = (os.environ.get("TORRCAST_PIN_ADDRESSES") or "127.0.0.1").replace(",", " ").split()
+    lines += [f"{address} {host} {_PIN_MARK}" for host in wanted for address in addresses]
     text = "".join(f"{line}\n" for line in lines)
     if text == was:
         return False
@@ -441,6 +412,7 @@ def set_pins(path: str, wanted: Iterable[str], owned: Iterable[str]) -> bool:
             os.unlink(spare)
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(text)
+    _flush_system_dns()
     return True
 
 
@@ -822,6 +794,7 @@ def build_server(
     route_timeout: float = _ROUTE_TIMEOUT,
     opener: Callable[[bool], urllib.request.OpenerDirector] = _opener,
     present: Callable[[socket.socket], bool] = _client_present,
+    host: str = "127.0.0.1",
 ) -> http.server.HTTPServer:
     """Собрать слушающий шим.
 
@@ -840,6 +813,8 @@ def build_server(
     #: Опенеры кандидата `named`: по одному на адрес, собираются на первом же походе.
     pinned: dict[str, urllib.request.OpenerDirector] = {}
     pinned_lock = threading.Lock()
+    handshakes: dict[object, str] = {}
+    handshakes_lock = threading.Lock()
 
     def opener_for(target: Target) -> urllib.request.OpenerDirector:
         if not target.via:
@@ -1046,6 +1021,7 @@ def build_server(
     class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
         request_queue_size = _BACKLOG
+        address_family = socket.AF_INET6 if ":" in host else socket.AF_INET
 
         def get_request(self) -> tuple[socket.socket, Any]:
             """Принять соединение и НЕ здороваться: рукопожатие - дело потока.
@@ -1070,6 +1046,8 @@ def build_server(
         def finish_request(self, request: Any, client_address: Any) -> None:
             """Рукопожатие и сам запрос - уже своим потоком (см. :meth:`get_request`)."""
             tls = context.wrap_socket(request, server_side=True)
+            with handshakes_lock:
+                handshakes.pop(client_address, None)
             # Сроку место было ровно на рукопожатии: дальше запрос живёт по своим
             # часам (:data:`_TIMEOUT` наверх) и по терпению клиента, как и раньше.
             tls.settimeout(None)
@@ -1101,19 +1079,28 @@ def build_server(
                 print("клиент ушёл раньше ответа", file=sys.stderr, flush=True)
                 return
             if isinstance(failed, (ssl.SSLError, TimeoutError)):
-                print(f"рукопожатие не состоялось: {failed}", file=sys.stderr, flush=True)
+                with handshakes_lock:
+                    host = handshakes.pop(client_address, "SNI absent")
+                print(f"{host}: рукопожатие не состоялось: {failed}", file=sys.stderr, flush=True)
                 return
             super().handle_error(request, client_address)
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert, key)
+
+    def remember_sni(tls: Any, server_name: str | None, _context: Any) -> int | None:
+        with handshakes_lock:
+            handshakes[tls.getpeername()] = server_name or "SNI absent"
+        return None
+
+    context.set_servername_callback(remember_sni)
     # Слушающий сокет остаётся голым нарочно: обёртка на нём означала бы рукопожатие
     # в приёмном цикле (TC-306, см. `Server.get_request`). TLS надевается на каждое
     # принятое соединение отдельно, уже в его потоке.
     activated = _activated_socket()
-    if activated is None:
-        return Server(("127.0.0.1", port), Handler)
-    server = Server(("127.0.0.1", port), Handler, bind_and_activate=False)
+    if activated is None or ":" in host:
+        return Server((host, port), Handler)
+    server = Server((host, port), Handler, bind_and_activate=False)
     server.socket.close()
     server.socket = activated
     server.server_address = activated.getsockname()
@@ -1161,7 +1148,11 @@ def main(argv: list[str] | None = None, *, build: Callable[..., Any] = build_ser
         print("нечего вести: не задан ни один маршрут имя=кандидат", file=sys.stderr)
         return 2
     resolver = Resolver()
-    server = build(cert, key, int(port_text), routes, resolver)
+    port = int(port_text)
+    server = build(cert, key, port, routes, resolver)
+    ipv6 = None
+    if os.environ.get("TORRCAST_LISTEN_IPV6") == "1":
+        ipv6 = build(cert, key, port, routes, resolver, host="::1")
     pidfile = os.environ.get("TORRCAST_SHIM_PID") or ""
     if pidfile:
         with open(pidfile, "w", encoding="ascii") as handle:
@@ -1174,7 +1165,14 @@ def main(argv: list[str] | None = None, *, build: Callable[..., Any] = build_ser
     watch.apply()
     if watch.every > 0:
         watch.start()
-    server.serve_forever()
+    if ipv6 is not None:
+        threading.Thread(target=ipv6.serve_forever, daemon=True).start()
+    try:
+        server.serve_forever()
+    finally:
+        if ipv6 is not None:
+            ipv6.shutdown()
+            ipv6.server_close()
     return 0
 
 

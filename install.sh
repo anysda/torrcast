@@ -944,7 +944,7 @@ launchd_bootout() {  # $1 - label; снимает задание и ждёт, п
     local i=0
     while launchctl print "system/$1" >/dev/null 2>&1; do
         i=$((i + 1))
-        [ "$i" -ge 30 ] && return 1
+        [ "$i" -ge 180 ] && return 1
         sleep 1
     done
     return 0
@@ -2036,7 +2036,11 @@ Sockets=torrcast-shim.socket"
         # Python has no standard binding for launch_activate_socket.  Let the shim bind
         # its own port: launchd still restarts it, but connections see refusal during
         # that restart instead of waiting in a launchd-owned socket backlog.
-        knobs="${knobs%$'\n'Sockets=torrcast-shim.socket}"
+        knobs="${knobs%$'\n'Sockets=torrcast-shim.socket}
+Environment=TORRCAST_FLUSH_DNS=macos
+Environment=TORRCAST_DNS_FALLBACK=1.1.1.1,9.9.9.9
+Environment=TORRCAST_PIN_ADDRESSES=127.0.0.1,::1
+Environment=TORRCAST_LISTEN_IPV6=1"
         info "the macOS shim owns its listening port; a restart can briefly refuse connections (no socket activation)" \
             "на macOS порт слушает сам шим; при перезапуске возможен краткий отказ соединений (без socket activation)"
     fi

@@ -745,6 +745,49 @@ def _wait_log(capsys: pytest.CaptureFixture[str], marker: str, budget: float = 5
     return err
 
 
+def test_rejected_certificate_names_which_indexer_host_called(
+    tls: tuple[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TLS alert без SNI не позволяет отличить сломанное имя от его соседей."""
+    server = _shim(tls, {})
+    context = ssl.create_default_context()
+    try:
+        with (
+            socket.create_connection(("127.0.0.1", server.server_address[1])) as raw,
+            pytest.raises(ssl.SSLCertVerificationError),
+        ):
+            context.wrap_socket(raw, server_hostname="tracker.test")
+        err = _wait_log(capsys, "рукопожатие не состоялось")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert "tracker.test: рукопожатие не состоялось" in err
+
+
+@pytest.mark.machine
+def test_shim_can_serve_the_ipv6_loopback(tls: tuple[str, str]) -> None:
+    cert, key = tls
+    try:
+        server = shim.build_server(cert, key, 0, {}, host="::1")
+    except OSError as exc:
+        pytest.skip(f"IPv6 loopback is unavailable: {exc}")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    try:
+        with (
+            socket.create_connection(("::1", server.server_address[1])) as raw,
+            context.wrap_socket(raw, server_hostname="unknown.test") as conn,
+        ):
+            conn.sendall(b"GET / HTTP/1.1\r\nHost: unknown.test\r\nConnection: close\r\n\r\n")
+            answer = conn.recv(4096)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert b" 421 " in answer
+
+
 def test_client_gone_before_the_answer_is_one_line_not_a_traceback(
     tls: tuple[str, str],
     backend: tuple[http.server.HTTPServer, Counter],
@@ -870,6 +913,43 @@ def test_the_name_is_leased_not_carved(tmp_path: Path) -> None:
     print(f"после снятия: {left}")
     assert not any("torrcast-shim" in line for line in left)
     assert left == ["127.0.0.1 localhost", "127.0.0.1 indexers.prowlarr.com", "192.0.2.10 nas.home"]
+
+
+def test_macos_forgets_dns_only_when_a_pin_really_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Старый публичный AAAA рядом с новой петлёй включает проверку серта обратно."""
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    calls: list[list[str]] = []
+    monkeypatch.setenv("TORRCAST_FLUSH_DNS", "macos")
+    monkeypatch.setenv("TORRCAST_PIN_ADDRESSES", "127.0.0.1,::1")
+    monkeypatch.setattr(shim.subprocess, "run", lambda argv, check: calls.append(argv))
+
+    assert shim.set_pins(str(hosts), ["tracker.test"], ["tracker.test"])
+    assert calls == [
+        ["/usr/bin/dscacheutil", "-flushcache"],
+        ["/usr/bin/killall", "-HUP", "mDNSResponder"],
+    ]
+    assert "127.0.0.1 tracker.test # torrcast-shim" in hosts.read_text(encoding="utf-8")
+    assert "::1 tracker.test # torrcast-shim" in hosts.read_text(encoding="utf-8")
+    calls.clear()
+    assert not shim.set_pins(str(hosts), ["tracker.test"], ["tracker.test"])
+    assert calls == [], "неизменный hosts не должен дёргать системный резолвер"
+
+
+def test_explicit_dns_fallback_follows_the_system_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TORRCAST_DNS_FALLBACK", "1.1.1.1,9.9.9.9 1.1.1.1")
+
+    class Lines:
+        def __enter__(self) -> list[str]:
+            return ["nameserver 8.8.8.8\n"]
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    monkeypatch.setattr(shim, "open", lambda *a, **k: Lines(), raising=False)
+    assert shim._nameservers() == ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
 
 
 def test_the_shim_hands_the_names_back_when_it_goes_down(
