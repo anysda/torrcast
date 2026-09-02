@@ -25,7 +25,7 @@ def test_macos_services_use_persistent_launchd_jobs() -> None:
     bot = _body("setup_bot_unit")
 
     assert 'launchctl bootstrap system "/Library/LaunchDaemons/$label.plist"' in run
-    assert 'launchctl bootout "system/org.torrcast.$1"' in stop
+    assert 'launchd_bootout "org.torrcast.$1"' in stop
     # bootout is asynchronous: bootstrap of the same label right after it races the
     # teardown and the fresh registration is removed. Wait until the domain forgets.
     bootout = _body("launchd_bootout")
@@ -46,6 +46,63 @@ def test_macos_services_use_persistent_launchd_jobs() -> None:
     assert '\\"' not in plist
     bot_plist = "/Library/LaunchDaemons/org.torrcast.torrcast-bot.plist"
     assert f"launchctl bootstrap system {bot_plist}" in bot
+
+
+@pytest.mark.machine
+def test_stop_then_run_waits_for_async_bootout_and_loads_the_job(tmp_path: Path) -> None:
+    """launchd reports a booted-out job once more before removing it. The installer
+    must wait for that removal and must not mistake an unchanged plist for a live job."""
+    launchctl = tmp_path / "launchctl"
+    launchctl.write_text(
+        """#!/bin/sh
+state="$LAUNCHD_STATE"
+case "$1" in
+    bootout)
+        [ -f "$state/loaded" ] && : >"$state/pending"
+        exit 0
+        ;;
+    print)
+        if [ -f "$state/pending" ]; then
+            rm -f "$state/pending" "$state/loaded"
+            exit 0
+        fi
+        [ -f "$state/loaded" ]
+        ;;
+    bootstrap)
+        : >"$state/loaded"
+        ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    launchctl.chmod(0o755)
+    (tmp_path / "loaded").touch()
+    functions = "\n".join(
+        f"{name}() {{{_body(name)}\n}}"
+        for name in ("run_service", "launchd_bootout", "stop_service")
+    )
+    script = f"""
+set -u
+PATH={shlex.quote(str(tmp_path))}:$PATH
+LAUNCHD_STATE={shlex.quote(str(tmp_path))}
+OS_FAMILY=macos
+PREFIX={shlex.quote(str(tmp_path))}
+export PATH LAUNCHD_STATE OS_FAMILY PREFIX
+quoted_knobs() {{ printf '%s' "$1"; }}
+write_unit() {{ return 1; }}
+skip() {{ printf 'already in place: %s\n' "$1"; }}
+sleep() {{ :; }}
+{functions}
+stop_service prowlarr ignored
+run_service prowlarr description command
+launchctl print system/org.torrcast.prowlarr
+"""
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    shown = done.stdout + done.stderr
+    assert done.returncode == 0, shown
+    assert (tmp_path / "loaded").exists(), shown
+    assert "already in place" not in shown
 
 
 def test_macos_does_not_claim_linux_only_guarantees() -> None:

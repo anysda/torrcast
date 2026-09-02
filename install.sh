@@ -938,12 +938,15 @@ EOF
         return 0
     fi
     if [ "${OS_FAMILY:-linux}" = macos ]; then
-        local fresh=0 was_up=0 label="org.torrcast.$1"
-        launchctl print "system/$label" >/dev/null 2>&1 && was_up=1
-        write_unit "$1" "$2" "$3" "$quoted" && fresh=1
-        if [ "$fresh" = 1 ] || [ "$was_up" = 0 ]; then
+        local fresh=0 label="org.torrcast.$1"
+        # Здесь сообщение об идемпотентности зависит не только от plist: задание,
+        # которого нет в области, ещё предстоит поднять, даже если файл совпадает.
+        write_unit "$1" "$2" "$3" "$quoted" quiet && fresh=1
+        if [ "$fresh" = 1 ] || ! launchctl print "system/$label" >/dev/null 2>&1; then
             launchd_bootout "$label"
             launchctl bootstrap system "/Library/LaunchDaemons/$label.plist"
+        else
+            skip "$1 launchd job" "задание launchd $1"
         fi
         return 0
     fi
@@ -985,7 +988,7 @@ stop_service() {  # $1 имя, $2 начало строки запуска дл�
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
         pkill -f -- "$(proc_mask "$2")" >/dev/null 2>&1 || true
     elif [ "${OS_FAMILY:-linux}" = macos ]; then
-        launchctl bootout "system/org.torrcast.$1" >/dev/null 2>&1 || true
+        launchd_bootout "org.torrcast.$1"
     else
         systemctl stop "$1.service" >/dev/null 2>&1 || true
     fi
@@ -3270,7 +3273,7 @@ setup_receiver() {
 # /etc/environment, поэтому без Environment= процесс живёт в POSIX-локали - кириллица
 # в его журнале и в именах файлов приезжает кракозябрами. Значение то же, которое
 # выбрала фаза `locale`.
-write_unit() {  # $1 имя, $2 описание, $3 команда, $4 - лишние строки секции [Service]
+write_unit() {  # $1 имя, $2 описание, $3 команда, $4 - строки [Service], $5 - не писать skip
     if [ "${OS_FAMILY:-linux}" = macos ]; then
         local label="org.torrcast.$1" path="/Library/LaunchDaemons/org.torrcast.$1.plist"
         local env_xml="" line knob name value
@@ -3311,7 +3314,7 @@ $env_xml    </dict>
 PLIST
 )"
         if [ -f "$path" ] && [ "$(cat "$path")" = "$body" ]; then
-            skip "$1 launchd job" "задание launchd $1"
+            [ -n "${5:-}" ] || skip "$1 launchd job" "задание launchd $1"
             return 1
         fi
         printf '%s\n' "$body" >"$path"
