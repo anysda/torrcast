@@ -60,10 +60,12 @@ _CODEC_TOKEN_RE: Final = re.compile(
     re.IGNORECASE,
 )
 _SERIES_HINT_RE: Final = re.compile(
-    "\\d+\\s*(?:из|of)\\s*\\d+|сери[ия]\\b|сезон|\\bseason\\b|\\bs\\d{1,2}\\b|\\bсериал|\\[tv\\]|\\bтв-\\d"
+    "\\d+\\s*(?:из|of)\\s*\\d+|сери[ия]\\b|сезон|\\bseason\\b|\\bs\\d{1,2}\\b|\\bсериал|\\[tv\\]"
     # Слова полного сериала без всяких номеров: «Complete Series», итальянское
     # «[COMPLETA]», ньяшное «[Batch]» - это имя говорит о виде, а не о сериях.
-    "|complete\\s+series|\\bcompleta\\b|\\bbatch\\b",
+    # Маркер «ТВ-N» из КРУГЛЫХ скобок не читается: там за голосовым тегом стоит студия,
+    # и «Dub (ТВ-3)» зовёт телеканал, а не форму, - её пишут «[ТВ-3]» или хвостом имени.
+    "|complete\\s+series|\\bcompleta\\b|\\bbatch\\b|(?<!\\()\\bтв-\\d",
     re.IGNORECASE,
 )
 _GLUE: Final = re.compile("(?<=[0-9a-zа-яё])[;:/\\\\|+&,~*=](?=[0-9a-zа-яё])", re.IGNORECASE)
