@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import signal
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -178,6 +179,25 @@ def test_a_refused_show_leaves_a_spoken_reason_and_the_next_one_clears_it() -> N
 
     bridge.play("матрица")
     bridge.run_one()
+    assert bridge.state()["last_error"] is None
+
+
+def test_a_command_is_allowed_to_install_a_signal_handler_the_way_cast_does() -> None:
+    # 🔴 Ровно та строка, на которой мост молча не играл: `cast` на время команды ставит
+    # свой обработчик SIGTERM (:func:`torrcast.cli.answered.answered`), а из рабочего
+    # потока это не делается вовсе. Отпусти команду в поток - и вместо показа тут ляжет
+    # словами «signal only works in main thread».
+    def command(argv: Sequence[str] | None) -> int:
+        del argv
+        previous = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, previous)
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
+
+    bridge.play("матрица")
+    bridge.run_one()
+
     assert bridge.state()["last_error"] is None
 
 
