@@ -83,6 +83,10 @@ def en() -> dict[str, str]:
             "taking the first live one, “{picture}” - {total} pictures matched; another "
             "one: cast {asked} --menu"
         ),
+        "choice.series_taken": (
+            "taking “{picture}” - this name has both a film and a series, and the series "
+            "I take on my own; the film “{other}”: cast {asked} --menu"
+        ),
         "choice.named_unplayable": (
             "“{name}” is {whom}; it does not play: {why}; another picture (“{taken}”) I "
             "do not start instead on my own - here is what there is, name the number"

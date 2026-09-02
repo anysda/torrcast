@@ -88,6 +88,14 @@ def _bleach() -> list[Plan]:
     ]
 
 
+def _master() -> list[Plan]:
+    """Одно имя, два вида: живее полный метр, а сериал под тем же именем стоит ниже."""
+    return [
+        plan("Мастер и Маргарита", 2024, seeders=300),
+        plan("Мастер и Маргарита", 2005, kind="tv", seeders=40),
+    ]
+
+
 def _moana() -> list[Plan]:
     """Верх меню - мёртвая документалка с другим именем: о выборе есть что сказать."""
     return parts(
@@ -104,6 +112,7 @@ def branches() -> list[Branch]:
         Branch("дефолт без вопроса", _cars, "тачки", takes=1),
         Branch("спрошенной части нет", _cars_without_the_first, "тачки", takes=1),
         Branch("имя названо целиком", _bleach, "блич", takes=2),
+        Branch("сериал под одним именем с фильмом", _master, "мастер и маргарита", takes=2),
         Branch("тёзки по году", _mummy, "мумия", takes=3),
         Branch("страж первой части, взята первая живая", _cars_on_tape, "тачки", takes=2),
         Branch("страж первой части", _cars_on_tape, "тачки", flag=True, answer=3),

@@ -78,6 +78,10 @@ def ru() -> dict[str, str]:
         "choice.default_taken": (
             "беру первую живую «{picture}» - подошло картин {total}; другая: cast {asked} --menu"
         ),
+        "choice.series_taken": (
+            "беру «{picture}» - под этим именем есть и фильм, и сериал, и сериал я беру "
+            "сам; фильм «{other}»: cast {asked} --menu"
+        ),
         "choice.named_unplayable": (
             "«{name}» - это {whom}; не играет: {why}; вместо неё другую картину "
             "(«{taken}») сам не включаю - вот что есть, назови номер"

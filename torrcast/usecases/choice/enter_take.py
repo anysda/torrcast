@@ -19,6 +19,8 @@ from torrcast.usecases.choice.namesake_line import namesake_line
 from torrcast.usecases.choice.namesake_take import namesake_take
 from torrcast.usecases.choice.part_one_swap import part_one_swap
 from torrcast.usecases.choice.part_one_taken_line import part_one_taken_line
+from torrcast.usecases.choice.series_take import series_take
+from torrcast.usecases.choice.series_taken_line import series_taken_line
 from torrcast.usecases.choice.take import Take
 from torrcast.usecases.choice.taken_line import taken_line
 
@@ -52,6 +54,11 @@ def enter_take(
     за --menu». Стражи остались стражами: сработавший берёт живейшую не молча
     (:func:`named_taken_line`, :func:`namesake_line`). Дефолт франшизы это не тронуло:
     первая живая часть и её страж (:func:`part_one_swap`) в силе.
+
+    🔴 Вид картины решает ДО живости и только там, где под одним именем нашлись и фильм,
+    и сериал (:func:`series_take`): решение владельца 02-09-2026 «без меню между фильмом
+    и сериалом выбирать сериал». Внутри выбранного вида решает по-прежнему живость, и
+    решение TC-812 «включать самую живую» этим не отменяется.
 
     🔴 TC-830. «Спрошенная часть в выдаче есть, но не играет» - вопрос за явным ``--menu``:
     её видно номером. А «спрошенной части нет в выдаче вовсе» вопросом быть перестало
@@ -105,6 +112,12 @@ def enter_take(
                     taken,
                     note=named_taken_line(plans, asked, taken),
                     why="имя названо целиком",
+                )
+            if taken := series_take(plans):
+                return Take(
+                    taken,
+                    note=series_taken_line(plans, taken, asked),
+                    why="сериал под одним именем с фильмом",
                 )
             if taken := namesake_take(plans):
                 return Take(taken, note=namesake_line(plans, taken, asked), why="тёзки по году")
