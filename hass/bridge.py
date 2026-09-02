@@ -6,6 +6,13 @@
 отказа. Пульт пишет слово в тот же файл, что кнопки бота. Переход называет следующую
 серию тем же :meth:`torrcast.domain.entry.Entry.advance`, которым её называет сторож
 показа, и играет её тем же запросом «имя s1e4», каким её назвал бы человек.
+
+🔴 Команда исполняется в ГЛАВНОМ потоке, как и у бота (:meth:`tgbot.bot.Bot.run_one`), и
+это не стиль: ``cast`` ставит на время команды свой обработчик SIGTERM
+(:func:`torrcast.cli.answered.answered`), а из чужого потока это не делается вовсе -
+``signal only works in main thread``. Показ, отпущенный в рабочий поток, умирал бы этой
+строкой на каждом запросе, ничего не сыграв. Поэтому HTTP живёт в потоке, а очередь
+команд - в главном.
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ from __future__ import annotations
 import secrets
 import threading
 from collections.abc import Callable, Sequence
+from queue import Queue
 
 from hass.motion import Motion
 from hass.payload import payload
@@ -38,12 +46,6 @@ STOP, VOLUME = "stop", "volume"
 COMMANDS = (TOGGLE, SEEKBY, VOLUME, STOP)
 
 _Command = Callable[[Sequence[str] | None], int]
-_Work = Callable[[], None]
-
-
-def _spawn(work: _Work) -> None:
-    """Отпустить работу в свой поток: команда идёт минутами, а ответ карточке - сразу."""
-    threading.Thread(target=work, name="torrcast-ha-command", daemon=True).start()
 
 
 class Bridge:
@@ -57,15 +59,14 @@ class Bridge:
         settings: Callable[[], Config] = load_config,
         volume: Volume | None = None,
         motion: Motion | None = None,
-        spawn: Callable[[_Work], None] = _spawn,
     ) -> None:
         self._session = playback_session() if session is None else session
         self._command = command
         self._settings = settings
         self._volume = volume
         self._motion = motion or Motion()
-        self._spawn = spawn
         self._lock = threading.Lock()
+        self._queue: Queue[list[str] | None] = Queue()
         self._starting = False
         self._last_error = ""
 
@@ -137,8 +138,28 @@ class Bridge:
                 raise RefusedError(BUSY)
             self._starting = True
             self._last_error = ""  # прошлый отказ живёт до начала следующего показа
-        self._spawn(lambda: self._run(args))
+        self._queue.put(args)
         return secrets.token_hex(4)
+
+    def run(self) -> None:
+        """Исполнять команды, пока не попросят уйти. Зовётся из ГЛАВНОГО потока."""
+        while self.run_one():
+            pass
+
+    def run_one(self) -> bool:
+        """Исполнить одну команду; ``False`` - в очередь положили просьбу уйти."""
+        args = self._queue.get()
+        try:
+            if args is None:
+                return False
+            self._run(args)
+            return True
+        finally:
+            self._queue.task_done()
+
+    def stop(self) -> None:
+        """Вывести цикл команд из ожидания: мост уходит."""
+        self._queue.put(None)
 
     def _run(self, args: list[str]) -> None:
         """Исполнить команду и запомнить её словесный отказ тем же словом, что консоль."""

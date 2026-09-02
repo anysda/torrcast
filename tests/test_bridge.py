@@ -41,44 +41,28 @@ class _Receiver:
         return None
 
 
-class _Later:
-    """Держит работу моста в руках: пока её не отпустят, показ «поднимается»."""
-
-    def __init__(self) -> None:
-        self.held: list[Callable[[], None]] = []
-
-    def __call__(self, work: Callable[[], None]) -> None:
-        self.held.append(work)
-
-    def finish(self) -> None:
-        while self.held:
-            self.held.pop(0)()
-
-
 def _bridge(
     session: FakePlaybackSession,
     *,
     command: Callable[[Sequence[str] | None], int] = lambda _argv: 0,
-    spawn: Callable[[Callable[[], None]], None] | None = None,
     receiver: _Receiver | None = None,
-) -> tuple[Bridge, _Later]:
-    """Мост на подделках: сеанс показа, приёмник и команда - все свои."""
-    later = _Later()
+) -> Bridge:
+    """Мост на подделках: сеанс показа, приёмник и команда - все свои.
+
+    Очередь команд не подделывается: тест сам зовёт :meth:`Bridge.run_one`, как её зовёт
+    точка входа из главного потока. Пока не позвал - команда «поднимается».
+    """
     device: Any = receiver or _Receiver()
-    return (
-        Bridge(
-            session=session,
-            settings=lambda: Config(tv="10.0.1.7"),
-            volume=Volume("10.0.1.7", connect=lambda _address: device),
-            command=command,
-            spawn=spawn or later,
-        ),
-        later,
+    return Bridge(
+        session=session,
+        settings=lambda: Config(tv="10.0.1.7"),
+        volume=Volume("10.0.1.7", connect=lambda _address: device),
+        command=command,
     )
 
 
 def test_the_remote_refuses_when_nothing_is_playing() -> None:
-    bridge, _later = _bridge(FakePlaybackSession(playing=False))
+    bridge = _bridge(FakePlaybackSession(playing=False))
 
     with pytest.raises(RefusedError) as refusal:
         bridge.control(TOGGLE, 0.0)
@@ -87,14 +71,14 @@ def test_the_remote_refuses_when_nothing_is_playing() -> None:
 
 
 def test_a_second_show_while_the_first_is_still_starting_is_refused() -> None:
-    bridge, later = _bridge(FakePlaybackSession())
+    bridge = _bridge(FakePlaybackSession())
 
-    bridge.play("матрица")  # работа отпущена, но ещё не сделана: показ поднимается
+    bridge.play("матрица")  # команда в очереди, но ещё не сделана: показ поднимается
     with pytest.raises(RefusedError) as refusal:
         bridge.play("муха")
 
     assert refusal.value.word == BUSY
-    later.finish()
+    assert bridge.run_one()
     assert bridge.play("муха")  # кончился первый - второй берётся
 
 
@@ -104,7 +88,7 @@ def test_a_film_has_no_next_episode() -> None:
     state = store.load()
     state.entries["movie:муха"] = Entry(title="Муха", magnet="magnet:?xt=1", kind="movie")
     store.save(state)
-    bridge, _later = _bridge(FakePlaybackSession(playing=True, play_key="movie:муха"))
+    bridge = _bridge(FakePlaybackSession(playing=True, play_key="movie:муха"))
 
     with pytest.raises(RefusedError) as refusal:
         bridge.next()
@@ -126,7 +110,7 @@ def test_the_last_episode_of_the_release_has_no_next_one_either() -> None:
         query="чернобыль",
     )
     store.save(state)
-    bridge, _later = _bridge(FakePlaybackSession(playing=True, play_key="tv:чернобыль"))
+    bridge = _bridge(FakePlaybackSession(playing=True, play_key="tv:чернобыль"))
 
     with pytest.raises(RefusedError) as refusal:
         bridge.next()
@@ -154,12 +138,10 @@ def test_the_next_episode_is_asked_for_by_the_query_a_human_would_type() -> None
         asked.append(list(argv or []))
         return 0
 
-    bridge, later = _bridge(
-        FakePlaybackSession(playing=True, play_key="tv:чернобыль"), command=command
-    )
+    bridge = _bridge(FakePlaybackSession(playing=True, play_key="tv:чернобыль"), command=command)
 
     bridge.next()
-    later.finish()
+    bridge.run_one()
 
     assert asked == [["чернобыль s1e4"]]
 
@@ -170,7 +152,7 @@ def test_a_deaf_receiver_refuses_the_level_instead_of_pretending() -> None:
         play_key="movie:муха",
         shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=60.0),
     )
-    bridge, _later = _bridge(session, receiver=_Receiver(deaf=True))
+    bridge = _bridge(session, receiver=_Receiver(deaf=True))
 
     with pytest.raises(RefusedError) as refusal:
         bridge.control(VOLUME, 0.4)
@@ -188,15 +170,25 @@ def test_a_refused_show_leaves_a_spoken_reason_and_the_next_one_clears_it() -> N
             return 1
         return 0
 
-    bridge, later = _bridge(FakePlaybackSession(), command=command)
+    bridge = _bridge(FakePlaybackSession(), command=command)
 
     bridge.play("муха")
-    later.finish()
+    bridge.run_one()
     assert bridge.state()["last_error"] == "ничего не нашлось по запросу «муха»"
 
     bridge.play("матрица")
-    later.finish()
+    bridge.run_one()
     assert bridge.state()["last_error"] is None
+
+
+def test_the_command_loop_leaves_when_it_is_asked_to() -> None:
+    # 🔴 Уход проверяется тем же вызовом, которым мост живёт: не «поток кончился», а
+    # цикл сказал «больше не зовите». Иначе юнит не отпускал бы SIGTERM.
+    bridge = _bridge(FakePlaybackSession())
+
+    bridge.stop()
+
+    assert bridge.run_one() is False
 
 
 def test_the_remote_word_goes_into_the_file_the_show_reads(
@@ -210,7 +202,7 @@ def test_the_remote_word_goes_into_the_file_the_show_reads(
         play_key="movie:муха",
         shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=60.0),
     )
-    bridge, _later = _bridge(session)
+    bridge = _bridge(session)
 
     bridge.control(SEEKBY, 90.0)
 

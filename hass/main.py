@@ -36,7 +36,13 @@ def _port() -> int:
 
 
 def main() -> int:
-    """Служить, пока не попросят уйти; уходя, снять запись из mDNS."""
+    """Служить, пока не попросят уйти; уходя, снять запись из mDNS.
+
+    🔴 Главный поток остаётся за командами, а не за сервером, и это единственная
+    рабочая раскладка: ``cast`` ставит на время команды свой обработчик сигнала, а из
+    рабочего потока это не делается вовсе (:mod:`hass.bridge`). Запросы карточки при
+    этом не ждут показа - их разбирает сервер в своём потоке.
+    """
     wire()
     bridge = Bridge()
     chosen = _port()
@@ -46,16 +52,19 @@ def main() -> int:
 
     def leave(number: int, frame: FrameType | None) -> None:
         del number, frame
-        # Остановка зовётся из потока: сам обработчик сигнала живёт внутри цикла сервера,
-        # и просить цикл остановиться изнутри него же - это тупик.
+        bridge.stop()
+        # Сервер останавливается из отдельного потока: просить цикл остановиться из
+        # его же обработчика - это тупик.
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, leave)
     signal.signal(signal.SIGINT, leave)
+    threading.Thread(target=server.serve_forever, name="torrcast-ha-http", daemon=True).start()
     try:
-        server.serve_forever()
+        bridge.run()
     finally:
         announce.close()
+        server.shutdown()
         server.server_close()
         bridge.close()
     return 0
