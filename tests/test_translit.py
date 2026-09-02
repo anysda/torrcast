@@ -1206,7 +1206,7 @@ def test_a_name_the_reference_only_guessed_does_not_bring_a_stranger() -> None:
     выдаче сверять добор не с чем (:func:`~torrcast.usecases.reinforce.same_picture.same_picture` с
     ``before=None`` решала по одному происхождению имени), и чужое кино доезжало под знакомым именем
     - худший вид брака по спеке. Теперь справка обязана назвать ту же картину тем же именем; назвала
-    другим - второго захода к индексерам не делаем вовсе.
+    другим - за её именем к индексерам не идём вовсе.
     """
     client = FakeProwlarr(
         {
@@ -1225,7 +1225,12 @@ def test_a_name_the_reference_only_guessed_does_not_bring_a_stranger() -> None:
 
     said = _refused(client, "все мы незнакомцы", about)
 
-    assert client.asked == ["все мы незнакомцы"], "за чужой картиной не ходят даже разок"
+    assert "nous sommes tous des assassins" not in client.asked, (
+        "за чужой картиной не ходят даже разок"
+    )
+    assert all(word in "все мы незнакомцы" for asked in client.asked for word in asked.split()), (
+        "к индексерам уходят только слова, названные самим человеком"
+    )
     assert "справка нашла лишь похожее имя «Все мы убийцы»" in said
 
 

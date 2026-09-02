@@ -27,6 +27,7 @@ from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
+from torrcast.usecases.discover._second_typo import _second_typo
 from torrcast.usecases.discover.kin_line import _kin
 from torrcast.usecases.discover.season_gaps import season_gaps
 from torrcast.usecases.discover.season_reread import season_reread
@@ -129,6 +130,9 @@ def search_circle(
         raw, pictures, found = _voice_reinforce(
             client, query, voiceless, raw, found, progress, titled
         )
+    if not raw:
+        # Ни строки - повод заподозрить описку в одном слове (:func:`_second_typo`).
+        raw, pictures, found = _second_typo(client, name, index, raw, progress)
     journal().mark("поиск", найдено=len(raw))
     journal().emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
     if not raw:
