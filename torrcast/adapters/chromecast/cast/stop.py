@@ -27,12 +27,20 @@ def _stop(rcv: _Talk, quit_app: bool = False) -> None:
     Соединение после закрытия рвём сами: сендер, переживший своё приложение, для
     следующего показа — тот самый «второй pychromecast», из-за которого приёмник
     отдаёт пустой MEDIA_STATUS (см. предупреждение в докстринге класса).
+
+    🔴 Закрывая приложение, ``STOP`` медиасессии не шлём вовсе. ``media_controller.stop()``
+    ждёт ответа приёмника синхронно (``WaitResponse``, бюджет 10 с), и ровно на это
+    ожидание приложение задерживалось на экране: ``QUIT_APP`` уходил только после ответа.
+    Замер на приставке 02-09-2026, три прогона: round-trip ``STOP`` — 167, 242 и 246 мс, и
+    все они целиком стояли между `cast stop` и чистым экраном. Гасить показ отдельно тут
+    незачем: приложение уносит с собой и сессию, и картинку. На стыке серий ``STOP``
+    остаётся: там приложение живёт дальше, и медиасессию надо закрыть явно.
     """
     if rcv._cast is None or not rcv._ours():
         return
-    with contextlib.suppress(Exception):
-        rcv._cast.media_controller.stop()
     if not quit_app:
+        with contextlib.suppress(Exception):
+            rcv._cast.media_controller.stop()
         return  # показ передают следующей серии - приложение ей и достанется
     with contextlib.suppress(Exception):
         rcv._cast.quit_app()

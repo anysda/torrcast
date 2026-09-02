@@ -33,6 +33,20 @@ def test_quitting_the_app_also_drops_our_own_connection() -> None:
     assert receiver._session == ""
 
 
+def test_the_app_is_closed_without_asking_the_receiver_to_stop_the_media() -> None:
+    """Ответа на ``STOP`` ждут синхронно, и приложение всё это время висит на экране.
+
+    Замер на приставке 02-09-2026: round-trip ``STOP`` - 167, 242 и 246 мс, и каждый из них
+    стоял между `cast stop` и чистым экраном. Закрытое приложение уносит сессию с собой.
+    """
+    receiver = Wired()
+    receiver._session = "наша"
+
+    _stop(receiver, quit_app=True)
+
+    assert receiver.device.media_controller.said == []
+
+
 def test_a_foreign_show_is_not_touched_at_all() -> None:
     """На том же ТВ живут другие сендеры, и кастят они через тот же Default Media Receiver."""
     receiver = Wired(device=Device(app="чужое"))

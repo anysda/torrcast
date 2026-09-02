@@ -2345,8 +2345,8 @@ def test_the_receiver_app_is_closed_only_on_our_own_session() -> None:
     """
     ours = _FakeCast(content="http://10.0.0.10:8443/index.m3u8")
     _receiver_on(ours).stop(quit_app=True)
-    assert ours.log == ["stop", "quit", "disconnect"], (
-        "своя сессия: гасим показ, закрываем приложение, отпускаем сокет"
+    assert ours.log == ["quit", "disconnect"], (
+        "своя сессия: закрываем приложение и отпускаем сокет, показ уходит вместе с ними"
     )
 
     between = _FakeCast(content="http://10.0.0.10:8443/index.m3u8")
