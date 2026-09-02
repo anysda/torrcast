@@ -367,16 +367,14 @@ class Route:
 def _ours(line: str, owned: set[str]) -> bool:
     """Наша ли это строка в `/etc/hosts`.
 
-    Своей считаем помеченную (:data:`_PIN_MARK`) и ровно один вид непомеченной -
-    `127.0.0.1 имя` из нашего же списка: так подбираются строки, оставленные прежними
-    установками, когда метки ещё не было. Всё прочее - чужое: строка с несколькими
-    именами, чужой адрес, нарочно прибитый посторонний хост.
+    Своей считаем помеченную (:data:`_PIN_MARK`) и `127.0.0.1 имя` из нашего списка.
+    Так подбираются старые строки без метки; всё прочее остаётся чужим.
     """
     body = line.split("#")[0].split()
     if not body:
         return False
     if line.rstrip().endswith(_PIN_MARK):
-        return True
+        return len(body) >= 2 and body[1].lower() in owned
     return len(body) == 2 and body[0] == "127.0.0.1" and body[1].lower() in owned
 
 
@@ -1115,7 +1113,7 @@ def main(argv: list[str] | None = None, *, build: Callable[..., Any] = build_ser
     # можно назвать доводом - прочитанное на импорте не подменить ни тесту, ни юниту,
     # поднятому с другими значениями.
     hosts = os.environ.get("TORRCAST_HOSTS") or _HOSTS
-    # Две служебные ходки без сервера. `--resolve` - адрес origin'а мимо `/etc/hosts`:
+    # Служебные ходки без сервера. `--resolve` - адрес origin'а мимо `/etc/hosts`:
     # им установка щупает источник напрямую, тем же приёмом, что и сам шим.
     if args and args[0] == "--resolve":
         found = 0
@@ -1125,6 +1123,10 @@ def main(argv: list[str] | None = None, *, build: Callable[..., Any] = build_ser
                 print("\n".join(resolver.client_addresses(host)))
                 found += 1
         return 0 if found else 1
+    # `--pin` даёт установщику тот же редактор hosts и печатает, была ли правка.
+    if args and args[0] == "--pin":
+        print(int(set_pins(hosts, args[1:], args[1:])))
+        return 0
     # `--unpin` - снять наши строки. Это же делает юнит после остановки службы, чтобы
     # имена не остались прибитыми к тому, кого больше нет (даже после SIGKILL).
     if args and args[0] == "--unpin":

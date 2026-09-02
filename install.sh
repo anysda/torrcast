@@ -1887,12 +1887,17 @@ pinned() {  # $1 имя - прибито ли уже к 127.0.0.1
 }
 
 
-hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотентно
-    if pinned "$1"; then
+hosts_pin() {  # $1 имя — прибить к петле тем же редактором, что использует шим
+    local changed addresses="127.0.0.1"
+    pick_python
+    if [ "${OS_FAMILY:-linux}" = macos ]; then addresses="127.0.0.1,::1"; fi
+    changed="$(TORRCAST_HOSTS="$HOSTS_FILE" TORRCAST_PIN_ADDRESSES="$addresses" \
+        TORRCAST_FLUSH_DNS="${TORRCAST_FLUSH_DNS:-${OS_FAMILY:-linux}}" \
+        "$PYTHON" "$REPO_DIR/scripts/sni-shim.py" --pin "$1")"
+    if [ "$changed" = 0 ]; then
         skip "$HOSTS_FILE: $1" "$HOSTS_FILE: $1"
     else
-        printf '127.0.0.1 %s\n' "$1" >>"$HOSTS_FILE"
-        info "$HOSTS_FILE: $1 -> 127.0.0.1" "$HOSTS_FILE: $1 → 127.0.0.1"
+        info "$HOSTS_FILE: $1 -> $addresses" "$HOSTS_FILE: $1 → $addresses"
     fi
 }
 
@@ -1907,6 +1912,24 @@ hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотент
 shim_resolve() {  # $1 имя; печатает адреса origin'а через пробел (пусто - не разобрали)
     pick_python
     "$PYTHON" "$REPO_DIR/scripts/sni-shim.py" --resolve "$1" 2>/dev/null | tr '\n' ' '
+}
+
+catalog_available() {  # каталог напрямую, в обход нашей возможной строки в hosts
+    local host path url="${PL_DEFS_URL#https://}" addresses
+    host="${url%%/*}"
+    path="/${url#*/}"
+    addresses="$(shim_resolve "$host")"
+    probe_every "$host" "$path" "" "$addresses"
+}
+
+prepare_definitions() {
+    if catalog_available; then
+        info "Prowlarr indexer catalog is available - it will fetch definitions itself" "каталог индексеров Prowlarr доступен - он возьмёт определения сам"
+    else
+        info "⚠ Prowlarr indexer catalog is unavailable - fetching definitions from GitHub" "⚠ каталог индексеров Prowlarr недоступен - определения возьмём с GitHub"
+        hosts_pin indexers.prowlarr.com
+        job_start defs seed_definitions
+    fi
 }
 
 # Отвечает ли имя целиком по КАЖДОМУ своему адресу. Один больной край - это молчащий
@@ -2492,13 +2515,7 @@ install_prowlarr() {
     # источников: прибитое имя должно лежать в /etc/hosts раньше, чем служба пойдёт за
     # каталогом сама. Без этой строки КАЖДЫЙ запрос схемы ждёт таймаута .NET - 100 секунд.
     # Сама выгрузка с GitHub (восемь мегабайт) от нашей закачки не зависит и едет рядом.
-    if curl -fsS -m 15 -o /dev/null "$PL_DEFS_URL" 2>/dev/null; then
-        info "Prowlarr indexer catalog is available - it will fetch definitions itself" "каталог индексеров Prowlarr доступен - он возьмёт определения сам"
-    else
-        info "⚠ Prowlarr indexer catalog is unavailable - fetching definitions from GitHub" "⚠ каталог индексеров Prowlarr недоступен - определения возьмём с GitHub"
-        hosts_pin indexers.prowlarr.com
-        job_start defs seed_definitions
-    fi
+    prepare_definitions
 
     # Конфиг пишем ДО первого старта: иначе Prowlarr сядет на 0.0.0.0 и включит
     # форму логина. Слушаем только localhost, аутентификация внешняя (её нет).
