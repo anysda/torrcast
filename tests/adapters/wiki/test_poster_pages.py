@@ -13,6 +13,13 @@ from tests.fakes.json_client import FakeJsonClient
 from torrcast.adapters.wiki.endpoints import EN_WIKI_HOST, WIKI_HOST, WIKIDATA_HOST
 from torrcast.adapters.wiki.poster_pages import PosterPages
 from torrcast.domain.facts.ask import Ask
+from torrcast.domain.facts.dated import Dated
+
+
+def _named(rows: list[Dated]) -> list[str]:
+    """Английские имена отобранных статей: приговор отдаёт строки, а не имена."""
+    return [row.page for row in rows]
+
 
 #: Русский раздел так и держит эту находку: имя с годом - перенаправление на имя без него.
 PARASITE = {
@@ -82,7 +89,7 @@ def test_a_namesake_of_another_year_gets_no_article_at_all() -> None:
     pages = PosterPages(client)
     wanted = pages.wanted([Ask("Паразиты", 2019, "movie"), Ask("Паразиты", 1999, "movie")], 1.0)
 
-    assert wanted[Ask("Паразиты", 2019, "movie")] == ["Parasite (2019 film)"]
+    assert _named(wanted[Ask("Паразиты", 2019, "movie")]) == ["Parasite (2019 film)"]
     assert wanted[Ask("Паразиты", 1999, "movie")] == [], "тёзке 1999 года досталась чужая статья"
 
 
@@ -102,8 +109,8 @@ def test_the_whole_list_is_judged_in_one_or_two_requests() -> None:
     asks = [Ask("Паразиты", 2019, "movie"), Ask("Матрица", 1999, "movie")]
     wanted = PosterPages(client).wanted(asks, 1.0)
 
-    assert wanted[asks[0]] == ["Parasite (2019 film)"]
-    assert wanted[asks[1]] == ["The Matrix"]
+    assert _named(wanted[asks[0]]) == ["Parasite (2019 film)"]
+    assert _named(wanted[asks[1]]) == ["The Matrix"]
     assert len(client.calls) == 1, f"на две находки ушло запросов: {len(client.calls)}"
 
 
@@ -113,7 +120,7 @@ def test_a_year_that_no_category_names_is_asked_of_wikidata_in_one_batch() -> No
     client = _wiki([quiet], years={"Q61448040": "2019-05-21"})
     wanted = PosterPages(client).wanted([Ask("Паразиты", 2019, "movie")], 1.0)
 
-    assert wanted[Ask("Паразиты", 2019, "movie")] == ["Parasite (2019 film)"]
+    assert _named(wanted[Ask("Паразиты", 2019, "movie")]) == ["Parasite (2019 film)"]
     assert [call[0] for call in client.calls].count(WIKIDATA_HOST) == 1
 
 
@@ -133,7 +140,7 @@ def test_the_english_article_is_reached_by_the_original_name_when_there_is_no_ru
         ],
     )
     ask = Ask("Армитаж: Двойная матрица", 2002, "movie", "Armitage: Dual Matrix")
-    assert PosterPages(client).wanted([ask], 1.0)[ask] == ["Armitage: Dual Matrix"]
+    assert _named(PosterPages(client).wanted([ask], 1.0)[ask]) == ["Armitage: Dual Matrix"]
     assert any(call[0] == EN_WIKI_HOST for call in client.calls)
 
 

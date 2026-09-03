@@ -66,4 +66,26 @@ def test_the_english_reply_is_read_by_its_own_title_and_not_by_a_link() -> None:
     }
     rows = dated_pages(reply, ["Armitage: Dual Matrix"], linked=False)
     assert [row.page for row in rows] == ["Armitage: Dual Matrix"]
-    assert dated_pages(reply, ["Armitage: Dual Matrix"]) == [], "ссылки на английскую нет"
+    assert [row.source for row in rows] == [""], "у английского ответа русской половины нет"
+
+
+def test_a_russian_article_without_an_english_pair_is_kept_for_its_own_poster() -> None:
+    """🔴 Ссылка на английскую статью - не пропуск: постер русская держит свой.
+
+    Пока такая статья выбрасывалась целиком, картинки лишались ровно те картины, про
+    которые английский раздел статьи не завёл.
+    """
+    reply: JsonValue = {
+        "query": {
+            "pages": [
+                {
+                    "title": "Чернобыль: Зона отчуждения. Финал",
+                    "categories": [{"title": "Категория:Фильмы 2019 года"}],
+                }
+            ]
+        }
+    }
+    rows = dated_pages(reply, ["Чернобыль: Зона отчуждения. Финал"])
+    assert [row.page for row in rows] == [""], "английской пары у неё нет"
+    assert [row.source for row in rows] == ["Чернобыль: Зона отчуждения. Финал"]
+    assert [sorted(row.years) for row in rows] == [[2019]], "год сверяется как и прежде"

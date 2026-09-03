@@ -28,8 +28,14 @@ def dated_pages(
 
     ``names`` перечисляет спрошенные имена и задаёт порядок; ``None`` означает, что
     статьи выбрал сам поиск Википедии, и порядок его же - тогда берутся все статьи
-    ответа подряд. ``linked`` различает два раздела: у русского ответа нужна
-    межъязыковая ссылка, у английского статья и есть искомая.
+    ответа подряд. ``linked`` различает два раздела: у русского ответа межъязыковая
+    ссылка кладётся в ``page``, а сама русская статья - в ``source``; у английского
+    ответа статья и есть искомая, и русской половины у неё нет.
+
+    🔴 Межъязыковая ссылка тут больше НЕ пропуск. Русская статья без английской пары
+    раньше выбрасывалась целиком, а постер у неё есть свой: так терялись картинки
+    ровно тех картин, про которые английский раздел статьи не завёл. Год у такой
+    статьи сверяется тем же способом - категориями и Wikidata.
 
     Год берётся из СПРОШЕННОГО имени, а не только из того, куда оно привело: русский
     раздел держит «Паразиты (фильм, 2019)» перенаправлением на «Паразиты (фильм)», и
@@ -42,17 +48,19 @@ def dated_pages(
     hops, pages = wiki_pages(payload)
     asked = list(names) if names is not None else list(pages)
     out: list[Dated] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for name in asked:
         page = _article(name, hops, pages)
         if page is None:
             continue
-        address = linked_title(page) if linked else str(page.get("title") or "")
-        if not address or address in seen:
+        native = str(page.get("title") or "")
+        address = linked_title(page) if linked else native
+        source = native if linked else ""
+        if not (address or source) or (address, source) in seen:
             continue
-        seen.add(address)
+        seen.add((address, source))
         entity = str(json_map(page.get("pageprops")).get("wikibase_item") or "")
-        named = named_year(name) or named_year(str(page.get("title") or ""))
+        named = named_year(name) or named_year(native)
         years = page_years(page) | ({named} if named else set())
-        out.append(Dated(address, entity, frozenset(years), frozenset(page_kinds(page))))
+        out.append(Dated(address, entity, frozenset(years), frozenset(page_kinds(page)), source))
     return out

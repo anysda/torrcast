@@ -71,7 +71,8 @@ SPOKEN_ARGPARSE_CALLS: Final = frozenset(
 #: Именованные аргументы этих вызовов, из которых складывается видимая человеку справка.
 SPOKEN_ARGPARSE_KEYWORDS: Final = frozenset({"description", "epilog", "help", "metavar"})
 #: Кириллица тут - ПРЕДМЕТ разбора, а не надпись: правила разбора имён, таблица
-#: гомоглифов IMDb, уточнение запроса к Википедии, ключ хранимой памяти об озвучке
+#: гомоглифов IMDb, уточнение запроса к Википедии, имя параметра инфобокса в вики-тексте
+#: русского раздела, ключ хранимой памяти об озвучке
 #: (``AudioTrack.label``) - и сами каталоги надписей, мерить которые значит мерить ответ.
 #: Список не долг: он не сокращается и сокращаться не должен. Растить его тоже нечем -
 #: каждая запись обязана держать хотя бы одно живое место, иначе она протухла
@@ -82,6 +83,7 @@ TRANSLATION_SUBJECT: Final = (
     "torrcast/domain/audio_track.py",
     "torrcast/domain/catalogs/",
     "torrcast/domain/facts/imdb_rows.py",
+    "torrcast/domain/facts/infobox_image.py",
     "torrcast/domain/facts/titles_for.py",
     "torrcast/domain/franchise_name.py",
     "torrcast/domain/glue.py",

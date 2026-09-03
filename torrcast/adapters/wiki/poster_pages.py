@@ -1,4 +1,4 @@
-"""Английские статьи картины, у которых ПОДТВЕРЖДЁН год; зовёт адаптер постера.
+"""Статьи картины, у которых ПОДТВЕРЖДЁН год; зовёт адаптер постера.
 
 Правило тут одно на обоих зовущих - и на список находок, и на карточку играющего, -
 потому что человек не должен увидеть в списке не ту картинку, что потом заиграет.
@@ -61,8 +61,8 @@ class PosterPages:
         self.client = client
         self.years = WikidataYears(client)
 
-    def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
-        """Каждой картине - её английские статьи со сверенным годом; нет - пустой список.
+    def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[Dated]]:
+        """Каждой картине - её статьи со сверенным годом; нет такой - пустой список.
 
         Сначала прямая выборка по составленным именам: она берёт весь список находок
         одним-двумя запросами. Кому она не ответила, тем идёт запасная дорожка -
@@ -155,7 +155,7 @@ class PosterPages:
             return {}
         return {ask: dated_pages(payload, [name], linked=False) for name, ask in named.items()}
 
-    def _checked(self, dated: dict[Ask, list[Dated]], timeout: float) -> dict[Ask, list[str]]:
+    def _checked(self, dated: dict[Ask, list[Dated]], timeout: float) -> dict[Ask, list[Dated]]:
         """Отсев статей с чужим годом; неназванные годы спрашиваются одной пачкой.
 
         Спрашивается Wikidata только про те статьи, которые про свой год промолчали
@@ -169,8 +169,7 @@ class PosterPages:
         ]
         known = self.years.years(unknown, timeout) if unknown else {}
         return {
-            ask: [row.page for row in rows if fits_ask(ask, row, known)]
-            for ask, rows in dated.items()
+            ask: [row for row in rows if fits_ask(ask, row, known)] for ask, rows in dated.items()
         }
 
     def _ru(self, names: Sequence[str], timeout: float) -> JsonValue:

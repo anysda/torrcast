@@ -9,7 +9,8 @@ import pytest
 
 from tests.fakes.json_client import FakeJsonClient
 from torrcast.adapters.wiki.endpoints import EN_WIKI_HOST, WIKI_HOST
-from torrcast.adapters.wiki.wiki_poster import POSTER_WIDTH, WikiPoster
+from torrcast.adapters.wiki.poster_files import POSTER_WIDTH
+from torrcast.adapters.wiki.wiki_poster import WikiPoster
 from torrcast.domain.facts.ask import Ask
 
 #: Первая секция английской статьи в том виде, в каком её отдаёт ``revisions``.
@@ -103,10 +104,11 @@ def test_the_english_name_rides_along_with_the_article_and_costs_no_extra_trip()
     )
     WikiPoster(client, FakeBytesClient()).poster(Ask("Тачки", 2006, "movie"), 1.0)
 
-    russian = [call for call in client.calls if call[0] == WIKI_HOST]
-    assert len(russian) == 1, f"походов в русский раздел {len(russian)}"
-    assert russian[0][2]["lllang"] == "en"
-    assert all(call[0] == EN_WIKI_HOST for call in client.calls[1:])
+    linked = [call for call in client.calls if "lllang" in call[2]]
+    assert len(linked) == 1, f"за ссылкой ходили {len(linked)} раз"
+    assert linked[0][0] == WIKI_HOST and linked[0][2]["lllang"] == "en"
+    assert client.calls[0] == linked[0], "ссылка спрошена не первым же запросом"
+    assert any(call[0] == EN_WIKI_HOST for call in client.calls[1:])
 
 
 def test_the_next_article_is_read_when_the_first_one_has_no_infobox_picture() -> None:
