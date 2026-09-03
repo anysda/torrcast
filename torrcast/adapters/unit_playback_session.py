@@ -100,6 +100,7 @@ class UnitPlaybackSession:
             duration=entry.dur,
             label=entry.label,
             quality=entry.quality,
+            moved=entry.moved,
             dark_since=entry.dark,
             dark_reason=entry.dark_why,
             warm=entry.warm,

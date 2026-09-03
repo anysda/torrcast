@@ -10,6 +10,7 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
+from tests.fakes.show_unit import FakeShowUnit
 from tests.usecases.playback.world import FakeProgress, FakeShow, touch_segment
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
@@ -20,8 +21,11 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.show_unit.show_unit import ShowUnit
-from torrcast.usecases.playback._launch import _await_playing, _refuse_hopeless
+from torrcast.ports.state_store.slot import store
+from torrcast.usecases.playback import _show_state
+from torrcast.usecases.playback._launch import _await_playing, _launch, _refuse_hopeless
 from torrcast.usecases.screen_line import screen_line
+from torrcast.usecases.start_clock import _Clock
 
 
 def _timeout_prefix(secs: float) -> str:
@@ -203,3 +207,28 @@ def test_a_line_left_by_a_previous_show_does_not_save_a_dead_one(tmp_path: Path)
         )
 
     assert unit.stopped == 1, "строка не сдвинулась за весь бюджет - показа за ней нет"
+
+
+def test_a_relaunch_does_not_carry_a_past_sessions_frame_into_the_new_one(
+    monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
+) -> None:
+    """Кадр ПРОШЛОГО сеанса не доказывает кадра ЭТОГО: запись обязана начать его заново.
+
+    🔴 TC-1002. Без сброса запись, уже видевшая кадр в прошлом сеансе (``moved=True``),
+    несла бы это враньё в новый запуск: приёмник в новом сеансе может не дать ни кадра
+    вовсе, а мост Home Assistant прочёл бы уцелевший флаг как «идёт» и мог бы назвать
+    чёрный экран паузой - ту же ошибку, что и с сырой позицией на диске.
+    """
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
+    monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key: None)
+    composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
+
+    key = "movie:кино"
+    entry = Entry(title="Кино", magnet="magnet:?xt=1", pos=2335.8, moved=True)
+
+    _launch(Config(), key, entry, "«Кино»", _Clock())
+
+    saved = store().load().get(key)
+    assert saved is not None
+    assert saved.moved is False, "новый запуск начинает факт кадра с чистого листа"

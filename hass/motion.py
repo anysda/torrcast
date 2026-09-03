@@ -52,18 +52,20 @@ class Motion:
         «играю».
 
         🔴 Паузой закладка называется только у ИДУЩЕГО показа: тёмный экран отсекается
-        выше, а показ, ещё не давший ни кадра (закладка стоит на нуле), тоже не пауза -
-        стоять там нечему.
+        выше, а показ, не давший ни кадра с момента своего поднятия, тоже не пауза -
+        стоять там нечему. Признак - факт (:attr:`~torrcast.domain.playback_snapshot.
+        PlaybackSnapshot.moved`), а не порог позиции: у продолжения запись уже несёт
+        чужую, положительную позицию ПРОШЛОГО сеанса, и порог `position > 0` называл бы
+        паузой показ, который в ЭТОМ запуске ещё не сдвинул её ни разу (TC-1002, живая
+        приёмка 03-09-2026).
         """
         if active:
             if shown is not None and shown.dark_since:
                 return TORN
-            # Закладка на нуле ещё не дала ни кадра, а не стоит нарочно: декодировать
-            # нечего, и паузой зрителя это не назвать.
+            # Кадра этого запуска ещё не было - декодировать нечего, и паузой
+            # зрителя это не назвать, каким бы ни было число позиции на диске.
             standing = (
-                shown is not None
-                and shown.position > 0
-                and self.standing(shown.key, shown.position)
+                shown is not None and shown.moved and self.standing(shown.key, shown.position)
             )
             return PAUSED if standing else PLAYING
         if starting:

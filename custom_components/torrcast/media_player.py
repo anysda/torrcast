@@ -78,6 +78,7 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         | MediaPlayerEntityFeature.PLAY_MEDIA
         | MediaPlayerEntityFeature.STOP
         | MediaPlayerEntityFeature.NEXT_TRACK
+        | MediaPlayerEntityFeature.PREVIOUS_TRACK
         | MediaPlayerEntityFeature.SEEK
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.VOLUME_STEP
@@ -111,6 +112,30 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         snapshot = self._snapshot
         shown: str | None = snapshot.get("shown_as") or snapshot.get("title")
         return shown
+
+    @property
+    def media_image_url(self) -> str | None:
+        """The poster, served by the serve itself and never by the site it came from.
+
+        The serve downloads the picture and hands it out on its own route, so the
+        address here always points at the LAN. Home Assistant never reaches out to
+        Wikimedia or to a tracker for it: that traffic would go through the very
+        network the whole product exists to step around.
+        """
+        path = self._snapshot.get("image")
+        return f"{self.coordinator.base_url}{path}" if path else None
+
+    @property
+    def media_image_hash(self) -> str | None:
+        """Fingerprint of the picture's own bytes, as the serve computed it.
+
+        Without a hash Home Assistant caches the first picture against the entity and
+        keeps drawing it over every later show. The default hash of the base class is
+        taken from the URL, and the URL is what changes last here, so the serve says
+        it outright.
+        """
+        digest = self._snapshot.get("image_hash")
+        return str(digest) if digest else None
 
     @property
     def media_season(self) -> str | None:
@@ -220,6 +245,20 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         if current is None:
             raise HomeAssistantError("torrcast does not know the current position to seek from")
         await self.coordinator.async_control("seekby", round(position - float(current), 3))
+
+    async def async_media_previous_track(self) -> None:
+        """Restarts the show now on the screen from its own beginning, not a track before it.
+
+        Home Assistant draws `PREVIOUS_TRACK` as the left arrow next to the already-live
+        right arrow of `async_media_next_track` (`POST /api/next`, a different release
+        file), and the owner asked for that left arrow to mean "play this same episode or
+        movie from zero" - no change of release, file, or track, no reconnect to the
+        receiver. The bridge has no route of its own for that: `async_media_seek` already
+        turns any target position into the signed `seekby` offset the serve takes, so
+        zero is just the target `0.0`, and a person without a known position gets the
+        same readable refusal a seek to any other point would.
+        """
+        await self.async_media_seek(0.0)
 
     async def async_set_volume_level(self, volume: float) -> None:
         await self.coordinator.async_control("volume", round(volume, 3))

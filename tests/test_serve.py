@@ -26,6 +26,8 @@ class _Bridge:
         self.controlled: list[tuple[str, float]] = []
         self.nexted = 0
         self.refuse = ""
+        self.pictures: dict[str, tuple[bytes, str]] = {}
+        self.asked: list[str] = []
 
     def state(self) -> dict[str, Any]:
         return {"state": "idle", "title": None}
@@ -48,6 +50,10 @@ class _Bridge:
             raise RefusedError(self.refuse)
         self.controlled.append((command, arg))
 
+    def poster(self, name: str) -> tuple[bytes, str] | None:
+        self.asked.append(name)
+        return self.pictures.get(name)
+
     def next(self) -> None:
         if self.refuse:
             raise RefusedError(self.refuse)
@@ -69,6 +75,19 @@ def address(bridge: _Bridge) -> Iterator[str]:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def _bytes(url: str) -> tuple[int, bytes, str]:
+    """Ответ маршрута картинки как есть: код, тело и объявленный тип.
+
+    Отдельно от :func:`_call` намеренно: тот раскодирует тело как текст, а картинка
+    текстом не является - декодирование её байтов упало бы раньше самой проверки.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=5) as answer:
+            return int(answer.status), answer.read(), answer.headers.get("Content-Type", "")
+    except urllib.error.HTTPError as refusal:
+        return int(refusal.code), refusal.read(), refusal.headers.get("Content-Type", "")
 
 
 def _call(url: str, method: str = "GET", body: bytes | None = None) -> tuple[int, str]:
@@ -184,3 +203,38 @@ def test_a_bad_pick_is_400_and_never_reaches_the_bridge(address: str, bridge: _B
         assert code == 400, bad
         assert json.loads(body) == {"error": "bad_pick"}
     assert bridge.played == []
+
+
+def test_the_picture_comes_back_as_bytes_with_its_own_type(address: str, bridge: _Bridge) -> None:
+    """🔴 Картинку раздаёт САМ серв: наружу за ней Home Assistant не ходит.
+
+    Тип объявляется тот, что прочитан у самих байтов: скажи «image/jpeg» на PNG - и
+    карточка нарисует битую картинку, а серв будет считать, что всё отдал.
+    """
+    body = b"\x89PNG\r\n\x1a\n" + b"poster" * 10
+    bridge.pictures["2f8c1d"] = (body, "image/png")
+
+    code, got, kind = _bytes(f"{address}/api/poster/2f8c1d")
+
+    assert (code, got, kind) == (200, body, "image/png")
+    assert bridge.asked == ["2f8c1d"]
+
+
+def test_a_picture_the_bridge_never_found_is_404(address: str, bridge: _Bridge) -> None:
+    """🔴 Имя приезжает снаружи, и путём на диске оно не становится.
+
+    Мост знает только те картинки, которые нашёл сам; всё остальное - чужое имя, и
+    отвечает ему тот же 404, что и любому неизвестному маршруту.
+    """
+    assert _bytes(f"{address}/api/poster/2f8c1d")[0] == 404
+    assert _bytes(f"{address}/api/poster/../../etc/passwd")[0] == 404
+    assert _bytes(f"{address}/api/poster/")[0] == 404
+
+
+def test_the_snapshot_route_is_not_confused_with_the_picture_route(
+    address: str, bridge: _Bridge
+) -> None:
+    """Разбор идёт по началу пути, а снимок остаётся ровным адресом без хвоста."""
+    assert _call(f"{address}/api/state")[0] == 200
+    assert _call(f"{address}/api/state/2f8c1d")[0] == 404
+    assert bridge.asked == []

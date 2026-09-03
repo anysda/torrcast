@@ -19,6 +19,7 @@ from .const import (
     REQUEST_TIMEOUT,
     SCAN_INTERVAL_IDLE,
     SCAN_INTERVAL_SHOWING,
+    SEARCH_REQUEST_TIMEOUT,
     SHOWING_STATES,
 )
 
@@ -130,13 +131,15 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Asks the serve what it would find for the query, without starting a show.
 
         Returns the bare ``results`` list of the answer; a refusal of the serve raises
-        the same readable failure a control command would.
+        the same readable failure a control command would. A search walks out to the
+        indexers, so it waits its own, longer :data:`SEARCH_REQUEST_TIMEOUT` instead of
+        the short :data:`REQUEST_TIMEOUT` a state poll is answered in.
         """
         try:
             async with self._session.post(
                 f"{self.base_url}/api/search",
                 json={"query": query},
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
+                timeout=aiohttp.ClientTimeout(total=SEARCH_REQUEST_TIMEOUT),
             ) as response:
                 if response.status == 409:
                     raise HomeAssistantError(await self._refusal(response))

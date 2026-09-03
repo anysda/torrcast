@@ -479,7 +479,7 @@ def test_a_naturally_ended_show_still_raises_the_next_episode(
     ) -> int:
         played.append(title)
         watch.entry.pos = watch.entry.dur  # доиграно до конца самим потоком
-        watch.seen = True
+        watch.entry.moved = True
         watch.close()  # closed_by_remote остаётся False
         return 0
 

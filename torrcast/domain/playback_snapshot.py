@@ -15,6 +15,9 @@ class PlaybackSnapshot:
     duration: float = 0.0
     label: str = ""
     quality: str = ""
+    #: Приёмник хоть раз назвал живую позицию ЭТОГО запуска
+    #: (:attr:`torrcast.domain._playing._Playing.moved`).
+    moved: bool = False
     dark_since: float = 0.0
     dark_reason: str = ""
     warm: float = 0.0

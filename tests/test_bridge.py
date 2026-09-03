@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from hass.bridge import BUSY, NO_NEXT, NO_VOLUME, NOTHING_PLAYING, VOLUME, Bridge
+from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE
 from hass.volume import Volume
@@ -49,6 +50,35 @@ class _Receiver:
         return None
 
 
+class _Posters:
+    """Двойник картинок: помнит, что ему показали, и отвечает готовым.
+
+    Настоящий ходит в Википедию фоновым потоком - зеркалу моста нужна не картинка, а то,
+    ЧТО мост о показе рассказывает: идущий показ или пустоту, и ссылку на адрес раздачи.
+    """
+
+    def __init__(self, answer: tuple[str, str] = ("", "")) -> None:
+        self.answer = answer
+        self.shown: list[PlaybackSnapshot | None] = []
+        self.streams: list[Callable[[], str]] = []
+        self.read_as: dict[str, tuple[bytes, str]] = {}
+        self.asked: list[str] = []
+
+    def picture(self, shown: PlaybackSnapshot | None, stream: Callable[[], str]) -> tuple[str, str]:
+        self.shown.append(shown)
+        self.streams.append(stream)
+        return self.answer if shown is not None else ("", "")
+
+    def read(self, name: str) -> tuple[bytes, str] | None:
+        self.asked.append(name)
+        return self.read_as.get(name)
+
+
+#: Просьба собрать мост со СВОИМ источником картинок, а не с двойником: подделка стоит
+#: во всех проверках ниже, и без этой просьбы сборка по умолчанию не мерялась бы нигде.
+OWN_POSTERS: Any = object()
+
+
 def _bridge(
     session: FakePlaybackSession,
     *,
@@ -57,6 +87,7 @@ def _bridge(
     search: Any = None,
     detect: Any = None,
     settings: Callable[[], Config] | None = None,
+    posters: Any = None,
 ) -> Bridge:
     """Мост на подделках: сеанс показа, приёмник и команда - все свои.
 
@@ -69,6 +100,8 @@ def _bridge(
     """
     device: Any = receiver or _Receiver()
     kwargs: dict[str, Any] = {"detect": detect or (lambda _config: Choice(CAUTIOUS, "тест"))}
+    if posters is not OWN_POSTERS:
+        kwargs["posters"] = posters or _Posters()
     if search is not None:
         kwargs["search"] = search
     return Bridge(
@@ -344,3 +377,71 @@ def test_play_without_a_pick_keeps_the_single_word_call() -> None:
     bridge.run_one()
 
     assert asked == [["матрица"]]
+
+
+def test_the_card_is_told_the_picture_of_what_is_playing() -> None:
+    """Адрес картинки и её отпечаток уезжают тем же снимком, что и полоса времени."""
+    shown = PlaybackSnapshot(key="movie:тачки:2006", title="Тачки", position=5.0, duration=90.0)
+    session = FakePlaybackSession(playing=True, play_key=shown.key, shown=shown)
+    posters = _Posters(("/api/poster/2f8c", "2f8c"))
+
+    body = _bridge(session, posters=posters).state()
+
+    assert posters.shown == [shown]
+    assert body["image"] == "/api/poster/2f8c"
+    assert body["image_hash"] == "2f8c"
+
+
+def test_a_bridge_with_nothing_playing_looks_for_no_picture() -> None:
+    """🔴 Снимок прошлого показа остаётся на диске и после его конца.
+
+    Возьмись картинка от него - карточка простаивающего плеера рисовала бы постер кино,
+    которое давно кончилось: ровно та ложь, ради которой снимок молчит и об имени, и о
+    месте (:func:`hass.payload.payload`).
+    """
+    ended = PlaybackSnapshot(key="movie:муха:1986", title="Муха", position=60.0, duration=300.0)
+    session = FakePlaybackSession(playing=False, shown=ended)
+    posters = _Posters(("/api/poster/старое", "старое"))
+
+    body = _bridge(session, posters=posters).state()
+
+    assert posters.shown == [None], f"картинку искали для {posters.shown}"
+    assert body["image"] is None
+
+
+def test_the_stream_address_is_handed_over_as_a_call_and_not_as_a_value() -> None:
+    """Адрес нужен одному запасному кадру, а снимок собирается на каждый опрос.
+
+    Отдай его значением - и на каждый опрос карточки (раз в несколько секунд, весь
+    фильм) собирался бы адрес раздачи ради картинки, которая давно готова.
+    """
+    shown = PlaybackSnapshot(key="movie:тачки:2006", title="Тачки", position=5.0, duration=90.0)
+    session = FakePlaybackSession(playing=True, play_key=shown.key, shown=shown)
+    posters = _Posters()
+
+    _bridge(session, posters=posters).state()
+
+    assert len(posters.streams) == 1
+    assert posters.streams[0]() == session.address
+
+
+def test_the_bridge_serves_the_bytes_it_found_and_nothing_else() -> None:
+    """Маршрут картинки отвечает тем, что мост уже нашёл; чужое имя - ничем."""
+    posters = _Posters()
+    posters.read_as["2f8c"] = (b"\xff\xd8\xff\xe0poster", "image/jpeg")
+    bridge = _bridge(FakePlaybackSession(), posters=posters)
+
+    assert bridge.poster("2f8c") == (b"\xff\xd8\xff\xe0poster", "image/jpeg")
+    assert bridge.poster("../../etc/passwd") is None
+
+
+def test_by_default_the_bridge_looks_for_the_picture_itself() -> None:
+    """🔴 Источник картинок у моста свой, а не тот двойник, что стоит в пробах.
+
+    Подделка подставляется в каждую проверку выше, и подмени сборка настоящий источник
+    пустым - красным не стало бы ничего: карточка осталась бы без постера молча, а
+    снимок серва отвечал бы теми же полями, только пустыми.
+    """
+    made = _bridge(FakePlaybackSession(), posters=OWN_POSTERS)
+
+    assert isinstance(made._posters, Posters)

@@ -26,6 +26,7 @@ from queue import Queue
 from hass.following import following
 from hass.motion import Motion
 from hass.payload import payload
+from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE, say
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
@@ -63,6 +64,7 @@ class Bridge:
         settings: Callable[[], Config] = load_config,
         volume: Volume | None = None,
         motion: Motion | None = None,
+        posters: Posters | None = None,
     ) -> None:
         self._session = playback_session() if session is None else session
         self._command = command
@@ -72,6 +74,7 @@ class Bridge:
         self._settings = settings
         self._volume = volume
         self._motion = motion or Motion()
+        self._posters = posters or Posters()
         self._lock = threading.Lock()
         self._queue: Queue[list[str] | None] = Queue()
         self._starting = False
@@ -92,7 +95,12 @@ class Bridge:
             volume=self._volume_of(config).level(),
             disk_free=MachineProbe.disk_free(config.hls_dir),
             last_error=self._last_error,
+            picture=self._posters.picture(shown if active else None, self._session.stream_address),
         )
+
+    def poster(self, name: str) -> tuple[bytes, str] | None:
+        """``GET /api/poster/<имя>``: байты картинки и её тип; чужое имя - ``None``."""
+        return self._posters.read(name)
 
     # ------------------------------------------------------------------ команды
 

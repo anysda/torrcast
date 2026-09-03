@@ -30,7 +30,13 @@ from pathlib import Path
 import grimp
 
 REPO = Path(__file__).resolve().parent.parent
-PACKAGE = "torrcast"
+#: Пакеты дерева, каждый со своей точкой входа в `[project.scripts]`: показ (`cast`),
+#: мост Home Assistant (`torrcast-ha`) и бот (`torrcast-bot`). Охват тут ВСЕ ТРИ по той
+#: же причине, по какой в нём лежат `scripts`: мост и бот - законные вызывающие пакета,
+#: и без них живой код читается мёртвым. Замерено: единственный вызывающий постера
+#: карточки живёт в `hass/`, и при охвате из одного `torrcast` вся цепочка за постером
+#: (`WikiPoster`, `frame_shot`) объявлялась мёртвой, будучи живой.
+PACKAGES = ("torrcast", "hass", "tgbot")
 #: Живое, что зовут не из питона: кто именно зовёт - сказано у каждой строки внутри.
 WHITELIST = "scripts/vulture-whitelist.py"
 #: Что в тестах зовёт pytest, а не наш код. Это ЗНАНИЕ о зовущем, а не поблажка порогу:
@@ -69,7 +75,7 @@ def _named(modules: set[str], candidates: Iterable[str]) -> set[str]:
     found: set[str] = set()
     for candidate in candidates:
         name = candidate
-        while name.startswith(PACKAGE) and name not in modules:
+        while name.startswith(PACKAGES) and name not in modules:
             name, _, tail = name.rpartition(".")
             if not tail:
                 break
@@ -169,12 +175,12 @@ def report(stage: str, found: list[str]) -> int:
 
 def main() -> int:
     """Прогнать три стадии и вернуть ненулевой код, если нашлась хоть одна."""
-    found = report("мёртвое в пакете и в инструментах", vulture("torrcast", "scripts"))
+    found = report("мёртвое в пакете и в инструментах", vulture(*PACKAGES, "scripts"))
     # Отбор строк не смеет подменить собой код возврата: падаем по ЧИСЛУ отобранных
     # находок, а не по коду `grep`. На этом месте проект уже получал ноль на упавшем.
-    whole = vulture("torrcast", "tests", "scripts", ignore=PYTEST_CALLS)
+    whole = vulture(*PACKAGES, "tests", "scripts", ignore=PYTEST_CALLS)
     found += report("мёртвое в тестах", [line for line in whole if line.startswith("tests/")])
-    found += report("модулей без импортирующих", orphans(grimp.build_graph(PACKAGE)))
+    found += report("модулей без импортирующих", orphans(grimp.build_graph(*PACKAGES)))
     found += report("фикстур без просящих", fixtures())
     return 1 if found else 0
 

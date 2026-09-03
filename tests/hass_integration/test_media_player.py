@@ -6,9 +6,13 @@ from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
 
+import aiohttp  # type: ignore[import-not-found]
 import pytest
 from homeassistant.core import HomeAssistant  # type: ignore[import-not-found]
 from homeassistant.exceptions import HomeAssistantError  # type: ignore[import-not-found]
+from homeassistant.helpers.entity_component import (  # type: ignore[import-not-found]
+    DATA_INSTANCES,
+)
 from pytest_homeassistant_custom_component.common import (  # type: ignore[import-not-found]
     MockConfigEntry,
 )
@@ -143,6 +147,9 @@ async def test_empty_fields_do_not_break_the_entity(
         ("volume_up", {}, "/api/control", {"cmd": "volume", "arg": 0.383}),
         ("volume_down", {}, "/api/control", {"cmd": "volume", "arg": 0.283}),
         ("media_next_track", {}, "/api/next", None),
+        #: "сначала", not a track before this one: the fixture's own position (2.7 s) is
+        #: what the offset is computed from, the same seekby route media_seek already uses.
+        ("media_previous_track", {}, "/api/control", {"cmd": "seekby", "arg": -2.7}),
     ],
 )
 async def test_services_send_the_expected_request(
@@ -186,6 +193,18 @@ async def test_a_volume_step_without_a_level_is_refused(
     with pytest.raises(HomeAssistantError, match="volume"):
         await hass.services.async_call(
             "media_player", "volume_up", {"entity_id": PLAYER}, blocking=True
+        )
+    assert not [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
+
+
+async def test_a_restart_without_a_known_position_is_refused(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """«Сначала» не от чего отмотать без известной позиции: отказ словами, не исключение."""
+    await _added(hass, aioclient_mock, snapshot(position=None))
+    with pytest.raises(HomeAssistantError, match="current position"):
+        await hass.services.async_call(
+            "media_player", "media_previous_track", {"entity_id": PLAYER}, blocking=True
         )
     assert not [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
 
@@ -327,6 +346,40 @@ async def test_search_media_relays_the_serves_refusal(
         )
 
 
+async def test_search_waits_longer_than_a_state_poll(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """A search's own timeout has to outlast the plain state poll's, not just exist.
+
+    TC-1002, live acceptance 03-09-2026: a cold search on the stand answered in 11.0 s
+    while the state poll's own timeout (10 s) had already run out, and the shared
+    constant was blamed. The two requests are timed here as they actually leave the
+    coordinator, and compared against EACH OTHER - a constant that merely equals its own
+    name would pass a check against itself and hide a regression that made both requests
+    share one timeout again.
+    """
+    entry = await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{BASE}/api/state", json=snapshot())
+    aioclient_mock.post(f"{BASE}/api/search", json={"results": []})
+
+    coordinator = entry.runtime_data
+    real_timeout = aiohttp.ClientTimeout
+    seen: list[float] = []
+
+    def _measured(**kwargs: Any) -> aiohttp.ClientTimeout:
+        seen.append(kwargs["total"])
+        return real_timeout(**kwargs)
+
+    with patch("aiohttp.ClientTimeout", side_effect=_measured):
+        await coordinator.async_refresh()
+        await coordinator.async_search("матрица")
+
+    assert len(seen) == 2, "ожидались ровно два похода: опрос состояния и поиск"
+    state_timeout, search_timeout = seen
+    assert search_timeout > state_timeout, "поиск обязан ждать индексаторы дольше опроса"
+
+
 async def test_playing_a_picked_search_hit_names_its_pick(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
@@ -393,3 +446,83 @@ async def test_the_same_failure_is_told_once(hass: HomeAssistant, aioclient_mock
     assert notice.call_count == 1
     assert notice.call_args.args[1] == "торрент не открылся"
     assert hass.states.get(PLAYER).attributes["last_error"] == "торрент не открылся"
+
+
+async def test_the_card_shows_a_picture_served_by_the_serve_itself(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """The poster reaches the card, and the address of it stays inside the house.
+
+    The serve downloads the picture and serves it on its own route, so what the entity
+    hands Home Assistant is `<base>/api/poster/<name>` and never an address on Wikimedia
+    or on a tracker. Home Assistant then proxies it under its own token - which is why
+    the attribute the card reads names Home Assistant, not the serve.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    shown = hass.states.get(PLAYER).attributes
+
+    assert shown["entity_picture"].startswith(f"/api/media_player_proxy/{PLAYER}")
+    assert "cache=f34cf352c5ae405a" in shown["entity_picture"]
+
+
+async def test_home_assistant_takes_the_picture_bytes_from_the_serve_and_no_one_else(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """🔴 The card draws BYTES, and the address they come from has to lead to the serve.
+
+    `entity_picture` proves nothing on its own: Home Assistant builds it out of the hash
+    alone, so an entity that names no address at all keeps the very same attribute - and
+    the proxy behind it answers a blank picture. Drop `media_image_url` and the card goes
+    empty while every attribute stays in place.
+
+    The address asked here is the serve's own route in the LAN. Wikimedia is not asked by
+    the client for anything: that traffic would go through the network the product exists
+    to step around.
+    """
+    poster = "/api/poster/06969b7977a4eddd"
+    body = b"\xff\xd8\xff\xe0 poster"
+    await _added(hass, aioclient_mock, snapshot(image=poster, image_hash="06969b7977a4eddd"))
+    aioclient_mock.get(f"{BASE}{poster}", content=body, headers={"Content-Type": "image/jpeg"})
+    entity = hass.data[DATA_INSTANCES]["media_player"].get_entity(PLAYER)
+
+    shot, kind = await entity.async_get_media_image()
+
+    assert shot == body
+    assert kind == "image/jpeg"
+    assert f"{BASE}{poster}" in [str(call[1]) for call in aioclient_mock.mock_calls]
+
+
+async def test_a_new_show_changes_the_picture_and_not_only_the_title(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """🔴 Without a hash of its own Home Assistant keeps the first picture forever.
+
+    `media_image_hash` is the key it caches the picture by. Leave it at the default (a
+    hash of the URL) and a serve that keeps the route stable would show the poster of
+    the first film over every film after it: the title on the card would change, the
+    picture would not, and nothing anywhere would go red.
+    """
+    entry = await _added(hass, aioclient_mock, snapshot())
+    first = hass.states.get(PLAYER).attributes["entity_picture"]
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(
+        f"{BASE}/api/state",
+        json=snapshot(
+            title="Тачки", image="/api/poster/367a018cfa600097", image_hash="367a018cfa600097"
+        ),
+    )
+    await entry.runtime_data.async_refresh()
+    second = hass.states.get(PLAYER).attributes["entity_picture"]
+
+    assert second != first
+    assert "cache=367a018cfa600097" in second
+
+
+async def test_a_show_without_a_picture_does_not_invent_one(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """A poster that is still being looked for is silence, not a broken picture."""
+    await _added(hass, aioclient_mock, snapshot(image=None, image_hash=None))
+
+    assert hass.states.get(PLAYER).attributes.get("entity_picture") is None

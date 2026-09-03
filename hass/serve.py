@@ -1,4 +1,4 @@
-"""Пять маршрутов моста поверх стандартной библиотеки. Новой зависимости тут нет.
+"""Шесть маршрутов моста поверх стандартной библиотеки. Новой зависимости тут нет.
 
 Авторизации нет намеренно: продукт живёт в домашней сети и наружу не смотрит - ровно
 как раздача HLS, которую забирает телевизор. Всё, что мост умеет, лежит в
@@ -24,6 +24,9 @@ ANY_INTERFACE = "0.0.0.0"
 BODY_LIMIT = 64 * 1024
 STATE, PLAY, CONTROL, NEXT = "/api/state", "/api/play", "/api/control", "/api/next"
 SEARCH = "/api/search"
+#: Картинку играющей картины раздаёт САМ серв: Home Assistant за ней наружу не ходит,
+#: иначе её тянул бы клиент через сеть, где режут по SNI (:mod:`hass.posters`).
+POSTER = "/api/poster/"
 #: Команды пульта, которым число обязательно (``seekby`` - секунды со знаком).
 NEEDS_ARG = (SEEKBY, VOLUME)
 
@@ -36,7 +39,11 @@ class _Handler(BaseHTTPRequestHandler):
     sys_version = ""
 
     def do_GET(self) -> None:
-        if self.path.split("?", 1)[0] != STATE:
+        path = self.path.split("?", 1)[0]
+        if path.startswith(POSTER):
+            self._picture(path[len(POSTER) :])
+            return
+        if path != STATE:
             self._answer(404, {"error": "not_found"})
             return
         self._answer(200, self.bridge.state())
@@ -108,6 +115,23 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self.bridge.control(str(command), float(arg) if isinstance(arg, int | float) else 0.0)
         self._answer(204, None)
+
+    def _picture(self, name: str) -> None:
+        """Байты картинки, которую мост уже нашёл; чужое имя отвечает тем же 404.
+
+        Тела тут не собираются из имени и не читаются с диска по нему: имя приезжает
+        снаружи, а мост знает только те картинки, которые нашёл сам.
+        """
+        found = self.bridge.poster(name)
+        if found is None:
+            self._answer(404, {"error": "not_found"})
+            return
+        body, kind = found
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _body(self) -> dict[str, JsonValue] | None:
         """Тело запроса объектом; пустое тело - это пустой объект, кривое - ``None``."""

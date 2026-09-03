@@ -34,7 +34,6 @@ class Watch:
     every: float = WATCH_SECONDS
     done: bool = False
     sealed: bool = False  # «досмотрено» уже легло на диск - тиками не переписываем
-    seen: bool = False  # приёмник назвал живую позицию: без этого досмотра не бывает
     #: Показ закрыл зритель с пульта (:func:`torrcast.usecases.revive_playback._closed._closed`).
     #: Закладка при этом двигается как обычно, а вот следующую серию цикл (:mod:`torrcast.
     #: usecases.worker_loop`) на приёмнике не поднимает - сеанс кончается на месте (TC-880).
@@ -45,7 +44,7 @@ class Watch:
         """Позиция; на диск не чаще раза в ``every`` с. Порога перехода тут нет."""
         if pos <= 0:  # приёмник ещё не начал считать - нулём позицию не затираем
             return
-        self.entry.pos, self.seen = pos, True
+        self.entry.pos, self.entry.moved = pos, True
         if time.monotonic() - self.last >= self.every:
             self.flush()
 
@@ -56,9 +55,10 @@ class Watch:
         его нельзя ни при каком поведении приёмника, поэтому «конец» опознаётся щедро
         (:attr:`torrcast.domain.entry.Entry.ending`). И ни при каком раскладе - показу, которого не
         было: закладка у конца плюс сдохший источник дают сеанс без единого LOAD, и фильм
-        помечался досмотренным, не показав ни кадра. Отсюда :attr:`seen`.
+        помечался досмотренным, не показав ни кадра. Отсюда
+        :attr:`torrcast.domain._playing._Playing.moved`.
         """
-        if not self.sealed and self.seen and self.entry.ending:
+        if not self.sealed and self.entry.moved and self.entry.ending:
             self.entry.pos = self.entry.dur
             self.done = True
         self.flush()

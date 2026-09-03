@@ -10,11 +10,15 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any, Final
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from torrcast.domain.facts.settings import FACTS_BUDGET
 
 _RESOLVE_TTL: Final = 600.0
+#: Потолок скачанного файла, байт. Постер шириной 500 точек весит сотню килобайт;
+#: мегабайт тут - запас, а не мера, и стоит он ровно затем, чтобы чужой ответ не мог
+#: занять память серва целиком.
+_BODY_LIMIT: Final = 4 * 1024 * 1024
 #: Сколько ждём резолвер ПОСЛЕ отказа по сроку, секунды. Нитку поднял клиент - ему её
 #: и закрывать, а закрыть её можно только дождавшись: убить нитку, залипшую в системном
 #: резолвере, в Python нечем. Потолок у закрытия не свой: дольше, чем всё меню согласно
@@ -61,6 +65,32 @@ class HttpJsonClient:
             if response.status != 200:
                 raise OSError(f"{host} ответил {response.status}")
             return json.loads(response.read())
+        finally:
+            connection.close()
+
+    def fetch(self, address: str, timeout: float) -> bytes:
+        """Забрать файл по полному адресу тем же соединением, что и JSON.
+
+        Тем же - это буквально: та же память IPv4-адресов, тот же именной ``User-Agent``
+        (без него Wikimedia отвечает 429 уже на второй запрос подряд) и тот же
+        проверенный TLS. Разбора тут нет: приезжает картинка, и разбирать в ней нечего.
+
+        Потолок :data:`_BODY_LIMIT` стоит на ЧТЕНИИ, а не на объявленной длине: чужой
+        ответ вправе соврать в ``Content-Length``, а память тут наша.
+
+        Хост берётся вместе с портом (``netloc``, а не ``hostname``): в бою порт всегда
+        подразумеваемый, а вот проба, поднявшая свой сервер, живёт на случайном - и
+        отброшенный порт увёл бы её в чужой 443, то есть измерялось бы не то.
+        """
+        where = urlsplit(address)
+        path = where.path + (f"?{where.query}" if where.query else "")
+        connection = _IPv4Connection(where.netloc, timeout=timeout, resolver=self._resolve)
+        try:
+            connection.request("GET", path, headers={"User-Agent": self.user_agent})
+            response = connection.getresponse()
+            if response.status != 200:
+                raise OSError(f"{where.hostname}: HTTP {response.status}")
+            return response.read(_BODY_LIMIT)
         finally:
             connection.close()
 

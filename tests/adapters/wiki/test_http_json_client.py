@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import http.server
 import socket
+import ssl
 import threading
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
 from tests import thread_guard
-from torrcast.adapters.wiki.http_json_client import HttpJsonClient
+from tests.conftest import free_port
+from torrcast.adapters.wiki.http_json_client import HttpJsonClient, _IPv4Connection
 from torrcast.domain.facts.settings import FACTS_BUDGET
 
 
@@ -127,3 +130,62 @@ def test_warming_a_name_asks_for_it_once_and_does_not_wait_for_the_answer() -> N
         assert asked == ["en.wikipedia.org"], "одна нитка на имя, сколько его ни грей"
     finally:
         slow.set()
+
+
+class _Store(http.server.BaseHTTPRequestHandler):
+    """Склад картинок на одну пробу: отдаёт постер и помнит, кем назвался спросивший."""
+
+    poster: ClassVar[bytes] = b""
+    seen: ClassVar[list[str]] = []
+
+    def do_GET(self) -> None:
+        _Store.seen.append(self.headers.get("User-Agent", ""))
+        if self.path != "/poster.jpg":
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(_Store.poster)))
+        self.end_headers()
+        self.wfile.write(_Store.poster)
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        return None
+
+
+@pytest.mark.machine
+def test_a_picture_is_fetched_over_real_tls_and_by_ipv4(
+    tls: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Настоящая раздача, настоящий TLS: картинка приезжает байтами, а имя - своё.
+
+    Постер тянет СЕРВ, а не карточка (:data:`hass.posters.ROUTE`), и тянет он его тем же
+    клиентом, что и справку: та же память адресов, тот же проверенный TLS и тот же
+    именной ``User-Agent`` - без него Wikimedia отвечает 429 уже на втором запросе подряд.
+    Проверяется это на своей раздаче, а не на Wikimedia: чужой хост в прогоне мерил бы
+    доступность Wikimedia, а не клиента.
+    """
+    _Store.poster = b"\xff\xd8\xff\xe0" + b"picture" * 100
+    _Store.seen = []
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(tls[0], tls[1])
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", free_port()), _Store)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True, name="store").start()
+    monkeypatch.setattr(_IPv4Connection, "context", ssl.create_default_context(cafile=tls[0]))
+    client = HttpJsonClient(
+        "torrcast/test",
+        lambda host: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))],
+    )
+    port = server.server_address[1]
+    try:
+        assert client.fetch(f"https://127.0.0.1:{port}/poster.jpg", 10.0) == _Store.poster
+        assert _Store.seen == ["torrcast/test"], f"склад увидел {_Store.seen}"
+
+        with pytest.raises(OSError, match="404"):
+            client.fetch(f"https://127.0.0.1:{port}/no-such.jpg", 10.0)
+    finally:
+        server.shutdown()
+        server.server_close()

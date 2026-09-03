@@ -22,6 +22,7 @@ def payload(
     volume: float | None,
     disk_free: int,
     last_error: str,
+    picture: tuple[str, str],
 ) -> dict[str, JsonValue]:
     """Снимок показа как тело ``GET /api/state``."""
     about = _about(shown) if state not in (IDLE, STARTING) else _nothing()
@@ -30,6 +31,12 @@ def payload(
         "tv": tv or None,
         "state": state,
         **about,
+        # Адрес картинки на САМОМ серве, а не у Wikimedia: наружу за постером Home
+        # Assistant не ходит ни при каких условиях (:data:`hass.posters.ROUTE`).
+        # Отпечаток - ключ, которым он решает, тянуть ли картинку заново; без него
+        # первая картинка прилипнет к карточке и переживёт смену показа.
+        "image": picture[0] or None,
+        "image_hash": picture[1] or None,
         "volume": volume,
         # Ноль тут не «диска нет», а отказ statvfs: каталог сегментов на живой машине
         # существует всегда (:meth:`torrcast.adapters.health.machine_probe.MachineProbe.disk_free`).

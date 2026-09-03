@@ -23,6 +23,7 @@ class _Entry:
     dark: float = 0.0
     dark_why: str = ""
     warm: float = 0.0
+    moved: bool = False
     file_idx: int = 2
     audio: int = 1
     torrent: str = HASH

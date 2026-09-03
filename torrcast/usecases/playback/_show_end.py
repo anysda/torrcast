@@ -116,7 +116,7 @@ def _report_end(
     # там нет вовсе, а сеанс до сих пор кончался кодом 0 и пустотой в журнале.
     # ⚠️ Живой приёмник цифр приёмки не считает (``report`` есть только у сухого), так
     # что до этой правды путь показа на живом ТВ не доходил вообще ничем.
-    if watch is not None and not watch.seen and not watch.done:
+    if watch is not None and not watch.entry.moved and not watch.done:
         _blame_the_end(supply, shown=False)
     if report is None:
         return EXIT_OK
