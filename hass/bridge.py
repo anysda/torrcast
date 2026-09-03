@@ -44,8 +44,6 @@ from torrcast.runtime.playback_session import playback_session
 
 BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
 STOP, VOLUME = "stop", "volume"
-#: Слова, которые принимает ``POST /api/control``.
-COMMANDS = (TOGGLE, SEEKBY, VOLUME, STOP)
 
 _Command = Callable[[Sequence[str] | None], int]
 
@@ -131,6 +129,8 @@ class Bridge:
             self._start([STOP])
             return
         say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
+        if command == TOGGLE:
+            self._motion.toggle()
 
     def next(self) -> None:
         """``POST /api/next``: следующая серия той же раздачи, названная запросом."""

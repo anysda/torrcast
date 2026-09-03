@@ -11,9 +11,9 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from hass.bridge import COMMANDS, VOLUME, Bridge
+from hass.bridge import STOP, VOLUME, Bridge
 from hass.refused_error import RefusedError
-from hass.say import SEEKBY
+from hass.say import SEEKBY, TOGGLE
 from torrcast.domain.json_value import JsonValue
 
 #: Порт моста. Занят он бывает только другим таким же мостом.
@@ -29,6 +29,8 @@ SEARCH = "/api/search"
 POSTER = "/api/poster/"
 #: Команды пульта, которым число обязательно (``seekby`` - секунды со знаком).
 NEEDS_ARG = (SEEKBY, VOLUME)
+#: Слова, которые принимает ``POST /api/control``.
+COMMANDS = (TOGGLE, SEEKBY, VOLUME, STOP)
 
 
 class _Handler(BaseHTTPRequestHandler):

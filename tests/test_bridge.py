@@ -122,6 +122,44 @@ def test_the_remote_refuses_when_nothing_is_playing() -> None:
     assert refusal.value.word == NOTHING_PLAYING
 
 
+def test_the_card_is_told_paused_the_second_the_bridge_says_toggle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пауза с карточки - слово самого моста: опрос следом за командой слышит её.
+
+    Home Assistant переспрашивает состояние сразу после команды
+    (``custom_components/torrcast/coordinator.py``, ``async_request_refresh``), и ждать
+    стоящей закладки (:data:`hass.motion.STILL_SECONDS`) этому опросу нечего: про свою
+    команду мост знает в ту же секунду.
+    """
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=60.0, moved=True),
+    )
+    bridge = _bridge(session)
+
+    assert bridge.state()["state"] == "playing"
+    bridge.control(TOGGLE, 0.0)
+
+    assert bridge.state()["state"] == "paused"
+
+
+def test_a_refused_toggle_changes_no_word() -> None:
+    """Показа нет - команда отказана, и переворачивать слово мост не вправе."""
+    session = FakePlaybackSession(playing=False)
+    bridge = _bridge(session)
+
+    with pytest.raises(RefusedError):
+        bridge.control(TOGGLE, 0.0)
+
+    session.playing = True
+    session.play_key = "movie:муха"
+    session.shown = PlaybackSnapshot(key="movie:муха", title="Муха", position=60.0, moved=True)
+    assert bridge.state()["state"] == "playing"
+
+
 def test_a_second_show_while_the_first_is_still_starting_is_refused() -> None:
     bridge = _bridge(FakePlaybackSession())
 
