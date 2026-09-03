@@ -1828,32 +1828,56 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     """
     # Длительность занижена на сегмент - хвост HLS у клиента может отвалиться, а проверяем
     # мы тут переход «досмотрено», а не хвост. Сетку показа считаем той же арифметикой,
-    # что и он сам: позиция берётся на границе, иначе упаковка законно начнётся с начала
-    # сегмента и проверять было бы нечего.
+    # что и он сам.
     length = float(CLIP_SECONDS - HLS_SEGMENT_SECONDS)
-    offset = Grid.uniform(length).start(1)
+    grid = Grid.uniform(length)
+    # 🔴 TC-1002. Закладка стоит ВНУТРИ слота, и это условие меры, а не вкус. Ровно на
+    # границе входа не позже неё в её собственном слоте не бывает по построению: показ
+    # законно отводится слотом назад, и всё, что тест проверял, схлопывалось в ``0.0`` -
+    # то же самое число, которое печатает старт с головы фильма. На такой закладке тест
+    # оставался зелёным и с выброшенной закладкой вовсе (``begin(0.0)``).
+    offset = (grid.start(2) + grid.end(2)) / 2
     key = "movie:ролик:2026"
     entry = Entry(title="ролик", magnet="magnet:?xt=1", pos=offset, dur=length)
     state = State()
     state.put(key, entry)
     state.save()
     watch = _Watch(key=key, entry=entry, every=0.0)
+    # Место входа не переписано числом, а посчитано по самому ролику: мера обязана мерить
+    # правило, а не запомненный результат прошлого прогона.
+    door = max(place for place in _keys_of(clip) if place <= offset)
+    assert grid.slot_at(door) == grid.slot_at(offset) and door < offset - _ENTRY_DUST, (
+        f"замер: вход {door:.3f} обязан лежать в слоте самой закладки {offset:.3f} и раньше "
+        "неё - иначе тут проверяется отъезд назад, а не штатное продолжение"
+    )
 
     config = config_for(tmp_path, tls)
-    assert _play(config, clip, 0, "тест", _Clock(), watch=watch) == 0
+    piece = tmp_path / "кусок-с-закладки.ts"
+    receiver = _Resuming(piece)
+    assert _play(config, clip, 0, "тест", _Clock(), watch=watch, receiver=receiver) == 0
 
     printed = capsys.readouterr().out
     decoded = float(printed.split("decoded ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "показ оборвался"
     # 🔴 TC-1002. Пакуется слот ВХОДА, а не слот закладки. Опорного кадра ровно на границе
-    # у ролика нет (они стоят через :data:`CLIP_KEY_SECONDS`), и показ отводится на
-    # ближайший вход не позже закладки - иначе приёмнику называют место, с которого
-    # начинать нечем. Место входа тут не переписано числом, а посчитано по самому ролику:
-    # мера обязана мерить правило, а не запомненный результат прошлого прогона.
-    grid = Grid.uniform(length)
-    door = max(place for place in _keys_of(clip) if place <= offset)
+    # у ролика нет (они стоят через :data:`CLIP_KEY_SECONDS`), и упаковка заходит с
+    # ближайшего входа не позже закладки - иначе первый кусок нечем начинать.
     began = grid.start(grid.slot_at(door))
     assert f"packing from {began:.1f} s" in printed, "показ начался не со своего входа"
+    # 🔴 А приёмнику названа САМА закладка, а не вход: вход лежит в её же слоте, и доиграть
+    # до неё приёмник обязан сам (:func:`torrcast.usecases.feed_pack.feed_restart._begin`).
+    # Назвать ему вход значило бы возвращать зрителя назад на КАЖДОМ продолжении - на самом
+    # частом пути показа, где отъезжать назад незачем.
+    assert abs(receiver.at - offset) <= _ENTRY_DUST, (
+        f"зрителя послали на {receiver.at:.3f} вместо его закладки {offset:.3f}"
+    )
+    # И кусок, который приёмник заберёт по названному месту, начинается не позже него:
+    # иначе декодировать с закладки нечем и картинки не будет вовсе.
+    inside = _keys_of(str(piece))
+    assert inside and inside[0] <= receiver.at + _ENTRY_DUST, (
+        f"кусок, куда послан приёмник, начинать нечем: опорные кадры в нём {inside}, "
+        f"а показ назвал {receiver.at:.3f}"
+    )
     # Упаковка за весь показ поднимается ОДИН раз: второй заход означал бы, что приёмник
     # попросил кусок мимо выложенного окна (:meth:`MockReceiver._from`), то есть показ
     # назвал ему место, которого не паковал.

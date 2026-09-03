@@ -74,6 +74,11 @@ def test_the_last_resort_clamp_shouts_into_the_journal_instead_of_replacing_a_nu
     assert said, "зажим смолчал: разбирать потом будет нечего"
     assert said[0]["граница"] == 10.0
     assert said[0]["замер"] == 25.0
+    # Само число зажимает не эта запись, а вторая: в минус список уходит только заход ЗА
+    # КОНЕЦ слота. Названа в ней обязана быть та граница, которую заход и перешагнул, -
+    # иначе читающий след получит не то число, о котором спор.
+    past = [facts for name, facts in spy.marks if name == "заход за концом своего слота"]
+    assert past and past[0]["граница"] == 20.0, f"в следе названа не нарушенная граница: {past}"
 
 
 def test_a_uniform_grid_lands_late_by_construction_and_is_not_called_an_incident() -> None:
