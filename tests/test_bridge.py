@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from hass.bridge import BUSY, NO_NEXT, NO_VOLUME, NOTHING_PLAYING, VOLUME, Bridge
+from hass.bridge import BUSY, NO_NEXT, NO_VOLUME, NOTHING_PLAYING, STOP, VOLUME, Bridge
 from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE
@@ -224,6 +224,72 @@ def test_a_second_show_while_the_first_is_still_starting_is_refused() -> None:
     assert refusal.value.word == BUSY
     assert bridge.run_one()
     assert bridge.play("муха")  # кончился первый - второй берётся
+
+
+def _remembering(taken: list[list[str]]) -> Callable[[Sequence[str] | None], int]:
+    """Команда продукта, которая только запоминает argv: до консоли тут дела нет."""
+
+    def command(argv: Sequence[str] | None) -> int:
+        taken.append(list(argv or []))
+        return 0
+
+    return command
+
+
+def _refusal_of_stop(bridge: Bridge) -> str | None:
+    """Слово, которым мост отказал в остановке; отказа не было - ``None``."""
+    try:
+        bridge.control(STOP, 0.0)
+    except RefusedError as refusal:
+        return refusal.word
+    return None
+
+
+def test_the_stop_is_not_refused_while_a_show_is_still_being_raised() -> None:
+    """🔴 TC-1022. «Уже поднимаю показ» - не причина отказать человеку в выходе.
+
+    Живой замер 03-09-2026: подъём умер молча, карточка встала в ``torn``, и кнопка
+    выключения отвечала `busy` шесть с половиной минут - у человека не было ни одной
+    двери наружу. Занятость главного потока тут не спрашивается, а сам подъём снимается
+    юнитом показа: досиживать в очереди чужой бюджет старта просьбе некого.
+    """
+    session = FakePlaybackSession(playing=True, play_key="movie:муха")
+    taken: list[list[str]] = []
+    bridge = _bridge(session, command=_remembering(taken))
+
+    bridge.play("муха")  # подъём взят в работу и главный поток им занят
+
+    refused = _refusal_of_stop(bridge)
+
+    assert refused is None, f"остановка отказана словом «{refused}»"
+    assert session.stopped == 1, "идущий подъём не снят: очередь до остановки не дойдёт"
+    assert bridge.run_one() and bridge.run_one()
+    assert taken == [["муха"], [STOP]], f"до продукта доехало не то: {taken}"
+
+
+def test_the_stop_is_not_refused_on_an_empty_screen_either() -> None:
+    """Гасить нечего - это ответ продукта, а не повод отказать в самой просьбе."""
+    session = FakePlaybackSession(playing=False)
+    taken: list[list[str]] = []
+    bridge = _bridge(session, command=_remembering(taken))
+
+    refused = _refusal_of_stop(bridge)
+
+    assert refused is None, f"остановка отказана словом «{refused}»"
+    assert session.stopped == 0, "подъёма не было, а юнит гасили"
+    assert bridge.run_one()
+    assert taken == [[STOP]], f"до продукта доехало не то: {taken}"
+
+
+def test_a_dark_record_left_by_a_dead_show_leaves_the_card_idle() -> None:
+    """Показ кончился - кончилась и его темнота: карточке крутить колесо не над чем."""
+    session = FakePlaybackSession(playing=False)
+    session.shown = PlaybackSnapshot(key="movie:муха", title="Муха", dark_since=1.0)
+    bridge = _bridge(session)
+
+    said = bridge.state()["state"]
+
+    assert said == "idle", f"мёртвая запись названа карточке словом «{said}»"
 
 
 def test_a_film_has_no_next_episode() -> None:

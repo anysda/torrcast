@@ -61,6 +61,22 @@ def test_a_dark_screen_is_not_called_playing_even_with_a_live_unit() -> None:
     assert motion.phase(_shown(60.0, dark=1.0), active=True, starting=False) == TORN
 
 
+def test_a_dark_record_without_a_show_of_its_own_is_not_called_torn() -> None:
+    """🔴 TC-1022. Юнита нет - показа нет, и колесу над мёртвой записью крутиться нечего.
+
+    Темнота остаётся в записи и после конца показа нарочно: ею ``cast status``
+    рассказывает, чем кончился прошлый сеанс. Но карточка тем же словом рисует «ещё на
+    подходе», и подъём, не поднявшийся с первого раза, оставлял её в ``torn`` до
+    следующего запуска - при том, что ``cast stop`` на том же мосту отвечал «ничего не
+    играет». Одно слово на две стороны: показа нет.
+    """
+    motion = Motion(clock=_Clock())
+
+    said = motion.phase(_shown(60.0, dark=1.0), active=False, starting=False)
+
+    assert said == IDLE, f"мёртвая запись названа карточке словом «{said}»"
+
+
 def test_a_bookmark_that_has_not_given_a_frame_yet_is_not_a_pause() -> None:
     """Position stuck at 0 is a show still loading, not a viewer's pause."""
     clock = _Clock()

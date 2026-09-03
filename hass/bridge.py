@@ -9,43 +9,36 @@
 и запоминает показанный порядок (:mod:`hass.searching`); номер пункта в его ответе - тот
 же ``--pick N``, которым CLI понимает выбор.
 
-🔴 Команда показа идёт в ГЛАВНОМ потоке, как и у бота (:meth:`tgbot.bot.Bot.run_one`):
-``cast`` ставит на время команды свой обработчик SIGTERM
-(:func:`torrcast.cli.answered.answered`), а из чужого потока это не делается вовсе -
-``signal only works in main thread``. Поиск в эту очередь не встаёт: он ничего не
-показывает и не сигналит, и ждать главного потока ему незачем.
+🔴 Команда показа идёт в ГЛАВНОМ потоке, как и у бота: поручения моста живут отдельно
+(:mod:`hass.orders`), и там же названо, почему. Поиск в эту очередь не встаёт: он ничего
+не показывает и не сигналит, и ждать главного потока ему незачем.
 """
 
 from __future__ import annotations
 
 import secrets
-import threading
-from collections.abc import Callable, Sequence
-from queue import Queue
+from collections.abc import Callable
 
 from hass.following import following
 from hass.motion import Motion
+from hass.orders import Command, Orders
 from hass.payload import payload
 from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE, say
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
 from hass.volume import Volume
-from tgbot.command_result import command_result
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.health.machine_probe import MachineProbe
 from torrcast.cli.main import main as run_cast
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.version import __version__
-from torrcast.domain.why import why
 from torrcast.ports.playback_session import PlaybackSession
 from torrcast.runtime.playback_session import playback_session
 
 BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
 STOP, VOLUME = "stop", "volume"
-
-_Command = Callable[[Sequence[str] | None], int]
 
 
 class Bridge:
@@ -55,7 +48,7 @@ class Bridge:
         self,
         *,
         session: PlaybackSession | None = None,
-        command: _Command = run_cast,
+        command: Command = run_cast,
         search: Search = SEARCH,
         detect: Detect = DETECT,
         remember: Remember = REMEMBER,
@@ -65,7 +58,7 @@ class Bridge:
         posters: Posters | None = None,
     ) -> None:
         self._session = playback_session() if session is None else session
-        self._command = command
+        self._orders = Orders(command)
         self._search = search
         self._detect = detect
         self._remember = remember
@@ -73,10 +66,6 @@ class Bridge:
         self._volume = volume
         self._motion = motion or Motion()
         self._posters = posters or Posters()
-        self._lock = threading.Lock()
-        self._queue: Queue[list[str] | None] = Queue()
-        self._starting = False
-        self._last_error = ""
 
     # ------------------------------------------------------------------ снимок
 
@@ -90,10 +79,10 @@ class Bridge:
             self._motion.aimed(shown),
             version=__version__,
             tv=config.tv or "",
-            state=self._motion.phase(shown, active=active, starting=self._starting),
+            state=self._motion.phase(shown, active=active, starting=self._orders.underway()),
             volume=self._volume_of(config).level(),
             disk_free=MachineProbe.disk_free(config.hls_dir),
-            last_error=self._last_error,
+            last_error=self._orders.last_error,
             picture=self._posters.picture(shown if active else None, self._session.stream_address),
         )
 
@@ -119,15 +108,20 @@ class Bridge:
         return self._start(args)
 
     def control(self, command: str, arg: float) -> None:
-        """``POST /api/control``: пульт идущего показа."""
+        """``POST /api/control``: пульт идущего показа, а остановка - дверь наружу.
+
+        Остановка стоит ВЫШЕ отказов и ни про показ, ни про подъём не спрашивает
+        (:meth:`_stop`). Остальному пульту без идущего показа делать нечего: громкость
+        и ``toggle`` уезжают приёмнику, который сейчас ничего не играет.
+        """
+        if command == STOP:
+            self._stop()
+            return
         if not self._session.active():
             raise RefusedError(NOTHING_PLAYING)
         if command == VOLUME:
             if not self._volume_of(self._settings()).set(arg):
                 raise RefusedError(NO_VOLUME)
-            return
-        if command == STOP:
-            self._start([STOP])
             return
         say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
         self._motion.commanded(command, arg)
@@ -143,45 +137,38 @@ class Bridge:
 
     def _start(self, args: list[str]) -> str:
         """Отдать команду рабочему потоку; очереди нет, второй заход - это отказ."""
-        with self._lock:
-            if self._starting:
-                raise RefusedError(BUSY)
-            self._starting = True
-            self._last_error = ""  # прошлый отказ живёт до начала следующего показа
-        self._queue.put(args)
+        if not self._orders.take(args):
+            raise RefusedError(BUSY)
         return secrets.token_hex(4)
+
+    def _stop(self) -> None:
+        """Остановка, которая не отказывает НИКОГДА: это дверь человека наружу.
+
+        Отказать в ней нечем. «Ничего не играет» человек и так видит на экране, а «уже
+        поднимаю показ» - ровно то состояние, из которого он и просит его вывести:
+        подъём, не давший картинки, вместе с отказом в остановке становится ловушкой
+        без единой двери (TC-1022). Поэтому занятость очереди тут не спрашивается.
+
+        Идущий подъём снимается там, где он живёт, - юнитом показа: главный поток
+        досиживает бюджет старта и до очереди не дойдёт, а ожидание картинки видит
+        мёртвый юнит на ближайшем своём круге
+        (:func:`torrcast.usecases.playback._launch._await_playing`), отпускает поток - и
+        поручение остановки идёт следом обычным порядком.
+        """
+        if self._orders.force([STOP]):
+            self._session.stop()
 
     def run(self) -> None:
         """Исполнять команды, пока не попросят уйти. Зовётся из ГЛАВНОГО потока."""
-        while self.run_one():
-            pass
+        self._orders.run()
 
     def run_one(self) -> bool:
         """Исполнить одну команду; ``False`` - в очередь положили просьбу уйти."""
-        args = self._queue.get()
-        try:
-            if args is None:
-                return False
-            self._run(args)
-            return True
-        finally:
-            self._queue.task_done()
+        return self._orders.run_one()
 
     def stop(self) -> None:
         """Вывести цикл команд из ожидания: мост уходит."""
-        self._queue.put(None)
-
-    def _run(self, args: list[str]) -> None:
-        """Исполнить команду и запомнить её словесный отказ тем же словом, что консоль."""
-        try:
-            result = command_result(self._command, args)
-            if result.code:
-                self._last_error = result.detail
-        except Exception as error:
-            self._last_error = why(error)
-        finally:
-            with self._lock:
-                self._starting = False
+        self._orders.leave()
 
     def _volume_of(self, config: Config) -> Volume:
         """Громкость ТОГО приёмника, который назван настройкой прямо сейчас: адрес
