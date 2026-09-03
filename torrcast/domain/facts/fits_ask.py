@@ -21,7 +21,7 @@ def fits_ask(ask: Ask, row: Dated, known: dict[str, set[int]]) -> bool:
     Про год молчание - отказ, и это главное правило: неподтверждённый год отдавал пяти
     «Паразитам» разных лет одну и ту же картинку 2019 года.
     """
-    return _same_kind(ask.kind, row) and _same_year(ask.year, row, known)
+    return _same_kind(ask.kind, row) and _same_year(ask, row, known)
 
 
 def _same_kind(kind: str, row: Dated) -> bool:
@@ -34,9 +34,24 @@ def _same_kind(kind: str, row: Dated) -> bool:
     return kind not in ("movie", "tv") or not row.kinds or kind in row.kinds
 
 
-def _same_year(year: int | None, row: Dated, known: dict[str, set[int]]) -> bool:
-    """Тот ли это год: год не спрошен - подходит любая статья."""
-    if year is None:
+def _same_year(ask: Ask, row: Dated, known: dict[str, set[int]]) -> bool:
+    """Тот ли это год: год не спрошен - подходит любая статья.
+
+    🔴 У СЕРИАЛА года нет, у него есть срок показа. Раздача пишет в название номер
+    сезона («Чернобыль 2. Зона отчуждения»), а годом ставит год ЭТОГО сезона - 2017; сама
+    же статья называет 2014 и 2019, начало и конец. Пока сверялось членство в списке
+    годов, сезон между началом и концом оставался без обложки при живой статье своего
+    сериала. Внутрь срока сериал пускается, наружу - нет: «Чернобыль» 2022 года за
+    сроком «Зоны отчуждения» и её постера не получит.
+
+    Фильму срока не бывает: у него в :data:`known` лежат ВСЕ даты публикации разом
+    (фестиваль, прокат, издания), и промежуток между ними - не показ, а разнобой
+    источников. Поэтому растяжение тут только для рода ``tv`` и только там, где годов
+    названо больше одного: одинокий год - это дата, а не срок.
+    """
+    if ask.year is None:
         return True
     seen = row.years or known.get(row.entity, set())
-    return any(abs(one - year) <= _SLACK for one in seen)
+    if any(abs(one - ask.year) <= _SLACK for one in seen):
+        return True
+    return ask.kind == "tv" and len(seen) > 1 and min(seen) <= ask.year <= max(seen)

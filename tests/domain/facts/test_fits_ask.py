@@ -37,3 +37,45 @@ def test_what_the_article_kept_silent_about_is_not_a_refusal() -> None:
     quiet = Dated("Armitage III", "Q123", frozenset({2002}))
     assert fits_ask(Ask("Армитаж: Двойная матрица", 2002, "movie"), quiet, {})
     assert fits_ask(Ask("Матрица: Путь Нео", None, "other"), quiet, {})
+
+
+def test_a_season_between_the_start_and_the_end_belongs_to_its_series() -> None:
+    """🔴 ОТРИЦАТЕЛЬНАЯ ПРОБА: сверяй членство в списке - и сезон остаётся без обложки.
+
+    Живой случай «Чернобыль 2. Зона отчуждения»: раздача пишет номер сезона в название,
+    а годом ставит 2017 - год этого сезона. Статья сериала называет 2014 и 2019, начало
+    и конец показа, и 2017-го в списке нет вовсе.
+    """
+    series = Dated("Chernobyl: Exclusion Zone", "Q1", frozenset({2014, 2019}), frozenset({"tv"}))
+
+    assert fits_ask(Ask("Чернобыль 2. Зона отчуждения", 2017, "tv"), series, {}), (
+        "сезон между началом и концом показа не признан своим сериалом"
+    )
+
+
+def test_a_year_outside_the_run_is_still_a_stranger() -> None:
+    """Растяжение тут не отмена сверки: наружу срока сериал никого не пускает."""
+    series = Dated("Chernobyl: Exclusion Zone", "Q1", frozenset({2014, 2019}), frozenset({"tv"}))
+
+    assert not fits_ask(Ask("Чернобыль", 2022, "tv"), series, {}), "год за сроком показа принят"
+    assert not fits_ask(Ask("Чернобыль", 2013, "tv"), series, {}), "год до начала показа принят"
+
+
+def test_a_film_has_no_run_to_stretch() -> None:
+    """🔴 У фильма даты публикации - разнобой источников, а не показ.
+
+    «Возвращение к источнику» 2004 года приезжало под «Аниматрицу» 2003-го уже при
+    допуске в один год; промежуток между фестивалем и прокатом дал бы то же самое.
+    """
+    film = Dated("The Animatrix", "Q2", frozenset({2003, 2005}), frozenset({"movie"}))
+
+    assert not fits_ask(Ask("Возвращение к источнику", 2004, "movie"), film, {}), (
+        "фильму растянули промежуток между датами публикации в срок показа"
+    )
+
+
+def test_a_single_year_is_a_date_and_not_a_run() -> None:
+    """Одинокий год растягивать не во что: срок начинается с двух названных концов."""
+    once = Dated("Chernobyl", "Q3", frozenset({2019}), frozenset({"tv"}))
+
+    assert not fits_ask(Ask("Чернобыль", 2021, "tv"), once, {})
