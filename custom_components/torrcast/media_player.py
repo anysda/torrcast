@@ -227,7 +227,29 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         if not text:
             return search_media(text, [])
         hits = await self.coordinator.async_search(text)
-        return search_media(text, hits)
+        return search_media(text, hits, self.get_browse_image_url)
+
+    async def async_get_browse_image(
+        self,
+        # The proxy route carries the hit itself as well as the name of its picture; the
+        # name alone is enough here, and dropping the two would break the call.
+        media_content_type: MediaType | str,  # noqa: ARG002
+        media_content_id: str,  # noqa: ARG002
+        media_image_id: str | None = None,
+    ) -> tuple[bytes | None, str | None]:
+        """The poster of one hit, fetched by Home Assistant itself, never by the browser.
+
+        `get_browse_image_url` (used above) points a hit's thumbnail at Home Assistant's
+        own proxy route, which lands here on the server side with the name the serve gave
+        the picture in `media_image_id`. So the picture crosses two hops that both already
+        exist: browser to Home Assistant, then Home Assistant to the serve on the local
+        network - the same pair the card's own picture crosses. Neither hop leaves the
+        house, and the query and pick in `media_content_id` are not needed to name a
+        picture the serve has already put a name on.
+        """
+        if not media_image_id:
+            return None, None
+        return await self.coordinator.async_poster(media_image_id)
 
     async def async_media_play(self) -> None:
         await self.coordinator.async_control("toggle")

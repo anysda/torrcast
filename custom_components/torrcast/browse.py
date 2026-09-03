@@ -29,6 +29,7 @@ number a human reads at a glance, and the query string carries the words that fo
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
 
@@ -56,6 +57,12 @@ INSTANT_ID = f"media-source://tts/{INSTANT_TITLE}"
 
 #: Where the dialog puts what a person typed before handing the id back for playing.
 _MESSAGE = "message"
+
+#: The name the serve gave the poster of a hit, and how Home Assistant is asked to
+#: fetch it: the entity's own `get_browse_image_url`, so the picture travels the
+#: same signed route as the card's one and the browser never talks to the serve.
+_POSTER = "poster"
+Thumbnail = Callable[[str, str, str], str]
 
 #: What the serve calls a picture's kind, and what Home Assistant calls the same thing.
 #: A kind outside this map (`Kind` also allows `"other"`) falls back to plain video.
@@ -142,7 +149,9 @@ def _instant_node() -> BrowseMedia:
     )
 
 
-def search_media(query: str, results: list[dict[str, Any]]) -> SearchMedia:
+def search_media(
+    query: str, results: list[dict[str, Any]], thumbnail: Thumbnail | None = None
+) -> SearchMedia:
     """The bridge's `results` list turned into what `async_search_media` answers with.
 
     The hit the serve flagged `default` goes first, and that flag is the whole contract
@@ -153,22 +162,33 @@ def search_media(query: str, results: list[dict[str, Any]]) -> SearchMedia:
 
     Nothing else about the order is ours to change, and nothing has to be: the pick number
     a hit plays by travels inside its `media_content_id`, not in its place on the screen.
+
+    `thumbnail` builds the address a poster is fetched from; a hit the serve has no
+    picture for keeps none, and stays a plain line rather than a frame around nothing.
     """
     ordered = sorted(results, key=lambda result: not result.get("default"))
-    return SearchMedia(result=[_hit(query, result) for result in ordered])
+    return SearchMedia(result=[_hit(query, result, thumbnail) for result in ordered])
 
 
-def _hit(query: str, result: dict[str, Any]) -> BrowseMedia:
+def _hit(query: str, result: dict[str, Any], thumbnail: Thumbnail | None) -> BrowseMedia:
     kind = str(result.get("kind", ""))
     title = str(result.get("title", ""))
     year = result.get("year")
+    poster = result.get(_POSTER)
+    media_content_id = encode_pick(query, int(result["pick"]))
+    media_content_type = _MEDIA_TYPE.get(kind, MediaType.VIDEO)
     return BrowseMedia(
         media_class=_MEDIA_CLASS.get(kind, MediaClass.VIDEO),
-        media_content_id=encode_pick(query, int(result["pick"])),
-        media_content_type=_MEDIA_TYPE.get(kind, MediaType.VIDEO),
+        media_content_id=media_content_id,
+        media_content_type=media_content_type,
         title=f"{title} ({year})" if year else title,
         can_play=True,
         can_expand=False,
+        thumbnail=(
+            thumbnail(media_content_type, media_content_id, str(poster))
+            if thumbnail is not None and poster
+            else None
+        ),
     )
 
 

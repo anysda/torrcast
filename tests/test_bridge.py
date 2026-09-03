@@ -436,8 +436,15 @@ def _real_search(answers: dict[str, list[Any]]) -> Callable[..., list[Any]]:
     return search
 
 
-def test_the_search_route_lists_the_products_own_plans_with_pick_numbers() -> None:
-    """Номер и поля идут не от моста, а от того же круга поиска, что и консоль."""
+def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Номер и поля идут не от моста, а от того же круга поиска, что и консоль.
+
+    Имена картинок тут не спрашиваются: за ними ходит фоновый поиск постеров
+    (:class:`hass.hit_posters.HitPosters`), и в зеркале моста он звонил бы в Википедию.
+    """
+    monkeypatch.setattr("hass.searching.OFFER", lambda results: results)
     bridge = _bridge(
         FakePlaybackSession(),
         search=_real_search({"тачки": _CARS}),

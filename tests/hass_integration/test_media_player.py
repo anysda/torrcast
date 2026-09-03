@@ -20,6 +20,7 @@ from pytest_homeassistant_custom_component.common import (  # type: ignore[impor
     MockConfigEntry,
 )
 
+from hass.hit_posters import FIELD
 from hass.search_results import search_results
 from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, sent, snapshot
 from torrcast.domain.kind import Kind
@@ -337,6 +338,55 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     assert hits[1].media_content_id == (
         "torrcast://pick/1?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0"
     )
+
+
+async def test_a_hit_shows_its_poster_and_home_assistant_fetches_it_from_the_serve(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """A found picture is drawn with its poster, and the bytes come from the serve.
+
+    The serve names the poster of a hit and nothing else: the name is not an address, so
+    the browser has nowhere to go with it. The thumbnail points at Home Assistant's own
+    browse-image proxy, which lands back on the entity here in the house and asks the
+    serve's `/api/poster/` route for the bytes - the same pair of hops the card's own
+    picture already crosses, and neither of them leaves for the outside.
+
+    A hit the serve found no picture for keeps no thumbnail at all: a row stays a row,
+    with no placeholder and no empty frame around nothing.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    served = _served([("Матрица", 1999, "movie"), ("Чернобыль", 2019, "tv")], taken=1)
+    body = b"\x89PNG\r\n\x1a\n poster"
+    served["results"][0][FIELD] = "8b1d3f0c11d2a4e6"
+    aioclient_mock.post(f"{BASE}/api/search", json=served)
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "матрица", "media_content_id": "menu"},
+        blocking=True,
+        return_response=True,
+    )
+    hits = answer[PLAYER].result
+
+    #: Пустая строка вместо `None` намеренно: снятая правка обязана краснеть утверждением
+    #: о том, что человек видит, а не `AttributeError` на отсутствующем адресе.
+    shown = hits[0].thumbnail or ""
+    assert shown.startswith(f"/api/media_player_proxy/{PLAYER}/browse_media/")
+    assert "media_image_id=8b1d3f0c11d2a4e6" in shown
+    assert hits[1].thumbnail is None
+
+    aioclient_mock.get(
+        f"{BASE}/api/poster/8b1d3f0c11d2a4e6", content=body, headers={"Content-Type": "image/png"}
+    )
+    entity = hass.data[DATA_INSTANCES]["media_player"].get_entity(PLAYER)
+    shot, kind = await entity.async_get_browse_image(
+        hits[0].media_content_type, hits[0].media_content_id, "8b1d3f0c11d2a4e6"
+    )
+
+    assert (shot, kind) == (body, "image/png")
+    assert f"{BASE}/api/poster/8b1d3f0c11d2a4e6" in [
+        str(call[1]) for call in aioclient_mock.mock_calls
+    ]
 
 
 async def test_search_media_relays_the_serves_refusal(

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from hass.hit_posters import HitPosters
 from hass.poster_shelf import PosterShelf
 from hass.posters import ROUTE, Posters
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
@@ -360,6 +361,25 @@ def test_a_stranger_name_is_not_served(tmp_path: Path) -> None:
 
     assert made.read("../../etc/passwd") is None
     assert made.read("") is None
+
+
+def test_the_same_door_serves_the_pictures_of_the_found_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Маршрут картинок у серва один, и список находок ходит в ту же дверь.
+
+    Имена у находок свои (:class:`hass.hit_posters.HitPosters`), но второго маршрута
+    наружу под них не заводится: спросили тем же адресом - отдалась та же картинка.
+    """
+    found = HitPosters(
+        poster=FakePoster(body=OTHER), shelf=PosterShelf(home=lambda: tmp_path / "posters")
+    )
+    monkeypatch.setattr("hass.posters.hits", found)
+    offered = found.offer([{"pick": 1, "title": "Тачки", "year": 2006, "kind": "movie"}])[0]
+    assert isinstance(offered, dict)
+    made, _ = _posters(FakePoster(), FakeFrame(), tmp_path)
+
+    assert made.read(str(offered["poster"])) == (OTHER, "image/jpeg")
 
 
 @pytest.mark.machine

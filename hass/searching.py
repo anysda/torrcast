@@ -29,6 +29,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from hass.hit_posters import hits
 from hass.refused_error import RefusedError
 from hass.search_results import search_results
 from torrcast.adapters.chromecast.profile_detector import detector
@@ -56,23 +57,37 @@ Search = Callable[[Config, "Args", Progress, Profile], list["Plan"]]
 Detect = Callable[[Config], Choice]
 #: Куда ложится показанный порядок картин: ключ и имя под их номерами.
 Remember = Callable[[str, list[tuple[str, str]]], None]
+#: Кто называет картинку каждой находки: она ищется фоном и догоняет список.
+Offer = Callable[[list[JsonValue]], list[JsonValue]]
 
 #: Боевые исполнители шага - ровно те же, что у консоли. Кладёт их мост
 #: (:class:`hass.bridge.Bridge`), подделки называют щупы и зеркала.
 SEARCH: Search = search_circle
 DETECT: Detect = detector.detect
 REMEMBER: Remember = pins.remember_menu
+OFFER: Offer = hits.offer
 
 
 def searching(
-    config: Config, query: str, search: Search, detect: Detect, remember: Remember
+    config: Config,
+    query: str,
+    search: Search,
+    detect: Detect,
+    remember: Remember,
+    offer: Offer | None = None,
 ) -> list[JsonValue]:
     """Круг картин запроса как тело ответа: номера под ``--pick N`` и взятый пункт.
 
     Порядок записей - порядок продукта, и переставлять его тут нечем: номер ``pick`` в
     записи и есть адрес картины в запомненном порядке. Взятый пункт назван полем, а не
     местом в списке.
+
+    ``offer`` дописывает каждой записи имя её картинки (:class:`hass.hit_posters.HitPosters`)
+    и в сеть за ней не ходит: список уходит человеку с той же скоростью, что и раньше, а
+    постеры догоняют его следом. Не названный зовущим, он берётся из :data:`OFFER` в момент
+    вызова, а не в момент объявления: подделка в зеркале ставится именно туда.
     """
+    named = OFFER if offer is None else offer
     chosen = detect(config)
     args = parse_args([query])
     try:
@@ -80,4 +95,4 @@ def searching(
     except TorrcastError as refusal:
         raise RefusedError(str(refusal)) from refusal
     remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])
-    return search_results(plans, enter_take(plans, args.title_query).number)
+    return named(search_results(plans, enter_take(plans, args.title_query).number))

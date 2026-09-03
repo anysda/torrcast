@@ -8,7 +8,9 @@ import time
 from collections.abc import Callable
 from typing import Final
 
+from hass.hit_posters import hits
 from hass.picture_type import picture_type
+from hass.poster_find import poster_find
 from hass.poster_lookup import _manifest, _poster_names, _wiki_correction
 from hass.poster_shelf import PosterShelf
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
@@ -100,12 +102,16 @@ class Posters:
 
         Ищется имя среди готовых, а не собирается путь из него: имя приезжает снаружи, и
         собранный из него путь - это чужой файл на диске серва.
+
+        Маршрут один на все картинки серва, поэтому за играющей картиной спрашивается и
+        список находок (:class:`hass.hit_posters.HitPosters`): имена там свои, но дверь
+        наружу общая.
         """
         with self._lock:
             for made, body in self._made.values():
                 if made == name:
                     return body, picture_type(body)
-        return None
+        return hits.read(name)
 
     def _resolve(self, key: str, shown: PlaybackSnapshot, stream: _Stream) -> None:
         """Найти картинку и положить её готовой; не нашлось - отложить следующую попытку.
@@ -131,31 +137,21 @@ class Posters:
     def _found(self, shown: PlaybackSnapshot) -> bytes | None:
         """Постер: сперва с полки, потом из Википедии. Сеть не ответила - постера нет.
 
-        Исключение тут не глотается, а ПЕРЕВОДИТСЯ в «постера нет»: выше стоит запасной
-        путь, и для него 429, оборванная сеть и картина без английской статьи означают
-        одно и то же - карточке нужен кадр. Настоящий отказ виден в другом месте: он
-        откладывает следующую попытку (:data:`_RETRY`), а не тонет молча.
+        Сам поход - общий с картинками списка находок (:func:`hass.poster_find.poster_find`):
+        одно правило на обоих, иначе под одним именем приехали бы две разных картинки.
         """
         identity = _identity(shown)
         kept = self._shelf.read(identity)
         if kept:
             return kept
-        body = None
-        names = _poster_names(shown)
-        for name in names:
-            try:
-                body = self._poster(name, shown.year or None, _kind(shown), _TIMEOUT)
-            except Exception:
-                continue
-            if body:
-                break
-        if not body and shown.year and self._correct is not None:
-            try:
-                fixed = self._correct(names[0], shown.year, _kind(shown), _TIMEOUT)
-                if fixed and fixed not in names:
-                    body = self._poster(fixed, shown.year, _kind(shown), _TIMEOUT)
-            except Exception:
-                body = None
+        body = poster_find(
+            _poster_names(shown),
+            shown.year or None,
+            _kind(shown),
+            _TIMEOUT,
+            self._poster,
+            self._correct,
+        )
         if body:
             self._shelf.write(identity, body)
         return body

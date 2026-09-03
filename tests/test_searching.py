@@ -59,6 +59,18 @@ def _cautious(_config: Config) -> Choice:
     return Choice(CAUTIOUS, "тест")
 
 
+def _offer(results: list[JsonValue]) -> list[JsonValue]:
+    """Двойник называния картинок: имя вместо похода в справку.
+
+    Настоящий (:data:`hass.searching.OFFER`) ушёл бы за постерами в сеть прямо из
+    зеркала, а мерить тут надо не Википедию, а то, что имя доезжает до записи выдачи.
+    """
+    return [
+        {**result, "poster": "картинка"} if isinstance(result, dict) else result
+        for result in results
+    ]
+
+
 def _records(results: list[JsonValue]) -> list[dict[str, Any]]:
     """Записи выдачи под своим видом: договор обещает объекты, а не любой JSON."""
     assert all(isinstance(result, dict) for result in results), "запись выдачи - объект"
@@ -75,7 +87,7 @@ def test_the_flagged_record_is_the_picture_a_bare_play_would_take() -> None:
     """
     plans = _plans()
 
-    results = searching(_CONFIG, "тачки", _search, _cautious, pins.remember_menu)
+    results = searching(_CONFIG, "тачки", _search, _cautious, pins.remember_menu, _offer)
 
     records = _records(results)
     flagged = [record["pick"] for record in records if record["default"]]
@@ -96,7 +108,7 @@ def test_the_search_step_remembers_the_order_it_showed() -> None:
     stale = [(plans[2].picture.key, "Тачки 3"), (plans[0].picture.key, "Тачки")]
     pins.remember_menu("тачки", stale)
 
-    searching(_CONFIG, "тачки", _search, _cautious, pins.remember_menu)
+    searching(_CONFIG, "тачки", _search, _cautious, pins.remember_menu, _offer)
 
     assert pins.recalled_picture("тачки", 2)[0] == plans[1].picture.key
     assert _pick_plan(plans, None, pick=2, asked="тачки").picture.title == "Тачки 2"
@@ -110,7 +122,27 @@ def test_the_search_step_judges_by_the_receivers_own_profile() -> None:
         seen.append((config, profile))
         return _search(config, args, progress, profile)
 
-    searching(_CONFIG, "тачки", watching, lambda _c: Choice(ANDROID_TV, "тест"), pins.remember_menu)
+    searching(
+        _CONFIG,
+        "тачки",
+        watching,
+        lambda _c: Choice(ANDROID_TV, "тест"),
+        pins.remember_menu,
+        _offer,
+    )
 
     assert seen[0][1] is ANDROID_TV, "профиль приёмника до круга поиска не доехал"
     assert seen[0][0] == tune(_CONFIG, ANDROID_TV), "пороги профиля не наложены"
+
+
+def test_every_record_carries_the_name_of_its_picture() -> None:
+    """Каждой находке достаётся имя её картинки: без него список остаётся текстом.
+
+    Имя дописывается уже готовой выдаче и ничего в ней не сдвигает: номер ``pick`` и
+    метка взятого пункта остаются на своих местах, а картинка догоняет список отдельным
+    запросом за ней.
+    """
+    records = _records(searching(_CONFIG, "тачки", _search, _cautious, pins.remember_menu, _offer))
+
+    assert [record.get("poster") for record in records] == ["картинка"] * len(records)
+    assert [record["pick"] for record in records] == [1, 2, 3]

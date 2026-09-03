@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 from homeassistant.components import persistent_notification
@@ -16,6 +17,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    POSTER_REQUEST_TIMEOUT,
     REQUEST_TIMEOUT,
     SCAN_INTERVAL_IDLE,
     SCAN_INTERVAL_SHOWING,
@@ -151,6 +153,25 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ) from error
         results = found.get("results")
         return list(results) if isinstance(results, list) else []
+
+    async def async_poster(self, name: str) -> tuple[bytes | None, str | None]:
+        """The bytes of one hit's poster and its type; nothing found is a bare pair.
+
+        The picture is asked of the serve, never of the site it came from: the serve
+        downloaded it for itself and hands it out on its own route in the local network.
+        A hit whose picture is still being looked for answers slowly rather than empty,
+        so this waits longer than a state poll does (:data:`POSTER_REQUEST_TIMEOUT`).
+        """
+        try:
+            async with self._session.get(
+                f"{self.base_url}/api/poster/{quote(name, safe='')}",
+                timeout=aiohttp.ClientTimeout(total=POSTER_REQUEST_TIMEOUT),
+            ) as response:
+                if response.status != 200:
+                    return None, None
+                return await response.read(), response.headers.get("Content-Type")
+        except (aiohttp.ClientError, TimeoutError):
+            return None, None
 
     async def async_control(self, cmd: str, arg: float | None = None) -> None:
         """Sends one control command; `arg` is absent for `toggle` and `stop`."""

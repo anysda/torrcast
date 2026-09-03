@@ -27,3 +27,8 @@ REQUEST_TIMEOUT: Final = 10
 #: that can cut off an answer the serve would still have delivered. Margin is added on
 #: top of that ceiling, not on top of the one cold measurement.
 SEARCH_REQUEST_TIMEOUT: Final = 160
+#: Seconds; a poster of a search hit may still be on its way from the serve, and the
+#: serve holds that one request for a few seconds rather than answering "no picture"
+#: (`hass/hit_posters.py`). The wait here has to outlast that hold, or the picture would
+#: be dropped by the very side that asked for it.
+POSTER_REQUEST_TIMEOUT: Final = 15
