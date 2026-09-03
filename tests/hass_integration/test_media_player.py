@@ -49,13 +49,17 @@ async def _added(hass: HomeAssistant, aioclient_mock: Any, state: dict[str, Any]
         ("starting", "buffering"),
         ("playing", "playing"),
         ("paused", "paused"),
-        ("torn", "idle"),
+        ("torn", "buffering"),
     ],
 )
 async def test_states_are_mapped(
     hass: HomeAssistant, aioclient_mock: Any, served: str, shown: str
 ) -> None:
-    """Все пять слов договора переводятся в состояния Home Assistant."""
+    """Все пять слов договора переводятся в состояния Home Assistant.
+
+    `torn` уходит на `buffering`, не `idle`: продукт всё ещё держит показ и обещает
+    поднять его сам, а `idle` человек читает как «ничего не идёт».
+    """
     await _added(hass, aioclient_mock, snapshot(state=served))
     assert hass.states.get(PLAYER).state == shown
 

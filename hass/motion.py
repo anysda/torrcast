@@ -50,11 +50,21 @@ class Motion:
         доказывает, и продукт сам отказывается звать такой показ идущим
         (:class:`torrcast.usecases.status.Status`). Зритель перед чёрным экраном - это не
         «играю».
+
+        🔴 Паузой закладка называется только у ИДУЩЕГО показа: тёмный экран отсекается
+        выше, а показ, ещё не давший ни кадра (закладка стоит на нуле), тоже не пауза -
+        стоять там нечему.
         """
         if active:
             if shown is not None and shown.dark_since:
                 return TORN
-            standing = shown is not None and self.standing(shown.key, shown.position)
+            # Закладка на нуле ещё не дала ни кадра, а не стоит нарочно: декодировать
+            # нечего, и паузой зрителя это не назвать.
+            standing = (
+                shown is not None
+                and shown.position > 0
+                and self.standing(shown.key, shown.position)
+            )
             return PAUSED if standing else PLAYING
         if starting:
             return STARTING

@@ -29,12 +29,17 @@ from .coordinator import TorrcastConfigEntry, TorrcastCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 #: The five words of the contract and what Home Assistant calls the same thing.
+#:
+#: `torn` is not `idle`: the product still holds the show and says it will raise it
+#: itself once the receiver comes back (`hass/motion.py`), and `idle` reads to a person
+#: as nothing playing at all. `buffering` is the word Home Assistant already has for
+#: "still on its way" - the same one `starting` uses below.
 STATES: dict[str, MediaPlayerState] = {
     "idle": MediaPlayerState.IDLE,
     "starting": MediaPlayerState.BUFFERING,
     "playing": MediaPlayerState.PLAYING,
     "paused": MediaPlayerState.PAUSED,
-    "torn": MediaPlayerState.IDLE,
+    "torn": MediaPlayerState.BUFFERING,
 }
 
 
