@@ -8,6 +8,9 @@ from unittest.mock import patch
 
 import aiohttp  # type: ignore[import-not-found]
 import pytest
+from homeassistant.components.media_player import (  # type: ignore[import-not-found]
+    MediaPlayerEntityFeature,
+)
 from homeassistant.core import HomeAssistant  # type: ignore[import-not-found]
 from homeassistant.exceptions import HomeAssistantError  # type: ignore[import-not-found]
 from homeassistant.helpers.entity_component import (  # type: ignore[import-not-found]
@@ -137,6 +140,9 @@ async def test_empty_fields_do_not_break_the_entity(
         ("media_pause", {}, "/api/control", {"cmd": "toggle"}),
         ("media_play", {}, "/api/control", {"cmd": "toggle"}),
         ("media_stop", {}, "/api/control", {"cmd": "stop"}),
+        #: Кнопка питания гасит ПОКАЗ той же командой: телевизор из розетки продукт
+        #: не выключает, и новой дороги наружу под кнопку не заводилось.
+        ("turn_off", {}, "/api/control", {"cmd": "stop"}),
         (
             "media_seek",
             {"seek_position": 1300},
@@ -170,6 +176,67 @@ async def test_services_send_the_expected_request(
     assert len(posted) == 1
     assert str(posted[0][1]) == f"{BASE}{path}"
     assert sent(posted[0]) == body
+
+
+async def test_the_card_draws_a_power_button_next_to_the_buttons_it_already_had(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """🔴 Кнопку питания фронт рисует по флагу, и по нему же её не рисует вовсе.
+
+    Человек видел карточку без выключения не потому, что выключать было нечем: `stop`
+    жил всё это время. Не заявлен был флаг, а незаявленный флаг фронт читает как
+    «плеер так не умеет» и кнопку не рисует. Утверждение тут - про флаги, потому что
+    именно они и есть то, что человек видит.
+
+    Соседние флаги названы поимённо: одиннадцать кнопок уже живут на карточке, и
+    перебранное выражение с потерянным `|` погасило бы их все, не сказав ни слова.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.TURN_OFF in features
+    #: Включать нечего: показ поднимают запросом, а не питанием. Кнопка, которая ничего
+    #: не делает, хуже её отсутствия, поэтому `TURN_ON` не заявлен намеренно.
+    assert MediaPlayerEntityFeature.TURN_ON not in features
+    for lived_here_before in (
+        MediaPlayerEntityFeature.PLAY,
+        MediaPlayerEntityFeature.PAUSE,
+        MediaPlayerEntityFeature.PLAY_MEDIA,
+        MediaPlayerEntityFeature.STOP,
+        MediaPlayerEntityFeature.NEXT_TRACK,
+        MediaPlayerEntityFeature.PREVIOUS_TRACK,
+        MediaPlayerEntityFeature.SEEK,
+        MediaPlayerEntityFeature.VOLUME_SET,
+        MediaPlayerEntityFeature.VOLUME_STEP,
+        MediaPlayerEntityFeature.BROWSE_MEDIA,
+        MediaPlayerEntityFeature.SEARCH_MEDIA,
+    ):
+        assert lived_here_before in features, f"кнопка {lived_here_before.name} пропала с карточки"
+
+
+async def test_turning_off_an_empty_screen_says_nothing_to_the_person(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Гасить нечего - кнопка молчит, а не роняет отказ серве в лицо.
+
+    Серве на пустом показе отвечает `nothing_playing`, и это правда, но человеку,
+    который только что нажал «выключить», она читается как поломка: экран уже там,
+    куда он просил. Ни запроса, ни ошибки.
+    """
+    await _added(hass, aioclient_mock, snapshot(state="idle"))
+    #: Подделка отвечает ровно то, что ответил бы серве: `stop` на пустом показе - 409.
+    aioclient_mock.post(f"{BASE}/api/control", status=409, json={"error": "nothing_playing"})
+    told: list[str] = []
+
+    try:
+        await hass.services.async_call(
+            "media_player", "turn_off", {"entity_id": PLAYER}, blocking=True
+        )
+    except HomeAssistantError as refusal:
+        told.append(str(refusal))
+
+    assert told == [], f"человеку показали отказ на нажатие «выключить»: {told}"
+    assert not [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
 
 
 async def test_a_refusal_becomes_a_readable_failure(

@@ -77,6 +77,7 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         | MediaPlayerEntityFeature.PAUSE
         | MediaPlayerEntityFeature.PLAY_MEDIA
         | MediaPlayerEntityFeature.STOP
+        | MediaPlayerEntityFeature.TURN_OFF
         | MediaPlayerEntityFeature.NEXT_TRACK
         | MediaPlayerEntityFeature.PREVIOUS_TRACK
         | MediaPlayerEntityFeature.SEEK
@@ -234,6 +235,23 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         await self.coordinator.async_control("toggle")
 
     async def async_media_stop(self) -> None:
+        await self.coordinator.async_control("stop")
+
+    async def async_turn_off(self) -> None:
+        """The power button of the card: put the show out and let the receiver go.
+
+        Off means the show, not the mains: the product has no way to unplug a television
+        and does not pretend to. It is the same `stop` the console and the bot send, so
+        the button opens no new road outwards - `TURN_ON` is deliberately not claimed
+        next to it, because there would be nothing for it to raise.
+
+        An already idle player is silent about it. `stop` on an empty screen is the
+        serve's `nothing_playing` refusal, and reading "torrcast has nothing on the
+        screen right now" after pressing off is noise: the screen is exactly where the
+        person just asked it to be.
+        """
+        if self.state is MediaPlayerState.IDLE:
+            return
         await self.coordinator.async_control("stop")
 
     async def async_media_next_track(self) -> None:
