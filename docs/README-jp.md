@@ -117,12 +117,14 @@ git clone https://github.com/anysda/torrcast && cd torrcast
 torrcast には Home Assistant 用の統合があります。HACS にカスタムリポジトリとして追加すると、
 あとは Home Assistant が mDNS で torrcast のマシンを自分で見つけます。ダッシュボードには
 メディアプレーヤーのカードが現れます。再生、一時停止、停止、次のエピソード、音量、シークです。
+カードのメディアブラウザには検索欄があります。作品名を入力して結果をタップすれば、まさにそれが再生されます。
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=anysda&repository=torrcast&category=integration)
 
-統合は Linux に入れた torrcast とローカルネットワークで話します。声で作品名を頼めるのは
-Home Assistant の LLM アシスタントだけで、内蔵の Assist は一時停止・停止・次のエピソード・
-音量までです。
+統合は Linux に入れた torrcast とローカルネットワークで話します。内蔵の Assist は一時停止・
+停止・次のエピソード・音量に加えて「<作品名> を再生して」も扱いますが、それは Home Assistant が
+その文を用意している言語だけで、日本語はまだ入っていません。日本語で作品名を声で頼むなら
+Home Assistant の LLM アシスタントです。
 
 ## コマンド
 

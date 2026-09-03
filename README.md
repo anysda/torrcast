@@ -131,7 +131,9 @@ plays that exact one.
 
 The integration talks over the local network to a torrcast installed on Linux. The
 built-in Assist handles pause, stop, next episode, volume, and now "play <show>" as
-well; an LLM assistant of Home Assistant understands the same request in freer wording.
+well, in the languages Home Assistant ships that sentence for: English and Spanish are
+among them, Russian and Japanese are not. An LLM assistant of Home Assistant understands
+the same request in freer wording, in any language it speaks.
 
 ## Commands
 

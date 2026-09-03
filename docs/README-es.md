@@ -127,13 +127,16 @@ directamente.
 torrcast tiene una integración para Home Assistant: se añade a través de HACS como
 repositorio personalizado y después Home Assistant encuentra la máquina por su cuenta, por
 mDNS. En el panel aparece una tarjeta de reproductor: poner algo, pausa, parada, siguiente
-episodio, volumen y avance.
+episodio, volumen y avance. Su navegador de medios tiene un campo de búsqueda: escribes un
+título, tocas un resultado y se reproduce exactamente ese.
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=anysda&repository=torrcast&category=integration)
 
-La integración habla por la red local con un torrcast instalado en Linux. Pedir de viva
-voz una película por su nombre solo lo entiende un asistente LLM de Home Assistant; el
-Assist integrado se encarga de la pausa, la parada, el siguiente episodio y el volumen.
+La integración habla por la red local con un torrcast instalado en Linux. El Assist
+integrado se encarga de la pausa, la parada, el siguiente episodio, el volumen y ahora
+también de «pon <película>», en los idiomas para los que Home Assistant trae esa frase:
+el español está entre ellos. Un asistente LLM de Home Assistant entiende lo mismo dicho
+de forma más libre.
 
 ## Comandos
 
