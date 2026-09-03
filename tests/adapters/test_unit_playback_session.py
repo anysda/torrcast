@@ -22,6 +22,7 @@ class _Entry:
     quality: str = "1080p"
     dark: float = 0.0
     dark_why: str = ""
+    paused: str = ""
     warm: float = 0.0
     moved: bool = False
     file_idx: int = 2
@@ -130,6 +131,16 @@ def test_the_snapshot_carries_the_query_that_named_the_picture() -> None:
     shown = wiring.session().snapshot("движется")
 
     assert shown is not None and shown.query == "еще-по-одной"
+
+
+def test_the_snapshot_carries_the_pause_word_of_the_receiver() -> None:
+    """Слово о паузе доезжает до снимка: мост читает его из записи, а не замером."""
+    wiring = _Wiring()
+    wiring.state.entries["движется"] = _Entry(paused="PAUSED", moved=True)
+
+    shown = wiring.session().snapshot("движется")
+
+    assert shown is not None and shown.paused == "PAUSED"
 
 
 def test_an_empty_state_has_nothing_to_show() -> None:

@@ -45,10 +45,18 @@ def test_the_passport_defaults_mean_not_asked_and_not_measured_zero() -> None:
 
 def test_the_live_show_marks_start_empty_and_belong_to_the_current_file() -> None:
     """Хэш раздачи, прогрев и темнота относятся к тому файлу, который играет сейчас."""
-    entry = Entry(title="Сериал", magnet="m", kind="tv", torrent="a1", warm=90.0, dark=17.0)
+    entry = Entry(
+        title="Сериал",
+        magnet="m",
+        kind="tv",
+        torrent="a1",
+        warm=90.0,
+        dark=17.0,
+        paused="PAUSED",
+    )
 
     moved = entry.advance()
 
     assert (entry.torrent, entry.warm, entry.dark) == ("a1", 90.0, 17.0)
-    assert (moved.warm, moved.dark, moved.dark_why) == (0.0, 0.0, "")
+    assert (moved.warm, moved.dark, moved.dark_why, moved.paused) == (0.0, 0.0, "", "")
     assert moved.torrent == "a1", "раздача та же - её держит тот же живой показ"

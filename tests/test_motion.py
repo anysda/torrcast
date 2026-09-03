@@ -18,7 +18,11 @@ class _Clock:
 
 
 def _shown(
-    position: float, dark: float = 0.0, moved: bool = True, key: str = "movie:муха"
+    position: float,
+    dark: float = 0.0,
+    moved: bool = True,
+    key: str = "movie:муха",
+    paused: str = "",
 ) -> PlaybackSnapshot:
     return PlaybackSnapshot(
         key=key,
@@ -27,6 +31,7 @@ def _shown(
         duration=3600.0,
         dark_since=dark,
         moved=moved,
+        paused=paused,
     )
 
 
@@ -188,3 +193,101 @@ def test_a_toggle_on_a_show_that_gave_no_frame_does_not_fake_a_pause() -> None:
     motion.toggle()
 
     assert motion.phase(_shown(2335.8, moved=False), active=True, starting=False) == PLAYING
+
+
+def test_a_pause_made_by_the_remote_is_named_from_the_fact_on_the_first_poll() -> None:
+    """Пульт телевизора: запись уже несёт слово приёмника - ждать порога нечего."""
+    motion = Motion(still=25.0, clock=_Clock())
+
+    assert motion.phase(_shown(60.0, paused="PAUSED"), active=True, starting=False) == PAUSED
+
+
+def test_a_playing_fact_is_named_playing_however_long_the_bookmark_stands() -> None:
+    """Факт сильнее замера: стоящая дольше порога закладка паузой не зовётся."""
+    clock = _Clock()
+    motion = Motion(still=25.0, clock=clock)
+
+    motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False)
+    clock.now = 100.0
+
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PLAYING
+
+
+def test_a_remote_resume_after_a_card_pause_is_named_from_the_fact() -> None:
+    """Пауза с карточки, снятие пультом: защёлку снимает факт записи, а не запас закладки."""
+    clock = _Clock()
+    motion = Motion(still=25.0, clock=clock)
+
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PLAYING
+    motion.toggle()  # пауза с карточки
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PAUSED
+    clock.now = 2.0
+    assert motion.phase(_shown(60.0, paused="PAUSED"), active=True, starting=False) == PAUSED
+
+    clock.now = 900.0
+    assert motion.phase(_shown(60.0, paused="PAUSED"), active=True, starting=False) == PAUSED
+    # зритель снял паузу пультом - запись это уже назвала
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PLAYING
+
+
+def test_the_latch_holds_while_the_command_is_landing() -> None:
+    """Факт, расходящийся с командой внутри окна приземления, - это ещё СТАРЫЙ факт."""
+    clock = _Clock()
+    motion = Motion(still=25.0, clock=clock)
+
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PLAYING
+    motion.toggle()
+
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PAUSED
+    clock.now = 5.0
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PAUSED
+
+
+def test_a_toggle_the_receiver_never_took_falls_back_to_the_fact() -> None:
+    """Окно приземления вышло, а факт прежний - приёмник команду не взял."""
+    clock = _Clock()
+    motion = Motion(still=25.0, clock=clock)
+
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PLAYING
+    motion.toggle()
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PAUSED
+
+    clock.now = 7.0
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PLAYING
+
+
+def test_the_resume_latch_holds_against_the_stale_pause_fact() -> None:
+    """Снятие с карточки - та же защёлка: запись ещё несёт «паузу», а слово уже «играю»."""
+    clock = _Clock()
+    motion = Motion(still=25.0, clock=clock)
+
+    assert motion.phase(_shown(60.0, paused="PAUSED"), active=True, starting=False) == PAUSED
+    motion.toggle()
+
+    assert motion.phase(_shown(60.0, paused="PAUSED"), active=True, starting=False) == PLAYING
+    clock.now = 2.0
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PLAYING
+
+
+def test_a_pause_fact_without_a_frame_this_launch_is_not_a_pause() -> None:
+    """Правило TC-1002 стоит и под фактом: кадра в этом запуске не было - не пауза."""
+    motion = Motion(clock=_Clock())
+
+    assert (
+        motion.phase(_shown(2335.8, moved=False, paused="PAUSED"), active=True, starting=False)
+        == PLAYING
+    )
+
+
+def test_the_latch_does_not_follow_into_the_next_show_under_the_fact() -> None:
+    """Другой показ не наследует защёлку, даже внутри окна приземления команды."""
+    motion = Motion(clock=_Clock())
+
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PLAYING
+    motion.toggle()
+    assert motion.phase(_shown(60.0, paused="PLAYING"), active=True, starting=False) == PAUSED
+
+    assert (
+        motion.phase(_shown(5.0, key="movie:тачки", paused="PLAYING"), active=True, starting=False)
+        == PLAYING
+    )

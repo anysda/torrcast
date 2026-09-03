@@ -146,6 +146,60 @@ def test_the_card_is_told_paused_the_second_the_bridge_says_toggle(
     assert bridge.state()["state"] == "paused"
 
 
+def test_the_card_is_told_the_receivers_pause_on_the_very_first_poll() -> None:
+    """Пауза ПУЛЬТОМ: запись уже несёт слово приёмника, и мост отвечает им сразу.
+
+    Ни порога стоящей закладки, ни второго опроса: владеющий сендер положил правду в
+    запись на переходе, и мосту остаётся её прочесть.
+    """
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(
+            key="movie:муха", title="Муха", position=60.0, moved=True, paused="PAUSED"
+        ),
+    )
+
+    assert _bridge(session).state()["state"] == "paused"
+
+
+def test_the_card_is_told_playing_on_the_first_poll_when_the_record_says_so() -> None:
+    """И обратно: запись говорит «играет» - мост отвечает playing первым же опросом."""
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(
+            key="movie:муха", title="Муха", position=60.0, moved=True, paused="PLAYING"
+        ),
+    )
+
+    assert _bridge(session).state()["state"] == "playing"
+
+
+def test_a_fresh_playing_fact_does_not_talk_over_the_cards_own_pause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пауза с карточки по-прежнему доходит в ту же секунду, и под фактом тоже.
+
+    Запись скажет «играю» ещё пару секунд - показ узнает решение приёмника на своём
+    круге опроса, - и всё это время слово держит защёлка команды.
+    """
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(
+            key="movie:муха", title="Муха", position=60.0, moved=True, paused="PLAYING"
+        ),
+    )
+    bridge = _bridge(session)
+
+    assert bridge.state()["state"] == "playing"
+    bridge.control(TOGGLE, 0.0)
+
+    assert bridge.state()["state"] == "paused"
+
+
 def test_a_refused_toggle_changes_no_word() -> None:
     """Показа нет - команда отказана, и переворачивать слово мост не вправе."""
     session = FakePlaybackSession(playing=False)

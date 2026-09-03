@@ -10,6 +10,7 @@ import pytest
 from tests.adapters.filesystem.trace_journal.tape import caught
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
+from tests.fakes.state_store import FakeStateStore
 from tests.usecases.revive_playback.world import feed_with_segments
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.catalogs.screen.en import en as _screen_en
@@ -18,6 +19,7 @@ from torrcast.domain.catalogs.tongue import RU, tongue
 from torrcast.domain.entry import Entry
 from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import REVIVE_LIMIT
+from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.revive_playback._screen import (
@@ -164,9 +166,32 @@ def test_the_bookmark_and_the_darkness_reach_the_state() -> None:
     watch = Watch(key="кино", entry=Entry(title="Кино", magnet="magnet:?xt=1"))
     revival = _Revival(clock=FakeClock(now=1000.0), began=17.0, why="сети нет")
 
-    _note_watch(watch, None, 120.0, revival)
+    _note_watch(watch, None, 120.0, revival, False)
 
     assert (watch.entry.dark, watch.entry.dark_why) == (17.0, "сети нет")
+
+
+def test_the_pause_word_reaches_the_state_on_transition_with_an_immediate_flush() -> None:
+    """Правда о паузе пишется на переходе и сбрасывается на диск сразу, а не по тику.
+
+    Тик сторожа раз в 10 с для этого не годится: цена правки иначе осталась бы в тех же
+    десяти секундах, которые карточка врёт «играю» стоящему показу.
+    """
+    state_slot.install(FakeStateStore())
+    watch = Watch(key="кино", entry=Entry(title="Кино", magnet="magnet:?xt=1"))
+    revival = _Revival(clock=FakeClock(now=1000.0))
+
+    _note_watch(watch, None, 120.0, revival, False)
+    kept = state_slot.store().load().get("кино")
+    assert kept is not None and kept.paused == "PLAYING"
+
+    _note_watch(watch, None, 120.0, revival, True)
+    kept = state_slot.store().load().get("кино")
+    assert kept is not None and kept.paused == "PAUSED", "слово на диске сразу, не по тику"
+
+    _note_watch(watch, None, 120.0, revival, False)
+    kept = state_slot.store().load().get("кино")
+    assert kept is not None and kept.paused == "PLAYING"
 
 
 def test_the_tape_sees_a_stall_the_receiver_never_called_a_rebuffer(

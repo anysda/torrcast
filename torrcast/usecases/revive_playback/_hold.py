@@ -100,9 +100,8 @@ def _hold(
     while True:
         _ctl(receiver)
         # Выкладка кусков стоит на пути запроса сегмента, а запросов может не быть вовсе:
-        # показ, который берёт прогретое с диска, к упаковке не обращается, и написанное
-        # ею копится в памяти (:meth:`torrcast.usecases.feed_pack.feed.Feed.sweep`). Поэтому её
-        # зовут ещё и по часам показа - здесь, до всякого разговора с приёмником.
+        # показ на прогретом с диска к упаковке не обращается, и написанное ею копится в
+        # памяти (:meth:`torrcast.usecases.feed_pack.feed.Feed.sweep`) - зовут её и по часам.
         feed.sweep()
         if trouble := feed.trouble():
             screen.was_offline = _endure(feed, supply, clock, trouble, screen.was_offline)
@@ -132,8 +131,11 @@ def _hold(
         if clock.monotonic() - screen.said >= SAY_SECONDS:
             screen.said = clock.monotonic()
             _report(session_tag, revival, position, feed, warmer)
+        # Слово о паузе наружу - то самое, по которому показ решает ниже.
+        alive = position.state == "PAUSED"
+        paused = alive or (bool(screen.paused) and not position.playing)
         if watch is not None:
-            _note_watch(watch, warmer, screen.held, revival)
+            _note_watch(watch, warmer, screen.held, revival, paused)
         # 🔴 Страховка перехода. Конец потока приёмник называет не всегда: залипший на
         # последнем куске рапортует BUFFERING и живым себя считать не перестаёт, а сторож
         # подвиса на нём молчит по своему же правилу - впереди честно пусто, потому что
@@ -156,10 +158,9 @@ def _hold(
         # Выше паузы нарочно: закрытый с пульта показ и на закладку возвращать некому.
         if _closed(position, session_tag, screen.held or start, watch):
             return True  # показ убрал с экрана зритель - это конец, а не авария
-        # Пауза - решение зрителя, и потеря сессии его не отменяет: слово приёмника
-        # здесь может быть потеряно (UNKNOWN с нулём), и ветка держится на памяти
-        # показа, а не на нём (:mod:`torrcast.usecases.revive_playback._paused`).
-        if (alive := position.state == "PAUSED") or (screen.paused and not position.playing):
+        # Пауза - решение зрителя, и потеря сессии его не отменяет
+        # (:mod:`torrcast.usecases.revive_playback._paused`).
+        if paused:
             if not _pause(screen, receiver, feed, profile, clock, alive, screen.held or start):
                 return False  # пауза длиной с вечер - показ окончен, юнит гасим
         elif not position.playing:
@@ -188,11 +189,10 @@ def _hold(
             if feed.recoder is not None:
                 feed.recoder.played = position.pos
             feed.prune(position.pos)
-        # Между словом ``PLAYING`` и доказанным кадром приёмник спрашивается чаще: флажок
-        # «картинка» ставится только на этом круге, и при шаге 2 с строка «старт NN с»
-        # запаздывала за настоящим кадром на 1.9-3.8 с (:data:`FIRST_FRAME_POLL`). До слова
-        # ``PLAYING`` кадру взяться неоткуда, на паузе и в темноте указатель не двигается -
-        # там окна старта нет, и шаг обычный.
+        # Между словом ``PLAYING`` и доказанным кадром приёмник спрашивается чаще: при шаге
+        # 2 с строка «старт NN с» запаздывала за кадром на 1.9-3.8 с (:data:`FIRST_FRAME_POLL`).
+        # До слова ``PLAYING`` кадру взяться неоткуда, на паузе и в темноте указатель не
+        # двигается - там окна старта нет, и шаг обычный.
         clock.sleep(
             2.0
             if screen.seen or screen.still_at < 0 or position.state in {"PAUSED", "IDLE"}

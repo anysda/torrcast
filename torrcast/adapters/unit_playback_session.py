@@ -103,6 +103,7 @@ class UnitPlaybackSession:
             moved=entry.moved,
             dark_since=entry.dark,
             dark_reason=entry.dark_why,
+            paused=entry.paused,
             warm=entry.warm,
             file_index=entry.file_idx,
             audio_index=entry.audio,

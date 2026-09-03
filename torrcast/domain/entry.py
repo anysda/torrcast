@@ -118,17 +118,20 @@ class Entry(_Playing):
         число придёт от её сторожа - чужое здесь было бы враньём наружу. Отметка темноты
         (``dark``) не переживает по той же причине: она про экран, который погас на
         ПРОШЛОМ файле. По той же причине не переживает переход и ``moved``: новый файл
-        своего первого кадра ещё не показал.
+        своего первого кадра ещё не показал. И слово о паузе (``paused``) - о том же
+        экране прошлого файла: следующему оно не достаётся.
         """
         at = self.where(self.season or 0, self.episode or 0)
         if self.kind == "tv" and 0 <= at < len(self.episodes) - 1:
             return self._go(at + 1)
-        return replace(self, pos=0.0, done=True, warm=0.0, dark=0.0, dark_why="", moved=False)
+        return replace(
+            self, pos=0.0, done=True, warm=0.0, dark=0.0, dark_why="", moved=False, paused=""
+        )
 
     def _go(self, at: int) -> Entry:
         """Встать на серию номер ``at`` списка: новый файл, позиция, длительность,
-        прогрев, отметка темноты и отметка первого кадра с нуля - всё это относится к
-        файлу, а файл теперь другой."""
+        прогрев, отметка темноты, отметка первого кадра и слово о паузе с нуля - всё
+        это относится к файлу, а файл теперь другой."""
         season, episode, file_idx = self.episodes[at][:3]
         return replace(
             self,
@@ -142,6 +145,7 @@ class Entry(_Playing):
             dark=0.0,
             dark_why="",
             moved=False,
+            paused="",
         )
 
     def touch(self) -> Entry:

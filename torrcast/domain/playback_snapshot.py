@@ -20,6 +20,9 @@ class PlaybackSnapshot:
     moved: bool = False
     dark_since: float = 0.0
     dark_reason: str = ""
+    #: Слово показа о паузе из записи (:attr:`torrcast.domain._playing._Playing.paused`):
+    #: ``PAUSED``/``PLAYING``; пусто - правды в записи нет (её писала прежняя версия).
+    paused: str = ""
     warm: float = 0.0
     file_index: int = 0
     audio_index: int = 0

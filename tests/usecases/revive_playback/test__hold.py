@@ -13,6 +13,7 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
+from tests.fakes.state_store import FakeStateStore
 from tests.usecases.feed_pack.world import FakeProc, packer, tract
 from tests.usecases.revive_playback.world import (
     FakeReceiver,
@@ -27,6 +28,7 @@ from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import SOURCE_TRIES
 from torrcast.domain.start_settings import FIRST_FRAME_POLL
 from torrcast.ports.receiver import Receiver
+from torrcast.ports.state_store import slot as state_slot
 from torrcast.ports.stream_source import StreamSource
 from torrcast.runtime.wire_feed import wire_feed
 from torrcast.usecases.rank._hms import _hms
@@ -169,6 +171,33 @@ def test_a_dead_packing_with_a_healthy_source_falls_honestly(tmp_path: Path) -> 
             supply=cast(StreamSource, FakeSupply()),
             clock=FakeClock(now=1000.0),
         )
+
+
+def test_the_remote_pause_and_resume_reach_the_record_during_the_show(tmp_path: Path) -> None:
+    """Пульт телевизора: слово о паузе и о снятии ложится на диск на следующем круге.
+
+    Меряется изнутри круга опроса: на опросе, СЛЕДУЮЩЕМ за словом приёмника, запись на
+    диске уже несёт его - так её видит карточка, не дожидаясь ни тика сторожа (10 с),
+    ни конца показа.
+    """
+    state_slot.install(FakeStateStore())
+    watch = Watch(key="кино", entry=Entry(title="Кино", magnet="magnet:?xt=1"))
+    on_disk: list[str] = []
+
+    class _Checking(PlainReceiver):
+        def position(self, front: float = 0.0) -> Position:
+            answer = super().position(front)
+            kept = state_slot.store().load().get("кино")
+            on_disk.append("" if kept is None else kept.paused)
+            return answer
+
+    receiver = _Checking(
+        [(100.0, "PLAYING")] * 2 + [(100.0, "PAUSED")] * 2 + [(102.0, "PLAYING"), (0.0, "IDLE")]
+    )
+
+    _hold(cast(Receiver, receiver), feed_with_segments(tmp_path), watch, clock=FakeClock(1000.0))
+
+    assert on_disk == ["", "PLAYING", "PLAYING", "PAUSED", "PAUSED", "PLAYING"]
 
 
 @pytest.fixture

@@ -97,7 +97,13 @@ def test_moving_to_another_file_drops_everything_that_belonged_to_the_old_one() 
     Home Assistant - идущей, хотя новый файл кадра ещё не дал.
     """
     watched = pack(
-        pos=999.0, dur=WHOLE, warm=640.0, dark=1_700_000_000.0, dark_why="сеть", moved=True
+        pos=999.0,
+        dur=WHOLE,
+        warm=640.0,
+        dark=1_700_000_000.0,
+        dark_why="сеть",
+        moved=True,
+        paused="PAUSED",
     )
 
     following = watched.advance()
@@ -107,14 +113,23 @@ def test_moving_to_another_file_drops_everything_that_belonged_to_the_old_one() 
     assert following.dark == 0.0
     assert following.dark_why == ""
     assert following.moved is False, "новый файл своего кадра ещё не показал"
+    assert following.paused == "", "слово о паузе отвечало за экран прошлого файла"
 
 
 def test_a_jump_inside_the_same_release_clears_the_same_fields() -> None:
     """Прыжок на другую серию - та же смена файла, и хвосты прошлого файла с ним не едут."""
-    jumped = pack(warm=640.0, dark=1_700_000_000.0, dark_why="сеть", moved=True).jump(1, 4)
+    jumped = pack(
+        warm=640.0, dark=1_700_000_000.0, dark_why="сеть", moved=True, paused="PAUSED"
+    ).jump(1, 4)
 
     assert jumped is not None
-    assert (jumped.warm, jumped.dark, jumped.dark_why, jumped.moved) == (0.0, 0.0, "", False)
+    assert (jumped.warm, jumped.dark, jumped.dark_why, jumped.moved, jumped.paused) == (
+        0.0,
+        0.0,
+        "",
+        False,
+        "",
+    )
 
 
 def test_one_episode_in_a_release_is_a_parsing_slip_and_not_a_series() -> None:
