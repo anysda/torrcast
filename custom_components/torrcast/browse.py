@@ -4,21 +4,20 @@ Home Assistant's own frontend only draws a search field once a person has naviga
 past the root into a node that answers ``can_search=True`` (seen in the shipped
 ``27169.*.js`` of Home Assistant 2026.8.1: ``navigateIds.length > 1 && ... &&
 t.can_search``). A one-level tree never reaches that condition, so the browser here is
-always root -> one of two children, both carrying ``can_search``.
+always root -> one of two children.
 
-The frontend's own ``_search()`` (same ``27169.*.js``) reads the ``media_content_id``
-of the node a person is standing in and hands it straight to the
-``media_player/search_media`` websocket command, which lands unchanged in
-``SearchMediaQuery.media_content_id`` (``homeassistant/components/media_player/
-__init__.py``, ``websocket_search_media``). That is the whole mechanism behind the two
-fields below: the node a person searched from is the mode they asked for, and nothing
-about it needs to travel any other way.
-
-- **instant** - named and playing, no list: the one hit ``async_search_media`` marks
-  ``default`` (the same picture a bare ``cast <query>`` would take, per
-  ``enter_take``), and no other.
-- **menu** - the same full list a search has always answered with, a person still
-  picks by hand.
+- **menu** - the search field: the full list a search has always answered with, a
+  person still picks by hand. The node a person searched from arrives in the frontend's
+  own ``_search()`` as ``SearchMediaQuery.media_content_id``, so it needs no route of
+  its own.
+- **instant** - named and playing, no list at all. It carries no ``can_search``: the
+  browse dialog draws a message field and a *Say* button for any node whose
+  ``media_content_id`` begins with ``media-source://tts/`` (shipped ``55397.*.js``:
+  ``isTTSMediaSource(item.media_content_id)`` renders ``<ha-browse-media-tts>`` instead
+  of the children list). What a person types comes straight back as a play of
+  ``<node id>?message=<text>``, so the field is a command, not a question to a
+  catalogue - the same way the Yandex Station integration turns its own two fields into
+  a spoken phrase and a command.
 
 A found picture travels back through ``async_play_media`` as a plain
 ``media_content_id`` string, and that string has to survive the round trip, carry both
@@ -46,11 +45,17 @@ from homeassistant.components.media_player import (
 _SCHEME = "torrcast"
 _PICK_HOST = "pick"
 
-#: The three browse nodes: an empty root and its two searchable children. The titles
+#: The three browse nodes: an empty root and its two children, menu first. The titles
 #: are the two words the owner asked for, verbatim - a person reads them on the field.
+#: Only the prefix of the instant id is Home Assistant's; the word past it is ours and
+#: comes back untouched.
 _ROOT_ID = ""
-INSTANT_ID = "instant"
 MENU_ID = "menu"
+INSTANT_TITLE = "instant"
+INSTANT_ID = f"media-source://tts/{INSTANT_TITLE}"
+
+#: Where the dialog puts what a person typed before handing the id back for playing.
+_MESSAGE = "message"
 
 #: What the serve calls a picture's kind, and what Home Assistant calls the same thing.
 #: A kind outside this map (`Kind` also allows `"other"`) falls back to plain video.
@@ -75,14 +80,27 @@ def decode_pick(media_content_id: str) -> tuple[str, int] | None:
     return query, int(number)
 
 
+def decode_message(media_content_id: str) -> str | None:
+    """What a person typed into the instant field; `None` if it came from elsewhere.
+
+    The dialog plays the node's own id with the typed words appended as `message`
+    (`_ttsClicked` in the shipped `55397.*.js`), so the words arrive here as a query
+    string and nothing else about the id changes.
+    """
+    node_id, _, typed = media_content_id.partition("?")
+    if node_id != INSTANT_ID:
+        return None
+    return parse_qs(typed).get(_MESSAGE, [""])[0].strip()
+
+
 def browse(media_content_id: str | None) -> BrowseMedia:
-    """The root, or one of its two searchable children; anything else is not ours."""
+    """The root, or one of its two children; anything else is not ours."""
     if media_content_id in (None, _ROOT_ID):
         return _root()
-    if media_content_id == INSTANT_ID:
-        return _search_node(INSTANT_ID)
     if media_content_id == MENU_ID:
-        return _search_node(MENU_ID)
+        return _menu_node()
+    if media_content_id == INSTANT_ID:
+        return _instant_node()
     raise BrowseError(f"torrcast does not browse {media_content_id!r}")
 
 
@@ -94,17 +112,17 @@ def _root() -> BrowseMedia:
         title="torrcast",
         can_play=False,
         can_expand=True,
-        children=[_search_node(INSTANT_ID), _search_node(MENU_ID)],
+        children=[_menu_node(), _instant_node()],
     )
 
 
-def _search_node(node_id: str) -> BrowseMedia:
+def _menu_node() -> BrowseMedia:
     """Empty until searched: a place to type into, not a catalogue to page through."""
     return BrowseMedia(
         media_class=MediaClass.DIRECTORY,
-        media_content_id=node_id,
+        media_content_id=MENU_ID,
         media_content_type=MediaType.VIDEO,
-        title=node_id,
+        title=MENU_ID,
         can_play=False,
         can_expand=True,
         can_search=True,
@@ -112,26 +130,31 @@ def _search_node(node_id: str) -> BrowseMedia:
     )
 
 
-def search_media(query: str, results: list[dict[str, Any]], *, node_id: str | None) -> SearchMedia:
+def _instant_node() -> BrowseMedia:
+    """A field to command from: no `can_search`, no children, nothing to pick out of."""
+    return BrowseMedia(
+        media_class=MediaClass.APP,
+        media_content_id=INSTANT_ID,
+        media_content_type=MediaType.APP,
+        title=INSTANT_TITLE,
+        can_play=False,
+        can_expand=True,
+    )
+
+
+def search_media(query: str, results: list[dict[str, Any]]) -> SearchMedia:
     """The bridge's `results` list turned into what `async_search_media` answers with.
 
     The hit the serve flagged `default` goes first, and that flag is the whole contract
     between the two halves: it marks the one picture a bare `POST /api/play` of the same
     query would start, asked of the product itself (`hass/searching.py`). Home Assistant's
-    own `MediaSearchAndPlayHandler` plays `result[0]` and nothing else, so a voice command
-    and a bare play have to agree there or one query names two different films.
+    own `MediaSearchAndPlayHandler` plays `result[0]`, so a voice command and a bare play
+    have to agree there or one query names two different films.
 
     Nothing else about the order is ours to change, and nothing has to be: the pick number
     a hit plays by travels inside its `media_content_id`, not in its place on the screen.
-
-    `node_id` is the `media_content_id` the frontend's own search box hands back - the
-    node a person searched from, and therefore the mode they asked for
-    (:data:`INSTANT_ID` or :data:`MENU_ID`). `instant` keeps only the `default` hit;
-    anything else, `menu` included, keeps the full ordered list as before.
     """
     ordered = sorted(results, key=lambda result: not result.get("default"))
-    if node_id == INSTANT_ID:
-        ordered = ordered[:1] if ordered and ordered[0].get("default") else []
     return SearchMedia(result=[_hit(query, result) for result in ordered])
 
 
@@ -149,4 +172,4 @@ def _hit(query: str, result: dict[str, Any]) -> BrowseMedia:
     )
 
 
-__all__ = ["INSTANT_ID", "MENU_ID", "browse", "decode_pick", "search_media"]
+__all__ = ["INSTANT_ID", "MENU_ID", "browse", "decode_message", "decode_pick", "search_media"]

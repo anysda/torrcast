@@ -309,7 +309,7 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     serve flagged `default` has to lead even when the serve lists it second. Everything
     else keeps the serve's order, and every hit keeps its own pick number.
 
-    Searched from the `menu` node - the field that still hands a person the whole list.
+    Searched from the `menu` node - the only field that hands a person a list at all.
     """
     await _added(hass, aioclient_mock, snapshot())
     aioclient_mock.post(
@@ -337,64 +337,6 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     assert hits[1].media_content_id == (
         "torrcast://pick/1?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0"
     )
-
-
-async def test_search_media_without_a_node_id_keeps_the_full_list(
-    hass: HomeAssistant, aioclient_mock: Any
-) -> None:
-    """No `media_content_id` at all (a caller outside the browser) is not narrowed."""
-    await _added(hass, aioclient_mock, snapshot())
-    aioclient_mock.post(
-        f"{BASE}/api/search",
-        json=_served([("Матрица", 1999, "movie"), ("Чернобыль", 2019, "tv")], taken=2),
-    )
-    answer = await hass.services.async_call(
-        "media_player",
-        "search_media",
-        {"entity_id": PLAYER, "search_query": "матрица"},
-        blocking=True,
-        return_response=True,
-    )
-    assert len(answer[PLAYER].result) == 2
-
-
-async def test_search_media_from_the_instant_node_keeps_only_the_taken_hit(
-    hass: HomeAssistant, aioclient_mock: Any
-) -> None:
-    """Searched from `instant`: the answer is the one picture a bare `cast` would play."""
-    await _added(hass, aioclient_mock, snapshot())
-    aioclient_mock.post(
-        f"{BASE}/api/search",
-        json=_served([("Матрица", 1999, "movie"), ("Чернобыль", 2019, "tv")], taken=2),
-    )
-    answer = await hass.services.async_call(
-        "media_player",
-        "search_media",
-        {"entity_id": PLAYER, "search_query": "матрица", "media_content_id": "instant"},
-        blocking=True,
-        return_response=True,
-    )
-    hits = answer[PLAYER].result
-    assert [hit.title for hit in hits] == ["Чернобыль (2019)"]
-    assert hits[0].media_content_id == (
-        "torrcast://pick/2?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0"
-    )
-
-
-async def test_search_media_from_the_instant_node_with_no_hits_answers_empty(
-    hass: HomeAssistant, aioclient_mock: Any
-) -> None:
-    """Nothing found for `instant` is an empty list, not an invented pick."""
-    await _added(hass, aioclient_mock, snapshot())
-    aioclient_mock.post(f"{BASE}/api/search", json=_served([], taken=1))
-    answer = await hass.services.async_call(
-        "media_player",
-        "search_media",
-        {"entity_id": PLAYER, "search_query": "нет такого", "media_content_id": "instant"},
-        blocking=True,
-        return_response=True,
-    )
-    assert answer[PLAYER].result == []
 
 
 async def test_search_media_relays_the_serves_refusal(
@@ -467,10 +409,16 @@ async def test_playing_a_picked_search_hit_names_its_pick(
     assert sent(posted[0]) == {"query": "матрица", "pick": 2}
 
 
-async def test_browse_media_root_has_two_searchable_children(
+async def test_browse_media_root_puts_menu_first_and_instant_second(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
-    """The search field only draws past the root: instant and menu each need a child."""
+    """Menu leads, and only menu searches: instant is a field to command from.
+
+    The search field only draws past the root, so each mode needs a child of its own.
+    Instant's id is what makes the browse dialog draw a message field with a *Say*
+    button instead of a list (`browse.py`), and a node that also answered `can_search`
+    would be the very two-step search the owner asked to be rid of.
+    """
     await _added(hass, aioclient_mock, snapshot())
     root = await hass.services.async_call(
         "media_player",
@@ -480,25 +428,62 @@ async def test_browse_media_root_has_two_searchable_children(
         return_response=True,
     )
     children = root[PLAYER].children
-    assert [child.media_content_id for child in children] == ["instant", "menu"]
-    #: The owner's own two words - read verbatim on the field a person types into.
-    assert [child.title for child in children] == ["instant", "menu"]
-    for child in children:
-        assert child.can_search is True
-        assert child.can_expand is True
+    #: The owner's own two words, in the order he asked for them.
+    assert [child.title for child in children] == ["menu", "instant"]
+    assert [child.can_expand for child in children] == [True, True]
+    assert [bool(child.can_search) for child in children] == [True, False]
+    assert children[1].media_content_id.startswith("media-source://tts/")
 
-    for node_id in ("instant", "menu"):
-        inside = await hass.services.async_call(
-            "media_player",
-            "browse_media",
-            {"entity_id": PLAYER, "media_content_id": node_id},
-            blocking=True,
-            return_response=True,
-        )
-        #: Empty before a search, but still a legible folder, not a dead end.
-        assert inside[PLAYER].children == []
-        assert inside[PLAYER].can_search is True
-        assert inside[PLAYER].title == node_id
+    menu = await hass.services.async_call(
+        "media_player",
+        "browse_media",
+        {"entity_id": PLAYER, "media_content_id": "menu"},
+        blocking=True,
+        return_response=True,
+    )
+    #: Empty before a search, but still a legible folder, not a dead end.
+    assert menu[PLAYER].children == []
+    assert menu[PLAYER].can_search is True
+
+    instant = await hass.services.async_call(
+        "media_player",
+        "browse_media",
+        {"entity_id": PLAYER, "media_content_id": children[1].media_content_id},
+        blocking=True,
+        return_response=True,
+    )
+    assert instant[PLAYER].title == "instant"
+    assert not instant[PLAYER].can_search
+
+
+async def test_the_instant_field_plays_the_typed_name_without_searching(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Typed into instant and sent: the show starts, and no list is asked for.
+
+    This is the whole of the card: the browse dialog hands the node's own id back with
+    the typed words appended as `message` and `announce` of its own accord (see
+    `browse.py`), and that has to reach the serve as the plain query a bare `cast` would
+    take - one step, no pick number invented on the way, no `/api/search` at all.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(f"{BASE}/api/play", status=202, json={"key": "k"})
+    await hass.services.async_call(
+        "media_player",
+        "play_media",
+        {
+            "entity_id": PLAYER,
+            "media_content_id": "media-source://tts/instant?message=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0",
+            "media_content_type": "audio/mp3",
+            "announce": True,
+        },
+        blocking=True,
+    )
+    posted = [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
+    assert [str(call[1]) for call in posted] == [f"{BASE}/api/play"], (
+        "инстант обязан включать показ сам, а не спрашивать список"
+    )
+    assert sent(posted[0]) == {"query": "матрица"}
 
 
 async def test_the_same_failure_is_told_once(hass: HomeAssistant, aioclient_mock: Any) -> None:

@@ -22,7 +22,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .browse import browse, decode_pick, search_media
+from .browse import browse, decode_message, decode_pick, search_media
 from .const import DOMAIN, VOLUME_STEP
 from .coordinator import TorrcastConfigEntry, TorrcastCoordinator
 
@@ -178,13 +178,19 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
     async def async_play_media(
         self, media_type: MediaType | str, media_id: str, **kwargs: Any
     ) -> None:
-        """Play a plain query as ever, or one exact hit of a prior search.
+        """Play a plain query as ever, one exact hit of a prior search, or a typed name.
 
         `media_id` is the same free text a person would hand `cast` on the terminal,
-        unless it names a search hit (`browse.decode_pick`); the content type is not
-        looked at either way.
+        unless it names a search hit (`browse.decode_pick`) or carries what a person
+        typed into the instant field (`browse.decode_message`); the content type is not
+        looked at in any of the three cases, and neither is the `announce` the browse
+        dialog adds to a message of its own accord.
         """
         _LOGGER.debug("play %s (type %s, extras %s)", media_id, media_type, kwargs)
+        typed = decode_message(media_id)
+        if typed is not None:
+            await self.coordinator.async_play(typed)
+            return
         picked = decode_pick(media_id)
         if picked is None:
             await self.coordinator.async_play(media_id)
@@ -209,11 +215,9 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         `browse.search_media` moves it to the front: Home Assistant's own voice handler
         plays `result[0]`, so first has to mean taken.
 
-        `query.media_content_id` is the browse node a person searched from - the
-        frontend's own `_search()` hands back the id of the node it is standing in
-        (see `browse.py`), so it names the mode without a route of its own:
-        `browse.INSTANT_ID` narrows the answer to that one taken hit, anything else
-        keeps the full list.
+        Only the `menu` node carries a search field at all (see `browse.py`), so the
+        answer is always that node's full list; a voice command reaching the same place
+        without a node of its own gets the same list.
 
         A blank query is answered with nothing rather than sent on: the serve's own
         `no_query` refusal exists for `/api/play`, not for a search box a person has
@@ -221,9 +225,9 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         """
         text = query.search_query.strip()
         if not text:
-            return search_media(text, [], node_id=query.media_content_id)
+            return search_media(text, [])
         hits = await self.coordinator.async_search(text)
-        return search_media(text, hits, node_id=query.media_content_id)
+        return search_media(text, hits)
 
     async def async_media_play(self) -> None:
         await self.coordinator.async_control("toggle")
