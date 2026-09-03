@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    PLAYING,
     POSTER_REQUEST_TIMEOUT,
     REQUEST_TIMEOUT,
     SCAN_INTERVAL_IDLE,
@@ -73,14 +74,14 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         out loud and lowers the rest to debug until the serve answers again.
         """
         snapshot = await self._get_state()
-        self._mark_position(snapshot.get("position"))
+        self._mark_position(snapshot.get("position"), snapshot.get("state") == PLAYING)
         showing = snapshot.get("state") in SHOWING_STATES
         self.update_interval = SCAN_INTERVAL_SHOWING if showing else SCAN_INTERVAL_IDLE
         self._tell_version(snapshot.get("version"))
         self._tell_error(snapshot.get("last_error"))
         return snapshot
 
-    def _mark_position(self, raw: Any) -> None:
+    def _mark_position(self, raw: Any, playing: bool) -> None:
         """Moves the slider's origin with the bookmark itself, not with every answer.
 
         The show writes its bookmark once every ten seconds, the poll asks every five,
@@ -91,22 +92,32 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         A repeated place is not a new measurement, so the origin stays where it was.
         A place that moved forward moves the origin by exactly as much as the bookmark
-        moved: the two circles - the show's and the poll's - drift apart, and sooner or
-        later a new place arrives a poll late, which is the very same fall back, only
-        rare. Lagging further behind than one poll is not worth it though: a bookmark
-        standing longer than that is a show that stopped, and the truth about it is
-        worth more than a smooth slider.
+        moved, and by no more: that keeps the drawn number continuous across the change,
+        because it gains exactly what the bookmark gained. A bookmark that jumped
+        further ahead than the wall clock went - a seek forward - takes the origin to
+        `now`, which only ever moves the number up.
+
+        The origin is never dragged forward to a floor, and that is the whole of the fix:
+        a floor is the one thing that can make the drawn number fall. A show gains less
+        than a second of picture per second of wall clock whenever the receiver stalls,
+        the origin then lags further behind than any floor allows, and pulling it back up
+        subtracts exactly that lag from what the person is reading (measured on the
+        stand: a bookmark that gained 4 s over 8 s of wall clock threw the counter back
+        by 1.3 s). The lag is not lost either: it is given back the moment the bookmark
+        catches up with the drawn number, and every state other than a running show
+        re-anchors the origin outright - a card that is not playing does not tick, so
+        nothing falls back there.
         """
         place = None if raw is None else float(raw)
         now = dt_util.utcnow()
-        if place is None or self._position is None or place < self._position:
+        if place is None or not playing or self._position is None or place < self._position:
             self._position, self.position_at = place, now
             return
         if place == self._position:
             return
         moved = timedelta(seconds=place - self._position)
         self._position = place
-        self.position_at = max(now - SCAN_INTERVAL_SHOWING, min(now, self.position_at + moved))
+        self.position_at = min(now, self.position_at + moved)
 
     async def _get_state(self) -> dict[str, Any]:
         try:

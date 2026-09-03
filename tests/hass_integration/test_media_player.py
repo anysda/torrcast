@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from itertools import pairwise
 from typing import Any
 from unittest.mock import patch
 
@@ -737,3 +738,46 @@ async def test_a_seek_backwards_puts_the_slider_where_it_was_dropped(
 
     landed = _drawn(hass, dt_util.utcnow())
     assert 60.0 <= landed < 61.0, f"ползунок после перемотки назад оказался на {landed:.1f}"
+
+
+async def test_a_bookmark_that_gained_less_than_the_wall_clock_does_not_throw_it_back(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """🔴 TC-1019. Показанное человеку не ходит назад НИКОГДА, кроме его же перемотки.
+
+    Живой замер 03-09-2026: закладка шла шагом 10 с, 11 с и 4 с за 8 с настенного
+    времени, и на последнем шаге счётчик времени на карточке откатился на 1,3 с. Пол,
+    к которому подтягивали отсчёт, ровно это и делал: показ, отставший от настенных
+    часов, отставал и от пола, а подтяжка вычитала отставание из числа перед глазами.
+    """
+    entry = await _added(hass, aioclient_mock, snapshot(state="playing", position=2471.0))
+    start = dt_util.utcnow()
+    drawn = [_drawn(hass, start)]
+
+    # Закладка стоит два круга опроса, а потом двигается меньше, чем прошло времени.
+    for passed, place in ((5.0, 2471.0), (10.0, 2471.0), (15.0, 2475.0), (20.0, 2480.0)):
+        moment = start + timedelta(seconds=passed)
+        with patch(f"{CLOCK}.utcnow", return_value=moment):
+            await _polled_again(hass, aioclient_mock, entry, state="playing", position=place)
+        drawn.append(_drawn(hass, moment))
+
+    falls = [round(before - after, 1) for before, after in pairwise(drawn) if after < before]
+    assert not falls, f"ползунок откатился назад на {falls}; показанное подряд: {drawn}"
+
+
+async def test_a_show_that_is_not_playing_puts_the_slider_on_the_bookmark_itself(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Отставание отсчёта отдаётся обратно на всяком состоянии, кроме идущего показа.
+
+    Карточка не идущего показа не тикает, поэтому падать тут нечему, - а без этого
+    отставание, набранное на застрявшем приёмнике, жило бы до конца сеанса.
+    """
+    entry = await _added(hass, aioclient_mock, snapshot(state="playing", position=2471.0))
+    later = dt_util.utcnow() + timedelta(seconds=30)
+
+    with patch(f"{CLOCK}.utcnow", return_value=later):
+        await _polled_again(hass, aioclient_mock, entry, state="paused", position=2475.0)
+
+    landed = _drawn(hass, later)
+    assert 2475.0 <= landed < 2476.0, f"ползунок вставшего показа оказался на {landed:.1f}"

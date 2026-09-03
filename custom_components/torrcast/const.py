@@ -11,8 +11,10 @@ DEFAULT_PORT: Final = 8479
 #: A show moves, so it is polled often; an idle box is asked six times more rarely.
 SCAN_INTERVAL_SHOWING: Final = timedelta(seconds=5)
 SCAN_INTERVAL_IDLE: Final = timedelta(seconds=30)
+#: The one state that means the picture is moving right now; the slider counts on it.
+PLAYING: Final = "playing"
 #: States that mean something is on the screen right now.
-SHOWING_STATES: Final = frozenset({"starting", "playing", "paused"})
+SHOWING_STATES: Final = frozenset({"starting", PLAYING, "paused"})
 #: Volume is absolute on the wire, so a step is added here and sent as a level.
 VOLUME_STEP: Final = 0.05
 #: Seconds; the serve answers from the local network and has no reason to be slow.
