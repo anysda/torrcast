@@ -5,8 +5,9 @@
 #
 # 1. тег - semver (vX.Y.Z), и его коммит лежит на master
 # 2. клон репы ПО ТЕГУ в mktemp -d (не рабочее дерево)
-# 3. версия из тега - в четыре места: version.py, pyproject.toml, install.sh,
-#    manifest.json интеграции Home Assistant
+# 3. версия из тега - в дерево клона одной командой (scripts/set-version.py): version.py
+#    (источник), install.sh, manifest.json интеграции Home Assistant, uv.lock. pyproject.toml
+#    номер не хранит - hatchling берёт его динамически из version.py ([tool.hatch.version])
 # 4. тарбол + sha256 + zip интеграции для HACS
 # 5. Release на теге
 # 6. четыре ассета (тарбол, sha256, install, zip) и сверка releases/latest снаружи
@@ -64,31 +65,14 @@ clone_at_tag() {  # $1 - каталог назначения, $2 - тег
     )
 }
 
-# --- 3. версия из тега в четыре места ----------------------------------------
+# --- 3. версия из тега в дерево клона -----------------------------------------
+# Одна и та же команда держит версию в согласии и в рабочем дереве при обычной правке
+# (TC), и здесь: своя копия подстановок означала бы два места, которые снова смогут
+# разойтись, - ровно то, от чего этот выпуск и затевался.
 substitute_version() {  # $1 - каталог клона, $2 - версия без v
     src="$1" ver="$2"
-    # Версия в дереве - любая: она уже менялась и будет меняться. Литерал прежней
-    # версии здесь означал бы, что первый же выпуск делает скрипт неработающим молча.
-    any_ver='[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*'
-    sed -i "s/^__version__ = \"$any_ver\"\$/__version__ = \"$ver\"/" \
-        "$src/torrcast/domain/version.py"
-    sed -i "s/^version = \"$any_ver\"\$/version = \"$ver\"/" "$src/pyproject.toml"
-    sed -i "s/^VERSION='$any_ver'\$/VERSION='$ver'/" "$src/install.sh"
-    # Запятая после версии зависит от того, последний ли это ключ манифеста, а
-    # порядок ключей - дело hassfest, не наше. Отсюда необязательная запятая и в
-    # подстановке, и в сверке ниже.
-    sed -i "s/^  \"version\": \"$any_ver\"\(,\{0,1\}\)\$/  \"version\": \"$ver\"\1/" \
-        "$src/custom_components/torrcast/manifest.json"
-
-    grep -q "^__version__ = \"$ver\"\$" "$src/torrcast/domain/version.py" \
-        || die "версия не встала в torrcast/domain/version.py"
-    grep -q "^version = \"$ver\"\$" "$src/pyproject.toml" \
-        || die "версия не встала в pyproject.toml"
-    grep -q "^VERSION='$ver'\$" "$src/install.sh" \
-        || die "версия не встала в install.sh"
-    grep -q "^  \"version\": \"$ver\",\{0,1\}\$" \
-        "$src/custom_components/torrcast/manifest.json" \
-        || die "версия не встала в custom_components/torrcast/manifest.json"
+    ( cd "$src" && python3 scripts/set-version.py "$ver" ) \
+        || die "версия $ver не разнеслась по дереву клона"
 }
 
 # --- 4. zip интеграции для HACS ----------------------------------------------
@@ -198,6 +182,7 @@ main() {
     need curl
     need tar
     need sha256sum
+    need python3
 
     check_tag_format "$tag"
     info "[1] тег $tag - semver, проверяю предка на master"
@@ -210,7 +195,7 @@ main() {
     clone_at_tag "$work/src" "$tag"
 
     ver="${tag#v}"
-    info "[3] подставляю версию $ver в четыре места"
+    info "[3] подставляю версию $ver в дерево"
     substitute_version "$work/src" "$ver"
 
     info "[4] собираю tarball + sha256 + zip интеграции"

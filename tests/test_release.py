@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tarfile
 import threading
@@ -24,6 +25,7 @@ import pytest
 
 REPO = Path(__file__).parents[1]
 RELEASE_SH = REPO / "scripts" / "release.sh"
+SET_VERSION_PY = REPO / "scripts" / "set-version.py"
 
 
 def _write_repo(root: Path) -> None:
@@ -35,8 +37,13 @@ def _write_repo(root: Path) -> None:
     (root / "tgbot" / "__init__.py").write_text("", encoding="utf-8")
     (root / "hass").mkdir()
     (root / "hass" / "__init__.py").write_text("", encoding="utf-8")
+    # pyproject.toml номер не хранит - как в реальном дереве, hatchling берёт его
+    # динамически из torrcast/domain/version.py. substitute_version() поэтому его не
+    # трогает, и он остаётся тем же и до, и после подстановки версии.
     (root / "pyproject.toml").write_text(
-        '[project]\nname = "torrcast"\nversion = "1.0.0"\n', encoding="utf-8"
+        '[project]\nname = "torrcast"\ndynamic = ["version"]\n\n'
+        '[tool.hatch.version]\npath = "torrcast/domain/version.py"\n',
+        encoding="utf-8",
     )
     (root / "install.sh").write_text("#!/usr/bin/env bash\nVERSION='1.0.0'\n", encoding="utf-8")
     integration = root / "custom_components" / "torrcast"
@@ -45,6 +52,13 @@ def _write_repo(root: Path) -> None:
         '{\n  "domain": "torrcast",\n  "version": "1.0.0"\n}\n', encoding="utf-8"
     )
     (integration / "__init__.py").write_text('"""Интеграция."""\n', encoding="utf-8")
+    # Запись пакета torrcast в uv.lock: substitute_version() правит ТОЛЬКО её, среди
+    # сотен чужих версий зависимостей в настоящем uv.lock.
+    (root / "uv.lock").write_text(
+        '[[package]]\nname = "requests"\nversion = "2.32.3"\n\n'
+        '[[package]]\nname = "torrcast"\nversion = "1.0.0"\nsource = { editable = "." }\n',
+        encoding="utf-8",
+    )
     os.chmod(root / "install.sh", 0o755)  # как реальный install.sh в репе (100755)
     (root / "install").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
     (root / "README.md").write_text("# torrcast\n", encoding="utf-8")
@@ -57,6 +71,9 @@ def _write_repo(root: Path) -> None:
     (root / "LICENSE").write_text("MIT\n", encoding="utf-8")
     scripts = root / "scripts"
     scripts.mkdir()
+    # Настоящий разносчик версии, не подделка: substitute_version() зовёт ЕГО, и тест
+    # обязан гонять тот же код, что гоняет release.sh на живом репозитории.
+    shutil.copy(SET_VERSION_PY, scripts / "set-version.py")
     for name in (
         "sni-shim.py",
         "anilibria.yml",
@@ -228,9 +245,13 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
         assert version_py is not None
         assert '__version__ = "9.9.9"' in version_py.read().decode()
 
+        # pyproject.toml не трогается: он не хранит номер, а тянет его динамически из
+        # torrcast/domain/version.py ([tool.hatch.version]) - и остаётся ровно тем же.
         pyproject = tar.extractfile("pyproject.toml")
         assert pyproject is not None
-        assert 'version = "9.9.9"' in pyproject.read().decode()
+        pyproject_text = pyproject.read().decode()
+        assert 'dynamic = ["version"]' in pyproject_text
+        assert "9.9.9" not in pyproject_text
 
         install_sh = tar.extractfile("install.sh")
         assert install_sh is not None
@@ -252,7 +273,11 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
         assert not any(name.startswith("custom_components/") for name in inside)
         assert '"version": "9.9.9"' in archive.read("manifest.json").decode()
 
-    import shutil
+    # uv.lock не едет в тарбол, но substitute_version() правит и его - в клоне на
+    # диске (dry-run его не стирает), не только в собранных артефактах.
+    uv_lock = (Path(work) / "src" / "uv.lock").read_text(encoding="utf-8")
+    assert 'name = "torrcast"\nversion = "9.9.9"' in uv_lock
+    assert 'version = "2.32.3"' in uv_lock, "чужая запись зависимости не должна была пострадать"
 
     shutil.rmtree(work, ignore_errors=True)
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "torrcast"
-version = "1.0.3"
+dynamic = ["version"]
 description = "Поиск торрент-релиза и каст его на ТВ без скачивания и без облака"
 readme = "README.md"
 # Debian 12 везёт python3.11 и никакого python3.12 в репозиториях у неё нет. Нижняя
@@ -43,6 +43,13 @@ dev = [
     "types-requests>=2.32",
     "vulture>=2.16",
 ]
+
+# Единственное ручное место с номером версии - torrcast/domain/version.py. Отсюда
+# hatchling берёт версию собранного пакета сам; остальные производные места (JSON-
+# манифест интеграции, install.sh, uv.lock) читать python на лету не умеют и разносятся
+# командой scripts/set-version.py (сторож - tests/test_version_places.py).
+[tool.hatch.version]
+path = "torrcast/domain/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["torrcast", "tgbot", "hass"]

@@ -19,7 +19,15 @@
 # заведены полем `language` в своём же временном `TORRCAST_CONFIG`, а не окружением.
 #
 # Файлы пользователя не трогаются: конфиг, состояние и лента уводятся в свой каталог.
+#
+# Эталон версии - ШАБЛОН (`torrcast {VERSION}`), не литерал: номер тянется из
+# единственного источника (torrcast/domain/version.py, TC), иначе подъём версии красил
+# бы этот эталон так же молча, как красил семь ручных мест до него.
 set -eu
+
+current_version() {
+    sed -n 's/^__version__ = "\(.*\)"$/\1/p' torrcast/domain/version.py
+}
 
 mode=сверить
 if [ "${1:-}" = "--save" ]; then
@@ -60,9 +68,11 @@ if [ "$mode" = снять ]; then
         cp "$work/$tongue"/*.rc "$reference/$tongue/"
         # Вывод осмотра в эталон не кладётся: он держит пути рабочего каталога и ответ живой
         # сети, то есть на другой машине разошёлся бы сам собой. Сверяется только его код.
-        for name in help version status; do
+        for name in help status; do
             cp "$work/$tongue/$name.out" "$reference/$tongue/$name.out"
         done
+        sed "s/$(current_version)/{VERSION}/" "$work/$tongue/version.out" \
+            > "$reference/$tongue/version.out"
         rm -f "$reference/$tongue/doctor.out"
     done
     echo "эталон снят: $reference"
@@ -81,13 +91,20 @@ for tongue in en ru; do
     # диске, - и пришить его вывод к эталону значило бы объявить поломкой выключенный
     # телевизор. От него берётся код возврата: двойка на нездоровом хозяйстве - это
     # договор, а содержимое строк держит зеркало `tests/usecases/test_doctor.py`.
-    for name in help version status; do
+    for name in help status; do
         if ! cmp -s "$work/$tongue/$name.out" "$reference/$tongue/$name.out"; then
             echo "разошёлся вывод ($tongue): $name" >&2
             diff -u "$reference/$tongue/$name.out" "$work/$tongue/$name.out" | head -40 >&2
             failed=1
         fi
     done
+    version_want="$work/$tongue/version.want"
+    sed "s/{VERSION}/$(current_version)/" "$reference/$tongue/version.out" > "$version_want"
+    if ! cmp -s "$work/$tongue/version.out" "$version_want"; then
+        echo "разошёлся вывод ($tongue): version" >&2
+        diff -u "$version_want" "$work/$tongue/version.out" | head -40 >&2
+        failed=1
+    fi
     for name in help version status doctor; do
         if ! cmp -s "$work/$tongue/$name.rc" "$reference/$tongue/$name.rc"; then
             echo "разошёлся код возврата ($tongue): $name - было" \
