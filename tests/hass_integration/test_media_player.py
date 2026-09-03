@@ -222,6 +222,8 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     Home Assistant's own `MediaSearchAndPlayHandler` plays `result[0]`, so the hit the
     serve flagged `default` has to lead even when the serve lists it second. Everything
     else keeps the serve's order, and every hit keeps its own pick number.
+
+    Searched from the `menu` node - the field that still hands a person the whole list.
     """
     await _added(hass, aioclient_mock, snapshot())
     aioclient_mock.post(
@@ -231,7 +233,7 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     answer = await hass.services.async_call(
         "media_player",
         "search_media",
-        {"entity_id": PLAYER, "search_query": "матрица"},
+        {"entity_id": PLAYER, "search_query": "матрица", "media_content_id": "menu"},
         blocking=True,
         return_response=True,
     )
@@ -249,6 +251,64 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     assert hits[1].media_content_id == (
         "torrcast://pick/1?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0"
     )
+
+
+async def test_search_media_without_a_node_id_keeps_the_full_list(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """No `media_content_id` at all (a caller outside the browser) is not narrowed."""
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(
+        f"{BASE}/api/search",
+        json=_served([("Матрица", 1999, "movie"), ("Чернобыль", 2019, "tv")], taken=2),
+    )
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "матрица"},
+        blocking=True,
+        return_response=True,
+    )
+    assert len(answer[PLAYER].result) == 2
+
+
+async def test_search_media_from_the_instant_node_keeps_only_the_taken_hit(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Searched from `instant`: the answer is the one picture a bare `cast` would play."""
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(
+        f"{BASE}/api/search",
+        json=_served([("Матрица", 1999, "movie"), ("Чернобыль", 2019, "tv")], taken=2),
+    )
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "матрица", "media_content_id": "instant"},
+        blocking=True,
+        return_response=True,
+    )
+    hits = answer[PLAYER].result
+    assert [hit.title for hit in hits] == ["Чернобыль (2019)"]
+    assert hits[0].media_content_id == (
+        "torrcast://pick/2?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0"
+    )
+
+
+async def test_search_media_from_the_instant_node_with_no_hits_answers_empty(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Nothing found for `instant` is an empty list, not an invented pick."""
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(f"{BASE}/api/search", json=_served([], taken=1))
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "нет такого", "media_content_id": "instant"},
+        blocking=True,
+        return_response=True,
+    )
+    assert answer[PLAYER].result == []
 
 
 async def test_search_media_relays_the_serves_refusal(
@@ -287,10 +347,10 @@ async def test_playing_a_picked_search_hit_names_its_pick(
     assert sent(posted[0]) == {"query": "матрица", "pick": 2}
 
 
-async def test_browse_media_root_has_one_searchable_child(
+async def test_browse_media_root_has_two_searchable_children(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
-    """The search field only draws past the root, so the root needs a child to hold it."""
+    """The search field only draws past the root: instant and menu each need a child."""
     await _added(hass, aioclient_mock, snapshot())
     root = await hass.services.async_call(
         "media_player",
@@ -299,21 +359,26 @@ async def test_browse_media_root_has_one_searchable_child(
         blocking=True,
         return_response=True,
     )
-    child = root[PLAYER].children[0]
-    assert child.can_search is True
-    assert child.can_expand is True
+    children = root[PLAYER].children
+    assert [child.media_content_id for child in children] == ["instant", "menu"]
+    #: The owner's own two words - read verbatim on the field a person types into.
+    assert [child.title for child in children] == ["instant", "menu"]
+    for child in children:
+        assert child.can_search is True
+        assert child.can_expand is True
 
-    inside = await hass.services.async_call(
-        "media_player",
-        "browse_media",
-        {"entity_id": PLAYER, "media_content_id": child.media_content_id},
-        blocking=True,
-        return_response=True,
-    )
-    #: Empty before a search, but still a legible folder, not a dead end.
-    assert inside[PLAYER].children == []
-    assert inside[PLAYER].can_search is True
-    assert inside[PLAYER].title
+    for node_id in ("instant", "menu"):
+        inside = await hass.services.async_call(
+            "media_player",
+            "browse_media",
+            {"entity_id": PLAYER, "media_content_id": node_id},
+            blocking=True,
+            return_response=True,
+        )
+        #: Empty before a search, but still a legible folder, not a dead end.
+        assert inside[PLAYER].children == []
+        assert inside[PLAYER].can_search is True
+        assert inside[PLAYER].title == node_id
 
 
 async def test_the_same_failure_is_told_once(hass: HomeAssistant, aioclient_mock: Any) -> None:
