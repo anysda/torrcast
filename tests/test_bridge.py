@@ -13,12 +13,16 @@ from hass.say import SEEKBY, TOGGLE
 from hass.volume import Volume
 from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.state_store import FakeStateStore
+from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.adapters.choice_environment import _SystemChoiceEnvironment
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.entry import Entry
+from torrcast.domain.facts.origin import Origin
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.ports.state_store import slot as state_slot
+from torrcast.usecases.discover.search_circle import search_circle
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -47,6 +51,8 @@ def _bridge(
     *,
     command: Callable[[Sequence[str] | None], int] = lambda _argv: 0,
     receiver: _Receiver | None = None,
+    search: Any = None,
+    settings: Callable[[], Config] | None = None,
 ) -> Bridge:
     """Мост на подделках: сеанс показа, приёмник и команда - все свои.
 
@@ -54,11 +60,15 @@ def _bridge(
     точка входа из главного потока. Пока не позвал - команда «поднимается».
     """
     device: Any = receiver or _Receiver()
+    kwargs: dict[str, Any] = {}
+    if search is not None:
+        kwargs["search"] = search
     return Bridge(
         session=session,
-        settings=lambda: Config(tv="10.0.1.7"),
+        settings=settings or (lambda: Config(tv="10.0.1.7")),
         volume=Volume("10.0.1.7", connect=lambda _address: device),
         command=command,
+        **kwargs,
     )
 
 
@@ -227,3 +237,99 @@ def test_the_remote_word_goes_into_the_file_the_show_reads(
     bridge.control(SEEKBY, 90.0)
 
     assert _SystemChoiceEnvironment().read_command() == "seekby 90"
+
+
+_SEARCH_CONFIG = Config(prowlarr_apikey="KEY", tv="10.0.1.7")
+_CARS = [
+    row("Тачки / Cars (2006) BDRip 1080p | D", "a", size_gb=5.0, seeders=66),
+    row("Тачки 2 / Cars 2 (2011) BDRip 1080p | D", "b", size_gb=5.0, seeders=44),
+]
+
+
+def _real_search(answers: dict[str, list[Any]]) -> Callable[[Config, Args, Any], list[Any]]:
+    """Поиск, идущий тем же кругом, что и консоль - только клиент индексеров свой.
+
+    Настоящий :func:`search_circle`, настоящая сборка меню - ничего заново тут не
+    придумано, подделан только заход в сеть (:mod:`tests.usecases.discover.world`).
+    """
+
+    def search(config: Config, args: Args, progress: Any) -> list[Any]:
+        wire_catalogue()
+        client = Indexer(answers=answers)
+        return search_circle(
+            config,
+            args,
+            progress,
+            indexer=lambda *_a, **_k: client,
+            passport=lambda *_a, **_k: Origin(),
+        )
+
+    return search
+
+
+def test_the_search_route_lists_the_products_own_plans_with_pick_numbers() -> None:
+    """Номер и поля идут не от моста, а от того же круга поиска, что и консоль."""
+    bridge = _bridge(
+        FakePlaybackSession(),
+        search=_real_search({"тачки": _CARS}),
+        settings=lambda: _SEARCH_CONFIG,
+    )
+    plans = _real_search({"тачки": _CARS})(_SEARCH_CONFIG, Args(query=["тачки"]), Said())
+
+    results = bridge.search("тачки")
+
+    assert results == [
+        {
+            "pick": number,
+            "key": plan.picture.key,
+            "title": plan.picture.title,
+            "year": plan.picture.year,
+            "kind": plan.picture.kind,
+        }
+        for number, plan in enumerate(plans, start=1)
+    ]
+
+
+def test_a_search_refusal_carries_the_products_own_words(_russian_product: None) -> None:
+    """409 у поиска не свой: слово - ровно то, что сказал бы отказ круга поиска."""
+    bridge = _bridge(
+        FakePlaybackSession(), search=_real_search({}), settings=lambda: _SEARCH_CONFIG
+    )
+
+    with pytest.raises(RefusedError) as refusal:
+        bridge.search("нетакого")
+
+    assert "нетакого" in refusal.value.word
+    assert "ничего не нашлось" in refusal.value.word
+
+
+def test_play_with_a_pick_adds_the_flag_the_cli_understands() -> None:
+    """``pick`` из поиска доезжает до показа тем же ``--pick N``, каким его знает CLI."""
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
+
+    bridge.play("матрица", pick=2)
+    bridge.run_one()
+
+    assert asked == [["матрица", "--pick", "2"]]
+
+
+def test_play_without_a_pick_keeps_the_single_word_call() -> None:
+    """Без ``pick`` вызов остаётся ровно тем, каким его знает автовыбор консоли."""
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
+
+    bridge.play("матрица")
+    bridge.run_one()
+
+    assert asked == [["матрица"]]

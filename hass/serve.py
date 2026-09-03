@@ -1,4 +1,4 @@
-"""Четыре маршрута моста поверх стандартной библиотеки. Новой зависимости тут нет.
+"""Пять маршрутов моста поверх стандартной библиотеки. Новой зависимости тут нет.
 
 Авторизации нет намеренно: продукт живёт в домашней сети и наружу не смотрит - ровно
 как раздача HLS, которую забирает телевизор. Всё, что мост умеет, лежит в
@@ -23,6 +23,7 @@ ANY_INTERFACE = "0.0.0.0"
 #: Потолок тела запроса: команды тут короткие, а читать чужой гигабайт мы не обязаны.
 BODY_LIMIT = 64 * 1024
 STATE, PLAY, CONTROL, NEXT = "/api/state", "/api/play", "/api/control", "/api/next"
+SEARCH = "/api/search"
 #: Команды пульта, которым число обязательно (``seekby`` - секунды со знаком).
 NEEDS_ARG = (SEEKBY, VOLUME)
 
@@ -42,7 +43,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path not in (PLAY, CONTROL, NEXT):
+        if path not in (PLAY, CONTROL, NEXT, SEARCH):
             self._answer(404, {"error": "not_found"})
             return
         body = self._body()
@@ -73,13 +74,26 @@ class _Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------ внутреннее
 
     def _command(self, path: str, body: dict[str, JsonValue]) -> None:
-        """Развести три POST по мосту; отказ моста поднимается выше словом."""
+        """Развести POST по мосту; отказ моста поднимается выше словом."""
+        if path == SEARCH:
+            query = body.get("query")
+            if not isinstance(query, str) or not query.strip():
+                self._answer(400, {"error": "no_query"})
+                return
+            self._answer(200, {"results": self.bridge.search(query.strip())})
+            return
         if path == PLAY:
             query = body.get("query")
             if not isinstance(query, str) or not query.strip():
                 self._answer(400, {"error": "no_query"})
                 return
-            self._answer(202, {"key": self.bridge.play(query.strip())})
+            pick = body.get("pick")
+            if pick is not None and (
+                not isinstance(pick, int) or isinstance(pick, bool) or pick < 1
+            ):
+                self._answer(400, {"error": "bad_pick"})
+                return
+            self._answer(202, {"key": self.bridge.play(query.strip(), pick)})
             return
         if path == NEXT:
             self.bridge.next()

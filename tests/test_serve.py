@@ -20,6 +20,9 @@ class _Bridge:
 
     def __init__(self) -> None:
         self.played: list[str] = []
+        self.picked: list[int | None] = []
+        self.searched: list[str] = []
+        self.results: list[dict[str, Any]] = []
         self.controlled: list[tuple[str, float]] = []
         self.nexted = 0
         self.refuse = ""
@@ -27,10 +30,17 @@ class _Bridge:
     def state(self) -> dict[str, Any]:
         return {"state": "idle", "title": None}
 
-    def play(self, query: str) -> str:
+    def search(self, query: str) -> list[dict[str, Any]]:
+        if self.refuse:
+            raise RefusedError(self.refuse)
+        self.searched.append(query)
+        return self.results
+
+    def play(self, query: str, pick: int | None = None) -> str:
         if self.refuse:
             raise RefusedError(self.refuse)
         self.played.append(query)
+        self.picked.append(pick)
         return "deadbeef"
 
     def control(self, command: str, arg: float) -> None:
@@ -117,3 +127,60 @@ def test_a_stranger_gets_404_405_and_400(address: str) -> None:
     assert _call(f"{address}/api/control", "POST", b'{"cmd": "explode"}')[0] == 400
     # Перемотка без числа - не перемотка на ноль.
     assert _call(f"{address}/api/control", "POST", b'{"cmd": "seekby"}')[0] == 400
+
+
+def test_a_search_lists_what_the_bridge_found(address: str, bridge: _Bridge) -> None:
+    bridge.results = [
+        {"pick": 1, "key": "movie:матрица:1999", "title": "Матрица", "year": 1999, "kind": "movie"}
+    ]
+
+    code, body = _call(f"{address}/api/search", "POST", json.dumps({"query": "матрица"}).encode())
+
+    assert code == 200
+    assert json.loads(body) == {"results": bridge.results}
+    assert bridge.searched == ["матрица"]
+
+
+def test_a_search_without_a_query_is_400(address: str) -> None:
+    code, body = _call(f"{address}/api/search", "POST", b"{}")
+
+    assert code == 400
+    assert json.loads(body) == {"error": "no_query"}
+
+
+def test_a_search_refusal_becomes_409_with_the_products_own_word(
+    address: str, bridge: _Bridge
+) -> None:
+    bridge.refuse = "по запросу «матрица» ничего не нашлось"
+
+    code, body = _call(f"{address}/api/search", "POST", json.dumps({"query": "матрица"}).encode())
+
+    assert code == 409
+    assert json.loads(body) == {"error": bridge.refuse}
+
+
+def test_play_carries_the_pick_from_search_into_the_show(address: str, bridge: _Bridge) -> None:
+    play = json.dumps({"query": "матрица", "pick": 2}).encode()
+
+    code, body = _call(f"{address}/api/play", "POST", play)
+
+    assert code == 202
+    assert json.loads(body)["key"]
+    assert bridge.played == ["матрица"]
+    assert bridge.picked == [2]
+
+
+def test_play_without_a_pick_still_auto_picks(address: str, bridge: _Bridge) -> None:
+    _call(f"{address}/api/play", "POST", json.dumps({"query": "матрица"}).encode())
+
+    assert bridge.picked == [None]
+
+
+def test_a_bad_pick_is_400_and_never_reaches_the_bridge(address: str, bridge: _Bridge) -> None:
+    for bad in (0, -1, "2", 1.5, True):
+        code, body = _call(
+            f"{address}/api/play", "POST", json.dumps({"query": "матрица", "pick": bad}).encode()
+        )
+        assert code == 400, bad
+        assert json.loads(body) == {"error": "bad_pick"}
+    assert bridge.played == []

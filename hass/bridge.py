@@ -1,18 +1,18 @@
-"""Мост между четырьмя маршрутами и продуктом: показ, пульт, переход и снимок.
+"""Мост между пятью маршрутами и продуктом: поиск, показ, пульт, переход и снимок.
 
 Своих правил тут нет. Показ поднимается той же :func:`torrcast.cli.main.main`, что и в
-консоли, под тем же перехватом вывода, каким его зовёт бот
-(:func:`tgbot.command_result.command_result`) - оттуда же берётся и словесная причина
-отказа. Пульт пишет слово в тот же файл, что кнопки бота. Переход называет следующую
-серию тем же :meth:`torrcast.domain.entry.Entry.advance`, которым её называет сторож
-показа, и играет её тем же запросом «имя s1e4», каким её назвал бы человек.
+консоли, под тем же перехватом вывода бота (:func:`tgbot.command_result.command_result`)
+- оттуда же берётся словесная причина отказа. Пульт пишет слово в тот же файл, что кнопки
+бота. Переход называет следующую серию тем же :meth:`torrcast.domain.entry.Entry.advance`
+и играет её тем же запросом «имя s1e4», каким её назвал бы человек. Поиск
+(:meth:`Bridge.search`) отдаёт ровно то, что нашёл бы `search_circle`; номер пункта в его
+ответе - тот же ``--pick N``, которым CLI понимает выбор.
 
-🔴 Команда исполняется в ГЛАВНОМ потоке, как и у бота (:meth:`tgbot.bot.Bot.run_one`), и
-это не стиль: ``cast`` ставит на время команды свой обработчик SIGTERM
+🔴 Команда показа идёт в ГЛАВНОМ потоке, как и у бота (:meth:`tgbot.bot.Bot.run_one`):
+``cast`` ставит на время команды свой обработчик SIGTERM
 (:func:`torrcast.cli.answered.answered`), а из чужого потока это не делается вовсе -
-``signal only works in main thread``. Показ, отпущенный в рабочий поток, умирал бы этой
-строкой на каждом запросе, ничего не сыграв. Поэтому HTTP живёт в потоке, а очередь
-команд - в главном.
+``signal only works in main thread``. Поиск в эту очередь не встаёт: он ничего не
+показывает и не сигналит, и ждать главного потока ему незачем.
 """
 
 from __future__ import annotations
@@ -21,24 +21,34 @@ import secrets
 import threading
 from collections.abc import Callable, Sequence
 from queue import Queue
+from typing import TYPE_CHECKING
 
+from hass.following import following
 from hass.motion import Motion
 from hass.payload import payload
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE, say
+from hass.search_results import search_results
 from hass.volume import Volume
 from tgbot.command_result import command_result
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.health.machine_probe import MachineProbe
 from torrcast.cli.main import main as run_cast
+from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.slugify import slugify
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.version import __version__
 from torrcast.domain.why import why
 from torrcast.ports.playback_session import PlaybackSession
-from torrcast.ports.state_store.slot import store
+from torrcast.ports.progress.slot import progress
 from torrcast.runtime.playback_session import playback_session
+from torrcast.usecases.discover.search_circle import search_circle
+
+if TYPE_CHECKING:
+    from torrcast.domain.args import Args
+    from torrcast.ports.progress.progress import Progress
+    from torrcast.usecases.select.plan import Plan
 
 BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
 STOP, VOLUME = "stop", "volume"
@@ -46,6 +56,7 @@ STOP, VOLUME = "stop", "volume"
 COMMANDS = (TOGGLE, SEEKBY, VOLUME, STOP)
 
 _Command = Callable[[Sequence[str] | None], int]
+_Search = Callable[["Config", "Args", "Progress"], list["Plan"]]
 
 
 class Bridge:
@@ -56,12 +67,14 @@ class Bridge:
         *,
         session: PlaybackSession | None = None,
         command: _Command = run_cast,
+        search: _Search = search_circle,
         settings: Callable[[], Config] = load_config,
         volume: Volume | None = None,
         motion: Motion | None = None,
     ) -> None:
         self._session = playback_session() if session is None else session
         self._command = command
+        self._search = search
         self._settings = settings
         self._volume = volume
         self._motion = motion or Motion()
@@ -89,9 +102,19 @@ class Bridge:
 
     # ------------------------------------------------------------------ команды
 
-    def play(self, query: str) -> str:
-        """``POST /api/play``: поднять показ штатным путём, ничего не спрашивая."""
-        return self._start([query])
+    def search(self, query: str) -> list[JsonValue]:
+        """``POST /api/search``: список картин тем же поиском, что и показ, мимо очереди."""
+        try:
+            plans = self._search(self._settings(), parse_args([query]), progress())
+        except TorrcastError as refusal:
+            raise RefusedError(str(refusal)) from refusal
+        return search_results(plans)
+
+    def play(self, query: str, pick: int | None = None) -> str:
+        """``POST /api/play``: поднять показ; с ``pick`` - ровно картину под этим номером
+        из :meth:`search`, флагом ``--pick N``, которым его знает CLI."""
+        args = [query] if pick is None else [query, "--pick", str(pick)]
+        return self._start(args)
 
     def control(self, command: str, arg: float) -> None:
         """``POST /api/control``: пульт идущего показа."""
@@ -108,28 +131,12 @@ class Bridge:
 
     def next(self) -> None:
         """``POST /api/next``: следующая серия той же раздачи, названная запросом."""
-        following = self._following()
-        if following is None:
+        query = following(self._session)
+        if query is None:
             raise RefusedError(NO_NEXT)
-        self._start([following])
+        self._start([query])
 
     # ------------------------------------------------------------------ внутреннее
-
-    def _following(self) -> str | None:
-        """Запрос на следующую серию; ``None`` - фильм, последняя серия или тишина."""
-        if not self._session.active():
-            return None
-        entry = store().load().get(self._session.key())
-        if entry is None:
-            return None
-        after = entry.advance()
-        if after.done or not after.label:
-            return None
-        # Запрос собирается из записи ровно так же, как его собирает поиск следующего
-        # сезона (:func:`torrcast.usecases.next_season._next_season`), а серия встаёт в
-        # него так же, как её называет человек: `cast киберпанк s2e5` (TC-807).
-        words = (entry.query or slugify(entry.title)).replace("-", " ")
-        return f"{words} {after.label}"
 
     def _start(self, args: list[str]) -> str:
         """Отдать команду рабочему потоку; очереди нет, второй заход - это отказ."""
@@ -174,12 +181,8 @@ class Bridge:
                 self._starting = False
 
     def _volume_of(self, config: Config) -> Volume:
-        """Громкость ТОГО приёмника, который назван настройкой прямо сейчас.
-
-        Адрес меняется живой командой ``cast --tv``, и мост её переживает: сменился
-        адрес - прежнее соединение отпускается, иначе громкость уезжала бы на телевизор,
-        который в этом доме уже не показывает.
-        """
+        """Громкость ТОГО приёмника, который назван настройкой прямо сейчас: адрес
+        меняется живой командой ``cast --tv``, и старое соединение мост отпускает."""
         address = config.tv or ""
         if self._volume is not None and self._volume.address != address:
             self._volume.close()
