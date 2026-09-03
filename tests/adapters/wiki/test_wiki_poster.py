@@ -1,4 +1,4 @@
-"""Проверяет цепочку за постером: английская статья, инфобокс, файл, байты."""
+"""Проверяет цепочку за постером: статья со сверенным годом, инфобокс, файл, байты."""
 
 from __future__ import annotations
 
@@ -10,8 +10,9 @@ import pytest
 from tests.fakes.json_client import FakeJsonClient
 from torrcast.adapters.wiki.endpoints import EN_WIKI_HOST, WIKI_HOST
 from torrcast.adapters.wiki.wiki_poster import POSTER_WIDTH, WikiPoster
+from torrcast.domain.facts.ask import Ask
 
-#: Первая секция английской статьи в том виде, в каком её отдаёт ``action=parse``.
+#: Первая секция английской статьи в том виде, в каком её отдаёт ``revisions``.
 INFOBOX = "{{Infobox film\n| name = Cars\n| image = Cars 2006.jpg\n| caption = Poster\n}}"
 #: Английская статья БЕЗ картинки в инфобоксе - так выглядит статья про родство,
 #: в которую ведёт голое имя «Брата».
@@ -34,37 +35,59 @@ class FakeBytesClient:
         return self.body
 
 
-def _wiki(pages: dict[str, Any], text: dict[str, str], files: dict[str, Any]) -> FakeJsonClient:
+def _page(title: str, english: str, year: int | None, kind: str = "Фильмы") -> dict[str, Any]:
+    """Статья русского раздела: ссылка на английскую и год в категориях."""
+    page: dict[str, Any] = {"title": title, "langlinks": [{"lang": "en", "title": english}]}
+    if year is not None:
+        page["categories"] = [{"title": f"Категория:{kind} {year} года"}]
+    return page
+
+
+def _wiki(
+    pages: list[dict[str, Any]], text: dict[str, str], files: dict[str, str]
+) -> FakeJsonClient:
     """Википедия, отвечающая тремя разными ответами на три шага цепочки."""
 
     def answer(host: str, path: str, params: dict[str, str]) -> Any:
-        if params["action"] == "query" and params.get("prop") == "imageinfo":
-            return files.get(params["titles"], {"query": {"pages": [{"missing": True}]}})
-        if params["action"] == "parse":
-            return (
-                {"parse": {"wikitext": text[params["page"]]}}
-                if params["page"] in text
-                else {"error": {"code": "missingtitle"}}
-            )
-        return pages
+        if params.get("prop") == "imageinfo":
+            named = [name.partition(":")[2] for name in params["titles"].split("|")]
+            return {
+                "query": {
+                    "pages": [
+                        {"title": f"File:{name}", "imageinfo": [{"thumburl": files[name]}]}
+                        for name in named
+                        if name in files
+                    ]
+                }
+            }
+        if params.get("prop") == "revisions":
+            return {
+                "query": {
+                    "pages": [
+                        {
+                            "title": name,
+                            "revisions": [{"slots": {"main": {"content": text[name]}}}],
+                        }
+                        for name in params["titles"].split("|")
+                        if name in text
+                    ]
+                }
+            }
+        return {"query": {"pages": pages}}
 
     return FakeJsonClient(answer)
-
-
-def _file(name: str, address: str) -> dict[str, Any]:
-    return {"query": {"pages": [{"title": name, "imageinfo": [{"thumburl": address}]}]}}
 
 
 def test_the_chain_walks_from_the_russian_name_to_the_picture_bytes() -> None:
     """Три шага, три ответа - и на выходе байты, а не адрес чужого хоста."""
     client = _wiki(
-        {"query": {"pages": [{"title": "Тачки", "langlinks": [{"lang": "en", "title": "Cars"}]}]}},
+        [_page("Тачки", "Cars", 2006)],
         {"Cars": INFOBOX},
-        {"File:Cars 2006.jpg": _file("File:Cars 2006.jpg", "https://upload.wikimedia.org/c.jpg")},
+        {"Cars 2006.jpg": "https://upload.wikimedia.org/c.jpg"},
     )
     files = FakeBytesClient()
 
-    assert WikiPoster(client, files).poster("Тачки", 2006, "movie", 1.0) == PICTURE
+    assert WikiPoster(client, files).poster(Ask("Тачки", 2006, "movie"), 1.0) == PICTURE
     assert files.asked == ["https://upload.wikimedia.org/c.jpg"]
 
 
@@ -74,11 +97,11 @@ def test_the_english_name_rides_along_with_the_article_and_costs_no_extra_trip()
     Спрошено у русского раздела ровно один раз, и спрошено с ``lllang=en``.
     """
     client = _wiki(
-        {"query": {"pages": [{"title": "Тачки", "langlinks": [{"lang": "en", "title": "Cars"}]}]}},
+        [_page("Тачки", "Cars", 2006)],
         {"Cars": INFOBOX},
-        {"File:Cars 2006.jpg": _file("File:Cars 2006.jpg", "https://upload.wikimedia.org/c.jpg")},
+        {"Cars 2006.jpg": "https://upload.wikimedia.org/c.jpg"},
     )
-    WikiPoster(client, FakeBytesClient()).poster("Тачки", 2006, "movie", 1.0)
+    WikiPoster(client, FakeBytesClient()).poster(Ask("Тачки", 2006, "movie"), 1.0)
 
     russian = [call for call in client.calls if call[0] == WIKI_HOST]
     assert len(russian) == 1, f"походов в русский раздел {len(russian)}"
@@ -93,38 +116,24 @@ def test_the_next_article_is_read_when_the_first_one_has_no_infobox_picture() ->
     бы это молча: карточка показывала бы кадр и выглядела бы исправной.
     """
     client = _wiki(
-        {
-            "query": {
-                "pages": [
-                    {"title": "Брат", "langlinks": [{"lang": "en", "title": "Brother"}]},
-                    {
-                        "title": "Брат (фильм, 1997)",
-                        "langlinks": [{"lang": "en", "title": "Brother (1997 film)"}],
-                    },
-                ]
-            }
-        },
+        [_page("Брат", "Brother", 1997), _page("Брат (фильм, 1997)", "Brother (1997 film)", 1997)],
         {"Brother": KINSHIP, "Brother (1997 film)": "| image = Brat poster.jpg\n"},
-        {
-            "File:Brat poster.jpg": _file(
-                "File:Brat poster.jpg", "https://upload.wikimedia.org/b.jpg"
-            )
-        },
+        {"Brat poster.jpg": "https://upload.wikimedia.org/b.jpg"},
     )
     files = FakeBytesClient()
 
-    assert WikiPoster(client, files).poster("Брат", 1997, "movie", 1.0) == PICTURE
+    assert WikiPoster(client, files).poster(Ask("Брат", 1997, "movie"), 1.0) == PICTURE
     assert files.asked == ["https://upload.wikimedia.org/b.jpg"]
 
 
 def test_the_file_is_asked_for_a_shrunk_copy() -> None:
     """Без ширины ответ приезжает вектором, а карточка плеера вектор не рисует."""
     client = _wiki(
-        {"query": {"pages": [{"title": "Уэнздей", "langlinks": [{"lang": "en", "title": "W"}]}]}},
+        [_page("Уэнздей", "W", 2022, kind="Телесериалы")],
         {"W": "| image = W logo.svg\n"},
-        {"File:W logo.svg": _file("File:W logo.svg", "https://upload.wikimedia.org/500px-W.png")},
+        {"W logo.svg": "https://upload.wikimedia.org/500px-W.png"},
     )
-    WikiPoster(client, FakeBytesClient()).poster("Уэнздей", 2022, "tv", 1.0)
+    WikiPoster(client, FakeBytesClient()).poster(Ask("Уэнздей", 2022, "tv"), 1.0)
 
     asked = [call[2] for call in client.calls if call[2].get("prop") == "imageinfo"]
     assert asked and asked[0]["iiurlwidth"] == str(POSTER_WIDTH)
@@ -132,23 +141,19 @@ def test_the_file_is_asked_for_a_shrunk_copy() -> None:
 
 def test_a_picture_without_an_english_article_answers_with_nothing() -> None:
     """Ответа нет - и врать нечем: запасной путь заведён у того, кто зовёт."""
-    client = _wiki({"query": {"pages": [{"title": "Внутри Лапенко", "missing": True}]}}, {}, {})
+    client = _wiki([{"title": "Внутри Лапенко", "missing": True}], {}, {})
     files = FakeBytesClient()
 
-    assert WikiPoster(client, files).poster("Внутри Лапенко", 2019, "tv", 1.0) is None
+    assert WikiPoster(client, files).poster(Ask("Внутри Лапенко", 2019, "tv"), 1.0) is None
     assert files.asked == [], "за файлом никто не ходил"
 
 
 def test_a_file_missing_from_the_store_is_not_asked_for_bytes() -> None:
     """Имя в инфобоксе есть, файла на складе нет - адреса не будет, и похода тоже."""
-    client = _wiki(
-        {"query": {"pages": [{"title": "Тачки", "langlinks": [{"lang": "en", "title": "Cars"}]}]}},
-        {"Cars": INFOBOX},
-        {},
-    )
+    client = _wiki([_page("Тачки", "Cars", 2006)], {"Cars": INFOBOX}, {})
     files = FakeBytesClient()
 
-    assert WikiPoster(client, files).poster("Тачки", 2006, "movie", 1.0) is None
+    assert WikiPoster(client, files).poster(Ask("Тачки", 2006, "movie"), 1.0) is None
     assert files.asked == []
 
 
@@ -161,4 +166,4 @@ def test_a_silent_wikipedia_is_told_apart_from_a_picture_without_a_poster() -> N
     client = FakeJsonClient(lambda host, path, params: (_ for _ in ()).throw(OSError("HTTP 429")))
 
     with pytest.raises(OSError, match="429"):
-        WikiPoster(client, FakeBytesClient()).poster("Тачки", 2006, "movie", 1.0)
+        WikiPoster(client, FakeBytesClient()).poster(Ask("Тачки", 2006, "movie"), 1.0)

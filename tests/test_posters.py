@@ -13,8 +13,10 @@ import pytest
 from hass.hit_posters import HitPosters
 from hass.poster_shelf import PosterShelf
 from hass.posters import ROUTE, Posters
+from tests.test_hit_posters import FakeSource
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
 from torrcast.adapters.wiki.wiki_poster import WikiPoster
+from torrcast.domain.facts.ask import Ask
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.runtime.facts_wiring import FACTS
 
@@ -45,8 +47,8 @@ class FakePoster:
     gate: threading.Event | None = None
     asked: list[tuple[str, int | None, str]] = field(default_factory=list)
 
-    def __call__(self, title: str, year: int | None, kind: str, timeout: float) -> bytes | None:
-        self.asked.append((title, year, kind))
+    def __call__(self, ask: Ask, timeout: float) -> bytes | None:
+        self.asked.append((ask.title, ask.year, ask.kind))
         if self.gate is not None:
             self.gate.wait(_SETTLE)
         if self.error is not None:
@@ -218,32 +220,32 @@ def test_the_frame_opens_the_manifest_and_not_the_hls_base(tmp_path: Path) -> No
 
 
 @pytest.mark.machine
-def test_a_misspelled_catalogue_title_reaches_a_confirmed_poster(tmp_path: Path) -> None:
-    """Опечатка записи исправляется, но только с совпавшими годом и родом статьи."""
-    asked: list[tuple[str, int | None, str]] = []
+def test_a_misspelled_catalogue_title_reaches_a_poster_through_the_asked_words(
+    tmp_path: Path,
+) -> None:
+    """Опечатка записи не хоронит постер: рядом с названием спрашивается запрос человека.
+
+    Отдельного похода «за паспортом» тут больше нет - он подтверждал год у одной находки
+    из девяти и стоил при этом запроса на каждую. Вместо него в очередь имён встаёт то,
+    что человек и набрал, а год сверяет сам поход за статьёй.
+    """
+    asked: list[str] = []
     frame = FakeFrame()
-    corrected: list[tuple[str, int, str]] = []
 
-    def poster(title: str, year: int | None, kind: str, timeout: float) -> bytes | None:
-        asked.append((title, year, kind))
-        return POSTER if title == "Ещё по одной" else None
-
-    def correct(title: str, year: int, kind: str, timeout: float) -> str:
-        corrected.append((title, year, kind))
-        return "Ещё по одной"
+    def poster(ask: Ask, timeout: float) -> bytes | None:
+        asked.append(ask.title)
+        return POSTER if ask.title == "еще по одной" else None
 
     made = Posters(
         poster=poster,
         frame=frame,
         shelf=PosterShelf(home=lambda: tmp_path / "posters"),
-        correct=correct,
     )
     shown = _film("Еше по одной", 2020, original="Druk", query="еще-по-одной")
 
     _, digest = _settled(made, shown)
 
-    assert corrected == [("Еше по одной", 2020, "movie")]
-    assert asked[-1] == ("Ещё по одной", 2020, "movie")
+    assert asked == ["Еше по одной", "еще по одной"], f"спрошено {asked}"
     assert made.read(digest) == (POSTER, "image/jpeg"), "карточка получила постер"
 
 
@@ -372,7 +374,7 @@ def test_the_same_door_serves_the_pictures_of_the_found_list(
     наружу под них не заводится: спросили тем же адресом - отдалась та же картинка.
     """
     found = HitPosters(
-        poster=FakePoster(body=OTHER), shelf=PosterShelf(home=lambda: tmp_path / "posters")
+        source=FakeSource(body=OTHER), shelf=PosterShelf(home=lambda: tmp_path / "posters")
     )
     monkeypatch.setattr("hass.posters.hits", found)
     offered = found.offer([{"pick": 1, "title": "Тачки", "year": 2006, "kind": "movie"}])[0]

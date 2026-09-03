@@ -1,34 +1,26 @@
-"""Имена постера и адрес запасного кадра; зовёт сборщик картинки карточки."""
+"""Просьбы о постере и адрес запасного кадра; зовёт сборщик картинки карточки."""
 
 from __future__ import annotations
 
-from torrcast.adapters.wiki.wiki_spelling import WikiSpelling
-from torrcast.domain.facts.near_name import _near_name
-from torrcast.domain.facts.read_origin import read_origin
+from torrcast.domain.facts.ask import Ask
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
-from torrcast.domain.transliterate import transliterate
-from torrcast.runtime.facts_wiring import FACTS
 
 
-def _poster_names(shown: PlaybackSnapshot) -> list[str]:
-    """Все записанные имена картины, без догадок и повторов."""
-    out: list[str] = []
-    for name in (shown.title, shown.original, shown.query.replace("-", " ")):
-        clean = name.strip()
-        if clean and clean.casefold() not in {item.casefold() for item in out}:
-            out.append(clean)
-    return out
+def _poster_asks(shown: PlaybackSnapshot) -> list[Ask]:
+    """Просьбы о постере этой картины, в порядке доверия к именам.
 
-
-def _wiki_correction(title: str, year: int, kind: str, timeout: float) -> str:
-    """Исправленное Википедией имя, только если паспорт подтвердил год и род."""
-    spelling = WikiSpelling(FACTS.client)
-    pages = spelling.suggested(title, timeout)
-    if not pages and transliterate(title).casefold() != title.casefold():
-        pages = spelling.suggested(transliterate(title), timeout)
-    near = [page for page in pages if _near_name(title, str(page.get("title") or ""))]
-    found = read_origin(near, title, trusted=True, series=kind == "tv")
-    return found.name if found.year == year else ""
+    Оригинальное имя едет ПОЛЕМ просьбы, а не ещё одним именем в очереди: русской
+    статьи у части картин нет вовсе, и английская лежит ровно под оригинальным именем -
+    но искать её там имеет смысл только после того, как русский раздел промолчал
+    (:meth:`~torrcast.adapters.wiki.poster_pages.PosterPages.wanted`).
+    """
+    kind = "tv" if shown.label else "movie"
+    year = shown.year or None
+    out = [Ask(shown.title.strip(), year, kind, shown.original.strip())]
+    asked = shown.query.replace("-", " ").strip()
+    if asked and asked.casefold() != out[0].title.casefold():
+        out.append(Ask(asked, year, kind, ""))
+    return [ask for ask in out if ask.title]
 
 
 def _manifest(where: str) -> str:

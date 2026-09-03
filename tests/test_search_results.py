@@ -24,6 +24,11 @@ def _records(results: list[JsonValue]) -> list[dict[str, Any]]:
 
 
 def test_plans_become_picks_numbered_from_one_in_the_products_own_order() -> None:
+    """Оригинальное имя едет полем записи: у части находок русской статьи нет вовсе.
+
+    Пустая строка на его месте - это «продукт про оригинал не знает», и картинку такой
+    находке ищут по одному русскому имени.
+    """
     plans = [_plan("Тачки", 2006), _plan("Тачки 2", 2011)]
 
     assert search_results(plans, 2) == [
@@ -33,6 +38,7 @@ def test_plans_become_picks_numbered_from_one_in_the_products_own_order() -> Non
             "title": "Тачки",
             "year": 2006,
             "kind": "movie",
+            "original": "",
             "default": False,
         },
         {
@@ -41,6 +47,7 @@ def test_plans_become_picks_numbered_from_one_in_the_products_own_order() -> Non
             "title": "Тачки 2",
             "year": 2011,
             "kind": "movie",
+            "original": "",
             "default": True,
         },
     ]

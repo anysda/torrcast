@@ -1,14 +1,28 @@
-"""Постер картины из английской Википедии; зовёт картинка карточки плеера."""
+"""Постер картины из английской Википедии; зовут карточка плеера и список обзора.
+
+Путь разложен на два шага, и это не украшение. ПЕРВЫЙ отвечает на вопрос «есть ли у этой
+картины статья с подтверждённым годом» (:class:`~torrcast.adapters.wiki.poster_pages.PosterPages`),
+ВТОРОЙ приносит байты. Разделены они потому, что имя картинки нельзя выдавать раньше
+ответа на первый вопрос: человек видит рамку вокруг пустоты там, где строка должна была
+остаться строкой (TC-1023).
+
+Оба шага берут пачку картин целиком: у списка находок их десяток, и десяток отдельных
+цепочек по три запроса каждая - это стук по Википедии, а не поиск.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Final
 
-from torrcast.adapters.wiki.endpoints import EN_WIKI_HOST, WIKI_HOST, WIKI_PATH
-from torrcast.domain.facts.english_pages import english_pages
+from torrcast.adapters.wiki.endpoints import EN_WIKI_HOST, WIKI_PATH
+from torrcast.adapters.wiki.poster_pages import PosterPages
+from torrcast.domain.facts.ask import Ask
+from torrcast.domain.facts.in_budget import in_budget
 from torrcast.domain.facts.infobox_image import infobox_image
 from torrcast.domain.facts.poster_address import poster_address
-from torrcast.domain.facts.titles_for import titles_for
+from torrcast.domain.facts.wiki_pages import wiki_pages
 from torrcast.domain.json_map import json_map
 from torrcast.domain.json_value import JsonValue
 from torrcast.ports.bytes_client import BytesClient
@@ -17,18 +31,17 @@ from torrcast.ports.json_client import JsonClient
 #: Ширина копии постера, точек. Карточка плеера рисует её в пару сотен, а Wikimedia
 #: отдаёт растр любой ширины - и вектор тоже (у сериалов в ``image`` лежит логотип).
 POSTER_WIDTH: Final = 500
-#: Сколько имён картины спрашивается у русского раздела одним запросом. Столько же их
-#: и уезжает: очередь имён складывает :func:`titles_for`, и хвост её - регистровые
-#: варианты, до которых на постере дело не доходит.
-_NAMES: Final = 6
-#: Сколько английских статей читается на постер. Первая не всегда та: у «Брата» голое
-#: имя ведёт в статью про родство, и настоящий фильм стоит вторым. Больше трёх - это
-#: уже перебор чужих статей, а не поиск своей.
-_PAGES: Final = 3
+#: Сколько имён влезает в один запрос ``titles``: предел API для гостя.
+_TITLES: Final = 50
+#: Сколько знаков имён везёт адрес запроса; длиннее - «414 URI Too Long».
+_BUDGET: Final = 6000
+#: Сколько картинок качается разом. Сами байты - самый долгий шаг из всех: запросов на
+#: список уходит четыре, а картинок десяток, и подряд они складывались бы в секунды.
+_LANES: Final = 4
 
 
 class WikiPoster:
-    """Цепочка за постером: имя английской статьи, её инфобокс, файл, байты.
+    """Цепочка за постером: английская статья со сверенным годом, инфобокс, файл, байты.
 
     Ни ключа, ни регистрации, ни одного нового хоста сверх тех, куда справка ходит и
     так. Каталоги метаданных (Кинопоиск, TMDB) вычеркнуты требованием владельца - «без
@@ -46,70 +59,119 @@ class WikiPoster:
     def __init__(self, client: JsonClient, files: BytesClient) -> None:
         self.client = client
         self.files = files
+        self.pages = PosterPages(client)
 
-    def poster(self, title: str, year: int | None, kind: str, timeout: float) -> bytes | None:
-        """Байты постера картины; статьи нет или инфобокс без картинки - ``None``."""
-        for page in self._pages(title, year, kind, timeout)[:_PAGES]:
-            name = infobox_image(self._wikitext(page, timeout))
-            if not name:
-                continue
-            address = poster_address(self._file(name, timeout))
-            if address:
-                return self.files.fetch(address, timeout)
-        return None
+    def poster(self, ask: Ask, timeout: float) -> bytes | None:
+        """Байты постера одной картины; статьи нет или инфобокс без картинки - ``None``.
 
-    def _pages(self, title: str, year: int | None, kind: str, timeout: float) -> list[str]:
-        """Имена английских статей этой картины, в порядке доверия к именам русским.
-
-        Ссылка на английскую статью едет тем же запросом, что и сама статья, и стоит
-        поэтому ноль лишних походов: ``langlinks`` с ``lllang=en`` - ровно то, чем
-        справка добирает оригинальное имя (:func:`extract_params`).
+        Дверь для карточки играющего: картина там одна, и пачка из неё одной - это те же
+        шаги в том же порядке. Правило у карточки и у списка обзора обязано быть одно,
+        иначе человек увидит в списке не ту картинку, что потом заиграет.
         """
-        names = titles_for(title, year, kind)[:_NAMES]
-        if not names:
-            return []
-        params = {
-            "action": "query",
-            "titles": "|".join(names),
-            "redirects": "1",
-            "prop": "langlinks|pageprops",
-            "lllang": "en",
-            "lllimit": str(_NAMES),
-            "ppprop": "disambiguation",
-            "format": "json",
-            "formatversion": "2",
-        }
-        return english_pages(self.client.get(WIKI_HOST, WIKI_PATH, params, {}, timeout), names)
+        return self.bodies(self.wanted([ask], timeout), timeout).get(ask)
 
-    def _wikitext(self, page: str, timeout: float) -> str:
-        """Вики-текст ПЕРВОЙ секции статьи: инфобокс стоит в ней, и только в ней.
+    def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
+        """Кому вообще есть что показывать: статьи со сверенным годом на каждую картину.
+
+        Пустой список тут - это ответ, а не отказ: у картины нет статьи ни под своим
+        именем, ни под оригинальным, и картинки ей взять неоткуда.
+        """
+        return self.pages.wanted(asks, timeout)
+
+    def bodies(self, wanted: dict[Ask, list[str]], timeout: float) -> dict[Ask, bytes]:
+        """Байты постеров по отобранным статьям; вся пачка за три запроса и загрузки.
+
+        Инфобоксы всех статей читаются одним запросом, адреса всех файлов - вторым:
+        поштучно это было бы до трёх ``parse`` на каждую находку, то есть тридцать
+        запросов на список из десяти.
+        """
+        pages = list(dict.fromkeys(page for rows in wanted.values() for page in rows))
+        if not pages:
+            return {}
+        files = self._images(pages, timeout)
+        addresses = self._addresses(list(dict.fromkeys(files.values())), timeout)
+        picked = {
+            ask: next(
+                (addresses[files[page]] for page in rows if addresses.get(files.get(page, ""))),
+                "",
+            )
+            for ask, rows in wanted.items()
+        }
+        wanted_addresses = list(dict.fromkeys(one for one in picked.values() if one))
+        with ThreadPoolExecutor(max_workers=_LANES) as lanes:
+            loaded = dict(
+                zip(
+                    wanted_addresses,
+                    lanes.map(lambda one: self._body(one, timeout), wanted_addresses),
+                    strict=True,
+                )
+            )
+        return {ask: body for ask, one in picked.items() if (body := loaded.get(one)) is not None}
+
+    def _body(self, address: str, timeout: float) -> bytes | None:
+        return self.files.fetch(address, timeout) if address else None
+
+    def _images(self, pages: Sequence[str], timeout: float) -> dict[str, str]:
+        """Имя файла постера по имени статьи: вики-текст ПЕРВОЙ секции пачкой.
 
         Секция названа номером не ради экономии: полная статья везёт сотни килобайт
-        разметки, а ``| image =`` лежит в первых её строках. Отказ разбора («такой
-        страницы нет») приезжает в теле ответа полем ``error``, а не кодом HTTP, и
-        читается тут как пустой текст - то есть как повод взять следующую статью.
+        разметки, а ``| image =`` лежит в первых её строках. Читается она через
+        ``revisions``, а не ``parse``, ровно потому, что ``parse`` берёт одну статью за
+        запрос, а ``revisions`` - полсотни.
         """
-        params = {
-            "action": "parse",
-            "page": page,
-            "prop": "wikitext",
-            "section": "0",
-            "redirects": "1",
-            "format": "json",
-            "formatversion": "2",
-        }
-        reply: JsonValue = self.client.get(EN_WIKI_HOST, WIKI_PATH, params, {}, timeout)
-        return str(json_map(json_map(reply).get("parse")).get("wikitext") or "")
+        out: dict[str, str] = {}
+        for part in in_budget(pages, _TITLES, _BUDGET):
+            params = {
+                "action": "query",
+                "titles": "|".join(part),
+                "prop": "revisions",
+                "rvprop": "content",
+                "rvslots": "main",
+                "rvsection": "0",
+                "redirects": "1",
+                "format": "json",
+                "formatversion": "2",
+            }
+            hops, found = wiki_pages(self.client.get(EN_WIKI_HOST, WIKI_PATH, params, {}, timeout))
+            for page in part:
+                seen = page
+                for _ in range(3):  # нормализация, затем перенаправление
+                    seen = hops.get(seen, seen)
+                name = infobox_image(_wikitext(found.get(seen)))
+                if name:
+                    out[page] = name
+        return out
 
-    def _file(self, name: str, timeout: float) -> JsonValue:
-        """Ответ ``imageinfo`` про файл постера: из имени файла делается адрес."""
-        params = {
-            "action": "query",
-            "titles": f"File:{name}",
-            "prop": "imageinfo",
-            "iiprop": "url",
-            "iiurlwidth": str(POSTER_WIDTH),
-            "format": "json",
-            "formatversion": "2",
-        }
-        return self.client.get(EN_WIKI_HOST, WIKI_PATH, params, {}, timeout)
+    def _addresses(self, files: Sequence[str], timeout: float) -> dict[str, str]:
+        """Адрес копии постера по имени файла: ``imageinfo`` тоже берёт пачку."""
+        out: dict[str, str] = {}
+        for part in in_budget(files, _TITLES, _BUDGET):
+            params = {
+                "action": "query",
+                "titles": "|".join(f"File:{name}" for name in part),
+                "prop": "imageinfo",
+                "iiprop": "url",
+                "iiurlwidth": str(POSTER_WIDTH),
+                "redirects": "1",
+                "format": "json",
+                "formatversion": "2",
+            }
+            hops, found = wiki_pages(self.client.get(EN_WIKI_HOST, WIKI_PATH, params, {}, timeout))
+            for name in part:
+                seen = f"File:{name}"
+                for _ in range(3):  # подчёркивания вместо пробелов, затем перенаправление
+                    seen = hops.get(seen, seen)
+                page = found.get(seen)
+                address = poster_address({"query": {"pages": [page]}}) if page else ""
+                if address:
+                    out[name] = address
+        return out
+
+
+def _wikitext(page: JsonValue) -> str:
+    """Вики-текст первой секции из ответа ``revisions``; статьи нет - пустой текст."""
+    revisions = json_map(page).get("revisions")
+    if not isinstance(revisions, list) or not revisions:
+        return ""
+    slots = json_map(json_map(revisions[0]).get("slots"))
+    return str(json_map(slots.get("main")).get("content") or "")

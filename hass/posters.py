@@ -11,10 +11,12 @@ from typing import Final
 from hass.hit_posters import hits
 from hass.picture_type import picture_type
 from hass.poster_find import poster_find
-from hass.poster_lookup import _manifest, _poster_names, _wiki_correction
+from hass.poster_lookup import _manifest, _poster_asks
+from hass.poster_name import poster_name
 from hass.poster_shelf import PosterShelf
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
 from torrcast.adapters.wiki.wiki_poster import WikiPoster
+from torrcast.domain.facts.ask import Ask
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.runtime.facts_wiring import FACTS
 
@@ -33,9 +35,8 @@ _RETRY: Final = 300.0
 #: байтов ровно в тот миг, когда показ уже сменился, а Home Assistant ещё тянет прошлую.
 _KEEP: Final = 4
 
-_Poster = Callable[[str, int | None, str, float], bytes | None]
+_Poster = Callable[[Ask, float], bytes | None]
 _Frame = Callable[[str], bytes | None]
-_Correct = Callable[[str, int, str, float], str]
 _Stream = Callable[[], str]
 
 
@@ -59,13 +60,9 @@ class Posters:
         frame: _Frame = frame_shot,
         shelf: PosterShelf | None = None,
         now: Callable[[], float] = time.monotonic,
-        correct: _Correct | None = None,
     ) -> None:
         source = WikiPoster(FACTS.client, FACTS.client)
         self._poster = poster or source.poster
-        self._correct = (
-            correct if correct is not None else (None if poster is not None else _wiki_correction)
-        )
         self._frame = frame
         self._shelf = PosterShelf() if shelf is None else shelf
         self._now = now
@@ -144,22 +141,19 @@ class Posters:
         kept = self._shelf.read(identity)
         if kept:
             return kept
-        body = poster_find(
-            _poster_names(shown),
-            shown.year or None,
-            _kind(shown),
-            _TIMEOUT,
-            self._poster,
-            self._correct,
-        )
+        body = poster_find(_poster_asks(shown), _TIMEOUT, self._poster)
         if body:
             self._shelf.write(identity, body)
         return body
 
 
 def _identity(shown: PlaybackSnapshot) -> str:
-    """Чем картина отличается от соседки на полке: имя, год и её род."""
-    return f"{shown.title}|{shown.year}|{_kind(shown)}"
+    """Чем картина отличается от соседки на полке: имя, год и её род.
+
+    Имя общее со списком находок (:func:`hass.poster_name.poster_name`): полка у них
+    одна, и разъехавшиеся имена завели бы на ней две записи про одну картину.
+    """
+    return poster_name(shown.title, shown.year, _kind(shown))
 
 
 def _key(shown: PlaybackSnapshot) -> str:

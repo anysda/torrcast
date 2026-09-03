@@ -27,6 +27,10 @@ def search_results(plans: list[Plan], taken: int) -> list[JsonValue]:
 
     ``taken`` - номер картины, которую взял бы голый показ: у неё, и только у неё,
     ``default`` истинно.
+
+    Оригинальное имя едет отдельным полем, потому что у части находок русской статьи нет
+    вовсе, а английская лежит ровно под ним: без этого поля картинка такой находки была
+    бы недостижима (:func:`hass.hit_ask._about`).
     """
     return [
         {
@@ -35,6 +39,7 @@ def search_results(plans: list[Plan], taken: int) -> list[JsonValue]:
             "title": plan.picture.title,
             "year": plan.picture.year,
             "kind": plan.picture.kind,
+            "original": plan.picture.original or "",
             "default": number == taken,
         }
         for number, plan in enumerate(plans, start=1)

@@ -1,87 +1,94 @@
-"""Картинки найденных картин для списка обзора: имя сразу, байты - следом.
+"""Картинки найденных картин для списка обзора: имя только тем, у кого картинка будет.
 
-Список находок обязан приходить не медленнее, чем раньше: круг поиска и так идёт холодным
-около пяти секунд, а сходить за десятком постеров внутри того же ответа значило бы сложить
-одно время с другим. Поэтому ответ уносит только ИМЯ картинки на маршруте ``/api/poster/``,
-а байты ищутся фоном и догоняют его: пока Home Assistant рисует список и спрашивает
-картинки, постер обычно уже лежит. Найденное ложится на полку
-(:class:`hass.poster_shelf.PosterShelf`) и второй раз берётся с неё, без сети вовсе.
+🔴 Имя выдаётся ПОСЛЕ приговора, а не до него. Раньше имя уносила каждая находка, и
+маршрут ``/api/poster/`` отвечал потом «нет такой»: человек видел рамку вокруг пустоты
+там, где строка должна была остаться строкой (TC-1023). Приговор - это вопрос «есть ли у
+этой картины английская статья со сверенным годом»
+(:meth:`~torrcast.adapters.wiki.poster_pages.PosterPages.wanted`), и стоит он на весь
+список один-два запроса, а не по три на каждую находку.
 
-🔴 Имя картинки - отпечаток НАЗВАНИЯ, ГОДА и РОДА вместе, и год у картины сверен
-(:func:`hass.poster_find.poster_of_the_year`): «Матрица» 1999 года и «Матрица» 2021-го -
-разные картины, и постер соседки хуже, чем никакого.
+Сами байты едут следом, фоном: пока Home Assistant рисует список и спрашивает картинки,
+постеры обычно уже лежат. Найденное ложится на полку (:class:`hass.poster_shelf.PosterShelf`)
+и второй раз берётся с неё, без сети вовсе. Полка общая с картинкой играющего
+(:class:`hass.posters.Posters`), и это теперь честно: правило сверки года у них одно.
 
-Постера нет - строка остаётся строкой: ни заглушки, ни рамки, ни слов «нет обложки».
 Промах откладывает следующий поход за той же картиной (:data:`_RETRY`), иначе список из
 десяти находок стучал бы по Википедии на каждый заход в обзор.
 """
 
 from __future__ import annotations
 
-import hashlib
-import queue
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Final
 
+from hass.hit_ask import _about, _name
 from hass.picture_type import picture_type
-from hass.poster_find import Correct, Poster
-from hass.poster_lookup import _wiki_correction
-from hass.poster_of_the_year import poster_of_the_year
 from hass.poster_shelf import PosterShelf
+from hass.poster_source import PosterSource
 from torrcast.adapters.wiki.wiki_poster import WikiPoster
+from torrcast.domain.facts.ask import Ask
 from torrcast.domain.json_value import JsonValue
 from torrcast.runtime.facts_wiring import FACTS
 
 #: Поле записи выдачи, в котором едет имя картинки. Его читает
 #: :func:`custom_components.torrcast.browse.search_media`; нет поля - нет и картинки.
 FIELD: Final = "poster"
-#: Хвост имени картины на общей полке: картинка играющего (:class:`hass.posters.Posters`)
-#: лежит там под теми же названием, годом и родом, но год у неё НЕ сверен - и без хвоста
-#: постер соседней картины приезжал бы в список прямо с полки, минуя сверку.
-_CHECKED: Final = "year-checked"
 #: Сколько ждём Википедию на один запрос, секунды.
 _TIMEOUT: Final = 8.0
 #: Через сколько секунд после промаха спрашиваем о той же картине снова.
 _RETRY: Final = 300.0
-#: Сколько картинок ищется разом: находок бывает десяток, и уходить за всеми сразу - это
-#: уже стук по Википедии, а не поиск. Поток берётся под работу и уходит, когда очередь
-#: опустела: постоянная бригада пережила бы пробу, которая её подняла.
-_WORKERS: Final = 4
 #: Сколько ждёт запрос картинки, которая ещё в пути, секунды. Ждёт ОДИН запрос в своём
 #: потоке сервера; ни снимок, ни показ этого ожидания не видят.
 _WAIT: Final = 6.0
 #: Сколько найденных картинок держим наготове: список находок бывает длинным.
 _KEEP: Final = 64
-
-_Job = tuple[str, str, str, int | None, str]
+#: Что известно про картинку находки к началу выдачи: готова, надо спрашивать, промах
+#: ещё держится. Последнее НЕ равно первому: отложенный промах имени не даёт.
+_READY: Final = "ready"
+_ASK: Final = "ask"
+_HELD: Final = "held"
 
 
 class HitPosters:
-    """Постеры списка находок: имя выдаётся сразу, картинка ищется фоном."""
+    """Постеры списка находок: приговор на месте, картинки фоном."""
 
     def __init__(
         self,
-        poster: Poster | None = None,
-        correct: Correct | None = None,
+        source: PosterSource | None = None,
         shelf: PosterShelf | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._poster = poster
-        self._correct = correct
+        self._source = source
         self._shelf = PosterShelf() if shelf is None else shelf
         self._now = now
         self._lock = threading.Lock()
-        self._queue: queue.Queue[_Job] = queue.Queue()
         self._made: dict[str, bytes] = {}
         self._pending: dict[str, threading.Event] = {}
         self._tried: dict[str, float] = {}
-        self._busy = 0
 
     def offer(self, results: list[JsonValue]) -> list[JsonValue]:
-        """Те же записи выдачи, каждая с именем своей картинки, если та будет."""
-        return [self._offered(record) for record in results]
+        """Те же записи выдачи; имя картинки - только у тех, у кого картинка будет.
+
+        Список этим задержан ровно на приговор: один-два запроса на всю пачку. Сами
+        байты ждать нельзя - это уже секунды, и их человек ждал бы, глядя в пустое меню.
+        """
+        asks = [_about(record) for record in results]
+        state = {ask: self._state(ask) for ask in dict.fromkeys(a for a in asks if a)}
+        fresh = [ask for ask, one in state.items() if one is _ASK]
+        ready = self._answer(fresh)
+        found = {ask for ask, pages in ready.items() if pages}
+        self._begin({ask: ready[ask] for ask in found})
+        for ask in fresh:
+            if ask not in found:
+                with self._lock:
+                    self._tried[_name(ask)] = self._now() + _RETRY
+        known = found | {ask for ask, one in state.items() if one is _READY}
+        return [
+            {**record, FIELD: _name(ask)} if isinstance(record, dict) and ask in known else record
+            for record, ask in zip(results, asks, strict=True)
+        ]
 
     def read(self, name: str) -> tuple[bytes, str] | None:
         """Байты картинки и её тип; она ещё в пути - подождать, но не бесконечно.
@@ -97,102 +104,73 @@ class HitPosters:
                 body = self._made.get(name)
         return (body, picture_type(body)) if body else None
 
-    def _offered(self, record: JsonValue) -> JsonValue:
-        if not isinstance(record, dict):
-            return record
-        about = _about(record)
-        if about is None:
-            return record
-        name = self._started(about)
-        return record if name is None else {**record, FIELD: name}
+    def _state(self, ask: Ask) -> str:
+        """Что с картинкой этой картины: готова, надо спросить или промах ещё держится.
 
-    def _started(self, about: tuple[str, int | None, str]) -> str | None:
-        """Имя картинки этой картины; её нет и не искали - поставить в очередь за ней."""
-        identity = "|".join((about[0], str(about[1]), about[2], _CHECKED))
-        name = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+        Полка спрашивается тут же: снятая с неё картинка - это готовый ответ, и ходить
+        за приговором о ней в сеть незачем. Отложенный промах - это НЕ готовность:
+        имени такая находка не получает, иначе плитка снова осталась бы битой.
+        """
+        name = _name(ask)
         with self._lock:
             if name in self._made or name in self._pending:
-                return name
+                return _READY
             if self._now() < self._tried.get(name, 0.0):
-                return None
-        kept = self._shelf.read(identity)
+                return _HELD
+        kept = self._shelf.read(_name(ask))
+        if not kept:
+            return _ASK
         with self._lock:
-            if kept:
-                self._keep(name, kept)
-                return name
-            if name in self._pending:
-                return name
-            self._pending[name] = threading.Event()
-        self._hire((name, identity, *about))
-        return name
+            self._keep(name, kept)
+        return _READY
 
-    def _hire(self, job: _Job) -> None:
-        """Поставить картинку в очередь и, если есть кого поднять, поднять за ней поток.
+    def _answer(self, asks: Sequence[Ask]) -> dict[Ask, list[str]]:
+        """Приговор на всю пачку; сеть не ответила - считаем, что статей нет."""
+        if not asks:
+            return {}
+        try:
+            return self._source_of().wanted(asks, _TIMEOUT)
+        except Exception:
+            return {}
 
-        Очередь пополняется и поток поднимается под одним замком: иначе картинка встаёт в
-        очередь ровно в тот миг, когда последний поток из неё уходит, и ждёт зря.
-        """
+    def _begin(self, wanted: dict[Ask, list[str]]) -> None:
+        """Пометить картинки как ожидаемые и уйти за их байтами фоном."""
+        if not wanted:
+            return
         with self._lock:
-            self._queue.put(job)
-            hiring = self._busy < _WORKERS
-            if hiring:
-                self._busy += 1
-        if hiring:
-            threading.Thread(target=self._work, daemon=True, name="hit-poster").start()
+            for ask in wanted:
+                self._pending[_name(ask)] = threading.Event()
+        threading.Thread(target=self._fill, args=(wanted,), daemon=True, name="hit-posters").start()
 
-    def _work(self) -> None:
-        """Брать из очереди, пока она не опустела, и уходить - бригады тут не держат."""
-        while True:
-            try:
-                job = self._queue.get_nowait()
-            except queue.Empty:
-                with self._lock:
-                    if self._queue.empty():
-                        self._busy -= 1
-                        return
-                continue
-            self._made_of(job)
-
-    def _made_of(self, job: _Job) -> None:
-        name, identity, title, year, kind = job
-        body = self._look(title, year, kind)
-        if body:
-            self._shelf.write(identity, body)
-        with self._lock:
-            waiting = self._pending.pop(name, None)
+    def _fill(self, wanted: dict[Ask, list[str]]) -> None:
+        """Байты всей пачки разом и раздача их ждущим; промах - отложить попытку."""
+        try:
+            bodies = self._source_of().bodies(wanted, _TIMEOUT)
+        except Exception:
+            bodies = {}
+        for ask in wanted:
+            name, body = _name(ask), bodies.get(ask)
             if body:
-                self._keep(name, body)
-            else:
-                self._tried[name] = self._now() + _RETRY
-        if waiting is not None:
-            waiting.set()
+                self._shelf.write(_name(ask), body)
+            with self._lock:
+                waiting = self._pending.pop(name, None)
+                if body:
+                    self._keep(name, body)
+                else:
+                    self._tried[name] = self._now() + _RETRY
+            if waiting is not None:
+                waiting.set()
 
-    def _look(self, title: str, year: int | None, kind: str) -> bytes | None:
-        poster = self._poster or WikiPoster(FACTS.client, FACTS.client).poster
-        correct = self._correct or (None if self._poster else _wiki_correction)
-        return poster_of_the_year(title, year, kind, _TIMEOUT, poster, correct)
+    def _source_of(self) -> PosterSource:
+        if self._source is None:
+            self._source = WikiPoster(FACTS.client, FACTS.client)
+        return self._source
 
     def _keep(self, name: str, body: bytes) -> None:
         """Положить картинку готовой, вытеснив самую давнюю, если их стало много."""
         self._made[name] = body
         while len(self._made) > _KEEP:
             self._made.pop(next(iter(self._made)))
-
-
-def _about(record: JsonValue) -> tuple[str, int | None, str] | None:
-    """Название, год и род картины из записи выдачи; без названия картинку не ищут.
-
-    Род сводится к тем же двум словам, какими его знает картинка карточки
-    (:func:`hass.posters._kind`): полка у них общая, и третье слово завело бы на ней
-    вторую запись про ту же картину.
-    """
-    if not isinstance(record, dict):
-        return None
-    title, year, kind = record.get("title"), record.get("year"), record.get("kind")
-    if not isinstance(title, str) or not title.strip():
-        return None
-    named = year if isinstance(year, int) and not isinstance(year, bool) else None
-    return title.strip(), named, "tv" if kind == "tv" else "movie"
 
 
 #: Мост держит один список находок на всех: имя, выданное поиском, спрашивают потом

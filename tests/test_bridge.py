@@ -462,6 +462,7 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
             "title": plan.picture.title,
             "year": plan.picture.year,
             "kind": plan.picture.kind,
+            "original": plan.picture.original or "",
             "default": number == taken,
         }
         for number, plan in enumerate(plans, start=1)
