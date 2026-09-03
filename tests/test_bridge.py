@@ -372,6 +372,41 @@ def test_the_remote_word_goes_into_the_file_the_show_reads(
     assert _SystemChoiceEnvironment().read_command() == "seekby 90"
 
 
+def test_the_card_is_told_the_new_place_the_second_the_bridge_says_seekby(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Ползунок остаётся там, куда его поставили: опрос следом за командой слышит её.
+
+    Home Assistant переспрашивает состояние сразу после команды
+    (``custom_components/torrcast/coordinator.py``, ``async_request_refresh``), а запись
+    показа про перемотку ещё не знает: приёмник её только берёт, и закладку сторож
+    положит на диск лишь на своём тике (:data:`torrcast.usecases.watch.WATCH_SECONDS`).
+    Ответить на том опросе прежним местом - это и есть отскок ползунка назад.
+    """
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=60.0, moved=True),
+    )
+    bridge = _bridge(session)
+
+    assert bridge.state()["position"] == 60.0
+    bridge.control(SEEKBY, 900.0)
+
+    assert bridge.state()["position"] == 960.0
+
+
+def test_a_refused_remote_moves_the_slider_nowhere() -> None:
+    """Показа нет - отказ, и никакой защёлки: двигать нечего и незачем."""
+    bridge = _bridge(FakePlaybackSession(playing=False))
+
+    with pytest.raises(RefusedError):
+        bridge.control(SEEKBY, 900.0)
+
+    assert bridge.state()["position"] is None
+
+
 _SEARCH_CONFIG = Config(prowlarr_apikey="KEY", tv="10.0.1.7")
 _CARS = [
     row("Тачки / Cars (2006) BDRip 1080p | D", "a", size_gb=5.0, seeders=66),

@@ -86,7 +86,8 @@ class Bridge:
         active = self._session.active()
         shown = self._session.snapshot(self._session.key() if active else "")
         return payload(
-            shown,
+            # Место у карточки своё, пока перемотка моста приземляется (:meth:`Motion.aimed`).
+            self._motion.aimed(shown),
             version=__version__,
             tv=config.tv or "",
             state=self._motion.phase(shown, active=active, starting=self._starting),
@@ -129,8 +130,7 @@ class Bridge:
             self._start([STOP])
             return
         say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
-        if command == TOGGLE:
-            self._motion.toggle()
+        self._motion.commanded(command, arg)
 
     def next(self) -> None:
         """``POST /api/next``: следующая серия той же раздачи, названная запросом."""

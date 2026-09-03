@@ -7,6 +7,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
+from hass.aim import Aim
+from hass.say import SEEKBY
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 
 #: Сколько закладка должна простоять на месте, чтобы это была пауза зрителя, секунды.
@@ -60,6 +62,24 @@ class Motion:
         self._word = ""
         self._held = ""
         self._held_at: tuple[str, float] = ("", -1.0)
+        self._aim = Aim(clock=clock)
+
+    def commanded(self, command: str, arg: float) -> None:
+        """Собственная команда моста: и слово, и место карточка видит в ту же секунду.
+
+        ``toggle`` переворачивает слово (:meth:`toggle`), ``seekby`` двигает закладку
+        (:meth:`hass.aim.Aim.at`). Ни того ни другого не ждут ни факт записи, ни замер:
+        про свою команду мост знает сразу, а решение приёмника доедет до записи показа
+        на его круге опроса.
+        """
+        if command == SEEKBY:
+            self._aim.at(arg)
+            return
+        self.toggle()
+
+    def aimed(self, shown: PlaybackSnapshot | None) -> PlaybackSnapshot | None:
+        """Снимок для карточки: с местом собственной перемотки, пока она приземляется."""
+        return self._aim.seen(shown)
 
     def standing(self, key: str, position: float) -> bool:
         """Стоит ли закладка дольше порога; сдвинулась - счёт начинается заново."""
