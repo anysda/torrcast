@@ -159,3 +159,68 @@ def test_a_silent_wikipedia_is_not_the_same_as_a_picture_without_an_article() ->
         assert "429" in str(bad)
     else:
         raise AssertionError("отказ сети проглочен и выдан за «статьи нет»")
+
+
+#: Догадки полнотекстового поиска: столько же, сколько отвод сверки года
+#: (:data:`~torrcast.adapters.wiki.poster_pages._TRIED`), и ни одна из них не картина.
+GUESSES = [
+    {"title": "Ли, Брюс", "categories": [{"title": "Категория:Родившиеся в 1940 году"}]},
+    {"title": "Ын Сиюнь", "categories": [{"title": "Категория:Родившиеся в 1944 году"}]},
+    {"title": "События октября 1993 года", "categories": [{"title": "Категория:1993 год"}]},
+    {"title": "Аведон, Лорен", "categories": [{"title": "Категория:Родившиеся в 1962 году"}]},
+]
+#: Она же под оригинальным именем: год свой не называет, его знает только Wikidata.
+BLOOD_BROTHERS = {
+    "title": "No Retreat, No Surrender 3: Blood Brothers",
+    "pageprops": {"wikibase_item": "Q776037"},
+}
+
+
+def _guessing(english: list[dict[str, Any]], years: dict[str, str]) -> FakeJsonClient:
+    """Русский раздел, у которого прямая выборка пуста, а поиск отдаёт мимо картины."""
+
+    def answer(host: str, path: str, params: dict[str, str]) -> Any:
+        if host == WIKIDATA_HOST:
+            return {
+                "results": {
+                    "bindings": [
+                        {
+                            "item": {"value": f"http://www.wikidata.org/entity/{entity}"},
+                            "date": {"value": date},
+                        }
+                        for entity, date in years.items()
+                        if f"wd:{entity}" in params["query"]
+                    ]
+                }
+            }
+        if host == EN_WIKI_HOST:
+            return {"query": {"pages": english}}
+        if params.get("generator") == "search":
+            return {"query": {"pages": GUESSES}}
+        return {"query": {"pages": []}}
+
+    return FakeJsonClient(answer)
+
+
+def test_the_article_under_the_original_name_outranks_the_guesses_of_full_text_search() -> None:
+    """🔴 ОТРИЦАТЕЛЬНАЯ ПРОБА на порядок доверия: поставь догадки вперёд - и постера нет.
+
+    Живой случай «Не отступать и не сдаваться 3: Братья по крови» 1990 года: русской
+    статьи нет вовсе, английская лежит ровно под оригинальным именем и год её
+    подтверждает Wikidata, а полнотекстовый поиск отдаёт четыре догадки - Брюса Ли,
+    Ын Сиюня, октябрь 1993-го и Лорена Аведона. Догадок ровно столько же, сколько
+    статей доходит до сверки года, и стоя впереди они занимали отвод целиком.
+    """
+    client = _guessing([BLOOD_BROTHERS], {"Q776037": "1990-01-01T00:00:00Z"})
+    ask = Ask(
+        "Не отступать и не сдаваться 3: Братья по крови",
+        1990,
+        "movie",
+        "No Retreat, No Surrender 3: Blood Brothers",
+    )
+
+    wanted = PosterPages(client).wanted([ask], 1.0)
+
+    assert _named(wanted[ask]) == ["No Retreat, No Surrender 3: Blood Brothers"], (
+        "статью с точным оригинальным именем вытеснили догадки поиска"
+    )

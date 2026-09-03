@@ -107,10 +107,16 @@ class PosterPages:
         return {ask: dated_pages(payload, names) for ask, names in named.items()}
 
     def _late(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[Dated]]:
-        """Запасная дорожка: поиск русского раздела и статья под оригинальным именем.
+        """Запасная дорожка: статья под оригинальным именем и поиск русского раздела.
 
         Обе половины идут ОДНОВРЕМЕННО. Порознь они стоили человеку лишнего похода в
         Википедию перед пустым экраном, а нужны они одна другой не больше.
+
+        🔴 Статья под ОРИГИНАЛЬНЫМ именем идёт первой: точное имя - признак сильнее
+        догадки по похожести слов, а догадок поиск отдаёт ровно :data:`_HITS`, то есть
+        весь отвод :data:`_TRIED`. Пока они стояли впереди, у «Не отступать и не
+        сдаваться 3» статью с точным именем И годом вытесняли Брюс Ли, Ын Сиюнь,
+        октябрь 1993-го и Лорен Аведон - постер терялся, не дойдя до Wikidata.
         """
         with ThreadPoolExecutor(max_workers=_LANES) as lanes:
             foreign = lanes.submit(self._english, asks, timeout)
@@ -118,8 +124,8 @@ class PosterPages:
             english = foreign.result()
         out: dict[Ask, list[Dated]] = {}
         for ask, rows in zip(asks, searched, strict=True):
-            extra = [row for row in english.get(ask, ()) if row not in rows]
-            out[ask] = [*rows, *extra]
+            named = list(english.get(ask, ()))
+            out[ask] = [*named, *[row for row in rows if row not in named]]
         return out
 
     def _searched(self, ask: Ask, timeout: float) -> list[Dated]:
