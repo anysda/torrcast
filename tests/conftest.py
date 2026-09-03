@@ -90,12 +90,20 @@ CLIP_GOP = 50
 #: встать ЗАВЕДОМО между ними, обязан считать это место, а не переписывать от руки.
 CLIP_KEY_SECONDS = float(CLIP_GOP / CLIP_FPS)
 
+#: Где стоят опорные кадры ролика с провалом (``clip_gaps_ts``). Между 22 и 45 их нет
+#: вовсе - это два с лишним слота ровной сетки подряд, в которых показу не с чего начаться.
+CLIP_GAP_KEYS = (0.0, 10.0, 22.0, 45.0)
+
+#: Закладка внутри провала: входа не позже неё в её собственном слоте нет.
+CLIP_GAP_LOST = 40.0
+
 # Любой тест из этой группы получает настоящий медиафайл, собранный ffmpeg. Маркер
 # ставится по замыканию фикстур: так зависимость не потеряется, когда тест начнёт брать
 # не ``clip`` напрямую, а производный mp4 или общую фикстуру поверх него.
 FFMPEG_FIXTURES = frozenset(
     {
         "clip",
+        "clip_gaps_ts",
         "clip_hevc",
         "clip_mp4",
         "clip_mp4_tail",
@@ -784,6 +792,43 @@ def clip_ts(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
     path = tmp_path_factory.mktemp("src-ts") / "clip.ts"
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", clip,
+         "-c", "copy", "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
+@pytest.fixture(scope="session")
+def clip_gaps_ts(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Ролик с ПРОВАЛОМ между опорными кадрами: :data:`CLIP_GAP_KEYS`, и больше никаких.
+
+    🔴 TC-1002. Это единственный вход, на котором виден дефект продолжения с закладки:
+    у ровного ролика (:data:`CLIP_GOP`) опорный кадр стоит каждые две секунды, и место
+    без входа на нём просто не встречается. У живого релиза встречается сплошь и рядом -
+    замер по прогретой копии «Матрицы»: 659 кусков, 281 из них без единого опорного кадра,
+    самый широкий провал 124.5 с. Ролик повторяет это в малом: провал 23 с накрывает целых
+    два слота ровной сетки, и закладка :data:`CLIP_GAP_LOST` попадает ровно в него.
+
+    Контейнер mpegts взят не для разнообразия: карты опорных кадров для .ts взять неоткуда,
+    ``-ss`` там садится на СЛЕДУЮЩИЙ кадр (:data:`torrcast.domain.warm_open.SEEK_SHIFT`) - то
+    же самое, что делает файл с отвергнутым индексом, на котором дефект и пойман живьём.
+    """
+    source = tmp_path_factory.mktemp("src-gaps") / "gaps.mkv"
+    path = source.with_suffix(".ts")
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", f"testsrc2=size=640x360:rate={CLIP_RATE}",
+         "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
+         "-c:v", "libx264", "-preset", "ultrafast",
+         # Сцена ролика меняется непрерывно, и без запрета кодировщик ставит опорные кадры
+         # сам - провала бы не вышло вовсе, а тест зеленел бы на входе без дефекта.
+         "-x264-params", "scenecut=0:keyint=10000:min-keyint=10000",
+         "-force_key_frames", ",".join(f"{key:g}" for key in CLIP_GAP_KEYS),
+         "-c:a", "ac3", "-ac", "6", "-y", str(source)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(source),
          "-c", "copy", "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", str(path)],
         check=True, capture_output=True,
     )  # fmt: skip

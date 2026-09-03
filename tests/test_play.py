@@ -20,6 +20,7 @@ import signal
 import subprocess
 import threading
 import time
+import urllib.request
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -27,7 +28,14 @@ from typing import Any, Final
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS, FakeProc, band_db, fake_packer, free_port
+from tests.conftest import (
+    CLIP_GAP_LOST,
+    CLIP_SECONDS,
+    FakeProc,
+    band_db,
+    fake_packer,
+    free_port,
+)
 from tests.fakes.clock import WALL_ORIGIN, FakeClock
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
@@ -1837,10 +1845,19 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     printed = capsys.readouterr().out
     decoded = float(printed.split("decoded ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "показ оборвался"
-    assert f"packing from {offset:.1f} s" in printed, "показ начался с позиции, а не сначала"
-    # 🔴 Заход упаковки на голову фильма тут - брак ЗАГЛУШКИ, а не показа: живой Q70D
-    # первого сегмента при старте с середины не просит вовсе (:meth:`MockReceiver._from`).
-    assert printed.count("packing from ") == 1, "упаковка сходила на голову плейлиста"
+    # 🔴 TC-1002. Пакуется слот ВХОДА, а не слот закладки. Опорного кадра ровно на границе
+    # у ролика нет (они стоят через :data:`CLIP_KEY_SECONDS`), и показ отводится на
+    # ближайший вход не позже закладки - иначе приёмнику называют место, с которого
+    # начинать нечем. Место входа тут не переписано числом, а посчитано по самому ролику:
+    # мера обязана мерить правило, а не запомненный результат прошлого прогона.
+    grid = Grid.uniform(length)
+    door = max(place for place in _keys_of(clip) if place <= offset)
+    began = grid.start(grid.slot_at(door))
+    assert f"packing from {began:.1f} s" in printed, "показ начался не со своего входа"
+    # Упаковка за весь показ поднимается ОДИН раз: второй заход означал бы, что приёмник
+    # попросил кусок мимо выложенного окна (:meth:`MockReceiver._from`), то есть показ
+    # назвал ему место, которого не паковал.
+    assert printed.count("packing from ") == 1, "упаковка поднималась второй раз"
     assert "watched" in printed
     saved = State.load().get(key)
     assert saved is not None and saved.done and saved.pos == 0.0
@@ -3155,4 +3172,97 @@ def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
     saved = State.load().get(key)
     assert saved is not None and (saved.season, saved.episode) == (1, 3), (
         "переход обязан случиться и на приёмнике, не сказавшем о конце"
+    )
+
+
+#: Пыль меток при сверке места входа, секунды. Опорный кадр ролика стоит не на круглой
+#: секунде (дробная частота), а mpegts сдвигает метки куска на начало фильма
+#: (``-output_ts_offset``). Спор тут идёт о СЕКУНДАХ - на «Матрице» это были 92 с между
+#: соседними кадрами, - и пыль в две десятых ни одной стороны спора не задевает.
+_ENTRY_DUST: Final = 0.2
+
+
+def _ends_at(piece: Path) -> float:
+    """Где кончается кусок по меткам его видео - в ленте фильма, а не от своего начала."""
+    done = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "packet=pts_time",
+         "-of", "csv=p=0", str(piece)],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    return max(float(line.rstrip(",")) for line in done.stdout.split() if line.strip(","))
+
+
+class _Resuming(MockReceiver):
+    """Приёмник, который перед LOAD забирает тот самый кусок, куда его посылают.
+
+    Забирает он его тем же транспортом и по тому же имени, что и настоящий ТВ, - и до
+    того, как показ поедет дальше: спор идёт о ПЕРВОМ куске продолжения, а через минуту
+    показа на диске лежит уже совсем другое место фильма.
+    """
+
+    def __init__(self, keep: Path, **rest: Any) -> None:
+        super().__init__(**rest)
+        self.keep = keep
+        self.at = -1.0
+
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        self.at = at
+        base = url.rsplit("/", 1)[0]
+        name = segment_name(int(at // HLS_SEGMENT_SECONDS))
+        with urllib.request.urlopen(f"{base}/{name}", timeout=60) as answer:
+            self.keep.write_bytes(answer.read())
+        super().play(url, title, at)
+
+
+def test_a_resume_names_the_receiver_a_place_the_picture_can_start_from(
+    clip_gaps_ts: str, tls: tuple[str, str], tmp_path: Path
+) -> None:
+    """🔴 TC-1002. Продолжение с закладки обязано попадать в опорный кадр, а не в закладку.
+
+    Приёмнику называют секунду, и с неё он берёт кусок и начинает декодировать. Опорного
+    кадра в куске нет - декодировать не с чего, и приёмник буферит до следующего кадра,
+    сколько бы его ни ждать. Живой замер на «Матрице» (v1.1.3, стенд .136, тот же двоичный
+    файл и та же раздача, разница только в закладке): 2488.137 - «ни одной картинки
+    показано не было» за 200.9 с; 2455.796, ровно опорный кадр, - «старт 21 с».
+
+    Ролик повторяет это в малом: опорных кадров ровно четыре
+    (:data:`tests.conftest.CLIP_GAP_KEYS`), закладка :data:`tests.conftest.CLIP_GAP_LOST`
+    лежит в провале между третьим и четвёртым. Проверяется не наше намерение, а тот кусок,
+    который приёмник заберёт по названному ему месту: его первый опорный кадр обязан быть
+    не позже этого места.
+    """
+    config = config_for(tmp_path, tls)
+    piece = tmp_path / "первый-кусок.ts"
+    receiver = _Resuming(piece)
+    entry = Entry(title="провал", magnet="magnet:?xt=1", pos=CLIP_GAP_LOST, dur=float(CLIP_SECONDS))
+    state = State()
+    state.put("movie:провал:2026", entry)
+    state.save()
+
+    _play(
+        config,
+        clip_gaps_ts,
+        0,
+        "«Провал»",
+        _Clock(),
+        watch=_Watch(key="movie:провал:2026", entry=entry, every=0.0),
+        receiver=receiver,
+    )
+
+    film = _keys_of(clip_gaps_ts)
+    assert min(abs(receiver.at - key) for key in film) <= _ENTRY_DUST, (
+        f"показ послал приёмник на {receiver.at:.3f} - это не опорный кадр фильма {film}"
+    )
+    inside = _keys_of(str(piece))
+    assert inside and inside[0] <= receiver.at + _ENTRY_DUST, (
+        f"кусок, куда послан приёмник, начинать нечем: опорные кадры в нём {inside}, "
+        f"а показ назвал {receiver.at:.3f}"
+    )
+    # Заход посреди слота двигает и резы: муксер отмеряет их от ПЕРВОГО ПАКЕТА прогона.
+    # Кончиться кусок обязан на своей границе - иначе под его именем уехало чужое место,
+    # и следующий кусок поехал бы за ним (:func:`...ffmpeg.pack_command.pack_command`).
+    slot = int(receiver.at // HLS_SEGMENT_SECONDS)
+    assert abs(_ends_at(piece) - (slot + 1) * HLS_SEGMENT_SECONDS) <= _ENTRY_DUST, (
+        f"кусок v{slot} кончается на {_ends_at(piece):.3f}, а его граница - "
+        f"{(slot + 1) * HLS_SEGMENT_SECONDS:.3f}: резы уехали вместе с заходом"
     )

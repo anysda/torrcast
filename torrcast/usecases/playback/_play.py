@@ -121,7 +121,12 @@ def _play(
         if recoder is not None:
             recoder.played = start
             recoder.start()
-        feed.restart(grid.slot_at(start))
+        # 🔴 TC-1002. С какого места пойдёт показ, решает не закладка, а лента: картинка
+        # начинается только с опорного кадра, и в слоте закладки его чаще всего нет вовсе
+        # (:func:`torrcast.usecases.feed_pack.feed_restart._begin`). Место приезжает оттуда
+        # одним числом - и упаковка, и LOAD идут по нему, иначе приёмнику называют секунду,
+        # которой в выложенном потоке не с чего начаться.
+        start = feed.begin(start)
         journal().mark("упаковка пошла")
         raised = True
         try:

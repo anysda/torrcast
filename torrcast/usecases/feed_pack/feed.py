@@ -14,7 +14,7 @@ from torrcast.domain.segment_container import FMP4
 from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
 from torrcast.usecases.feed_pack.feed_head import _head
-from torrcast.usecases.feed_pack.feed_restart import _restart
+from torrcast.usecases.feed_pack.feed_restart import _begin, _restart
 from torrcast.usecases.feed_pack.feed_seam import _seam
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
 from torrcast.usecases.feed_pack.feed_shrink import _shrink, _skip
@@ -101,6 +101,10 @@ class Feed(_State):
     def restart(self, slot: int) -> None:
         """Начать упаковку с сегмента ``slot`` (:func:`_restart`)."""
         _restart(self, slot, self._shrink)
+
+    def begin(self, want: float) -> float:
+        """Начать показ с закладки ``want``; вернуть место для LOAD (:func:`_begin`)."""
+        return _begin(self, want, self._shrink)
 
     def _shrink(self, slot: int, size: int = 0) -> bool | None:
         """Ужать кусок; ``None`` - перекод доехал сам, ``False`` - пропуск."""
