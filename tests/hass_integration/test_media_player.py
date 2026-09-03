@@ -13,7 +13,11 @@ from pytest_homeassistant_custom_component.common import (  # type: ignore[impor
     MockConfigEntry,
 )
 
+from hass.search_results import search_results
 from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, sent, snapshot
+from torrcast.domain.kind import Kind
+from torrcast.domain.picture import Picture
+from torrcast.usecases.select.plan import Plan
 
 #: Entity id the recorded fixture's receiver ("192.168.1.90") slugifies to.
 PLAYER = "media_player.torrcast_192_168_1_90"
@@ -182,31 +186,43 @@ async def test_a_volume_step_without_a_level_is_refused(
     assert not [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
 
 
-async def test_search_media_keeps_the_serves_order(
+def _served(pictures: list[tuple[str, int, Kind]], taken: int) -> dict[str, Any]:
+    """The body of `POST /api/search`, built by the serve's OWN shaping function.
+
+    This is the one guard of the seam between the two halves. Both sides used to be
+    nailed to a hand-written literal of their own, so a field renamed on the bridge side
+    reddened nothing at all and the break showed up on a live stand. Here the fake serve
+    answers with what `hass/search_results.py` actually writes: rename `pick` or
+    `default` there and this test fails, not the television.
+
+    The shaping function costs nothing to import in this venv - it reaches for the
+    torrcast domain and for nothing else.
+    """
+    plans = [
+        Plan(
+            picture=Picture(title=title, year=year, kind=kind),
+            ranked=[],
+            runtime=0.0,
+            warn_mbit=0.0,
+        )
+        for title, year, kind in pictures
+    ]
+    return {"results": search_results(plans, taken)}
+
+
+async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
-    """`async_search_media` asks `/api/search` and hands the answer back untouched in order."""
+    """One query, one film: `result[0]` is what a bare `POST /api/play` would start.
+
+    Home Assistant's own `MediaSearchAndPlayHandler` plays `result[0]`, so the hit the
+    serve flagged `default` has to lead even when the serve lists it second. Everything
+    else keeps the serve's order, and every hit keeps its own pick number.
+    """
     await _added(hass, aioclient_mock, snapshot())
     aioclient_mock.post(
         f"{BASE}/api/search",
-        json={
-            "results": [
-                {
-                    "pick": 1,
-                    "key": "movie:матрица:1999",
-                    "title": "Матрица",
-                    "year": 1999,
-                    "kind": "movie",
-                },
-                {
-                    "pick": 2,
-                    "key": "tv:чернобыль:2019",
-                    "title": "Чернобыль",
-                    "year": 2019,
-                    "kind": "tv",
-                },
-            ]
-        },
+        json=_served([("Матрица", 1999, "movie"), ("Чернобыль", 2019, "tv")], taken=2),
     )
     answer = await hass.services.async_call(
         "media_player",
@@ -218,11 +234,15 @@ async def test_search_media_keeps_the_serves_order(
     posted = [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
     assert sent(posted[0]) == {"query": "матрица"}
     hits = answer[PLAYER].result
-    assert [hit.title for hit in hits] == ["Матрица (1999)", "Чернобыль (2019)"]
-    assert hits[0].media_class == "movie"
+    assert [hit.title for hit in hits] == ["Чернобыль (2019)", "Матрица (1999)"]
+    assert hits[0].media_class == "tv_show"
     assert hits[0].can_play is True
-    assert hits[1].media_class == "tv_show"
+    assert hits[1].media_class == "movie"
+    #: The number travels inside the id, so moving a hit up the screen does not renumber it.
     assert hits[0].media_content_id == (
+        "torrcast://pick/2?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0"
+    )
+    assert hits[1].media_content_id == (
         "torrcast://pick/1?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0"
     )
 

@@ -5,8 +5,9 @@
 - оттуда же берётся словесная причина отказа. Пульт пишет слово в тот же файл, что кнопки
 бота. Переход называет следующую серию тем же :meth:`torrcast.domain.entry.Entry.advance`
 и играет её тем же запросом «имя s1e4», каким её назвал бы человек. Поиск
-(:meth:`Bridge.search`) отдаёт ровно то, что нашёл бы `search_circle`; номер пункта в его
-ответе - тот же ``--pick N``, которым CLI понимает выбор.
+(:meth:`Bridge.search`) отдаёт ровно то, что нашёл бы `search_circle` на том же приёмнике,
+и запоминает показанный порядок (:mod:`hass.searching`); номер пункта в его ответе - тот
+же ``--pick N``, которым CLI понимает выбор.
 
 🔴 Команда показа идёт в ГЛАВНОМ потоке, как и у бота (:meth:`tgbot.bot.Bot.run_one`):
 ``cast`` ставит на время команды свой обработчик SIGTERM
@@ -21,34 +22,24 @@ import secrets
 import threading
 from collections.abc import Callable, Sequence
 from queue import Queue
-from typing import TYPE_CHECKING
 
 from hass.following import following
 from hass.motion import Motion
 from hass.payload import payload
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE, say
-from hass.search_results import search_results
+from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
 from hass.volume import Volume
 from tgbot.command_result import command_result
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.health.machine_probe import MachineProbe
 from torrcast.cli.main import main as run_cast
-from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.version import __version__
 from torrcast.domain.why import why
 from torrcast.ports.playback_session import PlaybackSession
-from torrcast.ports.progress.slot import progress
 from torrcast.runtime.playback_session import playback_session
-from torrcast.usecases.discover.search_circle import search_circle
-
-if TYPE_CHECKING:
-    from torrcast.domain.args import Args
-    from torrcast.ports.progress.progress import Progress
-    from torrcast.usecases.select.plan import Plan
 
 BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
 STOP, VOLUME = "stop", "volume"
@@ -56,7 +47,6 @@ STOP, VOLUME = "stop", "volume"
 COMMANDS = (TOGGLE, SEEKBY, VOLUME, STOP)
 
 _Command = Callable[[Sequence[str] | None], int]
-_Search = Callable[["Config", "Args", "Progress"], list["Plan"]]
 
 
 class Bridge:
@@ -67,7 +57,9 @@ class Bridge:
         *,
         session: PlaybackSession | None = None,
         command: _Command = run_cast,
-        search: _Search = search_circle,
+        search: Search = SEARCH,
+        detect: Detect = DETECT,
+        remember: Remember = REMEMBER,
         settings: Callable[[], Config] = load_config,
         volume: Volume | None = None,
         motion: Motion | None = None,
@@ -75,6 +67,8 @@ class Bridge:
         self._session = playback_session() if session is None else session
         self._command = command
         self._search = search
+        self._detect = detect
+        self._remember = remember
         self._settings = settings
         self._volume = volume
         self._motion = motion or Motion()
@@ -103,12 +97,13 @@ class Bridge:
     # ------------------------------------------------------------------ команды
 
     def search(self, query: str) -> list[JsonValue]:
-        """``POST /api/search``: список картин тем же поиском, что и показ, мимо очереди."""
-        try:
-            plans = self._search(self._settings(), parse_args([query]), progress())
-        except TorrcastError as refusal:
-            raise RefusedError(str(refusal)) from refusal
-        return search_results(plans)
+        """``POST /api/search``: список картин тем же поиском, что и показ, мимо очереди.
+
+        Весь шаг - у :func:`hass.searching.searching`: профиль приёмника, круг поиска,
+        память показанного порядка под ``--pick N`` и поле ``default`` у той записи,
+        которую включил бы голый :meth:`play` без номера.
+        """
+        return searching(self._settings(), query, self._search, self._detect, self._remember)
 
     def play(self, query: str, pick: int | None = None) -> str:
         """``POST /api/play``: поднять показ; с ``pick`` - ровно картину под этим номером

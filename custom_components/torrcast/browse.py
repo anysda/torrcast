@@ -97,10 +97,17 @@ def _search_node() -> BrowseMedia:
 def search_media(query: str, results: list[dict[str, Any]]) -> SearchMedia:
     """The bridge's `results` list turned into what `async_search_media` answers with.
 
-    Order is not ours to change: it is the same order `POST /api/play` would answer a
-    plain query with, and a voice command plays whatever comes first (§ intent.py).
+    The hit the serve flagged `default` goes first, and that flag is the whole contract
+    between the two halves: it marks the one picture a bare `POST /api/play` of the same
+    query would start, asked of the product itself (`hass/searching.py`). Home Assistant's
+    own `MediaSearchAndPlayHandler` plays `result[0]` and nothing else, so a voice command
+    and a bare play have to agree there or one query names two different films.
+
+    Nothing else about the order is ours to change, and nothing has to be: the pick number
+    a hit plays by travels inside its `media_content_id`, not in its place on the screen.
     """
-    return SearchMedia(result=[_hit(query, result) for result in results])
+    ordered = sorted(results, key=lambda result: not result.get("default"))
+    return SearchMedia(result=[_hit(query, result) for result in ordered])
 
 
 def _hit(query: str, result: dict[str, Any]) -> BrowseMedia:

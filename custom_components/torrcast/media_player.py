@@ -172,7 +172,11 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         return browse(media_content_id)
 
     async def async_search_media(self, query: SearchMediaQuery) -> SearchMedia:
-        """Ask the serve for `query`, in the same order `POST /api/play` would use.
+        """Ask the serve for `query`, the picture a bare `POST /api/play` takes first.
+
+        Which picture that is the serve says with a `default` flag on the hit, and
+        `browse.search_media` moves it to the front: Home Assistant's own voice handler
+        plays `result[0]`, so first has to mean taken.
 
         A blank query is answered with nothing rather than sent on: the serve's own
         `no_query` refusal exists for `/api/play`, not for a search box a person has

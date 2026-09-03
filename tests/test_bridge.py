@@ -16,12 +16,15 @@ from tests.fakes.state_store import FakeStateStore
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.adapters.choice_environment import _SystemChoiceEnvironment
 from torrcast.domain.args import Args
+from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
+from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.state_store import slot as state_slot
+from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 
 if TYPE_CHECKING:
@@ -52,15 +55,20 @@ def _bridge(
     command: Callable[[Sequence[str] | None], int] = lambda _argv: 0,
     receiver: _Receiver | None = None,
     search: Any = None,
+    detect: Any = None,
     settings: Callable[[], Config] | None = None,
 ) -> Bridge:
     """Мост на подделках: сеанс показа, приёмник и команда - все свои.
 
     Очередь команд не подделывается: тест сам зовёт :meth:`Bridge.run_one`, как её зовёт
     точка входа из главного потока. Пока не позвал - команда «поднимается».
+
+    Паспорт приёмника подделывается всегда: настоящий звонит в сеть, а зеркалу поиска
+    нужен не звонок, а профиль. Память показанного порядка - НЕ подделка: под ``--pick``
+    её читает настоящий выбор, и подмена сделала бы зеркало зеркалом самого себя.
     """
     device: Any = receiver or _Receiver()
-    kwargs: dict[str, Any] = {}
+    kwargs: dict[str, Any] = {"detect": detect or (lambda _config: Choice(CAUTIOUS, "тест"))}
     if search is not None:
         kwargs["search"] = search
     return Bridge(
@@ -246,20 +254,21 @@ _CARS = [
 ]
 
 
-def _real_search(answers: dict[str, list[Any]]) -> Callable[[Config, Args, Any], list[Any]]:
+def _real_search(answers: dict[str, list[Any]]) -> Callable[..., list[Any]]:
     """Поиск, идущий тем же кругом, что и консоль - только клиент индексеров свой.
 
     Настоящий :func:`search_circle`, настоящая сборка меню - ничего заново тут не
     придумано, подделан только заход в сеть (:mod:`tests.usecases.discover.world`).
     """
 
-    def search(config: Config, args: Args, progress: Any) -> list[Any]:
+    def search(config: Config, args: Args, progress: Any, profile: Profile = CAUTIOUS) -> list[Any]:
         wire_catalogue()
         client = Indexer(answers=answers)
         return search_circle(
             config,
             args,
             progress,
+            profile,
             indexer=lambda *_a, **_k: client,
             passport=lambda *_a, **_k: Origin(),
         )
@@ -275,6 +284,7 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers() -> No
         settings=lambda: _SEARCH_CONFIG,
     )
     plans = _real_search({"тачки": _CARS})(_SEARCH_CONFIG, Args(query=["тачки"]), Said())
+    taken = enter_take(plans, "тачки").number
 
     results = bridge.search("тачки")
 
@@ -285,6 +295,7 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers() -> No
             "title": plan.picture.title,
             "year": plan.picture.year,
             "kind": plan.picture.kind,
+            "default": number == taken,
         }
         for number, plan in enumerate(plans, start=1)
     ]
