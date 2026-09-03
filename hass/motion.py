@@ -125,27 +125,29 @@ class Motion:
         сендер знает слово приёмника через круг опроса, и ждать тут нечего. Факта нет
         (запись писал юнит прежней версии) - работает прежний замер стоящей закладки.
 
-        🔴 Паузой показ называется только дав кадр в ЭТОМ запуске: тёмный экран
-        отсекается выше, а показу без кадра стоять нечему. Признак - факт
+        🔴 Ни ``playing``, ни ``paused`` показ без кадра в ЭТОМ запуске не называется:
+        живой юнит доказывает только то, что показ поднимают. Признак - факт
         (:attr:`~torrcast.domain.playback_snapshot.PlaybackSnapshot.moved`), а не порог
         позиции: у продолжения запись уже несёт чужую, положительную позицию ПРОШЛОГО
-        сеанса, и порог `position > 0` называл бы паузой показ, который в ЭТОМ запуске
-        ещё не сдвинул её ни разу (TC-1002, живая приёмка 03-09-2026).
+        сеанса, и порог `position > 0` называл бы идущим показ, который в ЭТОМ запуске
+        не сдвинул её ни разу (TC-1002, живая приёмка 03-09-2026). Слово ``playing`` над
+        неподвижной позицией - это враньё человеку в самом заметном месте карточки: он
+        видит бегущий счётчик времени там, где на экране ещё ничего нет (TC-1022, живой
+        замер 03-09-2026: пять минут ``playing`` при позиции 2486.4 без движения).
         """
         if active:
             if shown is not None and shown.dark_since:
                 return TORN
-            if shown is not None and shown.paused:
+            if shown is None or not shown.moved:
+                # Кадра этого запуска ещё не было: показ поднимается, а не идёт.
+                self._word = STARTING
+                return STARTING
+            if shown.paused:
                 self._seen = (shown.key, shown.position)  # toggle() ставит защёлку на показ
-                fact = PAUSED if shown.moved and shown.paused == "PAUSED" else PLAYING
+                fact = PAUSED if shown.paused == "PAUSED" else PLAYING
                 self._word = self._word_of_fact(shown.key, fact)
                 return self._word
-            # Кадра этого запуска ещё не было - декодировать нечего, и паузой
-            # зрителя это не назвать, каким бы ни было число позиции на диске.
-            standing = (
-                shown is not None and shown.moved and self.standing(shown.key, shown.position)
-            )
-            self._word = self._word_of(shown, standing)
+            self._word = self._word_of(shown, self.standing(shown.key, shown.position))
             return self._word
         if starting:
             return STARTING

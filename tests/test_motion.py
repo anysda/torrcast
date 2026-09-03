@@ -77,14 +77,14 @@ def test_a_dark_record_without_a_show_of_its_own_is_not_called_torn() -> None:
     assert said == IDLE, f"мёртвая запись названа карточке словом «{said}»"
 
 
-def test_a_bookmark_that_has_not_given_a_frame_yet_is_not_a_pause() -> None:
-    """Position stuck at 0 is a show still loading, not a viewer's pause."""
+def test_a_bookmark_that_has_not_given_a_frame_yet_is_neither_a_pause_nor_a_show() -> None:
+    """Position stuck at 0 is a show still loading: not a viewer's pause, not a show."""
     clock = _Clock()
     motion = Motion(still=25.0, clock=clock)
 
     motion.phase(_shown(0.0, moved=False), active=True, starting=False)
     clock.now = 30.0
-    assert motion.phase(_shown(0.0, moved=False), active=True, starting=False) == PLAYING
+    assert motion.phase(_shown(0.0, moved=False), active=True, starting=False) == STARTING
 
 
 def test_a_resumed_bookmark_that_has_not_moved_this_launch_is_not_a_pause() -> None:
@@ -101,7 +101,7 @@ def test_a_resumed_bookmark_that_has_not_moved_this_launch_is_not_a_pause() -> N
 
     motion.phase(_shown(2335.8, moved=False), active=True, starting=False)
     clock.now = 30.0
-    assert motion.phase(_shown(2335.8, moved=False), active=True, starting=False) == PLAYING
+    assert motion.phase(_shown(2335.8, moved=False), active=True, starting=False) == STARTING
 
 
 def test_a_show_that_is_being_started_and_a_silent_machine() -> None:
@@ -205,10 +205,10 @@ def test_a_toggle_on_a_show_that_gave_no_frame_does_not_fake_a_pause() -> None:
     clock = _Clock()
     motion = Motion(still=25.0, clock=clock)
 
-    assert motion.phase(_shown(2335.8, moved=False), active=True, starting=False) == PLAYING
+    assert motion.phase(_shown(2335.8, moved=False), active=True, starting=False) == STARTING
     motion.toggle()
 
-    assert motion.phase(_shown(2335.8, moved=False), active=True, starting=False) == PLAYING
+    assert motion.phase(_shown(2335.8, moved=False), active=True, starting=False) == STARTING
 
 
 def test_a_pause_made_by_the_remote_is_named_from_the_fact_on_the_first_poll() -> None:
@@ -291,7 +291,7 @@ def test_a_pause_fact_without_a_frame_this_launch_is_not_a_pause() -> None:
 
     assert (
         motion.phase(_shown(2335.8, moved=False, paused="PAUSED"), active=True, starting=False)
-        == PLAYING
+        == STARTING
     )
 
 
@@ -307,3 +307,22 @@ def test_the_latch_does_not_follow_into_the_next_show_under_the_fact() -> None:
         motion.phase(_shown(5.0, key="movie:тачки", paused="PLAYING"), active=True, starting=False)
         == PLAYING
     )
+
+
+def test_a_live_unit_over_a_bookmark_that_does_not_move_is_not_called_playing() -> None:
+    """🔴 TC-1022. Слово ``playing`` над неподвижной позицией - враньё человеку.
+
+    Живой замер 03-09-2026: карточка пять минут показывала ``playing`` и бегущий счётчик
+    времени на позиции 2486.4, пока показ ещё паковался и на экране не было ничего.
+    Признак идущего показа - кадр в ЭТОМ запуске, а не живой юнит: юнит доказывает
+    только то, что показ поднимают.
+    """
+    clock = _Clock()
+    motion = Motion(still=25.0, clock=clock)
+
+    assert motion.phase(_shown(2486.4, moved=False), active=True, starting=False) == STARTING
+    clock.now = 300.0
+    assert motion.phase(_shown(2486.4, moved=False), active=True, starting=False) == STARTING
+
+    # Тот же показ, давший кадр, называется идущим сразу же.
+    assert motion.phase(_shown(2486.4, moved=True), active=True, starting=False) == PLAYING
