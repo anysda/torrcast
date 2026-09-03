@@ -115,9 +115,39 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             notification_id=f"{DOMAIN}_last_error",
         )
 
-    async def async_play(self, query: str) -> None:
-        """Asks for a show by the same words a person would type in the terminal."""
-        await self._post("/api/play", {"query": query})
+    async def async_play(self, query: str, pick: int | None = None) -> None:
+        """Asks for a show by the same words a person would type in the terminal.
+
+        ``pick`` names one of the pictures a prior :meth:`async_search` answered with;
+        left out, the serve picks the same way `cast query` would on its own.
+        """
+        body: dict[str, Any] = {"query": query}
+        if pick is not None:
+            body["pick"] = pick
+        await self._post("/api/play", body)
+
+    async def async_search(self, query: str) -> list[dict[str, Any]]:
+        """Asks the serve what it would find for the query, without starting a show.
+
+        Returns the bare ``results`` list of the answer; a refusal of the serve raises
+        the same readable failure a control command would.
+        """
+        try:
+            async with self._session.post(
+                f"{self.base_url}/api/search",
+                json={"query": query},
+                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
+            ) as response:
+                if response.status == 409:
+                    raise HomeAssistantError(await self._refusal(response))
+                response.raise_for_status()
+                found: dict[str, Any] = await response.json(content_type=None)
+        except (aiohttp.ClientError, TimeoutError, ValueError) as error:
+            raise HomeAssistantError(
+                f"{self.base_url} did not answer the search: {error}"
+            ) from error
+        results = found.get("results")
+        return list(results) if isinstance(results, list) else []
 
     async def async_control(self, cmd: str, arg: float | None = None) -> None:
         """Sends one control command; `arg` is absent for `toggle` and `stop`."""

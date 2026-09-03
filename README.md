@@ -124,13 +124,14 @@ show that is running, and it leaves the receiver and the settings as they are.
 torrcast has an integration for Home Assistant: it is added through HACS as a custom
 repository, and Home Assistant then finds the machine on its own, over mDNS. A media
 player card shows up on the dashboard: put a show on, pause, stop, next episode, volume
-and seeking.
+and seeking. Its media browser has a search field for typing a title; tapping a result
+plays that exact one.
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=anysda&repository=torrcast&category=integration)
 
-The integration talks over the local network to a torrcast installed on Linux. Asking for
-a show by name out loud is understood only by an LLM assistant of Home Assistant; the
-built-in Assist handles pause, stop, next episode and volume.
+The integration talks over the local network to a torrcast installed on Linux. The
+built-in Assist handles pause, stop, next episode, volume, and now "play <show>" as
+well; an LLM assistant of Home Assistant understands the same request in freer wording.
 
 ## Commands
 

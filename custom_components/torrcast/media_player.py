@@ -7,11 +7,14 @@ from datetime import datetime
 from typing import Any
 
 from homeassistant.components.media_player import (
+    BrowseMedia,
     MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
     MediaType,
+    SearchMedia,
+    SearchMediaQuery,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -19,6 +22,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .browse import browse, decode_pick, search_media
 from .const import DOMAIN, VOLUME_STEP
 from .coordinator import TorrcastConfigEntry, TorrcastCoordinator
 
@@ -72,6 +76,8 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         | MediaPlayerEntityFeature.SEEK
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.VOLUME_STEP
+        | MediaPlayerEntityFeature.BROWSE_MEDIA
+        | MediaPlayerEntityFeature.SEARCH_MEDIA
     )
 
     def __init__(self, coordinator: TorrcastCoordinator, entry: TorrcastConfigEntry) -> None:
@@ -141,9 +147,42 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
     async def async_play_media(
         self, media_type: MediaType | str, media_id: str, **kwargs: Any
     ) -> None:
-        """The content type is not looked at: the identifier is the search query itself."""
+        """Play a plain query as ever, or one exact hit of a prior search.
+
+        `media_id` is the same free text a person would hand `cast` on the terminal,
+        unless it names a search hit (`browse.decode_pick`); the content type is not
+        looked at either way.
+        """
         _LOGGER.debug("play %s (type %s, extras %s)", media_id, media_type, kwargs)
-        await self.coordinator.async_play(media_id)
+        picked = decode_pick(media_id)
+        if picked is None:
+            await self.coordinator.async_play(media_id)
+            return
+        query, pick = picked
+        await self.coordinator.async_play(query, pick=pick)
+
+    async def async_browse_media(
+        self,
+        # The platform contract carries the content type even where the tree does not
+        # branch by it (see `browse.py`); dropping the parameter would break the call.
+        media_content_type: MediaType | str | None = None,  # noqa: ARG002
+        media_content_id: str | None = None,
+    ) -> BrowseMedia:
+        """Root, and its one child that carries the search field (see `browse.py`)."""
+        return browse(media_content_id)
+
+    async def async_search_media(self, query: SearchMediaQuery) -> SearchMedia:
+        """Ask the serve for `query`, in the same order `POST /api/play` would use.
+
+        A blank query is answered with nothing rather than sent on: the serve's own
+        `no_query` refusal exists for `/api/play`, not for a search box a person has
+        not typed into yet.
+        """
+        text = query.search_query.strip()
+        if not text:
+            return search_media(text, [])
+        hits = await self.coordinator.async_search(text)
+        return search_media(text, hits)
 
     async def async_media_play(self) -> None:
         await self.coordinator.async_control("toggle")

@@ -182,6 +182,116 @@ async def test_a_volume_step_without_a_level_is_refused(
     assert not [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
 
 
+async def test_search_media_keeps_the_serves_order(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """`async_search_media` asks `/api/search` and hands the answer back untouched in order."""
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(
+        f"{BASE}/api/search",
+        json={
+            "results": [
+                {
+                    "pick": 1,
+                    "key": "movie:матрица:1999",
+                    "title": "Матрица",
+                    "year": 1999,
+                    "kind": "movie",
+                },
+                {
+                    "pick": 2,
+                    "key": "tv:чернобыль:2019",
+                    "title": "Чернобыль",
+                    "year": 2019,
+                    "kind": "tv",
+                },
+            ]
+        },
+    )
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "матрица"},
+        blocking=True,
+        return_response=True,
+    )
+    posted = [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
+    assert sent(posted[0]) == {"query": "матрица"}
+    hits = answer[PLAYER].result
+    assert [hit.title for hit in hits] == ["Матрица (1999)", "Чернобыль (2019)"]
+    assert hits[0].media_class == "movie"
+    assert hits[0].can_play is True
+    assert hits[1].media_class == "tv_show"
+    assert hits[0].media_content_id == (
+        "torrcast://pick/1?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0"
+    )
+
+
+async def test_search_media_relays_the_serves_refusal(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """A 409 from `/api/search` reads like any other refusal, not an invented sentence."""
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(f"{BASE}/api/search", status=409, json={"error": "busy"})
+    with pytest.raises(HomeAssistantError, match="already starting"):
+        await hass.services.async_call(
+            "media_player",
+            "search_media",
+            {"entity_id": PLAYER, "search_query": "матрица"},
+            blocking=True,
+            return_response=True,
+        )
+
+
+async def test_playing_a_picked_search_hit_names_its_pick(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """A `media_content_id` from a search result plays THAT picture, not an auto-pick."""
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(f"{BASE}/api/play", status=204)
+    await hass.services.async_call(
+        "media_player",
+        "play_media",
+        {
+            "entity_id": PLAYER,
+            "media_content_id": "torrcast://pick/2?q=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0",
+            "media_content_type": "video",
+        },
+        blocking=True,
+    )
+    posted = [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
+    assert sent(posted[0]) == {"query": "матрица", "pick": 2}
+
+
+async def test_browse_media_root_has_one_searchable_child(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """The search field only draws past the root, so the root needs a child to hold it."""
+    await _added(hass, aioclient_mock, snapshot())
+    root = await hass.services.async_call(
+        "media_player",
+        "browse_media",
+        {"entity_id": PLAYER},
+        blocking=True,
+        return_response=True,
+    )
+    child = root[PLAYER].children[0]
+    assert child.can_search is True
+    assert child.can_expand is True
+
+    inside = await hass.services.async_call(
+        "media_player",
+        "browse_media",
+        {"entity_id": PLAYER, "media_content_id": child.media_content_id},
+        blocking=True,
+        return_response=True,
+    )
+    #: Empty before a search, but still a legible folder, not a dead end.
+    assert inside[PLAYER].children == []
+    assert inside[PLAYER].can_search is True
+    assert inside[PLAYER].title
+
+
 async def test_the_same_failure_is_told_once(hass: HomeAssistant, aioclient_mock: Any) -> None:
     """Один и тот же `last_error` показывается один раз, а не на каждом опросе."""
     entry = await _added(hass, aioclient_mock, snapshot(last_error=None))
