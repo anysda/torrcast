@@ -61,3 +61,34 @@ def test_nothing_to_ask_about_costs_nothing() -> None:
     client = FakeJsonClient(lambda host, path, params: _reply())
     assert WikidataYears(client).years([], 1.0) == {}
     assert client.calls == []
+
+
+def test_a_series_names_its_year_by_the_start_of_the_broadcast() -> None:
+    """🔴 ОТРИЦАТЕЛЬНАЯ ПРОБА на второе свойство: спроси одну публикацию - года нет.
+
+    Живой случай «Дюна» 2000 года: английская статья мини-сериала есть, а даты
+    публикации (``P577``) у него в Wikidata нет вовсе - свой год сериал держит
+    началом показа (``P580``). Пока спрашивалась одна публикация, год оставался
+    несверенным, и мини-сериал терял постер при живой статье.
+    """
+
+    def only_the_start(host: str, path: str, params: dict[str, str]) -> Any:
+        if "wdt:P580" not in params["query"]:
+            return _reply()
+        return _reply(("Q987305", "2000-12-03T00:00:00Z"))
+
+    got = WikidataYears(FakeJsonClient(only_the_start)).years(["Q987305"], 1.0)
+
+    assert got == {"Q987305": {2000}}, "у сериала год остался несверенным"
+
+
+def test_the_date_of_publication_is_still_what_a_film_answers_with() -> None:
+    """Второе свойство ДОПИСАНО к первому, а не заменило его: у фильма год тот же."""
+
+    def only_the_publication(host: str, path: str, params: dict[str, str]) -> Any:
+        assert "wdt:P577" in params["query"], "публикацию перестали спрашивать вовсе"
+        return _reply(("Q83495", "1999-03-31T00:00:00Z"))
+
+    assert WikidataYears(FakeJsonClient(only_the_publication)).years(["Q83495"], 1.0) == {
+        "Q83495": {1999}
+    }

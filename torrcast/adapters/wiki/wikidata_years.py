@@ -1,4 +1,4 @@
-"""Годы выхода пачки картин из Wikidata (P577) одним запросом; зовёт отбор постера.
+"""Годы выхода пачки картин из Wikidata одним запросом; зовёт отбор постера.
 
 Сосед (:class:`~torrcast.adapters.wiki.wikidata_dates.WikidataDates`) спрашивает про одну
 картину и отдаёт самый ранний год - так его зовёт паспорт. Постеру нужно другое: он
@@ -27,6 +27,12 @@ _ENTITY_RE: Final = re.compile(r"^Q\d+$")
 _BATCH: Final = 200
 #: Сколько знаков идентификаторов везёт адрес запроса; та же мера, что и у Википедии.
 _BUDGET: Final = 6000
+#: Чем картина называет свой год. Дата публикации (``P577``) стоит у фильма, а у
+#: СЕРИАЛА её не бывает вовсе: свой год он держит началом показа (``P580``). Пока
+#: спрашивалась одна публикация, «Дюна» 2000 года отвечала пустотой, год оставался
+#: несверенным - и мини-сериал терял постер при живой английской статье. Путь свойства
+#: тут альтернатива, а не второй запрос: обе даты приезжают одним походом.
+_WHEN: Final = "wdt:P577|wdt:P580"
 
 
 class WikidataYears:
@@ -46,7 +52,7 @@ class WikidataYears:
         out: dict[str, set[int]] = {}
         for part in in_budget(asked, _BATCH, _BUDGET):
             values = " ".join(f"wd:{name}" for name in part)
-            body = f"VALUES ?item {{ {values} }} ?item wdt:P577 ?date"
+            body = f"VALUES ?item {{ {values} }} ?item {_WHEN} ?date"
             query = f"SELECT ?item ?date WHERE {{ {body} }}"
             try:
                 payload = self.client.get(
