@@ -224,3 +224,49 @@ def test_the_article_under_the_original_name_outranks_the_guesses_of_full_text_s
     assert _named(wanted[ask]) == ["No Retreat, No Surrender 3: Blood Brothers"], (
         "статью с точным оригинальным именем вытеснили догадки поиска"
     )
+
+
+#: Она же римской цифрой: раздел держит статью ТОЛЬКО под этим именем.
+POLTERGEIST = {
+    "title": "Poltergeist II: The Other Side",
+    "pageprops": {"wikibase_item": "Q1057668"},
+}
+
+
+def test_the_english_section_is_asked_for_the_roman_form_of_the_part_number() -> None:
+    """🔴 ОТРИЦАТЕЛЬНАЯ ПРОБА: спроси одну форму - и статьи под римской цифрой нет.
+
+    Живой случай «Полтергейст 2: Обратная сторона» 1986 года: русской статьи нет,
+    полнотекстовый поиск отдаёт четыре чужие страницы, а английская статья лежит под
+    именем «Poltergeist II: The Other Side» - и никогда под арабской двойкой, которой
+    раздача пишет номер части. Раздел тут отвечает только на римскую форму, поэтому
+    спроси его одной арабской - и картины не станет. Обе формы едут одним ``titles``,
+    так что второе имя не стоит ни одного лишнего похода в сеть.
+    """
+    roman = "Poltergeist II: The Other Side"
+
+    def answer(host: str, path: str, params: dict[str, str]) -> Any:
+        if host == WIKIDATA_HOST:
+            return {
+                "results": {
+                    "bindings": [
+                        {
+                            "item": {"value": "http://www.wikidata.org/entity/Q1057668"},
+                            "date": {"value": "1986-05-23T00:00:00Z"},
+                        }
+                    ]
+                }
+            }
+        if host == EN_WIKI_HOST:
+            asked = params.get("titles", "").split("|")
+            return {"query": {"pages": [POLTERGEIST] if roman in asked else []}}
+        if params.get("generator") == "search":
+            return {"query": {"pages": GUESSES}}
+        return {"query": {"pages": []}}
+
+    client = FakeJsonClient(answer)
+    ask = Ask("Полтергейст 2: Обратная сторона", 1986, "movie", "Poltergeist 2: The Other Side")
+
+    wanted = PosterPages(client).wanted([ask], 1.0)
+
+    assert _named(wanted[ask]) == [roman], "у английского раздела спросили одну арабскую форму"

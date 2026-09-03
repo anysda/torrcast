@@ -28,6 +28,7 @@ from torrcast.domain.facts.dated import Dated
 from torrcast.domain.facts.dated_pages import dated_pages
 from torrcast.domain.facts.fits_ask import fits_ask
 from torrcast.domain.facts.in_budget import in_budget
+from torrcast.domain.facts.original_forms import original_forms
 from torrcast.domain.facts.poster_names import poster_names
 from torrcast.domain.facts.wiki_reply import _merged
 from torrcast.domain.json_value import JsonValue
@@ -47,10 +48,9 @@ _HITS: Final = 4
 #: доверия, а каждая лишняя статья с несказанным годом едет в общий запрос к Wikidata и
 #: удлиняет его: за хвостом седьмого кандидата список ждать не должен.
 _TRIED: Final = 4
-#: Сколько запасных дорожек идёт разом. Больше четырёх - потому что два круга стоят
-#: человеку лишней секунды перед пустым экраном; не больше восьми - потому что за
-#: десятком одновременных запросов Википедия отвечает уже отказом, а отказ на этой
-#: дорожке значит потерянную картинку.
+#: Сколько запасных дорожек идёт разом. Больше четырёх - два круга стоят человеку
+#: лишней секунды перед пустым экраном; не больше восьми - за десятком одновременных
+#: запросов Википедия отвечает отказом, а отказ тут значит потерянную картинку.
 _LANES: Final = 8
 
 
@@ -114,9 +114,8 @@ class PosterPages:
 
         🔴 Статья под ОРИГИНАЛЬНЫМ именем идёт первой: точное имя - признак сильнее
         догадки по похожести слов, а догадок поиск отдаёт ровно :data:`_HITS`, то есть
-        весь отвод :data:`_TRIED`. Пока они стояли впереди, у «Не отступать и не
-        сдаваться 3» статью с точным именем И годом вытесняли Брюс Ли, Ын Сиюнь,
-        октябрь 1993-го и Лорен Аведон - постер терялся, не дойдя до Wikidata.
+        весь отвод :data:`_TRIED`. Стоя впереди, они вытесняли у «Не отступать и не
+        сдаваться 3» статью с точным именем И годом - постер терялся до Wikidata.
         """
         with ThreadPoolExecutor(max_workers=_LANES) as lanes:
             foreign = lanes.submit(self._english, asks, timeout)
@@ -148,18 +147,20 @@ class PosterPages:
         """Английские статьи под оригинальными именами: русской статьи бывает нет вовсе.
 
         «Армитаж: Двойная матрица» 2002 года в русском разделе ведёт в «Armitage III»
-        1994-го - соседку, которую сверка года и отсекает, - а собственная её статья
-        лежит в английском разделе ровно под оригинальным именем.
+        1994-го - соседку, которую отсекает сверка года, - а своя её статья лежит в
+        английском разделе. Имён у находки бывает ДВА, и оба едут одним ``titles``: номер
+        части раздача пишет цифрой, а раздел - римской (:func:`original_forms`).
         """
-        named = {ask.original.strip(): ask for ask in asks if ask.original.strip()}
-        if not named:
+        forms = {ask: original_forms(ask.original) for ask in asks}
+        asked = list(dict.fromkeys(name for names in forms.values() for name in names))
+        if not asked:
             return {}
-        params = {**_LINKS, "titles": "|".join(named), "prop": "pageprops"}
+        params = {**_LINKS, "titles": "|".join(asked), "prop": "pageprops"}
         try:
             payload = self.client.get(EN_WIKI_HOST, WIKI_PATH, params, {}, timeout)
         except Exception:
             return {}
-        return {ask: dated_pages(payload, [name], linked=False) for name, ask in named.items()}
+        return {ask: dated_pages(payload, names, linked=False) for ask, names in forms.items()}
 
     def _checked(self, dated: dict[Ask, list[Dated]], timeout: float) -> dict[Ask, list[Dated]]:
         """Отсев статей с чужим годом; неназванные годы спрашиваются одной пачкой.
