@@ -12,6 +12,7 @@ from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.fakes.show_unit import FakeShowUnit
 from tests.usecases.playback.world import FakeProgress, FakeShow, touch_segment
+from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
@@ -20,6 +21,7 @@ from torrcast.domain.hls_settings import PLAYING_FLAG
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.ports.abandon import slot as abandon_slot
 from torrcast.ports.show_unit.show_unit import ShowUnit
 from torrcast.ports.state_store.slot import store
 from torrcast.usecases.playback import _show_state
@@ -232,3 +234,57 @@ def test_a_relaunch_does_not_carry_a_past_sessions_frame_into_the_new_one(
     saved = store().load().get(key)
     assert saved is not None
     assert saved.moved is False, "новый запуск начинает факт кадра с чистого листа"
+
+
+def test_a_raise_the_person_called_off_never_reaches_the_unit(
+    monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
+) -> None:
+    """🔴 TC-1022. Показ, от которого отказались, не поднимается после отказа.
+
+    Подъём идёт минутами, и отказ человека приходит посреди него. Спрошено ДО юнита
+    нарочно: поднять показ и тут же погасить - это чужой кадр на экране и лишний сендер
+    на приёмнике, а не аккуратная отмена.
+    """
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
+    monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
+    raised: list[str] = []
+    monkeypatch.setattr(_show_state, "start_play_unit", raised.append)
+    composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
+    abandon_slot.install(lambda: True)
+
+    with pytest.raises(CancelledError, match=re.escape(phrase("playback.abandoned"))):
+        _launch(
+            Config(),
+            "movie:кино",
+            Entry(title="Кино", magnet="magnet:?xt=1"),
+            "«Кино»",
+            _Clock(),
+        )
+
+    assert raised == [], f"показ, от которого отказались, всё равно подняли: {raised}"
+
+
+def test_a_show_called_off_while_it_waited_for_the_picture_is_put_out_at_once(
+    tmp_path: Path,
+) -> None:
+    """Отказ, пришедший при уже живом юните, гасит показ здесь, а не через бюджет.
+
+    Юнит поднимается через десяток секунд после начала подъёма, и отказ человека может
+    прийти в ту самую долю секунды, когда юнита ещё не было: тогда снять его снаружи
+    некому. Ожидание картинки спрашивает отказ на каждом своём круге и гасит показ само.
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    unit = FakeShow()
+    abandon_slot.install(lambda: True)
+
+    with pytest.raises(CancelledError, match=re.escape(phrase("playback.abandoned"))):
+        _await_playing(
+            Config(hls_dir=str(out)),
+            FakeProgress(),
+            3.0,
+            clock=FakeClock(now=100.0),
+            unit=cast(ShowUnit, unit),
+        )
+
+    assert unit.stopped == 1, "показ, от которого отказались, остался жить"

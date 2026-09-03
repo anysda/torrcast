@@ -22,6 +22,7 @@ def en() -> dict[str, str]:
         "playback.waiting_tv": "waiting for the TV",
         "playback.packing": "packing",
         "playback.did_not_start": "the show did not start: {why}",
+        "playback.abandoned": "the show was called off before it came up",
         "playback.picture_undetected_but_playing": (
             "could not prove a picture within {secs} s, but the show is playing: {said}"
         ),

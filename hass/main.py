@@ -25,6 +25,7 @@ from hass.bridge import Bridge
 from hass.serve import PORT, serve
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain.version import __version__
+from torrcast.ports.abandon.slot import install as install_abandon
 from torrcast.runtime.wire import wire
 
 #: ``TORRCAST_HA_PORT=<порт>`` - слушать не 8479. Того же рода переопределение, что и
@@ -50,6 +51,9 @@ def main() -> int:
     """
     wire()
     bridge = Bridge()
+    # Про отказ человека знает только мост: у консоли отказываться некому. Назначается
+    # это здесь, в композиционном корне, а не самим мостом.
+    install_abandon(bridge.abandoned)
     chosen = _port()
     server = serve(bridge, chosen)
     announce = Announce(chosen, version=__version__, tv=load_config().tv or "")

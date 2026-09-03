@@ -17,6 +17,7 @@ def ru() -> dict[str, str]:
         "playback.waiting_tv": "жду телевизор",
         "playback.packing": "упаковка",
         "playback.did_not_start": "показ не запустился: {why}",
+        "playback.abandoned": "показ отменён до того, как поднялся",
         "playback.picture_undetected_but_playing": (
             "картинку не доказал за {secs} с, но показ идёт: {said}"
         ),

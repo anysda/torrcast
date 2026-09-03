@@ -24,6 +24,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.ports.abandon import slot as abandon_slot
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
@@ -265,6 +266,33 @@ def test_the_stop_is_not_refused_while_a_show_is_still_being_raised() -> None:
     assert session.stopped == 1, "идущий подъём не снят: очередь до остановки не дойдёт"
     assert bridge.run_one() and bridge.run_one()
     assert taken == [["муха"], [STOP]], f"до продукта доехало не то: {taken}"
+
+
+def test_the_stop_reaches_the_raise_itself_and_not_only_the_queue() -> None:
+    """🔴 TC-1022. Отказ человека обязан дойти до ПОДЪЁМА, а не ждать конца его бюджета.
+
+    Живой замер 03-09-2026: остановку посреди подъёма приняли кодом 204 за 0,00 с, а
+    продукт пришёл в ``idle`` через 358 с - подъём досидел весь свой ``START_BUDGET`` и
+    погас сам, а карточка всё это время говорила человеку, что показ идёт. Гасить юнит в
+    момент отказа было нечего: юнита ещё не существовало, его поднимают через десяток
+    секунд после начала подъёма. Значит, отказ - это факт, который спрашивает сам подъём.
+    """
+    session = FakePlaybackSession(playing=False)
+    seen: list[bool] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        del argv
+        seen.append(abandon_slot.abandoned())  # ровно то, что спрашивает запуск показа
+        return 0
+
+    bridge = _bridge(session, command=command)
+    abandon_slot.install(bridge.abandoned)
+
+    bridge.play("муха")  # подъём взят в работу, но главный поток до него ещё не дошёл
+    assert _refusal_of_stop(bridge) is None
+
+    assert bridge.run_one() and bridge.run_one()
+    assert seen[:1] == [True], f"подъём не узнал, что от него отказались: {seen}"
 
 
 def test_the_stop_is_not_refused_on_an_empty_screen_either() -> None:

@@ -38,6 +38,7 @@ from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue, tongue
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
+from torrcast.ports.abandon import slot as abandon_slot
 from torrcast.ports.journal import slot as journal_slot
 from torrcast.ports.progress import slot as progress_slot
 from torrcast.ports.show_unit import slot as unit_slot
@@ -572,11 +573,13 @@ def _ports_restored() -> Iterator[None]:
     на то, что каждый автор допишет ``install`` обратно, - значит ждать той же ошибки
     снова.
     """
+    saved_abandon = abandon_slot.asking()
     saved_journal = journal_slot.journal()
     saved_progress = progress_slot.factory()
     saved_state = state_slot.store()
     saved_unit = unit_slot.unit()
     yield
+    abandon_slot.install(saved_abandon)
     journal_slot.install(saved_journal)
     progress_slot.install(saved_progress)
     state_slot.install(saved_state)

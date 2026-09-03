@@ -9,6 +9,11 @@
 Очереди у поручений нет: подъём показа идёт по одному, и второй заход - это отказ
 (:meth:`Orders.take`). Исключение ровно одно, и оно названо своим именем:
 :meth:`Orders.force` - остановка, отказать в которой нечем.
+
+🔴 Остановка мимо очереди до идущего подъёма НЕ доходит: очередь дойдёт до неё только
+когда подъём кончится, то есть через весь его бюджет старта. Поэтому отказ человека
+живёт отдельным фактом (:meth:`Orders.abandon`), и спрашивает его сам подъём на своих
+поворотах (:func:`torrcast.ports.abandon.slot.abandoned`).
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ class Orders:
         self._lock = threading.Lock()
         self._queue: Queue[list[str] | None] = Queue()
         self._underway = False
+        self._abandoned = False
         #: Отказ последнего поручения теми же словами, какими его сказала бы консоль.
         self.last_error = ""
 
@@ -40,26 +46,41 @@ class Orders:
         with self._lock:
             return self._underway
 
+    def abandoned(self) -> bool:
+        """Снят ли заказ на тот подъём, который идёт прямо сейчас.
+
+        Спрашивает это сам подъём, из главного потока, пока он ещё идёт: очередь
+        поручений до него в этот момент не дойдёт по устройству (см. модуль).
+        """
+        with self._lock:
+            return self._abandoned
+
     def take(self, args: list[str]) -> bool:
         """Взять поручение в работу; занято подъёмом - ``False``, и это отказ моста."""
         with self._lock:
             if self._underway:
                 return False
             self._underway = True
+            self._abandoned = False  # отказ был от ПРОШЛОГО заказа, а не от этого
             self.last_error = ""  # прошлый отказ живёт до начала следующего показа
         self._queue.put(args)
         return True
 
-    def force(self, args: list[str]) -> bool:
-        """Положить поручение, не спрашивая занятости; отвечает, шёл ли при этом подъём.
+    def abandon(self) -> bool:
+        """Снять заказ на идущий подъём; отвечает, был ли он вообще.
 
-        Занятость тут не причина отказать, а факт, который зовущему нужно знать: пока
-        главный поток досиживает чужой подъём, очередь до этого поручения не дойдёт, и
-        снимать подъём приходится не ею (:meth:`hass.bridge.Bridge._stop`).
+        Ничего не ждёт и ничего не отменяет сама: кладёт факт, который подъём читает
+        на ближайшем своём повороте. Подъёма нет - и снимать нечего.
         """
-        underway = self.underway()
+        with self._lock:
+            if not self._underway:
+                return False
+            self._abandoned = True
+            return True
+
+    def force(self, args: list[str]) -> None:
+        """Положить поручение, не спрашивая занятости: остановке отказать нечем."""
         self._queue.put(args)
-        return underway
 
     def run(self) -> None:
         """Исполнять поручения, пока не попросят уйти. Зовётся из ГЛАВНОГО потока."""
@@ -82,10 +103,15 @@ class Orders:
         self._queue.put(None)
 
     def _run(self, args: list[str]) -> None:
-        """Исполнить поручение и запомнить его отказ тем же словом, что и консоль."""
+        """Исполнить поручение и запомнить его отказ тем же словом, что и консоль.
+
+        🔴 Снятый заказ отказом не считается. Человек сам попросил убрать этот подъём, и
+        показывать ему за это отдельную жалобу не за что; а сказать её было бы нечем -
+        отмена в консоль не пишет ни строки, и словом отказа стал бы голый код возврата.
+        """
         try:
             result = command_result(self._command, args)
-            if result.code:
+            if result.code and not self.abandoned():
                 self.last_error = result.detail
         except Exception as error:
             self.last_error = why(error)

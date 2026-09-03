@@ -22,6 +22,7 @@ from torrcast.ports.show_unit.show_unit import ShowUnit
 from torrcast.ports.show_unit.slot import unit as show_unit
 from torrcast.ports.state_store.slot import store
 from torrcast.usecases.playback.hls_root import hls_root
+from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
@@ -42,10 +43,16 @@ def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = F
 def _launch(
     config: Config, key: str, entry: Entry, about: str, clock: _Clock, dry: bool = False
 ) -> int:
-    """Показ уезжает в transient-юнит: ``cast`` завершился — показ продолжается."""
+    """Показ уезжает в transient-юнит: ``cast`` завершился — показ продолжается.
+
+    🔴 Отказ человека спрашивается на двух поворотах подъёма, и что он значит, названо
+    в :mod:`torrcast.usecases.playback.refuse_called_off`: до юнита - здесь, а при уже
+    живом юните - в ожидании картинки (:func:`_await_playing`).
+    """
     if dry:
         print(phrase("playback.dry_run_no_cast", about=about))
         return EXIT_OK
+    refuse_called_off()
     _refuse_hopeless(config, entry)
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
     # SIGTERM дописывает СВОЮ позицию, и записанный раньше прыжок на s1e5 он бы затёр.
@@ -156,6 +163,7 @@ def _await_playing(
     deadline = clock.monotonic() + timeout
     packed = False
     while clock.monotonic() < deadline:
+        refuse_called_off(progress, unit)
         if flag.exists():
             journal().mark("картинка")
             progress.phase("")
