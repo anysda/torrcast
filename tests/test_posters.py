@@ -27,8 +27,12 @@ STREAM = "http://10.0.1.5:8010/stream/index.m3u8"
 _SETTLE = 5.0
 
 
-def _film(title: str = "Тачки", year: int = 2006, label: str = "") -> PlaybackSnapshot:
-    return PlaybackSnapshot(key="k", title=title, year=year, label=label)
+def _film(
+    title: str = "Тачки", year: int = 2006, label: str = "", original: str = "", query: str = ""
+) -> PlaybackSnapshot:
+    return PlaybackSnapshot(
+        key="k", title=title, year=year, label=label, original=original, query=query
+    )
 
 
 @dataclass
@@ -198,6 +202,48 @@ def test_a_show_without_a_stream_address_breaks_nothing(tmp_path: Path) -> None:
 
     assert frame.asked == [], "кадр по фразе для человека не снимают"
     assert made.picture(shown, lambda: "показ не идёт") == ("", "")
+
+
+@pytest.mark.machine
+def test_the_frame_opens_the_manifest_and_not_the_hls_base(tmp_path: Path) -> None:
+    """Адрес сеанса - база HLS; ffmpeg нужен существующий мастер-манифест."""
+    poster, frame = FakePoster(body=None), FakeFrame()
+    made, _ = _posters(poster, frame, tmp_path)
+
+    _, digest = _settled(made, _film("Картина без статьи"), "http://10.0.1.5:8010")
+
+    assert frame.asked == ["http://10.0.1.5:8010/index.m3u8"]
+    assert made.read(digest) == (FRAME, "image/jpeg"), "карточка получила кадр"
+
+
+@pytest.mark.machine
+def test_a_misspelled_catalogue_title_reaches_a_confirmed_poster(tmp_path: Path) -> None:
+    """Опечатка записи исправляется, но только с совпавшими годом и родом статьи."""
+    asked: list[tuple[str, int | None, str]] = []
+    frame = FakeFrame()
+    corrected: list[tuple[str, int, str]] = []
+
+    def poster(title: str, year: int | None, kind: str, timeout: float) -> bytes | None:
+        asked.append((title, year, kind))
+        return POSTER if title == "Ещё по одной" else None
+
+    def correct(title: str, year: int, kind: str, timeout: float) -> str:
+        corrected.append((title, year, kind))
+        return "Ещё по одной"
+
+    made = Posters(
+        poster=poster,
+        frame=frame,
+        shelf=PosterShelf(home=lambda: tmp_path / "posters"),
+        correct=correct,
+    )
+    shown = _film("Еше по одной", 2020, original="Druk", query="еще-по-одной")
+
+    _, digest = _settled(made, shown)
+
+    assert corrected == [("Еше по одной", 2020, "movie")]
+    assert asked[-1] == ("Ещё по одной", 2020, "movie")
+    assert made.read(digest) == (POSTER, "image/jpeg"), "карточка получила постер"
 
 
 @pytest.mark.machine

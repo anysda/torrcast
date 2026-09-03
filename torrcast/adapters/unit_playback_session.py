@@ -110,4 +110,5 @@ class UnitPlaybackSession:
             done=entry.done,
             year=entry.year,
             original=entry.original,
+            query=getattr(entry, "query", ""),
         )

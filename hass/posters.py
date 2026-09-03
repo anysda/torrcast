@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Final
 
 from hass.picture_type import picture_type
+from hass.poster_lookup import _manifest, _poster_names, _wiki_correction
 from hass.poster_shelf import PosterShelf
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
 from torrcast.adapters.wiki.wiki_poster import WikiPoster
@@ -32,6 +33,7 @@ _KEEP: Final = 4
 
 _Poster = Callable[[str, int | None, str, float], bytes | None]
 _Frame = Callable[[str], bytes | None]
+_Correct = Callable[[str, int, str, float], str]
 _Stream = Callable[[], str]
 
 
@@ -55,8 +57,13 @@ class Posters:
         frame: _Frame = frame_shot,
         shelf: PosterShelf | None = None,
         now: Callable[[], float] = time.monotonic,
+        correct: _Correct | None = None,
     ) -> None:
-        self._poster = poster or WikiPoster(FACTS.client, FACTS.client).poster
+        source = WikiPoster(FACTS.client, FACTS.client)
+        self._poster = poster or source.poster
+        self._correct = (
+            correct if correct is not None else (None if poster is not None else _wiki_correction)
+        )
         self._frame = frame
         self._shelf = PosterShelf() if shelf is None else shelf
         self._now = now
@@ -111,7 +118,7 @@ class Posters:
         body = self._found(shown)
         where = stream() if body is None else ""
         if body is None and where.startswith("http"):
-            body = self._frame(where)
+            body = self._frame(_manifest(where))
         with self._lock:
             self._working.discard(key)
             if not body:
@@ -133,10 +140,22 @@ class Posters:
         kept = self._shelf.read(identity)
         if kept:
             return kept
-        try:
-            body = self._poster(shown.title, shown.year or None, _kind(shown), _TIMEOUT)
-        except Exception:
-            return None
+        body = None
+        names = _poster_names(shown)
+        for name in names:
+            try:
+                body = self._poster(name, shown.year or None, _kind(shown), _TIMEOUT)
+            except Exception:
+                continue
+            if body:
+                break
+        if not body and shown.year and self._correct is not None:
+            try:
+                fixed = self._correct(names[0], shown.year, _kind(shown), _TIMEOUT)
+                if fixed and fixed not in names:
+                    body = self._poster(fixed, shown.year, _kind(shown), _TIMEOUT)
+            except Exception:
+                body = None
         if body:
             self._shelf.write(identity, body)
         return body

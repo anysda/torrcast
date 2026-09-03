@@ -29,6 +29,8 @@ class PlaybackSnapshot:
     year: int = 0
     #: Оригинальное имя картины из записи: под EN печатается оно, а не :attr:`title`.
     original: str = ""
+    #: Исходный запрос человека: запасное имя картины, если каталог записал заголовок с ошибкой.
+    query: str = ""
 
     @property
     def spoken(self) -> str:

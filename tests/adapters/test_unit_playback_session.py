@@ -32,6 +32,7 @@ class _Entry:
     done: bool = False
     year: int = 0
     original: str = ""
+    query: str = ""
 
 
 @dataclass
@@ -119,6 +120,16 @@ def test_the_snapshot_carries_the_original_name_of_the_picture() -> None:
     shown = wiring.session().snapshot("движется")
 
     assert shown is not None and shown.original == "Moana 2"
+
+
+def test_the_snapshot_carries_the_query_that_named_the_picture() -> None:
+    """Запрос остаётся запасным именем, когда каталог записал заголовок с ошибкой."""
+    wiring = _Wiring()
+    wiring.state.entries["движется"] = _Entry(query="еще-по-одной")
+
+    shown = wiring.session().snapshot("движется")
+
+    assert shown is not None and shown.query == "еще-по-одной"
 
 
 def test_an_empty_state_has_nothing_to_show() -> None:
