@@ -10,6 +10,20 @@
 # Формат: `[версия]` открывает раздел, `en текст` / `ru текст` - запись на своём языке.
 # Порядок записей внутри раздела - порядок на экране. Пустые строки и `#` пропускаются.
 
+[1.1.0]
+en torrcast appears in Home Assistant and shows up on its own
+ru torrcast появляется в Home Assistant и находится сам
+en a Home Assistant card starts a show and steers it
+ru карточка Home Assistant запускает показ и управляет им
+en the integration installs from HACS as a custom repository
+ru интеграция ставится из HACS как своё хранилище
+en type a name in the card and pick the picture from a list
+ru в карточке можно ввести название и выбрать картину из списка
+en the card shows the poster and knows the next episode
+ru карточка показывает постер и знает следующую серию
+en a resume starts from a frame the picture can begin from
+ru продолжение начинается с кадра, с которого есть картинка
+
 [1.0.3]
 en torrcast installs natively on macOS with one command
 ru torrcast ставится на macOS одной командой, нативно

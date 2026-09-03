@@ -8,6 +8,6 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/anysda/torrcast/issues",
   "requirements": [],
-  "version": "1.0.3",
+  "version": "1.1.0",
   "zeroconf": ["_torrcast._tcp.local."]
 }
