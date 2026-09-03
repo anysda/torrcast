@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -57,8 +58,10 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.base_url = f"http://{host}:{port}"
         #: Version of the integration itself, to be compared with the one of the serve.
         self.integration_version = version
-        #: When the snapshot on hand was taken: a position without it is meaningless.
-        self.taken_at = dt_util.utcnow()
+        #: When the bookmark on hand was TAKEN - the point the card counts the slider
+        #: from. Deliberately not "when the answer arrived": see :meth:`_mark_position`.
+        self.position_at = dt_util.utcnow()
+        self._position: float | None = None
         self._session = async_get_clientsession(hass)
         self._told_error: str | None = None
         self._told_version = False
@@ -70,12 +73,40 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         out loud and lowers the rest to debug until the serve answers again.
         """
         snapshot = await self._get_state()
-        self.taken_at = dt_util.utcnow()
+        self._mark_position(snapshot.get("position"))
         showing = snapshot.get("state") in SHOWING_STATES
         self.update_interval = SCAN_INTERVAL_SHOWING if showing else SCAN_INTERVAL_IDLE
         self._tell_version(snapshot.get("version"))
         self._tell_error(snapshot.get("last_error"))
         return snapshot
+
+    def _mark_position(self, raw: Any) -> None:
+        """Moves the slider's origin with the bookmark itself, not with every answer.
+
+        The show writes its bookmark once every ten seconds, the poll asks every five,
+        and the card draws `position + (now - position_at)`. Stamping the arrival of
+        each answer moved the origin under a bookmark that had not moved, so the
+        slider walked forward for five seconds and then fell back to the same place -
+        again and again, for the whole show.
+
+        A repeated place is not a new measurement, so the origin stays where it was.
+        A place that moved forward moves the origin by exactly as much as the bookmark
+        moved: the two circles - the show's and the poll's - drift apart, and sooner or
+        later a new place arrives a poll late, which is the very same fall back, only
+        rare. Lagging further behind than one poll is not worth it though: a bookmark
+        standing longer than that is a show that stopped, and the truth about it is
+        worth more than a smooth slider.
+        """
+        place = None if raw is None else float(raw)
+        now = dt_util.utcnow()
+        if place is None or self._position is None or place < self._position:
+            self._position, self.position_at = place, now
+            return
+        if place == self._position:
+            return
+        moved = timedelta(seconds=place - self._position)
+        self._position = place
+        self.position_at = max(now - SCAN_INTERVAL_SHOWING, min(now, self.position_at + moved))
 
     async def _get_state(self) -> dict[str, Any]:
         try:

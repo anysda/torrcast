@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import patch
 
@@ -16,10 +16,12 @@ from homeassistant.exceptions import HomeAssistantError  # type: ignore[import-n
 from homeassistant.helpers.entity_component import (  # type: ignore[import-not-found]
     DATA_INSTANCES,
 )
+from homeassistant.util import dt as dt_util  # type: ignore[import-not-found]
 from pytest_homeassistant_custom_component.common import (  # type: ignore[import-not-found]
     MockConfigEntry,
 )
 
+from custom_components.torrcast.const import SCAN_INTERVAL_SHOWING
 from hass.hit_posters import FIELD
 from hass.search_results import search_results
 from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, sent, snapshot
@@ -29,6 +31,8 @@ from torrcast.usecases.select.plan import Plan
 
 #: Entity id the recorded fixture's receiver ("192.168.1.90") slugifies to.
 PLAYER = "media_player.torrcast_192_168_1_90"
+#: Часы, по которым координатор метит закладку: круг опроса в тесте отмеряется ими.
+CLOCK = "custom_components.torrcast.coordinator.dt_util"
 
 
 @pytest.fixture(autouse=True)
@@ -654,3 +658,82 @@ async def test_a_show_without_a_picture_does_not_invent_one(
     await _added(hass, aioclient_mock, snapshot(image=None, image_hash=None))
 
     assert hass.states.get(PLAYER).attributes.get("entity_picture") is None
+
+
+def _drawn(hass: HomeAssistant, moment: datetime) -> float:
+    """Где ползунок карточки окажется к этому мигу: место плюс время от метки.
+
+    Считается ровно так, как это делает фронт Home Assistant, - иначе мерялась бы не та
+    линия, которую видит человек.
+    """
+    shown = hass.states.get(PLAYER)
+    assert shown is not None
+    place = float(shown.attributes["media_position"])
+    mark: datetime = shown.attributes["media_position_updated_at"]
+    return place + (moment - mark).total_seconds()
+
+
+async def _polled_again(
+    hass: HomeAssistant, aioclient_mock: Any, entry: Any, **changes: Any
+) -> None:
+    """Ещё один круг опроса с другим ответом серва."""
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{BASE}/api/state", json=snapshot(**changes))
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+
+async def test_a_bookmark_that_stood_still_does_not_throw_the_slider_back(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """🔴 TC-1019. Ползунок идущего показа не откатывается назад.
+
+    Показ кладёт закладку в запись раз в десять секунд, а карточка спрашивает раз в
+    пять: на каждом втором ответе место ТО ЖЕ. Метка, которую двигал сам факт ответа,
+    делала из этого пилу - ползунок уезжал на круг опроса вперёд и падал обратно,
+    и так весь показ (замер на стенде: откат 4,0 с каждые десять секунд).
+    """
+    entry = await _added(hass, aioclient_mock, snapshot(state="playing", position=294.2))
+    later = dt_util.utcnow() + SCAN_INTERVAL_SHOWING
+    moment = later + timedelta(seconds=1)
+    before = _drawn(hass, moment)
+
+    with patch(f"{CLOCK}.utcnow", return_value=later):
+        await _polled_again(hass, aioclient_mock, entry, state="playing", position=294.2)
+
+    after = _drawn(hass, moment)
+    assert after >= before, f"ползунок откатился на {before - after:.1f} с"
+
+
+async def test_a_bookmark_that_moved_takes_the_slider_with_it(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Метка стоит на месте не сама по себе, а вместе с закладкой.
+
+    Замерший навсегда отсчёт прошёл бы проверку на пилу так же гладко, как правка, - и
+    ползунок уехал бы в бесконечность. Двинулась закладка - двигается и ползунок.
+    """
+    entry = await _added(hass, aioclient_mock, snapshot(state="playing", position=294.2))
+    later = dt_util.utcnow() + SCAN_INTERVAL_SHOWING
+    moment = later + timedelta(seconds=1)
+    before = _drawn(hass, moment)
+
+    with patch(f"{CLOCK}.utcnow", return_value=later):
+        await _polled_again(hass, aioclient_mock, entry, state="playing", position=304.4)
+
+    assert _drawn(hass, moment) > before, "новое место закладки не сдвинуло ползунок"
+
+
+async def test_a_seek_backwards_puts_the_slider_where_it_was_dropped(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Перемотка назад ставит ползунок туда, куда его отпустили (TC-1014 не потерять).
+
+    Место уехало назад - прежнему отсчёту верить нечему: он про другую точку картины.
+    """
+    entry = await _added(hass, aioclient_mock, snapshot(state="playing", position=294.2))
+
+    await _polled_again(hass, aioclient_mock, entry, state="playing", position=60.0)
+
+    landed = _drawn(hass, dt_util.utcnow())
+    assert 60.0 <= landed < 61.0, f"ползунок после перемотки назад оказался на {landed:.1f}"

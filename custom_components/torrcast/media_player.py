@@ -160,7 +160,7 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
 
     @property
     def media_position_updated_at(self) -> datetime:
-        return self.coordinator.taken_at
+        return self.coordinator.position_at
 
     @property
     def volume_level(self) -> float | None:
