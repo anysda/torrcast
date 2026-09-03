@@ -10,6 +10,12 @@
 # Формат: `[версия]` открывает раздел, `en текст` / `ru текст` - запись на своём языке.
 # Порядок записей внутри раздела - порядок на экране. Пустые строки и `#` пропускаются.
 
+[1.1.1]
+en the card names a pause the second it happens, whoever pressed
+ru карточка называет паузу сразу, кто бы её ни поставил
+en a picture on the card is always there while a show runs
+ru пока идёт показ, на карточке всегда есть картинка
+
 [1.1.0]
 en torrcast appears in Home Assistant and shows up on its own
 ru torrcast появляется в Home Assistant и находится сам
