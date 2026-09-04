@@ -184,12 +184,18 @@ def search_media(
 
 def _hit(query: str, result: dict[str, Any], thumbnail: Thumbnail | None) -> BrowseMedia:
     kind = str(result.get("kind", ""))
-    #: What a person reads is named by the product, not composed here: the serve sends
-    #: it decided (`hass/search_results.py`), and the integration knows nothing of the
-    #: language the product speaks. `title` is the raw name the serve looks a poster up
-    #: by, and it is only read here as the older contract of a serve that predates
-    #: `shown` - the same way the card falls back from `shown_as` to `title`.
-    title = str(result.get("shown") or result.get("title", ""))
+    #: The whole line a person reads is written by the product, not composed here: the
+    #: serve sends it decided (`hass/search_results.py`), marks and all, and the
+    #: integration knows nothing of the language the product speaks - a kind mark reads
+    #: `, series` or `, сериал` depending on it. Composing the line here is what let this
+    #: list say nothing about a hit being a series while the menu of `cast` on the same
+    #: stand said it in words: two places writing one line is two rules.
+    #:
+    #: `shown` and then `title` are the older contracts of a serve that predates `named`,
+    #: read the same way the card falls back from `shown_as` to `title`. With them the
+    #: year is glued on here, exactly as it was before - an old serve is not dropped.
+    named = str(result.get("named") or "")
+    shown = str(result.get("shown") or result.get("title", ""))
     year = result.get("year")
     poster = result.get(_POSTER)
     media_content_id = encode_pick(query, int(result["pick"]))
@@ -198,7 +204,7 @@ def _hit(query: str, result: dict[str, Any], thumbnail: Thumbnail | None) -> Bro
         media_class=_MEDIA_CLASS.get(kind, MediaClass.VIDEO),
         media_content_id=media_content_id,
         media_content_type=media_content_type,
-        title=f"{title} ({year})" if year else title,
+        title=named or (f"{shown} ({year})" if year else shown),
         can_play=True,
         can_expand=False,
         thumbnail=(

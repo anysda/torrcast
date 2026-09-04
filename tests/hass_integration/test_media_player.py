@@ -26,7 +26,10 @@ from custom_components.torrcast.const import SCAN_INTERVAL_SHOWING
 from hass.hit_posters import FIELD
 from hass.search_results import search_results
 from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, sent, snapshot
+from torrcast.domain.facts.fact import Fact
+from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.domain.picture import Picture
+from torrcast.usecases.choice.head_line import head_line
 from torrcast.usecases.select.plan import Plan
 
 #: Entity id the recorded fixture's receiver ("192.168.1.90") slugifies to.
@@ -322,7 +325,8 @@ def _served(pictures: list[Picture], taken: int) -> dict[str, Any]:
     `default` there and this test fails, not the television.
 
     The shaping function costs nothing to import in this venv - it reaches for the
-    torrcast domain and for nothing else.
+    torrcast domain and for the one usecase that names a picture to a person, and for
+    nothing else: no config file, no network, no Home Assistant.
     """
     plans = [Plan(picture=picture, ranked=[], runtime=0.0, warn_mbit=0.0) for picture in pictures]
     return {"results": search_results(plans, taken)}
@@ -357,7 +361,10 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     posted = [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
     assert sent(posted[0]) == {"query": "матрица"}
     hits = answer[PLAYER].result
-    assert [hit.title for hit in hits] == ["Чернобыль (2019)", "Матрица (1999)"]
+    assert [hit.title for hit in hits] == [
+        "Чернобыль (2019, series) - Russian title only",
+        "Матрица (1999) - Russian title only",
+    ]
     assert hits[0].media_class == "tv_show"
     assert hits[0].can_play is True
     assert hits[1].media_class == "movie"
@@ -383,6 +390,10 @@ async def test_a_hit_is_named_in_the_tongue_the_product_speaks(
     A picture the product has no English name for keeps its own and is neither blanked
     nor transliterated - a person cannot pick a line that has no name. The raw name
     stays in `title`, because the poster of a hit is looked up by it.
+
+    A picture with no year at all is dated `(?)`, the way the menu of `cast` dates it:
+    the year in this list tells two namesakes apart, and a blank where the console
+    prints something is the same one query, two answers this test exists about.
     """
     await _added(hass, aioclient_mock, snapshot())
     aioclient_mock.post(
@@ -411,9 +422,82 @@ async def test_a_hit_is_named_in_the_tongue_the_product_speaks(
 
     assert [hit.title for hit in answer[PLAYER].result] == [
         "Back to the Future (1985)",
-        "Back To The Future",
-        "Expedition: Back to the Future (2021)",
+        "Back To The Future (?)",
+        "Expedition: Back to the Future (2021, series)",
     ]
+
+
+async def test_a_series_hit_says_it_is_a_series_and_a_film_hit_says_nothing(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """One query, a series and a film: a person reads which is which off the line.
+
+    The list said nothing at all about a hit's kind while the menu of `cast` on the very
+    same stand said it in a word. The kind does travel - `media_class` of a hit is
+    `tv_show` - but nobody sees it: the frontend lays this list out by
+    `children_media_class` of the node the hits stand in (`menu`, `music`), and every row
+    of that layout draws the same note icon whatever the row itself is. So the word has
+    to be in the title, and it is written by the product: the mark is a localised phrase
+    (`, series` under English, `, сериал` under Russian) and the integration knows nothing
+    of the language the serve speaks.
+
+    Both sides are asserted apart. A mark on everything reads no better than a mark on
+    nothing, so the film is named too, and by its own assert.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(
+        f"{BASE}/api/search",
+        json=_served(
+            [
+                Picture(title="Рэмбо", year=2022, kind="tv", original="Rambo"),
+                Picture(title="Рэмбо: Первая кровь", year=1982, original="First Blood"),
+            ],
+            taken=1,
+        ),
+    )
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "рэмбо", "media_content_id": "menu"},
+        blocking=True,
+        return_response=True,
+    )
+    hits = answer[PLAYER].result
+
+    assert hits[0].title == "Rambo (2022, series)", "сериал обязан называть себя сериалом"
+    assert hits[1].title == "First Blood (1982)", "у фильма пометки вида нет"
+
+
+async def test_a_hit_is_titled_the_way_the_console_menu_titles_the_same_picture(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """The line in the card is the line `cast --menu` prints for that picture.
+
+    Not a literal copied into this file: the expected string is asked of
+    `head_line`, the very function the console menu prints its item with, so the two
+    places cannot drift apart quietly. That drift is the whole defect - the card was
+    composing `"{name} ({year})"` with a rule of its own.
+    """
+    pictures = [
+        Picture(title="Рэмбо", year=2022, kind="tv", original="Rambo"),
+        Picture(title="Рэмбо: Первая кровь", year=1982, original="First Blood"),
+        Picture(title="Ёлки", year=2010),
+    ]
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(f"{BASE}/api/search", json=_served(pictures, taken=1))
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "рэмбо", "media_content_id": "menu"},
+        blocking=True,
+        return_response=True,
+    )
+    aside = outside_numbering(pictures)
+
+    for picture, hit in zip(pictures, answer[PLAYER].result, strict=True):
+        console = head_line(1, picture, Fact(), picture.key in aside).removeprefix("  1. ")
+
+        assert hit.title == console
 
 
 async def test_a_hit_shows_its_poster_and_home_assistant_fetches_it_from_the_serve(

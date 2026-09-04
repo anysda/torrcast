@@ -17,7 +17,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.domain.spoken_title import spoken_title
+from torrcast.usecases.choice._named import _named
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -46,13 +48,31 @@ def search_results(plans: list[Plan], taken: int) -> list[JsonValue]:
     увело бы этот поиск на английское имя, а полку разбило бы на две записи про одну
     картину. Английское ``original`` подписью тоже не станет - у отечественной картины
     его нет вовсе.
+
+    🔴 ``named`` - вся СТРОКА пункта, какой её собирает меню ``cast``
+    (:func:`torrcast.usecases.choice._named._named`, тот же вызов, что у
+    :func:`torrcast.usecases.choice.head_line.head_line`): имя, год и пометки вида.
+    Готовой строкой, а не пометкой отдельным полем, потому что второе место, где строку
+    СОБИРАЮТ, - это второе правило: карточка уже собирала ``"{имя} ({год})"`` своей рукой
+    и о сериале молчала вовсе, а человек в списке видел одинаковые строки у сериала и у
+    фильма-тёзки. Сложить пометку на стороне ``custom_components`` нельзя и по-другому:
+    пометка локализована (``, сериал`` / ``, series``), а язык знает только продукт.
+
+    Пометка «имя только по-русски» тут есть (``item=True``): из этого списка человек
+    ВЫБИРАЕТ, ровно как из меню консоли, и обязан видеть, что английского имени у пункта
+    нет. Пометка «без номера части» тоже: она про саму картину, а не про раскладку
+    консоли, и спрашивается тем же :func:`~torrcast.domain.outside_numbering.
+    outside_numbering` по тому же списку планов. Год неизвестен - в строке стоит ``(?)``,
+    как и в консоли: у списка находок это не украшение, а различитель тёзок.
     """
+    aside = outside_numbering([plan.picture for plan in plans])
     return [
         {
             "pick": number,
             "key": plan.picture.key,
             "title": plan.picture.title,
             "shown": spoken_title(plan.picture.title, plan.picture.original or ""),
+            "named": _named(plan.picture, plan.picture.key in aside, item=True),
             "year": plan.picture.year,
             "kind": plan.picture.kind,
             "original": plan.picture.original or "",

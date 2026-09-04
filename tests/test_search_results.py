@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import Any, cast
 
 from hass.search_results import search_results
+from torrcast.domain.facts.fact import Fact
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.kind import Kind
+from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.domain.picture import Picture
+from torrcast.usecases.choice.head_line import head_line
 from torrcast.usecases.select.plan import Plan
 
 
@@ -26,11 +29,16 @@ def _records(results: list[JsonValue]) -> list[dict[str, Any]]:
     return cast("list[dict[str, Any]]", results)
 
 
-def test_plans_become_picks_numbered_from_one_in_the_products_own_order() -> None:
+def test_plans_become_picks_numbered_from_one_in_the_products_own_order(
+    _russian_product: None,
+) -> None:
     """Оригинальное имя едет полем записи: у части находок русской статьи нет вовсе.
 
     Пустая строка на его месте - это «продукт про оригинал не знает», и картинку такой
     находке ищут по одному русскому имени.
+
+    Язык назван поимённо: ``named`` собирается каталогом надписей, и на умолчании форма
+    записи мерилась бы английской, а читалась как «форма вообще».
     """
     plans = [_plan("Тачки", 2006), _plan("Тачки 2", 2011)]
 
@@ -40,6 +48,7 @@ def test_plans_become_picks_numbered_from_one_in_the_products_own_order() -> Non
             "key": "movie:тачки:2006",
             "title": "Тачки",
             "shown": "Тачки",
+            "named": "Тачки (2006)",
             "year": 2006,
             "kind": "movie",
             "original": "",
@@ -50,6 +59,7 @@ def test_plans_become_picks_numbered_from_one_in_the_products_own_order() -> Non
             "key": "movie:тачки-2:2011",
             "title": "Тачки 2",
             "shown": "Тачки 2",
+            "named": "Тачки 2 (2011)",
             "year": 2011,
             "kind": "movie",
             "original": "",
@@ -103,6 +113,69 @@ def test_the_raw_name_stays_in_the_record_because_the_poster_is_looked_up_by_it(
 
     assert record["title"] == "Назад в будущее"
     assert record["original"] == "Back to the Future"
+
+
+def test_a_series_is_called_a_series_in_the_line_and_a_film_is_not(_russian_product: None) -> None:
+    """Пометка вида едет готовой строкой: в списке видно, что пункт - сериал.
+
+    Обе стороны названы порознь: у сериала пометка ЕСТЬ, у фильма её НЕТ. Утверждение
+    про одну сторону оставляло бы вторую голой - список, помечающий вообще всё, ничем
+    не лучше списка, не помечающего ничего.
+    """
+    plans = [_plan("Чернобыль", 2019, kind="tv"), _plan("Чернобыль", 2021)]
+    records = _records(search_results(plans, 1))
+
+    assert records[0]["named"] == "Чернобыль (2019, сериал)"
+    assert records[1]["named"] == "Чернобыль (2021)"
+
+
+def test_the_line_is_the_one_the_console_menu_prints_for_the_same_picture(
+    _russian_product: None,
+) -> None:
+    """Правило одно на оба места: строка записи - строка пункта меню ``cast``.
+
+    Сверяется не с переписанным сюда ожиданием, а с самой
+    :func:`~torrcast.usecases.choice.head_line.head_line`, которой меню консоли эту
+    строку и печатает: разъедутся - покраснеет тут, а не на стенде у человека.
+    Номер с точкой и справка - украшения консоли, их снимает срез.
+    """
+    plans = [
+        _plan("Чернобыль", 2019, kind="tv"),
+        _plan("Ёлки", 2010),
+        _plan("Назад в будущее", 1985, original="Back to the Future"),
+    ]
+    aside = outside_numbering([plan.picture for plan in plans])
+    records = _records(search_results(plans, 1))
+
+    for number, (plan, record) in enumerate(zip(plans, records, strict=True), start=1):
+        console = head_line(number, plan.picture, Fact(), plan.picture.key in aside)
+
+        assert record["named"] == console.removeprefix(f"  {number}. ")
+
+
+def test_a_picture_with_no_year_is_dated_the_way_the_console_dates_it(
+    _russian_product: None,
+) -> None:
+    """Года нет - в строке стоит ``(?)``, а не пустота: это различитель тёзок.
+
+    Карточка тут показывала голое имя, консоль - ``(?)``: одна картина, две подписи.
+    Года нет у четверти картин корпуса, поэтому расхождение видно не в углу.
+    """
+    undated = Picture(title="Bleach", year=None, kind="tv")
+    plans = [Plan(picture=undated, ranked=[], runtime=0.0, warn_mbit=0.0)]
+
+    assert _records(search_results(plans, 1))[0]["named"] == "Bleach (?, сериал)"
+
+
+def test_a_russian_only_name_says_so_because_the_line_is_picked_from(_english: None) -> None:
+    """Под EN у пункта без английского имени стоит та же пометка, что и в меню консоли.
+
+    Из этого списка ВЫБИРАЮТ, и человек обязан видеть, что имя у пункта одно и оно
+    по-русски (:func:`torrcast.usecases.choice._named._named`, ``item=True``).
+    """
+    plans = [_plan("Ёлки", 2010)]
+
+    assert _records(search_results(plans, 1))[0]["named"] == "Ёлки (2010) - Russian title only"
 
 
 def test_exactly_one_record_is_flagged_default_and_it_is_the_taken_number() -> None:

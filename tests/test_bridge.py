@@ -23,10 +23,12 @@ from torrcast.domain.config import Config
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.abandon import slot as abandon_slot
 from torrcast.ports.state_store import slot as state_slot
+from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 
@@ -539,8 +541,8 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
     Имена картинок тут не спрашиваются: за ними ходит фоновый поиск постеров
     (:class:`hass.hit_posters.HitPosters`), и в зеркале моста он звонил бы в Википедию.
 
-    Язык продукта назван поимённо: подпись ``shown`` от него и зависит, и на умолчании
-    зеркало мерило бы английскую ветку, а говорило бы про обе.
+    Язык продукта назван поимённо: подписи ``shown`` и ``named`` от него и зависят, и на
+    умолчании зеркало мерило бы английскую ветку, а говорило бы про обе.
     """
     monkeypatch.setattr("hass.searching.OFFER", lambda results: results)
     bridge = _bridge(
@@ -550,6 +552,7 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
     )
     plans = _real_search({"тачки": _CARS})(_SEARCH_CONFIG, Args(query=["тачки"]), Said())
     taken = enter_take(plans, "тачки").number
+    aside = outside_numbering([plan.picture for plan in plans])
 
     results = bridge.search("тачки")
 
@@ -559,6 +562,7 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
             "key": plan.picture.key,
             "title": plan.picture.title,
             "shown": plan.picture.original or plan.picture.title,
+            "named": _named(plan.picture, plan.picture.key in aside, item=True),
             "year": plan.picture.year,
             "kind": plan.picture.kind,
             "original": plan.picture.original or "",
