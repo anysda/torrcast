@@ -225,7 +225,7 @@ INDEXERS=(
     "rutor|https://rutor.info/"        # русские раздачи и озвучки
     "nyaasi|https://nyaa.si/"          # аниме
     "sukebeinyaasi|https://sukebei.nyaa.si/" # ещё один открытый каталог, тот же движок, что у nyaa.si
-    "anilibria|http://127.0.0.1:9697/" # аниме с русской озвучкой
+    "anilibria|http://127.0.0.2:9697/" # аниме с русской озвучкой
     "jacred|http://127.0.0.1:9698/"    # сменный открытый каталог русских озвучек
     # У YTS адрес API отдельной настройкой, и умолчание там - имя, которое в этой сети
     # угоняет DNS (чужой адрес с самоподписанным сертом). Живое имя одно, оба его адреса
@@ -2500,7 +2500,7 @@ install_prowlarr() {
     fi
     run_service anilibria-indexer "Поиск AniLibria для Prowlarr" \
         "$PYTHON $PREFIX/anilibria-indexer.py 9697" ""
-    wait_http "http://127.0.0.1:9697/ping" 15 \
+    wait_http "http://127.0.0.2:9697/ping" 15 \
         || info "⚠ AniLibria did not start - other indexers will continue working" "⚠ AniLibria не поднялась - остальные индексеры продолжат работать"
     if ! cmp -s "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"; then
         stop_service jacred-indexer "$PYTHON $PREFIX/jacred-indexer.py"

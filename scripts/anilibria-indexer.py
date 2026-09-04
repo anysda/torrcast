@@ -153,9 +153,19 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
+#: Which loopback address to listen on, and why it is not the usual one.
+#:
+#: Prowlarr paces its requests per HOST and ignores the port, so two local adapters sharing
+#: one address take turns instead of running side by side: measured on the live stand, a
+#: call that answers in 0.28 s waited 2.85 s when the neighbour had just been asked. Giving
+#: this one an address of its own splits the bucket. The whole 127/8 range is loopback, so
+#: it is no less local than before and still reachable from nowhere else.
+HOST = "127.0.0.2"
+
+
 def main() -> None:
     ThreadingHTTPServer(
-        ("127.0.0.1", int(sys.argv[1]) if len(sys.argv) > 1 else 9697), Handler
+        (HOST, int(sys.argv[1]) if len(sys.argv) > 1 else 9697), Handler
     ).serve_forever()
 
 

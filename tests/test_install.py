@@ -86,7 +86,7 @@ def test_an_add_failure_names_the_prowlarr_response_and_continues() -> None:
 
 
 def test_anilibria_is_a_regular_indexer_with_a_shim_route() -> None:
-    assert '"anilibria|http://127.0.0.1:9697/"' in SCRIPT
+    assert '"anilibria|http://127.0.0.2:9697/"' in SCRIPT
     assert "'anilibria.top|/api/v1/app/search/releases?query=Kaiba||" in SCRIPT
     assert '"$REPO_DIR/scripts/anilibria.yml"' in SCRIPT
     assert (REPO / "scripts" / "anilibria.yml").is_file()
@@ -97,6 +97,29 @@ def test_jacred_is_a_regular_indexer_with_a_shim_route() -> None:
     assert "'api.jacred.su|/api/search?query=matrix&sort=sid&limit=100||" in SCRIPT
     assert '"$REPO_DIR/scripts/jacred.yml"' in SCRIPT
     assert (REPO / "scripts" / "jacred.yml").is_file()
+
+
+def test_the_two_local_indexers_do_not_share_one_address() -> None:
+    """Prowlarr paces its asks per host and ignores the port: one address means one queue.
+
+    Measured on the live stand, an adapter that answers in 0.28 s waited 2.85 s when its
+    neighbour on the same address had just been asked. Two addresses, two queues.
+    """
+    rows = dict(re.findall(r'"(anilibria|jacred)\|http://([\d.]+):\d+/"', SCRIPT))
+    assert set(rows) == {"anilibria", "jacred"}, f"both local indexers are registered: {rows}"
+    assert rows["anilibria"] != rows["jacred"], (
+        f"both local indexers sit on {rows['anilibria']} and take turns in one Prowlarr queue"
+    )
+
+
+def test_each_local_indexer_listens_where_it_is_registered() -> None:
+    """A half-done move is worse than none: the address is written down in three places."""
+    for name, port in (("anilibria", 9697), ("jacred", 9698)):
+        (host,) = re.findall(rf'"{name}\|http://([\d.]+):{port}/"', SCRIPT)
+        served = (REPO / "scripts" / f"{name}-indexer.py").read_text()
+        listed = (REPO / "scripts" / f"{name}.yml").read_text()
+        assert f'"{host}"' in served, f"{name} listens somewhere else than {host}"
+        assert f"http://{host}:{port}/" in listed, f"{name}.yml points somewhere else than {host}"
 
 
 def test_install_removes_its_login_notice_without_a_motd_phase() -> None:

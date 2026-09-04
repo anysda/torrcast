@@ -5,7 +5,7 @@ description: "Russian dubbed anime from AniLibria"
 language: ru-RU
 type: public
 encoding: UTF-8
-links: [http://127.0.0.1:9697/]
+links: [http://127.0.0.2:9697/]
 caps:
   categorymappings:
     - {id: 5070, cat: TV/Anime, desc: "Anime"}
