@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.ffmpeg.encode_args import encode_args
+from torrcast.adapters.recode.encode_imprint import encode_imprint
 from torrcast.adapters.recode.encode_settings import (
     _KEY_SLACK,
     MAXRATE_GAIN,
@@ -84,6 +85,18 @@ class Encode:
         какими они были, и прогретое прошлого показа находится.
         """
         return (f":{self.out_frame}p" if self.scaled else "") + (":sdr" if self.hdr else "")
+
+    @property
+    def imprint(self) -> str:
+        """Отпечаток правил, которыми кусок собран (:func:`encode_imprint`).
+
+        Решение и правила - разное. :attr:`preset`, :attr:`mbit` и :attr:`mark` называют
+        РЕШЕНИЕ, принятое показом; отпечаток называет то, во что этот код сегодня
+        разворачивает решение. Прежде ключ прогретого знал только первое, и правка правил
+        (снятый ``-level``, TC-871) доезжала до зрителя лишь на чистой полке: под тем же
+        именем лежал кусок, собранный вчерашними правилами.
+        """
+        return encode_imprint(self)
 
     @property
     def filters(self) -> str:

@@ -17,6 +17,7 @@ class _Encode:
     preset: str = "ultrafast"
     mbit: float = 9.0
     mark: str = ""
+    imprint: str = "rules-of-today"
 
 
 def test_the_same_show_gets_the_same_key() -> None:
@@ -56,6 +57,44 @@ def test_the_recode_and_the_spots_change_the_key_too() -> None:
     ), "ужатый кадр под другой приёмник"
     assert base != warm_key(SOURCE, 0, grid(), None, (1, 2)), "точечные перекоды"
     assert warm_key(SOURCE, 0, grid(), None, (1, 2)) != warm_key(SOURCE, 0, grid(), None, (1, 3))
+
+
+def test_the_rules_the_pieces_were_built_by_are_part_of_the_key() -> None:
+    """Решение то же до знака, а правила другие - каталог обязан быть другим.
+
+    Ровно этот случай и жил: снятый ``-level`` (TC-871) не тронул ни пресета, ни цели по
+    битрейту, ни метки кадра, а SPS каждого перекодированного куска переписал. Совпади
+    тут ключи - показ на прогретой полке продолжал бы отдавать вчерашние байты.
+    """
+    before = _Encode(imprint="rules-with-level")
+    after = _Encode(imprint="rules-without-level")
+
+    # Случай ловится ровно правилами: решение у обоих одно и то же до знака.
+    assert (before.preset, before.mbit, before.mark) == (after.preset, after.mbit, after.mark)
+
+    assert warm_key(SOURCE, 0, grid(), decided=before) != warm_key(SOURCE, 0, grid(), decided=after)
+
+
+def test_an_update_that_left_the_rules_alone_keeps_the_warm_catalogue() -> None:
+    """Правила те же - ключ тот же: обновление само по себе полку не обесценивает.
+
+    Это половина цены лечения. Обесценивай ключ каждый выпуск - и любое обновление
+    отправляло бы уже прогретый фильм греться заново, что дороже самой болезни.
+    """
+    same = _Encode(imprint="rules-of-today")
+
+    assert warm_key(SOURCE, 0, grid(), same, (1, 2), decided=same) == warm_key(
+        SOURCE, 0, grid(), _Encode(), (1, 2), decided=_Encode()
+    )
+
+
+def test_a_catalogue_of_plain_copies_is_not_touched_by_the_encoding_rules() -> None:
+    """Каталог из одних копий правила кодирования не касаются - и ключ его не двигают.
+
+    Решения о перекоде тут нет вовсе, а значит нет и куска, собранного этими правилами:
+    обесценивать такую полку не за что.
+    """
+    assert warm_key(SOURCE, 0, grid()) == warm_key(SOURCE, 0, grid(), decided=None)
 
 
 def test_neither_container_can_find_the_other_containers_warm_catalogue() -> None:

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+import torrcast.adapters.recode.encode as encode_module
+import torrcast.domain.version as version_module
 from tests.usecases.playback.world import film_keys, grid
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.recoder import Recoder
@@ -204,3 +206,110 @@ def test_a_heavy_copy_under_a_spot_recode_survives_the_start_of_the_show(
 
     assert made is not None
     assert piece.exists(), "старт показа забрал копию, которую сам же собрался перекодировать"
+
+
+def test_a_shelf_warmed_by_yesterdays_rules_is_not_served_after_the_update(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Правила кодирования поменялись - полка перестаёт находиться, и кусок собирается заново.
+
+    Прежде это было не так: ключ каталога знал РЕШЕНИЕ (пресет, цель, кадр) и молчал о
+    правилах, которыми решение разворачивается в команду. Снятый ``-level`` (TC-871)
+    решения не тронул, ключа не сдвинул - и на любой машине, где полка уже прогрета,
+    показ продолжал отдавать кусок с битым уровнем, пока полку не снесут руками.
+
+    Вчерашние правила тут - буфер VBV в две секунды потолка, каким он и был до замера
+    (:data:`torrcast.adapters.recode.encode_settings.VBV_SECONDS`): решение при этом до
+    знака то же самое, а ``-bufsize`` в команде другой.
+    """
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    lines = grid()
+    whole = whole_encode(9.0)
+
+    monkeypatch.setattr(encode_module, "VBV_SECONDS", 2.0)
+    decided = (whole.preset, whole.mbit, whole.mark)
+    yesterday = _warmer(config, "http://ts", 0, lines, 0.0, "кино", whole=whole)
+    assert yesterday is not None
+    yesterday.vault.dir.mkdir(parents=True, exist_ok=True)
+    yesterday.vault.path(1).write_bytes(b"piece built by yesterday rules")
+    assert yesterday.vault.have(1), "стенд не собрался: вчерашнего куска на полке нет"
+
+    monkeypatch.undo()
+    today = _warmer(config, "http://ts", 0, lines, 0.0, "кино", whole=whole)
+
+    assert today is not None
+    # Случай ловится ровно правилами, а не чужой причиной: решение до знака прежнее.
+    assert (whole.preset, whole.mbit, whole.mark) == decided, "поехало решение - случай не тот"
+    assert today.vault.dir != yesterday.vault.dir, "ключ не заметил правки правил кодирования"
+    assert not today.vault.have(1), "показ отдаёт кусок, собранный вчерашними правилами"
+
+
+def test_a_spot_recode_shelf_is_not_served_after_the_rules_changed_either(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """То же и на ТОЧЕЧНОМ пути - том самом, на котором ``-level`` и убивал показ.
+
+    Решения точечного перекода в ``encode`` нет вовсе: в ключ от него идут одни номера
+    слотов. Спроси ключ отпечаток только у сплошного перекода - правка правил проехала бы
+    мимо ровно того пути, ради которого её и делали.
+    """
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    lines = grid()
+    weights = Weights.of(film_keys(), lines)
+    assert weights is not None
+    recoder = Recoder(
+        source="http://ts",
+        audio=0,
+        grid=lines,
+        spare=tmp_path / "recode",
+        weights=weights,
+        threshold=0.0,
+        encode=Encode(preset="ultrafast", mbit=9.0),
+    )
+    assert recoder.targets, "стенду нужен показ, у которого точечный перекод есть"
+    slot = recoder.targets[0]
+
+    monkeypatch.setattr(encode_module, "VBV_SECONDS", 2.0)
+    yesterday = _warmer(config, "http://ts", 0, lines, 0.0, "кино", recoder=recoder)
+    assert yesterday is not None
+    yesterday.vault.dir.mkdir(parents=True, exist_ok=True)
+    yesterday.vault.path(slot).write_bytes(b"spot piece built by yesterday rules")
+    assert yesterday.vault.have(slot), "стенд не собрался: вчерашнего куска на полке нет"
+
+    monkeypatch.undo()
+    today = _warmer(config, "http://ts", 0, lines, 0.0, "кино", recoder=recoder)
+
+    assert today is not None
+    assert not today.vault.have(slot), "точечный кусок вчерашних правил дожил до выдачи"
+
+
+def test_an_update_that_left_the_encoding_rules_alone_keeps_the_warm_shelf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Правила те же - вся полка остаётся на месте: цена лечения не выше болезни.
+
+    Обновление тут настоящее: продукт уехал на другую версию, правил кодирования не
+    тронув. Подмешай ключ версию (первый путь карточки), и каждый выпуск отправлял бы
+    уже прогретый фильм греться заново - лечение дороже болезни. Мера - число попаданий:
+    сколько кусков полка отдавала до обновления, столько же обязана отдавать и после.
+    """
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    lines = grid()
+    whole = whole_encode(9.0)
+    slots = range(lines.count)
+
+    before = _warmer(config, "http://ts", 0, lines, 0.0, "кино", whole=whole)
+    assert before is not None
+    before.vault.dir.mkdir(parents=True, exist_ok=True)
+    for slot in slots:
+        before.vault.path(slot).write_bytes(b"warm piece")
+    hits_before = sum(before.vault.have(slot) for slot in slots)
+
+    monkeypatch.setattr(version_module, "__version__", "99.99.99")
+    after = _warmer(config, "http://ts", 0, lines, 0.0, "кино", whole=whole)
+
+    assert after is not None
+    hits_after = sum(after.vault.have(slot) for slot in slots)
+    assert hits_before == lines.count, "стенд не собрался: полка пуста ещё до обновления"
+    assert after.vault.dir == before.vault.dir, "выпуск сам по себе увёл полку в другой каталог"
+    assert hits_after == hits_before, "обновление без правки правил обесценило полку"

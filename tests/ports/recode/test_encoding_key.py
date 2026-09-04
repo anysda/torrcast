@@ -15,6 +15,7 @@ class _Key:
     preset: str = "ultrafast"
     mbit: float = 9.0
     mark: str = ""
+    imprint: str = ""
 
 
 def test_the_real_encode_answers_the_key_share() -> None:
@@ -24,10 +25,11 @@ def test_the_real_encode_answers_the_key_share() -> None:
     assert named.preset == "veryfast"
     assert named.mbit == 9.0
     assert named.mark == ":1080p", "ужатый кадр обязан менять ключ прогретого"
+    assert named.imprint, "отпечаток правил тоже приходит из решения, а не собирается прогревом"
 
 
 def test_the_key_share_asks_for_nothing_but_what_changes_the_bytes() -> None:
     """Мера ширины: в ключ входит только то, от чего зависит содержимое куска."""
     named: EncodingKey = _Key()
 
-    assert (named.preset, named.mbit, named.mark) == ("ultrafast", 9.0, "")
+    assert (named.preset, named.mbit, named.mark, named.imprint) == ("ultrafast", 9.0, "", "")

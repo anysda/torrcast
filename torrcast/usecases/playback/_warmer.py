@@ -70,7 +70,11 @@ def _warmer(
     decided: Encoding | None = spot_encode or encode
     vault = Vault(
         root=warm_root(config.warm_dir),
-        key=warm_key(source, audio, grid, encode, spots, container, voice),
+        # 🔴 ``decided`` тут не для полноты: он приносит в ключ отпечаток ПРАВИЛ, которыми
+        # куски этого каталога собраны (:attr:`Encoding.imprint`). Без него правка правил
+        # кодирования доезжает до зрителя только на чистой полке, а на точечном пути не
+        # доезжает вовсе: решения точечного перекода в ``encode`` нет.
+        key=warm_key(source, audio, grid, encode, spots, container, voice, decided),
         budget=int(config.warm_budget_gb * 1e9),
         title=title,
         container=container,
