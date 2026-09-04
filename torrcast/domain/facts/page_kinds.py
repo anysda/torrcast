@@ -22,8 +22,8 @@ def page_kinds(page: JsonValue) -> set[str]:
     out: set[str] = set()
     for row in json_rows(json_map(page).get("categories")):
         low = str(json_map(row).get("title", "")).casefold()
-        if "сериал" in low:
+        if "сериал" in low or "television series" in low or "miniseries" in low:
             out.add("tv")
-        elif "фильм" in low or "кино" in low:
+        elif "фильм" in low or "кино" in low or "film" in low:
             out.add("movie")
     return out

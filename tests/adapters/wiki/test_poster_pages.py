@@ -173,6 +173,7 @@ GUESSES = [
 BLOOD_BROTHERS = {
     "title": "No Retreat, No Surrender 3: Blood Brothers",
     "pageprops": {"wikibase_item": "Q776037"},
+    "categories": [{"title": "Category:1990 American films"}],
 }
 
 
@@ -230,6 +231,7 @@ def test_the_article_under_the_original_name_outranks_the_guesses_of_full_text_s
 POLTERGEIST = {
     "title": "Poltergeist II: The Other Side",
     "pageprops": {"wikibase_item": "Q1057668"},
+    "categories": [{"title": "Category:1986 supernatural films"}],
 }
 
 

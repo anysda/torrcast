@@ -18,7 +18,7 @@ def test_a_namesake_of_another_year_does_not_fit() -> None:
 
 def test_a_year_that_the_article_kept_quiet_about_comes_from_wikidata() -> None:
     """Годы, добранные пачкой из P577, сверяются наравне с годами из категорий."""
-    row = Dated("Parasite", "Q61448040", frozenset())
+    row = Dated("Parasite", "Q61448040", frozenset(), frozenset({"movie"}))
     assert not fits_ask(Ask("Паразиты", 2019, "movie"), row, {})
     assert fits_ask(Ask("Паразиты", 2019, "movie"), row, {"Q61448040": {2019, 2020}})
 
@@ -29,14 +29,40 @@ def test_a_series_does_not_take_the_poster_of_the_film_of_the_same_year() -> Non
     assert not fits_ask(Ask("Паразиты", 2019, "tv"), film, {})
 
 
-def test_what_the_article_kept_silent_about_is_not_a_refusal() -> None:
-    """Год не спрошен или род не назван статьёй - статья годится: отказ это сказанное ДРУГОЕ.
-
-    Строгость тут меняла бы недостающую картинку на недостающую строку, а строка нужнее.
-    """
-    quiet = Dated("Armitage III", "Q123", frozenset({2002}))
-    assert fits_ask(Ask("Армитаж: Двойная матрица", 2002, "movie"), quiet, {})
+def test_a_year_that_was_never_asked_about_is_not_a_refusal() -> None:
+    """Год не спрошен - статья годится: отказ это сказанное ДРУГОЕ, а не несказанное."""
+    quiet = Dated("Armitage III", "Q123", frozenset({2002}), frozenset({"movie"}))
+    assert fits_ask(Ask("Армитаж: Двойная матрица", None, "movie"), quiet, {})
     assert fits_ask(Ask("Матрица: Путь Нео", None, "other"), quiet, {})
+
+
+def test_an_article_that_never_calls_itself_a_picture_is_a_refusal() -> None:
+    """🔴 ОТРИЦАТЕЛЬНАЯ ПРОБА: пропусти молчащий род - и «Чернобыль» берёт фото станции.
+
+    Живой случай «Чернобыль. Два цвета времени» 1986 года: полнотекстовый поиск приводил
+    «Аварию на Чернобыльской АЭС», год у события ровно тот же, а рода событие не называет
+    вовсе - оно и не картина. Плитка получала снимок станции под нашей подписью.
+
+    Молчание тут «не знаю», и наравне с «да» оно проходить не должно: категории приезжают
+    тем же запросом с обеих сторон, и всякая настоящая картина себя ими называет.
+    """
+    event = Dated("Chernobyl disaster", "Q486", frozenset({1986}), frozenset())
+
+    assert not fits_ask(Ask("Чернобыль. Два цвета времени", 1986, "tv"), event, {}), (
+        "статья, не назвавшая себя картиной, отдала постер"
+    )
+    assert not fits_ask(Ask("Чернобыль. Два цвета времени", 1986, "movie"), event, {})
+
+
+def test_a_picture_of_an_unnamed_kind_still_takes_any_article() -> None:
+    """Спрошен не фильм и не сериал - сверять род нечем, и строгость тут была бы выдумкой.
+
+    «Матрица: Путь Нео» - игра: род её раздача называет словом ``other``, и требовать от
+    статьи киношной категории значило бы отнять у неё постер ни за что.
+    """
+    event = Dated("The Matrix: Path of Neo", "Q1", frozenset({2005}), frozenset())
+
+    assert fits_ask(Ask("Матрица: Путь Нео", 2005, "other"), event, {})
 
 
 def test_a_season_between_the_start_and_the_end_belongs_to_its_series() -> None:

@@ -155,7 +155,7 @@ class PosterPages:
         asked = list(dict.fromkeys(name for names in forms.values() for name in names))
         if not asked:
             return {}
-        params = {**_LINKS, "titles": "|".join(asked), "prop": "pageprops"}
+        params = {**_LINKS, "titles": "|".join(asked)}
         try:
             payload = self.client.get(EN_WIKI_HOST, WIKI_PATH, params, {}, timeout)
         except Exception:
