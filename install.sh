@@ -1263,6 +1263,84 @@ ffmpeg_smoke() {  # $1 — каталог для файла, $2/$3 — ffmpeg/ff
     info "build verified: MPEG-TS can be muxed and read" "сборка проверена: MPEG-TS пакуется и читается"
 }
 
+#: TC-1048. Версия и текст помощи не защищают от 8.0.1: он печатает
+#: -readrate_initial_burst, берёт 8.0.1 ≥ 6.1 и переживает секунду MPEG-TS - а флаг
+#: у него инертен, и темп чтения при перемотке считается от НАЧАЛА файла, а не от
+#: места входа. На боевой команде упаковки это вешает перемотку намертво: заход на
+#: 4884-ю секунду - ~4894 с ожидания первого куска у 8.0.1 против 0.36 с у 7.1.4.
+#: Порог - по поведению, а не по номеру: числа ниже перепроверены на четырёх
+#: сборках (6.1.1, 7.1.4, 7.1.5, 8.0.1 - двоичные, не по документации). У трёх
+#: годных burst и посадка на 10-й секунде укладываются в 0.02-0.13 с при любой
+#: нагрузке машины; у сломанной burst почти не отличим от чтения без темпа вовсе
+#: (7.7 с из 8 заказанных), а посадка на 10-й секунде ждёт больше 11 с. Запас
+#: (3 с сверх базовой линии при готовых 0.02-0.13 с) - на порядок шире дрожания.
+FFMPEG_PACE_BURST=8      # с; столько просим прочитать при включённом burst
+FFMPEG_PACE_ENTRY=10     # с; куда садимся -ss
+FFMPEG_PACE_ENTRY_READ=3 # с; сколько читаем после посадки
+FFMPEG_PACE_MARGIN=3     # с; допуск сверх базовой линии без темпа
+FFMPEG_PACE_DEADLINE=5   # с; потолок каждой пробы - инертная/путающая всё равно его достаёт
+
+# Гонит команду $2.. не дольше $1 секунд, кладёт целые секунды в NOW_ELAPSED.
+# `timeout` на маке нет (это GNU coreutils), поэтому дедлайн - своя пара
+# «фоновый sleep + kill», а часы - встроенный $SECONDS: он живёт и в bash 3.2.
+_pace_run() {
+    local deadline="$1"; shift
+    SECONDS=0
+    "$@" >/dev/null 2>&1 &
+    local pid=$!
+    ( sleep "$deadline"; kill "$pid" 2>/dev/null ) &
+    local guard=$!
+    wait "$pid" 2>/dev/null
+    kill "$guard" 2>/dev/null; wait "$guard" 2>/dev/null
+    NOW_ELAPSED=$SECONDS
+}
+
+# Меряет поведение, а не справку. $1 - каталог для проб (клип и вывод туда же),
+# $2 - путь к ffmpeg (по умолчанию свой). 0 - burst не инертен и темп считается
+# от места входа, 1 - хотя бы одно из двух сломано.
+ffmpeg_paced_ok() {
+    local dir="$1" ff="${2:-/usr/local/bin/ffmpeg}"
+    local clip="$dir/pace.ts" total=$(( FFMPEG_PACE_ENTRY + FFMPEG_PACE_ENTRY_READ + 4 ))
+    "$ff" -hide_banner -loglevel error -y \
+        -f lavfi -i "testsrc=size=320x240:rate=25:duration=$total" \
+        -f lavfi -i "sine=duration=$total" \
+        -c:v libx264 -pix_fmt yuv420p -preset ultrafast -g 25 -keyint_min 25 \
+        -c:a aac -f mpegts "$clip" || return 1
+
+    # Базовая линия: без темпа вовсе - сколько вообще стоит прочитать этот клип.
+    _pace_run "$FFMPEG_PACE_DEADLINE" "$ff" -hide_banner -loglevel error -y \
+        -readrate 0 -copyts -i "$clip" -t "$FFMPEG_PACE_BURST" -c copy -f null -
+    local base=$NOW_ELAPSED
+    local limit=$(( base + FFMPEG_PACE_MARGIN ))
+
+    # burst: честная сборка отдаёт заказанные секунды почти как без темпа вовсе;
+    # инертная платит за них полным темпом, то есть почти всем их числом в секундах.
+    _pace_run "$FFMPEG_PACE_DEADLINE" "$ff" -hide_banner -loglevel error -y \
+        -readrate 1 -readrate_initial_burst "$FFMPEG_PACE_BURST" -copyts -i "$clip" \
+        -t "$FFMPEG_PACE_BURST" -c copy -f null -
+    if [ "$NOW_ELAPSED" -gt "$limit" ]; then
+        rm -f "$clip"
+        info "-readrate_initial_burst is inert on this build (${NOW_ELAPSED}s for ${FFMPEG_PACE_BURST}s of burst, baseline ${base}s)" \
+             "-readrate_initial_burst инертен на этой сборке (${NOW_ELAPSED} с на ${FFMPEG_PACE_BURST} с burst против базовой линии ${base} с)"
+        return 1
+    fi
+
+    # Посадка -ss глубоко в файл при -copyts: честная сборка считает темп от неё,
+    # сломанная - от нулевой секунды файла, и на глубокой посадке платит почти всем
+    # расстоянием до неё в секундах ожидания вместо долей секунды.
+    _pace_run "$FFMPEG_PACE_DEADLINE" "$ff" -hide_banner -loglevel error -y \
+        -readrate 1 -copyts -ss "$FFMPEG_PACE_ENTRY" -i "$clip" \
+        -t "$FFMPEG_PACE_ENTRY_READ" -c copy -f null -
+    rm -f "$clip"
+    if [ "$NOW_ELAPSED" -gt "$limit" ]; then
+        info "pace is counted from the start of the file, not from the seek point (${NOW_ELAPSED}s to read ${FFMPEG_PACE_ENTRY_READ}s landing ${FFMPEG_PACE_ENTRY}s in)" \
+             "темп считается от начала файла, а не от места входа (${NOW_ELAPSED} с на чтение ${FFMPEG_PACE_ENTRY_READ} с с посадки на ${FFMPEG_PACE_ENTRY}-й секунде)"
+        return 1
+    fi
+    info "build verified: burst pace is honored and counted from the seek point" \
+         "сборка проверена: burst соблюдён, темп считается от места входа"
+}
+
 #: Сборка из snap проходит проверку по версии, а конфайнмент не пускает её ни в каталог
 #: пакета, ни в состояние, ни в /dev/shm с сегментами: установка отчитывается зелёным,
 #: а показ разваливается на первом же файле. Такой ffmpeg считаем негодным независимо
@@ -1296,7 +1374,8 @@ ffmpeg_ours_ok() {  # 0 = /usr/local/bin/ffmpeg на месте, годной в
     probe="$(mktemp -d)"
     # Строку про пройденный MPEG-TS уводим в stderr: stdout тут - это версия, которую
     # читает вызывающий, и чужая строка в нём стала бы «версией».
-    ffmpeg_smoke "$probe" /usr/local/bin/ffmpeg /usr/local/bin/ffprobe >&2 && rc=0
+    ffmpeg_smoke "$probe" /usr/local/bin/ffmpeg /usr/local/bin/ffprobe >&2 \
+        && ffmpeg_paced_ok "$probe" /usr/local/bin/ffmpeg >&2 && rc=0
     rm -rf "$probe"
     [ "$rc" = 0 ] || return 1
     printf '%s' "$mine"
@@ -1319,6 +1398,9 @@ install_ffmpeg() {
         probe="$(mktemp -d)"
         ffmpeg_smoke "$probe" "$ff" "$fp" || die \
             "Homebrew ffmpeg $have failed the MPEG-TS check" "ffmpeg $have из Homebrew не прошёл проверку MPEG-TS"
+        ffmpeg_paced_ok "$probe" "$ff" || die \
+            "Homebrew ffmpeg $have failed the pace check (burst is inert or pace ignores the seek point)" \
+            "ffmpeg $have из Homebrew не прошёл проверку темпа (burst инертен или темп не знает про место входа)"
         rm -rf "$probe"
         # brew кладёт бинари в /opt/homebrew/bin, которого нет ни у launchd, ни у
         # sudo, ни у нелогинного ssh - только у терминала через path_helper. Ссылки в
@@ -1352,13 +1434,13 @@ install_ffmpeg() {
         local ff fp probe
         ff="$(command -v ffmpeg)"; fp="$(command -v ffprobe || true)"
         probe="$(mktemp -d)"
-        if [ -n "$fp" ] && ffmpeg_smoke "$probe" "$ff" "$fp"; then
+        if [ -n "$fp" ] && ffmpeg_smoke "$probe" "$ff" "$fp" && ffmpeg_paced_ok "$probe" "$ff"; then
             rm -rf "$probe"
-            skip "ffmpeg $have (need >= $FFMPEG_MIN: -readrate_initial_burst)" "ffmpeg $have (нужно ≥ $FFMPEG_MIN: -readrate_initial_burst)"
+            skip "ffmpeg $have (need >= $FFMPEG_MIN: -readrate_initial_burst, honored in practice)" "ffmpeg $have (нужно ≥ $FFMPEG_MIN: -readrate_initial_burst, и он не инертен на деле)"
             return
         fi
         rm -rf "$probe"
-        info "ffmpeg $have failed the MPEG-TS check - using a static build" "ffmpeg $have не прошёл проверку MPEG-TS - беру статическую сборку"
+        info "ffmpeg $have failed the MPEG-TS or pace check - using a static build" "ffmpeg $have не прошёл проверку MPEG-TS или темпа - беру статическую сборку"
         reject=1
     fi
     [ "$(uname -m)" = "x86_64" ] || die "no static ffmpeg build for $(uname -m) - install ffmpeg >= $FFMPEG_MIN yourself" \
@@ -1392,6 +1474,9 @@ install_ffmpeg() {
     version_ge "$now" "$FFMPEG_MIN" 2>/dev/null \
         || die "installed ffmpeg $now is still older than $FFMPEG_MIN" "поставился ffmpeg $now - это всё ещё ниже $FFMPEG_MIN"
     ffmpeg_smoke "$work" || die "ffmpeg build $now failed the MPEG-TS check - use another URL" "сборка ffmpeg $now не пережила MPEG-TS - другой URL"
+    ffmpeg_paced_ok "$work" /usr/local/bin/ffmpeg || die \
+        "ffmpeg build $now failed the pace check (burst is inert or pace ignores the seek point) - use another URL" \
+        "сборка ffmpeg $now не прошла проверку темпа (burst инертен или темп не знает про место входа) - другой URL"
     rm -rf "$work"
     local packaged; packaged="$(ffmpeg_version /usr/bin/ffmpeg || true)"
     info "ffmpeg $now -> /usr/local/bin${packaged:+ (packaged $packaged remains)}" "ffmpeg $now → /usr/local/bin${packaged:+ (пакетная $packaged осталась)}"

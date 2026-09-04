@@ -25,7 +25,7 @@ class HostCheckup:
         return HostHealth.locale(self._environment.encoding(), self._environment.locale_env())
 
     def ffmpeg(self) -> HealthLine:
-        """ffmpeg и ``-readrate_initial_burst``; версию спрашиваем только у живого."""
-        help_text = self._environment.ffmpeg_help()
-        version = self._environment.ffmpeg_version() if help_text is not None else None
-        return HostHealth.ffmpeg(help_text, version)
+        """ffmpeg и его темп (TC-1048); версию спрашиваем только у живого."""
+        pace = self._environment.ffmpeg_pace()
+        version = self._environment.ffmpeg_version() if pace is not None else None
+        return HostHealth.ffmpeg(pace, version)

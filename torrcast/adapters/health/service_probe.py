@@ -20,29 +20,13 @@ from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.health_config import HealthConfig
 
-#: Сколько ждём справку ffmpeg и его версию: обе команды локальные и быстрые, а потолок
-#: тут стоит от повисшего наглухо процесса, а не от медленного ответа.
-_HELP_TIMEOUT = 20
+#: Сколько ждём версию ffmpeg: команда локальная и быстрая, а потолок тут стоит от
+#: повисшего наглухо процесса, а не от медленного ответа.
 _VERSION_TIMEOUT = 10
 
 
 class ServiceProbe:
     """Факты о службах и сети: каждая проба отвечает значением, а не исключением."""
-
-    @staticmethod
-    def ffmpeg_help() -> str | None:
-        """Полная справка ffmpeg; ``None`` - программа не запускается вовсе."""
-        try:
-            done = subprocess.run(
-                ["ffmpeg", "-hide_banner", "-h", "full"],
-                capture_output=True,
-                text=True,
-                timeout=_HELP_TIMEOUT,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        return str(done.stdout)
 
     @staticmethod
     def ffmpeg_version() -> str | None:

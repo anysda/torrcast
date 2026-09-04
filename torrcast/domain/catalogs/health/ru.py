@@ -40,8 +40,11 @@ def ru() -> dict[str, str]:
         "health.locale_bad": "локаль {encoding} не UTF-8 - русские названия побьются ({env})",
         "health.locale_empty": "пусто",
         "health.no_ffmpeg": "ffmpeg не запускается - упаковывать поток нечем",
-        "health.ffmpeg_no_burst": "{head}: нет -readrate_initial_burst - старт будет медленным",
-        "health.ffmpeg_ok": "{head}, -readrate_initial_burst есть",
+        "health.ffmpeg_no_burst": "{head}: -readrate_initial_burst инертен - старт будет медленным",
+        "health.ffmpeg_pace_from_start": (
+            "{head}: темп считается от начала файла, а не от места входа - перемотка повиснет"
+        ),
+        "health.ffmpeg_ok": "{head}, burst соблюдён, темп считается от места входа",
         "health.prowlarr_unit_unknown": (
             "службой Prowlarr не управляем - какой дорогой он идёт к трекерам, не видно"
         ),

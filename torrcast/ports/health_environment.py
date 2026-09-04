@@ -6,6 +6,7 @@
 
 from typing import Protocol
 
+from torrcast.domain.ffmpeg_pace import FfmpegPace
 from torrcast.ports.health_config import HealthConfig
 
 
@@ -19,7 +20,7 @@ class HealthEnvironment(Protocol):
     def locale_env(self) -> str: ...
 
     # Внешние программы.
-    def ffmpeg_help(self) -> str | None: ...
+    def ffmpeg_pace(self) -> FfmpegPace | None: ...
     def ffmpeg_version(self) -> str | None: ...
     def prowlarr_unit(self, timeout: float) -> str | None: ...
 

@@ -2,6 +2,7 @@
 
 import pytest
 
+from torrcast.domain.ffmpeg_pace import FfmpegPace
 from torrcast.domain.host_health import HostHealth
 
 
@@ -51,11 +52,27 @@ def test_an_empty_locale_still_prints_something_readable() -> None:
     assert "пусто" in HostHealth.locale("", "")[0]
 
 
-def test_ffmpeg_without_the_burst_flag_is_a_failure() -> None:
-    """Старт без ``-readrate_initial_burst`` медленный - об этом надо сказать словами."""
-    line, ok = HostHealth.ffmpeg("никаких ключей", "ffmpeg version 6.0")
-    assert not ok and "нет -readrate_initial_burst" in line, line
-    assert line.startswith("плохо   ffmpeg version 6.0")
+#: Честный темп: все три числа далеко внутри допуска (margin 3 с сверх базовой линии).
+_HONEST = FfmpegPace(baseline_seconds=0.1, burst_seconds=0.1, entry_seconds=0.1)
+
+
+def test_ffmpeg_with_an_inert_burst_flag_is_a_failure() -> None:
+    """TC-1048. ffmpeg 8.0.1 печатает -readrate_initial_burst в справке, но флаг инертен -
+    burst у него стоит почти столько же, сколько чтение без темпа вовсе.
+    """
+    inert = FfmpegPace(baseline_seconds=0.1, burst_seconds=7.7, entry_seconds=0.1)
+    line, ok = HostHealth.ffmpeg(inert, "ffmpeg version 8.0.1")
+    assert not ok and "-readrate_initial_burst инертен" in line, line
+    assert line.startswith("плохо   ffmpeg version 8.0.1")
+
+
+def test_ffmpeg_pacing_from_the_start_of_the_file_is_a_failure() -> None:
+    """TC-1048. Burst честен, но посадка -ss вглубь файла всё равно ждёт с начала -
+    именно это вешает перемотку намертво на боевой команде.
+    """
+    from_start = FfmpegPace(baseline_seconds=0.1, burst_seconds=0.1, entry_seconds=11.5)
+    line, ok = HostHealth.ffmpeg(from_start, "ffmpeg version 8.0.1")
+    assert not ok and "темп считается от начала файла" in line, line
 
 
 def test_a_missing_ffmpeg_is_a_failure_without_a_version() -> None:
@@ -66,10 +83,10 @@ def test_a_missing_ffmpeg_is_a_failure_without_a_version() -> None:
 
 def test_a_nameless_version_is_replaced_by_the_program_name() -> None:
     """Версия молчит - в строке всё равно должно стоять имя программы."""
-    assert HostHealth.ffmpeg("-readrate_initial_burst", None)[0].startswith("ок      ffmpeg,")
+    assert HostHealth.ffmpeg(_HONEST, None)[0].startswith("ок      ffmpeg,")
 
 
 def test_a_long_version_line_is_cut_to_sixty_characters() -> None:
     """Первая строка ffmpeg длинная: в вердикте от неё нужен только заголовок."""
-    line, ok = HostHealth.ffmpeg("-readrate_initial_burst", "f" * 200)
+    line, ok = HostHealth.ffmpeg(_HONEST, "f" * 200)
     assert ok and "f" * 60 in line and "f" * 61 not in line

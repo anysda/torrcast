@@ -49,8 +49,14 @@ def en() -> dict[str, str]:
         "health.locale_bad": "locale {encoding} is not UTF-8 - names will be mangled ({env})",
         "health.locale_empty": "empty",
         "health.no_ffmpeg": "ffmpeg does not run - there is nothing to pack the stream with",
-        "health.ffmpeg_no_burst": "{head}: no -readrate_initial_burst - the start will be slow",
-        "health.ffmpeg_ok": "{head}, -readrate_initial_burst is there",
+        "health.ffmpeg_no_burst": (
+            "{head}: -readrate_initial_burst is inert - the start will be slow"
+        ),
+        "health.ffmpeg_pace_from_start": (
+            "{head}: pace is counted from the start of the file, not from the seek point - "
+            "rewinding will hang"
+        ),
+        "health.ffmpeg_ok": "{head}, burst is honored and pace follows the seek point",
         "health.prowlarr_unit_unknown": (
             "the Prowlarr service is not ours to manage - which route it takes to the "
             "trackers is out of sight"

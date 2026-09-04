@@ -2,7 +2,12 @@
 
 from dataclasses import dataclass, field
 
+from torrcast.domain.ffmpeg_pace import FfmpegPace
 from torrcast.ports.health_config import HealthConfig
+
+#: Честный темп по умолчанию: три числа далеко внутри допуска (см. FfmpegPace.burst_honored
+#: и .entry_paced) - ровно то, что измерено на живых 6.1.1/7.1.4/7.1.5 (TC-1048).
+_HONEST_PACE = FfmpegPace(baseline_seconds=0.1, burst_seconds=0.1, entry_seconds=0.1)
 
 
 @dataclass
@@ -13,7 +18,7 @@ class FakeHealthEnvironment:
     utf8: bool | None = True
     charset: str = "utf-8"
     variables: str = "LANG=ru_RU.UTF-8"
-    help_text: str | None = "  -readrate_initial_burst <float>"
+    pace: FfmpegPace | None = field(default_factory=lambda: _HONEST_PACE)
     version: str | None = "ffmpeg version 7.1"
     unit: str | None = "Environment=DOTNET_SYSTEM_NET_DISABLEIPV6=1"
     payloads: dict[str, object] = field(default_factory=dict)
@@ -55,8 +60,8 @@ class FakeHealthEnvironment:
     def locale_env(self) -> str:
         return self.variables
 
-    def ffmpeg_help(self) -> str | None:
-        return self.help_text
+    def ffmpeg_pace(self) -> FfmpegPace | None:
+        return self.pace
 
     def ffmpeg_version(self) -> str | None:
         return self.version

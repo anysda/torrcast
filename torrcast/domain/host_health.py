@@ -4,6 +4,7 @@
 """
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.ffmpeg_pace import FfmpegPace
 from torrcast.domain.health_verdict import HealthLine, HealthVerdict
 
 
@@ -44,16 +45,22 @@ class HostHealth:
         )
 
     @staticmethod
-    def ffmpeg(help_text: str | None, version: str | None) -> HealthLine:
-        """ffmpeg и поддержка ``-readrate_initial_burst`` (нужен ffmpeg ≥ 6.1).
+    def ffmpeg(pace: FfmpegPace | None, version: str | None) -> HealthLine:
+        """ffmpeg меряется ПОВЕДЕНИЕМ, а не номером версии и не текстом справки (TC-1048).
 
-        ``help_text`` - ``None``, когда программа не запускается вовсе: паковать поток
-        нечем, и это самое «плохо» из трёх. ``version`` - первая строка ``-version``
-        или ``None``, если она не сказала ничего.
+        Номер версии и упоминание ``-readrate_initial_burst`` в ``-h full`` ffmpeg 8.0.1
+        печатает исправно, а на деле burst у него инертен, и темп перемотки считается от
+        начала файла, а не от места входа - на боевой команде это вешает перемотку
+        намертво. ``pace`` - ``None``, когда программа не запускается вовсе или
+        синтетический ролик не собрался: паковать поток нечем, и это самое «плохо» из
+        трёх. ``version`` - первая строка ``-version`` или ``None``, если она не сказала
+        ничего; версия тут только для строки человеку, порог по ней не считается.
         """
-        if help_text is None:
+        if pace is None:
             return HealthVerdict.bad(phrase("health.no_ffmpeg"))
         head = version[:60] if version is not None else "ffmpeg"
-        if "readrate_initial_burst" not in help_text:
+        if not pace.burst_honored:
             return HealthVerdict.bad(phrase("health.ffmpeg_no_burst", head=head))
+        if not pace.entry_paced:
+            return HealthVerdict.bad(phrase("health.ffmpeg_pace_from_start", head=head))
         return HealthVerdict.ok(phrase("health.ffmpeg_ok", head=head))

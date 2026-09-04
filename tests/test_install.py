@@ -476,6 +476,96 @@ def test_macos_uses_brew_ffmpeg_and_installs_no_keychain_trust() -> None:
     assert "update-ca-certificates --fresh" in _body("retire_old_shim")
 
 
+#: TC-1048. Измерено вручную на реальных бинарях (см. отчёт): у 8.0.1 -readrate_initial_burst
+#: инертен (7.7 с из 8 заказанных burst-чтения) и посадка -ss на 10-й секунде ждёт больше
+#: 11 с - ffmpeg платит почти всем расстоянием до неё. 6.1.1/7.1.4/7.1.5 держат обе пробы в
+#: 0.02-0.13 с. Таблица не гадает про версии, которых не измеряли.
+_KNOWN_BAD_FFMPEG = {"8.0.1"}
+_KNOWN_GOOD_FFMPEG = {"6.1.1", "7.1.4", "7.1.5"}
+
+#: Соседняя песочница (только чтение, см. CLAUDE.md): бинари живут там, пока живёт она.
+_NEIGHBOUR_FFMPEG = Path("/tmp/tc160/bin")
+
+
+def _ffmpeg_pace_runner() -> str:
+    """Настоящие FFMPEG_PACE_*, _pace_run и ffmpeg_paced_ok - вырезанные, не переписанные."""
+    head = SCRIPT.index("FFMPEG_PACE_BURST=")
+    tail = SCRIPT.index("\n}\n", SCRIPT.index("ffmpeg_paced_ok() {")) + 2
+    return SCRIPT[head:tail]
+
+
+def _run_ffmpeg_pace_check(
+    ff: str, tmp_path: Path, env: dict[str, str] | None = None
+) -> tuple[bool, str]:
+    """Гоняет БОЕВУЮ ffmpeg_paced_ok из install.sh против настоящего бинаря."""
+    runner = tmp_path / "runner.sh"
+    runner.write_text(
+        "#!/usr/bin/env bash\nset -uo pipefail\n"
+        'info() { if [ "${LANGUAGE:-en}" = ru ]; then printf "%s\\n" "$2"; '
+        'else printf "%s\\n" "$1"; fi; }\n'
+        + _ffmpeg_pace_runner()
+        + f"\nffmpeg_paced_ok {shlex.quote(str(tmp_path))} {shlex.quote(ff)} "
+        "&& echo RESULT=PASS || echo RESULT=FAIL\n",
+        encoding="utf-8",
+    )
+    done = subprocess.run(
+        ["bash", str(runner)],
+        capture_output=True,
+        text=True,
+        env=env or os.environ.copy(),
+        check=False,
+    )
+    return "RESULT=PASS" in done.stdout, done.stdout + done.stderr
+
+
+def _real_ffmpeg_version(ff: str, env: dict[str, str] | None = None) -> str:
+    """Голый номер, без ревизии дистрибутива: apt зовёт 8.0.1 «8.0.1-3ubuntu2»."""
+    out = subprocess.run(
+        [ff, "-version"], capture_output=True, text=True, check=True, env=env
+    ).stdout
+    return out.split()[2].split("-")[0]
+
+
+@pytest.mark.ffmpeg
+def test_ffmpeg_paced_ok_judges_the_real_system_ffmpeg_if_its_version_was_measured(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-1048. Отрицательная проба из БОЕВОЙ проводки install.sh, не из тела метода:
+    вырезанная (не переписанная) ``ffmpeg_paced_ok`` гоняется против настоящего ffmpeg
+    на PATH и обязана падать по assert, а не по AttributeError.
+    """
+    ff = shutil.which("ffmpeg")
+    if ff is None:
+        pytest.skip("ffmpeg отсутствует на PATH")
+    version = _real_ffmpeg_version(ff)
+    if version not in _KNOWN_BAD_FFMPEG | _KNOWN_GOOD_FFMPEG:
+        pytest.skip(f"ffmpeg {version} не входит в измеренный список - таблица не гадает")
+    passed, output = _run_ffmpeg_pace_check(ff, tmp_path)
+    if version in _KNOWN_BAD_FFMPEG:
+        assert not passed, f"ffmpeg {version} обязан быть отвергнут:\n{output}"
+    else:
+        assert passed, f"ffmpeg {version} обязан быть принят:\n{output}"
+
+
+@pytest.mark.ffmpeg
+@pytest.mark.parametrize(
+    "binary,ld_dir",
+    [("ffmpeg", None), ("ffmpeg-611", "lib611"), ("ffmpeg-715", "lib715")],
+)
+def test_ffmpeg_paced_ok_accepts_neighbouring_known_good_builds(
+    binary: str, ld_dir: str | None, tmp_path: Path
+) -> None:
+    """Опортунистическая проверка на бинарях соседней песочницы (только чтение)."""
+    ff = _NEIGHBOUR_FFMPEG / binary
+    if not ff.exists():
+        pytest.skip("контрольные бинари /tmp/tc160 недоступны в этом окружении")
+    env = os.environ.copy()
+    if ld_dir:
+        env["LD_LIBRARY_PATH"] = f"/tmp/tc160/{ld_dir}"
+    passed, output = _run_ffmpeg_pace_check(str(ff), tmp_path, env=env)
+    assert passed, output
+
+
 def test_brew_as_invoker_installs_homebrew_instead_of_asking_a_human() -> None:
     """Мак без Homebrew - не «установите его руками», а установка самой установкой.
 
