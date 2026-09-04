@@ -88,7 +88,7 @@ class _FakeProwlarr:
     def __init__(self, url: str, apikey: str) -> None:
         self.url = url
 
-    def search(self, query: str) -> list[RawResult]:
+    def search(self, query: str, limit: int = 100) -> list[RawResult]:
         return list(FOUND)
 
     def late(self) -> list[RawResult]:
@@ -251,7 +251,7 @@ def test_the_liveliest_namesake_is_taken_without_a_question(
     """
 
     class _Twins(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
+        def search(self, query: str, limit: int = 100) -> list[RawResult]:
             return list(TWINS)
 
     composition.use_indexers(monkeypatch, _Twins)
@@ -330,7 +330,7 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
             return object()
 
     class Twins(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
+        def search(self, query: str, limit: int = 100) -> list[RawResult]:
             return list(TWINS)
 
     composition.use_indexers(monkeypatch, Twins)
@@ -468,7 +468,7 @@ def test_menu_card_is_removed_once_the_cast_actually_starts(
             return object()
 
     class Twins(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
+        def search(self, query: str, limit: int = 100) -> list[RawResult]:
             return list(TWINS)
 
     composition.use_indexers(monkeypatch, Twins)
@@ -613,7 +613,7 @@ def test_the_cancel_button_takes_the_whole_dialog_away_without_a_failure(
             return object()
 
     class Twins(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
+        def search(self, query: str, limit: int = 100) -> list[RawResult]:
             return list(TWINS)
 
     composition.use_indexers(monkeypatch, Twins)
@@ -788,7 +788,7 @@ def test_bot_understands_the_menu_flag_after_telegram_autocorrects_the_dash(
             return object()
 
     class Twins(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
+        def search(self, query: str, limit: int = 100) -> list[RawResult]:
             return list(TWINS)
 
     composition.use_indexers(monkeypatch, Twins)
@@ -868,7 +868,7 @@ def test_the_namesake_line_is_said_before_the_start(
     """
 
     class _Twins(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
+        def search(self, query: str, limit: int = 100) -> list[RawResult]:
             return list(TWINS)
 
     composition.use_indexers(monkeypatch, _Twins)
@@ -978,7 +978,7 @@ def test_a_hand_picked_number_does_not_trip_the_neighbours_prewarm(
     extra = RawResult("Моана 2 / Moana 2 (2024) BDRip 1080p x264", "e" * 40, 4 * GB, 90)
 
     class _WithSpare(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
+        def search(self, query: str, limit: int = 100) -> list[RawResult]:
             return [*FOUND, extra]
 
     composition.use_indexers(monkeypatch, _WithSpare)
@@ -1416,7 +1416,7 @@ def test_a_dry_run_names_the_chosen_file_not_the_request_echo(
     """
 
     class _SeriesProwlarr(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
+        def search(self, query: str, limit: int = 100) -> list[RawResult]:
             return [
                 RawResult(
                     "Киберпанк: Бегущие по краю / Cyberpunk: Edgerunners (2022) "
@@ -1704,7 +1704,7 @@ KITCHEN = [
 
 
 class _KitchenProwlarr(_FakeProwlarr):
-    def search(self, query: str) -> list[RawResult]:
+    def search(self, query: str, limit: int = 100) -> list[RawResult]:
         return list(KITCHEN)
 
 

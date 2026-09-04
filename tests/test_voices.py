@@ -389,7 +389,7 @@ class _FakeProwlarr:
         self.url = url
         self._rows = list(rows)
 
-    def search(self, query: str) -> list[RawResult]:
+    def search(self, query: str, limit: int = 100) -> list[RawResult]:
         return list(self._rows)
 
     def late(self) -> list[RawResult]:

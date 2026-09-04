@@ -4235,7 +4235,7 @@ def test_a_neighbour_that_is_no_better_is_a_record_of_the_trace_too(
 class _Silent(_Spent):
     """Клиент второго круга: остаток цели тот, а индексеры молчат."""
 
-    def search(self, query: str) -> list[Any]:
+    def search(self, query: str, limit: int = 100) -> list[Any]:
         return []
 
 
@@ -4292,7 +4292,7 @@ class _Ceiling(_Spent):
         self._rows = rows
         self.asked: list[str] = []
 
-    def search(self, query: str) -> list[Any]:
+    def search(self, query: str, limit: int = 100) -> list[Any]:
         self.asked.append(query)
         return self._rows
 
