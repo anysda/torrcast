@@ -21,8 +21,8 @@ from torrcast.domain.franchise_name import franchise_name
 from torrcast.domain.in_digits import in_digits
 from torrcast.domain.kind import Kind
 from torrcast.domain.menu_order import menu_order
+from torrcast.domain.numbered_line import _numbered_line
 from torrcast.domain.other_words import other_words
-from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.domain.parse_episode import parse_episode
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.part_number import part_number
@@ -579,8 +579,8 @@ def test_the_free_first_slot_goes_to_the_living_first_part() -> None:
     Имена дословные, с сохранённой выдачи. Каталог подписал номерами части с четвёртой по
     десятую, первое место линейки свободно, - и прежний разбор отдавал его самой ранней
     безномерной картине по хронологии. Ею оказался «Форсаж» 1992 года с оригиналом
-    ``Afterburn``: другое кино, одна раздача. Живой «Форсаж» 2001 года стоял в стороне с
-    подписью «без номера части», хотя нумерованные части выросли именно из него.
+    ``Afterburn``: другое кино, одна раздача. Живой «Форсаж» 2001 года стоял в стороне,
+    ПОД линейкой, хотя нумерованные части выросли именно из него.
 
     Второе ограждение в том же наборе: «Форсаж: Хоббс и Шоу» кучкой полнее первой части,
     но вышел ПОСЛЕ нумерации - первой частью такое быть не может, и место он не занимает.
@@ -614,8 +614,8 @@ def test_the_free_first_slot_goes_to_the_living_first_part() -> None:
         ("Форсаж 5", 2011),
         ("Форсаж 10", 2023),
     ]
-    # Уехавшему за линейку меню подписывает причину - каталог его номером не назвал.
-    assert {p.title for p in whole if p.key in outside_numbering(whole)} == {
+    # За линейку уезжает то, что каталог номером не назвал, - и только оно.
+    assert {p.title for p in _numbered_line(whole)[1]} == {
         "Форсаж",
         "Форсаж: Хоббс и Шоу",
     }
@@ -894,8 +894,8 @@ def test_the_free_first_slot_is_not_for_a_subtitled_picture() -> None:
         "Тачки 3",
         "Тачки: Мультачки. Байки Мэтра",
     ]
-    # Спин-офф уехал за линейку и получил честную подпись, а не место первой части.
-    assert outside_numbering(whole) == {"movie:тачки-мультачки-байки-мэтра:2008"}
+    # Спин-офф уехал за линейку, а не занял место первой части.
+    assert {p.key for p in _numbered_line(whole)[1]} == {"movie:тачки-мультачки-байки-мэтра:2008"}
 
 
 def test_non_video_does_not_hold_the_franchise_numbering() -> None:
@@ -904,8 +904,8 @@ def test_non_video_does_not_hold_the_franchise_numbering() -> None:
     Имена дословные, с сохранённой выдачи. «Битва за Средиземье 2» - нарезка роликов
     из игры, одна раздача без сидов, - и она была ЕДИНСТВЕННОЙ подписанной номером
     частью «Властелина колец»: от неё строилась вся линейка (первое место доставалось
-    «Братству кольца»), а «Две крепости» и «Возвращение короля» уезжали в хвост с
-    подписью «без номера части». Запрос «властелин колец 2» отвечал игрой.
+    «Братству кольца»), а «Две крепости» и «Возвращение короля» уезжали в хвост,
+    под линейку из одной игры. Запрос «властелин колец 2» отвечал игрой.
 
     Второй след того же класса - том аудиокниги «Homo Ludens 1. Класс: Сталкер»: номер
     тома ставил её ПЕРВЫМ пунктом меню кинофраншизы «Сталкер», выше фильма 1979 года.
@@ -932,14 +932,14 @@ def test_non_video_does_not_hold_the_franchise_numbering() -> None:
         "Властелин колец: Две крепости",
         "Властелин колец: Битва за Средиземье 2",
     ], "не-видео из меню не исчезает, но стоит по году, а не по номеру"
-    assert outside_numbering(rings) == set(), "линейки из одной игры нет - и подписей нет"
+    assert _numbered_line(rings)[1] == [], "линейки из одной игры нет - и хвоста нет"
     assert [p.title for p in pick_franchise("властелин колец 2", pictures)] == [
         "Властелин колец: Две крепости"
     ]
 
     stalker = pick_franchise("сталкер", pictures)
     assert next(p.title for p in menu_order(stalker)) == "Сталкер", "первый пункт - фильм"
-    assert outside_numbering(stalker) == set()
+    assert _numbered_line(stalker)[1] == []
     # Настоящие номерные части это не трогает: ограждение сужено до не-видео.
     numbered = cluster(
         [
@@ -989,7 +989,7 @@ def test_cyrillic_pc_marker_reads_as_non_video() -> None:
         ]
     )
     mirror = pick_franchise("чёрное зеркало", pictures)
-    assert outside_numbering(mirror) == set(), "линейки из одной игры нет - и подписей нет"
+    assert _numbered_line(mirror)[1] == [], "линейки из одной игры нет - и хвоста нет"
     assert pick_franchise("чёрное зеркало 3", pictures) == [], "третьей части нет - а не игра"
 
 
@@ -1121,7 +1121,7 @@ def test_chapters_of_one_picture_do_not_number_the_franchise() -> None:
     Имена дословные, с сохранённой выдачи. У восьми фильмов про Гарри Поттер номеров
     нет вовсе, но «Дары Смерти: Часть I» и «Часть II» приносили в широкое меню номера
     1 и 2: линейкой становились две главы одной картины, а все настоящие фильмы
-    уезжали в хвост с подписью «без номера части» - франшиза без номеров читалась
+    уезжали в хвост под нумерованную линейку - франшиза без номеров читалась
     нумерованной. Глава доказывается сиблингом: каталог назвал «Часть 1» того же
     имени, - значит, работа делилась на главы.
     """
@@ -1143,7 +1143,7 @@ def test_chapters_of_one_picture_do_not_number_the_franchise() -> None:
 
     whole = pick_franchise("гарри поттер", pictures)
     assert all(p.part is None for p in pictures), "главам номер части не присваивается"
-    assert outside_numbering(whole) == set(), "подписей «без номера части» нет - линейки нет"
+    assert _numbered_line(whole)[1] == [], "хвоста нет - и линейки нет"
     # А внутри своей франшизы главы отвечают на номер по хронологии, как любая
     # франшиза без подписанных номеров: спрошенная часть находится как прежде.
     hallows = pick_franchise("дары смерти 2", pictures)
@@ -1782,8 +1782,8 @@ def test_the_menu_numbers_the_franchise_by_part_not_by_year() -> None:
         "Тачки 3",
         "Тачки: Мультачки. Байки Мэтра",
     ]
-    # Уехавшему вниз пункту меню подписывает причину, остальным - нечего.
-    assert outside_numbering(whole) == {"movie:тачки-мультачки-байки-мэтра:2008"}
+    # Вниз, под линейку, уезжает один спин-офф; нумерованным частям там не место.
+    assert {p.key for p in _numbered_line(whole)[1]} == {"movie:тачки-мультачки-байки-мэтра:2008"}
 
 
 def test_a_franchise_without_part_numbers_keeps_its_chronology() -> None:
@@ -1799,7 +1799,7 @@ def test_a_franchise_without_part_numbers_keeps_its_chronology() -> None:
     whole = pick_franchise("матрица", pictures)
 
     assert [p.title for p in menu_order(whole)] == [p.title for p in whole]
-    assert outside_numbering(whole) == set()
+    assert _numbered_line(whole)[1] == []
 
 
 def test_non_video_items_follow_the_asked_picture_without_part_numbers() -> None:
@@ -1852,7 +1852,7 @@ def test_an_explicit_first_part_leaves_no_free_slot_for_a_nameless_one() -> None
     ordered = menu_order(whole)
 
     assert [p.year for p in ordered] == [1984, 2024, 2021]
-    assert outside_numbering(whole) == {ordered[-1].key}
+    assert {p.key for p in _numbered_line(whole)[1]} == {ordered[-1].key}
 
 
 def test_a_collection_release_does_not_become_a_menu_line() -> None:

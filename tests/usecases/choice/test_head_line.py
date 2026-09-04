@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import pytest
 
-from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.catalogs.tongue import RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture
@@ -38,10 +37,3 @@ def test_only_the_half_that_arrived_is_added_to_the_line() -> None:
     """Приехала половина справки - в строку встаёт она одна, без пустого разделителя."""
     assert head_line(1, CARS, Fact(rating="IMDb 7.1")) == "  1. Тачки (2006) · IMDb 7.1"
     assert head_line(1, CARS, Fact(runtime="1 ч 57 мин")) == "  1. Тачки (2006) · 1 ч 57 мин"
-
-
-def test_a_picture_standing_outside_the_numbered_line_says_so_in_its_line() -> None:
-    """Пункт без номера части уезжает вниз списка и говорит, почему он там."""
-    assert head_line(3, CARS, Fact(), aside=True) == (
-        f"  3. Тачки (2006{phrase('choice.no_part_mark')})"
-    )

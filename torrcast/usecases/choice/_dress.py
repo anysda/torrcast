@@ -5,7 +5,6 @@ from __future__ import annotations
 from itertools import accumulate
 from typing import TYPE_CHECKING
 
-from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.usecases.choice.head_line import head_line
 
 if TYPE_CHECKING:
@@ -42,7 +41,6 @@ def _dress(menu: MenuPaint, plans: list[Plan], blocks: list[list[str]], facts: F
     попадает в кэш (:meth:`~torrcast.usecases.facts.Facts.finish`), и следующее меню печатает
     его сразу.
     """
-    aside = outside_numbering([plan.picture for plan in plans])
     heads = list(accumulate((len(block) for block in blocks), initial=0))
     shown = [block[0] for block in blocks]
 
@@ -50,7 +48,7 @@ def _dress(menu: MenuPaint, plans: list[Plan], blocks: list[list[str]], facts: F
         for at, plan in enumerate(plans):
             picture = plan.picture
             fact = facts.ready(picture.title, picture.year)
-            line = head_line(at + 1, picture, fact, picture.key in aside)
+            line = head_line(at + 1, picture, fact)
             if line != shown[at]:
                 shown[at] = line
                 menu.redraw(heads[at], line)

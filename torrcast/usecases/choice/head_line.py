@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from torrcast.domain.picture import Picture
 
 
-def head_line(number: int, picture: Picture, fact: Fact, aside: bool = False) -> str:
+def head_line(number: int, picture: Picture, fact: Fact) -> str:
     """Пункт одной строкой: номер, название с годом, рейтинг и хронометраж.
 
     Рейтинг и хронометраж стоят тут, а не колонкой: название бывает длинным, и колонки
@@ -23,6 +23,6 @@ def head_line(number: int, picture: Picture, fact: Fact, aside: bool = False) ->
     (:func:`~torrcast.usecases.choice._dress._dress`). Обе печати обязаны собирать её одинаково -
     иначе строка «дополнилась» бы на самом деле подменой соседнего пункта.
     """
-    named = _named(picture, aside, item=True)
+    named = _named(picture, item=True)
     said = " · ".join(x for x in (named, fact.rating, fact.runtime) if x)
     return f"  {number}. {said}"

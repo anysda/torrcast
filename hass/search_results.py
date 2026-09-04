@@ -17,7 +17,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.usecases.choice._named import _named
 
@@ -60,19 +59,18 @@ def search_results(plans: list[Plan], taken: int) -> list[JsonValue]:
 
     Пометка «имя только по-русски» тут есть (``item=True``): из этого списка человек
     ВЫБИРАЕТ, ровно как из меню консоли, и обязан видеть, что английского имени у пункта
-    нет. Пометка «без номера части» тоже: она про саму картину, а не про раскладку
-    консоли, и спрашивается тем же :func:`~torrcast.domain.outside_numbering.
-    outside_numbering` по тому же списку планов. Год неизвестен - в строке стоит ``(?)``,
-    как и в консоли: у списка находок это не украшение, а различитель тёзок.
+    нет. Год неизвестен - в строке стоит ``(?)``, как и в консоли: у списка находок это
+    не украшение, а различитель тёзок. Больше в строке ничего и нет: строка карточки и
+    строка меню сходятся буква в букву, и стеречь их сходство есть чем
+    (``tests/hass_integration/test_media_player.py``).
     """
-    aside = outside_numbering([plan.picture for plan in plans])
     return [
         {
             "pick": number,
             "key": plan.picture.key,
             "title": plan.picture.title,
             "shown": spoken_title(plan.picture.title, plan.picture.original or ""),
-            "named": _named(plan.picture, plan.picture.key in aside, item=True),
+            "named": _named(plan.picture, item=True),
             "year": plan.picture.year,
             "kind": plan.picture.kind,
             "original": plan.picture.original or "",

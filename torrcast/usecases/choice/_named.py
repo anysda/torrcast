@@ -64,11 +64,16 @@ def _different_display_names(picture: Picture) -> bool:
     return _also(picture).casefold() != _title(picture).casefold()
 
 
-def _named(picture: Picture, aside: bool = False, item: bool = False) -> str:
-    """Название с годом; ``aside`` - картина стоит после нумерованной линейки франшизы.
+def _named(picture: Picture, item: bool = False) -> str:
+    """Название с годом и пометками вида.
 
-    Подпись объясняет, почему пункт уехал вниз: номера части у неё нет, и в линейку по
-    номерам ей вставать не с чем (:func:`~torrcast.domain.outside_numbering.outside_numbering`).
+    Пометки о ненумерованной части тут больше нет: 04-09-2026 владелец снял её из
+    продукта целиком, и из меню консоли тоже. Раскол на нумерованную линейку франшизы и
+    хвост под ней никуда не делся - он по-прежнему решает ПОРЯДОК меню
+    (:func:`~torrcast.domain.menu_order.menu_order`), - но словом больше не объясняется:
+    на запросе «наруто» подпись стояла в консоли на 18 строках из 27, а в карточке Home
+    Assistant, где списка-линейки нет вовсе, на 20 из 20. Подпись на всём читается не
+    лучше подписи ни на чём.
 
     ``item`` - имя собирается для ПУНКТА МЕНЮ, и только там к имени без английской
     подписи добавляется пометка (:func:`_russian_only`): выбирают пункт по имени, и
@@ -77,8 +82,6 @@ def _named(picture: Picture, aside: bool = False, item: bool = False) -> str:
     выбирается, и хвост читался бы как часть названия.
     """
     marks = phrase("choice.series_mark") if picture.kind == "tv" else ""
-    if aside:
-        marks += phrase("choice.no_part_mark")
     named = f"{_title(picture)} ({picture.year or '?'}{marks})"
     if item and _russian_only(picture):
         named += phrase("choice.russian_title_only")

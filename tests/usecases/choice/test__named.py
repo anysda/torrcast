@@ -145,26 +145,6 @@ def test_a_series_is_marked_as_one_so_it_is_not_taken_for_the_film_of_the_same_n
     )
 
 
-def test_a_picture_standing_after_the_numbered_line_says_why_it_went_down() -> None:
-    """Подпись объясняет, почему пункт уехал вниз: номера части у картины нет.
-
-    Без неё «Мультачки» просто стоят последними, и порядок меню читается как ранжир по
-    качеству, а не как хронология франшизы с довеском.
-    """
-    said = _named(plan("Тачки: Мультачки", 2008).picture, aside=True)
-
-    assert said == f"Тачки: Мультачки (2008{phrase('choice.no_part_mark')})"
-
-
-def test_a_series_outside_the_line_carries_both_marks_and_not_just_the_last_one() -> None:
-    """Две пометки складываются: тип картины и её место в линейке - разные вопросы."""
-    said = _named(plan("Тачки: Байки Мэтра", 2008, kind="tv").picture, aside=True)
-
-    assert said == (
-        f"Тачки: Байки Мэтра (2008{phrase('choice.series_mark')}{phrase('choice.no_part_mark')})"
-    )
-
-
 def test_the_blurb_indent_puts_the_description_exactly_under_the_title() -> None:
     """Отступ описания ровно под названием, за номером с точкой.
 

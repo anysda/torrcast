@@ -8,7 +8,7 @@ from hass.search_results import search_results
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.kind import Kind
-from torrcast.domain.outside_numbering import outside_numbering
+from torrcast.domain.numbered_line import _numbered_line
 from torrcast.domain.picture import Picture
 from torrcast.usecases.choice.head_line import head_line
 from torrcast.usecases.select.plan import Plan
@@ -138,17 +138,55 @@ def test_the_line_is_the_one_the_console_menu_prints_for_the_same_picture(
     :func:`~torrcast.usecases.choice.head_line.head_line`, которой меню консоли эту
     строку и печатает: разъедутся - покраснеет тут, а не на стенде у человека.
     Номер с точкой и справка - украшения консоли, их снимает срез.
+
+    Картина под нумерованной линейкой франшизы сверяется отдельно
+    (:func:`test_a_picture_under_the_numbered_line_reads_the_same_on_both_sides`): раньше
+    консоль подписывала её иначе, чем карточка, и сверка тут была бы не о том.
     """
     plans = [
         _plan("Чернобыль", 2019, kind="tv"),
         _plan("Ёлки", 2010),
         _plan("Назад в будущее", 1985, original="Back to the Future"),
     ]
-    aside = outside_numbering([plan.picture for plan in plans])
     records = _records(search_results(plans, 1))
 
+    assert not _numbered_line([plan.picture for plan in plans])[1], "хвоста линейки тут нет"
+
     for number, (plan, record) in enumerate(zip(plans, records, strict=True), start=1):
-        console = head_line(number, plan.picture, Fact(), plan.picture.key in aside)
+        console = head_line(number, plan.picture, Fact())
+
+        assert record["named"] == console.removeprefix(f"  {number}. ")
+
+
+def test_a_picture_under_the_numbered_line_reads_the_same_on_both_sides(
+    _russian_product: None,
+) -> None:
+    """Картина под линейкой франшизы подписана как все - и одинаково с двух сторон.
+
+    Раскол живой: «Мультачки» стоят ПОД нумерованными «Тачками», и это утверждается,
+    а не подразумевается - иначе тест мерил бы обычную картину. Подпись, объяснявшую
+    отставание, владелец снял 04-09-2026 из ПРОДУКТА, а не с одной стороны: на «наруто»
+    она стояла в консоли на 18 строках из 27, а в карточке, где линейки нет вовсе, на
+    20 из 20.
+
+    Красным становятся обе беды сразу. Вернётся подпись в общее правило - разойдётся
+    дословная строка консоли; вернётся она только в карточку или только в консоль -
+    разойдутся две стороны между собой.
+    """
+    numbered = [
+        Picture(title="Тачки", year=2006, part=1),
+        Picture(title="Тачки 2", year=2011, part=2),
+    ]
+    under = Picture(title="Тачки: Мультачки", year=2008)
+    pictures = [*numbered, under]
+    plans = [Plan(picture=p, ranked=[], runtime=0.0, warn_mbit=0.0) for p in pictures]
+    records = _records(search_results(plans, 1))
+
+    assert [p.key for p in _numbered_line(pictures)[1]] == [under.key], "пункт стоит под линейкой"
+    assert head_line(3, under, Fact()) == "  3. Тачки: Мультачки (2008)"
+
+    for number, (picture, record) in enumerate(zip(pictures, records, strict=True), start=1):
+        console = head_line(number, picture, Fact())
 
         assert record["named"] == console.removeprefix(f"  {number}. ")
 

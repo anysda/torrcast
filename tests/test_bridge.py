@@ -23,7 +23,6 @@ from torrcast.domain.config import Config
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.abandon import slot as abandon_slot
@@ -552,7 +551,6 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
     )
     plans = _real_search({"тачки": _CARS})(_SEARCH_CONFIG, Args(query=["тачки"]), Said())
     taken = enter_take(plans, "тачки").number
-    aside = outside_numbering([plan.picture for plan in plans])
 
     results = bridge.search("тачки")
 
@@ -562,7 +560,7 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
             "key": plan.picture.key,
             "title": plan.picture.title,
             "shown": plan.picture.original or plan.picture.title,
-            "named": _named(plan.picture, plan.picture.key in aside, item=True),
+            "named": _named(plan.picture, item=True),
             "year": plan.picture.year,
             "kind": plan.picture.kind,
             "original": plan.picture.original or "",

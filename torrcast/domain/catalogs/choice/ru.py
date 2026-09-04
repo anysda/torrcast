@@ -15,7 +15,6 @@ def ru() -> dict[str, str]:
     return {
         "choice.quoted": "«{it}»",
         "choice.series_mark": ", сериал",
-        "choice.no_part_mark": ", без номера части",
         "choice.russian_title_only": " - название только по-русски",
         "choice.remote_command": "пульт: {command}",
         "choice.pick_out_of_range": "подходит картин: {total}, номера {pick} нет",

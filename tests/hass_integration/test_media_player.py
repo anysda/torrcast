@@ -27,7 +27,7 @@ from hass.hit_posters import FIELD
 from hass.search_results import search_results
 from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, sent, snapshot
 from torrcast.domain.facts.fact import Fact
-from torrcast.domain.outside_numbering import outside_numbering
+from torrcast.domain.numbered_line import _numbered_line
 from torrcast.domain.picture import Picture
 from torrcast.usecases.choice.head_line import head_line
 from torrcast.usecases.select.plan import Plan
@@ -477,6 +477,10 @@ async def test_a_hit_is_titled_the_way_the_console_menu_titles_the_same_picture(
     `head_line`, the very function the console menu prints its item with, so the two
     places cannot drift apart quietly. That drift is the whole defect - the card was
     composing `"{name} ({year})"` with a rule of its own.
+
+    A picture standing under a franchise ruler is compared separately
+    (`test_a_picture_under_the_numbered_line_reads_the_same_on_both_sides`): the console
+    used to sign it differently, so that case is worth a test of its own.
     """
     pictures = [
         Picture(title="Рэмбо", year=2022, kind="tv", original="Rambo"),
@@ -492,12 +496,53 @@ async def test_a_hit_is_titled_the_way_the_console_menu_titles_the_same_picture(
         blocking=True,
         return_response=True,
     )
-    aside = outside_numbering(pictures)
+
+    assert not _numbered_line(pictures)[1], "хвоста линейки в этом наборе нет"
 
     for picture, hit in zip(pictures, answer[PLAYER].result, strict=True):
-        console = head_line(1, picture, Fact(), picture.key in aside).removeprefix("  1. ")
+        console = head_line(1, picture, Fact()).removeprefix("  1. ")
 
         assert hit.title == console
+
+
+async def test_a_picture_under_the_numbered_line_reads_the_same_on_both_sides(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """A picture under the franchise ruler is signed like any other, on both sides.
+
+    The split is alive and asserted, not assumed: `Cars Toons` stands under the numbered
+    `Cars`, and that is what decides the order of the menu. The note that used to
+    explain the drop is gone from the PRODUCT (owner, 04-09-2026), not moved to the
+    other side of the seam: it stood on 18 console lines out of 27 for the query the
+    owner measured, and on 20 out of 20 in the card, whose list is flat and has no ruler
+    to explain.
+
+    Two failures go red here at once. Bring the note back into the shared rule and the
+    literal console line drifts; bring it back into one side only and the two sides
+    drift apart.
+    """
+    numbered = [
+        Picture(title="Тачки", year=2006, part=1, original="Cars"),
+        Picture(title="Тачки 2", year=2011, part=2, original="Cars 2"),
+    ]
+    under = Picture(title="Тачки: Мультачки", year=2008, original="Cars Toons")
+    pictures = [*numbered, under]
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(f"{BASE}/api/search", json=_served(pictures, taken=1))
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "тачки", "media_content_id": "menu"},
+        blocking=True,
+        return_response=True,
+    )
+    hits = answer[PLAYER].result
+
+    assert [p.key for p in _numbered_line(pictures)[1]] == [under.key], "пункт стоит под линейкой"
+    assert head_line(3, under, Fact()) == "  3. Cars Toons (2008)"
+
+    for number, (picture, hit) in enumerate(zip(pictures, hits, strict=True), start=1):
+        assert hit.title == head_line(number, picture, Fact()).removeprefix(f"  {number}. ")
 
 
 async def test_a_hit_shows_its_poster_and_home_assistant_fetches_it_from_the_serve(

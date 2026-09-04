@@ -12,10 +12,10 @@ from collections.abc import Callable, Iterable
 import pytest
 
 from tests.usecases.choice.world import Outside, outside, parts, plan
-from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
+from torrcast.domain.numbered_line import _numbered_line
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.choice._named import _BLURB_INDENT
 from torrcast.usecases.choice.menu_blocks import menu_blocks
@@ -136,21 +136,28 @@ def test_a_picture_without_a_reference_gets_exactly_the_line_it_got_before() -> 
     assert said == "  1. Тачки (2006)"
 
 
-def test_a_picture_standing_outside_the_numbered_line_is_marked_as_such() -> None:
-    """Пункт без номера части уезжает вниз и говорит, почему он там.
+def test_a_picture_standing_outside_the_numbered_line_is_lined_like_any_other() -> None:
+    """Пункт под линейкой франшизы подписан как все: подписи о номере части нет.
 
-    Иначе порядок меню читается как ранжир, а не как хронология франшизы с довеском.
+    Раскол при этом живёхонек - «Мультачки» стоят ПОД нумерованными «Тачками», и это
+    решает порядок (:func:`~torrcast.domain.numbered_line._numbered_line`). Объяснялся
+    он подписью в каждой такой строке, и 04-09-2026 владелец подпись снял: на «наруто»
+    она стояла на 18 строках из 27 - подпись на всём читается не лучше подписи ни на чём.
+    Строка тут дословная, а не собранная из тех же кусков: собранная приняла бы подпись
+    назад молча.
     """
     cars = [
         plan("Тачки", 2006, part=1, seeders=66),
         plan("Тачки 2", 2011, part=2, seeders=40),
         plan("Тачки: Мультачки", 2008, seeders=10),
     ]
+    _line, tail = _numbered_line([item.picture for item in cars])
 
     with outside(Outside()):
         rows = menu_rows(cars)
 
-    assert rows[2] == f"  3. Тачки: Мультачки (2008{phrase('choice.no_part_mark')})"
+    assert [p.title for p in tail] == ["Тачки: Мультачки"], "пункт обязан стоять под линейкой"
+    assert rows[2] == "  3. Тачки: Мультачки (2008)"
 
 
 def test_the_reference_is_asked_about_a_picture_by_its_title_and_its_year() -> None:

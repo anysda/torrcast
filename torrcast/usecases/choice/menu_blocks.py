@@ -5,7 +5,6 @@ from __future__ import annotations
 import textwrap
 from typing import TYPE_CHECKING
 
-from torrcast.domain.outside_numbering import outside_numbering
 from torrcast.usecases.choice._named import _BLURB_INDENT
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.head_line import head_line
@@ -40,12 +39,11 @@ def menu_blocks(plans: list[Plan], facts: Facts | None = None, width: int = 0) -
     «не нашёл».
     """
     columns = width or _environment_port().columns()
-    aside = outside_numbering([plan.picture for plan in plans])
     blocks: list[list[str]] = []
     for number, plan in enumerate(plans, start=1):
         picture = plan.picture
         fact = facts.ready(picture.title, picture.year) if facts else _environment_port().fact()
-        block = [head_line(number, picture, fact, picture.key in aside)]
+        block = [head_line(number, picture, fact)]
         if fact.about:
             block += textwrap.wrap(
                 _environment_port().shorten(fact.about),

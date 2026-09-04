@@ -13,7 +13,6 @@ def en() -> dict[str, str]:
     return {
         "choice.quoted": "“{it}”",
         "choice.series_mark": ", series",
-        "choice.no_part_mark": ", no part number",
         "choice.russian_title_only": " - Russian title only",
         "choice.remote_command": "remote: {command}",
         "choice.pick_out_of_range": "matching pictures: {total}, no number {pick} there",
