@@ -2,8 +2,12 @@
 
 import importlib.util
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any, NoReturn
+
+import pytest
 
 SPEC = importlib.util.spec_from_file_location(
     "anilibria_indexer", Path(__file__).parents[1] / "scripts/anilibria-indexer.py"
@@ -34,7 +38,9 @@ def test_dead_primary_uses_the_alternative() -> None:
         return [{"label": "Sonny Boy 1080p", "magnet": "magnet:?xt=urn:btih:abc"}]
 
     assert adapter.search("Sonny Boy", answer)[0]["title"] == "Sonny Boy 1080p"
-    assert calls[:2] == list(adapter.ORIGINS)
+    assert set(calls[:2]) == set(adapter.ORIGINS), (
+        f"both mirrors are asked, in whichever order they come back: {calls[:2]}"
+    )
 
 
 def test_all_dead_sources_are_an_empty_result() -> None:
@@ -118,3 +124,62 @@ def test_details_carry_a_deadline_short_enough_to_ask_twice() -> None:
     assert deadlines, "the details were asked at all"
     spent = deadlines[0] * adapter.DETAIL_TRIES
     assert spent < adapter.TIMEOUT, f"two asks cost {spent} s, one old ask cost {adapter.TIMEOUT} s"
+
+
+def _settle() -> None:
+    """Дождаться зеркала, ответ которого уже не нужен: в жизни его никто не ждёт.
+
+    Счастливый путь второе зеркало НЕ ждёт - в этом и правка. Но проба, оставившая живой
+    поток, покрасит соседнюю ложно, поэтому здесь его дожидаются явно, уже после замера.
+    """
+    for thread in threading.enumerate():
+        if thread.name.startswith("anilibria-origin"):
+            thread.join(5)
+
+
+@pytest.mark.machine
+def test_both_mirrors_are_asked_at_once_not_one_after_the_other() -> None:
+    """Первое зеркало отвечает 403 на всё, и его отказ не смеет стоить второму ожидания.
+
+    Отрицательная проба на это - сама очередь: спроси зеркала по очереди, и полсекунды
+    сложатся в секунду. Замер на стенде: 0.68 с на отказ первого плюс ответ второго.
+    """
+
+    def answer(origin: str, path: str, _seconds: float = 0.0) -> Any:
+        if "/search/" not in path:
+            return [{"label": "Sonny Boy 1080p", "magnet": "magnet:?xt=urn:btih:abc"}]
+        time.sleep(0.3)
+        if origin == adapter.ORIGINS[0]:
+            raise OSError("403")
+        return [{"id": 7, "name": {"english": "Sonny Boy"}}]
+
+    start = time.monotonic()
+    rows = adapter.search("Sonny Boy", answer)
+    took = time.monotonic() - start
+
+    assert rows[0]["title"] == "Sonny Boy 1080p"
+    assert took < 0.55, f"два зеркала по 0.3 с заняли {took:.2f} с - значит, шли по очереди"
+
+
+@pytest.mark.machine
+def test_a_healthy_first_mirror_wins_and_is_not_waited_out_by_the_slow_one() -> None:
+    """Порядок зеркал остался ПРЕДПОЧТЕНИЕМ: каталог читаем прежний, но не ждём второе."""
+    seen: list[str] = []
+
+    def answer(origin: str, path: str, _seconds: float = 0.0) -> Any:
+        seen.append(origin)
+        if origin == adapter.ORIGINS[1]:
+            time.sleep(1.0)
+            return [{"id": 9, "name": {"english": "Sonny Boy"}}] if "/search/" in path else []
+        if "/search/" in path:
+            return [{"id": 7, "name": {"english": "Sonny Boy"}}]
+        return [{"label": "Sonny Boy 1080p", "magnet": "magnet:?xt=urn:btih:abc"}]
+
+    start = time.monotonic()
+    rows = adapter.search("Sonny Boy", answer)
+    took = time.monotonic() - start
+
+    assert rows[0]["title"] == "Sonny Boy 1080p"
+    assert adapter.ORIGINS[1] in seen, "второе зеркало всё же спрошено - оно уехало разом с первым"
+    assert took < 0.5, f"ответ первого зеркала ждал молчащее второе {took:.2f} с"
+    _settle()

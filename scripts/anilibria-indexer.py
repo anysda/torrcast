@@ -64,22 +64,23 @@ def _json(origin: str, path: str, seconds: float = TIMEOUT) -> Any:
 Fetch = Callable[..., Any]
 
 
-def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
-    """Return torrents; one dead origin or release narrows results instead of failing.
+def _listing(query: str, fetch: Fetch) -> tuple[list[dict[str, Any]], str]:
+    """Both mirrors asked at once, and the answer taken in the order they are written down.
 
-    `fetch` carries its production default, so the handler calls this with one argument
-    and the behaviour is unchanged; a stand can hand in answers without a network.
+    That order is a PREFERENCE, not a queue. Asked one after the other, every search waited
+    the first one out, and on the live stand the first one answers 403 to every query and
+    costs 0.68 s before the second is even asked; on a query where the second one stalls the
+    two costs added up to 3.69 s. Asked together, neither waits for the other, and WHICH
+    catalogue we read does not move: the first mirror that answers a list still wins, no
+    matter which came back sooner.
     """
-    releases: list[dict[str, Any]] = []
-    origin = ""
     path = "/api/v1/app/search/releases?" + urllib.parse.urlencode({"query": query})
-    for candidate in ORIGINS:
+    pool = ThreadPoolExecutor(max_workers=len(ORIGINS), thread_name_prefix="anilibria-origin")
+    asked = [(origin, pool.submit(fetch, origin, path)) for origin in ORIGINS]
+    pool.shutdown(wait=False)
+    for origin, answer in asked:
         try:
-            answer = fetch(candidate, path)
-            if isinstance(answer, list):
-                releases = [row for row in answer if isinstance(row, dict) and _matches(row, query)]
-                releases, origin = releases[:LIMIT], candidate
-                break
+            rows = answer.result()
         # SubprocessError belongs here as much as OSError: a hung origin leaves
         # `subprocess.run` in its own TimeoutExpired, which is NOT an OSError. Uncaught it
         # would leave the handler through a dropped connection, and Prowlarr answers a
@@ -87,6 +88,19 @@ def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
         # answer is a whole day, so one stall would cost far more than this source is worth.
         except (OSError, subprocess.SubprocessError, ValueError):
             continue
+        if isinstance(rows, list):
+            kept = [row for row in rows if isinstance(row, dict) and _matches(row, query)]
+            return kept[:LIMIT], origin
+    return [], ""
+
+
+def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
+    """Return torrents; one dead origin or release narrows results instead of failing.
+
+    `fetch` carries its production default, so the handler calls this with one argument
+    and the behaviour is unchanged; a stand can hand in answers without a network.
+    """
+    releases, origin = _listing(query, fetch)
     if not origin:
         return []
 
