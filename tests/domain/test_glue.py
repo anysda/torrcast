@@ -237,3 +237,75 @@ def test_a_film_and_a_series_glued_into_one_picture_come_out_a_series() -> None:
 
     assert len(found) == 1
     assert found[0].kind == "tv"
+
+
+def test_one_bare_name_and_year_gather_a_film_and_a_series() -> None:
+    """🎯 TC-1024. Оригинала нет ни у одной стороны, спросить его не у кого, и каталог
+    развёл одну работу по виду: «Место встречи изменить нельзя» 1979 года стоял в меню
+    двумя пунктами - двадцать одна раздача в одном и три в другом. Пункт один."""
+    found = glue(
+        [
+            Picture(
+                title="Место встречи изменить нельзя",
+                year=1979,
+                kind="movie",
+                releases=[
+                    Release(
+                        raw_name="Место встречи изменить нельзя (1979) BDRip",
+                        title="Место встречи изменить нельзя",
+                    )
+                ],
+            ),
+            Picture(
+                title="Место встречи изменить нельзя",
+                year=1979,
+                kind="tv",
+                releases=[
+                    Release(
+                        raw_name="Место встречи изменить нельзя (1979) S01 WEB-DL",
+                        title="Место встречи изменить нельзя",
+                    )
+                ],
+            ),
+        ]
+    )
+
+    assert len(found) == 1
+    assert len(found[0].releases) == 2
+
+
+def test_a_soundtrack_stays_out_of_the_pool_of_the_picture_it_names() -> None:
+    """🔴 Встречный сторож имени и года: вид «other» - ведро «ни фильм, ни сериал», и
+    лежит в нём не-видео. Единственная раздача «Семнадцати мгновений весны» под этим
+    видом - APE-рип пластинки Таривердиева, и в пуле кино ей места нет."""
+    found = glue(
+        [
+            Picture(
+                title="Семнадцать мгновений весны",
+                year=1973,
+                kind="movie",
+                releases=[
+                    Release(
+                        raw_name="Семнадцать мгновений весны (1973) DVDRip",
+                        title="Семнадцать мгновений весны",
+                    )
+                ],
+            ),
+            Picture(
+                title="Семнадцать мгновений весны",
+                year=1973,
+                kind="other",
+                releases=[
+                    Release(
+                        raw_name=(
+                            "Семнадцать мгновений весны / Михаил Таривердиев OST "
+                            "(1973) APE by гаврила"
+                        ),
+                        title="Семнадцать мгновений весны",
+                    )
+                ],
+            ),
+        ]
+    )
+
+    assert len(found) == 2

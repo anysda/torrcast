@@ -140,6 +140,20 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         mine, theirs = identity(a.original), identity(b.original)
         return mine == theirs or mine == subtitle(b.original) or theirs == subtitle(a.original)
 
+    def two_kinds_one_bare_name(a: Picture, b: Picture) -> bool:
+        # Оригинала нет ни у одной стороны, и спросить его, как выше, не у кого: всё, что
+        # о картине сказано, - русское имя и год. Совпали оба буквально - это одна работа,
+        # разведённая каталогом по виду: «Место встречи изменить нельзя» 1979 года стоял в
+        # меню фильмом и сериалом сразу, и раздачи одной картины лежали в двух пулах.
+        #
+        # Вид «other» - ведро «ни фильм, ни сериал», и лежит в нём не-видео: единственная
+        # раздача под ним у «Семнадцати мгновений весны» 1973 года это «Михаил Таривердиев
+        # OST (1973) APE», саундтрек. Пустив его, продукт подсунул бы зрителю APE-рип
+        # вместо кино, - поэтому вид спрашивается дважды: он разный, и он не «other».
+        return (
+            a.kind != b.kind and "other" not in (a.kind, b.kind) and not (a.original or b.original)
+        )
+
     kindred: dict[tuple[str, int], list[int]] = {}
     for i, picture in enumerate(pictures):
         if picture.year is not None and picture.original:
@@ -148,6 +162,15 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         for spot, i in enumerate(same):
             for j in same[spot + 1 :]:
                 if one_picture_two_kinds(pictures[i], pictures[j]):
+                    union(i, j)
+    bare: dict[tuple[str, int], list[int]] = {}
+    for i, picture in enumerate(pictures):
+        if picture.year is not None and not picture.original:
+            bare.setdefault((identity(picture.title), picture.year), []).append(i)
+    for same in bare.values():
+        for spot, i in enumerate(same):
+            for j in same[spot + 1 :]:
+                if two_kinds_one_bare_name(pictures[i], pictures[j]):
                     union(i, j)
     groups: dict[int, list[int]] = {}
     for i in range(len(pictures)):
