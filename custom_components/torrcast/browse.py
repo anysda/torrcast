@@ -124,9 +124,21 @@ def _root() -> BrowseMedia:
 
 
 def _menu_node() -> BrowseMedia:
-    """Empty until searched: a place to type into, not a catalogue to page through."""
+    """Empty until searched: a place to type into, not a catalogue to page through.
+
+    A found picture is read by its name, and a tile is too narrow to hold one: the
+    grid cut the name off and a person had to hover a tile to learn what it was. The
+    frontend takes the layout from `children_media_class` of the node it stands *in*,
+    not from the class of what it found (`MediaClassBrowserSettings[e.children_media_
+    class]` of `_currentItem`, shipped `27169.*.js`), and left unset it reads
+    `directory`, whose layout is the grid. `music` is one of the three classes laid
+    out as a column, and the only one of the three whose icon is a note rather than a
+    hyperlink. The poster stays: a row's thumbnail comes from the node's own
+    `media_class`, still a directory, and that one is drawn `show_list_images`.
+    """
     return BrowseMedia(
         media_class=MediaClass.DIRECTORY,
+        children_media_class=MediaClass.MUSIC,
         media_content_id=MENU_ID,
         media_content_type=MediaType.VIDEO,
         title=MENU_ID,

@@ -537,6 +537,30 @@ async def test_browse_media_root_puts_menu_first_and_instant_second(
     assert not instant[PLAYER].can_search
 
 
+async def test_menu_opens_as_a_column_so_a_found_picture_is_read_and_not_hovered(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """The layout of an open node is its own `children_media_class`, so menu names one.
+
+    Left unset it reads `directory`, and `directory` is a grid of tiles too narrow to
+    hold a picture's name: a person had to hover a tile to learn what it was. The
+    dialog's own `⋮` switch is no answer, it resets to `auto` on every close. Only
+    three of the twenty classes are laid out as a column, and the poster survives the
+    column because a row's thumbnail comes from the node's own class, not this one.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    menu = await hass.services.async_call(
+        "media_player",
+        "browse_media",
+        {"entity_id": PLAYER, "media_content_id": "menu", "media_content_type": "video"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert menu[PLAYER].children_media_class in ("music", "track", "url")
+    assert menu[PLAYER].media_class == "directory"
+
+
 async def test_the_instant_field_plays_the_typed_name_without_searching(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
