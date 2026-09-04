@@ -7,7 +7,7 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Final
 
-from torrcast.adapters.http_server.stream_serve import _tracing
+from torrcast.adapters.http_server._handler import _tracing
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal

@@ -6,7 +6,8 @@ from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.adapters.filesystem.state.load_config import load_config
-from torrcast.adapters.http_server.stream_serve import HlsServer, hls_base
+from torrcast.adapters.http_server.hls_base import hls_base
+from torrcast.adapters.http_server.hls_server import HlsServer
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.adapters.recode.encode import Encode

@@ -13,7 +13,8 @@ from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.chromecast.scan.alive import CAST_PORT
 from torrcast.adapters.chromecast.scan.by_mdns import by_mdns
 from torrcast.adapters.chromecast.scan.receiver_link import receiver_link
-from torrcast.adapters.http_server.stream_serve import hls_base, our_address
+from torrcast.adapters.http_server.hls_base import hls_base
+from torrcast.adapters.http_server.our_address import our_address
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.torrcast_error import TorrcastError
