@@ -44,6 +44,11 @@ export TORRCAST_STATE TORRCAST_LOG
 
 # Команды без внешнего мира: справка, версия, состояние и осмотр хозяйства. Показа тут
 # нет намеренно - он ходит в сеть и к телевизору, его держат тесты и живой стенд.
+#
+# 🔴 TC-1003. Отказ показа от непонятого флага взят сюда: он случается ДО всякой работы,
+# наружу не ходит, а цена его пропажи - заведённый показ вместо ответа человеку. Даже
+# уйди правка, дальше проверки «не настроен Prowlarr» такой запуск не двинется: конфиг
+# тут свой и пустой, приёмника в нём нет, - и расхождение поймается выводом, а не ТВ.
 run() {
     tongue=$1
     name=$2
@@ -60,6 +65,7 @@ for tongue in en ru; do
     run "$tongue" version --version
     run "$tongue" status status
     run "$tongue" doctor doctor
+    run "$tongue" stray --since 2h
 done
 
 if [ "$mode" = снять ]; then
@@ -68,7 +74,7 @@ if [ "$mode" = снять ]; then
         cp "$work/$tongue"/*.rc "$reference/$tongue/"
         # Вывод осмотра в эталон не кладётся: он держит пути рабочего каталога и ответ живой
         # сети, то есть на другой машине разошёлся бы сам собой. Сверяется только его код.
-        for name in help status; do
+        for name in help status stray; do
             cp "$work/$tongue/$name.out" "$reference/$tongue/$name.out"
         done
         sed "s/$(current_version)/{VERSION}/" "$work/$tongue/version.out" \
@@ -91,7 +97,7 @@ for tongue in en ru; do
     # диске, - и пришить его вывод к эталону значило бы объявить поломкой выключенный
     # телевизор. От него берётся код возврата: двойка на нездоровом хозяйстве - это
     # договор, а содержимое строк держит зеркало `tests/usecases/test_doctor.py`.
-    for name in help status; do
+    for name in help status stray; do
         if ! cmp -s "$work/$tongue/$name.out" "$reference/$tongue/$name.out"; then
             echo "разошёлся вывод ($tongue): $name" >&2
             diff -u "$reference/$tongue/$name.out" "$work/$tongue/$name.out" | head -40 >&2
@@ -105,7 +111,7 @@ for tongue in en ru; do
         diff -u "$version_want" "$work/$tongue/version.out" | head -40 >&2
         failed=1
     fi
-    for name in help version status doctor; do
+    for name in help version status doctor stray; do
         if ! cmp -s "$work/$tongue/$name.rc" "$reference/$tongue/$name.rc"; then
             echo "разошёлся код возврата ($tongue): $name - было" \
                 "$(cat "$reference/$tongue/$name.rc"), стало $(cat "$work/$tongue/$name.rc")" >&2
@@ -117,5 +123,5 @@ if [ "$failed" -ne 0 ]; then
     echo "договор командной строки нарушен" >&2
     exit 1
 fi
-echo "договор командной строки соблюдён: вывод трёх команд побайтово, коды возврата всех" \
-    "четырёх, на обоих языках (en, ru)"
+echo "договор командной строки соблюдён: вывод четырёх запусков побайтово, коды возврата" \
+    "всех пяти, на обоих языках (en, ru)"

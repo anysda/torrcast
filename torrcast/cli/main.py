@@ -17,11 +17,14 @@ from torrcast.cli.play import play
 from torrcast.cli.releases import releases
 from torrcast.cli.status import status
 from torrcast.cli.stop import stop
+from torrcast.cli.stray_flags import stray_flags
 from torrcast.cli.telegram import telegram
 from torrcast.cli.upgrade import upgrade
 from torrcast.cli.voices import voices
 from torrcast.cli.worker import worker
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.torrcast_error import TorrcastError
 
 #: Режим stdin на время команды. Кладёт сюда композиционный корень
 #: (:mod:`torrcast.runtime.wire`): терминал - это адаптер, а слою команд адаптеры не
@@ -61,6 +64,11 @@ def main(
 
     def run() -> int:
         args = parse_args(argv)
+        # 🔴 TC-1003. Цена непонятого флага у показа не пустой вывод, а занятый телевизор:
+        # `cast --since 2h` терял флаг молча, уходил в «продолжи последнее» и заводил показ.
+        # Отказ стоит ДО работы и только у показа: у прочих команд флаг ничего не занимает.
+        if args.command == "play" and (stray := stray_flags(args)):
+            raise TorrcastError(phrase("cli.stray_flag", flag=stray[0]))
         # IUTF8 на stdin включаем на всё время команды и возвращаем режим как было:
         # без него ssh-сессия ломает кириллицу в вопросах.
         with _TERMINAL():

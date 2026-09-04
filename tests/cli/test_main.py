@@ -65,6 +65,10 @@ def _raises(error: BaseException) -> Callable[[Args], int]:
         (["--play-key", "movie:кино:1999"], "worker"),
         (["моана", "2"], "play"),
         (["--ru"], "language"),
+        # Флаг, который команда читает, дорогу ей не закрывает: лента по-прежнему отвечает
+        # на `--since`, а голый показ - на `--dry`, и «продолжи последнее» остаётся (TC-1003).
+        (["log", "--since", "2h"], "log"),
+        (["--dry"], "play"),
     ],
 )
 def test_every_name_of_the_contract_reaches_its_own_command(argv: list[str], command: str) -> None:
@@ -73,6 +77,31 @@ def test_every_name_of_the_contract_reaches_its_own_command(argv: list[str], com
 
     assert main(argv, table) == EXIT_OK
     assert called == [command]
+
+
+@pytest.mark.parametrize(
+    ("argv", "flag"),
+    [
+        (["--since", "2h"], "--since"),
+        (["--tv", "10.0.0.50", "моана"], "--tv"),
+    ],
+)
+def test_a_flag_the_show_does_not_read_is_named_and_the_show_does_not_start(
+    argv: list[str], flag: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-1003. Цена молчания тут не пустой вывод, а занятый телевизор.
+
+    ``cast --since 2h`` терял флаг молча, уходил в «продолжи последнее» и заводил показ:
+    просьба почитать ленту оборачивалась запуском. Поэтому мера смотрит на ДВЕ вещи
+    сразу - названный флаг в stderr и пустой список позванных команд, - а не на одну
+    строку вывода: строка при заведённом показе была бы такой же.
+    """
+    called: list[str] = []
+    table: Mapping[str, Callable[[Args], int]] = {name: _Named(name, called) for name in _NAMES}
+
+    assert main(argv, table) == EXIT_INFRA
+    assert called == []
+    assert capsys.readouterr().err.strip() == f"flag {flag} is not understood here"
 
 
 def test_a_language_flag_next_to_work_remembers_the_choice_before_doing_the_work() -> None:

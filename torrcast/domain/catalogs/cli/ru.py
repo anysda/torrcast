@@ -25,6 +25,7 @@ def ru() -> dict[str, str]:
         "cli.help_upgrade": "обновить torrcast до последнего релиза",
         "cli.metavar_since": "СРОК",
         "cli.help_since": "cast log: с какого момента (2d / 12h / 30m / ГГГГ-ММ-ДД)",
+        "cli.stray_flag": "флаг {flag} тут не понят",
         "cli.terminated_by_sigterm": "команда прервана сигналом SIGTERM",
         "cli.terminated_by_keyboard": "команда прервана с клавиатуры",
     }
