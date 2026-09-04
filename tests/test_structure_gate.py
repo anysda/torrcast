@@ -122,6 +122,33 @@ def test_bypass_rule_turns_red_on_a_dependency_named_by_a_string(tmp_path: Path)
     assert "обход" in _rules(root)
 
 
+def test_bypass_rule_turns_red_when_names_are_poured_into_own_globals(tmp_path: Path) -> None:
+    """Половина штампа слияния: модуль набивает именами свой собственный namespace."""
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "merge_here",
+        '"""Модуль."""\nfrom torrcast import good\n\nglobals().update(vars(good))\n',
+    )
+    assert "обход" in _rules(root)
+
+
+def test_bypass_rule_turns_red_when_names_are_poured_into_another_part(tmp_path: Path) -> None:
+    """Вторая половина штампа - обратная запись в ЧУЖУЮ часть, `torrcast/stream.py:395`.
+
+    Ловилась она прежде списком literal'ов, куда `vars(_part).update` не попадал, и
+    проходила зелёной. Подменяла тёзку в живом процессе именно она, поэтому проба
+    берёт эту форму ОДНУ, без `globals().update` рядом: иначе краснело бы за соседа.
+    """
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "merge_there",
+        '"""Модуль."""\nfrom torrcast import good\n\nvars(good).update({"name": 1})\n',
+    )
+    assert "обход" in _rules(root)
+
+
 def test_bypass_rule_turns_red_on_a_stub_beside_a_package_init(tmp_path: Path) -> None:
     """Заглушка рядом с `__init__.py` - такая же ложь компилятору, как и рядом с модулем."""
     root = _tree(tmp_path)

@@ -381,6 +381,22 @@ def _io_violations(module: Module, imports: list[tuple[str, int]]) -> list[Viola
     return failures
 
 
+def _namespace_target(func: ast.expr) -> str | None:
+    """Возвращает namespace, в который льют имена скопом, или ``None``.
+
+    Штамп - обращение `.update` к словарю имён: `globals()` (свой модуль) и `vars(x)`
+    (чужой). Имя получателя возвращается текстом, чтобы нарушение называло адрес.
+    """
+    if not isinstance(func, ast.Attribute) or func.attr != "update":
+        return None
+    owner = func.value
+    if not isinstance(owner, ast.Call) or not isinstance(owner.func, ast.Name):
+        return None
+    if owner.func.id not in {"globals", "vars"}:
+        return None
+    return ast.unparse(owner)
+
+
 def _bypass_violations(module: Module) -> list[Violation]:
     """Ищет зависимости, названные строкой в обход правила слоёв.
 
@@ -388,6 +404,13 @@ def _bypass_violations(module: Module) -> list[Violation]:
     Строка с именем модуля обходит и гейт, и mypy, а `globals().update` довершает дело:
     имя появляется в модуле ниоткуда, читатель ищет его глазами по всему пакету, а
     `.pyi` рядом врёт компилятору, что имя объявлено честно.
+
+    Слияние namespace ищется ФОРМОЙ, а не буквой записи. Прежний список literal'ов
+    (`globals().update`, `vars().update`) ловил только половину штампа: та половина, что
+    писала имена ОБРАТНО в чужую часть - `vars(_part).update(_namespace)` из снесённого
+    `torrcast/stream.py:395`, - проходила зелёной, а подменяла тёзку в живом процессе
+    именно она. Аргумент у `vars` тут и есть адрес пострадавшего, поэтому он попадает
+    в текст нарушения, а не отбрасывается вместе с проверкой.
     """
     if module.layer == "не разложено":
         return []
@@ -400,9 +423,9 @@ def _bypass_violations(module: Module) -> list[Violation]:
             failures.append(
                 Violation("обход", module.relative, node.lineno, f"зависимость строкой: {call}")
             )
-        elif call in {"globals().update", "vars().update"}:
+        elif (target := _namespace_target(node.func)) is not None:
             failures.append(
-                Violation("обход", module.relative, node.lineno, "имена вписываются в globals")
+                Violation("обход", module.relative, node.lineno, f"имена вписываются в {target}")
             )
     # Заглушка рядом с `__init__.py` - такая же ложь компилятору, как и рядом с обычным
     # модулем, и по объёму крупнейшая в пакете: `torrcast/cli/__init__.pyi` объявляет 736
