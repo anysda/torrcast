@@ -87,3 +87,20 @@ def test_a_shortened_name_still_leads_to_the_article_when_nobody_claims_it() -> 
     assert alone == titles_for(
         "Моана: романтика золотого века", 1926, "", ["Моана: романтика золотого века"]
     ), "своё же имя в списке спрошенных себя не отменяет"
+
+
+def test_the_name_is_asked_in_the_typography_of_the_section() -> None:
+    """Прямые кавычки раздачи заменяются ёлочками раздела прямо в голом имени."""
+    names = titles_for('Читаем "Блокадную книгу"', 2009, "movie")
+    assert names[0] == "Читаем «Блокадную книгу»"
+
+
+def test_the_period_form_stands_right_behind_the_bare_name() -> None:
+    """Место в очереди тут и есть смысл: за уточнениями форма до постера не доедет."""
+    names = titles_for('Рерберг и Тарковский: Обратная сторона "Сталкера"', 2009, "movie")
+    assert names[1] == "Рерберг и Тарковский. Обратная сторона «Сталкера»"
+
+
+def test_a_name_without_a_subtitle_keeps_its_queue_untouched() -> None:
+    """Двоеточия нет - и лишнего имени нет: очередь та же, что была."""
+    assert "." not in " ".join(titles_for("Матрица", 1999, "movie"))

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from torrcast.domain.facts.patterns import _QUALIFIERS
+from torrcast.domain.facts.typography import typography
 
 
 def titles_for(
@@ -44,9 +45,16 @@ def titles_for(
     к именам добавляются регистровые варианты голого имени - заглавные слова и нижний
     регистр. Лишний кандидат чужого не тащит (год и заголовок всё равно сверяются), а
     редирект по нужному написанию находится в той же прямой выборке, без похода в поиск.
+
+    Знаки препинания раздача и раздел ставят РАЗНЫЕ (:func:`~torrcast.domain.facts.
+    typography.typography`), поэтому имя приводится к типографике раздела, а вторая его
+    форма встаёт сразу за голым именем - раньше уточнений. Место в очереди тут и есть весь
+    смысл: до постера доезжают первые шесть имён, и форма, стоящая за семью уточнениями,
+    не доезжает никуда.
     """
-    bases = [title.strip()]
-    head = title.split(":", 1)[0].strip()
+    forms = typography(title) or [title.strip()]
+    bases = [forms[0]]
+    head = forms[0].split(":", 1)[0].strip()
     others = {name.strip().casefold() for name in asked} - {bases[0].casefold()}
     if head and head != bases[0] and head.casefold() not in others:
         bases.append(head)
@@ -58,6 +66,7 @@ def titles_for(
             name = base + qualifier.format(year=year)
             if name not in out:
                 out.append(name)
+    out[1:1] = [name for name in forms[1:] if name not in out]
     for base in bases:
         for variant in (base.title(), base.lower()):
             if variant != base and variant not in out:
