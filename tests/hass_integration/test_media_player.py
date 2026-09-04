@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from itertools import pairwise
 from typing import Any
 from unittest.mock import patch
+from urllib.parse import unquote
 
 import aiohttp  # type: ignore[import-not-found]
 import pytest
@@ -22,6 +23,7 @@ from pytest_homeassistant_custom_component.common import (  # type: ignore[impor
     MockConfigEntry,
 )
 
+from custom_components.torrcast.browse import _FLASH_PATH
 from custom_components.torrcast.const import SCAN_INTERVAL_SHOWING
 from hass.hit_posters import FIELD
 from hass.search_results import search_results
@@ -723,7 +725,9 @@ async def test_menu_opens_as_a_column_so_a_found_picture_is_read_and_not_hovered
     hold a picture's name: a person had to hover a tile to learn what it was. The
     dialog's own `⋮` switch is no answer, it resets to `auto` on every close. Only
     three of the twenty classes are laid out as a column, and the poster survives the
-    column because a row's thumbnail comes from the node's own class, not this one.
+    column because a row's thumbnail comes from the node's own `media_class`, not
+    this one - so swapping `children_media_class` to a grid-laid class (e.g.
+    `directory`) is the failure this checks, independently of the entity's own class.
     """
     await _added(hass, aioclient_mock, snapshot())
     menu = await hass.services.async_call(
@@ -735,7 +739,54 @@ async def test_menu_opens_as_a_column_so_a_found_picture_is_read_and_not_hovered
     )
 
     assert menu[PLAYER].children_media_class in ("music", "track", "url")
-    assert menu[PLAYER].media_class == "directory"
+
+
+async def test_menu_wears_a_clapperboard_instead_of_the_note_children_media_class_lent_it(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """The icon a row wears for menu, seen from the root, is menu's *own* class.
+
+    The row renderer reads a directory's icon from `children_media_class` instead of
+    its own (`EC["directory"===e.media_class&&e.children_media_class||e.media_class]
+    .icon`, `55397.*.js`), which is why a `directory` menu with `children_media_class
+    = music` used to draw a music note. `movie` closes that hand-me-down: its own icon
+    is a clapperboard, and its `show_list_images` is `!0` too (`6605.*.js`), so the
+    poster in a found row does not depend on this choice - `test_menu_opens_as_a_
+    column...` above guards that column separately, through `children_media_class`.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    menu = await hass.services.async_call(
+        "media_player",
+        "browse_media",
+        {"entity_id": PLAYER, "media_content_id": "menu", "media_content_type": "video"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert menu[PLAYER].media_class == "movie"
+
+
+async def test_the_instant_field_wears_a_lightning_picture_the_class_table_has_no_icon_for(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """No class in the frontend's icon table draws a lightning bolt (`6605.*.js`:
+    twenty classes, none of them this shape), so the field carries the glyph as a
+    picture instead of an icon: a row draws its thumbnail over its icon whenever the
+    node the row sits *in* allows pictures and the row itself carries one
+    (`_renderListItem`, `55397.*.js`) - root here is a plain `directory`, which does.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    root = await hass.services.async_call(
+        "media_player",
+        "browse_media",
+        {"entity_id": PLAYER},
+        blocking=True,
+        return_response=True,
+    )
+    instant = root[PLAYER].children[1]
+    assert instant.thumbnail is not None
+    assert instant.thumbnail.startswith("data:image/svg+xml,")
+    assert _FLASH_PATH in unquote(instant.thumbnail)
 
 
 async def test_the_instant_field_plays_the_typed_name_without_searching(

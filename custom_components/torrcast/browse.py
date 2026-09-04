@@ -69,6 +69,34 @@ Thumbnail = Callable[[str, str, str], str]
 _MEDIA_CLASS: dict[str, MediaClass] = {"movie": MediaClass.MOVIE, "tv": MediaClass.TV_SHOW}
 _MEDIA_TYPE: dict[str, MediaType] = {"movie": MediaType.MOVIE, "tv": MediaType.TVSHOW}
 
+#: `mdi:flash`, verified present (`grep -l`) in nine of the shipped 2026.9.0 frontend
+#: bundles on the stand, e.g. `10077.*.js` - but absent from the class-to-icon table
+#: the row renderer reads (`6605.*.js`: twenty classes, no lightning among them). A
+#: class's icon is Home Assistant's own choice; a shape outside that table can only
+#: reach the row as a picture, not as an icon.
+_FLASH_PATH = "M7,2V13H10V22L17,10H13L17,2H7Z"
+
+#: `ha-media-browser-thumbnail` draws whatever URL it is given as a plain CSS
+#: `background-image`, and skips its own load-and-measure probe outright for anything
+#: starting `data:image/svg+xml` (`6605.*.js`, `_probeSize`) - an inline SVG is a
+#: destination this component already expects, not one snuck past it. The row's
+#: `graphic="medium"` slot is a fixed 56x56 box (`--mdc-list-item-graphic-size`,
+#: default `56px`, `23879.*.js`) and the neighbouring `ha-svg-icon` next to it draws
+#: at 24x24 (`--mdc-icon-size`, default `24px`, `10077.*.js`). Framing the same 24x24
+#: glyph in a 56x56 `viewBox` and centring it there (offset 16 each side) makes
+#: `background-size: contain` (`6605.*.js`) place it at that same 24px height instead
+#: of blowing it up to fill the box.
+#:
+#: Known limit: `ha-svg-icon` is recoloured by the theme, a `data:` picture is not -
+#: `#8a8a8a` is picked here only for being readable on both a light and a dark
+#: background; the owner may want a different one.
+_FLASH_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">'
+    f'<g transform="translate(16,16)"><path fill="#8a8a8a" d="{_FLASH_PATH}"/></g>'
+    "</svg>"
+)
+_FLASH_THUMBNAIL = f"data:image/svg+xml,{quote(_FLASH_SVG, safe='')}"
+
 
 def encode_pick(query: str, pick: int) -> str:
     """The `media_content_id` of one result of `query`, numbered `pick`."""
@@ -128,16 +156,25 @@ def _menu_node() -> BrowseMedia:
 
     A found picture is read by its name, and a tile is too narrow to hold one: the
     grid cut the name off and a person had to hover a tile to learn what it was. The
-    frontend takes the layout from `children_media_class` of the node it stands *in*,
-    not from the class of what it found (`MediaClassBrowserSettings[e.children_media_
-    class]` of `_currentItem`, shipped `27169.*.js`), and left unset it reads
-    `directory`, whose layout is the grid. `music` is one of the three classes laid
-    out as a column, and the only one of the three whose icon is a note rather than a
-    hyperlink. The poster stays: a row's thumbnail comes from the node's own
-    `media_class`, still a directory, and that one is drawn `show_list_images`.
+    frontend takes the layout of what is found from `children_media_class` of the
+    node it stands *in*, not from the class of what it found
+    (`MediaClassBrowserSettings[e.children_media_class]` of `_currentItem`, shipped
+    `55397.*.js`), and left unset it reads `directory`, whose layout is the grid.
+    `music` is one of the three classes laid out as a column, and its
+    `show_list_images` is what keeps a poster in every found row.
+
+    This node's own icon, seen where it sits inside the root's list, is a separate
+    question: the row renderer reads it from the node's *own* `media_class`
+    whenever that is not `directory`, ignoring `children_media_class` entirely
+    (`EC["directory"===e.media_class&&e.children_media_class||e.media_class].icon`,
+    same file) - `directory` here used to hand that read down to `children_media_
+    class` instead, which is why this row, standing in a list of two, wore a music
+    note - the price of the column, paid where nobody was reading music. `movie`
+    closes that hand-me-down and draws a clapperboard instead, while its own
+    `show_list_images` is `!0` too, so the poster in a found row does not move.
     """
     return BrowseMedia(
-        media_class=MediaClass.DIRECTORY,
+        media_class=MediaClass.MOVIE,
         children_media_class=MediaClass.MUSIC,
         media_content_id=MENU_ID,
         media_content_type=MediaType.VIDEO,
@@ -150,7 +187,15 @@ def _menu_node() -> BrowseMedia:
 
 
 def _instant_node() -> BrowseMedia:
-    """A field to command from: no `can_search`, no children, nothing to pick out of."""
+    """A field to command from: no `can_search`, no children, nothing to pick out of.
+
+    No class in the frontend's icon table draws a lightning bolt (`6605.*.js`: twenty
+    classes, none of them this one), so the row wears `_FLASH_THUMBNAIL` instead of a
+    class-driven icon: a row draws its thumbnail over its icon whenever both the
+    node it sits *in* allows pictures and the row itself carries one
+    (`_renderListItem`, `55397.*.js`), and the root this row sits in is a plain
+    `directory`, which does.
+    """
     return BrowseMedia(
         media_class=MediaClass.APP,
         media_content_id=INSTANT_ID,
@@ -158,6 +203,7 @@ def _instant_node() -> BrowseMedia:
         title=INSTANT_TITLE,
         can_play=False,
         can_expand=True,
+        thumbnail=_FLASH_THUMBNAIL,
     )
 
 
