@@ -513,9 +513,9 @@ async def test_a_picture_under_the_numbered_line_reads_the_same_on_both_sides(
     The split is alive and asserted, not assumed: `Cars Toons` stands under the numbered
     `Cars`, and that is what decides the order of the menu. The note that used to
     explain the drop is gone from the PRODUCT (owner, 04-09-2026), not moved to the
-    other side of the seam: it stood on 18 console lines out of 27 for the query the
-    owner measured, and on 20 out of 20 in the card, whose list is flat and has no ruler
-    to explain.
+    other side of the seam: for the query the owner measured it stood on 18 lines out of
+    27 on BOTH sides alike, and a note on two thirds of a list reads no better than a
+    note on none of it. In the card it had nothing to point at either: no ruler there.
 
     Two failures go red here at once. Bring the note back into the shared rule and the
     literal console line drifts; bring it back into one side only and the two sides
