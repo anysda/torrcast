@@ -1,7 +1,13 @@
-"""Просьбы о постере и адрес запасного кадра; зовёт сборщик картинки карточки."""
+"""О чём спрашивать ради картинки карточки и подо что её класть; зовёт сборщик.
+
+Единицы тут все закрытые, и живут вместе не по родству, а по зовущему: это разбор
+снимка показа, который делает один-единственный :class:`hass.posters.Posters` перед
+походом за картинкой. Отдельными модулями они стали бы пятью файлами по три строки.
+"""
 
 from __future__ import annotations
 
+from hass.poster_name import poster_name
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 
@@ -14,7 +20,7 @@ def _poster_asks(shown: PlaybackSnapshot) -> list[Ask]:
     но искать её там имеет смысл только после того, как русский раздел промолчал
     (:meth:`~torrcast.adapters.wiki.poster_pages.PosterPages.wanted`).
     """
-    kind = "tv" if shown.label else "movie"
+    kind = _kind(shown)
     year = shown.year or None
     out = [Ask(shown.title.strip(), year, kind, shown.original.strip())]
     asked = shown.query.replace("-", " ").strip()
@@ -26,3 +32,44 @@ def _poster_asks(shown: PlaybackSnapshot) -> list[Ask]:
 def _manifest(where: str) -> str:
     """Адрес HLS-базы превратить в адрес мастер-манифеста."""
     return where if where.rstrip("/").endswith(".m3u8") else where.rstrip("/") + "/index.m3u8"
+
+
+def _poster_identity(shown: PlaybackSnapshot) -> str:
+    """Чем картина отличается от соседки на полке: имя, год и её род.
+
+    Имя общее со списком находок (:func:`hass.poster_name.poster_name`): полка у них
+    одна, и разъехавшиеся имена завели бы на ней две записи про одну картину.
+    """
+    return poster_name(shown.title, shown.year, _kind(shown))
+
+
+def _playing_key(shown: PlaybackSnapshot) -> str:
+    """Чем один показ отличается от другого. Серия входит сюда, а в полку - нет.
+
+    Постер у сериала один на все серии, и полка отвечает им на каждую. А вот запасной
+    кадр - свой у каждой серии: на полку он не ложится, и брать его от прошлой серии
+    значило бы показывать зрителю чужую картинку под видом этой.
+    """
+    return f"{_poster_identity(shown)}|{shown.label}"
+
+
+def _frame_key(key: str) -> str:
+    """Место кадра этого показа: соседнее с местом постера, а не то же самое.
+
+    🔴 Два места, а не одно, ровно затем, чтобы приехавший постер не СТИРАЛ кадр. Ляг
+    они в одно, и подмена уносила бы байты кадра из-под уже отданного наружу отпечатка:
+    Home Assistant спрашивает картинку следующим запросом после снимка, и на этот запрос
+    ему ответили бы «нет такой». Старшинство между ними решает не время записи, а чтение:
+    постер спрашивается первым (:meth:`hass.posters.Posters.picture`).
+    """
+    return f"{key}|frame"
+
+
+def _kind(shown: PlaybackSnapshot) -> str:
+    """Сериал или фильм - тем же словом, каким род картины знает справка.
+
+    Спрашивает его очередь имён статьи (:func:`titles_for`): у «Сталкера» уточнение
+    «(телесериал)» и «(фильм)» ведут в разные статьи, и порядок решает, чей постер
+    приедет. Подпись серии есть - это сериал; её ставит цикл показа, а не разбор имени.
+    """
+    return "tv" if shown.label else "movie"

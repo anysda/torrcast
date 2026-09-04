@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hass.hit_posters import FIELD, HitPosters
+from hass.poster_lookup import _poster_identity
 from hass.poster_shelf import PosterShelf
-from hass.posters import _identity
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
@@ -65,11 +65,11 @@ def _row(title: str = "Тачки", year: int = 2006, kind: str = "movie") -> di
 def _card_name(title: str, year: int) -> str:
     """Имя картины ГЛАЗАМИ КАРТОЧКИ играющего: полка у карточки и у списка одна.
 
-    Берётся оно у самой карточки (:func:`hass.posters._identity`), а не собирается тут
+    Берётся оно у самой карточки (:func:`hass.poster_lookup._poster_identity`), а не собирается тут
     заново: сойдись оно только со списком, проба сторожила бы копию правила, а не общую
     полку, и разъезд двух картинок про одну картину остался бы незамеченным.
     """
-    return _identity(
+    return _poster_identity(
         PlaybackSnapshot(key="k", title=title, year=year, label="", original="", query="")
     )
 

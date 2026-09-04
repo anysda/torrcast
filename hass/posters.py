@@ -1,4 +1,4 @@
-"""Картинка играющей картины для карточки плеера: постер, а нет его - кадр показа."""
+"""Картинка играющей картины для карточки плеера: кадр показа сразу, постер следом."""
 
 from __future__ import annotations
 
@@ -12,8 +12,7 @@ from hass.hit_posters import hits
 from hass.picture_source import picture_source
 from hass.picture_type import picture_type
 from hass.poster_find import poster_find
-from hass.poster_lookup import _manifest, _poster_asks
-from hass.poster_name import poster_name
+from hass.poster_lookup import _frame_key, _manifest, _playing_key, _poster_asks, _poster_identity
 from hass.poster_shelf import PosterShelf
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
 from torrcast.domain.facts.ask import Ask
@@ -32,7 +31,15 @@ _TIMEOUT: Final = 8.0
 _RETRY: Final = 300.0
 #: Сколько картинок держим наготове. Больше одной - чтобы карточка не осталась без
 #: байтов ровно в тот миг, когда показ уже сменился, а Home Assistant ещё тянет прошлую.
-_KEEP: Final = 4
+#: Показ оставляет по ДВЕ: кадр и сменивший его постер, и обеих спрашивают наружу.
+_KEEP: Final = 8
+#: Через сколько пробуем кадр снова и сколько раз всего, секунды и попытки.
+#: 🔴 Одной попытки НЕ ХВАТАЕТ, и замер это показал: сетка раздачи открывается ffmpeg
+#: только на 4.3 с показа, а первый опрос карточки приходит на 2 с - ровно туда, где
+#: манифеста ещё нет. Единственная попытка промахивалась мимо готовности на пару секунд,
+#: и карточка стояла пустой ВСЁ время показа (118 с замера, дальше - до конца отсрочки).
+_AGAIN: Final = 2.0
+_SHOTS: Final = 20
 
 _Poster = Callable[[Ask, float], bytes | None]
 _Frame = Callable[[str], bytes | None]
@@ -40,13 +47,18 @@ _Stream = Callable[[], str]
 
 
 class Posters:
-    """Картинка того, что играет: постер из сети, а не нашлось - кадр из показа.
+    """Картинка того, что играет: кадр показа сразу, а постер из сети - когда приедет.
 
     Работа идёт ФОНОМ, а снимок отвечает тем, что уже готово. Снимок серва спрашивают
     раз в несколько секунд, и ждать в нём похода в сеть нельзя: карточка плеера
     замерла бы на всё время ожидания, а вместе с ней замерли бы полоса времени и пульт.
-    Поэтому первый опрос после начала показа отвечает пустотой, а картинка приезжает
-    следующим - секундой позже.
+
+    🔴 Кадр снимается НЕ ВМЕСТО постера и не после его провала, а рядом с ним, с первой
+    же секунды показа. Постер едет из сети до полуминуты: два имени картины, два
+    источника, восемь секунд сроку на запрос, - и всё это время карточка стояла пустой,
+    хотя кадр собственной раздачи готов за пару секунд. Внешними источниками пустота не
+    лечится в принципе: у Википедии потолок 55%, у IMDb 76.4%, а кадр есть всегда, пока
+    идёт показ. Приехавший постер кадр сменит - отпечаток у него свой.
 
     🔴 Отпечаток картинки - это отпечаток её БАЙТОВ, а не адреса. Без него Home Assistant
     прилепит первую картинку к карточке и не сменит её на следующем показе: `media_image_hash`
@@ -59,12 +71,14 @@ class Posters:
         frame: _Frame = frame_shot,
         shelf: PosterShelf | None = None,
         now: Callable[[], float] = time.monotonic,
+        pause: Callable[[float], None] = time.sleep,
     ) -> None:
         source = picture_source()
         self._poster = poster or source.poster
         self._frame = frame
         self._shelf = PosterShelf() if shelf is None else shelf
         self._now = now
+        self._pause = pause
         self._lock = threading.Lock()
         self._made: dict[str, tuple[str, bytes]] = {}
         self._working: set[str] = set()
@@ -73,15 +87,18 @@ class Posters:
     def picture(self, shown: PlaybackSnapshot | None, stream: _Stream) -> tuple[str, str]:
         """Адрес картинки на серве и её отпечаток; готовой ещё нет - две пустых строки.
 
-        Адрес раздачи спрашивается ССЫЛКОЙ, а не значением: он нужен одному лишь
-        запасному пути, а карточку опрашивают раз в несколько секунд весь показ, и
-        собирать его на каждый опрос ради картинки, которая уже готова, незачем.
+        Постер спрашивается ПЕРЕД кадром, и это единственное место, где решается их
+        старшинство: пока постера нет, отвечает кадр, а появился - и карточка берёт его,
+        не дожидаясь следующего показа.
+
+        Адрес раздачи спрашивается ССЫЛКОЙ, а не значением: собирать его на каждый опрос
+        ради картинки, которая уже готова, незачем - а опрашивают карточку весь показ.
         """
         if shown is None or not shown.title:
             return "", ""
-        key = _key(shown)
+        key = _playing_key(shown)
         with self._lock:
-            made = self._made.get(key)
+            made = self._made.get(key) or self._made.get(_frame_key(key))
             if made is not None:
                 return ROUTE + made[0], made[0]
             if key in self._working or self._now() < self._tried.get(key, 0.0):
@@ -110,66 +127,70 @@ class Posters:
         return hits.read(name)
 
     def _resolve(self, key: str, shown: PlaybackSnapshot, stream: _Stream) -> None:
-        """Найти картинку и положить её готовой; не нашлось - отложить следующую попытку.
+        """Снять кадр показа и найти постер; нет ни того, ни другого - отложить попытку.
 
-        Запасной путь берёт кадр по адресу раздачи, и адреса может не быть вовсе: у
-        оборванного показа на его месте стоит фраза для человека, а не ссылка
-        (:meth:`~torrcast.adapters.unit_playback_session.UnitPlaybackSession.stream_address`).
-        Тогда картинки не будет ни постером, ни кадром - и попытка просто откладывается.
+        Полка спрашивается ПЕРВОЙ и отвечает мгновенно: постер этой картины уже лежит на
+        диске, и снимать под него кадр значило бы гонять ffmpeg на каждую серию ради
+        картинки, которую всё равно никто не увидит.
         """
-        body = self._found(shown)
-        where = stream() if body is None else ""
-        if body is None and where.startswith("http"):
-            body = self._frame(_manifest(where))
+        identity = _poster_identity(shown)
+        kept = self._shelf.read(identity)
+        if kept is None:
+            self._meanwhile(key, stream)
+        body = kept or self._sought(shown, identity)
         with self._lock:
             self._working.discard(key)
-            if not body:
+            if body:
+                self._keep(key, body)
+            elif _frame_key(key) not in self._made:
                 self._tried[key] = self._now() + _RETRY
-                return
-            self._made[key] = (hashlib.sha256(body).hexdigest()[:16], body)
-            while len(self._made) > _KEEP:
-                self._made.pop(next(iter(self._made)))
 
-    def _found(self, shown: PlaybackSnapshot) -> bytes | None:
-        """Постер: сперва с полки, потом из сети. Источники молчат - постера нет.
+    def _sought(self, shown: PlaybackSnapshot, identity: str) -> bytes | None:
+        """Постер из сети, и найденный - на полку. Источники молчат - постера нет.
 
         Сам поход - общий с картинками списка находок (:func:`hass.poster_find.poster_find`):
         одно правило на обоих, иначе под одним именем приехали бы две разных картинки.
         """
-        identity = _identity(shown)
-        kept = self._shelf.read(identity)
-        if kept:
-            return kept
         body = poster_find(_poster_asks(shown), _TIMEOUT, self._poster)
         if body:
             self._shelf.write(identity, body)
         return body
 
+    def _meanwhile(self, key: str, stream: _Stream) -> None:
+        """Пока постер едет из сети, снять кадр показа - своим потоком, не задерживая.
 
-def _identity(shown: PlaybackSnapshot) -> str:
-    """Чем картина отличается от соседки на полке: имя, год и её род.
+        Адреса раздачи может не быть вовсе: у оборванного показа на его месте стоит
+        фраза для человека, а не ссылка
+        (:meth:`~torrcast.adapters.unit_playback_session.UnitPlaybackSession.stream_address`).
+        Тогда кадра не будет, и карточка дождётся одного лишь постера.
+        """
+        where = stream()
+        if not where.startswith("http"):
+            return
+        threading.Thread(
+            target=self._shot, args=(key, _manifest(where)), daemon=True, name="frame"
+        ).start()
 
-    Имя общее со списком находок (:func:`hass.poster_name.poster_name`): полка у них
-    одна, и разъехавшиеся имена завели бы на ней две записи про одну картину.
-    """
-    return poster_name(shown.title, shown.year, _kind(shown))
+    def _shot(self, key: str, source: str) -> None:
+        """Кадр показа - на своё место, и пробуем, пока сетка раздачи не откроется.
 
+        🔴 Промах тут значит «ЕЩЁ рано», а не «кадра не будет»: показ объявляется
+        играющим раньше, чем ffmpeg может прочитать манифест, и первая попытка приходится
+        ровно на эту щель. Одна попытка оставляла карточку пустой на весь показ, потому
+        что второй ей взяться было неоткуда: постер уже промахнулся и отложил себя на
+        :data:`_RETRY`, а кадр не пробовал больше никто.
+        """
+        for attempt in range(_SHOTS):
+            if attempt:
+                self._pause(_AGAIN)
+            body = self._frame(source)
+            if body:
+                with self._lock:
+                    self._keep(_frame_key(key), body)
+                return
 
-def _key(shown: PlaybackSnapshot) -> str:
-    """Чем один показ отличается от другого. Серия входит сюда, а в полку - нет.
-
-    Постер у сериала один на все серии, и полка отвечает им на каждую. А вот запасной
-    кадр - свой у каждой серии: на полку он не ложится, и брать его от прошлой серии
-    значило бы показывать зрителю чужую картинку под видом этой.
-    """
-    return f"{_identity(shown)}|{shown.label}"
-
-
-def _kind(shown: PlaybackSnapshot) -> str:
-    """Сериал или фильм - тем же словом, каким род картины знает справка.
-
-    Спрашивает его очередь имён статьи (:func:`titles_for`): у «Сталкера» уточнение
-    «(телесериал)» и «(фильм)» ведут в разные статьи, и порядок решает, чей постер
-    приедет. Подпись серии есть - это сериал; её ставит цикл показа, а не разбор имени.
-    """
-    return "tv" if shown.label else "movie"
+    def _keep(self, key: str, body: bytes) -> None:
+        """Положить картинку готовой под её отпечатком; замок держит зовущий."""
+        self._made[key] = (hashlib.sha256(body).hexdigest()[:16], body)
+        while len(self._made) > _KEEP:
+            self._made.pop(next(iter(self._made)))

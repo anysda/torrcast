@@ -130,6 +130,14 @@ class PosterFiles:
 
         Хост тут тот же, на котором нашлась статья, и это не мелочь: несвободная
         обложка лежит ЛОКАЛЬНО в своём разделе, и на чужом хосте она ``missing``.
+
+        🔴 Стороны картинки спрашиваются ВМЕСТЕ с адресом, тем же самым запросом. Ими
+        приговор отличает обложку от вордмарка
+        (:func:`~torrcast.domain.facts.poster_address.poster_address`), и без ``size`` в
+        ``iiprop`` он остался бы без единственного своего мерила: у неуменьшенного файла
+        сторон в ответе нет вовсе, и постером снова стала бы любая лежачая надпись.
+        Отдельного похода за ними при этом не заводится - ни одного лишнего запроса к
+        Википедии сверх тех, что уходили и раньше.
         """
         out: dict[str, str] = {}
         for part in in_budget(list(files), _TITLES, _BUDGET):
@@ -137,7 +145,7 @@ class PosterFiles:
                 "action": "query",
                 "titles": "|".join(f"File:{name}" for name in part),
                 "prop": "imageinfo",
-                "iiprop": "url",
+                "iiprop": "url|size",
                 "iiurlwidth": str(POSTER_WIDTH),
                 "redirects": "1",
                 "format": "json",
