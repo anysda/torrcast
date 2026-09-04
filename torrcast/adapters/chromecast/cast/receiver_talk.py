@@ -11,6 +11,7 @@ from torrcast.adapters.chromecast.cast.hls_hints import HLS_TYPE, hls_hints
 from torrcast.adapters.chromecast.cast.receiver_link import _Link
 from torrcast.adapters.chromecast.cast.while_connecting import _while_connecting
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.why import why
 from torrcast.ports.journal.slot import journal
 
 
@@ -165,7 +166,6 @@ class _Talk(_Link):
                 if self._reloads >= self.profile.load_retries:
                     return False  # повторы LOAD исчерпаны - показ не начался, гаснем честно
                 self._reloads += 1
-                journal().reload(pos=self._peak, tries=self._reloads)
                 tried = self.clock.monotonic()
                 print(
                     phrase(
@@ -176,6 +176,16 @@ class _Talk(_Link):
                     ),
                     flush=True,
                 )
-                self._restart_app()
-                self._load(self._at, paused=self._paused)
+                said = ""
+                try:
+                    self._restart_app()
+                    self._load(self._at, paused=self._paused)
+                except Exception as exc:
+                    # Исключение уходит наверх как уходило - его разбирает :func:`_play`.
+                    # Но лента о повторе уже пообещала, и обещание это обязано быть
+                    # снято тем же заходом, а не текстом ошибки процесса рядом.
+                    said = phrase("chromecast_talk.refused_crashed", reason=why(exc))
+                    raise
+                finally:
+                    journal().reload(pos=self._peak, tries=self._reloads, ok=not said, why=said)
         return False

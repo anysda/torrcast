@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.adapters.chromecast.cast.past_deadly import _past_deadly
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.why import why
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -22,6 +23,14 @@ def _reload(rcv: _Talk) -> bool:
     приёмник ровно туда, где он споткнулся, — это просто позиция в LOAD. Кроме одного
     случая: кусок, на котором показ уже умирал, приёмнику больше не отдаётся
     (:meth:`_past_deadly`).
+
+    🔴 Запись в ленту кладётся ПОСЛЕ попытки и называет её исход. Пока она лежала до, а
+    отказ глотался пустым ``except``, ушедший повтор и легший давали в ленте одну и ту же
+    строку: замер 30-08-2026 нашёл в ней ``error: null`` у показа, который кончился чёрным
+    экраном, и причину пришлось читать из текста ошибки процесса, то есть НЕ из ленты.
+    Слова отказа взяты общие с подъёмом и перезабором (:func:`_replay`,
+    :meth:`torrcast.adapters.chromecast.mock.screen_watch.ScreenWatch.retry`): по сухой
+    ленте судят о живой, и разводить в них словари незачем.
     """
     if rcv._paused:
         # Показ стоит на паузе зрителя, и смерть сессии её не отменяет: повтор LOAD
@@ -33,20 +42,26 @@ def _reload(rcv: _Talk) -> bool:
         return False
     rcv._reloads += 1
     at = _past_deadly(rcv, rcv._peak)
-    journal().reload(pos=rcv._peak, tries=rcv._reloads, error=rcv._error_code)
+    # Код смерти прежней сессии снимается ДО попытки: первым же шагом LOAD обнуляет его,
+    # и запись, сделанная после, назвала бы поводом повтора пустоту.
+    code = rcv._error_code
     reason = (
-        phrase("chromecast_talk.with_code", code=rcv._error_code)
-        if rcv._error_code is not None
+        phrase("chromecast_talk.with_code", code=code)
+        if code is not None
         else phrase("chromecast_talk.without_code")
     )
     print(
         phrase("chromecast_talk.receiver_dropped", position=f"{rcv._peak:.0f}", reason=reason),
         flush=True,
     )
+    said = ""
     try:
         rcv._restart_app()  # чистое приложение: залипший молчит на любой LOAD
         rcv._load(at)
-    except Exception:  # приёмник мог просто уйти - решает следующий тик
+    except Exception as exc:  # приёмник мог просто уйти - решает следующий тик
+        said = phrase("chromecast_talk.refused_crashed", reason=why(exc))
+    journal().reload(pos=rcv._peak, tries=rcv._reloads, ok=not said, why=said, error=code)
+    if said:
         return False
     # Перешагнули - максимум обязан уехать вместе с показом: иначе следующий нудж
     # прицелится в оставленный позади кусок, а свой же прыжок мы примем за перемотку.

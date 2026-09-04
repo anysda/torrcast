@@ -88,7 +88,10 @@ def en() -> dict[str, str]:
         ),
         "digest.reload_code": ", code {error}",
         "digest.reload_no_code": ", no code",
-        "digest.reload": "{stamp}the receiver dropped out at {pos}{error} - LOAD retry {tries}",
+        "digest.reload": (
+            "{stamp}the receiver dropped out at {pos}{error} - LOAD retry {tries}{end}"
+        ),
+        "digest.reload_failed": " - it did not work out: {why}",
         "digest.refetch_failed": " - it did not work out: {why}",
         "digest.why_unnamed": "the reason was not named",
         "digest.refetch": "{stamp}piece refetch at {pos} (attempt {tries}){end}",

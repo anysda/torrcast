@@ -7,6 +7,20 @@ from __future__ import annotations
 from torrcast.adapters.filesystem.trace_journal.emit import emit
 
 
-def reload(pos: float, tries: int, error: int | None = None) -> None:
-    """Повтор LOAD посреди показа: приёмник отвалился и его подняли заново."""
-    emit("play", "reload", pos=round(pos, 1), tries=tries, error=error)
+def reload(pos: float, tries: int, ok: bool, why: str = "", error: int | None = None) -> None:
+    """Повтор LOAD посреди показа: приёмник отвалился, и его поднимали заново.
+
+    ``ok`` - УШЁЛ ли повтор, а не «вернулась ли картинка»: вернулась она или нет, решает
+    следующий круг опроса показа. Слово это обязано стоять своим полем, а не пустотой
+    ``why``: пустая причина без него значила бы и «повтор ушёл», и «исход не назвали».
+
+    🔴 ``why`` - почему повтор не ушёл, теми же тремя словами, что у подъёма и перезабора
+    (:func:`torrcast.adapters.filesystem.trace_journal.revive.revive`). Пока запись
+    ложилась ДО самой попытки, а отказ глотался, лента показывала одну и ту же строку и
+    на ушедшем повторе, и на легшем: замер 30-08-2026 нашёл ``error: null`` у показа,
+    который кончился чёрным экраном, и причину пришлось брать из текста ошибки процесса.
+
+    ``error`` - код, которым приёмник убил ПРЕЖНЮЮ сессию, то есть повод для повтора, а
+    не его исход. Снимается он до попытки: свой первый шаг LOAD этот код обнуляет.
+    """
+    emit("play", "reload", pos=round(pos, 1), tries=tries, ok=ok, why=why, error=error)

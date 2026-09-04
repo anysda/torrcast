@@ -108,12 +108,20 @@ def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | No
                 if rec.get("error") is not None
                 else phrase("digest.reload_no_code")
             )
+        # Исход берётся из ``ok``, и только когда поле вообще названо: у записей старше
+        # правки его нет, и молчание о нём честнее выдуманного «не вышло».
+        end = (
+            ""
+            if "ok" not in rec or rec.get("ok")
+            else phrase("digest.reload_failed", why=rec.get("why", phrase("digest.why_unnamed")))
+        )
         return phrase(
             "digest.reload",
             stamp=stamp,
             pos=_hms(json_number(rec.get("pos", 0.0))),
             error=error,
             tries=rec.get("tries", 1),
+            end=end,
         )
     if event == "refetch":
         # Показ тут не гас: приёмник переспросил источник внутри своего терпения. Исход

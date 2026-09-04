@@ -65,8 +65,14 @@ class Journal(Protocol):
     ) -> None:
         """План показа: чем пакуем, что греем и номера точечных мест."""
 
-    def reload(self, pos: float, tries: int, error: int | None = None) -> None:
-        """Перезапуск показа с той же позиции."""
+    def reload(
+        self, pos: float, tries: int, ok: bool, why: str = "", error: int | None = None
+    ) -> None:
+        """Перезапуск показа с той же позиции; ``ok`` - ушёл ли повтор, ``why`` - почему нет.
+
+        ``error`` - чем приёмник убил ПРЕЖНЮЮ сессию, то есть повод повтора, а не исход
+        его; называть им удачу или отказ нельзя.
+        """
 
     def refetch(self, pos: float, tries: int, ok: bool, why: str = "") -> None:
         """Перезабор куска внутри терпения; ``ok`` - ушёл ли он, ``why`` - почему не ушёл.

@@ -8,6 +8,7 @@ import pytest
 
 from tests.adapters.chromecast.cast.wired import Device, Status, Wired
 from tests.fakes.clock import FakeClock
+from tests.fakes.journal import Tape
 from torrcast.adapters.chromecast.cast.hls_hints import HLS_HINTS, HLS_TYPE
 from torrcast.domain.segment_container import FMP4
 
@@ -175,6 +176,73 @@ def test_a_silent_receiver_is_reloaded_and_then_given_up_on(
     controller = receiver.device.media_controller
     assert isinstance(controller, _Loading)
     assert len(controller.loads) == receiver.profile.load_retries
+    assert "LOAD was not taken" in capsys.readouterr().out
+
+
+class _Watched(Wired):
+    """Приёмник, помнящий, сколько повторов лента УЖЕ знала, пока шёл очередной.
+
+    Ради ПОРЯДКА: запись, положенная до попытки, и запись после дают в ленте одну и ту же
+    строку, и отличить их можно только этим вопросом.
+    """
+
+    def __init__(self, tape: Tape, falls: bool = False, **rest: Any) -> None:
+        super().__init__(**rest)
+        self.tape = tape
+        self.falls = falls
+        self.told: list[int] = []
+
+    def _restart_app(self) -> None:
+        self.told.append(len(self.tape.named("reload")))
+        if self.falls:
+            raise OSError("приёмник ушёл")
+
+
+def _watched(tape: Tape, falls: bool = False) -> _Watched:
+    """Молчащий приёмник, у которого повтор LOAD идёт под присмотром ленты."""
+    device = Device()
+    device.media_controller = _Loading(Status(state="IDLE", idle_reason="ERROR"))  # type: ignore[assignment]
+    made = _Watched(tape, falls, device=device, clock=FakeClock())
+    made._url, made._title = "http://дом/поток.m3u8", "Моана"
+    return made
+
+
+def test_the_feed_counts_retries_that_happened_and_not_retries_that_were_promised(
+    tape: Tape, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 Сторож ловит ПОРЯДОК записи, а не её наличие.
+
+    Запись, положенная в ленту ДО попытки, - обещание, и снять его было нечем. У двух
+    порядков числа тут разные, а любая проверка «строка в ленте есть» покупается обоими.
+    """
+    receiver = _watched(tape)
+
+    assert receiver._settle(600.0) is False
+
+    limit = receiver.profile.load_retries
+    assert receiver.told == list(range(limit)), "лента знала о повторе раньше самого повтора"
+    assert len(tape.named("reload")) == limit
+    assert all(row["ok"] is True for row in tape.named("reload")), "повторы ушли - так и записано"
+    assert "LOAD was not taken" in capsys.readouterr().out
+
+
+def test_a_retry_that_fell_inside_the_wait_is_named_and_still_goes_up(
+    tape: Tape, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Исключение уходит наверх как уходило, но обещание повтора снимается тем же заходом.
+
+    🔴 Замер на стенде 30-08-2026 давал ровно эту пару: ``{"event": "reload", "tries": 1,
+    "error": null}`` в ленте и «ТВ не принял каст» текстом ошибки процесса рядом. По ленте
+    повтор числился ушедшим, хотя не ушёл, и причину приходилось читать НЕ в ленте.
+    """
+    receiver = _watched(tape, falls=True)
+
+    with pytest.raises(OSError, match="приёмник ушёл"):
+        receiver._settle(600.0)
+
+    (record,) = tape.named("reload")
+    assert record["ok"] is False, "легший повтор не смеет звать себя ушедшим"
+    assert str(record["why"]).startswith("crashed:"), f"чужое слово: {record}"
     assert "LOAD was not taken" in capsys.readouterr().out
 
 

@@ -29,8 +29,11 @@ class Tape(Silent):
         fields = {"pos": pos, "to": to, "hit": hit, "stuck": stuck, "front": front}
         self.calls.append(("nudge", fields))
 
-    def reload(self, pos: float, tries: int, error: int | None = None) -> None:
-        self.calls.append(("reload", {"pos": pos, "tries": tries, "error": error}))
+    def reload(
+        self, pos: float, tries: int, ok: bool, why: str = "", error: int | None = None
+    ) -> None:
+        fields = {"pos": pos, "tries": tries, "ok": ok, "why": why, "error": error}
+        self.calls.append(("reload", fields))
 
     def refetch(self, pos: float, tries: int, ok: bool, why: str = "") -> None:
         self.calls.append(("refetch", {"pos": pos, "tries": tries, "ok": ok, "why": why}))

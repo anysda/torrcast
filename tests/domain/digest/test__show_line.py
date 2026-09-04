@@ -103,6 +103,36 @@ def test_a_reload_tells_a_missing_code_apart_from_no_code_at_all() -> None:
     assert silent is not None and "код" not in silent
 
 
+def test_a_reload_that_fell_says_so_and_one_that_went_out_stays_a_single_line() -> None:
+    """🔴 Повтор LOAD назван своим исходом, а не кодом смерти, которая его вызвала.
+
+    ``error`` - повод повтора, и стоит он одинаково у ушедшего повтора и у легшего. Пока
+    исхода в строке не было вовсе, выжимка показывала чёрный экран удачей.
+    """
+    went = _show_line(rec("reload", pos=300.0, tries=1, ok=True, why="", error=7), STAMP, False)
+    fell = _show_line(
+        rec("reload", pos=300.0, tries=1, ok=False, why="упал: приёмника нет в сети", error=7),
+        STAMP,
+        False,
+    )
+
+    assert went is not None and fell is not None
+    assert went != fell, "ушедший повтор и легший в выжимке одной строкой"
+    assert "не вышло" not in went, "ушедший повтор не смеет выглядеть отказом"
+    assert "не вышло: упал: приёмника нет в сети" in fell
+
+
+def test_a_reload_older_than_the_outcome_field_is_not_called_a_failure() -> None:
+    """Поля ``ok`` нет вовсе - молчим об исходе, а не выдумываем отказ.
+
+    Ленты старше правки лежат на диске неделю, и читать их придётся тем же разбором.
+    Пустота «поле не названо» и ложь «повтор не вышел» - разные новости.
+    """
+    old = _show_line(rec("reload", pos=300.0, tries=1, error=7), STAMP, False)
+
+    assert old is not None and "не вышло" not in old
+
+
 def test_a_refetch_that_fell_says_so_and_one_that_went_out_stays_a_single_line() -> None:
     """Перезабор куска - не погасший показ, и в выжимке он назван своим исходом.
 
