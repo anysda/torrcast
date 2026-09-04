@@ -1052,7 +1052,7 @@ def test_a_silent_reference_leaves_the_old_path_alone() -> None:
 def test_a_silent_answer_under_the_leads_kind_is_reasked_without_it() -> None:
     """🔴 TC-399. Тип, подсказанный мусорным вожаком тощего пула, не хоронит картину.
 
-    По запросу «lain» приехала одна строка - самиздатовский журнал «lainzine 1-5», и
+    По запросу «lain» приехала одна строка - самиздатовский журнал «lainpost 1-5», и
     его тип («не сериал») отправлял справку в молчание: статьи о фильме «Lain» нет,
     есть статья о СЕРИАЛЕ «Serial Experiments Lain». Молчание под типом
     переспрашивается без него - справка спрашивает обе статьи разом и верит лишь
@@ -1061,9 +1061,12 @@ def test_a_silent_answer_under_the_leads_kind_is_reasked_without_it() -> None:
     ответа русскоязычных, а под оригиналом картина лежит у быстрых. Журнал при этом
     остаётся как был.
     """
+    # без хвоста формата нарочно: у "lainpost 1-5" нет ни одной приметы не-видео
+    # (ни старой ``_is_non_video``, ни новой N1-N4), поэтому будущее расширение
+    # словаря не может тихо украсть приманку - слово "zine"/"pdf"/"rtf" сюда не возвращать.
     client = FakeProwlarr(
         {
-            "lain": [raw("lainzine 1-5 (pdf)", 1, seeders=5)],
+            "lain": [raw("lainpost 1-5 (2024)", 1, seeders=5)],
             "serial experiments lain": [
                 raw(f"Serial Experiments Lain [S01] (1998) BDRip 1080p-{i}", 100 + i, seeders=50)
                 for i in range(3)
@@ -1085,7 +1088,7 @@ def test_a_silent_answer_under_the_leads_kind_is_reasked_without_it() -> None:
     assert client.asked == ["lain", "Serial Experiments Lain"]
     titles = [p.picture.title for p in plans]
     assert "Serial Experiments Lain" in titles, "картина добралась оригиналом из паспорта"
-    assert "lainzine 1-5" in titles, "найденное первым запросом не отнимается"
+    assert "lainpost 1-5" in titles, "найденное первым запросом не отнимается"
     assert "добрал по «Serial Experiments Lain»" in said
 
 

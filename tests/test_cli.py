@@ -4351,8 +4351,11 @@ def test_короткое_имя_берёт_картину_из_первого_�
     from torrcast.domain.pick_franchise import pick_franchise
     from torrcast.domain.raw_result import RawResult
 
+    # без хвоста формата нарочно: у "lainpost 1-5" нет ни одной приметы не-видео
+    # (ни старой ``_is_non_video``, ни новой N1-N4), поэтому будущее расширение
+    # словаря не может тихо украсть приманку - слово "zine"/"pdf" сюда не возвращать.
     raw = [
-        RawResult("lainzine 1-5 (2024) PDF", "a" * 40, 100 * 1024**2, 2),
+        RawResult("lainpost 1-5 (2024)", "a" * 40, 100 * 1024**2, 2),
         RawResult("Serial Experiments Lain (1998) BDRip 1080p", "b" * 40, 12 * 1024**3, 40),
     ]
     pictures = cluster(to_releases(raw))
@@ -4371,7 +4374,7 @@ def test_короткое_имя_берёт_картину_из_первого_�
             passport=lambda *a, **k: passport,
         )
 
-    assert [picture.title for picture in found] == ["lainzine 1-5"], "короткое имя неоднозначно"
+    assert [picture.title for picture in found] == ["lainpost 1-5"], "короткое имя неоднозначно"
     assert [(picture.title, picture.year) for picture in rescued] == [
         ("Serial Experiments Lain", 1998)
     ]
@@ -4386,8 +4389,11 @@ def test_паспортное_имя_не_подменяет_картину_пр
     from torrcast.domain.pick_franchise import pick_franchise
     from torrcast.domain.raw_result import RawResult
 
+    # без хвоста формата нарочно: у "lainpost 1-5" нет ни одной приметы не-видео
+    # (ни старой ``_is_non_video``, ни новой N1-N4), поэтому будущее расширение
+    # словаря не может тихо украсть приманку - слово "zine"/"pdf" сюда не возвращать.
     raw = [
-        RawResult("lainzine 1-5 (2024) PDF", "c" * 40, 100 * 1024**2, 2),
+        RawResult("lainpost 1-5 (2024)", "c" * 40, 100 * 1024**2, 2),
         RawResult("Serial Experiments Lain (2025) WEB-DL 1080p", "d" * 40, 8 * 1024**3, 9),
     ]
     pictures = cluster(to_releases(raw))
@@ -4405,7 +4411,7 @@ def test_паспортное_имя_не_подменяет_картину_пр
             passport=lambda *a, **k: passport,
         )
 
-    assert [picture.title for picture in found] == ["lainzine 1-5"], (
+    assert [picture.title for picture in found] == ["lainpost 1-5"], (
         "спор года сильнее совпавшего длинного имени"
     )
 
