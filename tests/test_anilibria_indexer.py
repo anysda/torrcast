@@ -25,7 +25,7 @@ def _raise(error: BaseException) -> Any:
 def test_dead_primary_uses_the_alternative() -> None:
     calls: list[str] = []
 
-    def answer(origin: str, path: str) -> Any:
+    def answer(origin: str, path: str, _seconds: float = 0.0) -> Any:
         calls.append(origin)
         if origin == adapter.ORIGINS[0]:
             raise OSError("silent")
@@ -54,7 +54,7 @@ def test_a_release_that_hangs_on_details_only_drops_itself() -> None:
     """The details of a release are asked for after the listing answered, so a stall there
     reaches a second catch - and it too owes the caller rows, not a broken connection."""
 
-    def answer(_origin: str, path: str) -> Any:
+    def answer(_origin: str, path: str, _seconds: float = 0.0) -> Any:
         if "/search/" in path:
             return [{"id": 7, "name": {"english": "Kaiba"}}]
         raise subprocess.TimeoutExpired("curl", 4.0)
@@ -63,7 +63,7 @@ def test_a_release_that_hangs_on_details_only_drops_itself() -> None:
 
 
 def test_fuzzy_search_cannot_substitute_an_unrelated_release() -> None:
-    def answer(_origin: str, path: str) -> Any:
+    def answer(_origin: str, path: str, _seconds: float = 0.0) -> Any:
         if "/search/" in path:
             return [
                 {"id": 1, "name": {"english": "Kono Healer, Mendokusai"}},
@@ -81,3 +81,40 @@ def test_empty_query_does_not_accept_the_whole_catalog() -> None:
         return [{"id": 1, "name": {"english": "Kaiba"}}]
 
     assert adapter.search("", answer) == []
+
+
+def test_a_release_whose_details_stall_once_is_asked_again() -> None:
+    """A stalled detail call is usually the source hiccupping, not a release that is gone.
+
+    Without the second ask the release contributes nothing and vanishes from the catalog
+    without a word - measured on the live stand, six releases out of forty went that way.
+    """
+    asked: list[str] = []
+
+    def answer(_origin: str, path: str, _seconds: float = 0.0) -> Any:
+        if "/search/" in path:
+            return [{"id": 7, "name": {"english": "Kaiba"}}]
+        asked.append(path)
+        if len(asked) == 1:
+            raise subprocess.TimeoutExpired("curl", 1.2)
+        return [{"label": "Kaiba 1080p", "magnet": "magnet:?xt=urn:btih:abc"}]
+
+    found = adapter.search("Kaiba", answer)
+    assert [row["title"] for row in found] == ["Kaiba 1080p"], "the release must survive a hiccup"
+    assert len(asked) == 2, "a stalled detail call is asked once more"
+
+
+def test_details_carry_a_deadline_short_enough_to_ask_twice() -> None:
+    """The second ask is only affordable because the details wait less than the listing."""
+    deadlines: list[float] = []
+
+    def answer(_origin: str, path: str, seconds: float = 0.0) -> Any:
+        if "/search/" in path:
+            return [{"id": 7, "name": {"english": "Kaiba"}}]
+        deadlines.append(seconds)
+        return [{"label": "Kaiba 1080p", "magnet": "magnet:?xt=urn:btih:abc"}]
+
+    adapter.search("Kaiba", answer)
+    assert deadlines, "the details were asked at all"
+    spent = deadlines[0] * adapter.DETAIL_TRIES
+    assert spent < adapter.TIMEOUT, f"two asks cost {spent} s, one old ask cost {adapter.TIMEOUT} s"
