@@ -50,3 +50,20 @@ def test_склеенные_имена_и_индексеры_доезжают_д
 
 def test_пустая_выдача_даёт_пустой_список() -> None:
     assert to_releases([]) == []
+
+
+def test_n1_n4_не_видео_раздача_не_доходит_до_релизов() -> None:
+    """Отсев не-видео (N1-N4) стоит именно на этой границе, до кластеризации."""
+    row = RawResult(
+        title="Семнадцать мгновений весны / Михаил Таривердиев OST (1973) APE by гаврила",
+        info_hash="b" * 40,
+    )
+    assert to_releases([row]) == []
+
+
+def test_видео_раздача_с_вето_приметой_доходит_до_релизов() -> None:
+    row = RawResult(
+        title="Oppenheimer 2023 REPACK 1080p BluRay DD 5 1 x264-PTer",
+        info_hash="c" * 40,
+    )
+    assert [r.title for r in to_releases([row])] == ["Oppenheimer"]
