@@ -16,3 +16,15 @@ def test_a_video_mark_beats_the_non_video_one() -> None:
 
 def test_an_ordinary_release_is_not_flagged() -> None:
     assert not _is_non_video("Брат 1997 BDRip")
+
+
+def test_a_soundtrack_named_by_its_own_word_is_not_a_picture() -> None:
+    """🔴 «OST» - слово, которым выдача зовёт саундтрек, и раздача под ним не кино:
+    «OST - Настоящий детектив / True Detective [Music From the HBO Series] (2015) AAC».
+    Без этого слова разбор звал её фильмом того же года, и склейка тащила её в пул."""
+    assert _is_non_video("OST - Настоящий детектив / True Detective (2015) AAC")
+
+
+def test_a_picture_with_a_soundtrack_attached_is_still_a_picture() -> None:
+    """Встречный сторож: «+ OST» рядом с приметой видео - это кино с приложением."""
+    assert not _is_non_video("Настоящий детектив (2015) BDRip 1080p + OST")

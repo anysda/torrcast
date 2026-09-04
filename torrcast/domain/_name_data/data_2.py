@@ -19,7 +19,7 @@ _FOREIGN_DUB_RE: Final = re.compile(
     re.IGNORECASE,
 )
 _NON_VIDEO_RE: Final = re.compile(
-    "\\b(flac|mp3|ape|wav|lossless|vinyl|аудиокнига|audiobook|pdf|fb2|epub|djvu|mobi|rtf|azw3|cbz|cbr|repack|gog|steam-?rip|pc|рс|пк|x64|iso|portable|crack|ps[1-5]|psp|xbox|nintendo|wii|cinematic\\s+video)\\b",
+    "\\b(flac|mp3|ape|wav|ost|lossless|vinyl|аудиокнига|audiobook|pdf|fb2|epub|djvu|mobi|rtf|azw3|cbz|cbr|repack|gog|steam-?rip|pc|рс|пк|x64|iso|portable|crack|ps[1-5]|psp|xbox|nintendo|wii|cinematic\\s+video)\\b",
     re.IGNORECASE,
 )
 _VIDEO_MARKER_RE: Final = re.compile(
