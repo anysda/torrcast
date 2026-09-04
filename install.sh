@@ -3776,12 +3776,12 @@ ui_hsv() { # h(0..359) s(0..100) v(0..100) -> R G B (0..255)
 BRAND=''; GREEN=''; DIMG=''; EMPTY_COL=''; FRAMEC=''
 # Фирменный зелёный в числах: к нему сводится цвет лого на посадке, чтобы
 # итоговый экран подхватил ровно тот же код и стыка не было видно.
-BR_R=0; BR_G=220; BR_B=130
+BR_R=0; BR_G=220; BR_B=0
 ui_palette() {
-    ui_fg 0 220 130; BRAND=$FGX
+    ui_fg 0 220   0; BRAND=$FGX
     GREEN=$BRAND
-    ui_fg 0 120  78; DIMG=$FGX
-    ui_fg 26  62  46; EMPTY_COL=$FGX
+    ui_fg 0 120   0; DIMG=$FGX
+    ui_fg 26  62  26; EMPTY_COL=$FGX
     # Рамка цветом терминала по умолчанию - она белая на тёмной теме и чёрная на
     # светлой. Зелёная рамка спорила с лого, которое и так перекрашивается.
     FRAMEC=$NC
@@ -4327,7 +4327,7 @@ ui_draw_border() {
 }
 
 # --- состояние анимации ---
-px=0; py=0; vx=$STEP_X; vy=$STEP_Y; hue=140
+px=0; py=0; vx=$STEP_X; vy=$STEP_Y; hue=120
 prev_x=0; prev_y=0; prev_valid=0
 CUR=''; CR=0; CG=0; CB=0
 
