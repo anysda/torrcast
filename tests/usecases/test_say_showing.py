@@ -67,6 +67,44 @@ def test_a_native_picture_keeps_its_recorded_name(capsys: pytest.CaptureFixture[
     assert phrase("showing.busy", what=what, where=where) in printed
 
 
+@pytest.mark.usefixtures("_english")
+def test_a_query_keyed_cache_row_about_another_picture_is_not_trusted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """TC-971. «Блэйд» - русская статья про сериал; играет фильм 1998 года.
+
+    Ряд кэша ключуется запросом «Блэйд», и под этим именем в нём лежит паспорт сериала
+    (год 2006). Запись показа знает год выбранной картины - он расходится с годом ряда,
+    и строка занятого ТВ обязана промолчать про чужое имя, а не назвать сериал.
+    """
+    entry = Entry(title="Блэйд", magnet="magnet:?x=1", kind="movie", year=1998, pos=151.0)
+
+    _say_showing(
+        ("ключ", entry),
+        origin=lambda title, series: Origin(title="Blade: The Series", year=2006),
+    )
+
+    printed = capsys.readouterr().out
+    assert "Blade: The Series" not in printed
+    assert phrase("choice.quoted", it="Блэйд") in printed
+
+
+@pytest.mark.usefixtures("_english")
+def test_an_unknown_recorded_year_still_trusts_the_cache(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Записи прежних версий года не знают - граница TC-956 остаётся прежней: не хуже."""
+    entry = Entry(title="Моана 2", magnet="magnet:?x=1", pos=660.0, dur=5978.0)
+
+    _say_showing(
+        ("ключ", entry),
+        origin=lambda title, series: Origin(title="Moana 2", year=2024),
+    )
+
+    printed = capsys.readouterr().out
+    assert phrase("choice.quoted", it="Moana 2") in printed
+
+
 @pytest.mark.usefixtures("_russian_product")
 def test_the_russian_product_does_not_consult_the_cache(
     capsys: pytest.CaptureFixture[str],

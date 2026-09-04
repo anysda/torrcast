@@ -60,6 +60,14 @@ def _showing_name(entry: Entry, origin: Callable[[str, bool | None], Origin | No
     Кэш молчит или английского имени в нём нет (отечественная картина) - показывается
     записанное имя как есть. Молчать о том, что играет, нельзя, а придуманного имени
     (транслита) у картины нет: честная строка с русским именем лучше выдуманной.
+
+    🔴 TC-971. Ряд кэша ключуется ЗАПРОСОМ («Блэйд»), а не картиной: русская статья под
+    этим именем - про сериал, а фильм 1998 года лежит под «Блэйд (фильм, 1998)». Запись
+    показа знает год выбранной картины (:attr:`Entry.year`) - его и сверяем с годом ряда
+    (:attr:`Origin.year`): разошлись - ряд не про эту картину, и правды в нём для нас нет
+    (:func:`_other_picture`). Год записи неизвестен (записи прежних версий, раздача без
+    года в имени) - сверить нечем, и кэшу верят как раньше: не новая ложь, а прежняя
+    граница TC-956.
     """
     if tongue() != EN:
         return entry.title
@@ -68,6 +76,16 @@ def _showing_name(entry: Entry, origin: Callable[[str, bool | None], Origin | No
     if origin is None:
         return entry.title
     about = origin(entry.title, entry.kind == "tv") or origin(entry.title, None)
-    if about and about.title and not _CYRILLIC.search(about.title):
+    if (
+        about
+        and about.title
+        and not _CYRILLIC.search(about.title)
+        and not _other_picture(entry, about)
+    ):
         return about.title
     return entry.title
+
+
+def _other_picture(entry: Entry, about: Origin) -> bool:
+    """Ряд кэша похож на ЧУЖУЮ картину: годы известны с обеих сторон и не совпадают."""
+    return bool(entry.year) and about.year is not None and entry.year != about.year
