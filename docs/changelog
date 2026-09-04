@@ -10,6 +10,20 @@
 # Формат: `[версия]` открывает раздел, `en текст` / `ru текст` - запись на своём языке.
 # Порядок записей внутри раздела - порядок на экране. Пустые строки и `#` пропускаются.
 
+[1.1.2]
+en the Home Assistant card takes a typed command or a menu
+ru карточка Home Assistant принимает и команду, и меню
+en a poster is found for far more pictures than before
+ru постер находится у куда большего числа картин
+en soundtracks and other non-video releases are left out
+ru саундтреки и прочие не-видео раздачи больше не предлагаются
+en a search no longer waits on a mirror that is blocked
+ru поиск больше не ждёт заблокированное зеркало
+en the card says playing only once a frame has arrived
+ru карточка говорит о показе только после первого кадра
+en the installer and the integration wear the brand colours
+ru у установщика и интеграции фирменные цвета
+
 [1.1.1]
 en the card names a pause the second it happens, whoever pressed
 ru карточка называет паузу сразу, кто бы её ни поставил
