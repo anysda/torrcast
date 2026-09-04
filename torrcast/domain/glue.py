@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from torrcast.domain._name_data.data_2 import _ALTERNATIVE_PICTURE_RE, _ALTERNATIVE_TITLE_RE, _ROMAN
+from torrcast.domain.about_the_picture import _about_the_picture
 from torrcast.domain.adaptationless import _adaptationless
 from torrcast.domain.compose import _compose
 from torrcast.domain.editionless import _editionless
@@ -12,6 +13,7 @@ from torrcast.domain.formless import _formless
 from torrcast.domain.glued_kind import _glued_kind
 from torrcast.domain.glued_year import _glued_year
 from torrcast.domain.in_digits import in_digits
+from torrcast.domain.kin_pairs import _kin_pairs
 from torrcast.domain.kind import Kind
 from torrcast.domain.link import _link
 from torrcast.domain.picture import Picture
@@ -137,6 +139,11 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         # Tales»). Приставка соседом не считается: ею и отличается «Animated».
         if a.kind == b.kind or "other" in (a.kind, b.kind) or not (a.original and b.original):
             return False
+        # Оригинал у бонуса стоит от самой картины, и отличает стороны только русское имя:
+        # «Евангелион Нового Поколения: дополнительные материалы» это работа О картине, и
+        # в её пуле ему места нет - как и `_editionless` такой хвост снимать не смеет.
+        if _about_the_picture(a.title) is not _about_the_picture(b.title):
+            return False
         mine, theirs = identity(a.original), identity(b.original)
         return mine == theirs or mine == subtitle(b.original) or theirs == subtitle(a.original)
 
@@ -154,24 +161,15 @@ def glue(pictures: list[Picture]) -> list[Picture]:
             a.kind != b.kind and "other" not in (a.kind, b.kind) and not (a.original or b.original)
         )
 
-    kindred: dict[tuple[str, int], list[int]] = {}
-    for i, picture in enumerate(pictures):
-        if picture.year is not None and picture.original:
-            kindred.setdefault((identity(picture.title), picture.year), []).append(i)
-    for same in kindred.values():
-        for spot, i in enumerate(same):
-            for j in same[spot + 1 :]:
-                if one_picture_two_kinds(pictures[i], pictures[j]):
-                    union(i, j)
-    bare: dict[tuple[str, int], list[int]] = {}
-    for i, picture in enumerate(pictures):
-        if picture.year is not None and not picture.original:
-            bare.setdefault((identity(picture.title), picture.year), []).append(i)
-    for same in bare.values():
-        for spot, i in enumerate(same):
-            for j in same[spot + 1 :]:
-                if two_kinds_one_bare_name(pictures[i], pictures[j]):
-                    union(i, j)
+    # Сторона без года идёт вторым заходом: к этому времени стороны с годом уже сведены,
+    # и «одна ли картина стоит под этим оригиналом» - вопрос с ответом, а не гадание.
+    for undated in (False, True):
+        for i, j in _kin_pairs(pictures, identity, root, named=True, undated=undated):
+            if one_picture_two_kinds(pictures[i], pictures[j]):
+                union(i, j)
+    for i, j in _kin_pairs(pictures, identity, root, named=False):
+        if two_kinds_one_bare_name(pictures[i], pictures[j]):
+            union(i, j)
     groups: dict[int, list[int]] = {}
     for i in range(len(pictures)):
         groups.setdefault(root(i), []).append(i)

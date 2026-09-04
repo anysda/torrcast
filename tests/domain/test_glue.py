@@ -309,3 +309,124 @@ def test_a_soundtrack_stays_out_of_the_pool_of_the_picture_it_names() -> None:
     )
 
     assert len(found) == 2
+
+
+def test_one_original_under_two_russian_names_is_one_picture() -> None:
+    """🎯 TC-1036. Ведро межвидовой склейки стояло на русском имени, а правило спрашивает
+    ОРИГИНАЛ, - и до вопроса о виде пара не доезжала вовсе: «One Piece» 1999 года лежит
+    сериалом «Большой Куш» и фильмом «Ван-Пис». В меню это были два пункта."""
+    found = glue(
+        [
+            Picture(
+                title="Большой Куш",
+                year=1999,
+                kind="tv",
+                original="One Piece",
+                releases=[Release(raw_name="One Piece [1-1000] (1999) HDTV", title="Большой Куш")],
+            ),
+            Picture(
+                title="Ван-Пис",
+                year=1999,
+                kind="movie",
+                original="One Piece",
+                releases=[Release(raw_name="Ван-Пис / One Piece (1999) HDTV", title="Ван-Пис")],
+            ),
+        ]
+    )
+
+    assert len(found) == 1
+    assert len(found[0].releases) == 2
+
+
+def test_a_bare_form_word_still_keeps_a_film_out_of_the_series_pool() -> None:
+    """🔴 Встречный сторож ведру: ключом ему стоит identity(), а не one_name().
+
+    Ведро голых имён само себе и весь вопрос об имени: правило за ним спрашивает только
+    вид, и что попало в одно ведро, то и слито. Сняв в ключе слово формы, ведро свело бы
+    сериал «Naruto Shippuuden» с фильмом «Naruto Shippuuden Movie» - подмену, а не
+    двойника: у соседнего сторожа обе стороны без года, и до ведра они не доходят.
+    """
+    found = glue(
+        [
+            Picture(
+                title="Naruto Shippuuden",
+                year=2007,
+                kind="tv",
+                releases=[Release(raw_name="Naruto Shippuuden [1-500]", title="Naruto Shippuuden")],
+            ),
+            Picture(
+                title="Naruto Shippuuden Movie",
+                year=2007,
+                kind="movie",
+                releases=[
+                    Release(raw_name="Naruto Shippuuden Movie", title="Naruto Shippuuden Movie")
+                ],
+            ),
+        ]
+    )
+
+    assert len(found) == 2
+
+
+def test_a_side_without_a_year_joins_the_pile_gathered_before_it() -> None:
+    """🎯 TC-1036. У «Наруто: Ураганные хроники» четыре раздачи стоят без года вовсе, и
+    ведро не видело их никогда: ключом ему год. Занять год у соседа по оригиналу можно
+    только после того, как соседи сведены, - поэтому такая сторона идёт вторым заходом."""
+    series = [
+        Picture(
+            title="Наруто: Ураганные хроники",
+            year=year,
+            kind="tv",
+            original="Naruto Shippuuden",
+            releases=[Release(raw_name=f"Naruto Shippuuden ({year})", title="Наруто")],
+        )
+        for year in (2007, 2008, 2009)
+    ]
+    found = glue(
+        [
+            *series,
+            Picture(
+                title="Наруто",
+                year=None,
+                kind="movie",
+                original="Naruto: Shippuuden",
+                releases=[Release(raw_name="Naruto- Shippuuden [370-500]", title="Наруто")],
+            ),
+        ]
+    )
+
+    assert len(found) == 1
+    assert len(found[0].releases) == 4
+
+
+def test_a_work_about_the_picture_stays_out_of_its_pool() -> None:
+    """🔴 Встречный сторож межвидовому правилу. Оригинал бонусной раздачи выдача пишет от
+    самой картины - «Евангелион Нового Поколения: дополнительные материалы / Neon Genesis
+    Evangelion [Bonus]» при сериале того же года, - и правило видит один оригинал, один
+    год и разные виды. Отличает стороны только русское имя, и работа О картине в её пуле
+    не лежит: у неё свой хронометраж, и зрителю подсунули бы не то."""
+    found = glue(
+        [
+            Picture(
+                title="Евангелион",
+                year=1995,
+                kind="tv",
+                original="Neon Genesis Evangelion",
+                releases=[Release(raw_name="Евангелион [TV] [1995]", title="Евангелион")],
+            ),
+            Picture(
+                title="Евангелион Нового Поколения: дополнительные материалы",
+                year=1995,
+                kind="movie",
+                original="Neon Genesis Evangelion",
+                releases=[
+                    Release(
+                        raw_name="Neon Genesis Evangelion [Bonus] [1995, DVDRip]",
+                        title="Евангелион Нового Поколения: дополнительные материалы",
+                    )
+                ],
+            ),
+        ]
+    )
+
+    assert len(found) == 2
