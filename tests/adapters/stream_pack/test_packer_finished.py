@@ -46,6 +46,28 @@ def test_a_last_piece_within_the_tolerance_is_the_honest_end_of_the_film(tmp_pat
     assert _finished(run) is True
 
 
+def test_an_empty_last_piece_is_not_the_honest_end_even_within_tolerance(tmp_path: Path) -> None:
+    """TC-864: пустой кусок не становится готовым, даже если список нарезки за него врёт.
+
+    Замер: муксер, отказавший первому пакету, кладёт кусок в 0 байт и всё равно
+    закрывает его строкой рядом с честной границей.
+    """
+    run = packer(tmp_path, proc=FakeProc(code=0), grid=grid())
+    lay(run.run, 0, size=0)
+    _list(run.run, ("v0.ts", 0.0, 9.9))
+
+    assert _finished(run) is False, "0 байт куска списаны за дописанный вход"
+
+
+def test_a_nonzero_code_does_not_condemn_a_piece_the_grid_calls_whole(tmp_path: Path) -> None:
+    """TC-864: код скачет на закрытии, а сетка честно дописанный кусок в брак не пишет."""
+    run = packer(tmp_path, proc=FakeProc(code=183), grid=grid())
+    lay(run.run, 0)
+    _list(run.run, ("v0.ts", 0.0, 9.9))
+
+    assert _finished(run) is True, "целый кусок списан в брак одним кодом возврата"
+
+
 def test_a_closed_piece_without_a_line_is_believed_to_nobody(tmp_path: Path) -> None:
     """Кусок есть, а строки о нём нет: список ведёт тот же ffmpeg - верить тут нечему."""
     run = packer(tmp_path, proc=FakeProc(code=0), grid=grid())
