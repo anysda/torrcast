@@ -12,12 +12,14 @@
 
 from __future__ import annotations
 
+import inspect
 import itertools
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from torrcast.adapters.frames.http_range_reader import HttpRangeReader
 from torrcast.adapters.frames.keyframes import HEAD_PEEK, keyframes
 from torrcast.domain.frames.keymap.video_track import video_track
 from torrcast.domain.frames.mkv.ids import CUES_CHUNK, HEAD_BYTES
@@ -88,6 +90,19 @@ def probe_offsets(path: str) -> list[int]:
         capture_output=True, text=True, check=True,
     )  # fmt: skip
     return [int(line.rstrip(",")) for line in done.stdout.split() if line.strip(",").isdigit()]
+
+
+def test_the_unnamed_source_is_the_real_http_reader() -> None:
+    """Боевой вызов зовёт ``keyframes`` одним доводом: без него читатель обязан быть настоящим.
+
+    Каждый тест этого файла подсовывает свой ``source`` нарочно - раздачей на диске, а не
+    сетью. Отдельно от них сверяется само боевое умолчание: раздёрни его с настоящего
+    :class:`~torrcast.adapters.frames.http_range_reader.HttpRangeReader` на любую другую
+    пустышку той же формы - и эта проба покраснеет, а остальные, читающие с диска своим
+    доводом, ничего не заметят.
+    """
+    default = inspect.signature(keyframes).parameters["source"].default
+    assert default is HttpRangeReader
 
 
 def test_mkv_small_head_one_cues_read_and_a_pair_of_probes(served: _Served, clip: str) -> None:
