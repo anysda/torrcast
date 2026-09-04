@@ -4,11 +4,13 @@
 добавление индексеров не уходит в фон, а отказ Prowlarr остаётся виден.
 """
 
+import ipaddress
 import json
 import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
@@ -24,6 +26,10 @@ import pytest
 
 REPO = Path(__file__).parents[1]
 SCRIPT = (REPO / "install.sh").read_text(encoding="utf-8")
+#: Адреса, поднятые на петле по умолчанию и в Linux, и в macOS. Больше на `lo0`
+#: у macOS нет ничего: `in_pcbbind` требует точного совпадения с адресом
+#: интерфейса, маску он не смотрит, и остальной 127/8 там просто не завести.
+LOOPBACK_EVERYWHERE = ("127.0.0.1", "::1")
 
 
 def _body(name: str) -> str:
@@ -86,7 +92,7 @@ def test_an_add_failure_names_the_prowlarr_response_and_continues() -> None:
 
 
 def test_anilibria_is_a_regular_indexer_with_a_shim_route() -> None:
-    assert '"anilibria|http://127.0.0.2:9697/"' in SCRIPT
+    assert '"anilibria|http://localhost:9697/"' in SCRIPT
     assert "'anilibria.top|/api/v1/app/search/releases?query=Kaiba||" in SCRIPT
     assert '"$REPO_DIR/scripts/anilibria.yml"' in SCRIPT
     assert (REPO / "scripts" / "anilibria.yml").is_file()
@@ -99,13 +105,15 @@ def test_jacred_is_a_regular_indexer_with_a_shim_route() -> None:
     assert (REPO / "scripts" / "jacred.yml").is_file()
 
 
-def test_the_two_local_indexers_do_not_share_one_address() -> None:
-    """Prowlarr paces its asks per host and ignores the port: one address means one queue.
+def test_the_two_local_indexers_do_not_share_one_prowlarr_queue() -> None:
+    """Prowlarr paces its asks per host and ignores the port: one host means one queue.
 
-    Measured on the live stand, an adapter that answers in 0.28 s waited 2.85 s when its
-    neighbour on the same address had just been asked. Two addresses, two queues.
+    Measured on the live stand, an adapter whose call arrives in 0.01 s waited 2.01 s when
+    its neighbour had just been asked under the same host.  The key of that queue is the
+    host string as it is written, not the address behind it, so two spellings of the very
+    same loopback are two queues - and one spelling, however spelled, is one.
     """
-    rows = dict(re.findall(r'"(anilibria|jacred)\|http://([\d.]+):\d+/"', SCRIPT))
+    rows = dict(re.findall(r'"(anilibria|jacred)\|http://([^:/]+):\d+/"', SCRIPT))
     assert set(rows) == {"anilibria", "jacred"}, f"both local indexers are registered: {rows}"
     assert rows["anilibria"] != rows["jacred"], (
         f"both local indexers sit on {rows['anilibria']} and take turns in one Prowlarr queue"
@@ -113,13 +121,41 @@ def test_the_two_local_indexers_do_not_share_one_address() -> None:
 
 
 def test_each_local_indexer_listens_where_it_is_registered() -> None:
-    """A half-done move is worse than none: the address is written down in three places."""
+    """A half-done move is worse than none: the address is written down in three places.
+
+    One of the two is registered under a name, so the string Prowlarr is given is not the
+    string the adapter binds.  What has to hold is that the name resolves to the loopback
+    the adapter listens on: knock where nobody answers, and the catalogue is gone.
+    """
     for name, port in (("anilibria", 9697), ("jacred", 9698)):
-        (host,) = re.findall(rf'"{name}\|http://([\d.]+):{port}/"', SCRIPT)
+        (host,) = re.findall(rf'"{name}\|http://([^:/]+):{port}/"', SCRIPT)
         served = (REPO / "scripts" / f"{name}-indexer.py").read_text()
         listed = (REPO / "scripts" / f"{name}.yml").read_text()
-        assert f'"{host}"' in served, f"{name} listens somewhere else than {host}"
+        (bound,) = re.findall(r'^HOST = "(.+)"$', served, re.M)
+        reached = {where[0] for *_, where in socket.getaddrinfo(host, port, socket.AF_INET)}
+        assert bound in reached, f"{name} is called at {host} ({reached}) but listens on {bound}"
         assert f"http://{host}:{port}/" in listed, f"{name}.yml points somewhere else than {host}"
+
+
+def test_the_local_indexers_bind_only_what_macos_keeps_on_lo0() -> None:
+    """🔴 Адрес из 127/8, кроме первого, на маке не поднимается - и каталог пропадает молча.
+
+    На Linux `bind` спрашивает таблицу маршрутов, куда ядро кладёт всю сеть 127/8, поэтому
+    `127.0.0.2` там встаёт. На macOS `in_pcbbind` требует ТОЧНОГО совпадения с адресом
+    интерфейса (`ifa_ifwithaddr`) и маску не смотрит вовсе, а на `lo0` по умолчанию поднят
+    один `127.0.0.1`: `bind` отдал бы `EADDRNOTAVAIL`, адаптер не встал бы, `wait_http`
+    истёк бы предупреждением - и установка сказала бы «готово», потеряв каталог целиком.
+    Алиас `ifconfig lo0 alias` перезагрузку не переживает, шагом установки это не лечится.
+    """
+    for name in ("anilibria", "jacred"):
+        served = (REPO / "scripts" / f"{name}-indexer.py").read_text()
+        (bound,) = re.findall(r'^HOST = "(.+)"$', served, re.M)
+        loopback = ipaddress.ip_address(bound).is_loopback
+        assert loopback, f"{name} listens on {bound}, sitting off the loopback"
+        assert bound in LOOPBACK_EVERYWHERE, (
+            f"{name} binds {bound}, and macOS keeps only {LOOPBACK_EVERYWHERE} on lo0: "
+            "bind() answers EADDRNOTAVAIL there and the whole catalogue vanishes in silence"
+        )
 
 
 def test_install_removes_its_login_notice_without_a_motd_phase() -> None:

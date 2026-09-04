@@ -167,14 +167,22 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-#: Which loopback address to listen on, and why it is not the usual one.
+#: Under which host name Prowlarr calls this adapter, and why a name and not an address.
 #:
-#: Prowlarr paces its requests per HOST and ignores the port, so two local adapters sharing
-#: one address take turns instead of running side by side: measured on the live stand, a
-#: call that answers in 0.28 s waited 2.85 s when the neighbour had just been asked. Giving
-#: this one an address of its own splits the bucket. The whole 127/8 range is loopback, so
-#: it is no less local than before and still reachable from nowhere else.
-HOST = "127.0.0.2"
+#: Prowlarr paces its asks per HOST and ignores the port, so two local adapters under one
+#: host take turns: measured on the stand, a call that arrives in 0.01 s waited 2.01 s when
+#: the neighbour had just been asked. The key is the host string as written, so a name of
+#: our own buys a queue of our own on the very same plain loopback.
+#:
+#: 🔴 An address out of 127/8 will not do. 127.0.0.2 binds on Linux, where bind() consults a
+#: route and the kernel puts all of 127/8 into the local table, but macOS in_pcbbind() wants
+#: an exact interface address (ifa_ifwithaddr, netmask never read) and lo0 carries only
+#: 127.0.0.1: bind() would answer EADDRNOTAVAIL, install.sh would print its warning and still
+#: say it was done, and the AniLibria catalogue would be gone in silence. An `ifconfig lo0
+#: alias` does not survive a reboot, so an installer step would not have fixed it either.
+#: A client taking ::1 first (localhost resolves so on Debian and on macOS alike) is refused
+#: on the loopback and goes on to 127.0.0.1 - measured on the stand.
+HOST = "127.0.0.1"
 
 
 def main() -> None:

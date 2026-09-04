@@ -99,9 +99,16 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
+#: Which loopback address to listen on.  It is the one macOS keeps on lo0 by default, and
+#: the neighbour explains next door why nothing else out of 127/8 will do
+#: (:mod:`scripts.anilibria-indexer`).  Prowlarr tells the two of us apart by the host
+#: string it was given, not by the address, so sharing this one costs us nothing.
+HOST = "127.0.0.1"
+
+
 def main() -> None:
     ThreadingHTTPServer(
-        ("127.0.0.1", int(sys.argv[1]) if len(sys.argv) > 1 else 9698), Handler
+        (HOST, int(sys.argv[1]) if len(sys.argv) > 1 else 9698), Handler
     ).serve_forever()
 
 
