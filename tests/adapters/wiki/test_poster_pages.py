@@ -272,3 +272,67 @@ def test_the_english_section_is_asked_for_the_roman_form_of_the_part_number() ->
     wanted = PosterPages(client).wanted([ask], 1.0)
 
     assert _named(wanted[ask]) == [roman], "у английского раздела спросили одну арабскую форму"
+
+
+#: Русская статья своей картины: год выхода 2001, а раздача расширенной версии несёт 2011.
+FELLOWSHIP = {
+    "title": "Властелин колец: Братство кольца",
+    "langlinks": [{"lang": "en", "title": "The Lord of the Rings: The Fellowship of the Ring"}],
+    "pageprops": {"wikibase_item": "Q127367"},
+    "categories": [{"title": "Категория:Фильмы 2001 года"}],
+}
+#: Мультфильм 1994 года: его английская статья лежит ровно под именем римейка.
+LION_1994 = {
+    "title": "Король Лев",
+    "langlinks": [{"lang": "en", "title": "The Lion King"}],
+    "pageprops": {"wikibase_item": "Q36479"},
+    "categories": [{"title": "Категория:Мультфильмы 1994 года"}, {"title": "Категория:Фильмы"}],
+}
+#: Своя статья римейка 2019 года: имя английской с уточнением, а не голое.
+LION_2019 = {
+    "title": "Король Лев (мультфильм, 2019)",
+    "langlinks": [{"lang": "en", "title": "The Lion King (2019 film)"}],
+    "pageprops": {"wikibase_item": "Q29579"},
+    "categories": [{"title": "Категория:Фильмы 2019 года"}],
+}
+
+
+def test_a_release_that_carries_the_year_of_a_reissue_still_finds_its_own_article() -> None:
+    """🔴 ОТРИЦАТЕЛЬНАЯ ПРОБА на разбор перевыпуска: сними его - и статьи нет вовсе.
+
+    Живой случай «Властелин колец: Братство кольца»: расширенная версия выходит
+    отдельной раздачей и пишет год издания, 2011, а статья держит год выхода, 2001.
+    Пока годы сверялись одним членством в списке, находка оставалась без обложки при
+    живой статье своей собственной картины.
+    """
+    client = _wiki([FELLOWSHIP])
+    ask = Ask(
+        "Властелин колец: Братство кольца",
+        2011,
+        "movie",
+        "The Lord of the Rings: The Fellowship of the Ring",
+    )
+
+    wanted = PosterPages(client).wanted([ask], 1.0)
+
+    assert _named(wanted[ask]) == ["The Lord of the Rings: The Fellowship of the Ring"], (
+        "год перевыпуска оставил картину без её собственной статьи"
+    )
+
+
+def test_a_remake_of_the_same_original_name_does_not_take_the_older_picture() -> None:
+    """🔴 ОТРИЦАТЕЛЬНАЯ ПРОБА на границу разбора перевыпуска: сними пустоту первого
+    захода - и «Король Лев» 2019 года получит картинку мультфильма 1994-го.
+
+    Оригинальное имя у них одно и то же, «The Lion King», и точное совпадение имени
+    сработало бы на старой статье. Держит римейк не признак строки, а то, что своя
+    статья у него есть: перевыпуском он не был.
+    """
+    client = _wiki([LION_1994, LION_2019])
+    ask = Ask("Король Лев", 2019, "movie", "The Lion King")
+
+    wanted = PosterPages(client).wanted([ask], 1.0)
+
+    assert _named(wanted[ask]) == ["The Lion King (2019 film)"], (
+        "римейку досталась статья старого мультфильма"
+    )

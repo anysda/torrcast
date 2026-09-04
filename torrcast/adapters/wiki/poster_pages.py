@@ -25,6 +25,7 @@ from torrcast.adapters.wiki.endpoints import EN_WIKI_HOST, WIKI_HOST, WIKI_PATH
 from torrcast.adapters.wiki.wikidata_years import WikidataYears
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.facts.dated import Dated
+from torrcast.domain.facts.dated_choice import dated_choice
 from torrcast.domain.facts.dated_pages import dated_pages
 from torrcast.domain.facts.fits_ask import fits_ask
 from torrcast.domain.facts.in_budget import in_budget
@@ -166,7 +167,8 @@ class PosterPages:
         """Отсев статей с чужим годом; неназванные годы спрашиваются одной пачкой.
 
         Спрашивается Wikidata только про те статьи, которые про свой год промолчали
-        сами: категории отвечают даром, а SPARQL стоит отдельного похода.
+        сами: категории отвечают даром, а SPARQL стоит отдельного похода. Сам отсев -
+        :func:`~torrcast.domain.facts.dated_choice.dated_choice`, и заходов в нём два.
         """
         unknown = [
             row.entity
@@ -175,9 +177,7 @@ class PosterPages:
             if ask.year and row.entity and not row.years
         ]
         known = self.years.years(unknown, timeout) if unknown else {}
-        return {
-            ask: [row for row in rows if fits_ask(ask, row, known)] for ask, rows in dated.items()
-        }
+        return {ask: dated_choice(ask, rows, known) for ask, rows in dated.items()}
 
     def _ru(self, names: Sequence[str], timeout: float) -> JsonValue:
         params = {**_LINKS, "titles": "|".join(names)}

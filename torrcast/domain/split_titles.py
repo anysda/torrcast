@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from torrcast.domain._name_data.data_1 import _CYRILLIC, _LATIN, _TAG_ONLY_RE, _UKRAINIAN
+from torrcast.domain.branded_only import _branded_only
 
 
 def _split_titles(zone: str) -> tuple[str, str | None, tuple[str, ...]]:
@@ -15,7 +16,9 @@ def _split_titles(zone: str) -> tuple[str, str | None, tuple[str, ...]]:
     parts = [
         p
         for p in parts
-        if (len(p) > 1 or (numeric_original and p.isdigit())) and (not _TAG_ONLY_RE.match(p))
+        if (len(p) > 1 or (numeric_original and p.isdigit()))
+        and (not _TAG_ONLY_RE.match(p))
+        and (not _branded_only(p))
     ]
     if not parts:
         return (zone.strip() or "?", None, ())
