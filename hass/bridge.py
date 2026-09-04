@@ -1,4 +1,4 @@
-"""Мост между пятью маршрутами и продуктом: поиск, показ, пульт, переход и снимок.
+"""Мост между шестью маршрутами и продуктом: поиск, показ, продолжение, пульт, переход и снимок.
 
 Своих правил тут нет. Показ поднимается той же :func:`torrcast.cli.main.main`, что и в
 консоли, под тем же перехватом вывода бота (:func:`tgbot.command_result.command_result`)
@@ -27,6 +27,7 @@ from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE, say
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
+from hass.stopping import STOP, stopping
 from hass.volume import Volume
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.health.machine_probe import MachineProbe
@@ -38,7 +39,7 @@ from torrcast.ports.playback_session import PlaybackSession
 from torrcast.runtime.playback_session import playback_session
 
 BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
-STOP, VOLUME = "stop", "volume"
+VOLUME = "volume"
 
 
 class Bridge:
@@ -107,15 +108,27 @@ class Bridge:
         args = [query] if pick is None else [query, "--pick", str(pick)]
         return self._start(args)
 
+    def resume(self) -> str:
+        """``POST /api/resume``: поднять показ ровно так, как это делает пустой ``cast``.
+
+        Картину и место выбирает ПРОДУКТ, а не мост: сюда уходит пустой argv, и дальше
+        последнее смотренное называет тот же
+        :func:`torrcast.usecases.cast_command._default_query._default_query`, а место
+        поднимает та же закладка. Складывать это на стороне моста значило бы завести
+        второй ответ на один вопрос. Отказ пустому ``query`` у :meth:`play` остаётся:
+        показ ПО ЗАПРОСУ без запроса - по-прежнему брак, а это другая просьба.
+        """
+        return self._start([])
+
     def control(self, command: str, arg: float) -> None:
         """``POST /api/control``: пульт идущего показа, а остановка - дверь наружу.
 
         Остановка стоит ВЫШЕ отказов и ни про показ, ни про подъём не спрашивает
-        (:meth:`_stop`). Остальному пульту без идущего показа делать нечего: громкость
-        и ``toggle`` уезжают приёмнику, который сейчас ничего не играет.
+        (:func:`hass.stopping.stopping`). Остальному пульту без идущего показа делать
+        нечего: громкость и ``toggle`` уезжают приёмнику, который ничего не играет.
         """
         if command == STOP:
-            self._stop()
+            stopping(self._orders, self._session)
             return
         if not self._session.active():
             raise RefusedError(NOTHING_PLAYING)
@@ -142,28 +155,11 @@ class Bridge:
         return secrets.token_hex(4)
 
     def abandoned(self) -> bool:
-        """Снят ли заказ на идущий подъём: это спрашивает сам подъём (:meth:`_stop`)."""
-        return self._orders.abandoned()
+        """Снят ли заказ на идущий подъём: спрашивает это сам подъём.
 
-    def _stop(self) -> None:
-        """Остановка, которая не отказывает НИКОГДА: это дверь человека наружу.
-
-        Отказать в ней нечем. «Ничего не играет» человек и так видит на экране, а «уже
-        поднимаю показ» - ровно то состояние, из которого он и просит его вывести:
-        подъём, не давший картинки, вместе с отказом в остановке становится ловушкой
-        без единой двери (TC-1022). Поэтому занятость очереди тут не спрашивается.
-
-        🔴 До идущего подъёма поручение остановки не доходит: очередь возьмёт его лишь
-        когда подъём кончится, то есть через весь его бюджет старта - и всё это время
-        человек, уже нажавший остановку, смотрел бы на поднимающийся показ, от которого
-        отказался (замер 03-09-2026: 358 с). Поэтому отказ кладётся ОТДЕЛЬНЫМ фактом
-        (:meth:`hass.orders.Orders.abandon`), и подъём читает его сам на своих поворотах
-        (:func:`torrcast.usecases.playback.refuse_called_off.refuse_called_off`). Юнит гасится
-        тем же движением на случай, когда показ уже поднялся.
+        Кладёт факт :func:`hass.stopping.stopping`, и там же названо, почему отдельным.
         """
-        if self._orders.abandon():
-            self._session.stop()
-        self._orders.force([STOP])
+        return self._orders.abandoned()
 
     def run(self) -> None:
         """Исполнять команды, пока не попросят уйти. Зовётся из ГЛАВНОГО потока."""

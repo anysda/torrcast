@@ -1,4 +1,4 @@
-"""Шесть маршрутов моста поверх стандартной библиотеки. Новой зависимости тут нет.
+"""Семь маршрутов моста поверх стандартной библиотеки. Новой зависимости тут нет.
 
 Авторизации нет намеренно: продукт живёт в домашней сети и наружу не смотрит - ровно
 как раздача HLS, которую забирает телевизор. Всё, что мост умеет, лежит в
@@ -11,9 +11,10 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from hass.bridge import STOP, VOLUME, Bridge
+from hass.bridge import VOLUME, Bridge
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE
+from hass.stopping import STOP
 from torrcast.domain.json_value import JsonValue
 
 #: Порт моста. Занят он бывает только другим таким же мостом.
@@ -24,6 +25,10 @@ ANY_INTERFACE = "0.0.0.0"
 BODY_LIMIT = 64 * 1024
 STATE, PLAY, CONTROL, NEXT = "/api/state", "/api/play", "/api/control", "/api/next"
 SEARCH = "/api/search"
+#: Показ без запроса вовсе - то же самое, что пустой ``cast``. Отдельным маршрутом, а не
+#: пустым ``query`` у :data:`PLAY`: тому, кто просит показ ПО ЗАПРОСУ, пустой запрос
+#: по-прежнему брак, и отказ ``no_query`` за ним остаётся.
+RESUME = "/api/resume"
 #: Картинку играющей картины раздаёт САМ серв: Home Assistant за ней наружу не ходит,
 #: иначе её тянул бы клиент через сеть, где режут по SNI (:mod:`hass.posters`).
 POSTER = "/api/poster/"
@@ -52,7 +57,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path not in (PLAY, CONTROL, NEXT, SEARCH):
+        if path not in (PLAY, CONTROL, NEXT, SEARCH, RESUME):
             self._answer(404, {"error": "not_found"})
             return
         body = self._body()
@@ -103,6 +108,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._answer(400, {"error": "bad_pick"})
                 return
             self._answer(202, {"key": self.bridge.play(query.strip(), pick)})
+            return
+        if path == RESUME:
+            self._answer(202, {"key": self.bridge.resume()})
             return
         if path == NEXT:
             self.bridge.next()

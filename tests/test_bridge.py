@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from hass.bridge import BUSY, NO_NEXT, NO_VOLUME, NOTHING_PLAYING, STOP, VOLUME, Bridge
+from hass.bridge import BUSY, NO_NEXT, NO_VOLUME, NOTHING_PLAYING, VOLUME, Bridge
 from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE
+from hass.stopping import STOP
 from hass.volume import Volume
 from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.state_store import FakeStateStore
@@ -610,6 +611,28 @@ def test_play_without_a_pick_keeps_the_single_word_call() -> None:
     bridge.run_one()
 
     assert asked == [["матрица"]]
+
+
+def test_carrying_on_asks_the_product_with_the_empty_call_a_bare_cast_makes() -> None:
+    """Продолжение уходит продукту ПУСТЫМ argv: картину и место называет он сам.
+
+    Ровно то, что набирает человек в консоли одним словом `cast`. Мост тут не
+    подставляет ни названия, ни секунды: подставил бы - и на вопрос «что играть,
+    когда не сказали, что играть» в продукте появился бы второй ответ, свой у моста.
+    """
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
+
+    key = bridge.resume()
+    bridge.run_one()
+
+    assert key, "продолжение не отдало ключ поручения"
+    assert asked == [[]], f"мост назвал продукту что-то своё вместо пустого cast: {asked}"
 
 
 def test_the_card_is_told_the_picture_of_what_is_playing() -> None:

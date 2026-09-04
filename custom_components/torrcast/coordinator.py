@@ -171,6 +171,16 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             body["pick"] = pick
         await self._post("/api/play", body)
 
+    async def async_resume(self) -> None:
+        """Asks for the last thing watched again, the way a bare `cast` does.
+
+        No words go out with it. `/api/play` is the road of a show asked for by name and
+        still turns an empty query down; this is the other question, and the answer to it
+        - which picture, and which second to carry on from - stays the product's, given
+        once for the terminal, the bot and the card alike.
+        """
+        await self._post("/api/resume", None)
+
     async def async_search(self, query: str) -> list[dict[str, Any]]:
         """Asks the serve what it would find for the query, without starting a show.
 

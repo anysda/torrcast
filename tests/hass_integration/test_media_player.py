@@ -219,18 +219,21 @@ async def test_the_card_draws_a_power_button_next_to_the_buttons_it_already_had(
         assert lived_here_before in features, f"кнопка {lived_here_before.name} пропала с карточки"
 
 
-async def test_turning_off_an_empty_screen_says_nothing_to_the_person(
+async def test_turning_off_an_empty_screen_carries_on_the_last_show(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
-    """Гасить нечего - кнопка молчит, а не роняет отказ серве в лицо.
+    """Гасить нечего - та же кнопка поднимает последнее смотренное, как пустой `cast`.
 
-    Серве на пустом показе отвечает `nothing_playing`, и это правда, но человеку,
-    который только что нажал «выключить», она читается как поломка: экран уже там,
-    куда он просил. Ни запроса, ни ошибки.
+    Одна кнопка на две просьбы: пока идёт показ, она его гасит, а на пустом экране
+    отвечает на «включи то, что я смотрел». Останавливать тут нечего, и `stop` серве
+    отбил бы `nothing_playing` - отказом, который человеку читается как поломка.
+
+    Своего правила интеграция не заводит: она зовёт маршрут продолжения, а картину и
+    секунду называет продукт. Поэтому проверяется и адрес, и ПУСТОЕ тело: имя картины,
+    подставленное тут, было бы вторым ответом на тот же вопрос.
     """
     await _added(hass, aioclient_mock, snapshot(state="idle"))
-    #: Подделка отвечает ровно то, что ответил бы серве: `stop` на пустом показе - 409.
-    aioclient_mock.post(f"{BASE}/api/control", status=409, json={"error": "nothing_playing"})
+    aioclient_mock.post(f"{BASE}/api/resume", status=202, json={"key": "cafebabe"})
     told: list[str] = []
 
     try:
@@ -241,7 +244,9 @@ async def test_turning_off_an_empty_screen_says_nothing_to_the_person(
         told.append(str(refusal))
 
     assert told == [], f"человеку показали отказ на нажатие «выключить»: {told}"
-    assert not [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
+    posted = [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
+    assert [str(call[1]) for call in posted] == [f"{BASE}/api/resume"]
+    assert [sent(call) for call in posted] == [None]
 
 
 async def test_turning_off_a_torn_show_leads_the_person_out_instead_of_refusing(

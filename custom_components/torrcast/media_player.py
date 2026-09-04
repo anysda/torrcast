@@ -264,19 +264,22 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
         await self.coordinator.async_control("stop")
 
     async def async_turn_off(self) -> None:
-        """The power button of the card: put the show out and let the receiver go.
+        """The power button of the card: puts the show out, or brings the last one back.
 
         Off means the show, not the mains: the product has no way to unplug a television
-        and does not pretend to. It is the same `stop` the console and the bot send, so
-        the button opens no new road outwards - `TURN_ON` is deliberately not claimed
-        next to it, because there would be nothing for it to raise.
+        and does not pretend to. On a live show it is the same `stop` the console and the
+        bot send, so the button opens no new road outwards.
 
-        An already idle player is silent about it. `stop` on an empty screen is the
-        serve's `nothing_playing` refusal, and reading "torrcast has nothing on the
-        screen right now" after pressing off is noise: the screen is exactly where the
-        person just asked it to be.
+        An empty screen has nothing to put out, and the very same press carries on with
+        the last thing watched from the second it was left at - what `cast` with no words
+        after it does in the terminal. Nothing is decided here: the serve is asked for
+        that bare `cast` as such (:meth:`TorrcastCoordinator.async_resume`), and which
+        picture and which second those are stays the product's own single answer.
+        `TURN_ON` is still not claimed: the owner asked for this of the button that is
+        already on the card, and a second one would only ask the same thing twice.
         """
         if self.state is MediaPlayerState.IDLE:
+            await self.coordinator.async_resume()
             return
         await self.coordinator.async_control("stop")
 

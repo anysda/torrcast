@@ -25,6 +25,7 @@ class _Bridge:
         self.results: list[dict[str, Any]] = []
         self.controlled: list[tuple[str, float]] = []
         self.nexted = 0
+        self.resumed = 0
         self.refuse = ""
         self.pictures: dict[str, tuple[bytes, str]] = {}
         self.asked: list[str] = []
@@ -44,6 +45,12 @@ class _Bridge:
         self.played.append(query)
         self.picked.append(pick)
         return "deadbeef"
+
+    def resume(self) -> str:
+        if self.refuse:
+            raise RefusedError(self.refuse)
+        self.resumed += 1
+        return "cafebabe"
 
     def control(self, command: str, arg: float) -> None:
         if self.refuse:
@@ -193,6 +200,21 @@ def test_play_without_a_pick_still_auto_picks(address: str, bridge: _Bridge) -> 
     _call(f"{address}/api/play", "POST", json.dumps({"query": "матрица"}).encode())
 
     assert bridge.picked == [None]
+
+
+def test_carrying_on_needs_no_query_while_a_show_by_name_still_does(
+    address: str, bridge: _Bridge
+) -> None:
+    """Продолжение едет своим маршрутом, а показ ПО ЗАПРОСУ пустого запроса не берёт."""
+    code, body = _call(f"{address}/api/resume", "POST", b"")
+
+    assert code == 202
+    assert json.loads(body)["key"]
+    assert bridge.resumed == 1
+    empty, said = _call(f"{address}/api/play", "POST", json.dumps({"query": "  "}).encode())
+    assert empty == 400
+    assert json.loads(said) == {"error": "no_query"}
+    assert bridge.played == []
 
 
 def test_a_bad_pick_is_400_and_never_reaches_the_bridge(address: str, bridge: _Bridge) -> None:
