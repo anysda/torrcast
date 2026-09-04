@@ -72,13 +72,16 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
     _attr_name = None
     _attr_device_class = MediaPlayerDeviceClass.TV
     _attr_media_content_type = MediaType.VIDEO
+    #: `NEXT_TRACK` is not in this constant on purpose: the right arrow is only ever
+    #: earned by a show that has a next episode to take, and that is a fact of the
+    #: current snapshot, not a fact of the entity class (see `supported_features`
+    #: below). Nothing else here is decided per snapshot.
     _attr_supported_features = (
         MediaPlayerEntityFeature.PLAY
         | MediaPlayerEntityFeature.PAUSE
         | MediaPlayerEntityFeature.PLAY_MEDIA
         | MediaPlayerEntityFeature.STOP
         | MediaPlayerEntityFeature.TURN_OFF
-        | MediaPlayerEntityFeature.NEXT_TRACK
         | MediaPlayerEntityFeature.PREVIOUS_TRACK
         | MediaPlayerEntityFeature.SEEK
         | MediaPlayerEntityFeature.VOLUME_SET
@@ -107,6 +110,22 @@ class TorrcastPlayer(CoordinatorEntity[TorrcastCoordinator], MediaPlayerEntity):
     @property
     def state(self) -> MediaPlayerState | None:
         return STATES.get(str(self._snapshot.get("state")))
+
+    @property
+    def supported_features(self) -> MediaPlayerEntityFeature:
+        """The right arrow, added to the fixed set, only when a next episode is there.
+
+        `has_next` is the same field the serve keeps `null` for between shows and in
+        the simple wait (`hass/payload.py`): the owner asked for the movie and the
+        last episode of a series to lose the arrow, not for it to flicker off while
+        nothing is decided yet. `False` alone drops the arrow; `True`, `None` and the
+        field missing entirely (an older serve that predates it, same fallback shape
+        as `named` in `hass/search_results.py`) all keep it, exactly as it always was.
+        """
+        base = self._attr_supported_features
+        if self._snapshot.get("has_next") is False:
+            return base
+        return base | MediaPlayerEntityFeature.NEXT_TRACK
 
     @property
     def media_title(self) -> str | None:

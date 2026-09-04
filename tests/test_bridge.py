@@ -386,6 +386,72 @@ def test_the_next_episode_is_asked_for_by_the_query_a_human_would_type() -> None
     assert asked == [["чернобыль s1e4"]]
 
 
+def test_the_snapshot_says_a_playing_movie_has_no_next_episode() -> None:
+    """🔴 TC-1040. Признак снимка, а не решение фронта: фильм не несёт следующего файла."""
+    state_slot.install(FakeStateStore())
+    store = state_slot.store()
+    state = store.load()
+    state.entries["movie:муха"] = Entry(title="Муха", magnet="magnet:?xt=1", kind="movie")
+    store.save(state)
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", moved=True),
+    )
+
+    assert _bridge(session).state()["has_next"] is False
+
+
+def test_the_snapshot_says_the_last_episode_of_the_release_has_no_next_one_either() -> None:
+    """🔴 Тот же ``False``, что у фильма, но по ДРУГОМУ узлу: тут сезон и серия есть,
+    мертва кнопка потому, что файл в раздаче последний, а не потому, что это фильм.
+    """
+    state_slot.install(FakeStateStore())
+    store = state_slot.store()
+    state = store.load()
+    state.entries["tv:чернобыль"] = Entry(
+        title="Чернобыль",
+        magnet="magnet:?xt=1",
+        kind="tv",
+        season=1,
+        episode=4,
+        episodes=[[1, 3, 0, 0], [1, 4, 1, 0]],
+        query="чернобыль",
+    )
+    store.save(state)
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="tv:чернобыль",
+        shown=PlaybackSnapshot(key="tv:чернобыль", title="Чернобыль", moved=True, label="s1e4"),
+    )
+
+    assert _bridge(session).state()["has_next"] is False
+
+
+def test_the_snapshot_says_an_episode_with_a_next_one_keeps_the_arrow() -> None:
+    """Раздача несёт следующий файл: снимок отвечает ``True``, и стрелка остаётся."""
+    state_slot.install(FakeStateStore())
+    store = state_slot.store()
+    state = store.load()
+    state.entries["tv:чернобыль"] = Entry(
+        title="Чернобыль",
+        magnet="magnet:?xt=1",
+        kind="tv",
+        season=1,
+        episode=3,
+        episodes=[[1, 3, 0, 0], [1, 4, 1, 0]],
+        query="чернобыль",
+    )
+    store.save(state)
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="tv:чернобыль",
+        shown=PlaybackSnapshot(key="tv:чернобыль", title="Чернобыль", moved=True, label="s1e3"),
+    )
+
+    assert _bridge(session).state()["has_next"] is True
+
+
 def test_a_deaf_receiver_refuses_the_level_instead_of_pretending() -> None:
     session = FakePlaybackSession(
         playing=True,

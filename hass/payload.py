@@ -23,14 +23,21 @@ def payload(
     disk_free: int,
     last_error: str,
     picture: tuple[str, str],
+    has_next: bool,
 ) -> dict[str, JsonValue]:
     """Снимок показа как тело ``GET /api/state``."""
-    about = _about(shown) if state not in (IDLE, STARTING) else _nothing()
+    known = state not in (IDLE, STARTING)
+    about = _about(shown) if known else _nothing()
     return {
         "version": version,
         "tv": tv or None,
         "state": state,
         **about,
+        # Между показами и в простое картины ещё/уже нет, и знать про следующую серию
+        # нечего: ``null`` тут читается интеграцией ровно как «неизвестно», то есть
+        # «стрелка остаётся», а не как «следующей нет» - тот же откат, что у старого
+        # моста без этого поля вовсе (:func:`custom_components.torrcast.media_player`).
+        "has_next": has_next if known else None,
         # Адрес картинки на САМОМ серве, а не у Wikimedia: наружу за постером Home
         # Assistant не ходит ни при каких условиях (:data:`hass.posters.ROUTE`).
         # Отпечаток - ключ, которым он решает, тянуть ли картинку заново; без него

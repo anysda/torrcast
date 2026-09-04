@@ -85,6 +85,7 @@ class Bridge:
             disk_free=MachineProbe.disk_free(config.hls_dir),
             last_error=self._orders.last_error,
             picture=self._posters.picture(shown if active else None, self._session.stream_address),
+            has_next=following(self._session) is not None,
         )
 
     def poster(self, name: str) -> tuple[bytes, str] | None:

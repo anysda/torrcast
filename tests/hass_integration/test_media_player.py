@@ -224,6 +224,75 @@ async def test_the_card_draws_a_power_button_next_to_the_buttons_it_already_had(
         assert lived_here_before in features, f"кнопка {lived_here_before.name} пропала с карточки"
 
 
+async def test_the_right_arrow_stays_on_an_episode_with_a_next_one(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Серия, чья раздача несёт следующий файл: правая стрелка остаётся на карточке."""
+    await _added(hass, aioclient_mock, snapshot(has_next=True))
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.NEXT_TRACK in features
+
+
+async def test_the_right_arrow_is_gone_from_a_movie_with_no_next_episode(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """🔴 TC-1040. «Не надо показывать стрелку вперёд на фильме - там всё равно нет
+    следующего эпизода» (владелец, 04-09-2026): фильма без сезона и серии у раздачи нет
+    следующего файла, и правая стрелка карточки об этом узнаёт из `has_next`.
+    """
+    await _added(hass, aioclient_mock, snapshot(has_next=False, season=None, episode=None))
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.NEXT_TRACK not in features
+    #: Владелец просил снять только мёртвую ПРАВУЮ стрелку; левая («сначала же
+    #: серию/фильм») остаётся рабочей и на фильме тоже - её пропажа была бы другим,
+    #: более грубым отказом, и проба стережёт его отдельно.
+    assert MediaPlayerEntityFeature.PREVIOUS_TRACK in features
+
+
+async def test_the_right_arrow_is_gone_from_the_last_episode_of_a_series(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """🔴 Тот же отказ, что у фильма, но по другому признаку записи: сезон и серия у
+    показа ЕСТЬ, кнопка мертва не потому, что это фильм, а потому что файл в раздаче -
+    последний. Проверка стоит на СВОЁМ узле, а не на данных фильма: подмени починку
+    условием «вид == фильм», и этот узел покраснеет, а соседний останется зелёным.
+    """
+    await _added(hass, aioclient_mock, snapshot(has_next=False, season=1, episode=9))
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.NEXT_TRACK not in features
+    assert MediaPlayerEntityFeature.PREVIOUS_TRACK in features
+
+
+async def test_an_older_serve_without_has_next_keeps_the_arrow(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Мост старее этого поля не присылает `has_next` вовсе: снимок читается как
+    «неизвестно», и стрелка остаётся - тот же откат, каким карточка уже читает
+    отсутствие `named` (`hass/search_results.py`, `custom_components/torrcast/browse.py`).
+    """
+    body = snapshot()
+    assert "has_next" not in body, "фикстура уже несёт has_next - проба ничего не проверяет"
+    await _added(hass, aioclient_mock, body)
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.NEXT_TRACK in features
+
+
+async def test_the_right_arrow_stays_between_shows_while_the_next_one_is_unknown(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """В простое и на подъёме мост сам отвечает `has_next: null` (`hass/payload.py`):
+    неизвестность не гасит стрелку молча между показами, а держит прежнее поведение.
+    """
+    await _added(hass, aioclient_mock, snapshot(state="idle", has_next=None))
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.NEXT_TRACK in features
+
+
 async def test_turning_off_an_empty_screen_carries_on_the_last_show(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:

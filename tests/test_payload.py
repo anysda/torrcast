@@ -27,8 +27,10 @@ def test_full_snapshot_becomes_json_the_card_can_draw() -> None:
         disk_free=1234,
         last_error="",
         picture=("/api/poster/6b1f", "6b1f"),
+        has_next=True,
     )
     assert body["state"] == PLAYING
+    assert body["has_next"] is True
     assert body["title"] == "Чернобыль"
     assert body["shown_as"] == "Чернобыль s1e3"
     assert body["season"] == 1
@@ -59,6 +61,7 @@ def test_holey_snapshot_says_null_and_does_not_invent_numbers() -> None:
         disk_free=0,
         last_error="",
         picture=("", ""),
+        has_next=False,
     )
     assert body["season"] is None
     assert body["episode"] is None
@@ -72,6 +75,8 @@ def test_holey_snapshot_says_null_and_does_not_invent_numbers() -> None:
     # адрес: карточка на пустую строку сходила бы за картинкой сама, к себе же в корень.
     assert body["image"] is None
     assert body["image_hash"] is None
+    # Фильм: следующей серии в раздаче нет, и стрелка вперёд об этом узнаёт отсюда же.
+    assert body["has_next"] is False
 
 
 def test_idle_does_not_answer_with_the_picture_that_already_ended() -> None:
@@ -87,10 +92,16 @@ def test_idle_does_not_answer_with_the_picture_that_already_ended() -> None:
         disk_free=10,
         last_error="ничего не нашлось",
         picture=("", ""),
+        has_next=True,
     )
     assert body["title"] is None
     assert body["position"] is None
     assert body["last_error"] == "ничего не нашлось"
+    # В простое про следующую серию сказать нечего: стрелка ни явно есть, ни явно
+    # снята - интеграция читает ``null`` как «не гасить её молча между показами»
+    # (:mod:`custom_components.torrcast.media_player`), даже если сам мост уже знает
+    # ответ (тут - ``True``).
+    assert body["has_next"] is None
 
 
 def test_the_picture_is_named_by_the_serve_and_carries_its_own_fingerprint() -> None:
@@ -111,6 +122,7 @@ def test_the_picture_is_named_by_the_serve_and_carries_its_own_fingerprint() -> 
         disk_free=10,
         last_error="",
         picture=("/api/poster/2f8c1d", "2f8c1d"),
+        has_next=False,
     )
 
     assert body["image"] == "/api/poster/2f8c1d"
