@@ -999,7 +999,7 @@ def test_the_reference_year_outweighs_the_pool_in_the_gate() -> None:
     about = _knows({"восхождение": Origin(year=1977)})
     plans, said = search_circle(client, "восхождение", about)
 
-    assert about.asked == ["восхождение"]
+    assert set(about.asked) == {"восхождение"}, "справку спросили о нём, и ни о чём другом"
     assert max(len(p.picture.releases) for p in plans) == 4
     assert "добрал" not in said
 
@@ -1027,7 +1027,7 @@ def test_original_title_comes_from_the_reference_when_the_pool_has_none() -> Non
     about = _knows({"кингсман секретная служба": Origin(title="Kingsman", year=2014)})
     plans, said = search_circle(client, "кингсман секретная служба", about)
 
-    assert about.asked == ["кингсман секретная служба"]
+    assert set(about.asked) == {"кингсман секретная служба"}, "справку спросили целой строкой"
     assert client.asked == ["кингсман секретная служба", "Kingsman"]
     assert max(len(p.picture.releases) for p in plans) == 32
     assert "добрал по «Kingsman»" in said
@@ -1080,7 +1080,8 @@ def test_a_silent_answer_under_the_leads_kind_is_reasked_without_it() -> None:
 
     plans, said = search_circle(client, "lain", about)
 
-    assert asked == [("lain", False), ("lain", None)], "молчание под типом - переспрос без него"
+    both = {("lain", False), ("lain", None)}
+    assert set(asked) == both, "молчание под типом - переспрос без него"
     assert client.asked == ["lain", "Serial Experiments Lain"]
     titles = [p.picture.title for p in plans]
     assert "Serial Experiments Lain" in titles, "картина добралась оригиналом из паспорта"

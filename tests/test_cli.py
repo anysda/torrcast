@@ -4253,7 +4253,11 @@ def _asked_reference(found: list[Picture], args: Args, spare: float = 9.0) -> tu
         _second_language(
             cast(Any, _Silent(spare)), "клиника", args, [], found, progress, passport=_spy
         )
-    return calls[0]
+    # Вопросов к справке два, и уходят они РАЗОМ (TC-399): под названным типом и мимо него.
+    # Очередь, в которой они доедут, не назначена ничем, поэтому прибор берёт свой по типу,
+    # а не по порядку: меряется тот вопрос, под чьим типом справке верят.
+    named = [call for call in calls if call[1] is not None]
+    return named[0] if named else calls[0]
 
 
 def test_добор_без_картины_спрашивает_справку_всерьёз() -> None:
