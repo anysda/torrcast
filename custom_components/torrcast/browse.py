@@ -87,12 +87,19 @@ _FLASH_PATH = "M7,2V13H10V22L17,10H13L17,2H7Z"
 #: `background-size: contain` (`6605.*.js`) place it at that same 24px height instead
 #: of blowing it up to fill the box.
 #:
-#: Known limit: `ha-svg-icon` is recoloured by the theme, a `data:` picture is not -
-#: `#8a8a8a` is picked here only for being readable on both a light and a dark
-#: background; the owner may want a different one.
+#: The glyph has to name its own colour, and that is a measured ceiling rather than a
+#: choice: `ha-media-browser-thumbnail` hands what it resolved to
+#: `style="background-image:url(...)"` on a plain div (`6605.*.js`, `render`), and a
+#: background image is a document of its own. Neither `currentColor` nor any CSS
+#: variable of the page reaches inside it, so no picture can follow the theme. The
+#: icon it stands next to is an `ha-svg-icon` and takes
+#: `--mdc-theme-text-icon-on-background`, which the browser sets to
+#: `--secondary-text-color` on its own `ha-list` (`55397.*.js`). The colour named here
+#: is therefore that same `--secondary-text-color`, read off the theme in use. Change
+#: the theme and the two go out of step again; there is no way to keep them together.
 _FLASH_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">'
-    f'<g transform="translate(16,16)"><path fill="#8a8a8a" d="{_FLASH_PATH}"/></g>'
+    f'<g transform="translate(16,16)"><path fill="#5EF6FF" d="{_FLASH_PATH}"/></g>'
     "</svg>"
 )
 _FLASH_THUMBNAIL = f"data:image/svg+xml,{quote(_FLASH_SVG, safe='')}"
