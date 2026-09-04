@@ -531,12 +531,15 @@ def _real_search(answers: dict[str, list[Any]]) -> Callable[..., list[Any]]:
 
 
 def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, _english: None
 ) -> None:
     """Номер и поля идут не от моста, а от того же круга поиска, что и консоль.
 
     Имена картинок тут не спрашиваются: за ними ходит фоновый поиск постеров
     (:class:`hass.hit_posters.HitPosters`), и в зеркале моста он звонил бы в Википедию.
+
+    Язык продукта назван поимённо: подпись ``shown`` от него и зависит, и на умолчании
+    зеркало мерило бы английскую ветку, а говорило бы про обе.
     """
     monkeypatch.setattr("hass.searching.OFFER", lambda results: results)
     bridge = _bridge(
@@ -554,6 +557,7 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
             "pick": number,
             "key": plan.picture.key,
             "title": plan.picture.title,
+            "shown": plan.picture.original or plan.picture.title,
             "year": plan.picture.year,
             "kind": plan.picture.kind,
             "original": plan.picture.original or "",

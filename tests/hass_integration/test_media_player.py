@@ -26,7 +26,6 @@ from custom_components.torrcast.const import SCAN_INTERVAL_SHOWING
 from hass.hit_posters import FIELD
 from hass.search_results import search_results
 from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, sent, snapshot
-from torrcast.domain.kind import Kind
 from torrcast.domain.picture import Picture
 from torrcast.usecases.select.plan import Plan
 
@@ -308,7 +307,7 @@ async def test_a_restart_without_a_known_position_is_refused(
     assert not [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
 
 
-def _served(pictures: list[tuple[str, int, Kind]], taken: int) -> dict[str, Any]:
+def _served(pictures: list[Picture], taken: int) -> dict[str, Any]:
     """The body of `POST /api/search`, built by the serve's OWN shaping function.
 
     This is the one guard of the seam between the two halves. Both sides used to be
@@ -320,15 +319,7 @@ def _served(pictures: list[tuple[str, int, Kind]], taken: int) -> dict[str, Any]
     The shaping function costs nothing to import in this venv - it reaches for the
     torrcast domain and for nothing else.
     """
-    plans = [
-        Plan(
-            picture=Picture(title=title, year=year, kind=kind),
-            ranked=[],
-            runtime=0.0,
-            warn_mbit=0.0,
-        )
-        for title, year, kind in pictures
-    ]
+    plans = [Plan(picture=picture, ranked=[], runtime=0.0, warn_mbit=0.0) for picture in pictures]
     return {"results": search_results(plans, taken)}
 
 
@@ -346,7 +337,10 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     await _added(hass, aioclient_mock, snapshot())
     aioclient_mock.post(
         f"{BASE}/api/search",
-        json=_served([("Матрица", 1999, "movie"), ("Чернобыль", 2019, "tv")], taken=2),
+        json=_served(
+            [Picture(title="Матрица", year=1999), Picture(title="Чернобыль", year=2019, kind="tv")],
+            taken=2,
+        ),
     )
     answer = await hass.services.async_call(
         "media_player",
@@ -371,6 +365,52 @@ async def test_search_media_puts_the_picture_a_bare_play_takes_first(
     )
 
 
+async def test_a_hit_is_named_in_the_tongue_the_product_speaks(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """One stand, one query: the card calls a picture what the menu of `cast` calls it.
+
+    Under `language=en` this list answered in Russian while `cast --menu` of the very
+    same serve answered in English: what to call a picture was decided twice, and the
+    second place knew nothing of the language the product speaks. It is decided once
+    now, by the product, and travels ready in `shown`.
+
+    A picture the product has no English name for keeps its own and is neither blanked
+    nor transliterated - a person cannot pick a line that has no name. The raw name
+    stays in `title`, because the poster of a hit is looked up by it.
+    """
+    await _added(hass, aioclient_mock, snapshot())
+    aioclient_mock.post(
+        f"{BASE}/api/search",
+        json=_served(
+            [
+                Picture(title="Назад в будущее", year=1985, original="Back to the Future"),
+                Picture(title="Back To The Future", year=None),
+                Picture(
+                    title="Экспедиция: Назад в будушее",
+                    year=2021,
+                    kind="tv",
+                    original="Expedition: Back to the Future",
+                ),
+            ],
+            taken=1,
+        ),
+    )
+    answer = await hass.services.async_call(
+        "media_player",
+        "search_media",
+        {"entity_id": PLAYER, "search_query": "back to the future", "media_content_id": "menu"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert [hit.title for hit in answer[PLAYER].result] == [
+        "Back to the Future (1985)",
+        "Back To The Future",
+        "Expedition: Back to the Future (2021)",
+    ]
+
+
 async def test_a_hit_shows_its_poster_and_home_assistant_fetches_it_from_the_serve(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
@@ -386,7 +426,10 @@ async def test_a_hit_shows_its_poster_and_home_assistant_fetches_it_from_the_ser
     with no placeholder and no empty frame around nothing.
     """
     await _added(hass, aioclient_mock, snapshot())
-    served = _served([("Матрица", 1999, "movie"), ("Чернобыль", 2019, "tv")], taken=1)
+    served = _served(
+        [Picture(title="Матрица", year=1999), Picture(title="Чернобыль", year=2019, kind="tv")],
+        taken=1,
+    )
     body = b"\x89PNG\r\n\x1a\n poster"
     served["results"][0][FIELD] = "8b1d3f0c11d2a4e6"
     aioclient_mock.post(f"{BASE}/api/search", json=served)

@@ -184,7 +184,12 @@ def search_media(
 
 def _hit(query: str, result: dict[str, Any], thumbnail: Thumbnail | None) -> BrowseMedia:
     kind = str(result.get("kind", ""))
-    title = str(result.get("title", ""))
+    #: What a person reads is named by the product, not composed here: the serve sends
+    #: it decided (`hass/search_results.py`), and the integration knows nothing of the
+    #: language the product speaks. `title` is the raw name the serve looks a poster up
+    #: by, and it is only read here as the older contract of a serve that predates
+    #: `shown` - the same way the card falls back from `shown_as` to `title`.
+    title = str(result.get("shown") or result.get("title", ""))
     year = result.get("year")
     poster = result.get(_POSTER)
     media_content_id = encode_pick(query, int(result["pick"]))

@@ -8,6 +8,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.catalogs.tongue import EN, tongue
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
+from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.transliterate import transliterate
 
 #: Отступ описания в меню: ровно под название, за номером с точкой.
@@ -21,10 +22,12 @@ def _title(picture: Picture) -> str:
     Английского имени нет вовсе - показывается СОБСТВЕННОЕ имя картины, а не заглушка
     и не транслит: выбрать пункт, у которого нет имени, человек не может. О том, что
     имя одно и оно по-русски, пункт говорит пометкой (:func:`_named`).
+
+    Само правило тут не живёт: оно одно на все места, где картину зовут человеку
+    (:func:`torrcast.domain.spoken_title.spoken_title`), - меню, запись показа, выдача
+    в карточку Home Assistant. Списанное сюда второй раз, оно уже расходилось.
     """
-    if tongue() != EN:
-        return picture.title
-    return picture.original or picture.title
+    return spoken_title(picture.title, picture.original or "")
 
 
 def _russian_only(picture: Picture) -> bool:
