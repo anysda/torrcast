@@ -12,6 +12,7 @@ from torrcast.adapters.filesystem.state.config_path import config_path
 from torrcast.adapters.filesystem.state.write_atomic import _write_atomic
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.invalid_config_object_error import InvalidConfigObjectError
+from torrcast.domain.owned_config_keys import OWNED_BY_HUMAN
 from torrcast.domain.torrcast_error import TorrcastError
 
 if TYPE_CHECKING:
@@ -44,6 +45,21 @@ def _stored(path: Path) -> dict[str, Any]:
 
 
 def save_config(config: Config) -> None:
-    """Записать свои ключи атомарно, оставив чужие ключи файла нетронутыми."""
+    """Записать ключи человека атомарно, оставив прочие ключи файла нетронутыми.
+
+    🔴 TC-669. Пишется не весь дата-класс, а только то, чем человек владеет
+    (:data:`~torrcast.domain.owned_config_keys.OWNED_BY_HUMAN`). Запись целиком
+    вмораживала в файл ВСЕ умолчания кода - пороги битрейта, окно сегментов, бюджет
+    прогрева, - хотя человек не называл ни одного из них: ``cast --tv`` менял один
+    адрес и дописывал тридцать чужих чисел. Стоило это дважды. След
+    (:func:`~torrcast.adapters.filesystem.state.config_keys.config_keys`) после такой
+    записи считал файловым КАЖДЫЙ порог и врал про источник числа, а установка получала
+    полный чисел файл, из которого их же и вычищала.
+
+    Чужие ключи файла (``token``, ``chat_id``, ``proxy`` телеграм-бота) при этом
+    остаются нетронутыми, как и раньше: файл общий, и запись своего среза целиком
+    стёрла бы боевой токен (TC-934).
+    """
     path = config_path()
-    _write_atomic(path, {**_stored(path), **asdict(config)})
+    mine = {key: value for key, value in asdict(config).items() if key in OWNED_BY_HUMAN}
+    _write_atomic(path, {**_stored(path), **mine})

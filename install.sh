@@ -3071,43 +3071,46 @@ install_indexers() {
 }
 
 # --- 6. Конфиг, ключи, состояние --------------------------------------------
+#: 🔴 TC-549. Ключи, которые повторная установка переносит из прежнего конфига. Всё
+#: остальное она собирает заново из умолчаний кода - решение владельца: «каждый
+#: перепрогон установки сносит всё лишнее и ставит всё нужное».
+#: Список обязан совпадать с :data:`torrcast.domain.owned_config_keys.OWNED_BY_HUMAN`
+#: (минус язык, он ниже) плюс поля :class:`tgbot.config.Config`; сторож расхождения -
+#: `tests/domain/test_owned_config_keys.py`.
+#: Языка тут нет НАРОЧНО, хотя владеет им тоже человек: его переносит не эта строка, а
+#: `$LANGUAGE`, который прочитан из живого конфига ещё до поднятия прав (см. самый верх
+#: файла). Перенеси его ещё и здесь - и `-ru` при повторной установке молча отменялся бы
+#: прежним значением.
+CONFIG_KEPT='tv receiver receiver_profile torrserver_url prowlarr_url prowlarr_apikey token chat_id proxy'
+
 setup_config() {
     log "configuration and keys" "конфиг и ключи"
     install -d -m 0755 "$CONFIG_DIR" "$STATE_DIR"
     local key; key="$(prowlarr_apikey)"
+    local cfg="$CONFIG_DIR/config.json" prev=''
 
-    # Темп упаковки и окно сегментов — дефолты КОДА (torrcast/domain/config.py), а не пользовательская
-    # настройка: иначе обновление молча упирается в старые числа из конфига (ровно это и
-    # случилось с hls_readrate=1.5). Вычищаем их отовсюду. Туда же транспорт: раздача по
-    # http на IP — устройство системы, а не вкус, и старый https-адрес из конфига обязан
-    # уйти. Потолок битрейта из того же класса: это замеренное свойство приёмника (Q70D
-    # ребуферит уже на 17.8 Мбит/с). Оставь его в конфиге — и опущенный до 16 дефолт молча
-    # упрётся в старые 20. Настройки перекодирования — тоже замеры процессора и приёмника,
-    # а не вкус. Языка в этом списке нет НАРОЧНО: он как раз вкус (cast --ru / --en),
-    # и сносящая его при обновлении безусловная запись была дефектом TC-955.
-    local tuned='del(.hls_readrate, .hls_window, .hls_burst, .hls_keep, .bitrate_warn_mbit,'
-    tuned="$tuned .bitrate_hard_mbit, .recode, .recode_mbit, .recode_at_mbit, .recode_preset,"
-    tuned="$tuned .recode_ahead,"
-    tuned="$tuned .recode_cache_mb)"
-    tuned="$tuned | .transport=\$t | .hls_port=(\$p|tonumber) | .hls_base_url=\$b"
-
-    if [ -f "$CONFIG_DIR/config.json" ]; then
-        # Адрес ТВ и прочий выбор пользователя не трогаем — обновляем только ключ.
-        # Язык - из того же выбора: без названного в этот заход ключа он остаётся как
-        # лежал; ключ -en / -ru сменить его вправе, человек его для того и набрал.
-        skip "$CONFIG_DIR/config.json (updating apikey; transport and temp come from code)" "$CONFIG_DIR/config.json (обновляю apikey, транспорт и темп беру из кода)"
-        local lang_step=''
-        # shellcheck disable=SC2016  # jq, не shell, раскрывает $l.
-        [ -z "$LANGUAGE_NAMED" ] || lang_step=' | .language=$l'
-        local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
-        jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" --arg l "$LANGUAGE_NAMED" \
-            "$tuned$lang_step | .prowlarr_apikey=\$k" "$CONFIG_DIR/config.json" >"$tmp"
-        mv "$tmp" "$CONFIG_DIR/config.json"
-        return
+    # 🔴 TC-549. Конфиг продукта принадлежит КОДУ, и установка собирает его заново
+    # целиком. Прежде полярность была обратной: живой конфиг сохранялся, а из него
+    # вычищался поимённый чёрный список настроенных чисел - и всякое поднятое умолчание
+    # приходилось дописывать в тот список руками. Забытое молча жило на старом числе:
+    # `warm_budget_gb` в него не попал, и у поставивших продукт раньше бюджет прогрева
+    # остался 20 ГБ против 30 в коде (замер 14-08: худший вечер требует 28). Прогрев на
+    # живом прогоне 12-08 в это уже упирался и вставал посреди фильма.
+    # Из прежнего файла переносится только то, чего из кода не вывести (CONFIG_KEPT):
+    # адрес приёмника и его род, адреса источников и ключ Prowlarr, три ключа бота.
+    # Состояние показа (выбор озвучки по тайтлу и закладка) тут не при чём вовсе: оно
+    # живёт не в конфиге, а в $STATE_DIR/state.json, который установка только создаёт.
+    if [ -f "$cfg" ]; then
+        prev="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
+        cat "$cfg" >"$prev"
+        skip "$cfg (rebuilt from code; receiver, sources and bot carry over)" \
+            "$cfg (пересобираю из кода, переношу приёмник, источники и бота)"
     fi
 
-    umask 077
-    cat >"$CONFIG_DIR/config.json" <<JSON
+    # Через временный файл, а не поверх живого: mktemp даёт 0600 сразу, и оборванная
+    # установка не оставляет человека с полуписаным конфигом.
+    local fresh; fresh="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
+    cat >"$fresh" <<JSON
 {
   "tv": null,
   "receiver": "chromecast",
@@ -3123,7 +3126,23 @@ setup_config() {
   "hls_dir": "$HLS_DIR"
 }
 JSON
-    info "Prowlarr apikey stored in $CONFIG_DIR/config.json" "apikey Prowlarr перенесён в $CONFIG_DIR/config.json"
+    if [ -n "$prev" ]; then
+        local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
+        # Ключ Prowlarr идёт ПОСЛЕ переноса: в прежнем конфиге он тоже назван, но
+        # измеренный сейчас в config.xml самого Prowlarr правдивее. Пустой не берём -
+        # это значит, что Prowlarr в этот заход не спрашивали.
+        # shellcheck disable=SC2016  # jq, не shell, раскрывает $keep, $prev и $k.
+        jq --slurpfile prev "$prev" --arg keep "$CONFIG_KEPT" --arg k "$key" '
+            reduce ($keep | split(" ")[]) as $name (.;
+                if ($prev[0] | has($name)) then .[$name] = $prev[0][$name] else . end)
+            | if $k == "" then . else .prowlarr_apikey = $k end
+        ' "$fresh" >"$tmp"
+        mv "$tmp" "$fresh"
+        rm -f "$prev"
+    fi
+    mv "$fresh" "$cfg"
+    chmod 0600 "$cfg"
+    info "Prowlarr apikey stored in $cfg" "apikey Prowlarr перенесён в $cfg"
 }
 
 # --- 6.4 Служба Telegram-бота ------------------------------------------------

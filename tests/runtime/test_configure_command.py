@@ -1,5 +1,6 @@
 """Собранная команда настройки ТВ пишет адрес в конфиг и говорит, что записала."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -33,7 +34,20 @@ def test_the_mock_address_switches_the_receiver(capsys: pytest.CaptureFixture[st
 
 
 def test_the_rest_of_the_configuration_survives_the_write(tmp_path: Path) -> None:
-    configure_command("10.0.0.50")
-    saved = (tmp_path / "config.json").read_text(encoding="utf-8")
+    """Запись адреса не трогает ключи, которых сценарий настройки не знает.
 
-    assert "hls_readrate" in saved, "конфиг пишется целиком, а не одним срезом сценария"
+    🔴 Проба идёт по ЗАСЕЯННОМУ файлу. Прежняя спрашивала, есть ли в файле
+    ``hls_readrate`` после записи в пустоту, и не отличала «ключ уцелел» от «запись
+    вморозила в файл умолчание, которого человек не называл» (TC-669): зеленела на
+    обоих. Засеянный файл различает их - чужое значение обязано остаться СВОИМ.
+    """
+    foreign = {"token": "7788:AAF-боевой-токен", "hls_readrate": 1.5}
+    (tmp_path / "config.json").write_text(json.dumps(foreign), encoding="utf-8")
+
+    configure_command("10.0.0.50")
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+
+    assert saved["tv"] == "10.0.0.50"
+    assert {name: saved.get(name) for name in foreign} == foreign, (
+        "запись адреса стёрла или переписала ключи, которых сценарий не знает"
+    )

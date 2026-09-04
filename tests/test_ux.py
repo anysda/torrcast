@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from pathlib import Path
@@ -68,7 +69,10 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Окружение без Prowlarr, без TorrServer, без systemd — но с полным путём выбора."""
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
-    save_config(Config(tv="10.0.0.50", prowlarr_apikey="ключ", hls_dir=str(tmp_path / "hls")))
+    # Файл настроек пишем НАПРЯМУЮ, а не через `save_config`: `hls_dir` - настройка
+    # машины, её кладёт установщик, и с TC-669 запись настроек её не пишет вовсе.
+    machine = {"tv": "10.0.0.50", "prowlarr_apikey": "ключ", "hls_dir": str(tmp_path / "hls")}
+    (tmp_path / "config.json").write_text(json.dumps(machine), encoding="utf-8")
     composition.use_indexers(monkeypatch, _FakeProwlarr)
     composition.use_engines(monkeypatch, _FakeTorrServer)
     composition.use_prober(
