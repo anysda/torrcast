@@ -69,5 +69,5 @@ def test_the_forced_key_frames_stand_just_before_the_grid_borders() -> None:
     for slot, point in enumerate(asked):
         gap = lines.start(slot) - point
         assert gap == pytest.approx(0.02, abs=5e-4), "ровно допуск муксера, ни больше ни меньше"
-    assert "-level" in args and args[args.index("-level") + 1] == "4.1"
+    assert "-level" not in args, "уровень не задаётся: его пишет сам x264"
     assert "-profile:v" not in args, "потолок профиля не задаётся: он ничего не включает"

@@ -9,12 +9,15 @@ def encode_args(
     mbit: float,
     maxrate: float,
     bufsize: float,
-    level: str,
     keyframes: Iterable[float],
     filters: str = "",
     hdr: bool = False,
 ) -> list[str]:
-    """Собрать прежние параметры x264 и преобразования цвета."""
+    """Собрать прежние параметры x264 и преобразования цвета.
+
+    Уровень тут НЕ задаётся вовсе: его пишет сам x264 по потоку, который получился
+    (:meth:`torrcast.adapters.recode.encode.Encode.args`).
+    """
     keys = ",".join(f"{point:.3f}" for point in keyframes)
     video = [
         "-c:v",
@@ -29,8 +32,6 @@ def encode_args(
         f"{bufsize:.2f}M",
         "-pix_fmt",
         "yuv420p",
-        "-level",
-        level,
         "-sc_threshold",
         "0",
         "-force_key_frames",

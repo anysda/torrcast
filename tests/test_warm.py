@@ -1120,11 +1120,20 @@ def test_an_undecodable_codec_still_recodes_both_the_show_and_the_warming(tmp_pa
 def test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded(
     clip: str, tmp_path: Path
 ) -> None:
-    """Настоящий прогон: SPS прогретых кусков совпадает с SPS копии ПОБАЙТОВО.
+    """Настоящий прогон: SPS ВСЕХ прогретых кусков совпадает с SPS копии ПОБАЙТОВО.
 
     Копия - это исходник как есть, поэтому сравнение идёт с куском, упакованным тем же
-    ``-c:v copy``, каким его кладёт живая упаковка. Тяжёлый кусок - единственное место,
-    где SPS меняется, и меняется он ровно там же и в живом показе.
+    ``-c:v copy``, каким его кладёт живая упаковка.
+
+    🔴 Тяжёлый кусок included, и это главное в тесте (TC-871). Прежде он был единственным
+    местом, где SPS расходился с соседями, и расхождение считалось признаком перекода.
+    Признак оказался самим дефектом: набор параметров переопределяется под теми же id,
+    приёмник посреди прогретой ленты получает объявление другого потока и роняет разбор
+    насовсем. Лента обязана быть однородной ЦЕЛИКОМ - об этом и её название.
+
+    Перекод же доказывается тем, чем его и надо доказывать, - содержимым: тяжёлый кусок
+    весит заметно меньше своей копии, потому что цель у него ниже. Признак «SPS другой»
+    для этого не годился никогда: он мерил объявление, а не работу.
     """
     from torrcast.adapters.recode.encode import Encode
 
@@ -1146,22 +1155,29 @@ def test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded(
     # Эталон - кусок живой упаковки того же места, снятый тем же кодом.
     live = tmp_path / "live"
     packer = Packer.start(
-        ffmpeg_pack_command(clip, 0, str(live / "run"), grid, 0, grid.start(0), until=0),
-        live, live / "run", 0, last=0,
+        ffmpeg_pack_command(clip, 0, str(live / "run"), grid, 0, grid.start(0), until=spot),
+        live, live / "run", 0, last=spot,
     )  # fmt: skip
     deadline = time.monotonic() + 60
-    while packer.edge < 0 and time.monotonic() < deadline:
+    while packer.edge < spot and time.monotonic() < deadline:
         packer.publish()
         time.sleep(0.2)
     packer.stop(keep_files=True, reason="эталон снят")
     copied = _sps(live / segment_name(0))
 
-    plain = [s for s in range(grid.count) if s != spot]
-    for slot in plain:
+    for slot in range(grid.count):
         assert _sps(vault.path(slot)) == copied, (
-            f"прогретый {segment_name(slot)} закодирован не так, как его кладёт упаковка"
+            f"прогретый {segment_name(slot)} объявляет приёмнику не тот поток, "
+            "что его соседи - ровно так показ и умирал на стыке"
         )
-    assert _sps(vault.path(spot)) != copied, "тяжёлый кусок не перекодирован"
+
+    # Перекод доказывается работой, а не объявлением: цель у тяжёлого куска ниже, и
+    # весит он заметно меньше той же секунды, уложенной копией.
+    piece = vault.path(spot).stat().st_size
+    same_by_copy = (live / segment_name(spot)).stat().st_size
+    assert piece < same_by_copy * 0.9, (
+        f"тяжёлый кусок не перекодирован: {piece} байт против {same_by_copy} у копии"
+    )
 
 
 # --- TC-124: прогрев обязан заходить туда же, куда заходит живая упаковка -------

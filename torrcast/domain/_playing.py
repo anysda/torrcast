@@ -104,8 +104,8 @@ class _Playing:
     #:
     #: Ноль - кадр не спрашивали (записи прежних версий). Такая запись своё число
     #: получает на первом же продолжении (:func:`torrcast.usecases.episode_duration._duration`) -
-    #: тем же одним ffprobe, что и глубину цвета: без него 4К уезжало бы в поток с уровнем «4.1»
-    #: (:func:`torrcast.adapters.recode.level_for`, TC-251).
+    #: тем же одним ffprobe, что и глубину цвета: без него 4К уезжало бы на приёмник
+    #: неужатым, во весь свой кадр (:attr:`Encode.ceiling`, TC-251).
     frame: int = 0
     #: Картинка в HDR по паспорту ffprobe (:attr:`torrcast.domain.media.Media.hdr`): её при
     #: сплошном перекоде надо ещё и привести к SDR (:attr:`Config.recode_tonemap`).

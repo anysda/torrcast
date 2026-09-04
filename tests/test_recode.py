@@ -14,7 +14,6 @@ import pytest
 from tests.fakes import composition
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN
-from torrcast.adapters.recode.level_for import level_for
 from torrcast.adapters.recode.pace import COPY_TOLL, Pace
 from torrcast.adapters.recode.preset_for import DEADLINE_MARGIN, REALTIME, preset_for
 from torrcast.adapters.recode.presets import PRESETS
@@ -602,6 +601,63 @@ def test_the_fast_preset_really_sends_constrained_baseline(clip, tmp_path) -> No
     assert fields.get("entropy_coding_mode_flag") == "0", "включился CABAC - это другой поток"
     # ffprobe про refs врёт всем файлам (это поле декодера), настоящее число - из SPS.
     assert fields.get("max_num_ref_frames") == "1", "выросло опорных кадров - вырос и DPB"
+
+
+def _level_idc(path: str) -> str:
+    """``level_idc`` из первого SPS потока - то, что читает декодер приёмника."""
+    trace = subprocess.run(
+        ["ffmpeg", "-v", "trace", "-i", path, "-c", "copy", "-bsf:v", "trace_headers",
+         "-f", "null", "-"],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    for line in trace.stderr.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[-2] == "=" and "level_idc" in parts:
+            return parts[-1]
+    return ""
+
+
+@pytest.mark.ffmpeg
+def test_a_spot_recode_declares_the_same_level_as_the_copies_around_it(clip, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """🔴 TC-871: кусок посреди прогретой ленты объявляет тот же уровень, что и соседи.
+
+    Улика с приставки (31-08-2026, слот 21 между копиями 20 и 22 на живой раздаче): копии
+    объявляли ``level_idc=31``, а точечный перекод - ``41``. Набор параметров при этом
+    переопределяется под теми же id, то есть посреди ленты декодеру объявляют другой
+    поток; приёмник печатал ``max_dec_frame_buffering(4) is less than DPB size(9)``,
+    ронял разбор потока и больше не поднимался - зритель оставался перед чёрным экраном.
+
+    Сравнивается РАВЕНСТВО, а не число. Правильный уровень знает только кодировщик: он
+    складывается из кадра, частоты, числа опорных кадров и битрейта разом, и считает его
+    x264 по потоку, который у него получился. Своё число мы называть не вправе - прежняя
+    таблица отвечала «4.1» и на 720p, и на 1080p, так что и подставленный кадр этот кусок
+    не спас бы. На другой сборке ffmpeg оба числа сменятся вместе, и тест это переживёт.
+
+    Слева нарочно ТОЧЕЧНЫЙ перекод, без кадра и без потолка: именно он ходит между
+    копиями, и именно до него ``frame`` не доезжал. Справа - потоковая копия того же
+    источника, ровно то, что лежит вокруг него на полке прогретого.
+    """
+    bsfs = subprocess.run(["ffmpeg", "-hide_banner", "-bsfs"], capture_output=True, text=True)
+    if "trace_headers" not in bsfs.stdout:
+        pytest.skip("ffmpeg собран без trace_headers - SPS не разобрать")
+    neighbour = tmp_path / "copy.ts"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", clip, "-t", "2",
+         "-c:v", "copy", "-an", str(neighbour)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    spot = tmp_path / "recode.ts"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", clip, "-t", "2",
+         *Encode(preset="veryfast", mbit=9.0).args(_grid(), 0, 1), "-an", str(spot)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    around, piece = _level_idc(str(neighbour)), _level_idc(str(spot))
+    assert around, "уровень соседней копии не прочитан - мерить нечем"
+    assert piece == around, (
+        f"перекод объявил уровень {piece}, а копии вокруг него - {around}: "
+        "посреди ленты декодеру объявлен другой поток"
+    )
 
 
 def test_the_deadline_is_the_packer_not_the_playhead(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -1468,27 +1524,27 @@ def test_a_frame_above_the_receivers_ceiling_is_scaled_down_instead_of_refused()
     assert recode_note("hevc 10 bit") == "video hevc 10 bit - recoding it whole on the fly"
 
 
-def test_the_level_in_the_stream_matches_the_frame_that_actually_leaves() -> None:
-    """🔴 TC-224: уровень считается от кадра, а не пишется строкой.
+def test_the_level_in_the_stream_is_left_to_the_encoder_on_every_path() -> None:
+    """🔴 TC-224 и TC-871: уровень в потоке пишет x264, а не строка в наших аргументах.
 
-    Уровень - обещание декодеру «кадр не больше такого-то», и меряется оно в макроблоках
-    16x16. У 4.1 их 8192: 1080p (120x68 = 8160) влезает, 2160p (240x135 = 32400) больше
-    вчетверо. Прибитая строка «4.1» на 4К-кадре была прямым враньём в поток и держалась
-    ровно на том, что 4К до кодировщика не доходило.
+    Уровень - обещание декодеру про размер буфера кадров, и складывается оно из кадра,
+    частоты, числа опорных кадров и битрейта разом. Считая его по одному кадру, мы
+    называли в SPS одно, а в потоке лежало другое. Дороже всего это стоило точечному
+    перекоду: кадр до его аргументов не доезжал вовсе, кусок посреди прогретой ленты
+    объявлял «4.1» между соседними копиями с 3.1, и приставка роняла на нём разбор потока.
+
+    Проверяются все три пути разом - точечный, ужатый и неужатый: прежняя таблица
+    отвечала «4.1» и на 720p, и на 1080p, так что подставленный кадр этот кусок не спас
+    бы. Правильного числа у нас нет и быть не может; есть у кодировщика.
     """
     from torrcast.domain.profile import CAUTIOUS
 
-    assert level_for(1080) == "4.1", "1080p влезает в 4.1 - на нём не меняется ничего"
-    assert level_for(720) == "4.1", "ниже 4.1 не опускаемся: уровень потолок, а не заявка"
-    assert level_for(0) == "4.1", "кадра не спрашивали - прежнее поведение"
-    assert level_for(2160) == "5.1", "32400 макроблоков - это уже 5.1, и врать тут нечем"
-
-    # Верно по построению, а не по совпадению: наружу уходит ужатый кадр, и уровень
-    # считается от него же. Приёмник с другим потолком получит свой честный уровень.
+    spot = Encode(preset="veryfast", mbit=9.0)
+    assert "-level" not in spot.args(_grid(), 0, 2), "точечный перекод уровень не называет"
     scaled = Encode(preset=FULL_PRESET, mbit=9.0, frame=2160, ceiling=CAUTIOUS.recode_frame)
-    assert "4.1" in scaled.args(_grid(), 0, 2), "ужали до 1080p - 4.1 стал честным"
+    assert "-level" not in scaled.args(_grid(), 0, 2), "ужатый сплошной - тоже"
     huge = Encode(preset=FULL_PRESET, mbit=9.0, frame=2160, ceiling=2160)
-    assert not huge.scaled and "5.1" in huge.args(_grid(), 0, 2), "не ужали - назвали как есть"
+    assert not huge.scaled and "-level" not in huge.args(_grid(), 0, 2), "и неужатый тоже"
 
 
 def test_the_tonemap_is_a_conversion_not_a_relabel_and_it_is_measured() -> None:
