@@ -136,22 +136,29 @@ def _picture_ids_from_lines(
 
     Полный индекс нужен паспорту, но меню спрашивает считанные имена. Строить ради них
     словарь из сотен тысяч строк стоило больше бюджета списка; линейный проход сравнивает
-    сырые прокатные имена и разбирает только совпавшие строки.
+    имена одним правилом с остальным разбором и трогает только совпавшие строки.
+
+    🔴 Под одним именем спрашивают НЕСКОЛЬКО картин: у списка находок «Паразиты» приезжают
+    и 1999-го, и 2004-го, и 2016-го года. Пока имя было ключом словаря, из четырёх тёзок
+    до сверки доживала одна, а трём остальным карта отвечала «не знаю» - молча.
+
+    🔴 Имена сводятся :func:`~torrcast.domain.slugify.slugify`, а не сравниваются как есть:
+    у «Рерберг и Тарковский: Обратная сторона "Сталкера"» выгрузка пишет то же имя точкой
+    и кавычками-ёлочками, и точное сравнение теряло картину, известную нам обоим.
     """
-    wanted = {title.casefold(): (title, year, kind) for title, year, kind in pictures}
+    wanted: dict[str, list[tuple[str, int | None, str]]] = {}
+    for picture in pictures:
+        wanted.setdefault(slugify(picture[0]), []).append(picture)
     matched: dict[tuple[str, int | None], set[str]] = {}
     for line in lines:
         fields = line.rstrip("\n").split("\t")
         name, tconst, imdb_kind, _original, raw_year = [*fields, "", "", "", "", ""][:5]
-        picture = wanted.get(name.casefold())
-        if picture is None:
-            continue
-        title, year, kind = picture
-        if (
-            year is not None
-            and raw_year == str(year)
-            and (imdb_kind in _TV_KINDS) == (kind == "tv")
-            and tconst
-        ):
-            matched.setdefault((title, year), set()).add(tconst)
+        for title, year, kind in wanted.get(slugify(name), ()):
+            if (
+                year is not None
+                and raw_year == str(year)
+                and (imdb_kind in _TV_KINDS) == (kind == "tv")
+                and tconst
+            ):
+                matched.setdefault((title, year), set()).add(tconst)
     return {key: next(iter(ids)) for key, ids in matched.items() if len(ids) == 1}

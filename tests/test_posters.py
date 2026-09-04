@@ -10,11 +10,13 @@ from pathlib import Path
 
 import pytest
 
+from hass.both_posters import BothPosters
 from hass.hit_posters import HitPosters
 from hass.poster_shelf import PosterShelf
 from hass.posters import ROUTE, Posters
 from tests.test_hit_posters import FakeSource
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
+from torrcast.adapters.wiki.imdb_poster import ImdbPoster
 from torrcast.adapters.wiki.wiki_poster import WikiPoster
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
@@ -399,7 +401,7 @@ def test_the_last_pictures_stay_and_the_oldest_leaves(tmp_path: Path) -> None:
     assert made.read(digests[0]) is None, "самая старая картинка уступила место новым"
 
 
-def test_by_default_the_poster_is_looked_for_in_the_english_wikipedia() -> None:
+def test_by_default_the_poster_is_looked_for_in_both_real_sources() -> None:
     """🔴 Собранный по умолчанию источник - настоящий, а не двойник соседней пробы.
 
     Каждая проверка выше подставляет свой источник, и подмени сборка настоящий поход на
@@ -413,8 +415,11 @@ def test_by_default_the_poster_is_looked_for_in_the_english_wikipedia() -> None:
     found = made._poster
     source = getattr(found, "__self__", None)
 
-    assert isinstance(source, WikiPoster), "по умолчанию за постером идёт Википедия"
+    assert isinstance(source, BothPosters), "по умолчанию за постером идут оба источника"
+    assert isinstance(source.first, WikiPoster), "первой отвечает Википедия"
+    assert isinstance(source.second, ImdbPoster), "молчащих добирает IMDb"
     assert found.__name__ == "poster"
-    assert source.client is FACTS.client
-    assert source.files is FACTS.client
+    assert source.first.client is FACTS.client
+    assert source.first.files is FACTS.client
+    assert source.second.client is FACTS.client
     assert made._frame is frame_shot, "запасной путь тоже собран настоящим"

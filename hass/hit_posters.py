@@ -16,7 +16,7 @@
 (:class:`hass.posters.Posters`), и это теперь честно: правило сверки года у них одно.
 
 Промах откладывает следующий поход за той же картиной (:data:`_RETRY`), иначе список из
-десяти находок стучал бы по Википедии на каждый заход в обзор.
+десяти находок стучал бы по источникам картинок на каждый заход в обзор.
 """
 
 from __future__ import annotations
@@ -27,18 +27,17 @@ from collections.abc import Callable, Sequence
 from typing import Final
 
 from hass.hit_ask import _about, _name
+from hass.picture_source import picture_source
 from hass.picture_type import picture_type
 from hass.poster_shelf import PosterShelf
 from hass.poster_source import PosterSource
-from torrcast.adapters.wiki.wiki_poster import WikiPoster
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.json_value import JsonValue
-from torrcast.runtime.facts_wiring import FACTS
 
 #: Поле записи выдачи, в котором едет имя картинки. Его читает
 #: :func:`custom_components.torrcast.browse.search_media`; нет поля - нет и картинки.
 FIELD: Final = "poster"
-#: Сколько ждём Википедию на один запрос, секунды.
+#: Сколько ждём источник картинок на один запрос, секунды.
 _TIMEOUT: Final = 8.0
 #: Через сколько секунд после промаха спрашиваем о той же картине снова.
 _RETRY: Final = 300.0
@@ -166,7 +165,7 @@ class HitPosters:
 
     def _source_of(self) -> PosterSource:
         if self._source is None:
-            self._source = WikiPoster(FACTS.client, FACTS.client)
+            self._source = picture_source()
         return self._source
 
     def _keep(self, name: str, body: bytes) -> None:

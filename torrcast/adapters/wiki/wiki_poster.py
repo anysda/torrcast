@@ -17,20 +17,14 @@
 
 from __future__ import annotations
 
-import threading
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
-from typing import Final
 
+from torrcast.adapters.wiki.poster_bodies import PosterBodies
 from torrcast.adapters.wiki.poster_files import PosterFiles
 from torrcast.adapters.wiki.poster_pages import PosterPages
 from torrcast.domain.facts.ask import Ask
 from torrcast.ports.bytes_client import BytesClient
 from torrcast.ports.json_client import JsonClient
-
-#: Сколько картинок качается разом. Сами байты - самый долгий шаг из всех: запросов на
-#: список уходит полдесятка, а картинок десяток, и подряд они складывались бы в секунды.
-_LANES: Final = 4
 
 
 class WikiPoster:
@@ -54,6 +48,7 @@ class WikiPoster:
         self.files = files
         self.pages = PosterPages(client)
         self.images = PosterFiles(client)
+        self.files_of = PosterBodies(files)
 
     def poster(self, ask: Ask, timeout: float) -> bytes | None:
         """Байты постера одной картины; постера у неё нет - ``None``.
@@ -92,53 +87,5 @@ class WikiPoster:
         }
 
     def bodies(self, wanted: dict[Ask, list[str]], timeout: float) -> dict[Ask, bytes]:
-        """Байты постеров по названным адресам; ни один не отдал байт - картины нет.
-
-        Разбора тут больше нет вовсе: адреса назвал приговор, и остаётся их скачать.
-        Адреса пробуются по порядку, а не один первый: приговор назвал их несколько
-        именно затем, чтобы обрыв на одной картинке не оставлял плитку битой. Один и
-        тот же адрес качается ОДИН раз - у сборника и его первой части постер общий.
-        """
-        asks = [ask for ask, one in wanted.items() if one]
-        if not asks:
-            return {}
-        loaded: dict[str, bytes | None] = {}
-        guard = threading.Lock()
-        with ThreadPoolExecutor(max_workers=_LANES) as lanes:
-            got = list(
-                lanes.map(lambda ask: self._first(wanted[ask], timeout, loaded, guard), asks)
-            )
-        return {ask: body for ask, body in zip(asks, got, strict=True) if body is not None}
-
-    def _first(
-        self,
-        addresses: Sequence[str],
-        timeout: float,
-        loaded: dict[str, bytes | None],
-        guard: threading.Lock,
-    ) -> bytes | None:
-        """Байты первого адреса, который их отдал; молчат все - ``None``."""
-        for address in addresses:
-            with guard:
-                seen = address in loaded
-                body = loaded.get(address)
-            if not seen:
-                body = self._body(address, timeout)
-                with guard:
-                    loaded[address] = body
-            if body:
-                return body
-        return None
-
-    def _body(self, address: str, timeout: float) -> bytes | None:
-        """Скачать один постер; сеть промолчала - пустота, а не исключение.
-
-        Пустота тут честна: адрес назван источником минуту назад, и обрыв на нём - это
-        именно «этой картинки сейчас нет», а не «спрашивать было нечего». Отличать 429
-        от обрыва зовущему всё равно нечем, а вот приговор о СТАТЬЕ исключение
-        по-прежнему оставляет: он-то и решает, давать ли имя картинке.
-        """
-        try:
-            return self.files.fetch(address, timeout) if address else None
-        except Exception:
-            return None
+        """Байты постеров по названным адресам; шаг общий у всех источников картинок."""
+        return self.files_of.bodies(wanted, timeout)

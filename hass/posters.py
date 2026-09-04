@@ -9,27 +9,26 @@ from collections.abc import Callable
 from typing import Final
 
 from hass.hit_posters import hits
+from hass.picture_source import picture_source
 from hass.picture_type import picture_type
 from hass.poster_find import poster_find
 from hass.poster_lookup import _manifest, _poster_asks
 from hass.poster_name import poster_name
 from hass.poster_shelf import PosterShelf
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
-from torrcast.adapters.wiki.wiki_poster import WikiPoster
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
-from torrcast.runtime.facts_wiring import FACTS
 
 #: Начало адреса картинки на серве. Наружу за ней Home Assistant не ходит НИКОГДА:
 #: постер скачивает себе серв, а карточке отдаёт своим маршрутом в локальной сети.
 #: Иначе картинку тянул бы клиент - через ту самую сеть, где режут по SNI.
 ROUTE: Final = "/api/poster/"
-#: Сколько ждём Википедию на один запрос, секунды.
+#: Сколько ждём источник картинок на один запрос, секунды.
 _TIMEOUT: Final = 8.0
 #: Через сколько секунд после промаха пробуем снова. Промах бывает и настоящим (статьи
 #: нет), и временным (429, сеть легла), а различить их отсюда нечем. Поэтому не «никогда
 #: больше», но и не «на каждый опрос»: карточку опрашивают раз в несколько секунд, и без
-#: этой отсрочки промах превратился бы в ровный стук по Википедии на весь показ.
+#: этой отсрочки промах превратился бы в ровный стук по источникам на весь показ.
 _RETRY: Final = 300.0
 #: Сколько картинок держим наготове. Больше одной - чтобы карточка не осталась без
 #: байтов ровно в тот миг, когда показ уже сменился, а Home Assistant ещё тянет прошлую.
@@ -41,10 +40,10 @@ _Stream = Callable[[], str]
 
 
 class Posters:
-    """Картинка того, что играет: постер из Википедии, а не нашлось - кадр из показа.
+    """Картинка того, что играет: постер из сети, а не нашлось - кадр из показа.
 
     Работа идёт ФОНОМ, а снимок отвечает тем, что уже готово. Снимок серва спрашивают
-    раз в несколько секунд, и ждать в нём похода в Википедию нельзя: карточка плеера
+    раз в несколько секунд, и ждать в нём похода в сеть нельзя: карточка плеера
     замерла бы на всё время ожидания, а вместе с ней замерли бы полоса времени и пульт.
     Поэтому первый опрос после начала показа отвечает пустотой, а картинка приезжает
     следующим - секундой позже.
@@ -61,7 +60,7 @@ class Posters:
         shelf: PosterShelf | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
-        source = WikiPoster(FACTS.client, FACTS.client)
+        source = picture_source()
         self._poster = poster or source.poster
         self._frame = frame
         self._shelf = PosterShelf() if shelf is None else shelf
@@ -132,7 +131,7 @@ class Posters:
                 self._made.pop(next(iter(self._made)))
 
     def _found(self, shown: PlaybackSnapshot) -> bytes | None:
-        """Постер: сперва с полки, потом из Википедии. Сеть не ответила - постера нет.
+        """Постер: сперва с полки, потом из сети. Источники молчат - постера нет.
 
         Сам поход - общий с картинками списка находок (:func:`hass.poster_find.poster_find`):
         одно правило на обоих, иначе под одним именем приехали бы две разных картинки.
