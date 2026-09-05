@@ -25,7 +25,6 @@ from torrcast.adapters.chromecast.profile_detector import ProfileDetector, detec
 from torrcast.adapters.chromecast.scan.device import Device
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.args import Args
-from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
@@ -1079,13 +1078,19 @@ def geass_pools() -> list[dict[str, Any]]:
 
 
 def test_щуп_привязки_мерит_оба_круга_и_сходится_со_щупом_добора() -> None:
-    """Бесстрочная латинская половина привязана к 2006 году и играет вместо спин-оффа.
+    """Первый сезон сведён в ОДНУ картину и играет вместо спин-оффа.
 
     Добор привозит спрошенный первый сезон без года и датированный спин-офф 2024-го;
-    гейт счёта картин этот добор отвергает, и щуп мерит контрфакт. Привязка по
-    разобранному оригиналу ставит бесстрочный сезон впереди спин-оффа, и по Enter идёт
-    он, а честная строка называет его и верную причину. Сверка со щупом добора
-    (``mismatches``) пуста: иначе замер снят не с того показа.
+    гейт счёта картин этот добор отвергает, и щуп мерит контрфакт.
+
+    🔴 TC-854. Русская раздача 2006 года сезона в имени не несёт, и раньше разбор звал
+    её фильмом: картина разъезжалась надвое - бесстрочный сериал на 60 сид и датированный
+    «фильм» на 2, - а честная строка извинялась за пропуск словами «спросили серию, а это
+    другой тип». Вид, взятый у соседки по той же выдаче
+    (:func:`~torrcast.domain.sibling_kind.sibling_kind`), сводит половины в одну картину:
+    канонические имя и год, оба релиза в очереди, лучший по сидам первым. Извиняться
+    стало не за что, и строка молчит. Сверка со щупом добора (``mismatches``) пуста:
+    иначе замер снят не с того показа.
     """
     meter = probe("anchorprobe")
     records = geass_pools()
@@ -1112,13 +1117,13 @@ def test_щуп_привязки_мерит_оба_круга_и_сходитс�
     assert not mismatches, f"счёт со щупом добора не сошёлся: {mismatches}"
     by_scope = {row.scope: row for row in rows}
     widened = by_scope["добор"]
-    assert widened.played == ["Code Geass: Lelouch of the Rebellion", None, "tv"], (
+    assert widened.played == ["Код Гиас: Восставший Лелуш", 2006, "tv"], (
         "по Enter обязан идти спрошенный первый сезон, а не датированный спин-офф"
     )
-    assert widened.anchor == 2006 and widened.verdict == meter.SAME
-    note = widened.guards["default_note"]
-    assert "Code Geass: Lelouch of the Rebellion" in note and "Dakkan" not in note
-    assert phrase("choice.why_other_kind") in note, "строка обязана называть верную причину"
+    assert widened.verdict == meter.SAME
+    # Привязка тут больше не нужна: год у картины СВОЙ, а не занятый у соседки.
+    assert widened.anchor is None
+    assert widened.guards["default_note"] == "", "сводить половины молча: объяснять нечего"
 
 
 def dead_swarm_pool() -> dict[str, Any]:
