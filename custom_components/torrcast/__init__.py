@@ -6,7 +6,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_loaded_integration
 
-from .coordinator import TorrcastConfigEntry, TorrcastCoordinator
+from .coordinator import Coordinator, TorrcastConfigEntry
 
 PLATFORMS: list[Platform] = [Platform.MEDIA_PLAYER]
 
@@ -15,7 +15,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TorrcastConfigEntry) -> 
     """Builds the coordinator, gets the first snapshot and hands it to the platform."""
     integration = async_get_loaded_integration(hass, entry.domain)
     version = None if integration.version is None else str(integration.version)
-    coordinator = TorrcastCoordinator(
+    coordinator = Coordinator(
         hass,
         entry,
         entry.data[CONF_HOST],
@@ -30,4 +30,5 @@ async def async_setup_entry(hass: HomeAssistant, entry: TorrcastConfigEntry) -> 
 
 async def async_unload_entry(hass: HomeAssistant, entry: TorrcastConfigEntry) -> bool:
     """Takes the player down; the coordinator dies with the entry itself."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded: bool = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    return unloaded

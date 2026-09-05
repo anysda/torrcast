@@ -5,18 +5,17 @@ from __future__ import annotations
 from ipaddress import ip_address
 from typing import Any
 
-import pytest
-from homeassistant.config_entries import (  # type: ignore[import-not-found]
+from homeassistant.config_entries import (
     SOURCE_USER,
     SOURCE_ZEROCONF,
 )
-from homeassistant.core import HomeAssistant  # type: ignore[import-not-found]
-from homeassistant.data_entry_flow import FlowResultType  # type: ignore[import-not-found]
-from homeassistant.helpers.service_info.zeroconf import (  # type: ignore[import-not-found]
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.service_info.zeroconf import (
     ZeroconfServiceInfo,
 )
 
-from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, mount, snapshot
+from tests.hass_integration.conftest import BASE, DOMAIN, HOST, PORT, snapshot
 
 ANNOUNCED = ZeroconfServiceInfo(
     ip_address=ip_address(HOST),
@@ -27,13 +26,6 @@ ANNOUNCED = ZeroconfServiceInfo(
     name="torrcast._torrcast._tcp.local.",
     properties={"version": "0.99.99", "tv": "TV"},
 )
-
-
-@pytest.fixture(autouse=True)
-def _custom_integrations(request: Any) -> None:
-    """Даёт Home Assistant увидеть `custom_components/torrcast` в дереве репозитория."""
-    request.getfixturevalue("enable_custom_integrations")
-    mount()
 
 
 async def test_zeroconf_flow_writes_the_entry(hass: HomeAssistant, aioclient_mock: Any) -> None:

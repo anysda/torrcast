@@ -99,8 +99,8 @@ def test_idle_does_not_answer_with_the_picture_that_already_ended() -> None:
     assert body["last_error"] == "ничего не нашлось"
     # В простое про следующую серию сказать нечего: стрелка ни явно есть, ни явно
     # снята - интеграция читает ``null`` как «не гасить её молча между показами»
-    # (:mod:`custom_components.torrcast.media_player`), даже если сам мост уже знает
-    # ответ (тут - ``True``).
+    # (:meth:`custom_components.torrcast.player.Player.supported_features`), даже если
+    # сам мост уже знает ответ (тут - ``True``).
     assert body["has_next"] is None
 
 

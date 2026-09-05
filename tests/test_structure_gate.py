@@ -16,6 +16,36 @@ import structure_gate
 STRUCTURE_GATE_SCRIPT = Path(__file__).parents[1] / "scripts" / "structure_gate.py"
 
 
+@pytest.fixture(scope="module")
+def live_tree() -> list[structure_gate.Module]:
+    """Разбор дерева репозитория, снятый ОДИН раз на весь файл.
+
+    Разбор живого дерева стоит секунды, а спрашивают о нём тут несколько проб. Своим
+    разбором на каждую они отнимали у соседних процессов прогона столько машины, что
+    сторож утёкших потоков ронял по выдержке чужие, ни в чём не виноватые тесты: прибор
+    начинал двигать то, что мерит. От общего разбора мера не меняется, платится он раз.
+    """
+    return structure_gate._load_modules(Path(structure_gate.__file__).parents[1])
+
+
+@pytest.fixture(scope="module")
+def live_violations(live_tree: list[structure_gate.Module]) -> list[structure_gate.Violation]:
+    """Нарушения ТОЛЬКО названных описью файлов, снятые без самой описи.
+
+    Опись снята намеренно: с ней вопрос «а прячет ли эта строка хоть что-нибудь» задать
+    нечем - спрятанное на то и спрятано. Спрашивается при этом не всё дерево, а ровно
+    названные файлы: чистоту всего дерева проверяет своей стадией сам гейт
+    (`scripts/structure-gate --strict`), а лишний проход по дереву внутри прогона занимал
+    целое ядро на десяток секунд и ронял по выдержке сторожа чужих, ни в чём не виноватых
+    соседей - прибор начинал двигать то, что мерит.
+    """
+    root = Path(structure_gate.__file__).parents[1]
+    named = [item for item in live_tree if item.relative in structure_gate.HOME_ASSISTANT_SHAPE]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(structure_gate, "HOME_ASSISTANT_SHAPE", {})
+        return structure_gate.check(root, named)
+
+
 def _tree(tmp_path: Path, source: str = '"""Модуль."""\n\nclass Good:\n    pass\n') -> Path:
     (tmp_path / "torrcast").mkdir()
     (tmp_path / "tests").mkdir()
@@ -817,7 +847,9 @@ def test_a_zero_proven_on_an_empty_set_turns_red(tmp_path: Path) -> None:
     assert any(item.startswith("под мерой файлов 1, а мест не найдено") for item in messages)
 
 
-def test_the_rule_proves_its_zero_on_the_whole_live_tree() -> None:
+def test_the_rule_proves_its_zero_on_the_whole_live_tree(
+    live_tree: list[structure_gate.Module],
+) -> None:
     """Охват правила равен дереву на диске, а не тому, до чего оно случайно дошло.
 
     Числа берутся с двух сторон: файлы считаются прямо на диске, места - разбором.
@@ -826,11 +858,10 @@ def test_the_rule_proves_its_zero_on_the_whole_live_tree() -> None:
     :func:`scripts.structure_gate._load_modules`: разойдись они - охват молча съёжится.
     """
     root = Path(structure_gate.__file__).parents[1]
-    modules = structure_gate._load_modules(root)
-    measured, seen, places = structure_gate.translation_volume(modules)
+    measured, seen, places = structure_gate.translation_volume(live_tree)
     on_disk = [
         path.relative_to(root).as_posix()
-        for folder in ("torrcast", "tgbot", "hass")
+        for folder in ("torrcast", "tgbot", "hass", "custom_components")
         for path in (root / folder).rglob("*.py")
     ]
     on_disk += [name for name in structure_gate.SCRIPTS if (root / name).exists()]
@@ -841,11 +872,12 @@ def test_the_rule_proves_its_zero_on_the_whole_live_tree() -> None:
     assert places == sum(structure_gate.TRANSLATION_DEBT.values())
 
 
-def test_the_sample_cluster_is_clean_on_a_counted_number_of_files() -> None:
+def test_the_sample_cluster_is_clean_on_a_counted_number_of_files(
+    live_tree: list[structure_gate.Module],
+) -> None:
     """Ноль образца назван числом файлов: пустой список тоже даёт ноль нарушений."""
     root = Path(structure_gate.__file__).parents[1]
-    modules = structure_gate._load_modules(root)
-    sample = [item for item in modules if item.relative.startswith("torrcast/usecases/choice/")]
+    sample = [item for item in live_tree if item.relative.startswith("torrcast/usecases/choice/")]
     assert len(sample) == len(list((root / "torrcast" / "usecases" / "choice").rglob("*.py")))
     assert len(sample) > 1
     assert [item.relative for item in sample if structure_gate._spoken_places(item)] == []
@@ -916,3 +948,79 @@ def test_document_rule_is_wired_into_the_entry_point(tmp_path: Path) -> None:
     )
     assert completed.returncode != 0
     assert "README-en.md" in completed.stdout
+
+
+def test_the_integration_of_home_assistant_is_measured_by_the_gate(
+    live_tree: list[structure_gate.Module],
+) -> None:
+    """🔴 TC-1007. Каталог интеграции гейт не собирал вовсе, и его тишина читалась
+    как зелень: правила длины, единицы и зеркала до него не доставали ни одним числом.
+    """
+    root = Path(structure_gate.__file__).parents[1]
+    measured = {item.relative for item in live_tree}
+    on_disk = {
+        path.relative_to(root).as_posix() for path in (root / "custom_components").rglob("*.py")
+    }
+
+    assert on_disk, "каталога интеграции нет на диске - мерить нечего, проба пуста"
+    assert on_disk <= measured
+
+
+def test_the_mirror_of_the_integration_is_looked_for_where_it_lives(
+    live_tree: list[structure_gate.Module],
+) -> None:
+    """Зеркала интеграции лежат своим каталогом, а не в `tests/<путь пакета>`.
+
+    Набор интеграции отводится от основного прогона целиком, поэтому вперемешку с
+    остальными тестами он лежать не может. Правило это знает по имени каталога
+    (:data:`structure_gate.MIRRORS`), а не по случайному совпадению путей.
+    """
+    root = Path(structure_gate.__file__).parents[1]
+    modules = {item.relative: item for item in live_tree}
+    asked = structure_gate._mirror(root, modules["custom_components/torrcast/browse.py"])
+
+    assert asked == root / "tests" / "hass_integration" / "test_browse.py"
+
+
+def test_every_shape_taken_by_home_assistant_still_hides_a_live_violation(
+    live_violations: list[structure_gate.Violation],
+) -> None:
+    """🔴 Снятое правило протухает молча: файл переименовали - исключение осталось.
+
+    Проба смотрит опись целиком и спрашивает, что каждая её строка и правда что-то
+    прячет. Пустая строка описи - это уже не исключение, а щель, через которую
+    проедет следующее нарушение того же правила в том же файле.
+    """
+    root = Path(structure_gate.__file__).parents[1]
+    raw = {(item.path, item.rule) for item in live_violations}
+
+    for path, rules in structure_gate.HOME_ASSISTANT_SHAPE.items():
+        assert (root / path).exists(), f"снятое правило висит на пропавшем файле {path}"
+        for rule in rules:
+            assert (path, rule) in raw, f"правило {rule} у {path} снято, а нарушать его нечем"
+
+
+def test_the_shape_taken_by_home_assistant_is_wired_into_check(tmp_path: Path) -> None:
+    """Опись и правда снимает правило, и снимает его в самой :func:`check`.
+
+    Пробы выше сняты с описью ВЫКЛЮЧЕННОЙ, чтобы видеть спрятанное, - значит про саму
+    ручку они не говорят ничего. Тут один и тот же файл проверяется дважды, с описью и
+    без: разойдись ответы - ручка работает, совпади - она декоративна.
+    """
+    home = tmp_path / "custom_components" / "torrcast"
+    home.mkdir(parents=True)
+    (tmp_path / "torrcast").mkdir()
+    body = '"""Точка входа."""\n\n\ndef setup() -> None:\n    pass\n\n\ndef unload() -> None:\n'
+    (home / "__init__.py").write_text(body + "    pass\n" + "# длинновато\n" * 210, "utf-8")
+    where = "custom_components/torrcast/__init__.py"
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(structure_gate, "HOME_ASSISTANT_SHAPE", {})
+        raw = {(item.path, item.rule) for item in structure_gate.check(tmp_path)}
+    kept = {(item.path, item.rule) for item in structure_gate.check(tmp_path)}
+
+    assert {(where, "единица"), (where, "длина")} <= raw, "нарушать нечего - проба пуста"
+    # Снято ровно названное правило: соседнее у того же файла обязано дойти до гейта,
+    # иначе поимённое исключение читалось бы как разрешение этому файлу вообще на всё.
+    assert (where, "единица") not in kept
+    assert (where, "длина") in kept

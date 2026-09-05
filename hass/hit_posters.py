@@ -35,7 +35,7 @@ from torrcast.domain.facts.ask import Ask
 from torrcast.domain.json_value import JsonValue
 
 #: Поле записи выдачи, в котором едет имя картинки. Его читает
-#: :func:`custom_components.torrcast.browse.search_media`; нет поля - нет и картинки.
+#: :func:`custom_components.torrcast.search_media.search_media`; нет поля - нет и картинки.
 FIELD: Final = "poster"
 #: Сколько ждём источник картинок на один запрос, секунды.
 _TIMEOUT: Final = 8.0

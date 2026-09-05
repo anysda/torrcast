@@ -3,42 +3,24 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
-from typing import Any
-from urllib.parse import quote
+from typing import Any, TypeAlias
 
 import aiohttp
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import (
-    DOMAIN,
-    PLAYING,
-    POSTER_REQUEST_TIMEOUT,
-    REQUEST_TIMEOUT,
-    SCAN_INTERVAL_IDLE,
-    SCAN_INTERVAL_SHOWING,
-    SEARCH_REQUEST_TIMEOUT,
-    SHOWING_STATES,
-)
+from .const import DOMAIN, PLAYING, SCAN_INTERVAL_IDLE, SCAN_INTERVAL_SHOWING, SHOWING_STATES
+from .mark_position import mark_position
+from .serve_client import ServeClient
 
 _LOGGER = logging.getLogger(__name__)
 
-#: What the serve answers with 409 and what a person should read instead of the code.
-REFUSALS: dict[str, str] = {
-    "busy": "torrcast is already starting a show",
-    "nothing_playing": "torrcast has nothing on the screen right now",
-    "no_next": "there is no next episode",
-    "no_volume": "the receiver did not answer about its volume",
-}
 
-
-class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+class Coordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Holds the last snapshot of the serve and speaks to it on behalf of the entity."""
 
     def __init__(
@@ -60,10 +42,11 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         #: Version of the integration itself, to be compared with the one of the serve.
         self.integration_version = version
         #: When the bookmark on hand was TAKEN - the point the card counts the slider
-        #: from. Deliberately not "when the answer arrived": see :meth:`_mark_position`.
+        #: from. Deliberately not "when the answer arrived": see
+        #: :func:`custom_components.torrcast.mark_position.mark_position`.
         self.position_at = dt_util.utcnow()
         self._position: float | None = None
-        self._session = async_get_clientsession(hass)
+        self._client = ServeClient(async_get_clientsession(hass), self.base_url)
         self._told_error: str | None = None
         self._told_version = False
 
@@ -73,62 +56,21 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         The log is not spammed on purpose: the base coordinator says the first failure
         out loud and lowers the rest to debug until the serve answers again.
         """
-        snapshot = await self._get_state()
-        self._mark_position(snapshot.get("position"), snapshot.get("state") == PLAYING)
+        try:
+            snapshot = await self._client.state()
+        except (aiohttp.ClientError, TimeoutError, ValueError) as error:
+            raise UpdateFailed(f"{self.base_url} does not answer: {error}") from error
+        self._position, self.position_at = mark_position(
+            snapshot.get("position"),
+            snapshot.get("state") == PLAYING,
+            self._position,
+            self.position_at,
+            dt_util.utcnow(),
+        )
         showing = snapshot.get("state") in SHOWING_STATES
         self.update_interval = SCAN_INTERVAL_SHOWING if showing else SCAN_INTERVAL_IDLE
         self._tell_version(snapshot.get("version"))
         self._tell_error(snapshot.get("last_error"))
-        return snapshot
-
-    def _mark_position(self, raw: Any, playing: bool) -> None:
-        """Moves the slider's origin with the bookmark itself, not with every answer.
-
-        The show writes its bookmark once every ten seconds, the poll asks every five,
-        and the card draws `position + (now - position_at)`. Stamping the arrival of
-        each answer moved the origin under a bookmark that had not moved, so the
-        slider walked forward for five seconds and then fell back to the same place -
-        again and again, for the whole show.
-
-        A repeated place is not a new measurement, so the origin stays where it was.
-        A place that moved forward moves the origin by exactly as much as the bookmark
-        moved, and by no more: that keeps the drawn number continuous across the change,
-        because it gains exactly what the bookmark gained. A bookmark that jumped
-        further ahead than the wall clock went - a seek forward - takes the origin to
-        `now`, which only ever moves the number up.
-
-        The origin is never dragged forward to a floor, and that is the whole of the fix:
-        a floor is the one thing that can make the drawn number fall. A show gains less
-        than a second of picture per second of wall clock whenever the receiver stalls,
-        the origin then lags further behind than any floor allows, and pulling it back up
-        subtracts exactly that lag from what the person is reading (measured on the
-        stand: a bookmark that gained 4 s over 8 s of wall clock threw the counter back
-        by 1.3 s). The lag is not lost either: it is given back the moment the bookmark
-        catches up with the drawn number, and every state other than a running show
-        re-anchors the origin outright - a card that is not playing does not tick, so
-        nothing falls back there.
-        """
-        place = None if raw is None else float(raw)
-        now = dt_util.utcnow()
-        if place is None or not playing or self._position is None or place < self._position:
-            self._position, self.position_at = place, now
-            return
-        if place == self._position:
-            return
-        moved = timedelta(seconds=place - self._position)
-        self._position = place
-        self.position_at = min(now, self.position_at + moved)
-
-    async def _get_state(self) -> dict[str, Any]:
-        try:
-            async with self._session.get(
-                f"{self.base_url}/api/state",
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
-            ) as response:
-                response.raise_for_status()
-                snapshot: dict[str, Any] = await response.json(content_type=None)
-        except (aiohttp.ClientError, TimeoutError, ValueError) as error:
-            raise UpdateFailed(f"{self.base_url} does not answer: {error}") from error
         return snapshot
 
     def _tell_version(self, served: str | None) -> None:
@@ -161,107 +103,36 @@ class TorrcastCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def async_play(self, query: str, pick: int | None = None) -> None:
-        """Asks for a show by the same words a person would type in the terminal.
-
-        ``pick`` names one of the pictures a prior :meth:`async_search` answered with;
-        left out, the serve picks the same way `cast query` would on its own.
-        """
-        body: dict[str, Any] = {"query": query}
-        if pick is not None:
-            body["pick"] = pick
-        await self._post("/api/play", body)
+        """Asks for a show by the same words a person would type in the terminal."""
+        await self._client.play(query, pick)
+        await self.async_request_refresh()
 
     async def async_resume(self) -> None:
-        """Asks for the last thing watched again, the way a bare `cast` does.
-
-        No words go out with it. `/api/play` is the road of a show asked for by name and
-        still turns an empty query down; this is the other question, and the answer to it
-        - which picture, and which second to carry on from - stays the product's, given
-        once for the terminal, the bot and the card alike.
-        """
-        await self._post("/api/resume", None)
+        """Asks for the last thing watched again, the way a bare `cast` does."""
+        await self._client.resume()
+        await self.async_request_refresh()
 
     async def async_search(self, query: str) -> list[dict[str, Any]]:
-        """Asks the serve what it would find for the query, without starting a show.
-
-        Returns the bare ``results`` list of the answer; a refusal of the serve raises
-        the same readable failure a control command would. A search walks out to the
-        indexers, so it waits its own, longer :data:`SEARCH_REQUEST_TIMEOUT` instead of
-        the short :data:`REQUEST_TIMEOUT` a state poll is answered in.
-        """
-        try:
-            async with self._session.post(
-                f"{self.base_url}/api/search",
-                json={"query": query},
-                timeout=aiohttp.ClientTimeout(total=SEARCH_REQUEST_TIMEOUT),
-            ) as response:
-                if response.status == 409:
-                    raise HomeAssistantError(await self._refusal(response))
-                response.raise_for_status()
-                found: dict[str, Any] = await response.json(content_type=None)
-        except (aiohttp.ClientError, TimeoutError, ValueError) as error:
-            raise HomeAssistantError(
-                f"{self.base_url} did not answer the search: {error}"
-            ) from error
-        results = found.get("results")
-        return list(results) if isinstance(results, list) else []
+        """What the serve would find for the query; nothing is started by asking."""
+        return await self._client.search(query)
 
     async def async_poster(self, name: str) -> tuple[bytes | None, str | None]:
-        """The bytes of one hit's poster and its type; nothing found is a bare pair.
-
-        The picture is asked of the serve, never of the site it came from: the serve
-        downloaded it for itself and hands it out on its own route in the local network.
-        A hit whose picture is still being looked for answers slowly rather than empty,
-        so this waits longer than a state poll does (:data:`POSTER_REQUEST_TIMEOUT`).
-        """
-        try:
-            async with self._session.get(
-                f"{self.base_url}/api/poster/{quote(name, safe='')}",
-                timeout=aiohttp.ClientTimeout(total=POSTER_REQUEST_TIMEOUT),
-            ) as response:
-                if response.status != 200:
-                    return None, None
-                return await response.read(), response.headers.get("Content-Type")
-        except (aiohttp.ClientError, TimeoutError):
-            return None, None
+        """The bytes of one hit's poster and its type; nothing found is a bare pair."""
+        return await self._client.poster(name)
 
     async def async_control(self, cmd: str, arg: float | None = None) -> None:
         """Sends one control command; `arg` is absent for `toggle` and `stop`."""
-        body: dict[str, Any] = {"cmd": cmd}
-        if arg is not None:
-            body["arg"] = arg
-        await self._post("/api/control", body)
+        await self._client.control(cmd, arg)
+        await self.async_request_refresh()
 
     async def async_next(self) -> None:
         """Asks for the next episode of the series on the screen."""
-        await self._post("/api/next", None)
-
-    async def _post(self, path: str, body: dict[str, Any] | None) -> None:
-        """Posts a command and turns a refusal of the serve into a readable failure."""
-        try:
-            async with self._session.post(
-                f"{self.base_url}{path}",
-                json=body,
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
-            ) as response:
-                if response.status == 409:
-                    raise HomeAssistantError(await self._refusal(response))
-                response.raise_for_status()
-        except (aiohttp.ClientError, TimeoutError) as error:
-            raise HomeAssistantError(
-                f"{self.base_url} did not take the command: {error}"
-            ) from error
+        await self._client.next_episode()
         await self.async_request_refresh()
-
-    @staticmethod
-    async def _refusal(response: aiohttp.ClientResponse) -> str:
-        try:
-            payload: dict[str, Any] = await response.json(content_type=None)
-        except (aiohttp.ClientError, ValueError):
-            payload = {}
-        named = str(payload.get("error", ""))
-        return REFUSALS.get(named, f"torrcast refused the command: {named or 'no reason given'}")
 
 
 #: The entry carries its own coordinator, so the two are named together.
-TorrcastConfigEntry = ConfigEntry[TorrcastCoordinator]
+#: Псевдоним назван псевдонимом вслух: без Home Assistant в венве `ConfigEntry` для
+#: тайпчека - `Any`, а `X = Any[Y]` он читает как переменную, а не как тип, и все
+#: подписи, где стоит эта запись, тихо перестают что-либо значить.
+TorrcastConfigEntry: TypeAlias = ConfigEntry[Coordinator]

@@ -78,20 +78,50 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "scripts/vulture-whitelist.py" = ["F821", "B018"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["torrcast", "tgbot", "hass"]
+known-first-party = ["torrcast", "tgbot", "hass", "custom_components"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 incremental = false
-files = ["torrcast", "tgbot", "hass", "tests", "scripts"]
+files = ["torrcast", "tgbot", "hass", "custom_components", "tests", "scripts"]
 # Белый список vulture переехал в `scripts`, то есть в охват mypy, но кодом он не
 # является: имена в нём намеренно нигде не определены, их читает только vulture.
 exclude = ['scripts/vulture-whitelist\.py$']
 warn_unreachable = true
+# Без этих двух строк `custom_components/torrcast/` читается как модуль `torrcast` и
+# сталкивается с настоящим пакетом: у каталога `custom_components/` нет и не будет
+# `__init__.py` (его форму задаёт Home Assistant, а не мы). Корень пакетов назван
+# явно - имя модуля берётся от него, и интеграция зовётся `custom_components.torrcast`,
+# ровно как её зовут тесты и сам Home Assistant. `scripts` в том же списке потому, что
+# явный корень отменяет прежний неявный: прогонялки сценария зовут друг друга по голому
+# имени (`import poolreplay`), и без этой записи их импорты перестают находиться.
+mypy_path = [".", "scripts"]
+explicit_package_bases = true
 warn_unused_configs = true
 disallow_any_explicit = false
 pretty = true
+
+# Home Assistant в зависимостях torrcast не значится и значиться не будет: интеграция
+# живёт внутри чужого процесса и типы берёт оттуда. В венве гейта его нет, поэтому
+# договор соседа приезжает сюда как `Any` - и подписи наших собственных функций это не
+# ослабляет, они проверяются как раньше.
+[[tool.mypy.overrides]]
+# `aiohttp` тут в той же роли: его в венв тянет Home Assistant, а не torrcast.
+module = [
+    "aiohttp.*",
+    "homeassistant.*",
+    "pytest_homeassistant_custom_component.*",
+    "voluptuous.*",
+]
+ignore_missing_imports = true
+
+# Наследование от `Any` тут не небрежность, а единственный способ написать сущность
+# Home Assistant: `MediaPlayerEntity` и `ConfigFlow` без установленного Home Assistant
+# ничем иным быть не могут.
+[[tool.mypy.overrides]]
+module = ["custom_components.*", "tests.hass_integration.*"]
+disallow_subclassing_any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

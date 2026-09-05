@@ -12,7 +12,7 @@
 (TC-812 и 02-09-2026), их правят, и списанная эвристика разъехалась бы с продуктом молча.
 Договор с карточкой - булево поле ``default`` у записи выдачи
 (:func:`hass.search_results.search_results`): ровно один пункт списка назван взятым, и
-:func:`custom_components.torrcast.browse.search_media` ставит его первым - штатный
+:func:`custom_components.torrcast.search_media.search_media` ставит его первым - штатный
 обработчик Home Assistant играет ``results[0]``.
 
 🔴 Показанный порядок запоминается тем же механизмом, что и меню консоли

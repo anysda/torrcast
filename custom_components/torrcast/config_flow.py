@@ -6,7 +6,8 @@ from typing import Any
 
 import aiohttp
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow as BaseConfigFlow
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
@@ -21,7 +22,9 @@ MANUAL_SCHEMA = vol.Schema(
 )
 
 
-class TorrcastConfigFlow(ConfigFlow, domain=DOMAIN):
+# `domain=` - именованный аргумент `__init_subclass__` самого Home Assistant; без него
+# в венве тайпчека база - `Any`, и аргумент читается как лишний у `object`.
+class ConfigFlow(BaseConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Both ways in end the same: the serve is asked for its state before it is written."""
 
     VERSION = 1

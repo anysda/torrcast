@@ -34,3 +34,17 @@ SEARCH_REQUEST_TIMEOUT: Final = 160
 #: (`hass/hit_posters.py`). The wait here has to outlast that hold, or the picture would
 #: be dropped by the very side that asked for it.
 POSTER_REQUEST_TIMEOUT: Final = 15
+#: Scheme and host of a picked search hit; anything else in `media_content_id` is a
+#: bare query, exactly as `async_play_media` has always treated it.
+PICK_SCHEME: Final = "torrcast"
+PICK_HOST: Final = "pick"
+#: The three browse nodes: an empty root and its two children, menu first. The titles
+#: are the two words the owner asked for, verbatim - a person reads them on the field.
+#: Only the prefix of the instant id is Home Assistant's; the word past it is ours and
+#: comes back untouched.
+ROOT_ID: Final = ""
+MENU_ID: Final = "menu"
+INSTANT_TITLE: Final = "instant"
+INSTANT_ID: Final = f"media-source://tts/{INSTANT_TITLE}"
+#: Where the dialog puts what a person typed before handing the id back for playing.
+MESSAGE_FIELD: Final = "message"

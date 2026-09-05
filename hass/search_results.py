@@ -7,7 +7,7 @@
 🔴 Договор с карточкой Home Assistant - поле ``default``. ``True`` стоит ровно у той
 записи, чей номер включил бы голый ``POST /api/play`` без ``--pick``
 (:func:`torrcast.usecases.choice.enter_take.enter_take`), и читает его
-:func:`custom_components.torrcast.browse.search_media`: она ставит эту запись первой,
+:func:`custom_components.torrcast.search_media.search_media`: она ставит эту запись первой,
 потому что штатный обработчик Home Assistant играет ``results[0]``. Порядок самих
 записей продуктовый и остаётся продуктовым - взятый пункт называет поле, а не место.
 """
@@ -62,7 +62,7 @@ def search_results(plans: list[Plan], taken: int) -> list[JsonValue]:
     нет. Год неизвестен - в строке стоит ``(?)``, как и в консоли: у списка находок это
     не украшение, а различитель тёзок. Больше в строке ничего и нет: строка карточки и
     строка меню сходятся буква в букву, и стеречь их сходство есть чем
-    (``tests/hass_integration/test_media_player.py``).
+    (``tests/hass_integration/test_search_media.py``).
     """
     return [
         {

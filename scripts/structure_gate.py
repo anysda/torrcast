@@ -146,6 +146,20 @@ class Boundary(NamedTuple):
 SCRIPTS: Final = {
     "scripts/sni-shim.py": Boundary(mirror="tests/test_shim.py", lines=1182, units=12),
 }
+#: Куда ложится зеркало модуля. Пакет кладёт его в `tests/<путь внутри пакета>`, а
+#: интеграция Home Assistant - плоско в свой каталог: её набор основной гейт не собирает
+#: вовсе (`tests/hass_integration/conftest.py`), поэтому вперемешку с остальными тестами
+#: он лежать не может, и путь до зеркала у него свой.
+MIRRORS: Final = {"custom_components": "tests/hass_integration"}
+#: Файлы интеграции Home Assistant, форму которых задаёт не наша раскладка, а сам
+#: Home Assistant: он ищет их по имени и сам решает, что внутри. Снятое правило названо
+#: поимённо и с причиной - молчащего исключения тут нет ни одного, а протухнуть записи
+#: не даёт `tests/test_structure_gate.py`: он же и проверяет, что за каждой строкой
+#: стоит живое нарушение, а не память о нём.
+HOME_ASSISTANT_SHAPE: Final = {
+    "custom_components/torrcast/__init__.py": frozenset({"единица", "раздача"}),
+    "custom_components/torrcast/media_player.py": frozenset({"имя"}),
+}
 ALLOWED: Final = {
     "domain": frozenset({"domain"}),
     "ports": frozenset({"domain", "ports"}),
@@ -217,6 +231,7 @@ def _load_modules(root: Path) -> list[Module]:
         *(root / "torrcast").rglob("*.py"),
         *(root / "tgbot").rglob("*.py"),
         *(root / "hass").rglob("*.py"),
+        *(root / "custom_components").rglob("*.py"),
     ]
     for path in sorted(package_paths):
         relative_path = path.relative_to(root)
@@ -1227,6 +1242,15 @@ def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list
     return failures
 
 
+def _mirror(root: Path, module: Module) -> Path:
+    """Путь до зеркала модуля: рядом с пакетом либо в каталоге, названном :data:`MIRRORS`."""
+    parts = Path(module.relative).parts
+    home = MIRRORS.get(parts[0])
+    if home is not None:
+        return root / home / f"test_{module.path.name}"
+    return root / "tests" / Path(*parts[1:]).with_name(f"test_{module.path.name}")
+
+
 def check(root: Path, modules: list[Module] | None = None) -> list[Violation]:
     """Возвращает все нарушения структуры внутри корня репозитория.
 
@@ -1274,13 +1298,7 @@ def check(root: Path, modules: list[Module] | None = None) -> list[Violation]:
         if ast.get_docstring(module.tree, clean=False) is None:
             failures.append(Violation("докстрока", module.relative, 1, "нет докстроки модуля"))
         if module.path.name != "__init__.py":
-            mirror = (
-                root / boundary.mirror
-                if boundary
-                else root
-                / "tests"
-                / Path(*Path(module.relative).parts[1:]).with_name(f"test_{module.path.name}")
-            )
+            mirror = root / boundary.mirror if boundary else _mirror(root, module)
             if not mirror.exists():
                 failures.append(
                     Violation(
@@ -1306,7 +1324,8 @@ def check(root: Path, modules: list[Module] | None = None) -> list[Violation]:
     failures.extend(_cycle_violations(modules, edges))
     failures.extend(_empty_test_violations(root))
     order = {rule: index for index, rule in enumerate(RULES)}
-    return sorted(failures, key=lambda item: (order[item.rule], item.path, item.line, item.message))
+    kept = [item for item in failures if item.rule not in HOME_ASSISTANT_SHAPE.get(item.path, ())]
+    return sorted(kept, key=lambda item: (order[item.rule], item.path, item.line, item.message))
 
 
 def report(violations: Iterable[Violation]) -> None:

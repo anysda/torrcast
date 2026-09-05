@@ -36,7 +36,8 @@ def payload(
         # Между показами и в простое картины ещё/уже нет, и знать про следующую серию
         # нечего: ``null`` тут читается интеграцией ровно как «неизвестно», то есть
         # «стрелка остаётся», а не как «следующей нет» - тот же откат, что у старого
-        # моста без этого поля вовсе (:func:`custom_components.torrcast.media_player`).
+        # моста без этого поля вовсе
+        # (:meth:`custom_components.torrcast.player.Player.supported_features`).
         "has_next": has_next if known else None,
         # Адрес картинки на САМОМ серве, а не у Wikimedia: наружу за постером Home
         # Assistant не ходит ни при каких условиях (:data:`hass.posters.ROUTE`).
