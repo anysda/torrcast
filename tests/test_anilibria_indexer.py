@@ -3,7 +3,6 @@
 import importlib.util
 import subprocess
 import threading
-import time
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -126,6 +125,18 @@ def test_details_carry_a_deadline_short_enough_to_ask_twice() -> None:
     assert spent < adapter.TIMEOUT, f"two asks cost {spent} s, one old ask cost {adapter.TIMEOUT} s"
 
 
+#: Сколько ждёт защёлка, прежде чем признать соседа не пришедшим.
+#:
+#: 🔴 Это НЕ порог замера, а цена независания: на счастливом пути защёлка снимается
+#: событием и не стоит ни секунды, а срок платится ровно тогда, когда зеркала пошли по
+#: очереди, - и платится он один раз, ради красной строки вместо вечного ожидания. Обе
+#: меры ниже - состояния событий, а не длительности, поэтому нагрузка машины двигать их
+#: не может: чтобы срок сработал ложно, заглушке в памяти пришлось бы считаться двадцать
+#: секунд. Старый порог был 0.5 с при работе на 0.3 с (TC-1053), и его двигала уже
+#: обычная волна: 5 красных прогонов из 50 под нагрузкой в 8 занятых ядер.
+_STUCK_SECONDS = 20.0
+
+
 def _settle() -> None:
     """Дождаться зеркала, ответ которого уже не нужен: в жизни его никто не ждёт.
 
@@ -134,52 +145,79 @@ def _settle() -> None:
     """
     for thread in threading.enumerate():
         if thread.name.startswith("anilibria-origin"):
-            thread.join(5)
+            thread.join(_STUCK_SECONDS)
 
 
 @pytest.mark.machine
 def test_both_mirrors_are_asked_at_once_not_one_after_the_other() -> None:
     """Первое зеркало отвечает 403 на всё, и его отказ не смеет стоить второму ожидания.
 
-    Отрицательная проба на это - сама очередь: спроси зеркала по очереди, и полсекунды
-    сложатся в секунду. Замер на стенде: 0.68 с на отказ первого плюс ответ второго.
+    Одновременность доказывается ПОРЯДКОМ событий: отказ первого зеркала здесь ждёт
+    защёлку, которую ставит ВХОД во второе. Очередь такую защёлку не поставила бы никогда -
+    на момент отказа первого второго зеркала в ней ещё нет вовсе, и ожидание кончилось бы
+    сроком. Замер на стенде до правки: 0.68 с на отказ первого плюс ответ второго.
     """
+    asked_second = threading.Event()
+    together: list[bool] = []
 
     def answer(origin: str, path: str, _seconds: float = 0.0) -> Any:
         if "/search/" not in path:
             return [{"label": "Sonny Boy 1080p", "magnet": "magnet:?xt=urn:btih:abc"}]
-        time.sleep(0.3)
         if origin == adapter.ORIGINS[0]:
+            together.append(asked_second.wait(_STUCK_SECONDS))
             raise OSError("403")
+        asked_second.set()
         return [{"id": 7, "name": {"english": "Sonny Boy"}}]
 
-    start = time.monotonic()
-    rows = adapter.search("Sonny Boy", answer)
-    took = time.monotonic() - start
-
-    assert rows[0]["title"] == "Sonny Boy 1080p"
-    assert took < 0.55, f"два зеркала по 0.3 с заняли {took:.2f} с - значит, шли по очереди"
+    try:
+        rows = adapter.search("Sonny Boy", answer)
+        assert together and together[0], (
+            "к отказу первого зеркала второе ещё не было спрошено - значит, шли по очереди"
+        )
+        assert rows[0]["title"] == "Sonny Boy 1080p"
+    finally:
+        asked_second.set()
+        _settle()
 
 
 @pytest.mark.machine
 def test_a_healthy_first_mirror_wins_and_is_not_waited_out_by_the_slow_one() -> None:
-    """Порядок зеркал остался ПРЕДПОЧТЕНИЕМ: каталог читаем прежний, но не ждём второе."""
-    seen: list[str] = []
+    """Порядок зеркал остался ПРЕДПОЧТЕНИЕМ: каталог читаем прежний, но не ждём второе.
+
+    🔴 TC-1053. Мера - ПОРЯДОК событий, а не стенные часы: под четырьмя воркерами xdist
+    время тесту не принадлежит, и «уложились в 0.5 с» краснело по жребию. Медленное
+    зеркало держит здесь не ``sleep``, а защёлка, и утверждений ровно два:
+
+    * здоровое зеркало отвечает, когда медленное УЖЕ спрошено, - значит, поехали разом;
+    * ``search`` возвращается, когда медленное ЕЩЁ не ответило, - значит, его не ждали.
+
+    Оба - про состояние события в известный момент, и оба одинаково читаются что на
+    пустой машине, что на занятой.
+    """
+    asked_slow = threading.Event()
+    let_slow_go = threading.Event()
+    slow_answered = threading.Event()
+    together: list[bool] = []
 
     def answer(origin: str, path: str, _seconds: float = 0.0) -> Any:
-        seen.append(origin)
         if origin == adapter.ORIGINS[1]:
-            time.sleep(1.0)
+            asked_slow.set()
+            let_slow_go.wait(_STUCK_SECONDS)
+            slow_answered.set()
             return [{"id": 9, "name": {"english": "Sonny Boy"}}] if "/search/" in path else []
         if "/search/" in path:
+            together.append(asked_slow.wait(_STUCK_SECONDS))
             return [{"id": 7, "name": {"english": "Sonny Boy"}}]
         return [{"label": "Sonny Boy 1080p", "magnet": "magnet:?xt=urn:btih:abc"}]
 
-    start = time.monotonic()
-    rows = adapter.search("Sonny Boy", answer)
-    took = time.monotonic() - start
-
-    assert rows[0]["title"] == "Sonny Boy 1080p"
-    assert adapter.ORIGINS[1] in seen, "второе зеркало всё же спрошено - оно уехало разом с первым"
-    assert took < 0.5, f"ответ первого зеркала ждал молчащее второе {took:.2f} с"
-    _settle()
+    try:
+        rows = adapter.search("Sonny Boy", answer)
+        assert together and together[0], (
+            "к ответу первого зеркала второе ещё не было спрошено - значит, шли по очереди"
+        )
+        assert not slow_answered.is_set(), "ответ первого зеркала дождался молчащего второго"
+        assert rows[0]["title"] == "Sonny Boy 1080p"
+    finally:
+        let_slow_go.set()
+        asked_slow.set()
+        _settle()
