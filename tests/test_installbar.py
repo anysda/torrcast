@@ -14,6 +14,24 @@ TC-885 сторожит связь «полоса <-> счётчик фаз» и
 абсолютных сверок есть допуск :data:`LAG_FRAMES` - квантование прибора, а не
 подгонка. Плато же меряется РАЗНОСТЬЮ двух отметок следа, в которой этот сдвиг
 сокращается, поэтому у главной сверки допуска нет вовсе.
+
+🔴 TC-922. Здесь же закрыты две слепоты самого сторожа, найденные встречной пробой.
+
+Первая: сверки были односторонними, против ОПЕРЕЖЕНИЯ. Деление, взятое сильно
+позже своей работы, проходило зелёным всегда, а человеку это видно как замершая
+полоса и прыжок через два деления. Теперь у каждой сверки две стороны
+(:func:`_out_of_step`), и поздняя сторона меряется не «концом своей работы», а
+моментом, РАНЬШЕ которого доложить было нечего: фазы идут параллельно, `main`
+закрывает их по очереди, и фаза, чья работа кончилась первой, честно ждёт своей
+очереди (TorrServer в честном прогоне берёт деление через ~1 с после конца своей
+работы - за ffmpeg, стоящим в очереди перед ним).
+
+Вторая: номер деления держался жёсткой таблицей «фаза -> номер», а порядок
+делений задаёт порядок вызовов `phase_done` в `main`. Перестановка уводила замер
+на чужую фазу молча. Теперь номер берётся ИЗ ПРОГОНА: полоса пишет в след строку
+`CLOSE done=N phase=имя` на каждое закрытие - ровно ту пару, которую человек
+читает в строке статуса, - а связь «имя <-> работа» держит якорь
+:func:`_mislabelled`, сверяющий подпись каждой фазы с её блоком в `main`.
 """
 
 from __future__ import annotations
@@ -28,6 +46,7 @@ import termios
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -70,8 +89,7 @@ HOLD_WORK = {"install_packages": WARMUP_S, "install_ffmpeg": SLOW_S}
 BEFORE, HOLD_TOTAL = 2, 4
 
 #: Стенд всех фоновых фаз: задания идут параллельно, поэтому прогон стоит не
-#: суммы, а самой долгой из них. Порядковый номер - место фазы в порядке
-#: ЗАКРЫТИЯ (`main`): локаль, пакеты, источники, Prowlarr, ffmpeg, TorrServer.
+#: суммы, а самой долгой из них.
 ALL_PHASES = "locale packages ffmpeg torrserver sources prowlarr"
 ALL_WORK = {
     "install_packages": WARMUP_S,
@@ -80,8 +98,38 @@ ALL_WORK = {
     "install_torrserver": 2.0,
     "install_ffmpeg": SLOW_S,
 }
-ORDINAL = {"check_sources": 3, "install_prowlarr": 4, "install_ffmpeg": 5, "install_torrserver": 6}
 ALL_TOTAL = 6
+#: Стенд запаздывания: TorrServer работает ДОЛЬШЕ ffmpeg, и подделка ниже
+#: заставляет доклад ffmpeg ждать его. Честному прогону такой стенд не нужен -
+#: он поднимается только отрицательной пробой.
+LATE_WORK = {**HOLD_WORK, "install_torrserver": 4.5}
+
+#: 🔴 Подпись, которой фаза закрывается в `main`, - первый аргумент `phase_done`
+#: и ровно то слово, которое человек читает в строке статуса («фаза 3/6:
+#: источники»). Номеров деления в таблице НЕТ: их называет сам прогон, поэтому
+#: перестановка вызовов `phase_done` больше не уводит замер на чужую фазу.
+LABELS = {
+    "locale": "локаль",
+    "packages": "пакеты",
+    "ffmpeg": "ffmpeg",
+    "torrcast": "пакет torrcast",
+    "torrserver": "TorrServer",
+    "sources": "источники",
+    "prowlarr": "Prowlarr",
+    "indexers": "индексеры",
+    "config": "конфиг",
+    "hls": "раздача",
+    "receiver": "приёмник",
+    "facts": "догрев",
+}
+#: Работник фазы - там, где фаза подделывается часами (:func:`_fake`). Меряются
+#: те из них, у кого в стенде есть отметки работы, остальные стенд не включал.
+WORKERS = {
+    "check_sources": "sources",
+    "install_prowlarr": "prowlarr",
+    "install_ffmpeg": "ffmpeg",
+    "install_torrserver": "torrserver",
+}
 
 #: Перенос `phase_done` с `job_wait` на `job_start` - ровно та правка, против
 #: которой поставлен сторож. Формула полосы, знаменатель и потолок 99 при этом
@@ -118,11 +166,27 @@ MOVED = {
 }
 
 
+class Close(NamedTuple):
+    """Закрытие фазы в следе: момент, номер деления и ИМЯ фазы.
+
+    Имя тут не украшение: пара «деление, имя» - то самое, что полоса печатает
+    человеку в строке статуса, и то самое, чего не знала мера с жёсткой таблицей
+    «фаза -> номер». Пара пишется рисовалкой на приход строки канала, а не по
+    кадру: два закрытия внутри одного кадра оставили бы на экране только
+    последнее, и мера ослепла бы на первое.
+    """
+
+    at: int
+    mark: int
+    phase: str
+
+
 @dataclass(frozen=True)
 class Run:
     """Прогон стенда: след полосы и часы работников, всё в мс эпохи."""
 
     frames: tuple[tuple[int, int], ...]  # (момент кадра, закрыто фаз)
+    closings: tuple[Close, ...]
     total: int
     work: dict[str, tuple[int, int]]  # работник -> (начал, кончил)
     rc: int
@@ -139,6 +203,10 @@ class Run:
     def held(self, mark: int) -> tuple[int, ...]:
         """Моменты кадров, на которых полоса показывала ровно `mark`."""
         return tuple(t for t, done in self.frames if done == mark)
+
+    def closed(self, label: str) -> Close | None:
+        """Закрытие этой фазы: номер деления и момент - ИЗ ПРОГОНА, не из таблицы."""
+        return next((shut for shut in self.closings if shut.phase == label), None)
 
 
 def _fake(work: dict[str, float]) -> str:
@@ -291,10 +359,9 @@ def _stand(
         },
         ("-ru",) if language == "ru" else (),
     )
-    seen = re.findall(
-        r"(\d+) FRAME pct=\d+ done=(\d+) total=(\d+)",
-        trace.read_text(encoding="utf-8") if trace.exists() else "",
-    )
+    written = trace.read_text(encoding="utf-8") if trace.exists() else ""
+    seen = re.findall(r"(\d+) FRAME pct=\d+ done=(\d+) total=(\d+)", written)
+    shut = re.findall(r"(\d+) CLOSE done=(\d+) total=\d+ phase=(.*)", written)
     done: dict[str, tuple[int, int]] = {}
     for name in work:
         begin_at, done_at = box / f"work.{name}.begin", box / f"work.{name}.done"
@@ -308,6 +375,7 @@ def _stand(
     )
     return Run(
         tuple((int(t), int(d)) for t, d, _ in seen),
+        tuple(Close(int(t), int(mark), phase) for t, mark, phase in shut),
         int(seen[0][2]) if seen else 0,
         done,
         rc,
@@ -359,6 +427,124 @@ def _plateau(run: Run) -> tuple[int, int]:
     """Плато на делении перед долгой фазой: (кадров, охват в мс)."""
     stay = run.held(BEFORE)
     return len(stay), (stay[-1] - stay[0]) if len(stay) > 1 else 0
+
+
+def _slack(work: int) -> int:
+    """Допуск запаздывания для доклада о работе длиной `work` мс.
+
+    Два слагаемых, оба выведенные, ни одного подобранного: пол - квантование
+    самого прибора (:data:`LAG_FRAMES` кадров следа, тот же, что у ранней
+    стороны), а доля работы поднимает допуск там, где работа длинная и кадров в
+    ней много. Замер 05-09-2026 на честном прогоне всех фоновых фаз: деления
+    брались на 4, 16, 52 и 52 мс РАНЬШЕ момента готовности, то есть запаздывания
+    в честном дереве нет вовсе, а пол допуска - 366 мс. Отрицательная проба на
+    том же стенде даёт +1449 мс. Разрыв четырёхкратный, и подгонять тут нечего.
+    """
+    return max(LAG_FRAMES * FRAME_MS, work // 4)
+
+
+def _out_of_step(run: Run) -> list[str]:
+    """Жалобы на фазы, чьё деление разошлось с их собственной работой.
+
+    🔴 Мерятся ОБЕ стороны. Ранняя проста: доложить о фазе раньше, чем кончилась
+    её работа, нельзя никогда. Поздняя сложнее, и «не позже конца своей работы»
+    тут было бы ложной краснотой: задания идут параллельно, а `main` закрывает
+    фазы по очереди, поэтому фаза, отработавшая раньше очереди, честно ждёт её
+    (TorrServer в честном прогоне ждёт ffmpeg целую секунду). Поздняя сторона
+    поэтому меряется от момента, раньше которого доложить было НЕЧЕГО: самой
+    поздней из работ, стоящих в очереди до этой фазы включительно.
+
+    Порядок очереди берётся из прогона - из порядка, в котором полоса называла
+    имена, - а не из таблицы: таблица уводила замер на чужую фазу молча.
+    """
+    labels = {LABELS[phase]: worker for worker, phase in WORKERS.items() if worker in run.work}
+    complaints: list[str] = []
+    ready, seen = 0, set()
+    for shut in run.closings:
+        worker = labels.get(shut.phase)
+        if worker is None or worker in seen:
+            continue
+        seen.add(worker)
+        began, ended = run.work[worker]
+        work, slack = ended - began, _slack(ended - began)
+        ready = max(ready, ended)
+        place = f"{shut.phase}: деление {shut.mark}/{run.total} при работе {work} мс"
+        if shut.at < ended - LAG_FRAMES * FRAME_MS:
+            complaints.append(
+                f"{place} взято на {ended - shut.at} мс РАНЬШЕ конца своей работы "
+                f"(допуск {LAG_FRAMES * FRAME_MS} мс)"
+            )
+        elif shut.at > ready + slack:
+            complaints.append(
+                f"{place} взято на {shut.at - ready} мс ПОЗЖЕ того, как доклад стал "
+                f"возможен (допуск {slack} мс)"
+            )
+    complaints += [
+        f"{LABELS[phase]}: полоса не закрыла эту фазу ни одним делением"
+        for worker, phase in WORKERS.items()
+        if worker in run.work and worker not in seen
+    ]
+    return complaints
+
+
+def _main_body(text: str) -> str:
+    found = re.search(r"\nmain\(\) \{\n(.*?)\n\}\n", text, re.S)
+    assert found is not None, "тело main не найдено: якорю не с чем сверяться"
+    return found.group(1)
+
+
+def _mislabelled(text: str) -> list[str]:
+    """🔴 Якорь: подпись фазы обязана стоять в блоке ЕЁ фазы.
+
+    Номер деления мера больше не держит таблицей, но связь «подпись <-> работа»
+    держать нечем, кроме текста `main`: полоса печатает подпись, а какая работа
+    за ней стоит, знает только тот, кто эту подпись рядом с работой поставил.
+    Перестановка двух вызовов `phase_done` не двигает ни одной секунды и для
+    временнЫх сверок невидима - здесь она и краснеет.
+
+    Блок фазы открывает `has <фаза>`: `job_wait` соседа внутри блока подписи не
+    крадёт, а именно им ломается своевременность доклада.
+    """
+    complaints: list[str] = []
+    named = set()
+    phase = ""
+    for token in re.finditer(r"\bhas (\w+)\b|phase_done '([^']*)'", _main_body(text)):
+        opened, label = token.group(1), token.group(2)
+        if opened is not None:
+            phase = opened
+            continue
+        if label != LABELS.get(phase):
+            complaints.append(
+                f"фаза {phase} закрывается подписью {label!r}, а её подпись - "
+                f"{LABELS.get(phase, 'фазы нет вовсе')!r}"
+            )
+        named.add(phase)
+    complaints += [
+        f"фаза {phase} не закрывается ничем: подпись {label!r} не встретилась в main"
+        for phase, label in LABELS.items()
+        if phase not in named
+    ]
+    return complaints
+
+
+#: Запаздывание: доклад о фазе уезжает за `job_wait` СОСЕДА, то есть на секунды
+#: после конца её собственной работы. Подпись при этом остаётся в своём блоке
+#: (якорю не за что зацепиться), порядок `job_start`/`job_wait` цел, результат на
+#: месте - двигается ровно момент доклада.
+LATE = {
+    "install_ffmpeg": (
+        "        phase_done 'ffmpeg'\n",
+        '        job_wait torrserver || die "TorrServer was not installed - see the reason above" '
+        '"TorrServer не поставился - причина в строках выше"\n'
+        "        phase_done 'ffmpeg'\n",
+    ),
+}
+
+
+def _late(where: str) -> str:
+    old, new = LATE[where]
+    assert SCRIPT.count(old) == 1, f"запаздывание не на что наложить:\n{old}"
+    return SCRIPT.replace(old, new, 1)
 
 
 #: 🔴 TC-988. Возврат поднятия внутрь работника - ровно та правка, против которой
@@ -472,13 +658,14 @@ def test_failure_shows_only_the_tail_and_the_journal_path(tmp_path: Path) -> Non
 def test_the_bar_holds_its_mark_for_as_long_as_the_phase_is_still_working(
     tmp_path: Path,
 ) -> None:
-    """🔴 Плато у самой долгой фазы не короче её работы - в кадрах и секундах.
+    """🔴 Плато у самой долгой фазы длиной ровно в её работу - в кадрах и секундах.
 
-    Порог выведен из длительности работы, а не подобран под прогон: длиннее
-    работы плато не потребуешь, короче - сторож слепнет. Полоса, идущая от
-    запусков, плато не даёт вовсе: она проскакивает деление сразу.
+    Порог выведен из длительности работы, а не подобран под прогон: короче -
+    сторож слепнет к полосе, обгоняющей работу, длиннее - к полосе, замершей на
+    делении и прыгающей потом через два. Полоса, идущая от запусков, плато не
+    даёт вовсе: она проскакивает деление сразу.
     """
-    run = _stand(SCRIPT, tmp_path, HOLD_PHASES, HOLD_WORK)
+    run = _stand(SCRIPT, tmp_path, HOLD_PHASES, HOLD_WORK, "ru")
     _shape(run, HOLD_TOTAL)
     began, ended = run.work["install_ffmpeg"]
     work = ended - began
@@ -495,6 +682,8 @@ def test_the_bar_holds_its_mark_for_as_long_as_the_phase_is_still_working(
     assert len(inside) >= (work / FRAME_MS) * 0.6, f"окно работы пусто: {seen}"
     assert set(inside) == {BEFORE}, f"полоса ушла с деления, пока работа шла: {seen}"
     assert span >= work - 2 * FRAME_MS, f"плато короче работы: {seen}"
+    assert span <= work + _slack(work), f"полоса замерла на делении дольше работы: {seen}"
+    print(seen)
 
     took = run.took(BEFORE + 1)
     assert took is not None and took >= ended - LAG_FRAMES * FRAME_MS, (
@@ -503,25 +692,83 @@ def test_the_bar_holds_its_mark_for_as_long_as_the_phase_is_still_working(
 
 
 @pytest.mark.machine
-def test_no_background_phase_closes_before_its_own_work_is_done(tmp_path: Path) -> None:
-    """Ни одна фоновая фаза не закрывается раньше, чем сделана ЕЁ работа.
+def test_every_background_phase_closes_in_step_with_its_own_work(tmp_path: Path) -> None:
+    """Ни одна фоновая фаза не закрывается ни раньше своей работы, ни позже очереди.
 
     Задания идут параллельно, поэтому четыре разной длины стоят одной самой
-    долгой. Сверка идёт по каждой: сторож, следящий за одной фазой, пропустил
-    бы перенос у соседней.
+    долгой. Сверка идёт по каждой и с обеих сторон: сторож, следящий за одной
+    фазой и за одним только опережением, пропустил бы и перенос у соседней, и
+    замершую полосу.
     """
-    run = _stand(SCRIPT, tmp_path, ALL_PHASES, ALL_WORK)
+    run = _stand(SCRIPT, tmp_path, ALL_PHASES, ALL_WORK, "ru")
     _shape(run, ALL_TOTAL)
 
-    ahead = []
-    for name, mark in ORDINAL.items():
-        took, ended = run.took(mark), run.work[name][1]
-        if took is None or took < ended - LAG_FRAMES * FRAME_MS:
-            ahead.append(
-                f"{name}: деление {mark}/{ALL_TOTAL} взято на {ended - (took or 0)} мс "
-                f"раньше конца своей работы"
-            )
-    assert not ahead, "полоса обогнала работу - " + "; ".join(ahead)
+    ready, drift = 0, []
+    for worker, phase in WORKERS.items():
+        shut = run.closed(LABELS[phase])
+        ready = max(ready, run.work[worker][1])
+        seen = f"{shut.mark}/{run.total} на {shut.at - ready} мс" if shut else "не взято"
+        drift.append(f"{LABELS[phase]} {seen}")
+    print("деление от момента, когда доклад стал возможен: " + "; ".join(drift))
+    assert not (out := _out_of_step(run)), "деление разошлось с работой - " + "; ".join(out)
+
+
+@pytest.mark.machine
+def test_a_phase_closing_behind_a_neighbour_wait_is_caught(tmp_path: Path) -> None:
+    """🔴 Отрицательная проба на ЗАПАЗДЫВАНИИ: доклад уехал за `job_wait` соседа.
+
+    Ровно тот вход, на котором прежний односторонний сторож был зелёным: полоса
+    ничего не обгоняет, результат на месте, установка возвращает ноль - деление
+    просто берётся секундами позже, чем работа кончилась. Человеку это видно как
+    замершая полоса и прыжок через два деления. Подпись фазы при этом остаётся в
+    своём блоке, поэтому якорь :func:`_mislabelled` тут молчит: краснеет именно
+    время, и краснеет оно ДРУГИМ узлом, чем перестановка.
+    """
+    run = _stand(_late("install_ffmpeg"), tmp_path, HOLD_PHASES, LATE_WORK, "ru")
+    _shape(run, HOLD_TOTAL)
+    assert run.rc == 0, "запаздывание обязано оставаться незаметным снаружи"
+    assert not _mislabelled(_late("install_ffmpeg")), "якорь сработал не на своём входе"
+
+    work = run.work["install_ffmpeg"][1] - run.work["install_ffmpeg"][0]
+    frames, span = _plateau(run)
+    assert span > work + _slack(work), f"полоса не замерла: плато {frames} кадров, {span} мс"
+    out = _out_of_step(run)
+    assert any("ffmpeg" in line and "ПОЗЖЕ" in line for line in out), (
+        f"запаздывание не поймано: {out or 'жалоб нет вовсе'}"
+    )
+    print(f"плато {frames} кадров ({span} мс) при работе {work} мс; поймано: {'; '.join(out)}")
+
+
+def test_each_phase_is_closed_by_its_own_label_in_main() -> None:
+    """🔴 Якорь: подпись каждой фазы стоит в блоке своей фазы, и фаз столько же.
+
+    Меру времени эта сверка не дублирует: перестановка двух `phase_done` не
+    двигает ни одной секунды. Без якоря полоса называла бы человеку одну фазу,
+    закрывая работу другой, а замер этого не видел бы вовсе.
+    """
+    known = re.search(r"^UI_ALL_PHASES='([^']*)'", SCRIPT, re.M)
+    assert known is not None, "список фаз в install.sh не найден"
+    assert set(known.group(1).split()) == set(LABELS), (
+        f"фазы установщика и подписи разошлись: {sorted(set(known.group(1).split()) ^ set(LABELS))}"
+    )
+    assert not (bad := _mislabelled(SCRIPT)), "подпись не на своей фазе - " + "; ".join(bad)
+
+
+def test_two_swapped_labels_are_caught_by_the_anchor() -> None:
+    """🔴 Отрицательная проба на ПЕРЕСТАНОВКЕ: две подписи поменялись местами.
+
+    Взяты мгновенные фазы: работы у них нет вовсе, поэтому ни один замер времени
+    такую перестановку увидеть не может в принципе. Ловит её только якорь, и
+    называет обе фазы вслух.
+    """
+    swapped = SCRIPT.replace("phase_done 'раздача'", "phase_done '~'", 1)
+    swapped = swapped.replace("phase_done 'приёмник'", "phase_done 'раздача'", 1)
+    swapped = swapped.replace("phase_done '~'", "phase_done 'приёмник'", 1)
+    assert swapped != SCRIPT, "перестановка не наложилась: пробе нечего ломать"
+
+    bad = _mislabelled(swapped)
+    assert any("hls" in line and "приёмник" in line for line in bad), f"якорь молчит: {bad}"
+    assert any("receiver" in line and "раздача" in line for line in bad), f"якорь молчит: {bad}"
 
 
 @pytest.mark.machine
@@ -533,31 +780,28 @@ def test_phase_done_moved_to_job_start_kills_the_plateau(tmp_path: Path) -> None
     поэтому все меры TC-885 такую установку пропускают зелёной, а сама она
     возвращает ноль. Красным её делает только окно работы.
     """
-    run = _stand(_moved("install_ffmpeg"), tmp_path, HOLD_PHASES, HOLD_WORK)
+    run = _stand(_moved("install_ffmpeg"), tmp_path, HOLD_PHASES, HOLD_WORK, "ru")
     _shape(run, HOLD_TOTAL)
     began, ended = run.work["install_ffmpeg"]
 
     frames, span = _plateau(run)
     assert run.rc == 0, "перенос обязан оставаться незаметным снаружи"
     assert span < (ended - began) / 2, f"плато уцелело: {frames} кадров, {span} мс"
-    took = run.took(BEFORE + 1)
-    assert took is not None, "деление так и не взято: мерить опережение не на чем"
-    assert took < ended - LAG_FRAMES * FRAME_MS, (
-        f"опережение не поймано: деление взято на {ended - took} мс от конца работы"
+    out = _out_of_step(run)
+    assert any("ffmpeg" in line and "РАНЬШЕ" in line for line in out), (
+        f"опережение не поймано: {out or 'жалоб нет вовсе'}"
     )
 
 
 @pytest.mark.machine
 def test_the_same_move_on_another_phase_is_caught_too(tmp_path: Path) -> None:
     """🔴 И то же самое у СОСЕДНЕЙ фазы: перенос у `источников` виден так же."""
-    run = _stand(_moved("check_sources"), tmp_path, ALL_PHASES, ALL_WORK)
+    run = _stand(_moved("check_sources"), tmp_path, ALL_PHASES, ALL_WORK, "ru")
     _shape(run, ALL_TOTAL)
 
-    ended = run.work["check_sources"][1]
-    took = run.took(ORDINAL["check_sources"])
-    assert took is not None, "деление так и не взято: мерить опережение не на чем"
-    assert took < ended - LAG_FRAMES * FRAME_MS, (
-        f"опережение не поймано: деление взято на {ended - took} мс от конца работы"
+    out = _out_of_step(run)
+    assert any("источники" in line and "РАНЬШЕ" in line for line in out), (
+        f"опережение не поймано: {out or 'жалоб нет вовсе'}"
     )
 
 
