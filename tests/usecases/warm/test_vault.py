@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from tests.usecases.warm.world import lay, vault, world
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm._vault_disk import _title, _touched
+from torrcast.usecases.warm.key_form import KEY_FORM
 from torrcast.usecases.warm.settings import META, SPOT_LAY
 from torrcast.usecases.warm.vault import Vault
 
@@ -56,13 +57,21 @@ def test_only_pieces_the_show_would_take_are_counted_with_a_cap(tmp_path: Path) 
 def test_opening_writes_a_passport_the_budget_reads_by(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Паспорт нужен бюджету: по его времени считается давность показа."""
+    """Паспорт нужен бюджету и месту раздела: по его времени считается давность показа,
+    а по записанной форме ключа - найдёт ли эта сборка полку вообще
+    (:func:`torrcast.usecases.warm.strip_forms.strip_forms`)."""
     fake = world()
     store = Vault(root=tmp_path / "warm", key="ключ", title="Кино")
     store.open()
 
     found = json.loads((store.dir / META).read_text(encoding="utf-8"))
-    assert found == {"key": "ключ", "title": "Кино", "at": fake.stamp, "lay": SPOT_LAY}
+    assert found == {
+        "key": "ключ",
+        "title": "Кино",
+        "at": fake.stamp,
+        "lay": SPOT_LAY,
+        "form": KEY_FORM,
+    }
     assert _title(store.dir) == "Кино"
     assert _touched(store.dir) > 0.0
 

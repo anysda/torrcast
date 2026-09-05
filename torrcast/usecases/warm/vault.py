@@ -23,10 +23,12 @@ from torrcast.usecases.warm._vault_disk import (
     _touched,
     _weigh,
 )
+from torrcast.usecases.warm.key_form import KEY_FORM
 from torrcast.usecases.warm.reject import reject as _reject
 from torrcast.usecases.warm.relay import relay as _relay
 from torrcast.usecases.warm.served_spots import ServedSpots
 from torrcast.usecases.warm.settings import FREE_FLOOR, META, SPOT_LAY
+from torrcast.usecases.warm.strip_forms import strip_forms as _strip_forms
 
 
 @dataclass(slots=True)
@@ -48,6 +50,9 @@ class Vault:
     #: Каким способом ЭТОТ прогрев кладёт точечные куски (:data:`SPOT_LAY`). Пишется в
     #: паспорт и сверяется при заводе каталога (:meth:`relay`).
     lay: str = SPOT_LAY
+    #: Отпечаток формы ключа ЭТОЙ сборки (:data:`KEY_FORM`). Пишется в паспорт, и по нему
+    #: узнаётся полка, которую ни один ключ этой сборки уже не найдёт (:func:`strip_forms`).
+    form: str = KEY_FORM
     #: Чужие ключи, которые бюджет вытеснять не имеет права: серия, которую смотрят
     #: прямо сейчас, для прогрева следующей - чужой каталог (:meth:`fit`). Без этого
     #: прогрев следующей серии выедал бы текущую и обрыв связи убивал бы показ ровно
@@ -124,7 +129,13 @@ class Vault:
 
     def touch(self) -> None:
         at = _state._environment.epoch()
-        card = {"key": self.key, "title": self.title, "at": at, "lay": self.lay}
+        card = {
+            "key": self.key,
+            "title": self.title,
+            "at": at,
+            "lay": self.lay,
+            "form": self.form,
+        }
         with contextlib.suppress(OSError):
             (self.dir / META).write_text(json.dumps(card), encoding="utf-8")
 
@@ -150,6 +161,9 @@ class Vault:
         Причин отказа две, и путать их нельзя: наш бюджет и чужое место на разделе.
         Рядом живут и состояние, и раздача, и система — упереть раздел в ноль прогревом
         не имеет права ни один бюджет.
+
+        Перед вторым отказом место отдают наши же полки прежних форм ключа
+        (:func:`strip_forms`): бюджет их не достаёт, а найти их некому.
         """
         mine = {self.key, *self.keep}
         others = sorted(
@@ -166,6 +180,9 @@ class Vault:
             _state._environment.remove_tree(gone)
         if need > self.budget - _weigh(self.root):
             return phrase("warm.budget_exhausted", budget=f"{self.budget / 1e9:.0f}")
+        # Место раздела отдают наши же полки прежних форм ключа: под бюджет они не
+        # подпадают (легче него), а найти их некому - и прогрев вставал навсегда.
+        _strip_forms(self, need)
         if need + self.floor > self.free():
             return phrase("warm.floor_reached", free=f"{self.free() / 1e9:.1f}")
         return ""

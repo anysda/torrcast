@@ -36,13 +36,23 @@ def _touched(path: Path) -> float:
         return 0.0
 
 
+def _field(where: Path, name: str) -> str:
+    """Поле паспорта каталога строкой; нет паспорта, не читается, нет поля - пусто.
+
+    Три разных «нет» сведены в одно намеренно: каждый читающий сверяет прочитанное со
+    своим, и пустое у него значит ровно одно - каталог клали до того, как поле начали
+    записывать, то есть прежней сборкой.
+    """
+    with contextlib.suppress(OSError, ValueError):
+        found = json.loads((where / META).read_text(encoding="utf-8"))
+        if isinstance(found, dict):
+            return str(found.get(name, ""))
+    return ""
+
+
 def _title(path: Path) -> str:
     """Название вытесняемого показа из его паспорта; нет паспорта - пустая строка."""
-    with contextlib.suppress(OSError, ValueError):
-        found = json.loads((path / META).read_text(encoding="utf-8"))
-        if isinstance(found, dict):
-            return str(found.get("title", ""))
-    return ""
+    return _field(path, "title")
 
 
 def _lay(where: Path) -> str:
@@ -52,11 +62,17 @@ def _lay(where: Path) -> str:
     Пусто - паспорта нет, он не читается или способа в нём не сказано; всё это значит одно:
     каталог клали до того, как способ начали записывать.
     """
-    with contextlib.suppress(OSError, ValueError):
-        found = json.loads((where / META).read_text(encoding="utf-8"))
-        if isinstance(found, dict):
-            return str(found.get("lay", ""))
-    return ""
+    return _field(where, "lay")
+
+
+def _form(where: Path) -> str:
+    """Отпечаток формы ключа, которым каталог заводили, из его паспорта.
+
+    Сверяется с отпечатком этой сборки (:data:`torrcast.usecases.warm.key_form.KEY_FORM`).
+    Разошлись - каталог не найдётся больше ни по одному ключу этой сборки
+    (:func:`torrcast.usecases.warm.strip_forms.strip_forms`).
+    """
+    return _field(where, "form")
 
 
 def _spot_marks(where: Path) -> list[int]:
