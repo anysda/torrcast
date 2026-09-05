@@ -10,6 +10,20 @@
 # Формат: `[версия]` открывает раздел, `en текст` / `ru текст` - запись на своём языке.
 # Порядок записей внутри раздела - порядок на экране. Пустые строки и `#` пропускаются.
 
+[1.1.3]
+en a lagging indexer no longer holds the search menu
+ru отстающий индексер больше не держит меню поиска
+en a typo or a shortened name is asked again instead of refused
+ru описка и укороченное имя переспрашиваются, а не отказывают
+en a film pack or an anthology is no longer taken for a series
+ru сборник фильмов и антология больше не считаются сериалом
+en the installer speaks your language and tests ffmpeg by deed
+ru установщик говорит на вашем языке и проверяет ffmpeg делом
+en old warm shelves give up their room before a show stalls
+ru старые прогретые полки уступают место, показ больше не встаёт
+en play on the card resumes the last show, the power button is gone
+ru play на карточке продолжает последний показ, кнопки питания нет
+
 [1.1.2]
 en the Home Assistant card takes a typed command or a menu
 ru карточка Home Assistant принимает и команду, и меню
