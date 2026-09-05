@@ -117,6 +117,11 @@ def use_warm_file(patch: pytest.MonkeyPatch, warm_file: StandIn) -> None:
     patch.setattr(_bench_state, "_bench_warm_file", warm_file)
 
 
+def use_swarm_pulse(patch: pytest.MonkeyPatch, swarm_pulse: StandIn) -> None:
+    """Признак жизни роя: его тоже знает только стенд отбора."""
+    patch.setattr(_bench_state, "_bench_swarm_pulse", swarm_pulse)
+
+
 def use_passport(patch: pytest.MonkeyPatch, passport: StandIn) -> None:
     """Справка о картине - окружению выбора и поиску."""
     patch.setattr(choice_environment, "_passport", passport)

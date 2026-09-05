@@ -3702,6 +3702,8 @@ def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -
         mine.picture.key,
     ]
     assert torrserver.dropped, "чужая картина убрана по своему хэшу, а не «всё из списка»"
+    for prep in bench.preps.values():
+        assert prep.ready.wait(10), f"подготовка релиза {prep.number} не кончилась"
 
 
 def test_we_never_hold_more_torrents_at_once_than_the_ceiling() -> None:

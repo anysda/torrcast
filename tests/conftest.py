@@ -46,6 +46,7 @@ from torrcast.ports.progress import slot as progress_slot
 from torrcast.ports.show_unit import slot as unit_slot
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.runtime.wire import wire
+from torrcast.usecases.feed_pack import _state as feed_state
 from torrcast.usecases.playback.hls_root import HLS_ENV
 
 if TYPE_CHECKING:
@@ -682,6 +683,99 @@ def show_unit(_ports_restored: None) -> FakeShowUnit:
     fake = FakeShowUnit()
     unit_slot.install(fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def _no_machine_swarm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Прогрев и признак жизни роя под тестом - подделки, и это не удобство, а запрет.
+
+    Настоящие (:func:`torrcast.adapters.stream_pack.warm_file.warm_file` и
+    :func:`torrcast.adapters.stream_probe.swarm_pulse.swarm_pulse`) поднимают фоновый
+    демон, у которого нет ни ручки, ни остановки, ни ``join``, и делают в нём настоящий
+    ввод-вывод: тянут байты по адресу потока и через :func:`torrcast.adapters.stream_pack.
+    film_keys.film_keys` спрашивают TorrServer ХОЗЯЙСКОЙ машины (в записи утёкшего потока
+    это ``TorrServer не отвечает (http://127.0.0.1:8090)``). Модульный прогон не имеет
+    права ни того, ни другого, поэтому подделка ставится ВСЕМ тестам, а не тем, кто про
+    неё вспомнил, - как и юнит показа выше.
+
+    🔴 TC-1054. Сторож потоков (:mod:`tests.thread_guard`) краснел по жребию именно на
+    этих двух: демон грелки переживал свой тест на доли секунды и попадал в среду
+    соседнего. Виноватым при этом называли соседа. Мера сторожа верна, чинится дерево.
+
+    ⚠️ Подделки не «удобные», а ТОЧНЫЕ: признак жизни ниже - это тот же самый счёт по
+    часам, что у настоящего, из которого вынут только фоновый поток за байтами. Байт в
+    модульном прогоне не приходит НИКОГДА (адрес потока у подделок раздач - ``http://ts/
+    ...``, такого хозяина нет), поэтому и у настоящего ``seen`` не ставится ни разу, а
+    решает ровно та же строка с ``max(asked, started + grace)``. Первая попытка отвечать
+    просто «рой жив» стоила красного гейта на
+    ``test_a_silent_stream_is_dropped_before_the_full_probe_budget``: отказ приходил по
+    полному бюджету ffprobe вместо отсрочки, то есть подделка НЕ вернула поведения.
+
+    Тесту, который меряет сам прогрев, довольно поставить своё через
+    :func:`tests.fakes.composition.use_warm_file` или
+    :func:`tests.fakes.composition.use_swarm_pulse` в своём теле: его подмена ложится
+    ПОСЛЕ этой и выигрывает.
+    """
+    composition.use_warm_file(monkeypatch, _no_warming)
+    composition.use_swarm_pulse(monkeypatch, _no_pulse)
+
+
+def _no_warming(*_args: object, **_kwargs: object) -> None:
+    """Грелка, которая не греет: у модульного прогона нет своего TorrServer."""
+
+
+def _no_pulse(_source: str, grace: float = 0.0, wait: object = None) -> Callable[[], bool]:
+    """Признак жизни роя без фонового потока: байт не пришёл, дальше - те же часы.
+
+    Слепок с :func:`torrcast.adapters.stream_probe.swarm_pulse.swarm_pulse` при
+    неустановленном ``seen``: до вопроса отсрочка не кончается, после - рой живёт ровно
+    до ``max(момент вопроса, старт + grace)``.
+    """
+    started = time.monotonic()
+
+    def alive() -> bool:
+        asked = getattr(wait, "activated_at", None) if wait is not None else started
+        if asked is None:
+            return True
+        return time.monotonic() < max(asked, started + grace)
+
+    return alive
+
+
+#: Сколько ждать подсобную работу, поднятую в стороне, прежде чем признать её зависшей.
+#:
+#: 🔴 Это НЕ порог замера, а цена независания: на счастливом пути работа кончается сама и
+#: не стоит ни секунды. Срок платится ровно тогда, когда она застряла, - и платится один
+#: раз, ради красной строки сторожа вместо вечного ожидания.
+SIDE_WORK_SECONDS = 30.0
+
+
+@pytest.fixture(autouse=True)
+def _side_work_joined(_wired: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Подсобная работа, поднятая в стороне, дожидается СВОЕГО теста, а не соседнего.
+
+    Слот :data:`torrcast.usecases.feed_pack._state.spawn` боевой корень заполняет
+    :func:`torrcast.adapters.side_thread.side_thread` - демоном без ручки, который «живёт
+    ровно столько, сколько живёт своё занятие». Показу этого довольно: процесс кончается
+    вместе с ним. Прогону - нет: занятие переживает тест на доли секунды, попадает в среду
+    соседнего и красит его ложно (🔴 TC-1054).
+
+    Подмена здесь НЕ меняет поведения: работа так же уходит в отдельный поток, так же
+    возвращает управление сразу, и стык ленты по-прежнему отдаёт замок поднятому прогону,
+    а не держит его собой. Меняется одно - у потока появляется ручка, и в конце теста его
+    дожидаются. Именно это и просит сторож: останови и дождись в самом тесте.
+    """
+    started: list[threading.Thread] = []
+
+    def spawn(work: Callable[[], None]) -> None:
+        thread = threading.Thread(target=work, daemon=True)
+        started.append(thread)
+        thread.start()
+
+    monkeypatch.setattr(feed_state, "spawn", spawn)
+    yield
+    for thread in started:
+        thread.join(SIDE_WORK_SECONDS)
 
 
 @pytest.fixture
