@@ -9,6 +9,7 @@ import functools
 import importlib
 import inspect
 import os
+import random
 import re
 import shutil
 import socket
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+import warnings
 from collections.abc import Callable
 from fractions import Fraction
 from types import ModuleType
@@ -344,22 +346,103 @@ def module_of(name: str) -> ModuleType:
     return importlib.import_module(name)
 
 
+class PortReselected(UserWarning):
+    """Порт пришлось перевыбрать. Громко, потому что молчаливый повтор прячет гонку."""
+
+
+#: Сколько кандидатов :func:`free_port` перебирает, прежде чем сдаться. Потолок нужен
+#: затем, чтобы «полоса занята целиком» кончалась внятной красной строкой, а не вечным
+#: перебором.
+PORT_TRIES = 40
+
+#: Наименьшая полоса, на которой перебор вообще имеет смысл. Уже неё - разумнее вернуться
+#: к вопросу ядру: полоса из десятка номеров сама стала бы источником столкновений.
+_PORT_BAND_FLOOR = 1000
+
+
+def _quiet_band() -> range:
+    """Полоса портов, которую ядро НЕ раздаёт по ``bind(0)``.
+
+    Ядро отвечает на ``bind(0)`` номером из ``ip_local_port_range`` (на этой машине
+    32768-60999) - и туда же попадает всякое исходящее соединение. Именно поэтому номер,
+    выпрошенный у ядра, отбирают: соседний воркер xdist, соседний worktree и любой курл
+    на машине тянут из ровно того же мешка. Номер СТРОГО НИЖЕ нижней границы диапазона
+    ядро не раздаст никому и никогда, и целый класс краж исчезает вместе с мешком.
+    """
+    try:
+        with open("/proc/sys/net/ipv4/ip_local_port_range") as fd:
+            low = int(fd.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        low = 32768
+    return range(max(1024, low - 12768), low)
+
+
+_PORT_BAND = _quiet_band()
+#: Свой разбег у каждого процесса: воркеры xdist и соседние worktree идут по одной полосе,
+#: и общая точка старта столкнула бы их лбами на первом же номере.
+_PICKER = random.Random(os.getpid())
+#: Уже розданное этим процессом. Номер свободен ровно до первого ``listen``, поэтому два
+#: подряд вопроса без подъёма между ними иначе получили бы один и тот же ответ.
+_HANDED: set[int] = set()
+
+
 def free_port() -> int:
-    """Свободный порт спрашивается у ядра, а не пишется константой в тесте.
+    """Свободный порт берётся из тихой полосы и проверяется настоящим ``bind``.
 
     Раздача поднимается на настоящем сокете, поэтому прибитый номер делает тесты
     взаимно исключающими: два прогона рядом (соседний worktree, повторный запуск того
-    же файла) дерутся за bind, и проигравший падает не по делу. ``bind`` на порт 0
-    отдаёт номер, который в этот момент свободен, и он же сразу освобождается: сокет
-    только привязан, соединений на нём не было, поэтому TIME_WAIT ему не грозит и
-    сервер встаёт на то же место.
+    же файла) дерутся за bind, и проигравший падает не по делу.
 
-    Порт спрашивать надо перед самой раздачей, а не заранее и не на весь модуль: между
-    ответом ядра и ``listen`` окно всё же есть, и чем оно короче, тем лучше.
+    🔴 TC-923. Вопрос ядру (``bind`` на порт 0) отвечает номером из эфемерного диапазона,
+    а между ответом и настоящим ``listen`` в тракте каста проходят десятки миллисекунд -
+    и в это окно влезает чужой ``bind(0)``, которому ядро выдало тот же номер. Замер под
+    нагрузкой (4 процесса, зазор 50 мс, сосед жуёт эфемерные порты): 14 краж из 2000.
+    Номер из :func:`_quiet_band` ядро не раздаёт по ``bind(0)`` вовсе, поэтому отобрать
+    его может только другой такой же намеренный перебор, а не вся машина разом.
+
+    Окно этим не закрывается совсем - закрыл бы его только сам сокет, переданный раздаче
+    под ``listen``, а раздача принимает номер (``Config.hls_port``). Поэтому остаток окна
+    сделан ВИДИМЫМ: занятый кандидат стоит перевыбора, а перевыбор - предупреждения
+    :class:`PortReselected` в сводке прогона. Молчаливый повтор превратил бы гонку в
+    невидимку.
+
+    Проба идёт по ``0.0.0.0``: так номер объявляется свободным только когда он свободен на
+    всех адресах, а раздача показа встаёт именно туда (``HlsServer.host``).
     """
+    if len(_PORT_BAND) < _PORT_BAND_FLOOR:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return int(sock.getsockname()[1])
+    missed = 0
+    for _ in range(PORT_TRIES):
+        port = _PORT_BAND[_PICKER.randrange(len(_PORT_BAND))]
+        if port in _HANDED or not _bindable(port):
+            missed += 1
+            continue
+        _HANDED.add(port)
+        if missed:
+            warnings.warn(
+                f"free_port: порт перевыбран {missed} раз(а), пока не нашёлся {port} "
+                f"(полоса {_PORT_BAND.start}-{_PORT_BAND.stop - 1})",
+                PortReselected,
+                stacklevel=2,
+            )
+        return port
+    pytest.fail(
+        f"free_port: свободного порта нет - {PORT_TRIES} кандидатов подряд заняты "
+        f"в полосе {_PORT_BAND.start}-{_PORT_BAND.stop - 1}",
+        pytrace=False,
+    )
+
+
+def _bindable(port: int) -> bool:
+    """Свободен ли номер ПРЯМО СЕЙЧАС - настоящим ``bind``, а не списком из ``ss``."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+        try:
+            sock.bind(("0.0.0.0", port))
+        except OSError:
+            return False
+    return True
 
 
 @pytest.fixture(autouse=True)
