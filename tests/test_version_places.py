@@ -69,6 +69,22 @@ def test_uv_lock_torrcast_entry_matches_the_source() -> None:
     assert found[0] == source_version()
 
 
+@pytest.mark.machine
+def test_uv_sync_frozen_leaves_the_lock_untouched() -> None:
+    """TC-1032: `uv sync` без `--frozen` перерешает граф и вместе с этим снимает
+    `version =` у записи `torrcast` - так `uv` сам обходится с локальным пакетом,
+    чья версия `dynamic` (собственное поведение инструмента, не наш дефект и не
+    чинится ни pyproject.toml, ни `scripts/set-version.py`). Штатный шаг заведения
+    венва - `uv sync --frozen` - обязан не перерешать граф и потому не трогать файл
+    вовсе; это единственная защита от затирания, и она проверяется прогоном."""
+    before = UV_LOCK.read_bytes()
+    result = subprocess.run(
+        ["uv", "sync", "--frozen"], cwd=REPO, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert UV_LOCK.read_bytes() == before, "uv sync --frozen изменил uv.lock"
+
+
 def test_cli_contract_version_fixtures_hold_a_template_not_a_literal() -> None:
     """`version.out` подставляет номер из дерева, а не хранит его - см. `scripts/cli-
     contract`. Тот же приём, которым чинили константу в `tests/test_installupgrade.py`."""
