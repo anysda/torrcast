@@ -1,188 +1,182 @@
-[日本語](docs/README-jp.md) | [Español](docs/README-es.md) | [Русский](docs/README-ru.md) 
+[日本語](docs/README-jp.md) | [Español](docs/README-es.md) | [Русский](docs/README-ru.md)
 
 # torrcast
 
-**Name a film - and it is already playing on the TV.**
+**Play a film on your TV by name.**
 
-One command in the terminal finds a film, a series or an anime by its name and puts it on
-the TV. No cloud in the data path, no media library, no download queue, no picking through
-torrents and audio tracks by hand. The stream goes straight through: from the swarm to
-your server, from there to the TV. There are no third parties between you and the picture.
+Someone recommends The Matrix during the day. What usually follows is a chore: scrolling a streaming service's feed, downloading the film in advance, or typing its name into the TV browser with a remote. torrcast is for when you already know what you want to watch. That evening you type `cast the matrix` and the film plays on your TV, with no interface to fight.
 
-<p align="center">
-  <img src="docs/demo.gif" alt="Installing torrcast and running cast: from the command to a picture on the TV">
-</p>
+torrcast finds films, series and anime, chooses a playable version and an audio track, and streams to Chromecast. Start watching from the terminal, Telegram or Home Assistant.
 
-## What it looks like
+[Install](#install) · [Watching](#watching) · [Home Assistant](#home-assistant) · [Telegram](#telegram) · [Commands](#commands)
 
-```console
-$ cast matrix --menu
-searching “matrix”... 2.4 s
-  1. The Matrix (1999) · IMDb 8.7 · 2 h 16 min
-     The Matrix is a 1999 science fiction action film written and directed by the
-     Wachowskis.
-  2. The Matrix Reloaded (2003) · IMDb 7.2 · 2 h 18 min
-     ...
-  3. The Matrix Revolutions (2003) · IMDb 6.7 · 2 h 9 min
-     ...
-Enter - “The Matrix (1999)”, item 1 of 3
-What are we watching? [1]:
-looking for an English voice: release 1 of 47 - tracks... 2.3 s
-packing... 3.1 s
-waiting for the TV... 1.2 s
-playing “The Matrix” (1999) · 1080p · eng · Original - on TV   (start 9 s)
-```
+![torrcast installation and playback demo](https://raw.githubusercontent.com/anysda/torrcast/master/docs/demo.gif)
 
-Without `--menu` there is no question at all: torrcast takes the liveliest picture and
-names it out loud in a single line. `start 9 s` is the time to the first live frame on the
-screen, not to the moment the receiver reported itself ready. From there the remote is in
-charge again: pause and seek work as with any other source. The run is abridged, because
-release numbers, seeders and timings move with the answers of the indexers and the swarm.
+- **Keep watching.** Episodes play one after another. At the end of a season, torrcast looks for the next one. Stop for the evening and resume from your saved position tomorrow.
+- **Keep your preferred audio.** Track selection follows the language you chose for torrcast. Pick a different track or studio and it remembers your choice for that title.
+- **Read ahead while you watch.** torrcast caches the film in the background. Once it reports that the whole film is on disk, you can finish watching and seek without an internet connection. The computer and TV still need their local connection.
+- **Let torrcast handle the format.** It converts video when the receiver needs it and reports changes to the version, audio or quality as it goes.
 
-## Why it is convenient
+## What you need
 
-- **One command.** You ask, and it plays. No release to pick, no download queue, no audio
-  track housekeeping. Often without a single question.
-- **Series run themselves.** The next episode starts without a question and without
-  reconnecting to the TV. A season ends and torrcast looks for the next one on its own and
-  goes on from its first episode. The series ends and it says so honestly.
-- **The voice picks itself.** By the language of the product: an English install puts
-  English tracks first, a Russian one puts Russian tracks first.
-  `cast <query> --voice STUDIO` remembers the favourite voice of that picture for good.
-- **The internet may drop, the film will not.** While you watch, the film warms up onto
-  the disk in the background, whole. After the warm-up you finish it with no network at
-  all, seeking included.
-- **Nothing extra on the disk.** The cache lives exactly as long as the viewing does. No
-  media library, no "should clean that up some day".
-- **Smoothness over numbers.** The release is a little heavy for the receiver, so the
-  heavy chunks get recoded on the fly. Quality is sacrificed last, and only as much as it
-  takes to keep the picture from buffering.
-- **It speaks English and Russian.** `cast --en` and `cast --ru` switch the whole product:
-  labels, messages, the bot's replies and the voice it looks for.
-- **A Telegram bot.** `cast -tg`, and the TV can be driven from a chat. The setup
-  puts the bot on a service, so the chat answers after a reboot too.
-- **Honest.** Not one silent substitution. Every automatic decision gets its own plain
-  line:
+| Component | Requirement |
+| --- | --- |
+| TV | A Chromecast receiver, built into the TV or in a connected streaming device. |
+| Computer<br>(ideally&nbsp;a&nbsp;server) | Debian 12+ or Ubuntu with systemd, or macOS. The native Mac installation has been tested on Apple Silicon. |
+| Storage | About 33 GB free for read-ahead and a system reserve; allow extra room for dependencies and the streaming cache. |
+| Network | Internet access and a trusted home network shared by the computer and receiver. |
 
-```text
-release 1 actually 574p - taking 2 (actually 1080p)
-attention: ~36 Mbit/s - heavy chunks get recoded on the fly
-video hevc - recoding it whole on the fly
-```
+torrcast is designed to stay running on a home server, a VM or an LXC container, ready when you want to watch. You can also run it on a Mac; keep the computer awake during playback. For a VM or container, make sure it and the receiver can reach each other on the LAN. Video travels from that computer to your TV over the local network.
 
-## What torrcast is not
+## Install
 
-- **Not a torrent downloader.** On the disk there is only what is playing, and only while
-  it plays.
-- **Not a media server.** No library, no web face, no accounts. There is a command.
-- **Not a cloud service.** No third-party server in the path of the stream: the address
-  for the TV is worked out from the route to it, and DNS takes no part in the playback
-  path.
-
-## Installation
+Run this on the computer that will stream to the TV:
 
 ```sh
 curl -fsSL https://torrcast.anysda.space | sh
 ```
 
-This is the English build of the product; the Russian one is installed by
-`https://rutorrcast.anysda.space`. The choice is not final either way: `cast --en` and
-`cast --ru` switch an installed copy at any moment. The one-liner asks GitHub for the
-latest version, pulls the tarball of exactly that version, verifies its SHA-256 checksum
-and is idempotent: a second run updates only what changed. Neither registration nor
-external API keys are needed.
+The installer downloads the latest release, checks its SHA-256 checksum, installs the dependencies and sets up background services. It asks for administrator privileges when needed and configures the receiver automatically if it finds exactly one. The installation uses English; `cast --ru` switches the saved language, including terminal messages, bot replies and audio preferences, and `cast --en` switches it back.
 
-Requirements: Linux with systemd (Debian 12 or newer, or Ubuntu; the install goes to
-`apt`), Python 3.11 or newer, root for the install, about 33 GB of free disk for the
-warm-up, and a TV or a set-top box with a built-in **Chromecast** receiver on the same
-network. The measurements were taken on a machine with 8 GiB of memory; a smaller one
-simply gets a smaller cache.
-
-From source:
+Then put a film on:
 
 ```sh
-git clone https://github.com/anysda/torrcast && cd torrcast
+cast the matrix
+```
+
+If several receivers were found, choose one with `cast --tv`, then run the film command again. You can also set an address directly with `cast --tv <ip>`.
+
+<details>
+<summary>Installing on macOS</summary>
+
+The same one-line install works natively on macOS. Run it from your usual administrator account. The installer sets up Homebrew if needed and uses launchd for background services.
+
+Playback runs as root to reach the local network from a background service. The installer adds a passwordless sudo rule for the installing user, limited to the `cast` command. You still launch films with `cast the matrix`.
+
+The bootstrap requires `sha256sum` before it reaches Homebrew setup. If it stops with `sha256sum is required but is not in PATH`, use the repository installation below, which starts `install.sh` directly. If macOS asks whether to allow incoming connections, allow them so the receiver can reach the video stream.
+
+</details>
+
+<details>
+<summary>Installing from the repository</summary>
+
+```sh
+git clone https://github.com/anysda/torrcast
+cd torrcast
 ./install.sh
 ```
 
-The flag names the language by hand: `-en` installs the English copy, `-ru` the Russian
-one. Without a flag a clean install writes English. Root is asked for by the installer
-itself: run it as a plain user and it restarts itself through `sudo`, so the machine
-where you are already root needs no `sudo` at all.
+The installer handles dependencies and administrator privileges here too. On ARM Linux, a working ffmpeg 6.1+ must be available if the distribution does not provide one; the installer's fallback Linux build is for x86_64.
 
-The install finds the receiver on its own, over mDNS and by walking the local subnets.
-If there are several, `cast --tv` shows the list and `cast --tv <ip>` writes the address
-down directly.
+</details>
 
-An installed copy updates itself: `cast --upgrade` asks GitHub for the latest
-version and, if it differs from the installed one, pulls it and runs the same install.
-If the versions match it says so and touches nothing at all. It refuses to interrupt a
-show that is running, and it leaves the receiver and the settings as they are.
+## Watching
+
+Usually, the title is enough. Add `--menu` to choose a film yourself, for example when a search finds several parts of a series:
+
+```console
+$ cast the matrix --menu
+  1. The Matrix (1999) · IMDb 8.7 · 2 h 16 min
+     A science fiction action film written and directed by the Wachowskis.
+  2. The Matrix Reloaded (2003) · IMDb 7.2 · 2 h 18 min
+     A science fiction action film, the second in The Matrix series.
+  3. The Matrix Revolutions (2003) · IMDb 6.7 · 2 h 9 min
+     A science fiction action film, the third in The Matrix series.
+Enter - “The Matrix (1999)”, item 1 of 3
+What are we watching? [1]:
+```
+
+Press Enter for the named default, or enter a number. Results, ratings and available versions can change. torrcast groups versions of the same film together, so you choose the film once; it handles the playback selection.
+
+For a series, add a season and episode:
+
+```sh
+cast kim possible s1e1
+```
+
+The next episode starts automatically. `cast stop` saves your position, and **`cast` with no arguments resumes the last series**. To resume a film, ask for its title again.
+
+Pause and seek with your TV remote. Once playback has started, you can close the terminal or disconnect SSH. torrcast manages the cache automatically; there is no media library to organise.
 
 ## Home Assistant
 
-torrcast has an integration for Home Assistant: it is added through HACS as a custom
-repository, and Home Assistant then finds the machine on its own, over mDNS. A media
-player card shows up on the dashboard: put a show on, pause, stop, next episode, volume
-and seeking. Its media browser has a search field for typing a title; tapping a result
-plays that exact one.
+Put torrcast on your dashboard: start a film, pause, seek, adjust the volume or skip to the next episode. The integration connects to torrcast over your local network.
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=anysda&repository=torrcast&category=integration)
+[![Add torrcast to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=anysda&repository=torrcast&category=integration)
 
-The integration talks over the local network to a torrcast installed on Linux. The
-built-in Assist handles pause, stop, next episode, volume, and now "play <show>" as
-well, in the languages Home Assistant ships that sentence for: English and Spanish are
-among them, Russian and Japanese are not. An LLM assistant of Home Assistant understands
-the same request in freer wording, in any language it speaks.
+1. Install torrcast using the command above, then use the button to add its [custom repository in HACS](https://www.hacs.xyz/docs/faq/custom_repositories/) and download the integration.
+2. Restart Home Assistant. Under **Settings > Devices & services**, confirm the discovered torrcast device. If it does not appear, add the torrcast integration manually using the computer's IP address and port `8479`.
+3. Add its media player to your dashboard. Open the media browser: **instant** takes a title and starts playback; **menu** searches and lets you pick a result.
+
+Assist can control playback too. Starting a film by name depends on the assistant's language support: built-in Assist supports that request in English, but not Russian in the tested setup. Russian title entry in the media browser works independently of that voice limitation.
+
+## Telegram
+
+Send `cast the matrix` from the sofa and use the playback buttons in the chat. The bot shows progress while the film starts, then gives you pause, stop, volume and 30-second seek controls. It also controls playback started from the terminal or Home Assistant.
+
+Set it up on the torrcast computer:
+
+```sh
+cast -tg
+```
+
+Create a bot with [BotFather](https://core.telegram.org/bots/features#botfather), open a chat with it and press **Start**. In the setup menu, enter the bot token and your chat ID, then choose **Test and save**. The setup sends a test message and enables the bot service, which starts again after a reboot. The bot accepts commands only from the configured chat.
+
+<details>
+<summary>Finding your chat ID</summary>
+
+Before enabling the bot service, send your new bot a message. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser, replacing `<TOKEN>` with the token from BotFather. In the [response](https://core.telegram.org/bots/api#getupdates), copy the number at `result[].message.chat.id` into the setup menu's **Chat ID** field.
+
+</details>
+
+Send these as ordinary messages:
+
+```text
+cast the matrix
+cast kim possible s1e1
+cast
+cast stop
+```
+
+The phone sends commands through Telegram; the video stream stays between your computer and TV.
 
 ## Commands
 
-```text
-cast <query> [sNeM]     # find it and put it on; sNeM is season and episode: cast "doctor who" s2e5
-cast                    # what is playing now (same as cast status)
-cast stop               # drop the cast and save the position
-cast status             # position, file, track, torrent, share warmed up
-cast doctor             # checks the terminal, ffmpeg, the services, the receiver and the torrent
-cast log [--since 2d]   # the session journal: every rebuffer and every drop
-cast voices <query>     # the audio tracks of the release that will go to the TV
-cast releases <query>   # the table of releases, by picture
-cast -tg                # Telegram bot setup
-cast --tv               # find the receivers on the network
-cast --upgrade          # update to the latest release, or say it is already the latest
-cast -h                 # help on every flag
+| Command | Action |
+| --- | --- |
+| `cast <title>` | Find a film or series and play it. |
+| `cast <title> s1e1` | Play a specific episode: season and number. |
+| `cast` | Resume the last series. |
+| `cast stop` | Stop playback and save your position. |
+| `cast status` | What is playing, your position and read-ahead progress. |
+| `cast <title> --menu` | Show the titles found and ask, instead of playing right away. |
+| `cast <title> --pick N` | Title N from the menu, without asking. |
+| `cast <title> --new` | The same release, file and track from the start. |
+| `cast <title> --voice` | Choose an audio track from a menu. `--voice N` or `--voice STUDIO` picks and remembers it. |
+| `cast voices <title>` | Show the available tracks before starting playback. |
+| `cast releases <title>` | List releases grouped by title. `--release N` with the same query plays that one. |
+| `cast <title> --dry` | Run the whole selection without casting. |
+| `cast --tv` | Find receivers on the network and pick one. `cast --tv <ip>` sets the address directly. |
+| `cast -tg` | Open the Telegram bot setup menu. |
+| `cast --ru` / `cast --en` | Switch the language and remember the choice. |
+| `cast doctor` | Check the services, network and receiver. |
+| `cast log --since 2d` | Diagnostic trail. `--since` accepts `2d`, `12h`, `30m` or a `YYYY-MM-DD` date. |
+| `cast --upgrade` | Update to the latest release. |
+| `cast --version` | Show the version. |
+| `cast -h` | All commands and options. |
+
+## Updates and help
+
+```sh
+cast --upgrade
 ```
 
-Useful flags: `--menu` (ask which picture), `--pick N`, `--release N`,
-`--voice [N|STUDIO]`, `--new` (the same release from the start), `--dry` (the whole
-reasoning with no cast). Anything left unfinished continues silently: the same torrent,
-the same file, the same track, the saved position. The playing line says so and names the
-way out of it.
+Updates preserve your settings and receiver selection. The updater refuses to run while something is playing.
 
-## Under the hood
+If a film will not start, run `cast doctor` to check the services, network and receiver. `cast log --since 2h` shows recent playback events; `cast -h` lists the commands and options.
 
-```text
-query -> search (Prowlarr) -> parsing (release names, franchises, sNeM)
-      -> stream (TorrServer) -> ffmpeg -> HLS -> cast (Chromecast)
-                             \-> warm-up (the whole film onto disk, in the background)
-```
-
-There is no permanent playback daemon: for every showing `cast` raises a transient systemd
-unit with ffmpeg, an HLS server and a position watcher. The command may exit, the showing
-goes on. The warm-up reads ahead at four times real time under `nice` and freezes
-completely when the live showing needs the processor: the spot being watched right now
-always comes first.
-
-The receivers are measured and described by profiles (Samsung Q70D, an Android TV box on a
-Xiaomi TV Stick); an unknown receiver gets the careful profile. HEVC on a receiver without
-a decoder for it is recoded whole, 2160p plays through a downscale to 1080p, and this is
-always said out loud.
-
-The code is held to hard rules: a layered architecture (domain / ports / usecases /
-adapters / cli / runtime), more test lines than code lines, a linter, strict mypy and
-structural gates that must pass before any release.
+For a bug report, [open an issue](https://github.com/anysda/torrcast/issues) with the command you ran, your OS and receiver model, and the relevant diagnostic output.
 
 ## Licence and responsibility
 
-The torrcast code is distributed under the [MIT](LICENSE) licence. The licence covers the
-code only and grants no rights to whatever you watch with it: the sources and their
-legality are the user's responsibility.
+The torrcast code is distributed under the [MIT](https://github.com/anysda/torrcast/blob/master/LICENSE) licence. The licence covers the code only and grants no rights to whatever you watch with it: the sources and their legality are the user's responsibility.
