@@ -45,7 +45,7 @@ def test_a_running_show_is_not_killed_silently() -> None:
     console, environment = FakeConsole(), FakeUpgradeEnvironment()
 
     assert _upgrade(session, environment, console).run() == EXIT_INFRA
-    assert console.messages == [phrase("upgrade.show_is_on", what="«Муха»")]
+    assert console.messages == [phrase("upgrade.show_is_on", what="Муха")]
     assert environment.handed == [], "показ идёт, а работа всё равно ушла загрузчику"
 
 

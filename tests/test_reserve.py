@@ -157,7 +157,15 @@ def test_status_prints_the_reserve(
     assert main(["status"]) == 0
 
     out = capsys.readouterr().out
-    assert phrase("status.playing", what="«Моана 2»", pos="0:10:00", duration="2:00:00") in out
+    assert (
+        phrase(
+            "status.playing",
+            what=phrase("choice.quoted", it="Моана 2"),
+            pos="0:10:00",
+            duration="2:00:00",
+        )
+        in out
+    )
     measured = phrase("cache.by_measurement")
     assert phrase("cache.reserve_minutes", minutes="7", source=measured) in out
 
@@ -177,8 +185,8 @@ def test_status_survives_dead_service(
 
     out = capsys.readouterr().out
     marker = "@"
-    prefix = phrase("status.playing", what="«Моана 2»", pos=marker, duration=marker).split(marker)[
-        0
-    ]
+    prefix = phrase(
+        "status.playing", what=phrase("choice.quoted", it="Моана 2"), pos=marker, duration=marker
+    ).split(marker)[0]
     assert prefix in out
     assert phrase("cache.reserve_unknown_no_answer") in out

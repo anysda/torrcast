@@ -13,6 +13,16 @@ from torrcast.ports.playback_session import PlaybackSession
 WARMED_RATIO = 0.99
 
 
+def _quoted_name(shown: PlaybackSnapshot) -> str:
+    """Имя показа в кавычках языка вывода; метка серии стоит рядом, а не внутри.
+
+    Модель отдаёт имя голым (:attr:`torrcast.domain.playback_snapshot.PlaybackSnapshot.
+    shown_as`): набор кавычек - дело языка надписи, а не записи показа (TC-972).
+    """
+    name = phrase("choice.quoted", it=shown.spoken)
+    return name + (f" {shown.label}" if shown.label else "")
+
+
 class Status:
     """Сценарий команды ``cast status``.
 
@@ -34,7 +44,7 @@ class Status:
         shown = self._session.snapshot(self._session.key() if playing else "")
         if not playing or shown is None:
             return self._silence(shown)
-        what = shown.shown_as
+        what = _quoted_name(shown)
         # Разрешение - подтверждённое ffprobe у играющего файла, а не заявка имени.
         what += f" · {shown.quality}" if shown.quality else ""
         self._what_is_on(shown, what)
@@ -68,7 +78,7 @@ class Status:
             gone = shown.position
             was = phrase("status.at", pos=self._hms(gone)) if gone else phrase("status.no_frame")
             self._console.write(
-                phrase("status.torn", what=shown.shown_as, was=was, reason=shown.dark_reason)
+                phrase("status.torn", what=_quoted_name(shown), was=was, reason=shown.dark_reason)
             )
             return EXIT_OK
         self._console.write(phrase("status.nothing_playing"))

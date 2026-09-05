@@ -306,7 +306,7 @@ def test_status_tells_about_a_show_that_died_without_a_single_frame(
     assert (
         phrase(
             "status.torn",
-            what="«Моана 2»",
+            what=phrase("choice.quoted", it="Моана 2"),
             was=phrase("status.no_frame"),
             reason="приёмник бросил показ",
         )
@@ -327,7 +327,15 @@ def test_status_shows_what_is_playing_and_from_where(
     assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert phrase("status.playing", what="«Моана 2»", pos="0:41:07", duration="1:39:38") in printed
+    assert (
+        phrase(
+            "status.playing",
+            what=phrase("choice.quoted", it="Моана 2"),
+            pos="0:41:07",
+            duration="1:39:38",
+        )
+        in printed
+    )
     assert KEY in printed and "file #2" in printed and "track 2" in printed
 
 
@@ -348,7 +356,15 @@ def test_status_does_not_call_a_black_screen_a_show(
 
     printed = capsys.readouterr().out
     assert "playing" not in printed, "чёрный экран назван показом"
-    assert phrase("status.dark", what="«Моана 2»", pos="0:41:07", duration="1:39:38") in printed
+    assert (
+        phrase(
+            "status.dark",
+            what=phrase("choice.quoted", it="Моана 2"),
+            pos="0:41:07",
+            duration="1:39:38",
+        )
+        in printed
+    )
     darkness = phrase("status.darkness_for", hms="0:03:20")
     assert phrase("status.dark_wait", darkness=darkness, reason="TorrServer не отвечает") in printed
 
@@ -369,7 +385,7 @@ def test_status_names_the_unit_key_not_the_freshest_record(
     assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert "«Моана 2»" in printed and "Чужое кино" not in printed
+    assert phrase("choice.quoted", it="Моана 2") in printed and "Чужое кино" not in printed
 
 
 def test_stop_reports_the_playing_record_and_asks_the_unit_before_killing_it(

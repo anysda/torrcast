@@ -448,7 +448,7 @@ def test_status_names_the_episode(
 
     line = phrase(
         "status.playing",
-        what="«Киберпанк: Бегущие по краю» s1e2",
+        what=phrase("choice.quoted", it="Киберпанк: Бегущие по краю") + " s1e2",
         pos="0:05:10",
         duration="0:24:00",
     )

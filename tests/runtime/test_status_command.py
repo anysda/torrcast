@@ -45,5 +45,10 @@ def test_the_configuration_is_read_once_for_the_whole_answer(
     show_unit.playing = "movie:моана-2"
     assert status_command(counted) == 0
     assert reads == [1], "конфиг у команды один на все три вопроса сеанса"
-    line = phrase("status.playing", what="«Моана 2»", pos="0:10:00", duration="2:00:00")
+    line = phrase(
+        "status.playing",
+        what=phrase("choice.quoted", it="Моана 2"),
+        pos="0:10:00",
+        duration="2:00:00",
+    )
     assert line in capsys.readouterr().out

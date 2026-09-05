@@ -18,7 +18,10 @@ def test_status_prints_playing_snapshot() -> None:
 
     assert Status(session, console, FakeClock()).run() == 0
     assert console.messages[0] == phrase(
-        "status.playing", what="«Луна» · 1080p", pos="0:01:05", duration="1:00:00"
+        "status.playing",
+        what=phrase("choice.quoted", it="Луна") + " · 1080p",
+        pos="0:01:05",
+        duration="1:00:00",
     )
     assert console.messages[-1] == phrase(
         "status.file_info",
@@ -54,5 +57,8 @@ def test_status_names_the_picture_by_its_original_under_english(_english: None) 
     Status(session, console, FakeClock()).run()
 
     assert console.messages[0] == phrase(
-        "status.playing", what="«One Punch Man»", pos="0:01:05", duration="1:00:00"
+        "status.playing",
+        what=phrase("choice.quoted", it="One Punch Man"),
+        pos="0:01:05",
+        duration="1:00:00",
     )

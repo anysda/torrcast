@@ -42,7 +42,13 @@ class PlaybackSnapshot:
 
     @property
     def shown_as(self) -> str:
-        return f"«{self.spoken}»" + (f" {self.label}" if self.label else "")
+        """Имя показа для надписи: как его зовут (:attr:`spoken`) и метка серии рядом.
+
+        Кавычек тут нет нарочно: ёлочки - знак русского набора, и зашитые в модель они
+        печатались под EN мимо языковой стороны (TC-972). Обрамляет имя тот, кто его
+        печатает, ключом своего каталога (``choice.quoted``, ``upgrade.show_is_on``).
+        """
+        return self.spoken + (f" {self.label}" if self.label else "")
 
     @property
     def resumable(self) -> bool:
