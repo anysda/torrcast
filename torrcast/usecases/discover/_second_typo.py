@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torrcast.usecases.discover._search_state as _search_state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.cluster import cluster
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.nearly_named import nearly_named
@@ -12,6 +13,7 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
+from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._second_circle import _second_circle
 
 
@@ -49,6 +51,20 @@ def _second_typo(
     видит и не платит за неё ни секунды. Одно слово укорачивать не во что - и там ветка
     молчит тоже («лёд», «дюна»).
 
+    🔴 TC-1004. **Одним коротким словом судьба картины не решается.** Опознав имя, ступень
+    спрашивает источник ЕЩЁ РАЗ - тем самым именем, которое человек и набирал бы без промаха
+    клавиши, - и склеивает эту выдачу с широкой. Без второго вопроса картина выбиралась на
+    пуле по одному слову: на «байки» сериал отдавался с мёртвым роем, а на «байки мэтра» - с
+    живым, и одна буква уводила зрителя с сериала на одноимённый фильм. Правило вида
+    (:func:`~torrcast.usecases.choice.series_take.series_take`) спрашивается на общем пуле, и
+    спросить его есть о чём только когда в пуле лежат обе картины.
+
+    ⚠️ Ступень по-прежнему стоит В ХВОСТЕ круга, ПОСЛЕ справки по оригинальному имени
+    (:func:`~torrcast.usecases.discover._second_language._second_language`), и это замер, а не
+    вкус: поднятая наверх, она отнимает у справки её случаи и заставляет платить два лишних
+    захода к источнику там, где справка чинит запрос сама («мальчик и цапля», «ре зеро»).
+    Цена этого - доборы под потолок, сезон и озвучку на путь описки не попадают.
+
     ⚠️ Пол бюджета круга берётся у самого добора (:func:`_second_circle`, TC-386), своего
     тут не заводится.
     """
@@ -61,8 +77,17 @@ def _second_typo(
             continue
         # Номер части переспрашивается вместе с исправленным именем: описка правится в
         # имени, а не в номере («байки метра 2» - это по-прежнему просьба про вторую).
-        if found := pick_franchise(near if index is None else f"{near} {index}", seen):
-            return pool, seen, found
+        asked = near if index is None else f"{near} {index}"
+        if not pick_franchise(asked, seen):
+            continue
+        # 🔴 TC-1004. Исправленным именем источник спрашивается ещё раз, и выдача его
+        # склеивается с широкой. Иначе судьба картины решалась бы по одному короткому слову.
+        fixed = near.replace("-", " ")
+        progress.phase(phrase("discover.search_phase", query=fixed))
+        pool = _search_state._search_catalogue.merge(pool, _ask(client, fixed))
+        progress.phase("")
+        seen = cluster(_search_state._search_catalogue.to_releases(pool))
+        return pool, seen, pick_franchise(asked, seen)
     return raw, [], []
 
 

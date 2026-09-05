@@ -11,6 +11,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.goal_spare import GOAL
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
+from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover._second_typo import _shorter
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
@@ -30,6 +31,28 @@ _TALL_TALES = [
 ]
 #: Выдача по слову «унесенные»: имя картины ВХОДИТ в запрос, но картина другая.
 _SWEPT_AWAY = [row("Унесенные / Swept Away (2002) BDRip 1080p", "a")]
+#: Что источник отдаёт на КОРОТКОЕ слово: сериал в выдаче есть, но рой у него мёртвый.
+_SHORT_TALES = [
+    row(
+        "Тачки Мультачки: Байки Мэтра / Cars Toon: Mater's Tall Tales (2006) BDRip 1080p",
+        "a",
+        seeders=3,
+    ),
+    row("Тачки: Байки Мэтра / Mater's Tall Tales (2008) S01 WEB-DL 1080p", "b", seeders=1),
+    row("Байки из склепа / Tales from the Crypt (1989) DVDRip", "c"),
+]
+#: Что источник отдаёт на ПОЛНОЕ имя: у сериала есть и живая раздача.
+_FULL_TALES = [
+    *_SHORT_TALES,
+    row("Тачки: Байки Мэтра / Mater's Tall Tales (2008) S01 WEBRip 1080p", "d", seeders=400),
+]
+#: Источник, у которого короткое слово и полное имя отвечают РАЗНЫМ.
+_TYPO_WORLD: dict[str, list[RawResult]] = {
+    "байки метра": [],
+    "байки": _SHORT_TALES,
+    "метра": [],
+    "байки мэтра": _FULL_TALES,
+}
 
 
 def _circle(answers: dict[str, list[RawResult]], query: str) -> tuple[list[Plan], Indexer]:
@@ -83,6 +106,52 @@ def test_a_query_answered_by_the_first_circle_never_pays_for_the_shortened_one()
 
     assert "байки" not in client.asked
     assert "мэтра" not in client.asked
+
+
+def _answer(query: str) -> str:
+    """Что продукт отвечает на запрос: взятая картина и её вид, либо отказ."""
+    try:
+        plans, _client = _circle(_TYPO_WORLD, query)
+    except NotFoundError:
+        return "отказ"
+    picture = plans[enter_take(plans, query).number - 1].picture
+    return f"{picture.title}/{picture.kind}"
+
+
+def test_a_typo_leads_to_the_same_picture_and_the_same_kind_as_the_clean_name() -> None:
+    """🔴 TC-1004. Одна буква разницы уводила с сериала на одноимённый фильм.
+
+    Ступень описки стояла ПОСЛЕДНЕЙ в круге поиска и отдавала готовый выбор картины -
+    значит справка по оригиналу и все доборы, стоящие выше неё, на путь описки не
+    попадали вовсе. Источник на короткое слово «байки» отдаёт сериал с мёртвым роем, на
+    полное имя - с живым: клавиша, промахнувшаяся мимо «э», решала вид картины.
+
+    Мера тут одна и она продуктовая: КАРТИНА и ВИД обязаны совпасть. Время совпадать не
+    обязано - укороченный круг стоит своих секунд по замыслу.
+    """
+    assert _answer("байки метра") == _answer("байки мэтра") == "Тачки: Байки Мэтра/tv"
+
+
+def test_the_corrected_name_is_asked_of_the_source_the_way_the_human_would_ask_it() -> None:
+    """Исправленное имя уходит в источник: судьбу картины не решают по одному слову."""
+    _plans, client = _circle(_TYPO_WORLD, "байки метра")
+
+    assert "байки мэтра" in client.asked
+
+
+def test_the_line_about_the_catalog_still_names_the_words_the_human_typed() -> None:
+    """Строка про имя каталога называет НАБРАННОЕ, а не переписанную за человека строку."""
+    wire_catalogue()
+    said = Said()
+    search_circle(
+        _CONFIG,
+        Args(query=["байки", "метра"]),
+        said,
+        indexer=lambda *_a, **_k: Indexer(answers=_TYPO_WORLD),
+        passport=lambda *_a, **_k: Origin(),
+    )
+
+    assert "«байки метра» - в каталоге это «Тачки: Байки Мэтра»" in said.notes
 
 
 def test_a_single_word_has_nothing_to_shorten() -> None:
