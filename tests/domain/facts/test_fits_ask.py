@@ -24,9 +24,49 @@ def test_a_year_that_the_article_kept_quiet_about_comes_from_wikidata() -> None:
 
 
 def test_a_series_does_not_take_the_poster_of_the_film_of_the_same_year() -> None:
-    """«Паразиты» 2019 года - это и фильм, и сериал: без рода строки делили картинку."""
-    film = Dated("Parasite", "Q61448040", frozenset({2019}), frozenset({"movie"}))
+    """«Паразиты» 2019 года - это и фильм, и сериал: без рода строки делили картинку.
+
+    🔴 Строка тут собрана так, как её собирает боевая проводка: русская статья фильма
+    называется «Паразиты (фильм)», и уточнение рода в её имени едет полем ``named``
+    (:func:`~torrcast.domain.facts.dated_pages.dated_pages`). Оно и есть доказательство,
+    что тёзка другого рода у картины ЕСТЬ, а значит наша догадка «сериал» целит именно
+    в неё: отменять догадку нечем.
+    """
+    film = Dated("Parasite", "Q61448040", frozenset({2019}), frozenset({"movie"}), "", "movie")
     assert not fits_ask(Ask("Паразиты", 2019, "tv"), film, {})
+
+
+def test_an_anthology_under_a_bare_name_keeps_the_poster_of_its_own_film() -> None:
+    """🔴 ОТРИЦАТЕЛЬНАЯ ПРОБА на догадку о роде: сверяй один род - и антология без постера.
+
+    Род «сериал» продукт не знает, а угадывает по метке серии в имени раздачи
+    (:func:`hass.poster_lookup._kind`), а полнометражная антология раздаётся по новеллам и
+    несёт ту же ``s1e1``. «Аниматрица», «Париж, я люблю тебя» и «Бэтмен: Рыцарь Готэма» -
+    три из трёх оставались с кадром вместо постера, потому что справку спрашивали про
+    сериал, которого нет на свете.
+
+    Отменяет догадку ИМЯ найденной статьи, а не перебор родов: имя голое - тёзки другого
+    рода нет, и статья под ним говорит про спрошенную картину. Лишнего похода в сеть это
+    не стоит, имя приезжает тем же запросом, что и статья.
+    """
+    film = Dated("The Animatrix", "Q219776", frozenset({2003}), frozenset({"movie"}))
+
+    assert fits_ask(Ask("Аниматрица", 2003, "tv"), film, {}), (
+        "антологии с метками серий отказано в её собственном постере"
+    )
+
+
+def test_the_guess_is_cancelled_only_downwards_and_only_by_the_name() -> None:
+    """Послабление одностороннее: фильму статья сериала не достаётся ни при каком имени.
+
+    Род «movie» ставится там, где меток серий нет вовсе, и догадкой он не является -
+    отменять нечего. А год сверяется по-прежнему обоими: снятый род не снимает года.
+    """
+    series = Dated("Fargo", "Q3743949", frozenset({2014}), frozenset({"tv"}))
+    anthology = Dated("The Animatrix", "Q219776", frozenset({2003}), frozenset({"movie"}))
+
+    assert not fits_ask(Ask("Фарго", 2014, "movie"), series, {})
+    assert not fits_ask(Ask("Аниматрица", 2005, "tv"), anthology, {})
 
 
 def test_a_year_that_was_never_asked_about_is_not_a_refusal() -> None:

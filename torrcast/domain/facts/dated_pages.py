@@ -12,6 +12,7 @@ from collections.abc import Iterable
 
 from torrcast.domain.facts.dated import Dated
 from torrcast.domain.facts.linked_title import linked_title
+from torrcast.domain.facts.named_kind import named_kind
 from torrcast.domain.facts.named_year import named_year
 from torrcast.domain.facts.page_kinds import page_kinds
 from torrcast.domain.facts.page_years import page_years
@@ -60,7 +61,19 @@ def dated_pages(
             continue
         seen.add((address, source))
         entity = str(json_map(page.get("pageprops")).get("wikibase_item") or "")
-        named = named_year(name) or named_year(native)
-        years = page_years(page) | ({named} if named else set())
-        out.append(Dated(address, entity, frozenset(years), frozenset(page_kinds(page)), source))
+        dated = named_year(name) or named_year(native)
+        years = page_years(page) | ({dated} if dated else set())
+        # Род из имени берётся у ЗАГОЛОВКА статьи, а не у спрошенного имени: спросить мы
+        # вправе что угодно, а разводит одноимённое сам раздел. «Париж, я люблю тебя
+        # (фильм)» - наша выдумка, и она ведёт на голое «Париж, я люблю тебя».
+        out.append(
+            Dated(
+                address,
+                entity,
+                frozenset(years),
+                frozenset(page_kinds(page)),
+                source,
+                named_kind(native),
+            )
+        )
     return out

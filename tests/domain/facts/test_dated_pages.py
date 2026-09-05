@@ -89,3 +89,33 @@ def test_a_russian_article_without_an_english_pair_is_kept_for_its_own_poster() 
     assert [row.page for row in rows] == [""], "английской пары у неё нет"
     assert [row.source for row in rows] == ["Чернобыль: Зона отчуждения. Финал"]
     assert [sorted(row.years) for row in rows] == [[2019]], "год сверяется как и прежде"
+
+
+def test_the_kind_in_the_name_is_taken_from_the_heading_and_not_from_the_asked_name() -> None:
+    """🔴 Спросить мы вправе что угодно, а разводит одноимённое сам раздел.
+
+    «Паразиты (фильм, 2019)» - имя из нашей же очереди кандидатов, и Википедия ведёт им
+    на «Паразиты (фильм)». Читай мы спрошенное имя, разведённой оказалась бы всякая
+    картина, которую очередь спросила с уточнением, - в том числе стоящая под голым
+    именем антология, и постера ей опять не досталось бы.
+    """
+    rows = dated_pages(REPLY, ["Паразиты (фильм, 2019)"])
+    assert [row.named for row in rows] == ["movie"], "тёзка другого рода не названа"
+
+
+def test_an_article_under_a_bare_name_says_so_with_an_empty_word() -> None:
+    """Голое имя означает, что тёзки другого рода у картины нет: делить его не с кем."""
+    reply: JsonValue = {
+        "query": {
+            "pages": [
+                {
+                    "title": "Аниматрица",
+                    "langlinks": [{"lang": "en", "title": "The Animatrix"}],
+                    "categories": [{"title": "Категория:Мультфильмы 2003 года"}],
+                }
+            ]
+        }
+    }
+    rows = dated_pages(reply, ["Аниматрица"])
+    assert [row.named for row in rows] == [""]
+    assert [row.kinds for row in rows] == [frozenset({"movie"})], "род статьи прежний"

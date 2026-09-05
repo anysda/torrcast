@@ -23,3 +23,8 @@ class Dated(NamedTuple):
     years: frozenset[int]
     kinds: frozenset[str] = frozenset()
     source: str = ""
+    #: Род, которым Википедия развела САМО ИМЯ статьи («Паразиты (фильм)»); пусто - имя
+    #: принадлежит этой картине целиком, тёзки другого рода у неё нет
+    #: (:func:`~torrcast.domain.facts.named_kind.named_kind`). Этим антология, раздаваемая
+    #: по новеллам, отличается от чужой картины с тем же именем и тем же годом.
+    named: str = ""
