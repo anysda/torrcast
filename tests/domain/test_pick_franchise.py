@@ -1,5 +1,7 @@
 """Зеркало :mod:`torrcast.domain.pick_franchise`: какие картины отвечают запросу."""
 
+from dataclasses import replace
+
 from torrcast.domain.cluster import cluster
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.pick_franchise import pick_franchise
@@ -220,3 +222,24 @@ def test_a_lone_foreign_namesake_does_not_take_the_whole_query() -> None:
     assert all("колец" in p.title for p in found), (
         "запрос забрал тёзка в одну раздачу: " + ", ".join(f"{p.title} ({p.year})" for p in found)
     )
+
+
+def test_a_third_name_does_not_hand_the_query_to_a_barely_known_picture() -> None:
+    """🔴 «стражи»: псевдоним «Часовых» уводил запрос мимо «Стражей Галактики»."""
+    names = [
+        "Часовые / Les Sentinelles (2023) WEB-DL 1080p",
+        "Стражи Галактики / Guardians of the Galaxy (2014) BDRip 1080p",
+        "Стражи Галактики / Guardians of the Galaxy (2014) WEB-DL 2160p",
+        "Стражи Галактики. Часть 2 / Guardians of the Galaxy Vol. 2 (2017) BDRip 1080p",
+        "Стражи Галактики 3 / Guardians of the Galaxy Vol. 3 (2023) WEB-DL 1080p",
+    ]
+    pictures = cluster([parse_release_name(name) for name in names])
+    pictures = [
+        replace(picture, aliases=("стражи",)) if picture.title.startswith("Часовые") else picture
+        for picture in pictures
+    ]
+
+    got = pick_franchise("стражи", pictures)
+
+    assert got
+    assert all("Стражи" in picture.title for picture in got), [p.title for p in got]

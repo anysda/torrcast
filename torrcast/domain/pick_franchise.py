@@ -69,7 +69,10 @@ def pick_franchise(
         if not wanted:
             return None
         if pointed := third.get(wanted):
-            return pointed
+            # Третье имя картины - такая же короткая дорога мимо ранжирования, как и
+            # точное совпадение слага: один псевдоним уводил «стражи» во французских
+            # «Часовых» мимо «Стражей Галактики» на 157 раздач.
+            return _richer_namesake(groups, wanted, pointed) or pointed
         if hits := [k for k in groups if wanted in k]:
             return _nearest_group(wanted, groups, hits)
         if loose := _by_words(wanted, groups):

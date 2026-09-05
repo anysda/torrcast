@@ -55,3 +55,17 @@ def test_the_asked_word_must_stand_whole_not_inside_another_word() -> None:
     assert _whole_word("властелин-колец", "властелин")
     assert _whole_word("маша-и-медведь", "медведь")
     assert _whole_word("отец-мать-сестра-брат", "брат")
+
+
+def test_a_third_name_of_a_barely_known_picture_yields_too() -> None:
+    """🔴 Живой замер стенда: «стражи» стояли на «Часовых» (7 раздач) мимо 5 картин и 157."""
+    groups = _groups({"часовые": [7], "стражи-галактики": [50, 40, 30, 20, 17]})
+
+    assert _richer_namesake(groups, "стражи", "часовые") == "стражи-галактики"
+
+
+def test_a_third_name_of_a_well_known_picture_keeps_the_query() -> None:
+    """Псевдоним картины, за которой стоит каталог, запрос никому не отдаёт."""
+    groups = _groups({"часовые": [9, 8], "стражи-галактики": [50, 40, 30, 20, 17]})
+
+    assert _richer_namesake(groups, "стражи", "часовые") is None

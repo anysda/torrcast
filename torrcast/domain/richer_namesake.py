@@ -17,7 +17,9 @@ def _whole_word(key: str, wanted: str) -> bool:
     )
 
 
-def _richer_namesake(groups: dict[str, list[Picture]], wanted: str) -> str | None:
+def _richer_namesake(
+    groups: dict[str, list[Picture]], wanted: str, incumbent: str | None = None
+) -> str | None:
     """Кому отдать спрошенное имя, когда о самом имени каталог не знает почти ничего.
 
     🔴 TC-1025, второй заход: замер на широком пуле стенда `.135`. Точное совпадение
@@ -42,20 +44,27 @@ def _richer_namesake(groups: dict[str, list[Picture]], wanted: str) -> str | Non
     ⚠️ Слово должно стоять ОТДЕЛЬНЫМ (:func:`_whole_word`): «брат 2» уезжал в «Братья»
     (19 раздач) ровно потому, что «брат» лежит внутри «братья» куском, а не словом.
 
+    ``incumbent`` - тот, кто держит запрос сейчас, когда это НЕ одноимённая группа:
+    третье имя картины (её псевдоним из выдачи IMDb) уводит запрос той же короткой
+    дорогой мимо ранжирования. Живой замер стенда: «стражи» вставали на французских
+    «Часовых» (2023, 7 раздач) - у той картины «стражи» записаны псевдонимом, - а рядом
+    лежали «стражи-галактики»: 5 картин и 157 раздач.
+
     ⚠️ Граница правила названа числом: спасает оно ровно там, где тёзка каталогом почти
     не подтверждён. Была бы у «Властелина» (1999) не одна раздача, а пятнадцать, - он
     перестал бы быть тощим и снова забрал бы запрос себе.
     """
-    mine = groups[wanted]
-    if _group_weight(groups, wanted) >= THIN_POOL:
+    held = incumbent or wanted
+    mine = groups[held]
+    if _group_weight(groups, held) >= THIN_POOL:
         return None
     rivals = [
         key
         for key in groups
-        if key != wanted
+        if key != held
         and _whole_word(key, wanted)
         and len(groups[key]) > len(mine)
-        and _group_weight(groups, key) > _group_weight(groups, wanted)
+        and _group_weight(groups, key) > _group_weight(groups, held)
     ]
     if not rivals:
         return None
