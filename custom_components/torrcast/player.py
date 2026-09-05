@@ -97,16 +97,25 @@ class Player(CoordinatorEntity[Coordinator], Remote, Browsing):
 
     @property
     def supported_features(self) -> MediaPlayerEntityFeature:
-        """The right arrow, added to the fixed set, only when a next episode is there.
+        """Two bits of the fixed set are actually a fact of the snapshot, not the class.
 
-        `has_next` is the same field the serve keeps `null` for between shows and in
-        the simple wait (`hass/payload.py`): the owner asked for the movie and the
-        last episode of a series to lose the arrow, not for it to flicker off while
-        nothing is decided yet. `False` alone drops the arrow; `True`, `None` and the
-        field missing entirely (an older serve that predates it, same fallback shape
-        as `named` in `hass/search_results.py`) all keep it, exactly as it always was.
+        The right arrow is added only when a next episode is there. `has_next` is the
+        same field the serve keeps `null` for between shows and in the simple wait
+        (`hass/payload.py`): the owner asked for the movie and the last episode of a
+        series to lose the arrow, not for it to flicker off while nothing is decided
+        yet. `False` alone drops the arrow; `True`, `None` and the field missing
+        entirely (an older serve that predates it, same fallback shape as `named` in
+        `hass/search_results.py`) all keep it, exactly as it always was.
+
+        The power button is dropped on an empty screen: there is nothing playing to put
+        out, and the owner asked for a single button there that reads the show back up
+        instead (`Remote.async_media_play`). `state` reads `None` while the serve has
+        not answered even once - the snapshot is empty, not idle - and the button stays
+        claimed then, the same way it always did before this bit was split out.
         """
         base = self._attr_supported_features
+        if self.state is MediaPlayerState.IDLE:
+            base &= ~MediaPlayerEntityFeature.TURN_OFF
         if self._snapshot.get("has_next") is False:
             return base
         return base | MediaPlayerEntityFeature.NEXT_TRACK

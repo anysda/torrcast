@@ -12,35 +12,52 @@ class Remote(MediaPlayerEntity):
     """What every button of the card sends; the entity itself is assembled in `player`."""
 
     async def async_media_play(self) -> None:
+        """On an empty screen this is the card's only button; everywhere else, `toggle`.
+
+        An empty screen has nothing to pause or resume by that name, and the owner asked
+        for the one button left there to carry on with the last thing watched from the
+        second it was left at - what `cast` with no words after it does in the terminal.
+        Nothing is decided here: the serve is asked for that bare `cast` as such
+        (:meth:`Coordinator.async_resume`), and which picture and which second those are
+        stays the product's own single answer.
+        """
+        if self.state is MediaPlayerState.IDLE:
+            await self.coordinator.async_resume()
+            return
         await self.coordinator.async_control("toggle")
 
     async def async_media_pause(self) -> None:
         await self.coordinator.async_control("toggle")
 
     async def async_media_play_pause(self) -> None:
+        """A script or a voice command can reach this instead of `async_media_play`.
+
+        The card itself only ever sends `media_play` from an empty screen (there is no
+        pause button there to combine with), but a voice assistant or an automation
+        knows the single `media_play_pause` service, and `toggle` on an empty screen is
+        the refusal the owner already asked to stop showing (`Remote.async_media_play`).
+        The idle branch is repeated rather than shared, because sharing it would mean
+        this button also deciding what a bare `cast` plays - a call `async_media_play`
+        does not make either.
+        """
+        if self.state is MediaPlayerState.IDLE:
+            await self.coordinator.async_resume()
+            return
         await self.coordinator.async_control("toggle")
 
     async def async_media_stop(self) -> None:
         await self.coordinator.async_control("stop")
 
     async def async_turn_off(self) -> None:
-        """The power button of the card: puts the show out, or brings the last one back.
+        """The power button of the card: puts the show out, live only.
 
         Off means the show, not the mains: the product has no way to unplug a television
-        and does not pretend to. On a live show it is the same `stop` the console and the
-        bot send, so the button opens no new road outwards.
-
-        An empty screen has nothing to put out, and the very same press carries on with
-        the last thing watched from the second it was left at - what `cast` with no words
-        after it does in the terminal. Nothing is decided here: the serve is asked for
-        that bare `cast` as such (:meth:`Coordinator.async_resume`), and which picture
-        and which second those are stays the product's own single answer.
-        `TURN_ON` is still not claimed: the owner asked for this of the button that is
-        already on the card, and a second one would only ask the same thing twice.
+        and does not pretend to. It is the same `stop` the console and the bot send, so
+        the button opens no new road outwards. An empty screen no longer claims this
+        button at all (`Player.supported_features`): reading the last show back up moved
+        to the one button that stays, `async_media_play`, and there is nothing left here
+        to decide between the two.
         """
-        if self.state is MediaPlayerState.IDLE:
-            await self.coordinator.async_resume()
-            return
         await self.coordinator.async_control("stop")
 
     async def async_media_next_track(self) -> None:

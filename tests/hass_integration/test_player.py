@@ -128,6 +128,48 @@ async def test_the_card_draws_a_power_button_next_to_the_buttons_it_already_had(
         assert lived_here_before in features, f"кнопка {lived_here_before.name} пропала с карточки"
 
 
+async def test_the_power_button_bit_is_gone_from_an_empty_screen(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """🔴 TC-1041. Владелец решил оставить в idle одну кнопку: play, не питание.
+
+    Питание гасило бы показ - гасить в idle нечего, а его прежнее дело (продолжить
+    последнее с той же секунды) переехало на play. `PLAY` бит снимать не за чем: он
+    жил в фиксированном наборе и раньше, только скрытый соседним `TURN_OFF`.
+    """
+    await added(hass, aioclient_mock, snapshot(state="idle"))
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.TURN_OFF not in features
+    assert MediaPlayerEntityFeature.PLAY in features
+
+
+@pytest.mark.parametrize("served", ["starting", "playing", "paused", "torn"])
+async def test_the_power_button_bit_stays_everywhere_but_idle(
+    hass: HomeAssistant, aioclient_mock: Any, served: str
+) -> None:
+    """Вне idle показу всегда есть что гасить - бит остаётся заявленным, как раньше."""
+    await added(hass, aioclient_mock, snapshot(state=served))
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.TURN_OFF in features
+
+
+async def test_the_power_button_bit_stays_while_the_snapshot_is_still_empty(
+    hass: HomeAssistant, aioclient_mock: Any
+) -> None:
+    """Серв ещё не назвал состояние вовсе - это не idle, и бит снимать не с чего.
+
+    `state` читается как `None`, пока в снимке нет самого поля: подожди-ка ещё,
+    не «ничего не идёт». Снятый тут бит спрятал бы кнопку раньше, чем серв вообще
+    ответил, что показывать нечего.
+    """
+    await added(hass, aioclient_mock, {"version": "0.99.99", "tv": "192.168.1.90"})
+    features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
+
+    assert MediaPlayerEntityFeature.TURN_OFF in features
+
+
 async def test_the_right_arrow_stays_on_an_episode_with_a_next_one(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:

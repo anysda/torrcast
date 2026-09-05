@@ -62,14 +62,40 @@ async def test_services_send_the_expected_request(
     assert sent(posted[0]) == body
 
 
-async def test_turning_off_an_empty_screen_carries_on_the_last_show(
+async def test_the_power_button_is_gone_from_an_empty_screen(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
-    """Гасить нечего - та же кнопка поднимает последнее смотренное, как пустой `cast`.
+    """🔴 TC-1041. Питание на idle больше не заявлено - Home Assistant не пускает к нему.
 
-    Одна кнопка на две просьбы: пока идёт показ, она его гасит, а на пустом экране
-    отвечает на «включи то, что я смотрел». Останавливать тут нечего, и `stop` серве
-    отбил бы `nothing_playing` - отказом, который человеку читается как поломка.
+    Владелец решил оставить в idle одну кнопку. Раз `TURN_OFF` не в наборе
+    (`Player.supported_features`), сама Home Assistant отбивает вызов ДО
+    `Remote.async_turn_off`, тем же словом, каким она отбивает любую незаявленную
+    кнопку - а не поломкой продукта.
+    """
+    await added(hass, aioclient_mock, snapshot(state="idle"))
+    told: list[str] = []
+
+    try:
+        await hass.services.async_call(
+            "media_player", "turn_off", {"entity_id": PLAYER}, blocking=True
+        )
+    except HomeAssistantError as refusal:
+        told.append(str(refusal))
+
+    assert told == [f"Entity {PLAYER} does not support action media_player.turn_off"]
+    assert not [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
+
+
+@pytest.mark.parametrize("service", ["media_play", "media_play_pause"])
+async def test_playing_an_empty_screen_carries_on_the_last_show(
+    hass: HomeAssistant, aioclient_mock: Any, service: str
+) -> None:
+    """🔴 TC-1041. Единственная кнопка idle поднимает последнее смотренное, как пустой `cast`.
+
+    Питание из idle ушло, а его дело - продолжить с той секунды, где бросили - переехало
+    на play. Проба идёт по двум службам сразу: с карточки в idle приезжает `media_play`,
+    а из скрипта или голосового помощника - `media_play_pause`, и обе обязаны звонить в
+    один и тот же маршрут продолжения, а не в бессмысленный на пустом экране `toggle`.
 
     Своего правила интеграция не заводит: она зовёт маршрут продолжения, а картину и
     секунду называет продукт. Поэтому проверяется и адрес, и ПУСТОЕ тело: имя картины,
@@ -81,12 +107,12 @@ async def test_turning_off_an_empty_screen_carries_on_the_last_show(
 
     try:
         await hass.services.async_call(
-            "media_player", "turn_off", {"entity_id": PLAYER}, blocking=True
+            "media_player", service, {"entity_id": PLAYER}, blocking=True
         )
     except HomeAssistantError as refusal:
         told.append(str(refusal))
 
-    assert told == [], f"человеку показали отказ на нажатие «выключить»: {told}"
+    assert told == [], f"человеку показали отказ на нажатие «play»: {told}"
     posted = [call for call in aioclient_mock.mock_calls if call[0] == "POST"]
     assert [str(call[1]) for call in posted] == [f"{BASE}/api/resume"]
     assert [sent(call) for call in posted] == [None]
