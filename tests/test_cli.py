@@ -4374,7 +4374,7 @@ def test_короткое_имя_берёт_картину_из_первого_�
             passport=lambda *a, **k: passport,
         )
 
-    assert [picture.title for picture in found] == ["lainpost 1-5"], "короткое имя неоднозначно"
+    assert [picture.title for picture in found] == ["lainpost"], "короткое имя неоднозначно"
     assert [(picture.title, picture.year) for picture in rescued] == [
         ("Serial Experiments Lain", 1998)
     ]
@@ -4411,7 +4411,7 @@ def test_паспортное_имя_не_подменяет_картину_пр
             passport=lambda *a, **k: passport,
         )
 
-    assert [picture.title for picture in found] == ["lainpost 1-5"], (
+    assert [picture.title for picture in found] == ["lainpost"], (
         "спор года сильнее совпавшего длинного имени"
     )
 

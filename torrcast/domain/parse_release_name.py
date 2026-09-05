@@ -18,6 +18,8 @@ from torrcast.domain.release import Release
 from torrcast.domain.split_titles import _split_titles
 from torrcast.domain.title_zone import _title_zone
 
+_BARE_SPAN_TAIL = re.compile(r"(?<=\S)\s+1\s*-\s*\d{1,3}\s*$")
+
 
 def _bare_episode_span(zone: str) -> tuple[int, ...]:
     """Голая линейка «1-N» в хвосте зоны названия: серии без слова «сезон»."""
@@ -34,8 +36,7 @@ def parse_release_name(name: str) -> Release:
     year, span = _find_year(text)
     zone, collection = _title_zone(text, span)
     bare_episodes = _bare_episode_span(zone)
-    if bare_episodes:
-        zone = re.sub(r"\s+1\s*-\s*\d{1,3}\s*$", "", zone)
+    zone = _BARE_SPAN_TAIL.sub("", zone)
     title, original, aliases = _split_titles(zone)
     names = (title, *((original,) if original else ()), *aliases)
     latin_names = sum(bool(_LATIN.search(part) and not _CYRILLIC.search(part)) for part in names)

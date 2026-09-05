@@ -1088,7 +1088,7 @@ def test_a_silent_answer_under_the_leads_kind_is_reasked_without_it() -> None:
     assert client.asked == ["lain", "Serial Experiments Lain"]
     titles = [p.picture.title for p in plans]
     assert "Serial Experiments Lain" in titles, "картина добралась оригиналом из паспорта"
-    assert "lainpost 1-5" in titles, "найденное первым запросом не отнимается"
+    assert "lainpost" in titles, "найденное первым запросом не отнимается"
     assert "добрал по «Serial Experiments Lain»" in said
 
 

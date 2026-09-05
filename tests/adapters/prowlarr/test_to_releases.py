@@ -109,3 +109,28 @@ def test_догадка_соседки_по_голому_диапазону_ви
     )
     kinds = {r.raw_name: r.kind for r in to_releases([part, guessed])}
     assert kinds[part.title] == "movie", "франшиза не красится чужой догадкой"
+
+
+def test_вид_сборника_берётся_у_соседки_а_не_у_буквы_в_его_имени() -> None:
+    """🔴 TC-1033. `Rome 1-5` остаётся сериалом законно - соседкой, а не буквой `e`.
+
+    В самих именах признака нет: `Rome 1-5` и `Ice Age 1-5` устроены одинаково, и
+    буква `e` перед диапазоном есть у обоих. Разводит их ВЫДАЧА источника, и обе
+    строки ниже взяты из снятой выдачи Prowlarr: по запросу «Rome» приезжает
+    `Рим / Rome [S01-02] (2005)`, чей сезон назван явно и чей год не спорит, а по
+    «Ice Age» ни одна раздача с явным сезоном картину `Ice Age` не зовёт - две
+    нашедшиеся про `Ice Age Giants`, и это другая картина.
+    """
+    rome = RawResult(title="Rome 1-5 (2005) BDRip", info_hash="1" * 40)
+    rome_named = RawResult(title="Рим / Rome [S01-02] (2005-2007) BDRip-Пучков", info_hash="2" * 40)
+    ice = RawResult(title="Ice Age 1-5 (2002-2016) BDRip 1080p", info_hash="3" * 40)
+    ice_named = RawResult(
+        title="BBC: Гиганты ледникового периода / Ice Age Giants [S01] (2013) HDTV 720p",
+        info_hash="4" * 40,
+    )
+
+    said = {r.raw_name: r.kind for r in to_releases([rome, rome_named])}
+    silent = {r.raw_name: r.kind for r in to_releases([ice, ice_named])}
+
+    assert said[rome.title] == "tv", "о сборнике сказала соседка с явным сезоном"
+    assert silent[ice.title] == "movie", "об этой картине не сказал никто - сборник фильмов"
