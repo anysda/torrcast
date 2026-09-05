@@ -149,6 +149,14 @@ def _await_playing(
     (:func:`torrcast.usecases.still_playing.still_playing`): двинувшийся указатель значит, что
     зритель СМОТРИТ, и гасить тут нечего. ``start`` - место, куда показ заводили: без него
     «указатель двинулся» не отличить от «приёмник сказал PLAYING, не дав ни кадра».
+
+    🔴 TC-1010. Сверяется указатель не с самой закладкой, а с настоящим местом посадки
+    (:func:`torrcast.adapters.stream_pack.read_landed.read_landed`): после TC-1002 показ
+    вправе сесть НИЖЕ закладки (:func:`torrcast.usecases.feed_pack.feed_restart._begin`
+    берёт ближайший опорный кадр не позже неё, а отвод назад на неудачном заходе отступает
+    ещё дальше). Указатель приёмника тогда честно меньше закладки, но БОЛЬШЕ настоящей
+    посадки - и гасить показ, который зритель уже смотрит, было бы не за что. Файла нет -
+    значит спрашивать нечего, и в дело идёт сама закладка, как и до TC-1002.
     """
     unit = unit if unit is not None else show_unit()
     clock = clock if clock is not None else _state.CLOCK
@@ -180,7 +188,8 @@ def _await_playing(
         clock.sleep(0.2)
     progress.phase("")
     said = unit.why()
-    if said != stale and still_playing(said, start):
+    landed = _state.read_landed(out, start)
+    if said != stale and still_playing(said, landed):
         journal().mark("картинка")
         print(
             phrase("playback.picture_undetected_but_playing", secs=f"{timeout:.0f}", said=said),

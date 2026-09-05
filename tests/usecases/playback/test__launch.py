@@ -12,6 +12,7 @@ from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.fakes.show_unit import FakeShowUnit
 from tests.usecases.playback.world import FakeProgress, FakeShow, touch_segment
+from torrcast.adapters.stream_pack.mark_landed import mark_landed
 from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
@@ -154,6 +155,46 @@ def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(tmp_path: Path) 
     )
 
     assert unit.stopped == 0, "показ, двигающий указатель, гасить нечем и не за что"
+
+
+def test_the_backward_landing_of_tc_1002_does_not_trip_the_bookmark_check(
+    tmp_path: Path,
+) -> None:
+    """TC-1010. Показ сел НИЖЕ закладки - запасной путь обязан сверяться с местом посадки.
+
+    После TC-1002 :func:`torrcast.usecases.feed_pack.feed_restart._begin` вправе взять
+    опорный кадр НИЖЕ закладки, а отвод назад на неудачном заходе отступает ещё дальше.
+    Указатель приёмника тогда честно меньше закладки, но больше настоящего места посадки -
+    и сверка с самой закладкой погасила бы показ, который зритель уже смотрит.
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    bookmark = 2500.0
+    landed = 2450.0
+    mark_landed(out, landed)  # то же число, что кладёт `_play` после `feed.begin`
+    unit = FakeShow(
+        said=[
+            "[сеанс 7] упаковка пошла",
+            screen_line("[сеанс 7]", 2470.0, 3000.0, "PLAYING"),
+        ]
+    )
+
+    killed_by_timeout = False
+    try:
+        _await_playing(
+            Config(hls_dir=str(out)),
+            FakeProgress(),
+            3.0,
+            clock=FakeClock(now=100.0),
+            unit=cast(ShowUnit, unit),
+            start=bookmark,
+        )
+    except InfraError:
+        killed_by_timeout = True
+
+    assert not killed_by_timeout and unit.stopped == 0, (
+        "показ, продвинувшийся от настоящей посадки, гасить не за что"
+    )
 
 
 def test_a_receiver_stuck_at_the_landing_point_is_still_a_failed_start(tmp_path: Path) -> None:

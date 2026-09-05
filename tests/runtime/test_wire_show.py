@@ -26,8 +26,10 @@ from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.mark_landed import mark_landed
 from torrcast.adapters.stream_pack.mark_playing import mark_playing
 from torrcast.adapters.stream_pack.playing_flag import playing_flag
+from torrcast.adapters.stream_pack.read_landed import read_landed
 from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.supply import Supply
@@ -71,6 +73,8 @@ def test_the_show_gets_the_real_media_pipeline_and_the_real_receiver() -> None:
     assert _show_state.hls_base is hls_base
     assert _show_state.playing_flag is playing_flag
     assert _show_state.forget_playing is forget_playing
+    assert _show_state.mark_landed is mark_landed
+    assert _show_state.read_landed is read_landed
     assert _show_state.start_play_unit is start_play_unit
     assert _show_state.grid_for is grid_for
     assert _show_state.HlsServer is HlsServer

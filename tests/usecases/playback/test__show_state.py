@@ -49,6 +49,8 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
                 base_url=_state.hls_base,
                 flag=_state.playing_flag,
                 forget_flag=_state.forget_playing,
+                mark_landed=_state.mark_landed,
+                read_landed=_state.read_landed,
                 start_unit=second.append,
                 grid=_state.grid_for,
                 server=_state.HlsServer,

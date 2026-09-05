@@ -46,6 +46,9 @@ class ShowEnvironment:
     #: Отметка «идёт показ»: где лежит и как её снять.
     flag: Callable[[Path], Path]
     forget_flag: Callable[[Path], None]
+    #: Настоящее место старта (TC-1010): куда показ сел на самом деле, и как это узнать.
+    mark_landed: Callable[[Path, float], None]
+    read_landed: Callable[[Path, float], float]
     #: Подъём юнита показа и карта опорных кадров файла.
     start_unit: Callable[[str], None]
     #: Медиатракт: сетка сегментов, раздача по http и оба кодировщика.

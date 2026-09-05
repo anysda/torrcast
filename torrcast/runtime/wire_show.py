@@ -19,8 +19,10 @@ from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.mark_landed import mark_landed
 from torrcast.adapters.stream_pack.mark_playing import mark_playing
 from torrcast.adapters.stream_pack.playing_flag import playing_flag
+from torrcast.adapters.stream_pack.read_landed import read_landed
 from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.supply import Supply
@@ -83,6 +85,8 @@ def wire_show() -> None:
             base_url=hls_base,
             flag=playing_flag,
             forget_flag=forget_playing,
+            mark_landed=mark_landed,
+            read_landed=read_landed,
             start_unit=start_play_unit,
             grid=grid_for,
             server=HlsServer,
