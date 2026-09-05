@@ -7,13 +7,40 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.choice.world import RUNTIME, film
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.usecases.choice.warned import warned
 
 WARN_MBIT = 16.0
 RECODE_AT_MBIT = 10.0
 HARD_MBIT = 25.0
+
+#: Как кодек зовётся в имени раздачи для каждого ключа, которым его зовёт профиль.
+_NAMED: dict[str, str] = {"hevc": "HEVC", "mpeg4": "MPEG-4"}
+
+
+@pytest.mark.parametrize("key", sorted(CAUTIOUS.recode_codecs))
+def test_every_codec_the_show_recodes_whole_is_marked_and_not_only_hevc(key: str) -> None:
+    """Пометку решает ТОТ ЖЕ набор кодеков, что и показ, а не отдельная проверка на HEVC.
+
+    Проверка на один кодек стояла тут и знала HEVC, а набор приёмника с TC-299 шире:
+    mpeg4 показ тоже берёт сплошным перекодом, и на такой раздаче таблица молчала. Человек
+    читал пустую графу, а на запуске получал самую дорогую часть пути - ту, о которой
+    строка обязана предупредить до ответа, а не после.
+    """
+    assert recodes_whole(key, 0, CAUTIOUS), "кодек взят из набора самого приёмника"
+    assert key in _NAMED, f"набор приёмника вырос на {key}: назови его словом имени раздачи"
+
+    light = film("Кино 2020 DVDRip", codec=_NAMED[key], size_gb=1.4)
+
+    assert warned(light, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == phrase(
+        "choice.mark_recode_all"
+    )
+    assert warned(light, RUNTIME, WARN_MBIT) == phrase("choice.mark_not_taken")
 
 
 def test_the_marks_are_words_and_carry_no_signs_that_fall_apart_in_a_terminal() -> None:
