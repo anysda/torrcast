@@ -28,7 +28,7 @@
 Прогоняется ровно боевой тракт отбора и ровно его функциями::
 
     merge → to_releases → cluster (внутри неё glue) → pick_franchise → menu_order
-          → plan_for → candidates → queue_drops
+          → plan_for → enter_take → candidates → queue_drops
 
 Ни одна ступень здесь не переписана - щуп только зовёт и печатает. Это и есть повод
 его завести: пока обвязку к сохранённым пулам писали заново под каждый замер, у
@@ -76,7 +76,8 @@ from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.thin_pool import THIN_POOL
 from torrcast.domain.watch_state import WatchState
 from torrcast.runtime.wire import wire
-from torrcast.usecases.choice.first_alive import first_alive
+from torrcast.usecases.choice.enter_take import enter_take
+from torrcast.usecases.choice.take import Take
 from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.unfit_pool import unfit_pool
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
@@ -159,6 +160,11 @@ class Replay:
     #: Каким запросом пул СНЯТ, если спрашивали его другим (``--ask``). Без этого пары
     #: «тот же пул, другой вопрос» не свести обратно: в выводе стоит вопрос, а не пул.
     pool: str = ""
+    #: Имя, с которым ступень взятия сверяет картины (:attr:`Args.title_query` ПОСЛЕ
+    #: перечтения сезона). Без него щуп звал бы :func:`enter_take` с пустым именем, а
+    #: половина её правил читает именно его: «имя названо целиком», «чужая часть»,
+    #: «спрошенной части нет» - на пустой строке все они молчат.
+    asked: str = ""
     #: Все картины выдачи после разбора и склейки - каталог, из которого выбирает меню.
     catalog: list[Picture] = field(default_factory=list)
     #: Картины франшизы в порядке меню - это и есть верх меню.
@@ -196,14 +202,43 @@ class Replay:
         return self.menu[0] if self.menu else None
 
     @property
+    def take(self) -> Take | None:
+        """Приговор ступени взятия - тот же вызов, что делает показ (:mod:`_choose`).
+
+        🔴 TC-1059. Прежде щуп звал тут :func:`first_alive` напрямую, и это был ОТВЕТ
+        НА ДРУГОЙ ВОПРОС: между первой живой по хронологии и картиной, которая доедет
+        до зрителя, лежат правило вида (:func:`series_take`), точное имя
+        (:func:`named_take`), тёзки по году, стражи части и :func:`certain_default`.
+        Правка в любой из этих ступеней проходила прибор насквозь, ничего не задев, и
+        «расхождений 0 из 99» читалось как «выбор картины не сдвинулся», а означало
+        «первая живая по хронологии не сдвинулась».
+
+        ``menu=False`` и ``pick=None`` - это ГОЛЫЙ Enter: щуп меряет ровно то, что
+        получит человек, не назвавший ни номера, ни ключа.
+        """
+        return enter_take(self.plans, self.asked) if self.plans else None
+
+    @property
+    def why(self) -> str:
+        """Каким правилом :func:`enter_take` взяла картину - имя ветки.
+
+        Без него разбор видит, ЧТО выбрано, но не видит, чем: два прогона с разной
+        картиной и одним правилом и два прогона с одной картиной и разными правилами -
+        разные события, и различает их только эта строка.
+        """
+        take = self.take
+        return take.why if take is not None else ""
+
+    @property
     def default(self) -> Picture | None:
-        """Что играет по Enter - :func:`first_alive`, ровно та же мерка, что у показа.
+        """Что играет по Enter - :func:`enter_take`, ровно та же мерка, что у показа.
 
         Верх списка и дефолт - разные вещи, и путать их нельзя: в меню «титаник» первой
         строкой стоит «Титаник» 1943 года, а Enter играет 1997-й. Расхождение считается
         отдельно (:attr:`default_is_menu_top`) и потерей не является.
         """
-        return self.plans[first_alive(self.plans) - 1].picture if self.plans else None
+        take = self.take
+        return self.plans[take.number - 1].picture if take is not None else None
 
     @property
     def above_default(self) -> list[Picture]:
@@ -316,6 +351,7 @@ def replay(
         raw_rows=sum(len(b) for b in batches),
         results=len(raw),
         pool=pool or query,
+        asked=args.title_query,
         catalog=pictures,
         menu=found,
         plans=plans,
@@ -618,6 +654,9 @@ def as_json(item: Replay) -> dict[str, Any]:
             "kind": default.kind,
             "releases": len(default.releases),
         },
+        # Правило, которым взята картина: два прогона сравниваются и по нему, а не
+        # только по имени взятой (:attr:`Replay.why`).
+        "why": item.why,
         "merges": [
             {
                 "into": picture.title,

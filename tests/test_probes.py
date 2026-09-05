@@ -30,6 +30,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.tune import tune
+from torrcast.usecases.choice.first_alive import first_alive
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 GB = 1024**3
@@ -212,6 +213,45 @@ def test_щуп_прогоняет_отбор_по_сохранённой_выд
     # Ровно та сверка, ради которой щуп и заведён: очередь плюс отсев = пул картины.
     assert len(queue) + sum(drops.values()) == len(plan.picture.releases)
     assert "heavier than the ceiling" in drops, "2160p-ремукс обязан быть отсеян по битрейту"
+
+
+def test_щуп_берёт_дефолт_ступенью_взятия_а_не_первой_живой() -> None:
+    """🔴 TC-1059. Дефолт щупа - :func:`enter_take`, тот же вызов, что делает показ.
+
+    Заготовка ставит две ступени в спор: фильм 1994 года и сериал 2005-го под ОДНИМ
+    именем, обе картины живы. Первая живая по хронологии - фильм, а показ по решению
+    владельца 02-09-2026 берёт сериал (:func:`series_take`). Пока щуп звал
+    :func:`first_alive` напрямую, он печатал фильм - и «расхождений 0 из 99» означало
+    «первая живая не сдвинулась», а читалось как «выбор картины не сдвинулся».
+
+    Спор ступеней проверяется тут же первым утверждением: без него зелень означала бы
+    только, что обе ступени согласны, - и правило вида в щуп могло бы не попасть вовсе.
+    """
+    replay = probe("poolreplay")
+    plans = [
+        world.plan("Мастер и Маргарита", 1994, seeders=90),
+        world.plan(
+            "Мастер и Маргарита",
+            2005,
+            kind="tv",
+            pool=[world.film("Мастер и Маргарита 2005 WEB-DL 1080p", seeders=140, kind="tv")],
+        ),
+    ]
+    assert first_alive(plans) == 1, "заготовка не та: первой живой обязан быть фильм 1994 года"
+
+    item = replay.Replay(
+        query="мастер и маргарита",
+        raw_rows=0,
+        results=0,
+        asked="мастер и маргарита",
+        menu=[p.picture for p in plans],
+        plans=plans,
+    )
+
+    assert item.why == "сериал под одним именем с фильмом", "щуп решил не тем правилом"
+    default = item.default
+    assert default is not None and (default.year, default.kind) == (2005, "tv")
+    assert replay.as_json(item)["why"] == "сериал под одним именем с фильмом"
 
 
 def test_щуп_сохраняет_сиды_и_приговор_каждой_раздачи() -> None:
