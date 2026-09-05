@@ -137,8 +137,15 @@ class _Link(_State):
 
             hush_cosmetic_noise()  # косметика 8443 на каждом подключении - не наша беда
             try:
+                # 🔴 ``retry_wait`` тут не косметика: им задаётся расписание, по которому
+                # pychromecast переподключает сокет 8009 после обрыва, а ждём на обрыве мы
+                # именно его - не конца обрыва (:data:`_Settings.RECONNECT_PACE`). Не
+                # передать его значит взять библиотечные 5 с, при которых в потолок
+                # ожидания попадает ровно один повтор.
                 device = pychromecast.get_chromecast_from_host(
-                    (self.address, 8009, uuid.UUID(int=0), None, None), timeout=10
+                    (self.address, 8009, uuid.UUID(int=0), None, None),
+                    timeout=10,
+                    retry_wait=self.RECONNECT_PACE,
                 )
                 device.wait(timeout=20)
             except Exception as exc:

@@ -9,6 +9,8 @@ from pychromecast.error import NotConnected
 
 from tests.adapters.chromecast.cast.wired import Device, Status, Wired
 from tests.fakes.clock import FakeClock
+from torrcast.adapters.chromecast.cast.receiver_link import _Link
+from torrcast.adapters.chromecast.cast.receiver_settings import _Settings
 from torrcast.adapters.chromecast.cast.while_connecting import _while_connecting
 from torrcast.cli.answered import answered
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
@@ -90,7 +92,66 @@ def test_the_wait_has_a_ceiling_and_ends_with_an_honest_refusal_not_a_crash() ->
     assert clock.now == receiver.CONNECT_WAIT, "ждали ровно свой потолок и ни секундой дольше"
     controller = receiver.device.media_controller
     assert isinstance(controller, _Connecting)
-    assert 10_000 - controller.refuses == 7, "попыток конечное число, а не бесконечная петля"
+    assert 10_000 - controller.refuses == 13, "попыток конечное число, а не бесконечная петля"
+
+
+def test_the_reconnect_schedule_is_set_by_us_and_not_taken_from_the_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Ждём на обрыве не конца обрыва, а очередной попытки коннекта - значит наше и оно.
+
+    Замер живым сокетом на 127.0.0.1 05-09-2026: pychromecast повторяет коннект с
+    удвоением паузы, на 0, ``r``, ``3r``, ``7r``, ``15r`` секундах от обрыва. При
+    библиотечном умолчании ``r = 5`` это 0, 5, 15, 35, и в потолок
+    :data:`_Settings.CONNECT_WAIT` попадает РОВНО ОДНА попытка: обрыв 5.5 с получал тот же
+    отказ на 12.00 с, что и обрыв 25 с. Меряется тут БОЕВАЯ ПРОВОДКА, а не число в
+    настройках: не дойди аргумент до библиотеки - расписание осталось бы её собственным,
+    и все числа рядом врали бы про покрытие.
+    """
+    given: dict[str, Any] = {}
+
+    class _Made(Device):
+        """Устройство, каким его отдаёт библиотека: с ``wait`` и разбором ответов."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.media_controller._process_media_status = lambda data: None  # type: ignore[attr-defined]
+
+        def wait(self, timeout: float = 0.0) -> None:
+            del timeout
+
+    def connect(host: Any, **rest: Any) -> Any:
+        del host
+        given.update(rest)
+        return _Made()
+
+    monkeypatch.setattr("pychromecast.get_chromecast_from_host", connect)
+    receiver = _Link("10.0.0.50")
+
+    receiver._device()
+
+    assert given.get("retry_wait") == receiver.RECONNECT_PACE, (
+        "паузу повтора коннекта задаём мы, иначе библиотека берёт свои 5 с"
+    )
+
+
+def test_the_ceiling_holds_the_fourth_reconnect_attempt_and_deliberately_not_the_fifth() -> None:
+    """Потолок опирается на расписание повторов, а не на длину обрыва.
+
+    Покрытие обрыва держит ПОСЛЕДНЯЯ попытка, уместившаяся в потолок. Четвёртая (``7r``)
+    обязана уместиться с запасом хотя бы в круг опроса, иначе покрытие схлопывается на
+    третью. Пятая (``15r``) не умещается намеренно: за неё платил бы лишними секундами
+    черноты каждый, кому приёмник не ответит вовсе.
+    """
+    made = _Settings()
+
+    assert made.CONNECT_PAUSE < made.RECONNECT_PACE, "круг опроса не имеет права проспать повтор"
+    assert 7 * made.RECONNECT_PACE + made.CONNECT_PAUSE <= made.CONNECT_WAIT, (
+        "четвёртая попытка коннекта обязана попасть в потолок, и с запасом на круг опроса"
+    )
+    assert 15 * made.RECONNECT_PACE > made.CONNECT_WAIT, (
+        "пятая попытка потолком не покупается: она стоит дороже, чем приносит"
+    )
 
 
 def test_a_failure_that_is_not_a_reconnect_goes_out_untouched() -> None:
