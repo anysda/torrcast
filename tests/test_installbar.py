@@ -104,23 +104,35 @@ ALL_TOTAL = 6
 #: он поднимается только отрицательной пробой.
 LATE_WORK = {**HOLD_WORK, "install_torrserver": 4.5}
 
-#: 🔴 Подпись, которой фаза закрывается в `main`, - первый аргумент `phase_done`
-#: и ровно то слово, которое человек читает в строке статуса («фаза 3/6:
-#: источники»). Номеров деления в таблице НЕТ: их называет сам прогон, поэтому
-#: перестановка вызовов `phase_done` больше не уводит замер на чужую фазу.
+
+class Label(NamedTuple):
+    """Пара подписей одной фазы: та же работа на двух языках заставки."""
+
+    en: str
+    ru: str
+
+
+#: 🔴 Подпись, которой фаза закрывается в `main`, - аргументы `phase_done` и ровно
+#: те слова, которые человек читает в строке статуса («фаза 3/6: источники»,
+#: «phase 3/6: sources»). Номеров деления в таблице НЕТ: их называет сам прогон,
+#: поэтому перестановка вызовов `phase_done` больше не уводит замер на чужую фазу.
+#: 🔴 TC-1052. Языков в паре два, и это не удобство таблицы. Английской ветке в
+#: канал уходил литерал `installation` на все двенадцать закрытий: опознавать было
+#: нечего (0 фаз из 12), поэтому каждый стенд сторожа поднимался с `-ru`, и
+#: английская полоса не сторожилась ничем.
 LABELS = {
-    "locale": "локаль",
-    "packages": "пакеты",
-    "ffmpeg": "ffmpeg",
-    "torrcast": "пакет torrcast",
-    "torrserver": "TorrServer",
-    "sources": "источники",
-    "prowlarr": "Prowlarr",
-    "indexers": "индексеры",
-    "config": "конфиг",
-    "hls": "раздача",
-    "receiver": "приёмник",
-    "facts": "догрев",
+    "locale": Label("locale", "локаль"),
+    "packages": Label("packages", "пакеты"),
+    "ffmpeg": Label("ffmpeg", "ffmpeg"),
+    "torrcast": Label("torrcast", "пакет torrcast"),
+    "torrserver": Label("TorrServer", "TorrServer"),
+    "sources": Label("sources", "источники"),
+    "prowlarr": Label("Prowlarr", "Prowlarr"),
+    "indexers": Label("indexers", "индексеры"),
+    "config": Label("config", "конфиг"),
+    "hls": Label("serving", "раздача"),
+    "receiver": Label("receiver", "приёмник"),
+    "facts": Label("warmup", "догрев"),
 }
 #: Работник фазы - там, где фаза подделывается часами (:func:`_fake`). Меряются
 #: те из них, у кого в стенде есть отметки работы, остальные стенд не включал.
@@ -131,6 +143,11 @@ WORKERS = {
     "install_torrserver": "torrserver",
 }
 
+#: Стенд всех фаз разом. Список берётся у самого установщика: вписанная руками
+#: копия разъехалась бы с источником молча, и «все двенадцать» тихо стали бы теми,
+#: о которых помнил автор меры.
+ALL_TWELVE = re.search(r"^UI_ALL_PHASES='(.*)'", SCRIPT, re.M).group(1)  # type: ignore[union-attr]
+
 #: Перенос `phase_done` с `job_wait` на `job_start` - ровно та правка, против
 #: которой поставлен сторож. Формула полосы, знаменатель и потолок 99 при этом
 #: целы: ломается только связь «закрыто = сделано».
@@ -138,12 +155,13 @@ MOVED = {
     "install_ffmpeg": (
         (
             "    has ffmpeg     && job_start ffmpeg     install_ffmpeg\n",
-            "    has ffmpeg     && { job_start ffmpeg install_ffmpeg; phase_done 'ffmpeg'; }\n",
+            "    has ffmpeg     && { job_start ffmpeg install_ffmpeg; "
+            "phase_done 'ffmpeg' 'ffmpeg'; }\n",
         ),
         (
             '        job_wait ffmpeg || die "ffmpeg was not installed - see the reason above" '
             '"ffmpeg не поставился - причина в строках выше"\n'
-            "        phase_done 'ffmpeg'\n",
+            "        phase_done 'ffmpeg' 'ffmpeg'\n",
             '        job_wait ffmpeg || die "ffmpeg was not installed - see the reason above" '
             '"ffmpeg не поставился - причина в строках выше"\n',
         ),
@@ -151,13 +169,14 @@ MOVED = {
     "check_sources": (
         (
             "    has sources    && job_start sources    check_sources\n",
-            "    has sources    && { job_start sources check_sources; phase_done 'источники'; }\n",
+            "    has sources    && { job_start sources check_sources; "
+            "phase_done 'sources' 'источники'; }\n",
         ),
         (
             "        job_wait sources || info "
             '"⚠ source check did not finish - see the lines above" '
             '"⚠ проверка источников не доработала - смотри строки выше"\n'
-            "        phase_done 'источники'\n",
+            "        phase_done 'sources' 'источники'\n",
             "        job_wait sources || info "
             '"⚠ source check did not finish - see the lines above" '
             '"⚠ проверка источников не доработала - смотри строки выше"\n',
@@ -190,6 +209,10 @@ class Run:
     total: int
     work: dict[str, tuple[int, int]]  # работник -> (начал, кончил)
     rc: int
+    #: Язык, которым поднят стенд. Держится ЗДЕСЬ, а не в вызывающем: подпись фазы
+    #: в следе - на языке прогона, и сверять её с чужим языком значит не опознать
+    #: ни одной фазы (ровно это и происходило на `-en`).
+    language: str
     screen_frames: tuple[str, ...]
     #: Весь поток pty целиком. Кадры заставки - только то, что ушло внутри DECSET
     #: 2026, а развал печатается ПОСЛЕ него: искать ложную строку в кадрах значило
@@ -208,17 +231,32 @@ class Run:
         """Закрытие этой фазы: номер деления и момент - ИЗ ПРОГОНА, не из таблицы."""
         return next((shut for shut in self.closings if shut.phase == label), None)
 
+    def name(self, phase: str) -> str:
+        """Подпись фазы на языке ЭТОГО прогона: пара в таблице, язык - в стенде."""
+        return str(getattr(LABELS[phase], self.language))
+
 
 def _fake(work: dict[str, float]) -> str:
     """Подделка работников. Проводку `main` не трогает: те же имена функций."""
     out = ["\n# --- TC-909: подделка долгих фаз (работники, не проводка) ---"]
+    # Работник есть у каждой из двенадцати фаз, иначе стенд «всех фаз» упёрся бы в
+    # настоящую установку: venv с pypi, опрос трекеров, обход сети за приёмником.
     for name in (
         "setup_locale",
         "install_packages",
+        "install_torrcast",
         "check_sources",
         "install_prowlarr",
+        "install_indexers",
+        "setup_config",
+        "setup_bot_unit",
+        "setup_ha_unit",
+        "setup_hls",
+        "setup_receiver",
         "install_ffmpeg",
         "install_torrserver",
+        "setup_facts",
+        "setup_names",
     ):
         secs = work.get(name)
         if secs is None:
@@ -379,6 +417,7 @@ def _stand(
         int(seen[0][2]) if seen else 0,
         done,
         rc,
+        language,
         screen_frames,
         stream,
     )
@@ -457,7 +496,7 @@ def _out_of_step(run: Run) -> list[str]:
     Порядок очереди берётся из прогона - из порядка, в котором полоса называла
     имена, - а не из таблицы: таблица уводила замер на чужую фазу молча.
     """
-    labels = {LABELS[phase]: worker for worker, phase in WORKERS.items() if worker in run.work}
+    labels = {run.name(phase): worker for worker, phase in WORKERS.items() if worker in run.work}
     complaints: list[str] = []
     ready, seen = 0, set()
     for shut in run.closings:
@@ -480,7 +519,7 @@ def _out_of_step(run: Run) -> list[str]:
                 f"возможен (допуск {slack} мс)"
             )
     complaints += [
-        f"{LABELS[phase]}: полоса не закрыла эту фазу ни одним делением"
+        f"{run.name(phase)}: полоса не закрыла эту фазу ни одним делением"
         for worker, phase in WORKERS.items()
         if worker in run.work and worker not in seen
     ]
@@ -504,18 +543,21 @@ def _mislabelled(text: str) -> list[str]:
 
     Блок фазы открывает `has <фаза>`: `job_wait` соседа внутри блока подписи не
     крадёт, а именно им ломается своевременность доклада.
+
+    🔴 TC-1052. Сверяются ОБЕ подписи разом. Одноязычный якорь держал бы английскую
+    половину пары ровно так же, как её держал литерал `installation`, - никак.
     """
     complaints: list[str] = []
     named = set()
     phase = ""
-    for token in re.finditer(r"\bhas (\w+)\b|phase_done '([^']*)'", _main_body(text)):
-        opened, label = token.group(1), token.group(2)
+    for token in re.finditer(r"\bhas (\w+)\b|phase_done '([^']*)' '([^']*)'", _main_body(text)):
+        opened, pair = token.group(1), (token.group(2), token.group(3))
         if opened is not None:
             phase = opened
             continue
-        if label != LABELS.get(phase):
+        if pair != LABELS.get(phase):
             complaints.append(
-                f"фаза {phase} закрывается подписью {label!r}, а её подпись - "
+                f"фаза {phase} закрывается подписью {pair!r}, а её подпись - "
                 f"{LABELS.get(phase, 'фазы нет вовсе')!r}"
             )
         named.add(phase)
@@ -533,10 +575,10 @@ def _mislabelled(text: str) -> list[str]:
 #: месте - двигается ровно момент доклада.
 LATE = {
     "install_ffmpeg": (
-        "        phase_done 'ffmpeg'\n",
+        "        phase_done 'ffmpeg' 'ffmpeg'\n",
         '        job_wait torrserver || die "TorrServer was not installed - see the reason above" '
         '"TorrServer не поставился - причина в строках выше"\n'
-        "        phase_done 'ffmpeg'\n",
+        "        phase_done 'ffmpeg' 'ffmpeg'\n",
     ),
 }
 
@@ -705,10 +747,10 @@ def test_every_background_phase_closes_in_step_with_its_own_work(tmp_path: Path)
 
     ready, drift = 0, []
     for worker, phase in WORKERS.items():
-        shut = run.closed(LABELS[phase])
+        shut = run.closed(run.name(phase))
         ready = max(ready, run.work[worker][1])
         seen = f"{shut.mark}/{run.total} на {shut.at - ready} мс" if shut else "не взято"
-        drift.append(f"{LABELS[phase]} {seen}")
+        drift.append(f"{run.name(phase)} {seen}")
     print("деление от момента, когда доклад стал возможен: " + "; ".join(drift))
     assert not (out := _out_of_step(run)), "деление разошлось с работой - " + "; ".join(out)
 
@@ -754,6 +796,52 @@ def test_each_phase_is_closed_by_its_own_label_in_main() -> None:
     assert not (bad := _mislabelled(SCRIPT)), "подпись не на своей фазе - " + "; ".join(bad)
 
 
+@pytest.mark.machine
+@pytest.mark.parametrize("language", ("en", "ru"))
+def test_all_twelve_phases_name_themselves_in_the_language_of_the_run(
+    tmp_path: Path, language: str
+) -> None:
+    """🔴 TC-1052. Каждое из двенадцати делений называет СВОЮ фазу на языке прогона.
+
+    Стенд поднимается ключом языка и больше ничем: подписи мера берёт из той же
+    таблицы, что и временные сверки, а номера делений - из самого прогона. На `-en`
+    в канал уходил один литерал `installation` на все двенадцать закрытий, поэтому
+    опознать по паре «деление, имя» не удавалось ни одной фазы (0 из 12), и каждый
+    временной стенд поднимался с `-ru` - английская полоса не сторожилась ничем.
+
+    Узлов тут два, по одному на язык, и краснеют они порознь: пропажа имени на одном
+    языке оставляет второй зелёным, а вместе они не дают ни одной ветке остаться
+    голой. Времени эта мера не мерит вовсе - его держат соседние узлы.
+    """
+    run = _stand(SCRIPT, tmp_path, ALL_TWELVE, HOLD_WORK, language)
+    assert run.rc == 0, f"стенд не дошёл до конца: rc={run.rc}"
+    assert run.total == len(LABELS), f"фаз всего {run.total}, ждали {len(LABELS)}"
+    assert run.frames and run.frames[-1][1] == run.total, f"полоса не досчитала: {run.frames[-1:]}"
+
+    marks = {shut.phase: shut.mark for shut in run.closings}
+    want = {run.name(phase) for phase in LABELS}
+    seen = (
+        f"язык {language}: опознано {len(want & set(marks))} из {len(LABELS)}, "
+        f"закрытий в следе {len(run.closings)}"
+    )
+    assert set(marks) >= want, f"{seen}; не опознаны: {sorted(want - set(marks))}"
+    assert sorted(marks.values()) == list(range(1, len(LABELS) + 1)), (
+        f"{seen}; деления разъехались: {sorted(marks.items(), key=lambda pair: pair[1])}"
+    )
+
+    # Тот же ответ, но глазами человека: пара едет в строку статуса, а не только в
+    # след. Спрашивается фаза, на которой полоса СТОИТ (следом за ней `main` ждёт
+    # ffmpeg): мгновенная фаза может уместиться между двумя кадрами вся целиком.
+    word = "фаза" if language == "ru" else "phase"
+    visible = ANSI.sub("", run.stream)
+    held = f"{word} {marks[run.name('receiver')]}/{run.total}: {run.name('receiver')}"
+    assert held in visible, f"{seen}; строки статуса {held!r} на экране нет"
+    assert not re.search(rf"{word} \d+/\d+: installation", visible), (
+        f"{seen}; фаза названа человеку литералом installation"
+    )
+    print(f"{seen}; на экране {held!r}")
+
+
 def test_two_swapped_labels_are_caught_by_the_anchor() -> None:
     """🔴 Отрицательная проба на ПЕРЕСТАНОВКЕ: две подписи поменялись местами.
 
@@ -761,14 +849,20 @@ def test_two_swapped_labels_are_caught_by_the_anchor() -> None:
     такую перестановку увидеть не может в принципе. Ловит её только якорь, и
     называет обе фазы вслух.
     """
-    swapped = SCRIPT.replace("phase_done 'раздача'", "phase_done '~'", 1)
-    swapped = swapped.replace("phase_done 'приёмник'", "phase_done 'раздача'", 1)
-    swapped = swapped.replace("phase_done '~'", "phase_done 'приёмник'", 1)
+    swapped = SCRIPT.replace("phase_done 'serving' 'раздача'", "phase_done '~' '~'", 1)
+    swapped = swapped.replace(
+        "phase_done 'receiver' 'приёмник'", "phase_done 'serving' 'раздача'", 1
+    )
+    swapped = swapped.replace("phase_done '~' '~'", "phase_done 'receiver' 'приёмник'", 1)
     assert swapped != SCRIPT, "перестановка не наложилась: пробе нечего ломать"
 
+    # Жалоба разбирается по фазам, а не грепом по всему тексту: обе подписи стоят в
+    # одной строке жалобы, и грепом «receiver и раздача» одна и та же строка закрыла
+    # бы обе проверки - вторая фаза осталась бы неспрошенной.
     bad = _mislabelled(swapped)
-    assert any("hls" in line and "приёмник" in line for line in bad), f"якорь молчит: {bad}"
-    assert any("receiver" in line and "раздача" in line for line in bad), f"якорь молчит: {bad}"
+    caught = {line.split()[1]: line.split(", а её подпись")[0] for line in bad}
+    assert "приёмник" in caught.get("hls", ""), f"якорь молчит про hls: {bad}"
+    assert "раздача" in caught.get("receiver", ""), f"якорь молчит про receiver: {bad}"
 
 
 @pytest.mark.machine

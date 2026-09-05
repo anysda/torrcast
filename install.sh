@@ -490,8 +490,12 @@ ui_say() {  # $1 - метка (P фаза, A итог, R приёмник, D о�
 
 #: Фаза закрыта. Зовётся ТАМ, где результат фазы уже на месте, а не там, где её
 #: запустили: у фоновых заданий это `job_wait`, а не `job_start`.
-phase_done() {  # $1 - короткое имя фазы для статусбара
-    if [ "$LANGUAGE" = ru ]; then ui_say P "$1"; else ui_say P "installation"; fi
+#: 🔴 TC-1052. Имя фазы двуязычно ровно той же формой, что `log`/`skip`/`info`:
+#: в английский канал уходил литерал `installation`, и человек двенадцать раз читал
+#: одно слово, отличавшееся только номером деления. Имена коротки с обеих сторон,
+#: самое длинное - `TorrServer`: строка статуса от пары шире не становится.
+phase_done() {  # $1 - короткое имя фазы для статусбара (en), $2 - оно же (ru)
+    if [ "$LANGUAGE" = ru ]; then ui_say P "$2"; else ui_say P "$1"; fi
 }
 
 log()  {
@@ -3625,8 +3629,8 @@ main() {
     cleanup_login_notice
     # Локаль и apt идут первыми и по очереди, иначе никак: `curl`, `jq` и `python3-venv`
     # приезжают именно отсюда, а без них не начать ни одну загрузку.
-    has locale     && { setup_locale;     phase_done 'локаль'; }
-    has packages   && { install_packages; phase_done 'пакеты'; }
+    has locale     && { setup_locale;     phase_done 'locale' 'локаль'; }
+    has packages   && { install_packages; phase_done 'packages' 'пакеты'; }
 
     # 🔴 Дальше вся работа - сеть, и вся она независима: статическая сборка ffmpeg, два
     # соседних сервера, пробы трекеров и определения индексеров ничего не знают друг о
@@ -3641,7 +3645,7 @@ main() {
 
     # Самое долгое (venv и колёса с pypi) держим на переднем плане: пока идёт оно,
     # соседи успевают скачаться, подняться и ответить.
-    has torrcast    && { install_torrcast; phase_done 'пакет torrcast'; }
+    has torrcast    && { install_torrcast; phase_done 'torrcast' 'пакет torrcast'; }
 
     # Индексерам нужны оба: шим с прибитыми именами и поднятый Prowlarr.
     # 🔴 TC-885. `phase_done` у фоновых заданий стоит после `job_wait`, а не после
@@ -3654,31 +3658,31 @@ main() {
     # `job_start` красит гейт; меры TC-885 его пропускают, им видна только формула.
     if has sources; then
         job_wait sources || info "⚠ source check did not finish - see the lines above" "⚠ проверка источников не доработала - смотри строки выше"
-        phase_done 'источники'
+        phase_done 'sources' 'источники'
     fi
     if has prowlarr; then
         job_wait prowlarr || die "Prowlarr was not installed - see the reason above" "Prowlarr не поставился - причина в строках выше"
-        phase_done 'Prowlarr'
+        phase_done 'Prowlarr' 'Prowlarr'
     fi
-    has indexers   && { install_indexers; phase_done 'индексеры'; }
-    has config     && { setup_config; setup_bot_unit; setup_ha_unit; phase_done 'конфиг'; }
-    has hls        && { setup_hls;        phase_done 'раздача'; }
-    has receiver   && { setup_receiver;   phase_done 'приёмник'; }
+    has indexers   && { install_indexers; phase_done 'indexers' 'индексеры'; }
+    has config     && { setup_config; setup_bot_unit; setup_ha_unit; phase_done 'config' 'конфиг'; }
+    has hls        && { setup_hls;        phase_done 'serving' 'раздача'; }
+    has receiver   && { setup_receiver;   phase_done 'receiver' 'приёмник'; }
 
     # Без этих двух `cast` не покажет ничего, поэтому «готово» ждёт их обоих.
     if has ffmpeg; then
         job_wait ffmpeg || die "ffmpeg was not installed - see the reason above" "ffmpeg не поставился - причина в строках выше"
-        phase_done 'ffmpeg'
+        phase_done 'ffmpeg' 'ffmpeg'
     fi
     if has torrserver; then
         job_wait torrserver || die "TorrServer was not installed - see the reason above" "TorrServer не поставился - причина в строках выше"
-        phase_done 'TorrServer'
+        phase_done 'TorrServer' 'TorrServer'
     fi
     # А это первому показу не нужно: оценки украшают меню, и качать их человеку незачем.
     if has facts; then
         late_run "IMDb ratings for menu details" "оценки IMDb для справки в меню" setup_facts
         late_run "Russian IMDb release names for title metadata" "русские прокатные имена IMDb для паспорта картины" setup_names
-        phase_done 'догрев'
+        phase_done 'warmup' 'догрев'
     fi
     [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
 
@@ -4851,7 +4855,7 @@ ui_dry_worker() {
   for (( i = 1; i <= UI_TOTAL; i++ )); do
     printf -v s '%d.%03d' $(( ms / 1000 )) $(( ms % 1000 ))
     sleep "$s"
-    phase_done "проба $i"
+    phase_done "probe $i" "проба $i"
   done
   return 0
 }
