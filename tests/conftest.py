@@ -28,6 +28,7 @@ import pytest
 
 from tests import thread_guard
 from tests.fakes import composition
+from tests.fakes.blurb_source import FakeBlurbSource
 from tests.fakes.journal import Tape
 from tests.fakes.pretend_tty import PretendTty
 from tests.fakes.show_unit import FakeShowUnit
@@ -45,7 +46,9 @@ from torrcast.ports.journal import slot as journal_slot
 from torrcast.ports.progress import slot as progress_slot
 from torrcast.ports.show_unit import slot as unit_slot
 from torrcast.ports.state_store import slot as state_slot
+from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.wire import wire
+from torrcast.usecases.facts import Facts
 from torrcast.usecases.feed_pack import _state as feed_state
 from torrcast.usecases.playback.hls_root import HLS_ENV
 
@@ -459,15 +462,72 @@ def _same_tongue() -> Iterator[None]:
     _choose_tongue(was)
 
 
+#: Единственная проба, которой настоящий источник описаний нужен НА СЛОТЕ: она сторожит,
+#: что проводка процесса его туда и собрала. Переименуют её - подделка встанет и здесь, и
+#: проба покраснёт своим ``isinstance``, а не промолчит.
+LIVE_BLURBS_PROBE = (
+    "tests/runtime/test_facts_wiring.py::test_the_process_gets_one_assembled_reference"
+)
+
+
 @pytest.fixture(autouse=True)
-def _silent_facts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def _silent_facts(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Справка молчит, пока тест не попросит обратного.
 
     Тесты в сеть не ходят - ни за справкой, ни за чем-либо ещё. Заодно это и есть штатный
     случай «сети нет»: путь добора обязан работать и без справки.
+
+    ⚠️ Одного паспорта тут не хватало, и обещание строкой выше было шире дела. Источник
+    описаний меню берётся не у теста, а у проводки всего процесса
+    (:data:`~torrcast.runtime.facts_wiring.FACTS`), и там стоит настоящий ``WikiBlurbs``
+    на настоящем HTTPS-клиенте. Его поход наружу уезжал в фоновый поток добора, тест
+    кончался раньше похода, и живой поток красил СОСЕДА: в записи сторожа это
+    ``torrcast.usecases.facts.Facts._work`` и его ребёнок ``WikiBlurbs.fetch.<locals>.load``
+    на ``test_ux.py`` и ``test_voices.py`` - двух пробах, которые про справку не знают
+    вовсе. Слот назван здесь поимённо, как и остальные подделки.
     """
     composition.use_passport(monkeypatch, lambda title, series=False, budget=0.0: Origin())
+    if request.node.nodeid != LIVE_BLURBS_PROBE:
+        monkeypatch.setattr(FACTS, "blurbs", FakeBlurbSource())
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+
+
+#: Сколько ждать добор справки, прежде чем признать его зависшим.
+#:
+#: 🔴 Это НЕ порог замера, а цена независания: молчащая подделка кончается мгновенно, и
+#: срок платится только тогда, когда добор действительно завис, - ради красной строки
+#: вместо вечного ожидания.
+FACTS_SECONDS = 30.0
+
+
+@pytest.fixture(autouse=True)
+def _facts_joined(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Добор справки дожидается СВОЕГО теста, а не соседнего.
+
+    Меню справку намеренно НЕ ждёт: она украшение, и её потолок - бюджет меню. Отсюда и
+    утечка - поток добора переживает и меню, и всю пробу. Ручку он держит сам
+    (``Facts._thread``), останавливать его тут нечего: подделка источника отвечает сразу.
+    Дожидаются его после теста - тем же способом, каким продукт закрывает свою волну в
+    :mod:`torrcast.adapters.wiki.closed_wave`: закрывает поднявший.
+
+    Подмена ничего не меняет в поведении: ``start`` зовётся прежний, к нему добавлена
+    только запись поднятого.
+    """
+    raised: list[Facts] = []
+    start = Facts.start
+
+    def remember(facts: Facts) -> None:
+        raised.append(facts)
+        start(facts)
+
+    monkeypatch.setattr(Facts, "start", remember)
+    yield
+    for facts in raised:
+        thread = facts._thread
+        if thread is not None:
+            thread.join(FACTS_SECONDS)
 
 
 @pytest.fixture(autouse=True)
