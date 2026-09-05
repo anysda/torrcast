@@ -45,3 +45,45 @@ def test_the_liveliest_of_the_earlier_ones_takes_the_place() -> None:
 
 def test_nothing_to_choose_from_is_an_honest_nothing() -> None:
     assert _free_first([], NUMBERED) is None
+
+
+#: Строка сериала начинается со ВТОРОГО номера и ровесница своего соседа: ровно эта
+#: пара приезжает по запросу «One Punch Man» с живой выдачи (2015 у обеих).
+OVA_NUMBERED = [Picture(title="Ванпанчмен", year=2015, original="One Punch Man", part=2)]
+
+
+def test_a_kinsman_no_older_than_the_line_does_not_head_it() -> None:
+    """🔴 TC-982. Родня по корню оригинала берёт голову только вместе с ГОДОМ.
+
+    «Путь к становлению героем» - 24-минутная OVA: своим именем она франшизу не
+    называет и попадает в кандидаты лишь корнем оригинала ``One Punch Man``. Раньше
+    сериала она не вышла - значит первой частью не была, и головы у строки нет вовсе.
+    Пока голову отдавали первому кандидату подряд, голый Enter уезжал на эту OVA
+    мимо самого сериала.
+    """
+    ova = _picture("Ванпанчмен: Путь к становлению героем", 2015, "One Punch Man: Road to Hero")
+
+    assert _free_first([ova], OVA_NUMBERED) is None
+
+
+def test_a_kinsman_older_than_the_line_still_heads_it() -> None:
+    """Тот же сосед, вышедший РАНЬШЕ строки, головой остаётся: это её начало."""
+    earlier = _picture("Ванпанчмен: Путь к становлению героем", 2014, "One Punch Man: Road to Hero")
+
+    found = _free_first([earlier], OVA_NUMBERED)
+
+    assert found is not None and found.year == 2014
+
+
+def test_the_franchises_own_name_heads_the_line_without_being_older() -> None:
+    """⚠️ Голое имя проверку годом не проходит и проходить не должно.
+
+    «сёгун s1e9» даёт нумерованной строкой чужую «Радость пытки 2: Садизм сегуна»
+    (1976), и обе «Сёгун» моложе неё. Отними у голого имени право на голову - и меню
+    возглавит чужая картина, у которой номер части взялся из названия.
+    """
+    stranger = [Picture(title="Радость пытки 2: Садизм сегуна", year=1976, part=2)]
+
+    found = _free_first([_picture("Сёгун", 1980, "Shogun")], stranger)
+
+    assert found is not None and found.title == "Сёгун"
