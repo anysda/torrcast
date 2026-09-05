@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from torrcast.adapters.stream_pack.forget_landed import forget_landed
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 
 
@@ -19,4 +20,5 @@ def hls_dir(path: str) -> Path:
     ):
         junk.unlink(missing_ok=True)
     forget_playing(directory)  # флажок прошлого показа картинку нового не доказывает
+    forget_landed(directory)  # число посадки прошлого показа местом нового не является
     return directory

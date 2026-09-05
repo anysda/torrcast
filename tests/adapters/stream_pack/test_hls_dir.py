@@ -3,8 +3,10 @@
 from pathlib import Path
 
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.mark_landed import mark_landed
 from torrcast.adapters.stream_pack.mark_playing import mark_playing
 from torrcast.adapters.stream_pack.playing_flag import playing_flag
+from torrcast.adapters.stream_pack.read_landed import read_landed
 
 
 def test_the_pieces_of_the_previous_show_are_swept_out(tmp_path: Path) -> None:
@@ -39,3 +41,20 @@ def test_the_flag_of_the_previous_show_does_not_survive(tmp_path: Path) -> None:
 
 def test_a_directory_that_is_not_there_yet_is_made(tmp_path: Path) -> None:
     assert hls_dir(str(tmp_path / "новый" / "пак")).is_dir()
+
+
+def test_the_landing_of_the_previous_show_does_not_survive(tmp_path: Path) -> None:
+    """TC-1010. Число посадки прошлого показа местом нового не является.
+
+    Каталог сегментов один на все показы подряд: положи сюда число прошлой серии и
+    подготовь каталог заново - следующий показ обязан спрашивать его так же, как если бы
+    файла не было вовсе, а не унаследовать чужое место.
+    """
+    room = tmp_path / "пак"
+    room.mkdir()
+    mark_landed(room, 2450.0)
+
+    hls_dir(str(room))
+
+    default = 2500.0
+    assert read_landed(room, default) == default, "прошлая посадка не должна пережить уборку"
