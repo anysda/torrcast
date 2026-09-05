@@ -186,6 +186,25 @@ def test_a_show_without_a_single_frame_names_itself_apart() -> None:
         _blame_the_end(cast_supply(FakeSupply()), shown=False, clock=_NoWait())
 
 
+def test_a_supply_that_held_all_session_is_not_dressed_up_as_someone_elses_fault() -> None:
+    """🔴 TC-1009. Подача была здорова, картинки не было - так и сказано.
+
+    Свалить темноту на приёмник тут было бы той же подменой с другим именем: про приёмник
+    мы знаем ровно то же, что про рой, - ничего.
+    """
+    want = phrase("playback.no_picture_supply_held")
+    with pytest.raises(InfraError, match=re.escape(want)):
+        _blame_the_end(cast_supply(FakeSupply(kept_up=True)), shown=False, clock=_NoWait())
+
+
+def test_a_swarm_thin_all_session_keeps_the_verdict_of_an_unreadable_source() -> None:
+    """Вторая ветка той же строки: рой не тянул весь сеанс - приговор ему остаётся."""
+    why = "the swarm delivers 0.20 Mbit/s against the needed 17.81 Mbit/s - supply is short (0.01x)"
+    want = phrase("playback.no_picture_source_unreadable", why=why)
+    with pytest.raises(InfraError, match=re.escape(want)):
+        _blame_the_end(cast_supply(FakeSupply(silence=why)), shown=False, clock=_NoWait())
+
+
 class _NoWait:
     """Часы, которые не ждут: расспрос источника меряется решением, а не секундами."""
 

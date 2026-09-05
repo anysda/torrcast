@@ -30,6 +30,9 @@ def ru() -> dict[str, str]:
         "playback.source_unreadable_cut_short": (
             "источник не читается ({why}) - показ оборван, цифры выше"
         ),
+        "playback.no_picture_supply_held": (
+            "картинки не было ни разу, хотя рой всё это время успевал"
+        ),
         "playback.no_picture_receiver_refused": (
             "картинки не было ни разу: приёмник не взял показ - поднять не удалось"
         ),

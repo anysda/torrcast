@@ -5,12 +5,13 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.probe_settings import META_GRACE
+from torrcast.domain.swarm_kept_up import swarm_kept_up
 from torrcast.domain.swarm_supply import ENOUGH, swarm_supply
 from torrcast.ports.journal.slot import journal
 
@@ -59,6 +60,15 @@ class Supply:
     #: Выбранный файл и его паспортная длительность задают расход исходника на 1.0x.
     file_index: int = 0
     duration: float = 0.0
+    #: Окно наблюдений сеанса: доли реального времени, по одной на каждый замер снабжения.
+    #: Ровно то же, что уходит в след полем ``ratio``, - второго прибора тут нет.
+    seen: list[float] = field(default_factory=list)
+    #: Чей это сеанс: раздача и номер файла. Сменились - окно начинается заново, иначе
+    #: серия отвечала бы за снабжение предыдущей.
+    seen_for: tuple[str, int] = ("", -1)
+    #: Правда ли рой хоть раз за сеанс вёз достаточно (:func:`swarm_kept_up`). По нему
+    #: конец показа отличает «подача была здорова, а картинки не было» от вины источника.
+    kept_up: bool = False
 
     def check(self) -> str:
         """Что не так с ИСТОЧНИКОМ прямо сейчас; пусто - источник в порядке.
@@ -72,10 +82,17 @@ class Supply:
         (:meth:`_restore`) - и только после этого говорит, что источник в порядке. Иначе
         «в порядке» было бы враньём: раздача без трекеров ищет пиров одним DHT и за 25 с
         не приносит ни байта (замерено).
+
+        Четвёртая беда - просевший рой - единственная, которую метод судит не мгновенным
+        ответом службы, а окном наблюдений сеанса (:func:`swarm_kept_up`): скорость службы
+        меряет наш спрос, и после сдачи показа она падает у самого здорового роя.
         """
         self.restored = False
         if not self.torrent_hash:
             return ""
+        whose = (self.torrent_hash, self.file_index)
+        if whose != self.seen_for:  # новая серия - окно наблюдений начинается заново
+            self.seen, self.seen_for, self.kept_up = [], whose, False
         try:
             if not self.server.alive():
                 return self._blame(phrase("stream_probe.service_down"))
@@ -97,7 +114,12 @@ class Supply:
                     ratio, got, need = measured
                     enough = ratio >= ENOUGH
                     journal().supply(ratio, got, need, enough)
-                    if enough:
+                    self.seen.append(ratio)
+                    # 🔴 Приговор рою берётся из ОКНА наблюдений сеанса, а не из последнего
+                    # замера: после того как показ сдался, тянуть перестали, и упавшая
+                    # скорость службы говорит о нашем спросе, а не о рое (TC-1009).
+                    self.kept_up = swarm_kept_up(self.seen)
+                    if self.kept_up:
                         return ""
                     return phrase(
                         "stream_probe.thin_swarm",

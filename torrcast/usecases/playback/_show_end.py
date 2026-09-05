@@ -163,6 +163,12 @@ def _blame_the_end(
 
     Спросить источник тут можно спокойно: показ уже кончился, горячего пути нет, а
     человеку и следу уходит одна и та же причина.
+
+    🔴 Здоровая подача - это отдельная правда, а не молчание. Показ, которому рой весь
+    сеанс вёз втрое сверх нужного, обвинял в темноте раздачу по последнему замеру, снятому
+    уже после сдачи (TC-1009); назвать вместо неё приёмник было бы той же подменой с
+    другим именем. Поэтому такой конец говорит о себе прямо: подача была, картинки не
+    было, и виноватого мы не знаем.
     """
     why_source = _blamed(supply, clock if clock is not None else _state.CLOCK)
     if why_source:
@@ -171,5 +177,7 @@ def _blame_the_end(
             raise InfraError(phrase("playback.no_picture_source_unreadable", why=why_source))
         raise InfraError(phrase("playback.source_unreadable_cut_short", why=why_source))
     if not shown:
+        if supply is not None and supply.kept_up:
+            raise InfraError(phrase("playback.no_picture_supply_held"))
         raise InfraError(phrase("playback.no_picture_receiver_refused"))
     raise InfraError(phrase("playback.receiver_did_not_finish"))

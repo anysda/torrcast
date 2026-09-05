@@ -9,6 +9,9 @@ class FakeStreamSource:
     magnet: str = ""
     lost: str = ""
     restored: bool = False
+    #: Правда ли рой хоть раз за сеанс вёз достаточно: по нему конец показа отличает
+    #: здоровую подачу без картинки от вины источника.
+    kept_up: bool = False
     file_index: int = 0
     duration: float = 0.0
     #: Что источник ответит на вопрос «что с тобой»; пусто - он в порядке.

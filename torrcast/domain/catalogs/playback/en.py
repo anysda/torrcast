@@ -35,6 +35,9 @@ def en() -> dict[str, str]:
         "playback.source_unreadable_cut_short": (
             "the source is unreadable ({why}) - the show was cut short, numbers above"
         ),
+        "playback.no_picture_supply_held": (
+            "not a single picture was shown, though the swarm kept up all along"
+        ),
         "playback.no_picture_receiver_refused": (
             "not a single picture was shown: the receiver would not take the show - "
             "could not bring it back"

@@ -126,6 +126,7 @@ class FakeSupply:
     torrent_hash: str = "hash"
     magnet: str = "magnet:?xt=hash"
     lost: str = ""
+    kept_up: bool = False
     #: Сколько раз источник спрашивали: вопрос стоит запроса и задаётся не в горячем пути.
     asked: int = 0
 
