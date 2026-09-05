@@ -17,3 +17,7 @@ SPEC.md
 FEEDBACK.md
 README-PLAN.md
 .venv-hass/
+# Карта досягаемости речи: её снимает быстрый набор гейта для scripts/speech-guard,
+# и она свойство ПРОГОНА, а не дерева. Рядом - журнал возврата мутированных файлов.
+.speech-reach/
+.speech-guard-restore.json

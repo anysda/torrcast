@@ -118,7 +118,9 @@ def test_the_viewers_pause_survives_the_lost_session(
     assert phrase("revive.pause_session_lost", pos=_hms(2231.0)) in out
 
 
-def test_the_restored_pause_starts_on_the_viewers_word(tmp_path: Path) -> None:
+def test_the_restored_pause_starts_on_the_viewers_word(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Зритель вернулся и нажал play: показ пошёл с закладки, не раньше и не с начала.
 
     Смерть ПОСЛЕ слова зрителя - уже настоящая смерть: её поднимает обычная лестница,
@@ -137,3 +139,6 @@ def test_the_restored_pause_starts_on_the_viewers_word(tmp_path: Path) -> None:
 
     assert ended is True
     assert receiver.played[:3] == [2231.0, 2233.0, 2235.0], "слово зрителя - с закладки"
+    # Возврат сессии на закладку - решение молчаливое для приёмника, зритель узнаёт о
+    # нём только по этой строке: без неё «сессия вернулась» не отличить от «зависли».
+    assert phrase("revive.pause_restored", pos=_hms(2231.0)) in capsys.readouterr().out

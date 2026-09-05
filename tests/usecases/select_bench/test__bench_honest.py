@@ -7,6 +7,7 @@ import pytest
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.usecases.select_bench.bench import Bench
 
@@ -65,6 +66,25 @@ def test_a_release_named_by_hand_is_never_checked() -> None:
     bench._wait(chosen, Said())
 
     assert bench._honest(built, chosen, [1], Args(query=["кино"], release=1), Said()) is chosen
+
+
+def test_an_honest_neighbour_without_a_proven_voice_stays_out(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Честный 1080p без подтверждённой русской дорожки - не улучшение: подмена молчком
+    выиграла бы разрешение, но подсунула бы зрителю картину без языка, который он попросил.
+    """
+    pool = [rel(name="r0 | Дубляж", seeders=140), rel(name="r1 | Дубляж", seeders=121)]
+    silent = Media(RUNTIME, (AudioTrack(index=0, language="eng"),), "h264", height=1080, width=1920)
+    bench = Bench(Torrents(), prober=probes(pool, _media(574, 1150), silent), honest_budget=5.0)
+    built = plan(pool)
+    chosen = bench.start(built, 1)
+    bench._wait(chosen, Said())
+
+    played = bench._honest(built, chosen, [1, 2], _ASKED, Said())
+
+    assert played is chosen, "без честной дорожки подмена всё равно не должна была случиться"
+    assert phrase("select_bench.honest_no_voice_note", number=2) in capsys.readouterr().out
 
 
 def test_a_neighbour_already_judged_is_not_asked_twice(

@@ -45,10 +45,12 @@ def test_a_piece_later_than_its_border_is_legal_too(tmp_path: Path) -> None:
 def test_a_piece_before_its_border_is_wiped_and_stops_the_run(tmp_path: Path) -> None:
     """Раньше границы кусок начаться не может ни по одной законной причине."""
     fake = world()
-    warm = warmer(tmp_path, log=[].append)
+    said: list[str] = []
+    warm = warmer(tmp_path, log=said.append)
     lay(warm.vault, 2)
     warm.vault.served.mark(2)
-    began = _began({2: 20.0 - SKEW_MAX - 1.0})
+    began_value = 20.0 - SKEW_MAX - 1.0
+    began = _began({2: began_value})
 
     assert _verify(warm, 2, began) == SKEW
     assert not warm.vault.have(2), "кусок мимо сетки остался в показе"
@@ -58,6 +60,14 @@ def test_a_piece_before_its_border_is_wiped_and_stops_the_run(tmp_path: Path) ->
     assert warm.skews[2] == 1
     assert fake.events[0][0] == "skew" and fake.events[0][2]["hole"] is False
     assert not warm.trouble, "первый промах объявлен дырой без второй попытки"
+
+    # Первый промах не молчит: зритель обязан узнать, что прогрев повторит попытку,
+    # а не просто тихо стёр кусок с диска.
+    want = warm.grid.start(2) + warm.grid.origin
+    where = phrase(
+        "warm.skew_where", slot=2, minute=f"{want / 60:.0f}", diff=f"{began_value - want:+.2f}"
+    )
+    assert said == [phrase("warm.skew_retry", where=where)]
 
 
 def test_the_second_miss_on_the_same_place_is_a_hole(tmp_path: Path) -> None:

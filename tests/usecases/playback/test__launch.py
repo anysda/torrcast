@@ -126,7 +126,9 @@ def test_the_budget_of_the_start_is_not_endless(
     assert unit.stopped == 1, "юнит, не давший картинки, обязан быть погашен"
 
 
-def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(tmp_path: Path) -> None:
+def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Бюджет вышел, а показ ИДЁТ - гасить его нельзя: зритель смотрит серию.
 
     🔴 TC-884, 29-08-2026. Флажок картинки лежит в каталоге, куда ходит не только показ, и
@@ -134,16 +136,15 @@ def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(tmp_path: Path) 
     шедший пятую минуту: экран потух посреди серии, а в след ушло «показ не начался за
     350 с» рядом со словом ``PLAYING`` из того же журнала. Отсутствие флажка ничего не
     доказывает - доказывает движение указателя, и спросить о нём надо ДО казни.
+
+    Молчание тут было бы бедой не косметической: живой показ идёт дальше без единого
+    слова человеку, и «что вообще произошло» узнать неоткуда, кроме следа.
     """
     out = tmp_path / "hls"
     out.mkdir()
     landed = 26 * 60 + 58.0  # куда завели показ: «Домохозяйки» s1e8, 0:26:58
-    unit = FakeShow(
-        said=[
-            "[сеанс 7] упаковка пошла",
-            screen_line("[сеанс 7]", landed + 324.0, 2640.0, "PLAYING"),
-        ]
-    )
+    said_line = screen_line("[сеанс 7]", landed + 324.0, 2640.0, "PLAYING")
+    unit = FakeShow(said=["[сеанс 7] упаковка пошла", said_line])
 
     _await_playing(
         Config(hls_dir=str(out)),
@@ -155,10 +156,12 @@ def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(tmp_path: Path) 
     )
 
     assert unit.stopped == 0, "показ, двигающий указатель, гасить нечем и не за что"
+    want = phrase("playback.picture_undetected_but_playing", secs="3", said=said_line)
+    assert want in capsys.readouterr().out, "зритель обязан узнать, почему казни не было"
 
 
 def test_the_backward_landing_of_tc_1002_does_not_trip_the_bookmark_check(
-    tmp_path: Path,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """TC-1010. Показ сел НИЖЕ закладки - запасной путь обязан сверяться с местом посадки.
 
@@ -166,18 +169,17 @@ def test_the_backward_landing_of_tc_1002_does_not_trip_the_bookmark_check(
     опорный кадр НИЖЕ закладки, а отвод назад на неудачном заходе отступает ещё дальше.
     Указатель приёмника тогда честно меньше закладки, но больше настоящего места посадки -
     и сверка с самой закладкой погасила бы показ, который зритель уже смотрит.
+
+    Молчание тут было бы бедой не косметической: показ прошёл на грани казни без единого
+    слова человеку о том, что вообще случилось и по какому следу его отпустили.
     """
     out = tmp_path / "hls"
     out.mkdir()
     bookmark = 2500.0
     landed = 2450.0
     mark_landed(out, landed)  # то же число, что кладёт `_play` после `feed.begin`
-    unit = FakeShow(
-        said=[
-            "[сеанс 7] упаковка пошла",
-            screen_line("[сеанс 7]", 2470.0, 3000.0, "PLAYING"),
-        ]
-    )
+    said_line = screen_line("[сеанс 7]", 2470.0, 3000.0, "PLAYING")
+    unit = FakeShow(said=["[сеанс 7] упаковка пошла", said_line])
 
     killed_by_timeout = False
     try:
@@ -195,6 +197,8 @@ def test_the_backward_landing_of_tc_1002_does_not_trip_the_bookmark_check(
     assert not killed_by_timeout and unit.stopped == 0, (
         "показ, продвинувшийся от настоящей посадки, гасить не за что"
     )
+    want = phrase("playback.picture_undetected_but_playing", secs="3", said=said_line)
+    assert want in capsys.readouterr().out, "зритель обязан узнать, почему казни не было"
 
 
 def test_a_receiver_stuck_at_the_landing_point_is_still_a_failed_start(tmp_path: Path) -> None:

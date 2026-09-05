@@ -28,6 +28,7 @@ from torrcast.usecases.revive_playback._screen import (
     _note_transitions,
     _note_watch,
     _report,
+    _trace_line,
 )
 from torrcast.usecases.revive_playback._screen_state import _Screen
 from torrcast.usecases.still_playing import still_playing
@@ -138,6 +139,52 @@ def test_a_live_screen_is_reported_by_what_the_receiver_sees(
     _report("[сеанс]", revival, _at(72.0, "PLAYING"), feed_with_segments(tmp_path), None)
 
     want = phrase("screen.line", tag="[сеанс]", pos="0:01:12", dur="2:00:00", state="PLAYING")
+    assert want in capsys.readouterr().out
+
+
+def test_the_trace_line_names_the_reserve_the_operator_asked_to_see(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Отладочный след - единственное окно в запас упаковки при включённом ``TORRCAST_TRACE``.
+
+    Строку никто, кроме включившего след, не читает: перепутай она позицию с запасом
+    или молчи о разбеге манифеста - обманутым остался бы ровно тот человек, который
+    сверяет ход показа по консоли, а не по журналу.
+    """
+    feed = feed_with_segments(tmp_path)
+
+    _trace_line("[сеанс]", feed, _at(72.0, "PLAYING"))
+
+    front = feed.front(72.0)
+    want = phrase(
+        "revive.trace_line",
+        tag="[сеанс]",
+        pos="72",
+        packed=f"{front:.0f}",
+        ahead=f"{front - 72.0:.0f}",
+        mb=f"{feed.weight() / 1e6:.0f}",
+        drift=f"{feed.drift():.3f}",
+        state="PLAYING",
+    )
+    assert want in capsys.readouterr().out
+
+
+def test_the_reserve_is_named_while_the_network_is_down(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Обрыв сети посреди показа - строка обязана сказать, докуда хватит уже упакованного.
+
+    В темноте эта строка молчит нарочно: обеспечивать там уже нечего. Но пока картинка
+    идёт, а раздача не отвечает, молчание тут выглядело бы как «всё в порядке», хотя
+    запас доедается и продолжает пробовать сеть без единого слова зрителю.
+    """
+    revival = _Revival(clock=FakeClock(now=1000.0))
+    feed = feed_with_segments(tmp_path)
+    feed.offline = "сети нет"
+
+    _report("[сеанс]", revival, _at(72.0, "PLAYING"), feed, None)
+
+    want = phrase("revive.no_network", why=feed.offline, until=_hms(feed.front(72.0)))
     assert want in capsys.readouterr().out
 
 

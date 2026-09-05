@@ -87,3 +87,9 @@ _.sys_version
 # Точку входа бота (`torrcast-bot`) зовёт оболочка, а не наш код: имя объявлено в
 # `[project.scripts]` файла `pyproject.toml`, и питон видит его только оттуда.
 _bot
+
+# Крючки плагина досягаемости речи (`scripts/speech_reach.py`) зовёт pytest, и зовёт по
+# имени: вызывающей стороны в дереве нет и быть не может, её приносит сам прогон.
+pytest_configure
+pytest_runtest_protocol
+pytest_sessionfinish

@@ -21,6 +21,7 @@ from tests.usecases.revive_playback.world import (
     PlainReceiver,
     feed_with_segments,
 )
+from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
@@ -34,6 +35,8 @@ from torrcast.runtime.wire_feed import wire_feed
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.revive_playback._revive_state import TAIL_LIMIT
+from torrcast.usecases.warm.vault import Vault
+from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
 
@@ -54,6 +57,34 @@ def test_a_show_that_cannot_be_raised_ends_by_itself(tmp_path: Path) -> None:
     )
 
     assert ended is False, "лестница не поднимала - это обычный конец показа"
+
+
+def test_the_switch_to_the_warmed_disk_is_announced_out_loud(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Прогрев дошёл до конца - показ обязан сказать, что раздача сети больше не нужна.
+
+    Молча этот переход выглядел бы неотличимо от обычного круга опроса: человек,
+    сверяющий ход показа по консоли, не узнал бы, что дальше фильм идёт с диска, а не
+    из сети, и не понял бы, почему обрыв раздачи вдруг перестал быть страшен.
+    """
+    grid = Grid.uniform(1.0)
+    vault = Vault(root=tmp_path / "warm", key="кино")
+    vault.open()
+    vault.path(0).write_bytes(b"x")
+    warmer = Warmer(source="s", audio=0, grid=grid, vault=vault)
+    feed = feed_with_segments(tmp_path)
+    feed.vault = vault
+    receiver = PlainReceiver([(200.0, "PLAYING"), (0.0, "IDLE")])
+
+    _hold(
+        cast(Receiver, receiver),
+        feed,
+        warmer=warmer,
+        clock=FakeClock(now=1000.0),
+    )
+
+    assert phrase("revive.fully_warm_switch_disk") in capsys.readouterr().out
 
 
 def test_one_black_screen_is_one_accident_for_the_viewer(

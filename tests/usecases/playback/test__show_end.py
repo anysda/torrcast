@@ -27,6 +27,7 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.playback._show_end import _blame_the_end, _close_show, _handover, _say_whole
 from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.revive_playback._hold import _hold
+from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
 
@@ -143,6 +144,27 @@ class _Server:
         return None
 
 
+class _FakeVault:
+    """Хранилище прогрева, которое только считает, сколько раз его очистили."""
+
+    def __init__(self) -> None:
+        self.cleared = 0
+
+    def clear(self) -> None:
+        self.cleared += 1
+
+
+class _FakeWarmer:
+    """Прогрев, которому от конца показа нужно только погаснуть и знать, стёрли ли диск."""
+
+    def __init__(self) -> None:
+        self.stopped = 0
+        self.vault = _FakeVault()
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+
 def test_a_show_closed_by_the_viewer_quits_the_app_though_the_next_episode_waits(
     tmp_path: Path, tape: Tape
 ) -> None:
@@ -163,6 +185,41 @@ def test_a_show_closed_by_the_viewer_quits_the_app_though_the_next_episode_waits
 
     assert by_remote.stopped == [True], "воля зрителя - приложение приёмника закрываем"
     assert by_itself.stopped == [False], "тот же конец без пульта - это стык серий"
+
+
+def test_a_watched_show_clears_the_warm_vault_and_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Досмотренный показ стирает прогретое с диска - и обязан сказать об этом вслух.
+
+    Промолчи тут мост - зритель узнал бы о пропаже диска только со следующего запуска,
+    когда прогрев внезапно начнёт греть фильм заново: без слова тут это выглядело бы
+    забытым хозяйством, а не решением.
+    """
+    key = "tv:домохозяйки-прогрев:2020"
+    _remember(key)
+    entry = store().load().get(key)
+    assert entry is not None
+    watch = Watch(key=key, entry=entry)
+    receiver = RemoteClosedReceiver(
+        [(2569.0, "PLAYING", False), (0.0, "UNKNOWN", False)], dur=2600.0
+    )
+    _hold(
+        cast(Receiver, receiver), feed_with_segments(tmp_path), watch, clock=FakeClock(now=1000.0)
+    )
+    warmer = _FakeWarmer()
+
+    _close_show(
+        watch,
+        cast(Warmer, warmer),
+        cast(Receiver, receiver),
+        feed_with_segments(tmp_path / "конец"),
+        _Server(),
+    )
+
+    assert watch.done, "стенд обязан довести показ до конца - иначе проверка пуста"
+    assert warmer.vault.cleared == 1, "прогретое досмотренного показа обязано стереться"
+    assert phrase("playback.watched_cleared_warm") in capsys.readouterr().out
 
 
 def test_a_dead_source_takes_the_blame_of_the_broken_show() -> None:

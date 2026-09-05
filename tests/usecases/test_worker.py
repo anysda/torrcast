@@ -15,6 +15,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.worker import _cmd_worker
 
 KEY = "movie:брат:1997"
@@ -101,12 +102,19 @@ def test_the_profile_the_unit_chose_is_the_one_it_names(
 
 
 def test_the_unit_takes_its_own_torrent_away_when_the_show_ends(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Хозяин раздачи один - юнит; не убери он её, они копились бы до перезапуска службы."""
+    """Хозяин раздачи один - юнит; не убери он её, они копились бы до перезапуска службы.
+
+    Уборка раздачи не единственный след досмотра: сторож ещё и говорит вслух, что
+    досмотрено и до какого места, - молчание тут ничем не отличалось бы от повисшего
+    сеанса, который просто не убрал за собой раздачу.
+    """
     composition.use_profile(monkeypatch, lambda config: Choice(ANDROID_TV, "спрошен приёмник"))
 
     assert _cmd_worker(KEY, play=_played) == 0
 
     assert _added == ["magnet:?xt=1"]
     assert _dropped == ["hash"]
+    said = phrase("watch.finished", what="", pos=_hms(90.0), duration=_hms(90.0))
+    assert said in capsys.readouterr().out, "досмотрено объявлено вслух, а не только в state"

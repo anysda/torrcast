@@ -28,6 +28,7 @@ from torrcast.ports.receiver import Receiver
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases import worker_loop
 from torrcast.usecases.following import _following
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.worker_loop import _worker_loop
 
@@ -48,10 +49,16 @@ class _EmitTape(Tape):
 
 
 def test_the_loop_pins_the_thresholds_snapshot_to_the_session_start_record(
-    monkeypatch: pytest.MonkeyPatch, _ports_restored: None
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    _ports_restored: None,
 ) -> None:
     """Снимок порогов уезжает в ленту полями записи о начале сеанса, а не «где-то
-    рядом»: иначе недельный разбор читал бы начало показа без чисел, которыми играли."""
+    рядом»: иначе недельный разбор читал бы начало показа без чисел, которыми играли.
+
+    Той же строкой цикл объявляет начало серии вслух: сеанс без этой строки в
+    терминале неотличим от юнита, который вообще не поднял показ.
+    """
     key = "movie:dune:2021"
     state = FakeStateStore()
     fresh = state.load()
@@ -95,6 +102,9 @@ def test_the_loop_pins_the_thresholds_snapshot_to_the_session_start_record(
     assert start[0]["profile_source"] == "паспорт приёмника"
     assert start[0]["thresholds"] == {"burst": 60.0}
     assert start[0]["threshold_sources"] == {"burst": "профиль q70d"}
+    session_tag = phrase("playback.session_tag", id=tape.start_session())
+    said = phrase("worker.now_playing", tag=session_tag, title="Дюна", pos=_hms(0.0))
+    assert said in capsys.readouterr().out, "начало серии объявлено вслух, а не только в ленте"
 
 
 def _shown_title(entry: Entry, _ports: None = None) -> str:

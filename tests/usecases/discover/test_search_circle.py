@@ -7,6 +7,7 @@ import pytest
 from tests.fakes.state_store import FakeStateStore
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.origin import Origin
@@ -95,6 +96,31 @@ def test_the_circle_tells_nothing_about_who_fell_or_is_late() -> None:
     fallen = ("Knaben", "RuTor", "JacRed")
     named = [note for note in said.notes if any(who in note for who in fallen)]
     assert named == [], "строки про состав индексеров с экрана ушли"
+
+
+def test_a_glued_alias_is_named_out_loud_with_its_own_title_and_count() -> None:
+    """Склейка двух одноимённых выдач в одну картину - решение автоматическое: человек спросил
+    «Аватар», а под этим пунктом теперь лежат раздачи и «Аватар 3D» - смолчать об этом значило
+    бы скрыть, что в отбор идёт вдвое больший пул, чем зритель попросил своим запросом.
+    """
+    wire_catalogue()
+    glued = [
+        row("Аватар (2009) BDRip 1080p | D", "a", seeders=80),
+        row("Аватар 3D (2009) BDRip 1080p | D", "b", seeders=60),
+    ]
+    client = Indexer(answers={"аватар": glued})
+    said = Said()
+
+    search_circle(
+        _CONFIG,
+        Args(query=["аватар"]),
+        said,
+        indexer=lambda *_a, **_k: client,
+        passport=lambda *_a, **_k: Origin(),
+    )
+
+    told = phrase("discover.glued_pictures", also="Аватар 3D", title="Аватар", count=2)
+    assert told in said.notes
 
 
 _QUINN = [

@@ -6,6 +6,7 @@ import pytest
 
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.torr_file import TorrFile
@@ -63,4 +64,23 @@ def test_the_stick_does_not_condemn_a_swarm_before_its_measured_settle_time() ->
     assert _bench_supply(CAUTIOUS, prep)[0] == 0.0, "нулевое окно измерено, а не потеряно"
     assert _bench_supply(ANDROID_TV, prep)[0] < 0.0, (
         "до измеренных 10 с мера ещё молчит: неизвестное снабжение обязано пройти отбор"
+    )
+
+
+def test_supply_note_reports_the_measured_numbers(capsys: pytest.CaptureFixture[str]) -> None:
+    """Строка снабжения печатает ИЗМЕРЕННЫЕ рой, скорость и порог - подмени печать любой другой
+    цифрой, зритель ничего не заметит: сверить сказанное с тем, что рой правда отдал, некому.
+    """
+    release = rel("fat-supply")
+    prep = _Prep(number=3, release=release)
+    prep.video = TorrFile(0, "movie.mkv", 450_000_000)
+    prep.media = Media(3600.0, (), "h264")
+    prep.supply = [(0.0, 0.0), (10.0, 2_500_000.0)]
+
+    measured = _bench_supply(CAUTIOUS, prep)
+
+    assert measured[0] >= CAUTIOUS.supply_ratio, "печать без достаточного снабжения - другой дефект"
+    said = capsys.readouterr().out
+    assert said == (
+        phrase("select_bench.supply_note", number=3, got="2.00", need="1.00", ratio="2.00") + "\n"
     )
