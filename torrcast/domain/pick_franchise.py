@@ -14,6 +14,7 @@ from torrcast.domain.franchise_item_key import _franchise_item_key
 from torrcast.domain.franchises import franchises
 from torrcast.domain.group_weight import _group_weight
 from torrcast.domain.in_digits import in_digits
+from torrcast.domain.nearest_group import _nearest_group
 from torrcast.domain.nearly_named import nearly_named
 from torrcast.domain.numbered import _numbered
 from torrcast.domain.picture import Picture
@@ -69,7 +70,7 @@ def pick_franchise(
         if pointed := third.get(wanted):
             return pointed
         if hits := [k for k in groups if wanted in k]:
-            return min(hits, key=lambda key: (len(key), -_group_weight(groups, key), key))
+            return _nearest_group(wanted, groups, hits)
         if loose := _by_words(wanted, groups):
             return loose
         if hits := [k for k in groups if k and k in wanted]:

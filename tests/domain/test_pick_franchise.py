@@ -164,3 +164,33 @@ def test_the_live_swarm_is_reached_through_the_bare_name() -> None:
 
     assert found[0].kind == "tv"
     assert len(found[0].releases) == 3
+
+
+def test_one_bare_word_takes_the_heaviest_of_the_equally_near_franchises() -> None:
+    """🔴 TC-1025. Голое слово: близость меряется ЛИШНИМИ СЛОВАМИ, а не буквами.
+
+    Живая выдача RuTor по запросу «властелин» - 100 строк, среди них вся трилогия
+    «Властелин колец». Отвечал же продукт ОДНОЙ чужой картиной «Властелин мира»
+    (1961, 0 сид), и всё её преимущество было в том, что «мира» на одну букву короче
+    «колец»: группы сортировались длиной слага.
+
+    Обе группы дописывают к спрошенному слову ровно одно своё, то есть стоят от запроса
+    одинаково далеко, и разводит их вес каталога - 48 раздач против двух.
+    """
+    names = [
+        "Властелин Мира / Master of the World (1961) DVDRip| P2, A",
+        "Властелин мира / Master of the World (1983) BDRemux 1080p",
+        "Властелин колец: Братство кольца / The Lord of the Rings: The Fellowship of the Ring "
+        "(2001) BDRip 1080p",
+        "Властелин колец: Две крепости / The Lord of the Rings: The Two Towers (2002) BDRip 1080p",
+        "Властелин колец: Возвращение короля / The Lord of the Rings: The Return of the King "
+        "(2003) BDRip 1080p",
+    ]
+    pool = cluster([parse_release_name(name) for name in names])
+    found = pick_franchise("властелин", pool)
+
+    assert found, "по голому слову не нашлось ничего - а трилогия в выдаче есть"
+    assert all("колец" in p.title for p in found), "выдача увела в чужую картину: " + ", ".join(
+        f"{p.title} ({p.year})" for p in found
+    )
+    assert len(found) == 3
