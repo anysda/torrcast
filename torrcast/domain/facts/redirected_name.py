@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.patterns import _CYRILLIC, _TAIL_RE, _WORK_RE
+from torrcast.domain.facts.unhatted import unhatted
 from torrcast.domain.facts.wiki_reply import _article
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
@@ -43,7 +44,8 @@ def redirected_name(
         heading = str(page.get("title") or "")
         if not heading or _CYRILLIC.search(heading) or slugify(heading) == slugify(name):
             continue
-        if not _WORK_RE.search(f"{heading} {page.get('extract') or ''}"):
+        text = unhatted(str(page.get("extract") or ""))
+        if not _WORK_RE.search(f"{heading} {text}"):
             continue
         return Origin(title=_TAIL_RE.sub("", heading).strip() or heading)
     return Origin()
