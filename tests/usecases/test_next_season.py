@@ -26,6 +26,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.state_store.slot import install, store
 from torrcast.usecases.next_season import _next_season
 from torrcast.usecases.select._prep import _Prep
@@ -149,6 +150,57 @@ def test_a_finished_season_searches_and_records_the_next_one() -> None:
     assert (entry.season, entry.episode, entry.done) == (5, 1, False)
     assert entry.magnet == "magnet:?xt=сезон-5", "играть цикл будет новую раздачу"
     assert entry.label == "s5e1"
+
+
+def test_a_started_search_names_the_season_it_went_after(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Уход за следующим сезоном назван ДО поиска: иначе экран гаснет молча.
+
+    Строка «сезон N досмотрен, ищу сезон N+1» - единственное, что зритель получает на
+    стыке: пока идёт круг поиска, картинки нет, и без неё пауза читается не решением,
+    а зависанием. Утверждение идёт через сам `phrase`, а не через литерал: текст надписи
+    - вкус владельца, и зеркало сторожит её присутствие, а не её слова.
+    """
+    _put()
+
+    found = _next_season(
+        Config(),
+        KEY,
+        FakeTorrentEngine(),
+        CAUTIOUS,
+        circle=lambda *_a, **_k: [],
+    )
+
+    assert found is False
+    said = phrase("season.searching_next", title="Сериал", season=4, upcoming=5)
+    assert said in capsys.readouterr().out, "уход за сезоном назван до поиска"
+
+
+def test_a_search_that_did_not_happen_is_not_called_the_last_season(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Поиск не состоялся (индексеры, сеть) - и это ДРУГАЯ правда, чем «сезон последний».
+
+    Ответить тут «последний» значило бы закрыть сериал по чужой беде. Зеркало держит обе
+    половины: сказана строка про несостоявшийся поиск и НЕ сказана строка про конец.
+    """
+    _put()
+
+    def circle(*_args: object, **_kw: object) -> list[Plan]:
+        raise TorrcastError("Prowlarr не отвечает")
+
+    found = _next_season(Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=circle)
+
+    assert found is False
+    out = capsys.readouterr().out
+    why = "Prowlarr не отвечает"
+    assert phrase("season.search_failed", title="Сериал", upcoming=5, err=why) in out
+    marker = "@"
+    last = phrase("season.no_next_found", title="Сериал", season=4, err=marker).split(marker)[0]
+    assert last not in out, "чужая беда не объявляется концом сериала"
+    entry = store().load().get(KEY)
+    assert entry is not None and entry.done, "запись досмотренного сезона не тронута"
 
 
 def test_a_missing_next_season_says_the_season_was_the_last(

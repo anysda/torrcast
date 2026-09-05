@@ -201,6 +201,13 @@ def test_the_last_warmed_piece_whose_end_was_never_measured_is_handed_over_too(
 
     monkeypatch.setattr(feed_segment, "segment_end", lambda path: 1.0)
     assert _warm(show, last) is None, "измеренный обрыв хвоста перестал ловиться"
+    # Обрыв зритель видит заминкой на хвосте: прогретое стёрто, и то же место идёт живой
+    # упаковкой. Молчание тут читается поломкой показа, а не решением, - строка обязана
+    # быть, и обязана быть проверена, иначе снимается вместе со всем прогретым хвостом.
+    missing = f"{show.grid.duration + show.grid.origin - 1.0:.2f}"
+    assert said == [phrase("feed.warm_torn", slot=last, missing=missing)], (
+        "стёртый хвост назван вслух, а не переделан молча"
+    )
 
 
 def test_a_hopeless_place_is_answered_the_moment_the_packing_says_so(tmp_path: Path) -> None:

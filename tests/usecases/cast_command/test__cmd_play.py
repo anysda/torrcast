@@ -450,6 +450,62 @@ def test_the_place_of_a_dead_recording_moves_onto_the_release_found_instead(
     assert tail in capsys.readouterr().out, "час просмотра переехал на новую раздачу"
 
 
+def test_a_voice_taken_from_a_file_beside_the_video_names_that_file(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Звук взят ВТОРЫМ входом из соседнего файла - и файл назван по имени.
+
+    Решение тут не косметическое: показ идёт двумя входами вместо одного, старт дороже,
+    а перемотка ведёт себя иначе. Молчание об этом читается зрителем как поломка звука в
+    самой раздаче. Дорожки обоих паспортов названы двумя языками нарочно: искомый звук
+    зависит от языка продукта, а предмет теста - вторая ветка входа, а не язык.
+    """
+    apart = release("Кино / Movie (1999) WEB-DL 1080p")
+    one = Plan(
+        picture=Picture(title="Кино", year=1999, releases=[apart]),
+        ranked=[apart],
+        runtime=7200.0,
+        warn_mbit=16.0,
+    )
+    prep = _Prep(number=1, release=apart)
+    prep.video = TorrFile(index=0, name="кино/кино.mkv", size=8 * GB)
+    prep.voice_file = TorrFile(index=1, name="кино/кино.rus.mka", size=GB // 4)
+    prep.files = [prep.video, prep.voice_file]
+    prep.media = Media(
+        duration=7200.0,
+        tracks=(AudioTrack(index=0, language="jpn", title="Оригинал"),),
+        video="h264",
+        height=1080,
+        video_bps=8.0 * 1e6,
+    )
+    prep.voice_media = replace(
+        prep.media,
+        tracks=(
+            AudioTrack(index=0, language="rus", title="Дубляж"),
+            AudioTrack(index=1, language="eng", title="Original"),
+        ),
+    )
+
+    class _Bench:
+        def drop_all(self) -> None:
+            pass
+
+    class _Passport:
+        def get(self) -> Origin:
+            return Origin()
+
+    code = _cmd_play(
+        Args(query=["кино"], dry=True),
+        restart=_never,
+        resume=_never,
+        choose=lambda *args, **rest: ([one], one, prep, _Bench(), _Passport()),  # type: ignore[arg-type]
+    )
+
+    assert code == EXIT_OK
+    said = phrase("cmd_play.voice_apart", base="кино.rus.mka")
+    assert said in capsys.readouterr().out, "второй вход назван файлом, из которого взят"
+
+
 def test_a_dead_series_recording_searches_the_bookmarked_episode_not_the_first() -> None:
     """🔴 TC-571. У сериала место - это серия: она встаёт в запрос, куда ушёл поиск.
 

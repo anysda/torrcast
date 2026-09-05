@@ -17,6 +17,7 @@ from tests.usecases.revive_playback.world import (
     RemoteClosedReceiver,
     feed_with_segments,
 )
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
@@ -457,9 +458,14 @@ def test_a_stream_that_ended_by_itself_hands_over_at_once_and_costs_no_extra_pol
 
 
 def test_a_naturally_ended_show_still_raises_the_next_episode(
-    monkeypatch: pytest.MonkeyPatch, _ports_restored: None
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], _ports_restored: None
 ) -> None:
-    """Поток доиграл сам - следующая серия по-прежнему поднимается на приёмнике."""
+    """Поток доиграл сам - следующая серия по-прежнему поднимается на приёмнике.
+
+    Переход между сериями зритель видит как обрыв: картинка гаснет и поднимается заново.
+    Строка «следующая серия: {label}» - единственное, что отличает решение цикла от
+    падения показа, и потому она проверяется вместе с самим переходом.
+    """
     key = "tv:домохозяйки-натурально:2020"
     state = FakeStateStore()
     fresh = state.load()
@@ -496,3 +502,6 @@ def test_a_naturally_ended_show_still_raises_the_next_episode(
 
     assert code == 0
     assert played == ["Домохозяйки s1e7", "Домохозяйки s1e8"], "обе серии поднялись на приёмнике"
+    assert phrase("worker.next_episode", label="s1e8") in capsys.readouterr().out, (
+        "переход к следующей серии назван вслух, а не сделан молча"
+    )
