@@ -10,6 +10,7 @@ from collections.abc import Callable
 from torrcast.adapters.prowlarr.indexer_circle import ASK_SLACK, IndexerCircle
 from torrcast.adapters.prowlarr.indexer_roster import IndexerRoster, _aside, _Spawn
 from torrcast.adapters.prowlarr.prowlarr_api import TIMEOUT, ProwlarrApi
+from torrcast.domain.circle_budget import FIRST_CIRCLE_TIMEOUT
 from torrcast.domain.goal_spare import CIRCLE_SHARE, goal_spare
 from torrcast.domain.indexer_budget import indexer_budget
 
@@ -50,8 +51,14 @@ class _State:
         #: ставит Prowlarr (TC-291). Монотонные тут не годятся - у них своя точка отсчёта,
         #: общей с чужими отметками у них нет.
         self._begun_at = time.time()
-        #: Первый круг ещё не сделан: он один и идёт без оглядки на цель.
+        #: Первый круг ещё не сделан: цель ему не указ - он и есть поиск.
         self._first = True
+        #: 🔴 TC-1046. Потолок ПЕРВОГО круга. Цель ему по-прежнему не указ, а вот бюджет
+        #: самого медленного опорного - указ: круг ждёт каждого опорного отдельно, и без
+        #: потолка ценой меню были двадцать секунд Knaben (TC-226). Отставший при этом не
+        #: выброшен, его забирает долив. Опускают эту отметку те, кому нужен круг короче
+        #: настоящего, - тесты сроков, ровно как :attr:`budget_of`.
+        self.first_cap: float = FIRST_CIRCLE_TIMEOUT
         #: 🔴 TC-386. Пол бюджета ВТОРОГО круга: потолком ему служит остаток цели
         #: (:meth:`spare`), но ниже этой отметки он не опускается. Обычный пол -
         #: :data:`~torrcast.domain.goal_spare.CIRCLE_SHARE`: круг, спрошенный меньше чем на

@@ -81,11 +81,13 @@ class Prowlarr(_State):
         self._api.open()  # сессия поднимается ДО потоков: ленивая сборка внутри них - гонка
         known, self.banned = self._roster.usable(known)
         first, later = circle_indexers(known, query)
-        # 🔴 TC-228: первый круг идёт в свои личные бюджеты, а каждый следующий - в остаток
-        # цели (:meth:`spare`), но не ниже пола (:attr:`cap_floor`). Первый круг это и есть
-        # поиск, резать его нечем; а вот второй заход раньше платил хвост первого плюс
-        # свой полный - и удваивал цену.
-        cap = 0.0 if self._first else self.circle_cap()
+        # 🔴 TC-228: каждый следующий круг идёт в остаток цели (:meth:`spare`), но не ниже
+        # пола (:attr:`cap_floor`): второй заход раньше платил хвост первого плюс свой
+        # полный - и удваивал цену.
+        # 🔴 TC-1046: у первого круга потолок свой (:attr:`first_cap`). Цель ему не указ -
+        # он и есть поиск, - а вот бюджет самого медленного опорного указ: круг ждёт
+        # каждого опорного отдельно, и без потолка ценой меню были двадцать секунд Knaben.
+        cap = self.first_cap if self._first else self.circle_cap()
         self._first = False
         self._circle.begin()
         got, why_lost = self._circle.run(first, query, limit, cap)
