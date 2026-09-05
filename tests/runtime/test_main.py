@@ -8,6 +8,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -121,18 +124,19 @@ def test_a_broken_assembly_reaches_the_human_the_same_way_a_broken_command_does(
     config_text: str,
     stderr_substring: str,
     tmp_path: Path,
-    journal: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Отказ СБОРКИ обязан дойти до человека тем же путём, что и отказ внутри команды.
+    """Беда с настройкой обязана дойти до человека текстом и кодом инфры, а не трейсбеком.
 
-    Настоящая :func:`~torrcast.runtime.wire.wire` читает конфиг раньше, чем
-    :func:`~torrcast.cli.answered.answered` вообще заводится - её ограда прежде
-    накрывала только ``command``, и битый JSON ли, неведомый язык ли улетали
-    трейсбеком мимо неё (TC-929, заход 4). Здесь - боевая пара ``assemble``/``command``
-    (умолчание точки входа), а не подставные фейки: мера обязана трогать ровно тот путь,
-    каким идёт консоль ``cast``.
+    Пути у двух случаев разные, и оба названы. Неведомый язык ломает СБОРКУ:
+    :func:`~torrcast.runtime.wire.wire` читает язык настройки раньше, чем
+    :func:`~torrcast.cli.answered.answered` вообще заводится, и отказ ловит ограда самой
+    точки входа (:func:`~torrcast.runtime.main.main`, TC-929, заход 4). Битый JSON сборку
+    переживает (:func:`~torrcast.adapters.filesystem.state.chosen_language.chosen_language`
+    отвечает на него английским оформлением, а не отказом), и настройку честно читает
+    команда - отказ ловит уже ``answered``. Мера трогает боевую пару
+    ``assemble``/``command`` (умолчание точки входа), а не подставные фейки.
     """
     config_path = tmp_path / "config.json"
     config_path.write_text(config_text, encoding="utf-8")
@@ -142,7 +146,54 @@ def test_a_broken_assembly_reaches_the_human_the_same_way_a_broken_command_does(
 
     assert code == EXIT_INFRA
     assert stderr_substring in capsys.readouterr().err
-    records = _trace_records(journal)
+
+
+@pytest.mark.machine
+def test_an_assembly_failure_lands_in_the_trace_of_the_real_process(tmp_path: Path) -> None:
+    """Отказ сборки обязан попасть в след, и меряется это подпроцессом, а не здесь.
+
+    🔴 Внутри pytest это утверждение доказать нельзя: сессионная ``_wired``
+    (:mod:`tests.conftest`) зовёт :func:`~torrcast.runtime.wire.wire` один раз на весь
+    прогон ещё до первого теста, а функциональная ``_ports_restored`` возвращает слот -
+    боевая :class:`~torrcast.adapters.filesystem.trace_journal.file_journal.FileJournal`
+    уже стоит в слоте независимо от порядка строк внутри ``wire()``. Замер мержера
+    (TC-947): набор молча пропускал перестановку ``install_journal`` НИЖЕ чтения
+    настройки (7 passed), а боевая точка входа на том же коде писала в след 0 записей
+    вместо двух - слот держал :class:`~torrcast.ports.journal.silent.Silent`. Поэтому
+    здесь - настоящий процесс ``cast``, где никакой сессионной сборки нет.
+    """
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"language": "de"}', encoding="utf-8")
+    trace = tmp_path / "trace"
+    trace.mkdir()
+    env = {
+        **os.environ,
+        "TORRCAST_CONFIG": str(config_path),
+        "TORRCAST_LOG": str(trace),
+        "TORRCAST_STATE": str(tmp_path / "state.json"),
+    }
+
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from torrcast.runtime.main import main; sys.exit(main(['status']))",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert done.returncode == EXIT_INFRA
+    assert "unknown setting language" in done.stderr
+    records = _trace_records(trace)
     assert any(row.get("phase") == "error" for row in records), (
         "отказ сборки обязан попасть в след, а не пройти мимо журнала"
     )
+    assert any(
+        row.get("phase") == "command"
+        and row.get("event") == "finished"
+        and row.get("result") == "assembly_failure"
+        for row in records
+    ), "след обязан закрыться ярлыком assembly_failure, а не оборваться на ошибке"
