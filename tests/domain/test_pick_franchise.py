@@ -194,3 +194,29 @@ def test_one_bare_word_takes_the_heaviest_of_the_equally_near_franchises() -> No
         f"{p.title} ({p.year})" for p in found
     )
     assert len(found) == 3
+
+
+def test_a_lone_foreign_namesake_does_not_take_the_whole_query() -> None:
+    """🔴 TC-1025, второй заход. Точное совпадение слага уходило ответом МИМО ранжирования.
+
+    Замер на широком пуле стенда `.135`: 7 индексеров, 276 строк, 19 групп. Среди них
+    есть группа со слагом РОВНО «властелин» - индийский «Sikandar Sadak Ka» (1999),
+    выпущенный по-русски одним словом. Одна картина, одна раздача, - и она забирала
+    запрос себе, не спросив ни близости, ни веса. На узком пуле `.50` этой раздачи в
+    выдаче нет вовсе, поэтому гейт случая не видел, а смок сведённого master - увидел.
+    """
+    names = [
+        "Властелин / Sikandar Sadak Ka (1999) WEB-DL 1080p",
+        "Властелин колец: Братство кольца / The Lord of the Rings: The Fellowship of the Ring "
+        "(2001) BDRip 1080p",
+        "Властелин колец: Две крепости / The Lord of the Rings: The Two Towers (2002) BDRip 1080p",
+        "Властелин колец: Возвращение короля / The Lord of the Rings: The Return of the King "
+        "(2003) BDRip 1080p",
+    ]
+    pool = cluster([parse_release_name(name) for name in names])
+    found = pick_franchise("властелин", pool)
+
+    assert found, "по голому слову не нашлось ничего"
+    assert all("колец" in p.title for p in found), (
+        "запрос забрал тёзка в одну раздачу: " + ", ".join(f"{p.title} ({p.year})" for p in found)
+    )

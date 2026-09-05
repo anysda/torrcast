@@ -18,6 +18,7 @@ from torrcast.domain.nearest_group import _nearest_group
 from torrcast.domain.nearly_named import nearly_named
 from torrcast.domain.numbered import _numbered
 from torrcast.domain.picture import Picture
+from torrcast.domain.richer_namesake import _richer_namesake
 from torrcast.domain.slugify import slugify
 from torrcast.domain.spell import spell
 from torrcast.domain.split_franchise_index import split_franchise_index
@@ -54,7 +55,7 @@ def pick_franchise(
                 and (_group_weight(groups, pointed) > _group_weight(groups, wanted))
             ):
                 return pointed
-            return wanted
+            return _richer_namesake(groups, wanted) or wanted
         if pointed is not None:
             return pointed
         if (counted := in_digits(wanted)) in digits:
