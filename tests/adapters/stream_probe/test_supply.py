@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from tests.fakes.swarm_session import SESSION_DUR, THIN_SWARM, SwarmSession
 from torrcast.adapters.stream_probe.supply import Supply
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.probe_settings import META_GRACE
@@ -140,52 +141,12 @@ def test_a_live_but_thin_swarm_is_measured_named_and_written_to_the_tape() -> No
     assert tape.measures == [(0.125, 1.0, 8.0, False)]
 
 
-#: Длительность и размер выбраны так, чтобы нужная скорость вышла ровно 17.81 Мбит/с -
-#: как в следе стенда `.136` за 03-09-2026, на котором снят приговор здоровому рою.
-_DUR = 2000.0
-_SIZE = int(17.81 * 1_000_000 / 8 * _DUR)
-#: Дословный приговор рою из того же следа.
-_THIN = "the swarm delivers 0.20 Mbit/s against the needed 17.81 Mbit/s - supply is short (0.01x)"
-
-
-class _Session:
-    """Служба, отвечающая ПО СЦЕНАРИЮ сеанса: замер за замером, последний - навсегда.
-
-    Последний повторяется не для удобства: после того как показ сдался, тянуть перестали,
-    и служба показывает эту же упавшую скорость на каждый следующий вопрос - в том числе
-    на все посмертные (:data:`SOURCE_TRIES`).
-    """
-
-    def __init__(self, mbits: list[float]) -> None:
-        self.mbits, self.asked = mbits, 0
-
-    def alive(self) -> bool:
-        return True
-
-    def listed(self, torrent_hash: str) -> bool:
-        return True
-
-    def status(self, torrent_hash: str) -> dict[str, object]:
-        mbit = self.mbits[min(self.asked, len(self.mbits) - 1)]
-        self.asked += 1
-        return {
-            "download_speed": mbit * 1_000_000 / 8,
-            "file_stats": [
-                {"id": 0, "path": "s01e01.mkv", "length": _SIZE},
-                {"id": 1, "path": "s01e02.mkv", "length": _SIZE},
-            ],
-        }
-
-    def add(self, magnet: str) -> str:
-        return "hash"
-
-
 def _session(mbits: list[float]) -> tuple[list[str], Supply, _Tape]:
     """Прогнать сеанс из названных скоростей и вернуть ответы, источник и ленту следа."""
     tape = _Tape()
     install(tape)
-    supply = Supply(server=_Session(mbits), torrent_hash="hash-1", magnet="magnet:?xt=1")
-    supply.duration = _DUR
+    supply = Supply(server=SwarmSession(mbits), torrent_hash="hash-1", magnet="magnet:?xt=1")
+    supply.duration = SESSION_DUR
     try:
         answers = [supply.check() for _ in mbits]
     finally:
@@ -193,27 +154,28 @@ def _session(mbits: list[float]) -> tuple[list[str], Supply, _Tape]:
     return answers, supply, tape
 
 
-def test_the_reading_taken_after_the_show_gave_up_does_not_convict_a_healthy_swarm() -> None:
-    """🔴 TC-1009. Весь сеанс рой вёз втрое сверх нужного, а виноватым назвали его.
+def test_a_sagging_swarm_is_named_sagging_even_after_a_healthy_session() -> None:
+    """🔴 TC-1009. Источник отвечает про СЕЙЧАС: окно сеанса живой ответ не правит.
 
     Замер 03-09-2026 на стенде `.136`: след писал долю 2.99-3.61 (53-64 Мбит/с при нужных
-    17.81), последним показанием - 0.20 Мбит/с, снятым уже после сдачи показа. Именно оно
-    и уезжало человеку строкой «источник не читается».
+    17.81), последним показанием - 0.20 Мбит/с, снятым уже после сдачи показа. Само окно
+    уезжает в двух фактах (:attr:`Supply.kept_up`, :attr:`Supply.thin`), а судит ими тот,
+    кто хоронит показ: на живом показе непустой ответ - это не строка, а ожидание.
     """
     answers, supply, tape = _session([64.3, 53.4, 57.0, 61.2, 0.20])
 
     assert [round(measure[0], 2) for measure in tape.measures] == [3.61, 3.0, 3.2, 3.44, 0.01]
     assert [round(value, 2) for value in tape.measures[-1][1:3]] == [0.2, 17.81]
-    assert answers[-1] == "", "рой, доказавший себя за сеанс, за темноту не отвечает"
-    assert supply.kept_up
+    assert answers[-1] == THIN_SWARM, "просадку источник называет просадкой, показ подождёт"
+    assert (supply.thin, supply.kept_up) == (True, True), "оба факта сеанса на месте"
 
 
-def test_a_swarm_that_never_kept_up_is_still_named_out_loud() -> None:
-    """Вторая ветка той же строки: рой не тянул НИ РАЗУ - приговор ему верен и остаётся."""
+def test_a_swarm_that_never_kept_up_leaves_the_window_without_an_alibi() -> None:
+    """Вторая ветка той же строки: рой не тянул НИ РАЗУ - снимать приговор нечем."""
     answers, supply, _ = _session([0.31, 0.22, 0.18, 0.20])
 
-    assert answers[-1] == _THIN
-    assert not supply.kept_up
+    assert answers[-1] == THIN_SWARM
+    assert (supply.thin, supply.kept_up) == (True, False)
 
 
 def test_the_window_belongs_to_the_episode_and_not_to_the_unit() -> None:
@@ -221,8 +183,17 @@ def test_the_window_belongs_to_the_episode_and_not_to_the_unit() -> None:
     _, supply, _ = _session([64.3, 0.20])
     supply.file_index = 1  # следующая серия того же юнита, тот же источник
 
-    assert supply.check() == _THIN, "здоровье прошлой серии эту не оправдывает"
-    assert not supply.kept_up
+    assert supply.check() == THIN_SWARM
+    assert not supply.kept_up, "здоровье прошлой серии эту не оправдывает"
+
+
+def test_a_dead_service_is_no_thin_swarm_and_leaves_the_flag_down() -> None:
+    """Служба, легшая насмерть, лежит одинаково и на живом показе, и на мёртвом."""
+    _, supply, _ = _session([64.3])
+    supply.server = _Server(up=False)
+
+    assert supply.check() == "TorrServer does not answer"
+    assert not supply.thin, "окном сеанса эту беду снимать нечем и незачем"
 
 
 def test_one_source_second_per_wall_second_is_the_named_boundary() -> None:

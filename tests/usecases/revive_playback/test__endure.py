@@ -8,7 +8,9 @@ from typing import cast
 import pytest
 
 from tests.fakes.clock import FakeClock
+from tests.fakes.swarm_session import SESSION_DUR, THIN_SWARM, SwarmSession
 from tests.usecases.revive_playback.world import FakeSupply, feed_with_segments
+from torrcast.adapters.stream_probe.supply import Supply
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.ports.stream_source import StreamSource
@@ -59,3 +61,31 @@ def test_a_dead_packer_with_a_healthy_source_ends_the_show(tmp_path: Path) -> No
             "сигнал 9",
             False,
         )
+
+
+def test_a_swarm_sagging_mid_show_is_waited_out_and_not_buried(tmp_path: Path) -> None:
+    """🔴 TC-1009. Просадка ПОСРЕДИ показа - переживаемый обрыв, а не смерть показа.
+
+    Источник тут настоящий, и спрашивают его боевой проводкой: окно наблюдений сеанса,
+    поставленное в живой ответ, эту ветку убивало. Рой, доказавший себя втрое, отвечал
+    «всё в порядке», а пустой ответ ведёт мимо ожидания прямо в `pack_broke`: замерено на
+    той же улике - показ, который на master ждал возврата, умирал строкой упаковки.
+    """
+    supply = Supply(
+        server=SwarmSession([64.3, 53.4, 57.0, 0.20]), torrent_hash="h", magnet="magnet:?xt=1"
+    )
+    supply.duration = SESSION_DUR
+    for _ in range(3):  # по ходу показа рой вёз втрое сверх нужного
+        supply.check()
+    feed = feed_with_segments(tmp_path)
+    clock = FakeClock(now=100.0)
+
+    died, said = "", False
+    try:
+        said = _endure(feed, cast(StreamSource, supply), clock, "оборвано", False)
+    except InfraError as exc:
+        died = str(exc)
+
+    assert died == "", "просадка посреди показа - ожидание источника, а не конец показа"
+    assert said and str(feed.offline) == THIN_SWARM
+    assert clock.sleeps == [2.0], "показ ждёт возврата роя, а не крутится вхолостую"
