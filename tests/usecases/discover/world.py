@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from tests.fakes.state_store import FakeStateStore
+from torrcast.adapters.choice_environment import _configure_choice_environment
+from torrcast.adapters.choice_environment import environment as choice_environment
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.domain.cluster import cluster
@@ -16,7 +19,17 @@ from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
+from torrcast.ports.state_store.slot import install as install_state
+from torrcast.ports.state_store.slot import store as state_store
+from torrcast.usecases.choice.configure import configure as configure_choice
 from torrcast.usecases.discover._search_state import _configure_discover
+from torrcast.usecases.rank._cut import _cut
+from torrcast.usecases.rank.bitrate_of import bitrate_of
+from torrcast.usecases.rank.hevc_hope import hevc_hope
+from torrcast.usecases.rank.is_candidate import is_candidate
+from torrcast.usecases.rank.is_dated import is_dated
+from torrcast.usecases.reinforce._timed import _timed
+from torrcast.usecases.reinforce.configure import configure as configure_reinforce
 
 GB = 1024**3
 
@@ -129,9 +142,32 @@ class Indexer:
 
 
 def wire_catalogue(passport: Origin | None = None) -> None:
-    """Дать поиску его внешний мир: разбор выдачи и молчащую справку о картинах."""
-    _configure_discover(
-        Catalogue(),
-        lambda *_args, **_kwargs: passport or Origin(),
-        lambda *_args, **_kwargs: Indexer(),
+    """Дать поиску его внешний мир: разбор выдачи, справку о картинах и завод клиентов.
+
+    Разводится ВСЁ, что круг поиска спрашивает по дороге, а не только слоты самого
+    поиска: ступени добора держат свой каталог и справку отдельно
+    (:mod:`torrcast.usecases.reinforce.configure`), живость и годность раздач считает
+    окружение выбора, а память показа лежит в хранилище состояния. До этой разводки
+    щуп вне pytest падал цепочкой ``NameError: _catalogue -> _environment ->
+    RuntimeError: no state store assigned``: внутри набора слоты доставала сессионная
+    фикстура, и лестницу добора нельзя было поднять одной командой.
+
+    Хранилище ставится только в ПУСТОЙ слот: тест, назвавший память вслух до вызова
+    (:func:`torrcast.ports.state_store.slot.install`), своё состояние не теряет.
+    Правила ранжирования окружению выбора даются настоящие - тем же порядком, что
+    их раздаёт корень (:func:`torrcast.runtime.wire_search.wire_search`).
+    """
+
+    def passport_of(*_args: Any, **_kwargs: Any) -> Origin:
+        return passport or Origin()
+
+    _configure_discover(Catalogue(), passport_of, lambda *_args, **_kwargs: Indexer())
+    configure_reinforce(Catalogue(), passport_of)
+    _configure_choice_environment(
+        passport_of, _cut, bitrate_of, hevc_hope, is_candidate, is_dated, _timed
     )
+    configure_choice(choice_environment)
+    try:
+        state_store()
+    except RuntimeError:
+        install_state(FakeStateStore())

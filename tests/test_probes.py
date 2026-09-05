@@ -11,6 +11,7 @@ import ast
 import importlib.util
 import json
 import socket
+import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -1787,3 +1788,24 @@ def test_порог_тишины_журнала_лежит_между_живым
     assert journal.life(WINDOW, WINDOW + 2 * journal.SILENCE_LIVE, _journal(WINDOW, marks)).fit
     # Ослепший край - тоже: самая тесная замеренная слепота обязана быть браком.
     assert not journal.life(WINDOW, WINDOW + journal.SILENCE_BLIND, _journal(WINDOW, [0.0])).fit
+
+
+@pytest.mark.machine
+def test_щуп_добора_поднимает_лестницу_вне_pytest() -> None:
+    """Слоты сценария разводит сама ``wire_catalogue``: щупу не нужен pytest вокруг.
+
+    Прогон идёт в ЧИСТОМ интерпретаторе (подпроцесс): внутри набора слоты уже
+    расставила сессионная фикстура, и падение щупа цепочкой ``NameError:
+    _catalogue -> _environment -> RuntimeError: no state store assigned`` там было
+    бы не видно вовсе (TC-1057).
+    """
+    done = subprocess.run(
+        [sys.executable, str(SCRIPTS / "reinforceprobe.py")],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=SCRIPTS.parent,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "«Harley Quinn»" in done.stdout, "ступень второго имени не напечатана"
+    assert "хранилище на месте" in done.stdout, "хранилище состояния не разведено"

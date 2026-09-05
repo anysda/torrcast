@@ -2,6 +2,7 @@
 
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.runtime.facts_wiring import FACTS
+from torrcast.runtime.wire import wire
 from torrcast.usecases.reinforce.configure import _catalogue_port, _passport_port
 
 
@@ -18,6 +19,12 @@ def test_the_root_wires_the_live_catalogue_and_passport() -> None:
     Сам каталог тоже назван своим файлом, а не пакетом: пакет имён соседей больше не
     раздаёт, и предмет договора живёт в
     :mod:`torrcast.adapters.prowlarr.torrent_catalogue` (TC-685).
+
+    Корень зовётся заново, а не читается след сессионной сборки: слоты добора теперь
+    разводит и мир зеркал поиска (:func:`tests.usecases.discover.world.wire_catalogue`,
+    TC-1057), и без пересборки зеркало мерило бы того, кто успел последним.
     """
+    wire()
+
     assert _catalogue_port() is torrent_catalogue
     assert _passport_port() == FACTS.passport.of
