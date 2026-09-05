@@ -36,5 +36,6 @@ class WarmPacker(Protocol):
         shrink: Callable[[int, int], bool | None] | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
         container: SegmentContainer = MPEGTS,
+        outward: bool = False,
     ) -> WarmPack:
         """Поднять ffmpeg на куски с ``first`` по ``last`` и вернуть идущий заход."""

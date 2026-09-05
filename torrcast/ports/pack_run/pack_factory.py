@@ -43,5 +43,6 @@ class PackFactory(Protocol):
         grid: FeedGrid | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
         container: SegmentContainer = MPEGTS,
+        outward: bool = False,
     ) -> PackRun:
         """Поднять ffmpeg командой ``command`` и вернуть идущий прогон."""

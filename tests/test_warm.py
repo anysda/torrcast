@@ -30,6 +30,7 @@ from torrcast.adapters.filesystem.state.state import State
 from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
 from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
 from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
+from torrcast.adapters.stream_pack.carried_head import carried_head
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
@@ -40,8 +41,10 @@ from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.head_name import head_name
 from torrcast.domain.hls_settings import SPLIT_SLACK
 from torrcast.domain.position import Position
+from torrcast.domain.segment_container import FMP4
 from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.feed_pack.feed import Feed
@@ -1177,6 +1180,68 @@ def test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded(
     same_by_copy = (live / segment_name(spot)).stat().st_size
     assert piece < same_by_copy * 0.9, (
         f"тяжёлый кусок не перекодирован: {piece} байт против {same_by_copy} у копии"
+    )
+
+
+def test_the_piece_shrunk_by_the_warming_travels_under_its_own_header(
+    clip: str, tmp_path: Path
+) -> None:
+    """Ужатое ПРОГРЕВОМ место уезжает зрителю со своим заголовком, а не под общим.
+
+    🔴 TC-848. Прогрев для выкладки был неотличим от захода, который готовит куски чужой
+    выкладке: у обоих пуст ``spare``. Но куски прогрева читает приёмник - прямо со склада,
+    мимо всякой выкладки (:func:`torrcast.usecases.feed_pack.feed_segment._warm`), - и
+    ужатое прогревом место уезжало голым, под общим заголовком показа. То есть ровно с той
+    бедой, которую сняли на живом пути (:func:`.._own_head._own_head`), и в самом дорогом
+    месте: прогретое показ читает ПЕРВЫМ, и на повторе и на перемотке в прогретое доля
+    таких кусков велика.
+
+    Замер на этом же ролике: общий ``init.mp4`` объявляет ``pic_init_qp_minus26 = -3``,
+    а собственный заголовок точечного перекода - ``0``. Приёмник, настроенный общим,
+    читает каждый макроблок ужатого куска не тем начальным QP, каким тот закодирован.
+
+    Проверяется всё это байтами склада, а не решением кода: чем описан кусок - это
+    вопрос к тому, что лежит на диске, потому что оттуда его и берёт показ.
+    """
+    from torrcast.adapters.recode.encode import Encode
+
+    grid = _grid()
+    vault = _vault(tmp_path, container=FMP4)
+    spot = 1
+    warmer = Warmer(
+        source=clip, audio=0, grid=grid, vault=vault, rate=0.0, slack=1e6, container=FMP4,
+        spots=(spot,), spot_encode=Encode(preset="ultrafast", mbit=1.0),
+    )  # fmt: skip
+    warmer.start()
+    deadline = time.monotonic() + 180
+    while not warmer.done and time.monotonic() < deadline:
+        time.sleep(0.5)
+    warmer.stop()
+    assert warmer.done, f"прогрев не дошёл до конца: {warmer.line()}"
+    assert vault.spot(spot).exists(), "тяжёлый кусок так и остался копией - ловить нечего"
+
+    # Общий заголовок склада - тот самый, который показ называет приёмнику по ``EXT-X-MAP``
+    # (:func:`torrcast.usecases.feed_pack.feed_head._head`).
+    general = vault.head().read_bytes()
+    own = (vault.dir / head_name(spot)).read_bytes()
+    assert own != general, (
+        "заголовок точечного перекода совпал с общим - на этом ролике ловить нечего, "
+        "и зелень тут ничего не доказывает"
+    )
+    assert carried_head(vault.path(spot)) == own, (
+        f"ужатый прогревом v{spot} уехал бы к зрителю под общим заголовком: "
+        "приёмник настроит декодер не тем, чем этот кусок закодирован"
+    )
+    # Сосед справа лежит на складе с тех пор, как прогрев клал фильм копией. Приёмник,
+    # только что настроенный заголовком ужатого места, прочитает голого соседа им же.
+    assert carried_head(vault.path(spot + 1)) == general, (
+        f"копия v{spot + 1} за ужатым местом осталась голой - беда просто уехала на место вперёд"
+    )
+    # Дальше по ленте ничего не меняется: у показа из одних копий производитель картинки
+    # один, и лишняя пересборка декодера там стоит кадра ни за что.
+    assert carried_head(vault.path(spot + 2)) == b"", (
+        f"копия v{spot + 2} получила заголовок без нужды: производитель картинки у неё "
+        "тот же, что у соседа"
     )
 
 

@@ -126,21 +126,20 @@ def _run(
     )
     with state.lock:
         state.packer = packer = _state.Packer.start(
-            command,
-            state.vault.dir,
-            state.vault.dir / RUN_DIR,
-            first,
-            last=last,
-            grid=state.grid,
-            shrink=partial(_lay_heavy, state),
+            command, state.vault.dir, state.vault.dir / RUN_DIR, first,
+            last=last, grid=state.grid, shrink=partial(_lay_heavy, state),
             # Потолок веса куска - у ТОГО приёмника, для которого греем (:attr:`cap`), а
             # не осторожное умолчание завода. Без него заход считал тяжёлым всё, что
             # тяжелее 16 МБ, и весь класс кусков между осторожным потолком и потолком
             # приёмника уходил на диск обходным путём (:func:`_lay_heavy`) вместо
             # обычной выкладки.
-            cap=state.cap,
-            container=state.container,
-        )
+            cap=state.cap, container=state.container,
+            # Куски этого захода читает ПРИЁМНИК - прямо со склада, мимо выкладки показа
+            # (:func:`torrcast.usecases.feed_pack.feed_segment._warm`). Значит заголовок
+            # ужатого места обязан ехать вместе с ним, как и на живом пути
+            # (:func:`torrcast.adapters.stream_pack._warm_head._warm_head`).
+            outward=True,
+        )  # fmt: skip
     state.misgrid = -1
     laid = checked = first - 1
     try:

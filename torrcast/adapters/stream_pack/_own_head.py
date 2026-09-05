@@ -9,8 +9,9 @@ import contextlib
 import shutil
 from typing import TYPE_CHECKING, Final
 
+from torrcast.adapters.stream_pack._warm_head import _warm_head
+from torrcast.adapters.stream_pack.carried_head import carried_head
 from torrcast.adapters.stream_pack.chunk_head import INIT, chunk_head
-from torrcast.domain.cmaf_body import cmaf_body
 from torrcast.domain.head_name import head_name
 from torrcast.domain.hls_settings import HEAD_SENT
 from torrcast.domain.segment_container import FMP4
@@ -26,28 +27,6 @@ if TYPE_CHECKING:
 #: "how", каким его вернул :func:`torrcast.adapters.stream_pack._merged_out._merged_out`
 #: и каким его сравнивает :mod:`torrcast.adapters.recode.note`.
 _COPY: Final = "copy"
-
-#: Сколько байт от начала куска хватает, чтобы увидеть его заголовок: у показа он
-#: полторы тысячи байт, и читать ради этого весь кусок незачем.
-_HEAD_PEEK: Final = 64 << 10
-
-
-def _carried(source: Path) -> bytes:
-    """Заголовок, который кусок уже несёт в себе; пусто - кусок голый, как все соседи.
-
-    Несёт его ровно один исход выкладки - склейка
-    (:func:`torrcast.adapters.stream_pack.merge_tracks.merge_tracks`): муксер собирает её
-    самостоятельным файлом. Форма у такого куска ровно та же, что приставляет это место
-    само, - ``ftyp moov moof mdat``, - а заголовок вернее любого соседского: его написал
-    тот же прогон ffmpeg, что и сам кусок, поэтому описывает он именно эти байты.
-    """
-    try:
-        with source.open("rb") as fh:
-            head = fh.read(_HEAD_PEEK)
-    except OSError:
-        return b""
-    at = cmaf_body(head)
-    return head[:at] if at > 0 else b""
 
 
 def _own_head(state: _State, slot: int, source: Path, how: str) -> Path:
@@ -92,15 +71,26 @@ def _own_head(state: _State, slot: int, source: Path, how: str) -> Path:
     Звуковая дорожка, тайм-скейлы, ``mvex`` и списки правок у них побайтно одни и те же,
     поэтому граница звука о смене заголовка не знает вовсе.
 
-    Обязанностей у этого места две, и делит их :attr:`~.packer_state._State.spare`:
+    Обязанностей у этого места три, и делят их :attr:`~.packer_state._State.spare` и
+    :attr:`~.packer_state._State.outward`:
 
-    * прогон кодировщика (``spare`` пуст: наружу он не выкладывает, он готовит куски
+    * прогон кодировщика (``spare`` пуст, наружу не выкладывает: он готовит куски
       для чужой выкладки) оставляет рядом с каждым своим куском свой заголовок. Иначе
       его не найти: заходов у кодировщика много, пресет у них торгуется по сроку, а
       ``ultrafast`` и ``veryfast`` дают РАЗНЫЕ параметры картинки;
     * выкладка показа (``spare`` назван) приставляет заголовок впереди куска, когда он
       не тот, что был у предыдущего места, и записывает рядом, с каким заголовком место
-      уехало (:data:`~torrcast.domain.hls_settings.HEAD_SENT`) - соседу отвечает она.
+      уехало (:data:`~torrcast.domain.hls_settings.HEAD_SENT`) - соседу отвечает она;
+    * выкладка на постоянный склад (``outward``) делает то же самое, но у неё нет
+      ``spare``, а сосед у неё уже лежит на диске (:func:`.._warm_head._warm_head`).
+
+    🔴 Пустой ``spare`` заходом кодировщика НЕ является: у прогрева он тоже пуст, а куски
+    его читает приёмник - с диска, мимо всякой выкладки. Пока развилка стояла на одном
+    ``spare``, ужатое прогревом место уезжало зрителю голым, под общим заголовком, то есть
+    ровно с той бедой, которая тут снята на живом пути. Замер на прогретом каталоге CMAF:
+    общий ``init.mp4`` объявляет ``pic_init_qp_minus26 = -3``, собственный заголовок
+    точечного перекода - ``0``, и приёмник читает каждый макроблок такого куска не тем
+    начальным QP, каким тот закодирован.
 
     🔴 «Что было у предыдущего места» спрашивается у ДИСКА, а не у памяти прогона, и это
     не мелочь: прогон упаковки начинается заново на каждой перемотке, а приёмник помнит
@@ -112,11 +102,11 @@ def _own_head(state: _State, slot: int, source: Path, how: str) -> Path:
     if state.spare is None:
         with contextlib.suppress(OSError):
             shutil.copyfile(chunk_head(state, slot, spare=False), state.out / head_name(slot))
-        return source
+        return _warm_head(state, slot, source) if state.outward else source
     # Кусок со своим заголовком приставлять не к чему: он уже той формы, ради которой всё
     # это. Но соседу ответить обязано и оно - иначе следующее место сочтёт декодер
     # настроенным прошлым заголовком и уедет к приёмнику без своего.
-    carried = _carried(source)
+    carried = carried_head(source)
     if carried:
         with contextlib.suppress(OSError):
             (state.spare / head_name(slot, HEAD_SENT)).write_bytes(carried)

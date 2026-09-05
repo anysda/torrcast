@@ -53,6 +53,7 @@ class Packer(_State):
         grid: FeedGrid | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
         container: SegmentContainer = MPEGTS,
+        outward: bool = False,
         *,
         spawn: Callable[..., Any] = subprocess.Popen,
         log_file: Callable[[], IO[bytes]] = tempfile.TemporaryFile,
@@ -93,6 +94,7 @@ class Packer(_State):
             grid=grid,
             cap=cap,
             container=container,
+            outward=outward,
         )
 
     def eta(self, film: float) -> float:
