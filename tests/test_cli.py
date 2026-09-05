@@ -3674,6 +3674,25 @@ def _named_release(title: str, year: int) -> Release:
 
 # --- Потолок одновременных раздач (TC-145) -------------------------------------------
 
+#: Сколько ждать подготовку релиза, прежде чем признать её зависшей.
+#:
+#: 🔴 Это НЕ порог замера, а цена независания: подготовка кончается событием
+#: ``prep.ready``, и на счастливом пути ожидание стоит ноль.
+_PREP_SECONDS = 30.0
+
+
+def _dropped(torrserver: _FakeTorrServer, seconds: float = _PREP_SECONDS) -> list[str]:
+    """Дождаться снятия раздачи: его делает поток подготовки, а не строка теста.
+
+    Событие ``prep.ready`` тут не годится в одиночку: подготовка ставит его РАНЬШЕ, чем
+    зовёт снятие (``_bench_work._work``, ``finally``), - между двумя строками помещается
+    вытеснение потока. Ждём поэтому само состояние, а срок - цена независания.
+    """
+    end = time.monotonic() + seconds
+    while not torrserver.dropped and time.monotonic() < end:
+        time.sleep(0.005)
+    return torrserver.dropped
+
 
 def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -> None:
     """Картина выбрана - прогревы ОСТАЛЬНЫХ картин убираются сразу, а не после отбора.
@@ -3701,9 +3720,15 @@ def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -
         mine.picture.key,
         mine.picture.key,
     ]
-    assert torrserver.dropped, "чужая картина убрана по своему хэшу, а не «всё из списка»"
+    # Хэш чужой раздачи называет не эта строка, а сама подготовка, поднятая в стороне:
+    # снятие уезжает в её поток. Поэтому сначала дожидаемся подготовок событием, и только
+    # потом спрашиваем TorrServer. Ослабления тут нет: поздний путь (``keep_only``) в
+    # этой пробе не зовётся вовсе, и пустой ``dropped`` после ожидания - по-прежнему
+    # красный. Стенными часами это не мерится: под нагрузкой снятие приходило после
+    # утверждения (2 красных прогона из 54).
     for prep in bench.preps.values():
-        assert prep.ready.wait(10), f"подготовка релиза {prep.number} не кончилась"
+        assert prep.ready.wait(_PREP_SECONDS), f"подготовка релиза {prep.number} не кончилась"
+    assert _dropped(torrserver), "чужая картина убрана по своему хэшу, а не «всё из списка»"
 
 
 def test_we_never_hold_more_torrents_at_once_than_the_ceiling() -> None:
