@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.choice.branches import Branch, branches
-from tests.usecases.choice.world import parts
+from tests.usecases.choice.world import Outside, outside, parts, plan
 from torrcast.usecases.choice.enter_take import enter_take
 
 
@@ -49,3 +49,23 @@ def test_a_number_outside_the_menu_is_not_taken_here() -> None:
 
     assert take.why != "номер флагом"
     assert 1 <= take.number <= len(mummy)
+
+
+def test_a_series_that_renames_the_picture_does_not_take_it_over() -> None:
+    """Боевой проводкой: спинофф с лишними словами в имени картину у саги не забирает.
+
+    Дефолт тут не первый номер, поэтому :func:`certain_default` молчит и очередь доходит
+    до правила вида, - ровно тот расклад, на котором продукт 05-09-2026 отдавал человеку
+    «Дарт Мол: Повелитель теней» на запрос «звездные войны».
+    """
+    saga = [
+        plan("Звёздные войны: Эпизод II - Атака клонов", 2002, seeders=1),
+        plan("Звёздные войны: Эпизод I - Скрытая угроза", 1999, seeders=300),
+        plan("Звёздные войны. Дарт Мол: Повелитель теней", 2026, kind="tv", seeders=90),
+    ]
+
+    with outside(Outside()):
+        take = enter_take(saga, "звездные войны")
+
+    assert take.number == 2, "вид не повод менять картину на другую"
+    assert saga[take.number - 1].picture.title == "Звёздные войны: Эпизод I - Скрытая угроза"

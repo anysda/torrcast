@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.slugify import slugify
 from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.choice.liveliness import liveliness
@@ -43,12 +44,35 @@ def series_take(plans: list[Plan]) -> int:
     if any(plan.picture.part is not None for plan in plans if plan.picture.kind != "other"):
         return 0
     series = [n for n, plan in enumerate(plans, start=1) if plan.selection_kind == "tv"]
-    if not series or len(series) == len(plans) or first_alive(plans) in series:
+    if not series or len(series) == len(plans) or (taken := first_alive(plans)) in series:
+        return 0
+    series = [n for n in series if not _adds_words(plans[n - 1], plans[taken - 1])]
+    if not series:
         return 0
     alive = alive_numbers(plans, series)
     if not alive:
         return 0
     return max(alive, key=lambda n: (liveliness(plans[n - 1]), -n))
+
+
+def _adds_words(series: Plan, taken: Plan) -> bool:
+    """Несёт ли имя сериала слова, которых нет у картины, которую он вытесняет.
+
+    🔴 TC-1004. «Под ОДНИМ именем» - это про имя, а не про франшизу. Каталог держит одной
+    франшизой и «Властелин Колец», и «Властелин колец: Кольца власти»; вид у второго - сериал,
+    и без этой проверки предпочтение вида уводило бы зрителя с трилогии на другую картину.
+    Замер по корпусу-100: ровно так ломались «властелин колец» (на «Кольца власти» 2022) и
+    «москва слезам не верит» (на «Всё только начинается» 2025) - две подмены из 99.
+
+    Имя короче или ровно то же - не подмена: «Байки Мэтра» стоят в каталоге и как
+    «Cars Toon: Mater's Tall Tales», и просто как «Mater's Tall Tales», это одна картина под
+    двумя написаниями. Лишние слова - другая, и вид её брать не повод.
+
+    Это же ограждение держит вторую половину решения владельца («пишу тачки - не должен
+    выбрать тачки байки мэтра») само по себе, не опираясь на номера частей.
+    """
+    words = set(slugify(series.picture.title).split("-"))
+    return not words <= set(slugify(taken.picture.title).split("-"))
 
 
 __all__ = ["series_take"]

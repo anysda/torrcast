@@ -84,3 +84,30 @@ def test_a_menu_of_films_alone_leaves_the_kind_out_of_it() -> None:
     """Сериала нет вовсе - вид ничего не решает, и правило молчит."""
     with outside(Outside()):
         assert series_take([plan("Мумия", 1999, seeders=47), plan("Мумия", 2017, seeders=58)]) == 0
+
+
+def test_a_series_whose_name_adds_words_is_another_picture() -> None:
+    """«звездные войны»: под именем саги стоит сериал-спинофф про другого героя.
+
+    🔴 TC-1004. «Под одним именем» - про имя, а не про франшизу. Живой замер 05-09-2026:
+    на «звездные войны» продукт брал «Звёздные войны. Дарт Мол: Повелитель теней» вместо
+    «Скрытой угрозы» и вслух звал это одним именем.
+    """
+    saga = [
+        plan("Звёздные войны: Эпизод I - Скрытая угроза", 1999, seeders=300),
+        plan("Звёздные войны. Дарт Мол: Повелитель теней", 2026, kind="tv", seeders=90),
+    ]
+
+    with outside(Outside()):
+        assert series_take(saga) == 0, "лишние слова в имени сериала - другая картина"
+
+
+def test_a_shorter_name_of_the_same_picture_is_still_taken() -> None:
+    """Имя короче - картина та же: каталог держит «Байки Мэтра» и с приставкой, и без неё."""
+    mater = [
+        plan("Тачки Мультачки: Байки Мэтра", 2006, seeders=300),
+        plan("Байки Мэтра", 2008, kind="tv", seeders=90),
+    ]
+
+    with outside(Outside()):
+        assert series_take(mater) == 2
