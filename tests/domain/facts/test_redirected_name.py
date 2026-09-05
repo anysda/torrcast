@@ -1,4 +1,12 @@
-"""Проверяет узкий путь: русское имя, перенаправленное на латинский заголовок."""
+"""Проверяет узкий путь: русское имя, перенаправленное на латинский заголовок.
+
+Снимок ``tests/fixtures/wiki_hatnotes.json`` снят с API русской Википедии 05-09-2026
+(``prop=extracts``, ``explaintext=1``, ``exintro=1``) со статей Angel Beats!, Black
+Butler, Code Geass, Steins;Gate и Run Rabbit Run. Текст Википедии доступен на условиях
+CC BY-SA, список авторов - в истории каждой статьи. Сеть в тесты и в гейт не входит:
+снимок обновляется руками через
+``scripts/hatnoteprobe.py tests/fixtures/wiki_hatnotes.json --live``.
+"""
 
 import json
 from pathlib import Path
