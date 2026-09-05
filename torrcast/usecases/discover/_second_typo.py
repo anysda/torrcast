@@ -84,10 +84,14 @@ def _second_typo(
         # склеивается с широкой. Иначе судьба картины решалась бы по одному короткому слову.
         fixed = near.replace("-", " ")
         progress.phase(phrase("discover.search_phase", query=fixed))
-        pool = _search_state._search_catalogue.merge(pool, _ask(client, fixed))
+        merged = _search_state._search_catalogue.merge(pool, _ask(client, fixed))
         progress.phase("")
-        seen = cluster(_search_state._search_catalogue.to_releases(pool))
-        return pool, seen, pick_franchise(asked, seen)
+        seen = cluster(_search_state._search_catalogue.to_releases(merged))
+        # 🔴 Пустой отбор ПОСЛЕ слияния ведёт к следующему кандидату, а не наружу: склейка
+        # берёт имя раздачи большинством по одному infoHash, и опознанное имя каталога из
+        # пересобранного кластера уезжает. Прежний круг спросил бы второе слово - и этот тоже.
+        if found := pick_franchise(asked, seen):
+            return merged, seen, found
     return raw, [], []
 
 

@@ -164,3 +164,45 @@ def test_the_shortest_word_goes_first_and_the_longest_second() -> None:
     """В коротком слове меньше всего смысла, в длинном - больше всего места для описки."""
     assert _shorter("байки метра") == ["байки", "метра"]
     assert _shorter("пираты карибского моря") == ["пираты карибского", "пираты моря"]
+
+
+#: Источник, у которого второй вопрос ПЕРЕПИСЫВАЕТ имя уже найденной раздачи.
+#: Склейка выбирает имя раздачи большинством по одному ``infoHash`` (:func:`merge`), и
+#: строка покороче забирает ничью, - имя каталога после слияния пропадает из кластера.
+_RENAMING_WORLD: dict[str, list[RawResult]] = {
+    "байки метра": [],
+    "байки": [
+        row("Байки Мэтра / Mater's Tall Tales (2008) S01 WEB-DL 1080p", "a"),
+        row("Байки из склепа / Tales from the Crypt (1989) DVDRip", "b"),
+    ],
+    "байки мэтра": [row("Призрак / Ghost (2008) S01 WEB-DL 1080p", "a")],
+    "метра": [],
+}
+
+
+def test_a_second_ask_that_renames_the_release_does_not_stop_the_search() -> None:
+    """Пустой ответ ПОСЛЕ слияния ведёт к следующему кандидату, а не к выходу из круга.
+
+    Второй вопрос приносит ту же раздачу под другим именем, склейка берёт имя
+    большинством (:func:`~torrcast.adapters.prowlarr.merge.merge`), и опознанное имя
+    каталога из пересобранного кластера пропадает. Оборвись перебор на этом - второе
+    укороченное слово источник бы уже не увидел, хотя прежний круг его спрашивал.
+    """
+    with pytest.raises(NotFoundError):
+        _circle(_RENAMING_WORLD, "байки метра")
+
+
+def test_the_renaming_second_ask_leaves_the_next_shortened_word_asked() -> None:
+    """Тот же расклад мерой источника: второе укороченное слово обязано быть спрошено."""
+    client = Indexer(answers=_RENAMING_WORLD)
+    wire_catalogue()
+    with pytest.raises(NotFoundError):
+        search_circle(
+            _CONFIG,
+            Args(query=["байки", "метра"]),
+            Said(),
+            indexer=lambda *_a, **_k: client,
+            passport=lambda *_a, **_k: Origin(),
+        )
+
+    assert "метра" in client.asked, "перебор кандидатов оборвался на первом же слове"
