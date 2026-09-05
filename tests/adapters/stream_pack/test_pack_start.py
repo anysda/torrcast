@@ -1,4 +1,4 @@
-"""Проверяет, откуда берётся место захода: карта верится только после сверки с прогоном."""
+"""Проверяет, откуда берётся место захода: карте верят сразу, прогон - для недоверенных."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from torrcast.adapters.pack_memory import _SEEK_OK
+from torrcast.adapters.pack_memory import _MAP_LIED
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.map_lied import map_lied
 from torrcast.adapters.stream_pack.mapped_start import mapped_start
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.domain.film_keys import FilmKeys
@@ -28,10 +29,10 @@ KEYS = FilmKeys(60.0, [round(k * 2.0, 3) for k in range(31)], [k * 4096 for k in
 
 @pytest.fixture(autouse=True)
 def _own_memory() -> Iterator[None]:
-    """Доверие карте помнится на весь процесс; каждой пробе оно достаётся пустым."""
-    _SEEK_OK.clear()
+    """Снятое доверие помнится на весь процесс; каждой пробе оно достаётся нетронутым."""
+    _MAP_LIED.clear()
     yield
-    _SEEK_OK.clear()
+    _MAP_LIED.clear()
 
 
 @pytest.fixture
@@ -58,11 +59,14 @@ def test_the_start_of_the_film_needs_no_measurement() -> None:
     assert pack_start("http://торрент/поток", -3.0) == 0.0
 
 
-def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it() -> None:
-    """🔴 Пробный прогон - один на файл, а не один на заход, и он именно сверка.
+def test_the_map_is_believed_from_the_very_first_entry_without_any_pilot() -> None:
+    """🔴 TC-133. Пробного прогона нет ни на одном заходе, включая ПЕРВЫЙ по файлу.
 
-    Дёшево поверить карте сразу проект уже дважды не смог: резы захода муксер отмеряет от
-    первого пакета, и заход, вставший не туда, кладёт мимо сетки весь участок.
+    Прежде первый заход по файлу платил прогон, сверяя им карту: 0.029 с на файле в
+    tmpfs, 0.042 с по http на петле - против 1.6-10.9 мкс на тот же ответ по карте.
+    Сверка не отменена, а переехала с предсказания на ФАКТ нарезки: резы захода муксер
+    отмеряет от первого пакета, поэтому промах карты уводит их все и виден расхождением
+    нарезанного с манифестом (:func:`torrcast.usecases.feed_pack.feed_astray._astray`).
     """
     url = "http://торрент/поток?link=честная"
     asked: list[float] = []
@@ -78,14 +82,16 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it() -> None:
     assert pack_start(url, second, keys=KEYS, pilot=pilot) == pytest.approx(
         mapped_start(KEYS, second)
     )
-    assert asked == [first], f"пробных прогонов {len(asked)}, а карта сверяется один раз"
-    assert _SEEK_OK[url] is True
+    assert asked == [], f"прогонов подняли {len(asked)}, а место захода карта даёт даром"
 
 
-def test_a_lying_map_is_caught_and_never_believed_again() -> None:
-    """Карта разошлась с фактом - работает прежний прогон, и место захода верное.
+def test_a_file_whose_map_lied_goes_back_to_the_pilot_for_good() -> None:
+    """Доверие снято - место захода снова меряет прогон, и меряет на каждом заходе.
 
-    Разошлось больше полукадра - файл помечен недоверенным навсегда.
+    Снимает доверие лента показа, увидев нарезку не на своём месте; здесь проверяется
+    вторая половина того же правила - что снятое доверие и правда уводит заход на прогон.
+    Обе половины лежат в одном модуле (:mod:`torrcast.adapters.stream_pack.map_lied`)
+    именно поэтому: порознь они бессмысленны.
     """
     url = "http://торрент/поток?link=врущая"
 
@@ -93,9 +99,32 @@ def test_a_lying_map_is_caught_and_never_believed_again() -> None:
         return at - 0.7
 
     lying = KEYS._replace(at=[second + 0.7 for second in KEYS.at])
+    assert pack_start(url, 42.0, keys=lying, pilot=pilot) == pytest.approx(
+        mapped_start(lying, 42.0)
+    ), "доверие не снято - заход идёт по карте, какой бы она ни была"
+    map_lied(url)
     assert pack_start(url, 42.0, keys=lying, pilot=pilot) == pytest.approx(41.3)
-    assert _SEEK_OK[url] is False, "враньё карты запоминается: второй раз не спрашиваем"
     assert pack_start(url, 50.0, keys=lying, pilot=pilot) == pytest.approx(49.3)
+
+
+def test_the_verdict_about_one_file_says_nothing_about_its_neighbour() -> None:
+    """Доверие снимается ПОФАЙЛОВО: соседняя раздача заходит по карте и дальше даром.
+
+    Ключ тут - URL потока, тот же, что у кэша карты. Промахнуться им значило бы вернуть
+    пробный прогон на все файлы разом, стоило соврать карте одного.
+    """
+    lied = "http://торрент/поток?link=врущая"
+    neighbour = "http://торрент/поток?link=соседняя"
+    asked: list[str] = []
+
+    def pilot(source: str, at: float, timeout: float = 0.0) -> float:
+        asked.append(source)
+        return 40.0
+
+    map_lied(lied)
+    pack_start(lied, 42.0, keys=KEYS, pilot=pilot)
+    pack_start(neighbour, 42.0, keys=KEYS, pilot=pilot)
+    assert asked == [lied], f"прогон подняли для {asked}, а врала карта одного файла"
 
 
 @pytest.mark.ffmpeg

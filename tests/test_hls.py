@@ -33,13 +33,14 @@ from tests.conftest import CLIP_SECONDS, fake_packer, free_port
 from tests.fakes.disk_range_reader import DiskRangeReader
 from torrcast.adapters.frames.keyframes import keyframes
 from torrcast.adapters.http_server.hls_server import HlsServer
-from torrcast.adapters.pack_memory import _SEEK_OK
+from torrcast.adapters.pack_memory import _MAP_LIED
 from torrcast.adapters.stream_pack._pilot_start import _pilot_start
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.map_lied import map_lied
 from torrcast.adapters.stream_pack.mapped_start import mapped_start
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer import Packer
@@ -571,10 +572,10 @@ def test_cmaf_pack_has_one_init_and_headerless_media_fragments(clip: str, tmp_pa
 
 @pytest.fixture(autouse=True)
 def _own_seek_memory() -> Iterator[None]:
-    """Доверие карте помнится на весь процесс; каждой пробе оно достаётся пустым."""
-    _SEEK_OK.clear()
+    """Доверие карте помнится на весь процесс; каждой пробе оно достаётся полным."""
+    _MAP_LIED.clear()
     yield
-    _SEEK_OK.clear()
+    _MAP_LIED.clear()
 
 
 def _offline_keys(url: str) -> KeyMap:
@@ -623,12 +624,16 @@ def test_the_entry_point_from_the_map_is_where_ffmpeg_actually_lands(
         )
 
 
-def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(clip: str) -> None:
-    """Пробный прогон - один на файл, а не один на заход, и он именно сверка.
+def test_the_map_is_believed_from_the_very_first_entry_without_any_pilot(clip: str) -> None:
+    """🔴 TC-133. Пробного прогона нет НИ НА ОДНОМ заходе, включая первый по файлу.
 
-    Первый заход платит прогон и сверяет им карту; дальше место захода считается по карте
-    даром. Дёшево поверить карте сразу проект уже дважды не смог: резы захода муксер
-    отмеряет от первого пакета, и заход, вставший не туда, кладёт мимо сетки весь участок.
+    Прежде первый заход платил прогон, сверяя им карту, - один раз на файл, но ровно на
+    пути к первой картинке. Место захода при этом всё равно бралось из карты, и сверка
+    переехала на факт нарезки (:func:`_astray`): промах карты уводит все резы захода и
+    потому виден в расхождении нарезанного с манифестом.
+
+    Мерится тут именно ЧИСЛО прогонов, а не ответ: ответ у карты и у прогона один и тот
+    же (это доказано выше, на каждой границе), и по нему правку было бы не отличить.
     """
     keys = _map_of(clip)
     asked: list[float] = []
@@ -644,24 +649,26 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(clip: str) ->
     assert pack_start(clip, second, keys=keys, pilot=counted) == pytest.approx(
         mapped_start(keys, second)
     )
-    assert asked == [first], f"пробных прогонов {len(asked)}, а карта сверяется один раз"
-    assert _SEEK_OK[clip] is True
+    assert asked == [], f"пробных прогонов {len(asked)}, а карта даёт место захода даром"
 
 
-def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(clip: str) -> None:
-    """Карта разошлась с фактом - работает прежний пробный прогон, и место захода верное.
+def test_a_file_whose_map_lied_goes_back_to_the_pilot_for_good(clip: str) -> None:
+    """Доверие карте снято - место захода снова меряет прогон, и меряет его верно.
 
-    Подсунута карта, сдвинутая на 0.7 с: предсказание расходится с измеренным больше чем на
-    полкадра. Показ обязан этого не заметить - заход всё равно начинается там, где ffmpeg
-    встал на самом деле.
+    Снимает доверие лента показа, увидев уложенный кусок не на своём месте; здесь
+    проверяется вторая половина того же правила - что снятое доверие и правда уводит
+    заход на прогон, а не остаётся записью в памяти.
     """
     keys = _map_of(clip)
     lying = keys._replace(at=[second + 0.7 for second in keys.at])
+    assert pack_start(clip, keys.at[6], keys=lying) == pytest.approx(
+        mapped_start(lying, keys.at[6])
+    ), "доверие ещё не снято - заход обязан идти по карте, какой бы она ни была"
+    map_lied(clip)
     for at in (keys.at[6], keys.at[9]):
         assert pack_start(clip, at, keys=lying) == pytest.approx(
             _pilot_start(clip, at), abs=SPLIT_SLACK
         ), "заход ушёл туда, куда показала врущая карта"
-    assert _SEEK_OK[clip] is False, "враньё карты запоминается: второй раз не спрашиваем"
 
 
 def test_the_map_keeps_quiet_where_the_rule_does_not_hold() -> None:

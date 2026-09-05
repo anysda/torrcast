@@ -31,6 +31,8 @@ def _world() -> dict[str, Any]:
         "segment_paths": lambda where: [where / "свой.ts"],
         "clock": time,
         "spawn": raised.append,
+        "map_trusted": lambda url: url == "своя",
+        "map_lied": lambda url: raised.append(("соврала", url)),
     }
 
 
@@ -52,6 +54,8 @@ def test_every_slot_takes_its_value_from_the_composition() -> None:
     assert _state.segment_paths is world["segment_paths"]
     assert _state.clock_port is world["clock"]
     assert _state.spawn is world["spawn"]
+    assert _state.map_trusted is world["map_trusted"]
+    assert _state.map_lied is world["map_lied"]
 
 
 def test_a_second_call_replaces_the_world_and_does_not_mix_two() -> None:

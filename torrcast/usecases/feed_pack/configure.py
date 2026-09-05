@@ -26,6 +26,8 @@ def configure(
     segment_paths: Callable[[Path], list[Path]],
     clock: FeedClock,
     spawn: Callable[[Callable[[], None]], None],
+    map_trusted: Callable[[str], bool],
+    map_lied: Callable[[str], None],
 ) -> None:
     """Передать сценарию имена сегментов, медиатракт упаковки, уборку, часы и подъём в стороне."""
     _state.segment_name = segment_name
@@ -40,3 +42,5 @@ def configure(
     _state.segment_paths = segment_paths
     _state.clock_port = clock
     _state.spawn = spawn
+    _state.map_trusted = map_trusted
+    _state.map_lied = map_lied

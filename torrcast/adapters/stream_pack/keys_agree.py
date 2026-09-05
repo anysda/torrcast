@@ -6,8 +6,8 @@ import bisect
 import math
 from collections.abc import Callable
 
+from torrcast.adapters.stream_pack._pilot_start import _pilot_start
 from torrcast.adapters.stream_pack.mapped_start import mapped_start
-from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import SPLIT_SLACK
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
@@ -20,13 +20,13 @@ def keys_agree(
     keys: FilmKeys,
     timeout: float = PILOT_TIMEOUT,
     *,
-    start: Callable[..., float] = pack_start,
+    start: Callable[..., float] = _pilot_start,
 ) -> bool:
     """Стоит ли на месте ``at`` тот опорный кадр, который обещает карта. Не мерили - да.
 
     🔴 Вопрос ровно один: **проехал ли прогон мимо обещанного кадра**. Карта говорит, где
     ffmpeg встанет после ``-ss at`` (:func:`mapped_start`), пробный прогон показывает, где
-    он встал (:func:`pack_start`). Встал ДАЛЬШЕ обещанного - значит кадров, которые карта
+    он встал (:func:`_pilot_start`). Встал ДАЛЬШЕ обещанного - значит кадров, которые карта
     насчитала между обещанным местом и этим, в файле нет: демуксер не сел ни на один из
     них, потому что садиться там не на что. Карта, у которой кадры нарисованы, - не карта,
     и сетка по ней это не сетка, а список мест, где резать нечем.
@@ -45,18 +45,29 @@ def keys_agree(
     :func:`mapped_start` - чужой контейнер, край карты, самое начало файла). «Не мерили»
     и «сошлось» - разные вещи, но приговором может быть только замер.
 
-    Цена - один пробный прогон в кадр, и он тот же самый, который упаковка заплатит через
-    мгновение на первом же заходе: :func:`pack_start` помнит ответ на весь процесс. То
-    есть сверка не добавляется к старту, а переезжает в него на шаг раньше - туда, где по
-    её итогу ещё можно выбрать другую сетку.
+    🔴 TC-133. Меряет здесь САМ пробный прогон (:func:`_pilot_start`), а не
+    :func:`pack_start`, как было прежде. Прежде разницы не было: pack_start первым же
+    вызовом поднимал тот же прогон. Теперь он отвечает по карте - и сверка карты его
+    ответом стала сверкой карты с самой собой, то есть вечным «сошлось». Замер репы на
+    нарисованной карте (кадры сдвинуты на 3.0 с назад, файл 600 с): ``keys_agree`` через
+    pack_start отвечает ``True`` за 0.000 с, через прогон - ``False`` за 0.049 с.
+
+    Цена - один пробный прогон на файл, и он тут единственный на весь показ: упаковка
+    (:func:`pack_start`) больше не платит ни одного. Сверка стоит там, где по её итогу
+    ещё можно выбрать другую сетку, - и в этом её смысл: промах карты, найденный уже
+    нарезкой (:func:`torrcast.usecases.feed_pack.feed_astray._astray`), лечится
+    перезаходом, а карта с нарисованными кадрами перезаходом не лечится - по такой сетке
+    резать нечем, и менять надо сетку.
 
     ``start`` - чем меряется место посадки. Доводом, а не именем внутри модуля: настоящий
-    замер поднимает ffmpeg на живой раздаче, а здесь меряется само правило сверки.
+    замер поднимает ffmpeg на живой раздаче, а здесь меряется само правило сверки. 🔴 Но
+    правило это меряется и БЕЗ подмены (``test_a_drawn_map_is_condemned_by_the_real_run``):
+    все пробы с подменённым доводом остались бы зелёными и с мёртвым сторожем.
     """
     guess = mapped_start(keys, at)
     if math.isnan(guess):
         return True
-    stood = start(source_url, at, timeout, keys)
+    stood = start(source_url, at, timeout)
     if stood <= guess + SPLIT_SLACK:
         return True
     ahead = bisect.bisect_left(keys.at, stood - SPLIT_SLACK) - bisect.bisect_right(

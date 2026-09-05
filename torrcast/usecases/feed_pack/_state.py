@@ -43,6 +43,13 @@ spawn: Callable[[Callable[[], None]], None]
 #: - работа с диском, и делает её медиатракт, а лента только просит.
 remove_tree: Callable[[Path], None]
 segment_paths: Callable[[Path], list[Path]]
+#: Верить ли карте опорных кадров на этом файле и как снять с неё доверие. Помнит ответ
+#: медиатракт (:mod:`torrcast.adapters.stream_pack.map_trusted`), потому что спрашивает его
+#: заход упаковки; лента же держит вторую половину правила - она одна видит ФАКТ нарезки
+#: и потому одна вправе сказать, что карта соврала
+#: (:func:`torrcast.usecases.feed_pack.feed_astray._astray`).
+map_trusted: Callable[[str], bool]
+map_lied: Callable[[str], None]
 
 #: Часы ленты - слот, как и всё остальное здесь; заполняет его та же :func:`configure`.
 #:

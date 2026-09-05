@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
+from torrcast.usecases.feed_pack.feed_astray import _astray
 from torrcast.usecases.feed_pack.feed_survive import _mute, _progress, _reread, _settle, _survive
 
 if TYPE_CHECKING:
@@ -49,6 +50,9 @@ def _sweep(state: _State, restart: Callable[[int], None]) -> None:
     else:
         _mute(state)
     _torn(state, restart)
+    # Живой прогон бывает не только оборванным, но и вставшим не туда: карте опорных
+    # кадров теперь верят сразу, а сверяется она уже нарезкой (:func:`_astray`).
+    _astray(state, restart, _lift)
     pending = packer.pending()
     if pending <= state.pending_cap:
         return

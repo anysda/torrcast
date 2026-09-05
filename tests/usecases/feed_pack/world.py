@@ -18,6 +18,8 @@ from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_comman
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.lay_head import lay_head
+from torrcast.adapters.stream_pack.map_lied import map_lied
+from torrcast.adapters.stream_pack.map_trusted import map_trusted
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.settle_start import settle_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
@@ -140,6 +142,8 @@ def tract(**parts: Any) -> FakeClock:
         parts.pop("segment_paths", _paths),
         ticking,
         parts.pop("spawn", side_thread),
+        parts.pop("map_trusted", map_trusted),
+        parts.pop("map_lied", map_lied),
     )
     assert not parts, f"стенд не знает таких слотов: {sorted(parts)}"
     return ticking
