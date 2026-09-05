@@ -124,3 +124,25 @@ def test_a_guessed_passport_is_no_key_for_the_filter() -> None:
     assert _ask(Origin(title="Angel", guessed=True)).asked == ["angel S01"], (
         "догадке остаётся транслит своих же слов запроса"
     )
+
+
+def test_a_soundtrack_in_the_answer_does_not_derail_the_circle() -> None:
+    """🔴 Разбор выбрасывает не-видео, и строки с раздачами по местам не сходятся.
+
+    Тот же разъезд, что уронил круг добора голосом на запросе «хроники»
+    (``ValueError: zip() argument 2 is shorter than argument 1``). Саундтрек стоит
+    ПЕРВЫМ - на нём пара и расходится, - а сезон-пак за ним обязан быть взят.
+    """
+    client = Indexer(
+        [
+            row("Ангел / Angel (1999) OST FLAC", "d", seeders=2),
+            row("Ангел / Angel S01 1080p", "b", seeders=40),
+        ]
+    )
+
+    said, (merged, _pictures, wider) = _asked(client)
+
+    assert client.asked == ["Angel S01"]
+    assert len(merged) == 2, "саундтрек не взят, сезон-пак взят"
+    assert [(p.title, len(p.releases)) for p in wider] == [("Ангел", 2)]
+    assert said.text == phrase("reinforce.season_note", season=1, query="Angel S01")

@@ -67,3 +67,21 @@ def test_the_same_line_is_never_asked_twice() -> None:
     assert client.asked == []
     assert merged is _ENGLISH
     assert said.notes == [], "отказа тут нет - есть отсутствие лишней работы"
+
+
+def test_a_soundtrack_in_the_answer_does_not_derail_the_circle() -> None:
+    """🔴 Разбор выбрасывает не-видео, и строки с раздачами по местам не сходятся.
+
+    Живой случай - запрос «хроники»: точная строка ``Furiosa: A Mad Max Saga 2024``
+    привезла в ответе не-видео, круг разъехался парами и уронил показ целиком
+    (``ValueError: zip() argument 2 is shorter than argument 1``). Саундтрек тут стоит
+    ПЕРВЫМ - на нём пара и расходится, - а дубляж за ним обязан быть взят.
+    """
+    client, said, (merged, _pictures, wider) = _asked(
+        [row("Тачки / Cars (2006) OST FLAC", "h", seeders=3), *_DUBBED]
+    )
+
+    assert client.asked == ["Cars 2006"]
+    assert len(merged) == 2, "саундтрек не взят, дубляж взят"
+    assert [(p.title, len(p.releases)) for p in wider] == [("Тачки", 2)]
+    assert said.text == phrase("reinforce.voice_note", title="Cars", exact="Cars 2006", now=2)

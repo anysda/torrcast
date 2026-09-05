@@ -99,11 +99,14 @@ def _season_reinforce(
     want_orig = slugify(lead.original or base)
     # Берём лишь раздачи ТОГО ЖЕ оригинала и ровно нужного сезона: чужое одноимённое
     # (аниме «The Angel Next Door») по оригиналу не проходит.
-    keep = [
-        row
-        for row, rel in zip(extra, _catalogue_port().to_releases(extra), strict=True)
+    # Сверяем ПО ИМЕНИ, а не по месту: разбор выбрасывает не-видео, и на первой же
+    # выброшенной строке пары разъезжаются, а строгая пара роняет показ целиком.
+    fit = {
+        rel.raw_name
+        for rel in _catalogue_port().to_releases(extra)
         if rel.original and slugify(rel.original) == want_orig and rel.covers(want.season)
-    ]
+    }
+    keep = [row for row in extra if row.title in fit]
     merged = _catalogue_port().merge(raw, keep) if keep else raw
     if len(merged) == len(raw):
         return raw, cluster(_catalogue_port().to_releases(raw)), found

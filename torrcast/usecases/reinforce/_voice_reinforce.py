@@ -80,15 +80,19 @@ def _voice_reinforce(
     extra = _ask(client, exact)
     progress.phase("")
     want_orig = slugify(lead.original or "")
-    keep = [
-        row
-        for row, rel in zip(extra, _catalogue_port().to_releases(extra), strict=True)
+    # Раздачи и строки выдачи по местам НЕ сходятся: разбор выбрасывает не-видео
+    # (:func:`_is_nonvideo_release`), и на первой же выброшенной строке пара разъезжается.
+    # Поэтому годные ищутся ПО ИМЕНИ - оно и есть та строка, из которой раздача разобрана.
+    fit = {
+        rel.raw_name
+        for rel in _catalogue_port().to_releases(extra)
         if rel.original
         and slugify(rel.original) == want_orig
         and rel.year is not None
         and lead.year is not None
         and abs(rel.year - lead.year) <= 1
-    ]
+    }
+    keep = [row for row in extra if row.title in fit]
     merged = _catalogue_port().merge(raw, keep) if keep else raw
     if len(merged) == len(raw):
         return raw, cluster(_catalogue_port().to_releases(raw)), found
