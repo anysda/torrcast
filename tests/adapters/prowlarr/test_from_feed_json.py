@@ -65,3 +65,29 @@ def test_a_non_list_payload_is_an_infra_error() -> None:
 
 def test_an_empty_feed_is_an_empty_list() -> None:
     assert from_feed_json([]) == []
+
+
+def test_a_sport_broadcast_never_reaches_the_shelf() -> None:
+    """Трансляция матча - видео, но не картина: лента её роняет, соседи остаются."""
+    payload = [
+        {
+            "title": "Футбол. Чемпионат Англии 2026-2027. 3-й тур. Арсенал - Челси (2026) HDTV",
+            "infoHash": _HASH_A,
+            "size": 1,
+            "seeders": 1,
+            "indexer": "RuTor",
+            "publishDate": "2026-09-06T00:00:00Z",
+        },
+        {
+            "title": "Интерстеллар / Interstellar (2014) BDRemux 1080p",
+            "infoHash": _HASH_B,
+            "size": 1,
+            "seeders": 1,
+            "indexer": "RuTor",
+            "publishDate": "2026-09-06T00:00:00Z",
+        },
+    ]
+
+    rows = from_feed_json(payload)
+
+    assert [row.raw.info_hash for row in rows] == [_HASH_B]

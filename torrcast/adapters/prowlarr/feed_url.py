@@ -8,7 +8,16 @@ from urllib.parse import quote
 from torrcast.adapters.prowlarr.search_url import SEARCH_PATH
 
 #: Кино и сериалы - и только они: софт, музыка и книги ленте не нужны (ТЗ §9).
-FEED_CATEGORIES: Final = (2000, 5000)
+#:
+#: 🔴 `100003` («Other») стоит тут не по широте души, а по замеру 06-09-2026 на живом
+#: пуле стенда: RuTor объявляет в Prowlarr категории Movies/TV, но кладёт под них НОЛЬ
+#: раздач - весь его каталог помечен «Other». Узкая пара забирала 110 строк от трёх
+#: индексеров из пяти и давала 17 плиток на полку при пороге ТЗ в 20; с «Other» строк
+#: 316, RuTor приносит 206 из них, и полки встают полными. Мусор, приезжающий вместе с
+#: ним, снимают уже свои сторожа: 115 строк роняет
+#: :func:`~torrcast.domain.nonvideo_release._is_nonvideo_release` (игры, музыка, книги),
+#: 18 - :func:`~torrcast.domain.broadcast_release._is_broadcast_release` (спорт).
+FEED_CATEGORIES: Final = (2000, 5000, 100003)
 
 
 def feed_url(base_url: str, apikey: str, limit: int) -> str:

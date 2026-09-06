@@ -13,13 +13,13 @@ def test_the_feed_url_has_no_query_string() -> None:
     assert url.startswith("http://127.0.0.1:9696/api/v1/search?apikey=KEY")
 
 
-def test_the_feed_url_carries_only_movie_and_tv_categories() -> None:
-    """Мусорные категории (софт, музыка) лента фильтрует на стороне запроса."""
+def test_the_feed_url_carries_movie_tv_and_other_categories() -> None:
+    """Софт и музыку лента не спрашивает, а «Other» спрашивает: там лежит целый индексер."""
     url = feed_url("http://p", "k", 200)
 
-    assert "&categories=2000&categories=5000" in url
-    assert len(FEED_CATEGORIES) == 2
-    assert "6000" not in url
+    assert "&categories=2000&categories=5000&categories=100003" in url
+    assert len(FEED_CATEGORIES) == 3
+    assert "categories=6000" not in url
 
 
 def test_the_limit_travels_on_the_wire_as_asked() -> None:

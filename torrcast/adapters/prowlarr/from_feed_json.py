@@ -6,17 +6,24 @@ from datetime import UTC, datetime
 from typing import Any
 
 from torrcast.adapters.prowlarr.collect_rows import collect_rows
+from torrcast.domain.broadcast_release import _is_broadcast_release
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.infra_error import InfraError
 
 
 def from_feed_json(payload: Any) -> list[FeedRow]:
-    """Разобрать ответ ленты; строка без валидной даты или без hash - вон из списка.
+    """Разобрать ответ ленты; строка без валидной даты, без hash или трансляция - вон.
 
     Строки собираются ПО ОДНОЙ (:func:`collect_rows` с одним элементом), а не всей
     пачкой разом: битую строку сборщик молча роняет, и при сборе пачкой даты сдвинулись
     бы относительно укороченного списка результатов.
+
+    Спортивная трансляция (:func:`~torrcast.domain.broadcast_release._is_broadcast_release`)
+    отсеивается ЗДЕСЬ, а не в общем разборе выдачи
+    (:func:`~torrcast.adapters.prowlarr.to_releases.to_releases`): «кино и сериалы, и
+    только они» - требование ленты (ТЗ §9), а спрошенное человеком руками продукт
+    отдаёт как есть.
     """
     if not isinstance(payload, list):
         raise InfraError(phrase("prowlarr.unexpected_answer"))
@@ -26,6 +33,9 @@ def from_feed_json(payload: Any) -> list[FeedRow]:
             continue
         published = _published(item.get("publishDate"))
         if published is None:
+            continue
+        title = item.get("title")
+        if isinstance(title, str) and _is_broadcast_release(title):
             continue
         rows = collect_rows(
             [
