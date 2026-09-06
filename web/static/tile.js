@@ -57,13 +57,21 @@ const TCTile = {
     return tile;
   },
 
+  // Выдача и полки отдают ИМЯ картинки, а не адрес: байты лежат за существующим
+  // маршрутом `/api/poster/{name}` (`hass/serve.py`). Ставить имя в `src` как есть
+  // значит просить его от текущей папки: с `/card/{key}` это `/card/{name}`, что
+  // отвечает оболочкой страницы с кодом 200, и обложка молча пропадает у всех.
+  posterUrl(name) {
+    return '/api/poster/' + encodeURIComponent(name);
+  },
+
   _art(shape) {
     if (shape.poster) {
       const img = document.createElement('img');
       img.className = 'tc-tile-art-img';
       img.loading = 'lazy';
       img.alt = '';
-      img.src = shape.poster;
+      img.src = TCTile.posterUrl(shape.poster);
       img.addEventListener('error', () => {
         img.replaceWith(TCTile._noArt(shape.title));
       });

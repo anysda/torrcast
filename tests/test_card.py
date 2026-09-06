@@ -172,6 +172,19 @@ def test_a_movie_card_names_its_voices_by_studio_not_by_a_bare_bool(
     assert body["releases_count"] == 2
 
 
+def test_the_rating_leaves_as_a_number_because_the_page_says_the_source_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Справка держит рейтинг строкой с источником; наружу едет число, слово - каталогом."""
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
+
+    _code, body, _extra = _asked(_MOVIE.key)
+
+    assert body["rating"] == 8.5
+
+
 def test_the_partial_header_appears_until_the_facts_cache_has_something(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -331,5 +344,5 @@ class _ReadyFacts:
 
 @dataclass
 class _Fact:
-    rating: str = "8.5"
+    rating: str = "IMDb 8.5"
     about: str = "Сюжет"

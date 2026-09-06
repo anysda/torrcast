@@ -30,6 +30,7 @@ from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
 from web.episode_lookup import EpisodeLookup
+from web.rating_score import rating_score
 from web.refusal import refusal
 from web.related_lookup import RelatedLookup
 from web.request import Request
@@ -80,7 +81,7 @@ def _answer(plan: Plan, config: Config) -> Answer:
         "kind": picture.kind,
         "runtime": plan.runtime,
         "runtime_estimated": plan.runtime_estimated,
-        "rating": fact.rating or None,
+        "rating": rating_score(fact.rating),
         "blurb": fact.about or None,
         "poster": poster_name(picture.title, picture.year, picture.kind),
         "voices": _voices(plan),

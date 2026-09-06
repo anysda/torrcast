@@ -12,11 +12,9 @@
 Пункты 13-14 не ходят через браузер и репозиторий тестируют локально; пункт 14 обязан
 запускаться там, где лежит дерево ``torrcast`` (``--repo``), а не с CT502 - там его нет.
 
-🔴 Продукт сегодня НЕ готов: страница - заготовка (шапка и словарь, без полок, поиска,
-плеера и каста). Прибор обязан честно краснеть по всему, чего ещё нет, и называть, ЧЕМ
-именно он недоволен - конкретный запрос, конкретное число, конкретный отсутствующий
-узел DOM. Ни один пункт не пропускается молча: у каждого либо оценка, либо явная
-пометка «заблокирован» с причиной.
+Прибор обязан называть, ЧЕМ именно он недоволен - конкретный запрос, конкретное число,
+конкретный отсутствующий узел DOM. Ни один пункт не пропускается молча: у каждого либо
+оценка, либо явная пометка «заблокирован» с причиной.
 
 🔴 Полоса упаковки на стенде ОДНА (``/root/hlsprobe/`` замер 06-09-2026): второй читатель
 уводит головку у первого. Показ (пункты 4, 6, 8-10) поэтому НЕ запускается сам по себе -
@@ -27,11 +25,11 @@
 (:class:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver`,
 докстрока класса) - наблюдать чужой каст безопасно чем угодно, кроме этого.
 
-Контракт DOM, которого прибор ищет (``data-tc-*``), пока НИГДЕ не согласован со страницей
-- страница ещё не рисует ни полок, ни карточек. Это рабочее предположение прибора, не
-факт из кода; когда полки/карточка/плеер приедут, контракт сверяется и правится вместе
-с их автором. Заголовки полок и кнопки прибор ищет по ТЕКСТУ из ``/api/phrases`` - это
-переживёт смену разметки, а не переживёт смену каталога.
+Контракт DOM (``data-tc-*``) согласован оркестратором и вывешен полосам волны: страница
+вешает ``data-tc-tile``, ``data-tc-card``, ``data-tc-card-description``,
+``data-tc-card-rating``, ``data-tc-play`` и ``data-tc-episode``, плеер -
+``data-tc-audio-option`` и ``data-tc-next-episode``. Заголовки полок и кнопки прибор ищет
+по ТЕКСТУ из ``/api/phrases`` - это переживёт смену разметки, а не переживёт смену каталога.
 
 ⚠️ Пункт 13 - грепом, а не разбором AST: однословный литерал (``'Play'``) от ключа
 каталога не отличить простым грепом по кавычкам. Это названный предел точности
@@ -49,7 +47,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -75,8 +72,12 @@ _FRANCHISE_TITLES: Final = (
     "Джон Уик 2",
     "Шрек",
 )
-#: Маршруты-кандидаты для полки родни на веб-поверхности - ни один ещё не подключён.
-_FRANCHISE_ROUTES: Final = ("/api/card/", "/api/franchise/", "/api/shelves/franchise?title=")
+#: Сколько ждать доборные части карточки (справка, серии, родня): продукт отвечает
+#: сразу и досылает их фоном, помечая недоехавшее заголовком ``X-Torrcast-Partial``.
+_PARTIAL_WAIT: Final = 30.0
+
+#: Число внутри строки рейтинга: «IMDb 8.7» - оценка есть, «IMDb» без цифры - нет.
+_NUMBER_RE: Final = re.compile(r"\d+[.,]?\d*")
 
 #: Строковый литерал в кавычках: одинарных или двойных, с экранированием внутри.
 _STRING_RE: Final = re.compile(r"""(['"])((?:\\.|(?!\1).)*)\1""")
@@ -156,6 +157,53 @@ def _is_prose(text: str) -> bool:
     return not _CLASS_LIST_RE.match(text)
 
 
+def _post(url: str, body: dict[str, Any], timeout: float = 30.0) -> tuple[int, bytes]:
+    """POST с телом-словарём; коды 4xx возвращаются, а не поднимаются исключением."""
+    data = json.dumps(body).encode()
+    request = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as answer:
+            return int(answer.status), answer.read()
+    except urllib.error.HTTPError as exc:
+        return int(exc.code), exc.read()
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return 0, str(exc).encode()
+
+
+def _card_of(base: str, title: str) -> dict[str, Any]:
+    """Карточка картины тем же путём, что и у страницы: поиск даёт ключ, ключ - карточку.
+
+    Доборные части (справка, серии, родня) приезжают фоном, и пока они в пути, продукт
+    помечает ответ заголовком ``X-Torrcast-Partial``. Ждать по нему - единственный
+    честный способ: спросить один раз и объявить пусто значит замерить скорость сети.
+    """
+    code, body = _post(base + "/api/search", {"query": title})
+    if code != 200:
+        return {"_error": f"POST /api/search -> {code}"}
+    try:
+        results = json.loads(body).get("results") or []
+    except json.JSONDecodeError as exc:
+        return {"_error": f"выдача поиска не JSON: {exc}"}
+    if not results:
+        return {"_error": "поиск не дал ни одной картины"}
+    key = urllib.parse.quote(str(results[0].get("key", "")))
+    query = urllib.parse.quote(title)
+    deadline = time.monotonic() + _PARTIAL_WAIT
+    while True:
+        request = urllib.request.Request(f"{base}/api/card/{key}?query={query}")
+        try:
+            with urllib.request.urlopen(request, timeout=30.0) as answer:
+                partial = answer.headers.get("X-Torrcast-Partial")
+                payload = json.loads(answer.read())
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            return {"_error": f"GET /api/card/ -> {exc}"}
+        if not partial or time.monotonic() >= deadline:
+            return dict(payload) if isinstance(payload, dict) else {"_error": "карточка не словарь"}
+        time.sleep(1.0)
+
+
 def check_1_home(ctx: Ctx) -> Result:
     """Главная поднимается: `GET /` 200, три полки в DOM, `/api/shelves` даёт ≥20 плиток."""
     code, _ = _get(ctx.base + "/")
@@ -178,7 +226,10 @@ def check_1_home(ctx: Ctx) -> Result:
         else:
             counts = _shelf_tile_counts(payload)
             shelves_detail += f", полок {len(counts)}, плиток {counts}"
-            tiles_ok = len(counts) >= 3 and all(n >= 20 for n in counts.values())
+            # ТЗ §11 п.1: три полки - в DOM, а выдача даёт >=20 плиток в КАЖДОЙ своей
+            # полке. Полка «Продолжить» живёт из закладок и на чистом стенде пуста
+            # законно: требовать её от выдачи значило бы мерить историю, а не главную.
+            tiles_ok = bool(counts) and all(n >= 20 for n in counts.values())
     ok = code == 200 and shelves_seen == 3 and tiles_ok
     by_key = ", ".join(f"{k.rsplit('.', 1)[-1]}={c}" for k, c in found)
     detail = f"GET / -> {code}; полок в DOM по тексту {shelves_seen}/3 ({by_key}); {shelves_detail}"
@@ -221,20 +272,26 @@ def check_3_card(ctx: Ctx, search_ok: bool) -> Result:
         reason = "пункт 2" if not search_ok else None
         return Result(3, "Карточка", False, reason, "нет плиток [data-tc-tile] - открывать нечем")
     tiles.first.click()
-    ctx.page.wait_for_timeout(500)
     card = ctx.page.locator("[data-tc-card]")
-    if card.count() == 0:
+    try:
+        card.first.wait_for(state="visible", timeout=15000)
+    except Exception:  # у playwright свой класс исключения; ловим отсутствие узла
         return Result(3, "Карточка", False, None, "клик по плитке не открыл [data-tc-card]")
+    # Карточка приезжает пустой каркасом и наполняется фоном (справка, озвучки): судить
+    # её через 500 мс значит мерить скорость сети. Ждём появления описания, а не времени.
+    deadline = time.monotonic() + _PARTIAL_WAIT
     desc_node = card.locator("[data-tc-card-description]")
-    description = desc_node.inner_text() if desc_node.count() else ""
+    description = ""
+    while time.monotonic() < deadline:
+        description = desc_node.inner_text() if desc_node.count() else ""
+        if description.strip():
+            break
+        ctx.page.wait_for_timeout(1000)
     rating_node = card.locator("[data-tc-card-rating]")
     rating_text = rating_node.inner_text() if rating_node.count() else ""
-    rating_ok = False
-    try:
-        float(rating_text.replace(",", "."))
-        rating_ok = True
-    except ValueError:
-        pass
+    # Рейтинг человеку показывается с источником («IMDb 8.7») - так велит каталог, и
+    # голая цифра на экране не значила бы ничего. Прибор ищет ЧИСЛО внутри строки.
+    rating_ok = bool(_NUMBER_RE.search(rating_text))
     audio_count = card.locator("[data-tc-audio-option]").count()
     play_button = card.locator("[data-tc-play]")
     play_ok = play_button.count() > 0 and bool(play_button.first.is_enabled())
@@ -455,8 +512,12 @@ def check_11_arrows(ctx: Ctx) -> Result:
     keys = ("ArrowRight", "ArrowDown", "Enter")
     steps: list[str] = []
     started = False
+    reached_play = False
     # 12-е нажатие стартовало бы показ - тем же риском для полосы упаковки, что и
-    # `--play`; без него прибор останавливается на 11-м и говорит об этом честно.
+    # `--play`; без него прибор останавливается на 11-м. Судить его при этом по старту
+    # показа значило бы держать пункт вечно красным независимо от продукта: без `--play`
+    # проверяемое утверждение - «стрелки ДОВЕЛИ до кнопки «Играть» за 11 нажатий», а
+    # 12-е нажатие по ней очевидно и есть старт.
     limit = 11 if not ctx.allow_play else 12
     for i in range(limit):
         key = keys[i % len(keys)]
@@ -464,46 +525,42 @@ def check_11_arrows(ctx: Ctx) -> Result:
         ctx.page.wait_for_timeout(150)
         ctx.page.screenshot(path=str(ctx.shots / f"arrow-{i:02d}.png"))
         active = ctx.page.evaluate(
-            "() => { const e = document.activeElement;"
-            " return e ? e.tagName + '#' + (e.id || '-') : 'null'; }"
+            "() => { const e = document.activeElement; if (!e) return 'null';"
+            " const play = e.hasAttribute('data-tc-play') ? '!play' : '';"
+            " return e.tagName + '#' + (e.id || '-') + play; }"
         )
         steps.append(f"{i + 1}:{key}->{active}")
+        reached_play = reached_play or active.endswith("!play")
         video = ctx.page.locator("video")
         if video.count() and float(ctx.page.eval_on_selector("video", "v => v.currentTime")) > 0:
             started = True
             break
-    ok = started and len(steps) <= 12
-    stop_note = "" if ctx.allow_play else " (остановлено до старта - --play не задан)"
-    detail = f"нажатий {len(steps)}/12, кадры в {ctx.shots}, показ стартовал: {started}{stop_note}"
+    ok = started if ctx.allow_play else reached_play
+    goal = "показ стартовал" if ctx.allow_play else "фокус дошёл до «Играть»"
+    got = started if ctx.allow_play else reached_play
+    stop_note = "" if ctx.allow_play else " (--play не задан: пункт судится по фокусу)"
+    detail = f"нажатий {len(steps)}/{limit}, кадры в {ctx.shots}, {goal}: {got}{stop_note}"
     return Result(11, "Стрелки", ok, None, "; ".join(steps) + " | " + detail)
 
 
 def check_12_franchise(base: str) -> Result:
-    """Франшиза: 8 из 10 полок родни (ТЗ §8) непусты - на веб-поверхности, а не в домене."""
+    """Франшиза: 8 из 10 полок родни (ТЗ §8) непусты - полем ``related`` карточки.
+
+    Шов родни на веб-поверхности один: карточка картины отдаёт полку в ``related``
+    (:mod:`web.related_lookup`). Отдельного маршрута франшизы нет и не задумано, поэтому
+    прибор идёт тем же путём, что и страница: поиск по названию даёт ключ, ключ даёт
+    карточку. Родня приезжает фоном, значит ждать её надо по ``X-Torrcast-Partial``.
+    """
     non_empty = 0
-    codes: Counter[str] = Counter()
+    sizes: list[str] = []
     for title in _FRANCHISE_TITLES:
-        encoded = urllib.parse.quote(title)
-        best = 0
-        for prefix in _FRANCHISE_ROUTES:
-            code, body = _get(base + prefix + encoded)
-            codes[f"{prefix}*->{code}"] += 1
-            if code == 200:
-                try:
-                    payload = json.loads(body)
-                except json.JSONDecodeError:
-                    payload = None
-                shelf = payload if isinstance(payload, list) else None
-                if shelf is None and isinstance(payload, dict):
-                    shelf = payload.get("franchise") or payload.get("series")
-                if isinstance(shelf, list) and shelf:
-                    best = max(best, len(shelf))
-        non_empty += best > 0
+        card = _card_of(base, title)
+        kin = card.get("related") if isinstance(card, dict) else None
+        size = len(kin) if isinstance(kin, list) else 0
+        non_empty += size > 0
+        sizes.append(f"{title.split()[0]}={size if isinstance(kin, list) else 'нет'}")
     ok = non_empty >= 8
-    detail = (
-        f"непустых полок {non_empty} из {len(_FRANCHISE_TITLES)}; "
-        f"маршруты-кандидаты и коды ({sum(codes.values())} запросов): {dict(codes)}"
-    )
+    detail = f"непустых полок {non_empty} из {len(_FRANCHISE_TITLES)}; " + ", ".join(sizes)
     return Result(12, "Франшиза", ok, None, detail)
 
 
