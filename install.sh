@@ -244,17 +244,14 @@ INDEXERS=(
     # отвечают 200 за 0.9-1.4 с, но тело рвётся на объёме - см. строку в SHIMS.
     "yts|https://yts.gg/|apiurl=yts.gg"
 )
-# Индексеры, которые НЕ держат установку: доводятся в фоне, уже после «готово». Prowlarr
-# сопровождает добавление пробным обращением к трекеру и ждёт его до своего таймаута -
-# замер: 100.06 с на одном yts, и `forceSave=true` его не отключает (проверено живьём).
-# Ждать этого человеку незачем: yts не закрывает в пуле ни одной дыры - +2.1% раздач и
-# НОЛЬ запросов, где он единственный источник играбельного HD (кириллицы у него нет,
-# сериалов нет). Первый носитель роли (:data:`CATALOG_ROLES`) сюда не попадает никогда:
-# его непроход обязан быть виден в самой установке словами, а не найден потом в журнале.
-# Запасной носитель - попадает: пока роль закрыта первым, ждать его человеку незачем, а
-# если роль осталась без ответа, гейт достаёт его отсюда сам (:func:`catalog_gate`) - там
-# эта сотня секунд покупает правду о каталоге, а не тишину перед «готово».
-LATE_INDEXERS=("yts" "jacred")
+# Кто из них держит установку, списком не решается: решает роль (:func:`late_indexer`).
+# Prowlarr сопровождает добавление пробным обращением к трекеру и ждёт его до своего
+# таймаута - замер: 100.06 с на одном yts, и `forceSave=true` его не отключает (проверено
+# живьём). Замер 06-09-2026 на чистом госте: пять источников на глазах у человека стоили
+# 63.7 с из 117.8 с всей установки, и 38.5 с из них - один sukebei.nyaa.si, который
+# ответил отказом и каталога собой не урезал. Поэтому на критическом пути остаётся первый
+# носитель роли, и только он: его непроход обязан быть виден словами в самой установке, а
+# не найден потом в журнале.
 # На этом индексере держится примерно половина каталога - весь западный хвост и аниме:
 # прямые трекеры из списка его не перекрывают, замены среди метапоисков в открытом пуле
 # нет. Поиск без него продолжает работать (деградируем, а не умираем), но выдача
@@ -1029,9 +1026,17 @@ wait_http() {  # $1 url, $2 секунд
 # переживать такое сама: без этого один моргнувший байт роняет весь заход.
 DL_TRIES="${TORRCAST_DL_TRIES:-4}"
 fetch() {  # $@ - аргументы curl; возвращает код последней попытки
-    local i=1
+    local i=1 rc
     while :; do
-        curl -fsSL --retry 2 --retry-connrefused --connect-timeout 20 "$@" && return 0
+        if curl -fsSL --retry 2 --retry-connrefused --connect-timeout 20 "$@"; then
+            return 0
+        else
+            rc=$?
+        fi
+        # Временные HTTP-отказы уже повторяет сам curl. Постоянный отказ (в том
+        # числе снятый архив с 404) надо сразу передать запасному источнику:
+        # внешние повторы того же адреса добавляли три бесполезные паузы.
+        [ "$rc" -eq 22 ] && return "$rc"
         [ "$i" -ge "$DL_TRIES" ] && return 1
         # В stderr, а не в stdout: вывод fetch бывает и телом ответа, которое тут же
         # читает jq - строка про повтор посреди JSON ломала бы разбор.
@@ -1587,6 +1592,31 @@ pick_pip_index() {
     info "⚠ PyPI and its mirrors are unavailable - trying the default route" "⚠ pypi недоступен, и зеркала тоже - пробую штатным путём"
 }
 
+# Хватает ли pip, который принесла система, чтобы собрать наше колесо.
+#
+# 🔴 TC-966. Обновление pip на КАЖДОЙ установке стоило человеку секунд и не покупало
+# ничего: замер 06-09-2026 на чистом Debian 12 - штатным pip 23.0.1 пакет ставится за
+# 19.2 с, обновлённым pip 26.2.1 за 20.4 с, а само обновление стоит 4.9 с в тишине и
+# 15.6 с рядом с фоновыми закачками. Порог не выдуман: сборка идёт бэкендом hatchling по
+# PEP 517, а его понимает pip начиная с 21.3 - ниже этой границы обновление по-прежнему
+# делается, и делается молча, как делалось всегда.
+PIP_MIN="${TORRCAST_PIP_MIN:-21.3}"
+pip_new_enough() {
+    local have
+    have="$("$PREFIX/venv/bin/pip" --version 2>/dev/null | awk '{print $2}')" || return 1
+    [ -n "$have" ] || return 1
+    # Сравнение версий без питона: старшая пара чисел, дополненная нулями.
+    awk -v have="$have" -v need="$PIP_MIN" 'BEGIN {
+        split(have, h, "."); split(need, n, ".");
+        for (i = 1; i <= 3; i++) {
+            a = h[i] + 0; b = n[i] + 0;
+            if (a > b) exit 0;
+            if (a < b) exit 1;
+        }
+        exit 0
+    }'
+}
+
 install_torrcast() {
     local installed site
     log "torrcast package -> $PREFIX" "пакет torrcast → $PREFIX"
@@ -1601,7 +1631,7 @@ install_torrcast() {
     site="$("$PREFIX/venv/bin/python" -P -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" ||
         die "venv $PREFIX/venv does not respond - there is nowhere to install the package" "venv $PREFIX/venv не отвечает - ставить пакет некуда"
     drop_pip_leftovers "$site"
-    "$PREFIX/venv/bin/pip" install --quiet --upgrade pip
+    pip_new_enough || "$PREFIX/venv/bin/pip" install --quiet --upgrade pip
     # Первый вызов ставит зависимости, второй — САМ пакет, всегда заново.
     # ⚠️ Оба флага второго вызова нужны, и оба пойманы живой выкаткой:
     # без --force-reinstall pip видит ту же версию из pyproject.toml (от правок кода она
@@ -1609,8 +1639,16 @@ install_torrcast() {
     # --no-cache-dir, он ставит СВОЁ прежнее колесо из кэша — то есть опять не наш код.
     # Оба раза ./install.sh рапортовал «готово», а в venv оставалась прежняя нарезка HLS,
     # и замеры шли по коду, которого в репе уже не было.
+    #
+    # 🔴 TC-966. Второй вызов нужен ровно там, где первому есть что застать: в venv уже
+    # лежит пакет той же версии. На чистой машине заставать нечего - первый вызов ставит
+    # наш код с нуля, а второй пересобирает то же колесо ещё раз. Замер 06-09-2026 на
+    # чистом госте: 3.8 с из 96 с всей установки уходило на эту вторую сборку.
+    local had_package=0
+    torrcast_site_dir >/dev/null 2>&1 && had_package=1
     "$PREFIX/venv/bin/pip" install --quiet "$REPO_DIR"
-    "$PREFIX/venv/bin/pip" install --quiet --force-reinstall --no-deps --no-cache-dir "$REPO_DIR"
+    [ "$had_package" = 0 ] ||
+        "$PREFIX/venv/bin/pip" install --quiet --force-reinstall --no-deps --no-cache-dir "$REPO_DIR"
     install -d -m 0755 "$BIN_DIR"
     install_cast_command
     setup_cast_sudoers
@@ -2724,13 +2762,13 @@ lead_indexer() {  # $1 - definitionName
 
 late_indexer() {  # $1 - definitionName; 0 = добавляем в фоне, а не на глазах у человека
     # Первый носитель роли не откладывается ни при каких условиях: фон не имеет права
-    # спрятать то, без чего роль пуста. Запасной откладывается: пока роль закрыта первым,
-    # его сотня секунд человеку не нужна - а если роль замолчала, его заводит гейт
-    # (:func:`catalog_gate`), и тогда эта сотня секунд платится за правду о каталоге.
+    # спрятать то, без чего роль пуста. Все остальные откладываются, и правило это не
+    # список, а роль: пока роль закрыта первым носителем, ждать чужой пробы человеку не
+    # за что - ни запасному носителю, ни узкому источнику роли не поручено ничего.
+    # Замолчавшую роль запасным закрывает гейт (:func:`catalog_gate`), и там сотня секунд
+    # платится за правду о каталоге, а не за тишину перед «готово».
     lead_indexer "$1" && return 1
-    local late
-    for late in "${LATE_INDEXERS[@]}"; do [ "$late" = "$1" ] && return 0; done
-    return 1
+    return 0
 }
 
 # Причина отказа из тела ответа Prowlarr: он называет поле и причину (TC-692), и
@@ -2745,7 +2783,7 @@ indexer_fail_reason() {  # $1 - файл с телом ответа
 # Добавить отложенные индексеры. Тела запросов собраны заранее, так что здесь остаётся
 # только сходить в свой Prowlarr - никакой сети, кроме той, что он дёрнет сам.
 add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
-    local key="$1" spec iname ibody have answer status
+    local key="$1" spec iname ibody idef have answer status
     shift
     for spec in "$@"; do
         IFS=$'\t' read -r iname ibody <<<"$spec"
@@ -2765,7 +2803,17 @@ add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
         if [[ "$status" = 2* ]]; then
             info "$iname added" "$iname добавлен"
         else
-            info "⚠ $iname was not added: Prowlarr returned HTTP $status$(indexer_fail_reason "$answer")" "⚠ $iname не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer")"
+            # 🔴 TC-697/TC-966. «Каталог этим не урезан» человек обязан прочитать и здесь:
+            # с 06-09-2026 узкие заводятся ТОЛЬКО в фоне, и другого места сказать ему это
+            # не осталось. Носителю роли то же слово было бы ложью - ему тут молчим, за
+            # него говорит громкая строка на глазах и переспрос (:func:`retry_add_indexers`).
+            idef="$(jq -r '.definitionName // empty' <<<"$ibody" 2>/dev/null)" || idef=""
+            if [ -n "$idef" ] && ! core_indexer "$idef"; then
+                info "⚠ $iname was not added: Prowlarr returned HTTP $status$(indexer_fail_reason "$answer") - this does not make the catalog incomplete; the next ./install.sh will add it" \
+                    "⚠ $iname не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer") - каталог этим не урезан, заведёт следующий ./install.sh"
+            else
+                info "⚠ $iname was not added: Prowlarr returned HTTP $status$(indexer_fail_reason "$answer")" "⚠ $iname не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer")"
+            fi
         fi
         rm -f "$answer"
     done

@@ -366,9 +366,42 @@ def test_the_catalog_stands_on_roles_and_a_role_may_have_two_carriers() -> None:
     roles = SCRIPT.split("CATALOG_ROLES=(", 1)[1].split(")", 1)[0]
     assert "western releases and anime^западные релизы и аниме|$KEY_INDEXER" in roles
     assert "Russian releases and voiceovers^русские раздачи и озвучки|rutor jacred" in roles
-    # На глазах добавляют ПЕРВОГО носителя роли, а не всякого: запасной ждёт своего часа.
+    # На глазах добавляют ПЕРВОГО носителя роли, а не всякого: остальные ждут своего часа.
     assert "lead_indexer" in _body("late_indexer")
-    assert 'LATE_INDEXERS=("yts" "jacred")' in SCRIPT
+
+
+@pytest.mark.machine
+def test_only_a_lead_carrier_of_a_role_is_added_before_the_human() -> None:
+    """🔴 TC-966. Установка меряется секундами, которые видит человек, а Prowlarr платит
+    за каждое добавление живой пробой трекера. Замер 06-09-2026 на чистом госте: пять
+    источников на глазах стоили 63.7 с из 117.8 с всей установки, и 38.5 с из них - отказ
+    узкого sukebei.nyaa.si, который каталога собой не урезает.
+
+    Спрашивается тут САМА функция, а не текст рядом с ней: правило «на глазах только
+    первый носитель роли» проверяется ответом про каждый источник из каталога.
+    """
+    defs = [
+        spec.split("|", 1)[0].strip('" ')
+        for spec in SCRIPT.split("INDEXERS=(", 1)[1].split("\n)", 1)[0].splitlines()
+        if spec.strip().startswith('"')
+    ]
+    assert {"Knaben", "rutor", "nyaasi", "sukebeinyaasi", "anilibria", "yts", "jacred"} == set(defs)
+    script = f"""
+set -eu
+eval "$(sed -n '/^KEY_INDEXER=/p;/^CATALOG_ROLES=(/,/^)/p;\
+/^lead_indexer() {{/,/^}}$/p;\
+/^late_indexer() {{/,/^}}$/p' {shlex.quote(str(REPO / "install.sh"))})"
+declare -F lead_indexer late_indexer >/dev/null || exit 3
+for d in {" ".join(shlex.quote(name) for name in defs)}; do
+    if late_indexer "$d"; then printf '%s late\\n' "$d"; else printf '%s eyes\\n' "$d"; fi
+done
+"""
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stderr
+    said = dict(line.split() for line in done.stdout.split("\n") if line)
+    on_the_eyes = sorted(name for name, where in said.items() if where == "eyes")
+    assert on_the_eyes == ["Knaben", "rutor"], f"на критическом пути лишние: {on_the_eyes}"
 
 
 def test_the_catalog_gate_asks_the_search_not_the_list() -> None:
@@ -1035,10 +1068,13 @@ def test_a_refused_narrow_source_is_not_reasked_at_all(tmp_path: Path) -> None:
         box, fail=frozenset({"YTS", "Nyaa.si"}), retry_times="3", retry_every="1"
     )
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "this does not make the catalog incomplete" in done.stdout + done.stderr
-    _late_settled(box)
-    # Узкие приходят обеими дорогами - из фона (yts) и с глаз (Nyaa.si), и обе спрашивают
-    # ровно раз; заведшийся узкий не переспрашивается тем более.
+    late = _late_settled(box)
+    # 🔴 TC-966. Отказ узкого звучит в ФОНОВОМ журнале, а не на глазах: с 06-09-2026 в фон
+    # уходят все, кроме первого носителя роли, и узкий среди них. Слово остаётся тем же -
+    # человеку сказано, что каталог от этого отказа не обеднел.
+    assert "this does not make the catalog incomplete" in late, late
+    # Узкие приходят одной дорогой - из фона, - и спрашиваются ровно раз; заведшийся узкий
+    # не переспрашивается тем более.
     for name in ("YTS", "Nyaa.si", "JacRed"):
         assert len(posts[name]) == 1, f"{name}: обращений {len(posts[name])} вместо одного"
 
@@ -1767,3 +1803,80 @@ def test_a_broken_archive_is_not_called_a_failed_download(tmp_path: Path) -> Non
     printed = done.stdout + done.stderr
     assert "did not unpack" in printed, printed
     assert "could not be downloaded" not in printed, printed
+
+
+def _pip_stand(tmp_path: Path, pip_version: str, *, had_package: bool) -> tuple[str, Path]:
+    """Стенд для :func:`install_torrcast`: настоящий pip заменён писцом своих аргументов."""
+    prefix = tmp_path / "opt"
+    (prefix / "venv" / "bin").mkdir(parents=True)
+    calls = tmp_path / "calls.txt"
+    # Каталог пакета появляется РОВНО тогда, когда его создаёт pip: иначе стенд ответит
+    # «уже стоит» там, где ещё ничего не ставили, и вопрос теста станет бессмысленным.
+    landed = tmp_path / "landed"
+    if had_package:
+        landed.mkdir()
+    pip = prefix / "venv" / "bin" / "pip"
+    pip.write_text(
+        "#!/bin/sh\n"
+        f'if [ "$1" = "--version" ]; then printf "pip {pip_version} from x (python 3.11)\\n";'
+        " exit 0; fi\n"
+        f'printf "%s\\n" "$*" >> {shlex.quote(str(calls))}\n'
+        f'case "$*" in *"{tmp_path / "src"}"*) mkdir -p {shlex.quote(str(landed))};; esac\n'
+    )
+    pip.chmod(0o755)
+    python = prefix / "venv" / "bin" / "python"
+    python.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+    python.chmod(0o755)
+    landed_q = shlex.quote(str(landed))
+    script = f"""
+set -eu
+PREFIX={shlex.quote(str(prefix))}
+BIN_DIR={shlex.quote(str(tmp_path / "bin"))}
+REPO_DIR={shlex.quote(str(tmp_path / "src"))}
+PIP_MIN=21.3
+eval "$(sed -n '/^pip_new_enough() {{/,/^}}$/p;/^install_torrcast() {{/,/^}}$/p' \
+    {shlex.quote(str(REPO / "install.sh"))})"
+log() {{ :; }}; skip() {{ :; }}; info() {{ :; }}; loud() {{ :; }}
+die() {{ printf 'die: %s\\n' "$1" >&2; exit 9; }}
+pick_python() {{ :; }}
+pick_pip_index() {{ :; }}
+drop_pip_leftovers() {{ :; }}
+install_cast_command() {{ :; }}
+setup_cast_sudoers() {{ :; }}
+prune_torrcast() {{ :; }}
+verify_torrcast() {{ :; }}
+torrcast_site_dir() {{ [ -d {landed_q} ] || return 1; printf '%s\\n' {landed_q}; }}
+install_torrcast
+"""
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr
+    return (calls.read_text() if calls.exists() else ""), calls
+
+
+@pytest.mark.machine
+def test_pip_is_upgraded_only_where_the_build_backend_needs_it(tmp_path: Path) -> None:
+    """🔴 TC-966. Обновление pip на каждой установке платится секундами и не покупает
+    ничего: замер 06-09-2026 на чистом Debian 12 - штатным pip 23.0.1 пакет ставится за
+    19.2 с, обновлённым pip 26.2.1 за 20.4 с, а само обновление стоит 4.9 с в тишине и
+    15.6 с рядом с фоновыми закачками. Ниже границы PEP 517 обновление обязано остаться."""
+    fresh, _ = _pip_stand(tmp_path / "new", "23.0.1", had_package=False)
+    assert "--upgrade pip" not in fresh, f"pip обновлён без нужды: {fresh!r}"
+
+    ancient, _ = _pip_stand(tmp_path / "old", "20.0.2", had_package=False)
+    assert "--upgrade pip" in ancient, f"старый pip остался без обновления: {ancient!r}"
+
+
+@pytest.mark.machine
+def test_the_package_is_built_once_where_there_was_nothing_to_overwrite(tmp_path: Path) -> None:
+    """🔴 TC-966. Пересборка тем же колесом нужна там, где в venv уже лежит пакет той же
+    версии, - иначе pip скажет «Requirement already satisfied» и оставит прежний код. На
+    чистой машине заставать нечего, и вторая сборка стоила 3.8 с из 96 с всей установки."""
+    fresh, _ = _pip_stand(tmp_path / "fresh", "23.0.1", had_package=False)
+    installs = [line for line in fresh.splitlines() if str(tmp_path / "fresh" / "src") in line]
+    assert len(installs) == 1, f"на чистой машине пакет собран не один раз: {installs}"
+    assert "--force-reinstall" not in fresh, fresh
+
+    again, _ = _pip_stand(tmp_path / "again", "23.0.1", had_package=True)
+    assert "--force-reinstall --no-deps --no-cache-dir" in again, (
+        f"поверх прежней установки код не переставлен заново: {again!r}"
+    )
