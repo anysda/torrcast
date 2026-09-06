@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -58,10 +59,45 @@ def _plans(plans: list[Plan]) -> Any:
     return _search
 
 
-def _wired(monkeypatch: pytest.MonkeyPatch, plans: list[Plan]) -> None:
+@dataclass
+class _StubEpisodes:
+    """Подмена :class:`web.episode_lookup.EpisodeLookup` - тест сам решает, что готово.
+
+    ``None`` изображает разбор, который ещё не успел фон (см. тесты недоехавшей карточки
+    в :mod:`web.card`); список - раздачу, которую уже разобрал :meth:`_build`.
+    """
+
+    result: list[list[int]] | None
+
+    def table(self, _release: Release, _base_url: str) -> list[list[int]] | None:
+        return self.result
+
+
+@dataclass
+class _StubRelated:
+    """Подмена :class:`web.related_lookup.RelatedLookup` - тест сам решает, что готово.
+
+    ``None`` изображает Wikidata, которая ещё не успела фон; список - родню, которую
+    :meth:`_build` уже сложил в кэш (пустой список - франшизы нет, это законченный ответ).
+    """
+
+    result: list[Any] | None = None
+
+    def of(self, _title: str, _series: bool) -> list[Any] | None:
+        return self.result
+
+
+def _wired(
+    monkeypatch: pytest.MonkeyPatch,
+    plans: list[Plan],
+    episodes: list[list[int]] | None = None,
+    related: list[Any] | None = None,
+) -> None:
     monkeypatch.setattr("web.card.load_config", lambda: Config())
     monkeypatch.setattr("web.card.detector", _Detector())
     monkeypatch.setattr("web.card.search_circle", _plans(plans))
+    monkeypatch.setattr("web.card._episodes", _StubEpisodes(episodes))
+    monkeypatch.setattr("web.card._related", _StubRelated(related))
 
 
 class _Detector:
@@ -194,3 +230,106 @@ def test_a_series_with_a_bookmark_marks_earlier_episodes_watched(
     assert by_episode[1]["pos"] == 0.0
     assert by_episode[2]["watched"] is False
     assert by_episode[2]["pos"] == 30.0
+
+
+def test_a_never_opened_series_shows_episodes_once_the_release_is_parsed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Сериал, которого никогда не открывали, - нет закладки, но раздача уже разобрана.
+
+    Это и есть цель TC-1115: без единого показа карточка обязана назвать номера серий,
+    а не только счётчик сезонов из имён раздач.
+    """
+    _wired(monkeypatch, [_SHOW_PLAN], episodes=[[1, 1, 0, 0], [1, 2, 1, 0], [2, 1, 2, 0]])
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(_SHOW.key, query="show")
+
+    assert code == 200
+    assert body["resumable"] is False
+    seasons = {season["n"]: season for season in body["seasons"]}
+    assert {episode["n"] for episode in seasons[1]["episodes"]} == {1, 2}
+    assert {episode["n"] for episode in seasons[2]["episodes"]} == {1}
+    assert all(episode["watched"] is False for episode in seasons[1]["episodes"])
+
+
+def test_a_never_opened_series_is_marked_partial_while_the_release_still_parses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Разбор ещё не готов - заголовок недоехавшей части, а не тихая пустота навсегда."""
+    _wired(monkeypatch, [_SHOW_PLAN], episodes=None)
+    state_slot.install(FakeStateStore())
+
+    _code, body, extra = _asked(_SHOW.key, query="show")
+
+    assert body["seasons"] == [{"n": 1, "episodes": []}, {"n": 2, "episodes": []}]
+    assert "X-Torrcast-Partial" in extra
+
+
+def test_a_franchise_picture_shows_the_related_tiles_wikidata_already_answered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Родня франшизы (§8) едет плиткой той же формы, что и полки, а не заглушкой."""
+    tile = {
+        "key": "movie:гарри-поттер-и-тайная-комната:2002",
+        "title": "Гарри Поттер и Тайная комната",
+        "year": 2002,
+        "kind": "movie",
+        "quality": None,
+        "poster": "abc123",
+        "query": "Гарри Поттер и Тайная комната",
+    }
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[tile])
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert code == 200
+    assert body["related"] == [tile]
+
+
+def test_a_franchise_still_unanswered_by_wikidata_is_marked_partial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Wikidata ещё не ответила - заголовок недоехавшей части, а не молчаливая пустота."""
+    _wired(monkeypatch, [_MOVIE_PLAN], related=None)
+    state_slot.install(FakeStateStore())
+
+    _code, body, extra = _asked(_MOVIE.key)
+
+    assert body["related"] is None
+    assert "X-Torrcast-Partial" in extra
+
+
+def test_a_picture_with_no_franchise_shows_an_empty_related_shelf_not_a_pending_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Франшизы нет - это законченный ответ (пустая полка), а не «ещё не готово»."""
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr(
+        "web.card.MenuFacts",
+        lambda *a, **k: _ReadyFacts(),
+    )
+
+    code, body, extra = _asked(_MOVIE.key)
+
+    assert code == 200
+    assert body["related"] == []
+    assert "X-Torrcast-Partial" not in extra
+
+
+class _ReadyFacts:
+    """Справка, которая никогда не заставляет карточку ждать сеть - для теста ниже."""
+
+    def start(self) -> None:
+        return None
+
+    def ready(self, _title: str, _year: int | None) -> Any:
+        return _Fact()
+
+
+@dataclass
+class _Fact:
+    rating: str = "8.5"
+    about: str = "Сюжет"

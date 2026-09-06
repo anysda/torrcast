@@ -14,26 +14,35 @@ import json
 from hass.poster_name import poster_name
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.cli.parse_args import parse_args
+from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.progress.slot import progress
 from torrcast.ports.state_store.slot import store
+from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
+from web.episode_lookup import EpisodeLookup
 from web.refusal import refusal
+from web.related_lookup import RelatedLookup
 from web.request import Request
 
 #: Префикс, под которым живёт вся карточка; ключ картины - хвост пути после него.
 _PREFIX = "/api/card/"
-#: Заголовок, которым карточка метит недоехавшее описание, рейтинг или родню.
+#: Заголовок, которым карточка метит недоехавшее описание, рейтинг, родню или серии.
 _PARTIAL = "X-Torrcast-Partial"
+#: Разбор серий той раздачи, которую играл бы показ - один кэш на весь процесс
+#: (см. :class:`web.episode_lookup.EpisodeLookup`).
+_episodes = EpisodeLookup(engines=TorrServer)
+#: Родня картины по Wikidata (§8) - тот же приём фонового кэша, что и у серий.
+_related = RelatedLookup(franchise=FACTS.franchise.of)
 
 
 def card(request: Request) -> Answer:
@@ -52,16 +61,18 @@ def card(request: Request) -> Answer:
     plan = next((p for p in plans if p.picture.key == key), None)
     if plan is None:
         return refusal(404, "not_found")
-    return _answer(plan)
+    return _answer(plan, config)
 
 
-def _answer(plan: Plan) -> Answer:
-    """Тело ответа плюс заголовок недоехавшей части, если справка ещё не готова."""
+def _answer(plan: Plan, config: Config) -> Answer:
+    """Тело ответа плюс заголовок недоехавшей части: справка или список серий."""
     picture = plan.picture
     entry = store().load().get(picture.key)
     facts = MenuFacts([(picture.title, picture.year, picture.kind)], budget=0.0)
     facts.start()
     fact = facts.ready(picture.title, picture.year)
+    seasons, seasons_partial = _seasons(plan, entry, config.torrserver_url)
+    related = _related.of(picture.title, picture.kind == "tv")
     body: dict[str, JsonValue] = {
         "title": picture.title,
         "original": picture.original or None,
@@ -75,12 +86,13 @@ def _answer(plan: Plan) -> Answer:
         "voices": _voices(plan),
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
-        "seasons": _seasons(picture, entry),
-        "related": None,
+        "seasons": seasons,
+        "related": related,
         "releases_count": len(picture.releases),
         "sources_count": _sources_count(picture.releases),
     }
-    extra = () if fact else ((_PARTIAL, "1"),)
+    partial = not fact or seasons_partial or related is None
+    extra = ((_PARTIAL, "1"),) if partial else ()
     return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
 
 
@@ -106,14 +118,26 @@ def _voices(plan: Plan) -> list[JsonValue]:
     ]
 
 
-def _seasons(picture: Picture, entry: Entry | None) -> list[JsonValue]:
-    """Сезоны и серии: из закладки, если она есть, иначе только счётчик из раздач."""
+def _seasons(plan: Plan, entry: Entry | None, base_url: str) -> tuple[list[JsonValue], bool]:
+    """Сезоны и серии: из закладки, если она есть; иначе разбор выбранной раздачи.
+
+    Разбор фоновый (:class:`web.episode_lookup.EpisodeLookup`): не готов - вернулась
+    ``None``, и карточка честно показывает только счётчик сезонов из имён раздач, помечая
+    тело недоехавшим (второй элемент пары), совсем как справка (:data:`_PARTIAL`).
+    """
+    picture = plan.picture
     if picture.kind != "tv":
-        return []
+        return [], False
     if entry is not None and entry.episodes:
-        return _seasons_from_entry(entry)
+        return _seasons_from_entry(entry), False
     numbers = sorted({season for release in picture.releases for season in _named_seasons(release)})
-    return [{"n": n, "episodes": []} for n in numbers]
+    fallback: list[JsonValue] = [{"n": n, "episodes": []} for n in numbers]
+    if not plan.ranked:
+        return fallback, False
+    table = _episodes.table(plan.ranked[0], base_url)
+    if table is None:
+        return fallback, True
+    return (_seasons_from_table(table), False) if table else (fallback, False)
 
 
 def _named_seasons(release: Release) -> tuple[int, ...]:
@@ -136,6 +160,16 @@ def _seasons_from_entry(entry: Entry) -> list[JsonValue]:
                 "pos": entry.pos if current else 0.0,
             }
         )
+    return [{"n": n, "episodes": eps} for n, eps in sorted(seasons.items())]
+
+
+def _seasons_from_table(table: list[list[int]]) -> list[JsonValue]:
+    """Серии из разбора раздачи: картину никто не смотрел, отмечать нечего."""
+    seasons: dict[int, list[JsonValue]] = {}
+    for row in table:
+        season, episode = row[0], row[1]
+        blank: dict[str, JsonValue] = {"n": episode, "dur": 0.0, "watched": False, "pos": 0.0}
+        seasons.setdefault(season, []).append(blank)
     return [{"n": n, "episodes": eps} for n, eps in sorted(seasons.items())]
 
 
