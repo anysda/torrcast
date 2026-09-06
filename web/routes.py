@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from web.card import card
+from web.history import history
 from web.phrases import phrases
 from web.route import Route
 from web.serve_static import serve_static
@@ -22,5 +24,7 @@ def routes() -> tuple[Route, ...]:
         Route("GET", "/", serve_static),
         Route("GET", "/api/phrases", phrases),
         Route("GET", "/api/shelves", shelves),
+        Route("GET", "/api/history", history),
+        Route("GET", "/api/card/", card, prefix=True),
         Route("GET", "/static/", serve_static, prefix=True),
     )
