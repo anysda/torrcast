@@ -149,12 +149,12 @@ const TCPlayer = {
       TCPlayer._hls = null;
     }
     const video = TCPlayer._video;
-    const onReady = () => {
-      video.currentTime = at || 0;
-      video.play().catch(() => {});
-    };
+    const onReady = () => { video.currentTime = at || 0; video.play().catch(() => {}); };
     if (TCPlayer.ready()) {
-      const hls = new Hls();
+      // Секунду показа знает hls.js, а не `<video>`: первый кусок он просит ДО того, как
+      // `onReady` тронет `currentTime`, и с закладки уходит за `v0.m4s`, уводя головку
+      // единственной полосы упаковки в начало (стенд `.104`: 95 с, ноль байт картинки).
+      const hls = new Hls({ startPosition: at > 0 ? at : -1 });
       TCPlayer._hls = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, onReady);
       hls.on(Hls.Events.ERROR, (event, data) => { if (data.fatal) TCPlayer._onStreamError(); });

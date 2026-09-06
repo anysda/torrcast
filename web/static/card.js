@@ -261,7 +261,7 @@ const TCCard = {
     play.dataset.tcFocusable = noReleases ? undefined : '1';
     play.dataset.tcGroup = 'buttons';
     if (!noReleases) {
-      play.addEventListener('click', () => TCCard._play(data, key, query, chosen, false));
+      play.addEventListener('click', () => TCCard._play(data, key, query, voices, false));
     }
     row.appendChild(play);
 
@@ -273,7 +273,7 @@ const TCCard = {
       again.tabIndex = 0;
       again.dataset.tcFocusable = '1';
       again.dataset.tcGroup = 'buttons';
-      again.addEventListener('click', () => TCCard._play(data, key, query, chosen, true));
+      again.addEventListener('click', () => TCCard._play(data, key, query, voices, true));
       row.appendChild(again);
     }
 
@@ -322,10 +322,12 @@ const TCCard = {
     return episode && episode.pos ? TCTime.clock(episode.pos) : null;
   },
 
+  // Отмеченной строкой список отвечает только на СВОЙ выбор зрителя за эту сессию.
+  // Подсветить первую попавшуюся значило бы соврать: показ выбирает раздачу своим
+  // поиском, и дорожка у неё выйдет та, какую он нашёл, а не та, что подсвечена.
   _chosenVoice(voices) {
-    if (voices.length === 0) return null;
     const kept = sessionStorage.getItem(TCCard._voiceKey);
-    return voices.find((v) => v.name === kept) || voices.find((v) => v.default) || voices[0];
+    return kept ? voices.find((v) => v.name === kept) || null : null;
   },
 
   _audio(voices, chosen) {
@@ -378,10 +380,18 @@ const TCCard = {
     return wrap;
   },
 
-  _play(data, key, query, chosen, fromStart, season, episode) {
+  // Озвучку продукту называет ЗРИТЕЛЬ, и только он. Список карточки собран по всему кругу
+  // раздач, а раздачу показ выбирает своим поиском: послать первую строку списка как
+  // `voice` значит связать ему руки, и вместо показа приходит отказ «no “Есарев” voice
+  // track in this release» (замерено на стенде `.104`, показ не поднялся ни разу).
+  // Выбор читается прямо в клике: сделанный ПОСЛЕ отрисовки кнопки, в замыкании он
+  // остался бы прежним.
+  _play(data, key, query, voices, fromStart, season, episode) {
+    const kept = sessionStorage.getItem(TCCard._voiceKey);
+    const picked = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
     TCApi.play({
       query: query || data.title || data.original || key,
-      voice: chosen ? chosen.name : undefined,
+      voice: picked,
       from_start: fromStart,
       season,
       episode,

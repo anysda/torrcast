@@ -68,7 +68,7 @@ const TCCardSeries = {
         row.appendChild(bar);
       }
       row.addEventListener('click', () => TCCard._play(data, key, query,
-        TCCard._chosenVoice(data.voices || []), false, season.n, episode.n));
+        data.voices || [], false, season.n, episode.n));
       list.appendChild(row);
     }
     return list;
