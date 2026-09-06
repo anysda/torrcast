@@ -21,6 +21,7 @@ class _Bridge:
     def __init__(self) -> None:
         self.played: list[str] = []
         self.picked: list[int | None] = []
+        self.extras: list[dict[str, Any]] = []
         self.searched: list[str] = []
         self.results: list[dict[str, Any]] = []
         self.controlled: list[tuple[str, float]] = []
@@ -39,11 +40,23 @@ class _Bridge:
         self.searched.append(query)
         return self.results
 
-    def play(self, query: str, pick: int | None = None) -> str:
+    def play(
+        self,
+        query: str,
+        pick: int | None = None,
+        *,
+        voice: str | None = None,
+        season: int | None = None,
+        episode: int | None = None,
+        from_start: bool = False,
+    ) -> str:
         if self.refuse:
             raise RefusedError(self.refuse)
         self.played.append(query)
         self.picked.append(pick)
+        self.extras.append(
+            {"voice": voice, "season": season, "episode": episode, "from_start": from_start}
+        )
         return "deadbeef"
 
     def resume(self) -> str:
@@ -224,6 +237,63 @@ def test_a_bad_pick_is_400_and_never_reaches_the_bridge(address: str, bridge: _B
         )
         assert code == 400, bad
         assert json.loads(body) == {"error": "bad_pick"}
+    assert bridge.played == []
+
+
+def test_an_old_play_call_reaches_the_bridge_with_no_extra_field_set(
+    address: str, bridge: _Bridge
+) -> None:
+    """Старый вызов HA - ``{query, pick}`` - не должен видеть разницы после расширения."""
+    code, body = _call(
+        f"{address}/api/play", "POST", json.dumps({"query": "матрица", "pick": 2}).encode()
+    )
+
+    assert code == 202
+    assert json.loads(body)["key"]
+    assert bridge.played == ["матрица"]
+    assert bridge.picked == [2]
+    assert bridge.extras == [{"voice": None, "season": None, "episode": None, "from_start": False}]
+
+
+def test_the_card_can_ask_for_a_voice_a_season_an_episode_and_a_fresh_start(
+    address: str, bridge: _Bridge
+) -> None:
+    play = json.dumps(
+        {
+            "query": "шоу",
+            "voice": "LostFilm",
+            "season": 1,
+            "episode": 4,
+            "from_start": True,
+        }
+    ).encode()
+
+    code, body = _call(f"{address}/api/play", "POST", play)
+
+    assert code == 202
+    assert json.loads(body)["key"]
+    assert bridge.extras == [{"voice": "LostFilm", "season": 1, "episode": 4, "from_start": True}]
+
+
+def test_a_bad_voice_is_400_and_never_reaches_the_bridge(address: str, bridge: _Bridge) -> None:
+    code, body = _call(
+        f"{address}/api/play", "POST", json.dumps({"query": "шоу", "voice": 5}).encode()
+    )
+
+    assert code == 400
+    assert json.loads(body) == {"error": "bad_voice"}
+    assert bridge.played == []
+
+
+def test_a_season_without_an_episode_is_400_and_never_reaches_the_bridge(
+    address: str, bridge: _Bridge
+) -> None:
+    code, body = _call(
+        f"{address}/api/play", "POST", json.dumps({"query": "шоу", "season": 1}).encode()
+    )
+
+    assert code == 400
+    assert json.loads(body) == {"error": "bad_episode"}
     assert bridge.played == []
 
 

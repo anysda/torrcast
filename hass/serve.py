@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from hass.bridge import VOLUME, Bridge
+from hass.play_extras import play_extras
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE
 from hass.stopping import STOP
@@ -113,7 +114,11 @@ class _Handler(BaseHTTPRequestHandler):
             ):
                 self._answer(400, {"error": "bad_pick"})
                 return
-            self._answer(202, {"key": self.bridge.play(query.strip(), pick)})
+            extras = play_extras(body)
+            if isinstance(extras, str):
+                self._answer(400, {"error": extras})
+                return
+            self._answer(202, {"key": self.bridge.play(query.strip(), pick, **extras)})
             return
         if path == RESUME:
             self._answer(202, {"key": self.bridge.resume()})

@@ -23,6 +23,7 @@ from hass.following import following
 from hass.motion import Motion
 from hass.orders import Command, Orders
 from hass.payload import payload
+from hass.play_argv import play_argv
 from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE, say
@@ -103,11 +104,18 @@ class Bridge:
         """
         return searching(self._settings(), query, self._search, self._detect, self._remember)
 
-    def play(self, query: str, pick: int | None = None) -> str:
-        """``POST /api/play``: поднять показ; с ``pick`` - ровно картину под этим номером
-        из :meth:`search`, флагом ``--pick N``, которым его знает CLI."""
-        args = [query] if pick is None else [query, "--pick", str(pick)]
-        return self._start(args)
+    def play(
+        self,
+        query: str,
+        pick: int | None = None,
+        *,
+        voice: str | None = None,
+        season: int | None = None,
+        episode: int | None = None,
+        from_start: bool = False,
+    ) -> str:
+        """``POST /api/play``: поднять показ; ``argv`` собирает :func:`play_argv`."""
+        return self._start(play_argv(query, pick, voice, season, episode, from_start))
 
     def resume(self) -> str:
         """``POST /api/resume``: поднять показ ровно так, как это делает пустой ``cast``.

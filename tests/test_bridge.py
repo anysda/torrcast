@@ -681,6 +681,67 @@ def test_play_without_a_pick_keeps_the_single_word_call() -> None:
     assert asked == [["матрица"]]
 
 
+def test_play_with_a_season_and_episode_adds_the_token_the_cli_already_parses() -> None:
+    """Серия из карточки едет тем же токеном ``sNeM``, каким её понял бы текст запроса."""
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
+
+    bridge.play("шоу", season=1, episode=4)
+    bridge.run_one()
+
+    assert asked == [["шоу", "s1e4"]]
+
+
+def test_play_with_a_voice_adds_the_flag_the_cli_understands() -> None:
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
+
+    bridge.play("матрица", voice="LostFilm")
+    bridge.run_one()
+
+    assert asked == [["матрица", "--voice", "LostFilm"]]
+
+
+def test_play_from_start_adds_the_flag_the_cli_already_reads() -> None:
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
+
+    bridge.play("матрица", from_start=True)
+    bridge.run_one()
+
+    assert asked == [["матрица", "--new"]]
+
+
+def test_play_combines_pick_season_episode_voice_and_from_start_in_one_call() -> None:
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
+
+    bridge.play("шоу", pick=2, season=1, episode=4, voice="LostFilm", from_start=True)
+    bridge.run_one()
+
+    assert asked == [["шоу", "--pick", "2", "s1e4", "--voice", "LostFilm", "--new"]]
+
+
 def test_carrying_on_asks_the_product_with_the_empty_call_a_bare_cast_makes() -> None:
     """Продолжение уходит продукту ПУСТЫМ argv: картину и место называет он сам.
 
