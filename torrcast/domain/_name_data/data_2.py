@@ -23,7 +23,9 @@ _NON_VIDEO_RE: Final = re.compile(
     re.IGNORECASE,
 )
 _VIDEO_MARKER_RE: Final = re.compile(
-    "\\b(2160p|1080p|720p|576p|480p|4k|uhd|bdrip|bdremux|remux|blu-?ray|web-?dl|web-?rip|webrip|hdrip|dvd\\d?|dvdrip|dvdscr|hdtv|hdtvrip|vhsrip|ntsc|pal|hevc|x26[45]|h\\.?26[45]|avc|s\\d{1,2}e\\d{1,3})\\b",
+    "\\b(2160p|1080p|720p|576p|480p|4k|uhd|bd-?rip|br-?rip|bdremux|remux|blu-?ray|web-?dl|"
+    "web-?rip|hd-?rip|dvd-?rip|dvd\\d?|dvdscr|hdtv|hdtvrip|tv-?rip|sat-?rip|cam-?rip|vhs-?rip|"
+    "ntsc|pal|hevc|x26[45]|h\\.?26[45]|avc|av1|xvid|divx|prores|s\\d{1,2}e\\d{1,3})\\b",
     re.IGNORECASE,
 )
 _COLLECTION_LATIN: Final = "collection"
