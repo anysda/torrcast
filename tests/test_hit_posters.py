@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hass.hit_posters import FIELD, HitPosters
+from hass.hit_posters import _KEEP, FIELD, HitPosters
 from hass.poster_lookup import _poster_identity
 from hass.poster_shelf import PosterShelf
 from torrcast.domain.facts.ask import Ask
@@ -181,3 +181,25 @@ def test_the_original_name_rides_along_to_the_walk(tmp_path: Path) -> None:
     hits.offer([{**_row("Армитаж: Двойная матрица", 2002), "original": "Armitage: Dual-Matrix"}])
     asked = Ask("Армитаж: Двойная матрица", 2002, "movie", "Armitage: Dual-Matrix")
     assert source.judged == [asked]
+
+
+def test_a_name_outlives_a_list_longer_than_the_ready_ones(tmp_path: Path) -> None:
+    """🔴 Обещание держится дольше памяти моста: длинный список не делает плитку битой.
+
+    Наготове мост держит :data:`hass.hit_posters._KEEP` картинок, а список находок бывает
+    длиннее, и человек возвращается к его началу позже. Вытесненная картинка отвечала
+    404 мгновенно - при байтах, лежащих на полке: имя выдавала полка, а маршрут её не
+    спрашивал вовсе (TC-1029). Каждая картинка спрашивается сразу за выдачей имени: этим
+    проба ждёт фоновый поход, а не гадает, успел ли он.
+    """
+    titles = [f"Картина {number}" for number in range(_KEEP + 1)]
+    source = FakeSource(pages={title: [title] for title in titles})
+    hits = _hits(tmp_path, source, now=lambda: 0.0)
+    given = []
+    for title in titles:
+        name = _named(hits, _row(title))
+        assert hits.read(name) is not None, f"картинка «{title}» не отдала байты сразу"
+        given.append(name)
+    assert hits.read(given[0]) == (POSTER, "image/jpeg"), (
+        f"первая из {len(titles)} картинок стала битой, хотя её байты лежат на полке"
+    )
