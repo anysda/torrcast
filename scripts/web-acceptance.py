@@ -84,6 +84,14 @@ _SERIES_TITLE: Final = "Во все тяжкие"
 #: стрелки по скелету значит мерить скорость сети, а не навигацию. Замер 06-09-2026 на
 #: стенде: у сериала разбор раздачи в TorrServer доезжает за 25-30 с, у фильма - сразу.
 _CARD_READY_WAIT: Final = 45000.0
+#: Сколько ждать первый кадр после «Играть». Продукт успевает найти раздачу, снять
+#: метаданные роя и упаковать первые куски: замер на стенде `.104` дал 10 с до
+#: `readyState 4`, порог взят с запасом на холодный рой.
+_PLAY_START_WAIT: Final = 90000.0
+#: Плитка, которую можно открыть. Пока полка не доехала, страница рисует СКЕЛЕТЫ тем же
+#: `data-tc-tile`, и первый узел в DOM обычно как раз скелет: у него нет ни обработчика,
+#: ни фокуса, и клик по нему не делает ничего (замер на стенде `.104`, 14 скелетов).
+_LIVE_TILE: Final = "[data-tc-tile][data-tc-focusable]"
 
 #: Число внутри строки рейтинга: «IMDb 8.7» - оценка есть, «IMDb» без цифры - нет.
 _NUMBER_RE: Final = re.compile(r"\d+[.,]?\d*")
@@ -276,10 +284,10 @@ def check_2_search(ctx: Ctx) -> Result:
 
 def check_3_card(ctx: Ctx, search_ok: bool) -> Result:
     """Карточка: описание непусто, рейтинг - число, озвучек ≥1, «Играть» активна."""
-    tiles = ctx.page.locator("[data-tc-tile]")
+    tiles = ctx.page.locator(_LIVE_TILE)
     if tiles.count() == 0:
         reason = "пункт 2" if not search_ok else None
-        return Result(3, "Карточка", False, reason, "нет плиток [data-tc-tile] - открывать нечем")
+        return Result(3, "Карточка", False, reason, "нет живых плиток - открывать нечем")
     tiles.first.click()
     card = ctx.page.locator("[data-tc-card]")
     try:
@@ -331,18 +339,35 @@ def _playback_guard(
     return None
 
 
+def _await_playback(ctx: Ctx) -> bool:
+    """Дождаться первого кадра: `<video>` в DOM и `readyState >= 3` (есть что показывать)."""
+    with contextlib.suppress(Exception):
+        ctx.page.wait_for_selector("video", timeout=_PLAY_START_WAIT)
+        ctx.page.wait_for_function(
+            "() => { const v = document.querySelector('video'); return !!v && v.readyState >= 3; }",
+            timeout=_PLAY_START_WAIT,
+        )
+        return True
+    return False
+
+
 def check_4_playback(ctx: Ctx, card_ok: bool) -> Result:
     """Показ: `video.currentTime` растёт монотонно 60 с, без stall дольше 3 с."""
     guard = _playback_guard(4, "Показ", ctx, card_ok, "пункт 3 («Играть» недоступна)")
     if guard:
         return guard
     ctx.page.locator("[data-tc-play]").first.click()
-    video = ctx.page.locator("video")
-    if video.count() == 0:
-        return Result(4, "Показ", False, None, "после клика «Играть» в DOM нет <video>")
+    # Кнопка только КЛАДЁТ заказ: продукт ещё ищет раздачу, качает метаданные и пакует
+    # первые куски. Судить ровность хода до первого кадра значило бы мерить прогрев, а
+    # не показ, поэтому 60 с ровности отсчитываются от `readyState >= 3`, а не от клика.
+    if not _await_playback(ctx):
+        waited = _PLAY_START_WAIT / 1000.0
+        why = f"картинка не пошла за {waited:.0f} с после «Играть»"
+        return Result(4, "Показ", False, None, why)
     began = time.monotonic()
     last = -1.0
-    grew, total = 0, 0
+    first = 0.0
+    grew, total, dropped = 0, 0, 0
     stalled_since: float | None = None
     worst_stall = 0.0
     samples = 0
@@ -359,11 +384,18 @@ def check_4_playback(ctx: Ctx, card_ok: bool) -> Result:
         if last >= 0:
             total += 1
             grew += current > last
+            dropped += current < last
+        else:
+            first = current
         last, samples = current, samples + 1
         time.sleep(1.0)
-    ok = total > 0 and grew == total and worst_stall <= 3.0
+    # ТЗ просит ход монотонный и без провала длиннее 3 с. Требовать прироста в КАЖДОЙ
+    # секундной паре строже написанного: ровно на то и дан допуск провала, а откат назад
+    # (пара с убылью) допуском не покрыт ничем.
+    ok = total > 0 and dropped == 0 and worst_stall <= 3.0
     detail = (
-        f"{samples} замеров за 60 с, растущих пар {grew}/{total}, худший stall {worst_stall:.1f} с"
+        f"{samples} замеров за 60 с, ход {last - first:.1f} с, растущих пар {grew}/{total}, "
+        f"пар с откатом {dropped}, худший провал {worst_stall:.1f} с"
     )
     return Result(4, "Показ", ok, None, detail)
 
@@ -441,10 +473,10 @@ def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
     field.first.type(title)
     ctx.page.keyboard.press("Enter")
     with contextlib.suppress(Exception):
-        ctx.page.locator("[data-tc-tile]").first.wait_for(state="visible", timeout=20000)
-    if ctx.page.locator("[data-tc-tile]").count() == 0:
+        ctx.page.locator(_LIVE_TILE).first.wait_for(state="visible", timeout=20000)
+    if ctx.page.locator(_LIVE_TILE).count() == 0:
         return f"поиск {title!r} не дал ни одной плитки"
-    ctx.page.locator("[data-tc-tile]").first.click()
+    ctx.page.locator(_LIVE_TILE).first.click()
     if not _await_card(ctx):
         return f"карточка {title!r} не доехала за {_CARD_READY_WAIT / 1000:.0f} с"
     return None
@@ -468,7 +500,9 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     if count == 0:
         detail = f"нет [data-tc-episode] в карточке {_SERIES_TITLE!r}"
         return Result(7, "Сериал", False, None, detail)
-    target = episodes.locator('[data-tc-episode="s1e2"]')
+    # Искать надо по странице: `episodes` - это уже сами строки серий, и поиск ВНУТРИ
+    # них не находит ничего никогда, каким бы верным ни был список.
+    target = ctx.page.locator('[data-tc-episode="s1e2"]')
     if target.count() == 0:
         return Result(7, "Сериал", False, None, f"серий {count}, но s1e2 среди них нет")
     target.first.click()
@@ -599,6 +633,10 @@ def check_11_arrows(ctx: Ctx) -> Result:
         if video.count() and float(ctx.page.eval_on_selector("video", "v => v.currentTime")) > 0:
             started = True
             break
+    # Двенадцатое нажатие лишь КЛАДЁТ заказ: до первого кадра продукту ещё искать
+    # раздачу и паковать. Судить старт внутри той же итерации значит судить сеть.
+    if ctx.allow_play and not started and reached_play:
+        started = _await_playback(ctx)
     ok = started if ctx.allow_play else reached_play
     goal = "показ стартовал" if ctx.allow_play else "фокус дошёл до «Играть»"
     got = started if ctx.allow_play else reached_play
