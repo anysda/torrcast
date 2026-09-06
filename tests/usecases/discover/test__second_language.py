@@ -150,3 +150,36 @@ def test_an_empty_russian_reel_keeps_the_top_up_it_has_no_yardstick_for() -> Non
     assert len(raw) == 4, "выдача добора остаётся, а не выбрасывается счётом картин"
     assert [picture.title for picture in found] == ["Serial Experiments Lain"]
     assert "привёз больше картин" not in said.text
+
+
+def test_the_top_up_the_guard_turns_down_is_set_aside_and_not_thrown_away() -> None:
+    """🔴 TC-770. Сторож защищает МЕНЮ - и защитит; но раздачи своей картины не гибнут.
+
+    Живой стенд `.66`, «врата штейна ONA»: добор по ``Steins;Gate`` привозит 52 раздачи
+    сверх пула, пять из них обещают русский, и сторож «привёз больше картин» выбрасывал их
+    все - вместе с русскими. Меню, очередь и порядок отбора остаются ровно теми же (пул
+    картины не тронут), а привезённое своё откладывается в
+    :attr:`~torrcast.domain.picture.Picture.aside` до вопроса «а русского-то нет».
+    """
+    mine = [row("Врата Штейна / Steins;Gate [S01 + Specials + ONA] (2011-2014) BDRip", "a")]
+    wide = [
+        row("Steins;Gate - AniLiberty.TOP [BDRip 1080p][HEVC][1-25]", "b", seeders=61),
+        row("Врата Штейна 0 / Steins;Gate 0 [TV] [23 из 23] (2018) BDRip 1080p", "c"),
+        row("Chaos;Head / Хаос;Голова [12 из 12] (2008) BDRip 720p", "d"),
+    ]
+    wire_catalogue()
+    said = Said()
+
+    _raw, _pictures, found = _second_language(
+        Indexer(answers={"steins;gate": wide}),
+        "врата штейна ONA",
+        Args(query=["врата", "штейна", "ONA"]),
+        mine,
+        franchise("врата штейна ONA", mine),
+        said,
+        passport=lambda *_a, **_k: Origin(title="Steins;Gate", year=2011, name="Врата Штейна"),
+    )
+
+    assert "привёз больше картин" in said.text, "сторож на месте: предмет расширен"
+    assert [r.raw_name for r in found[0].releases] == [mine[0].title], "меню то же, что без добора"
+    assert [r.raw_name for r in found[0].aside] == [wide[0].title], "своё отложено, а не выброшено"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
@@ -10,6 +11,7 @@ from torrcast.domain.facts.proven_native import proven_native
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
+from torrcast.usecases.reinforce._aside import _aside
 from torrcast.usecases.reinforce.configure import _catalogue_port
 
 if TYPE_CHECKING:
@@ -17,7 +19,11 @@ if TYPE_CHECKING:
 
 
 def _as_is(
-    raw: list[RawResult], found: list[Picture], about: Origin, progress: Progress
+    raw: list[RawResult],
+    found: list[Picture],
+    about: Origin,
+    progress: Progress,
+    wide: Sequence[Picture] = (),
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Добора не было - остаётся то, что нашёл русский запрос. И сказать, если год спорит.
 
@@ -37,6 +43,13 @@ def _as_is(
     к найденному, и вот её-то брать нельзя (:func:`_second_language`, :func:`_vouched`).
     Здесь же добавлять нечего - добора не было вовсе.
 
+    🔴 TC-770. ``wide`` - широкая выдача добора, который сторож
+    :func:`~torrcast.usecases.discover._widened_subject._widened_subject` только что
+    отверг за расширение предмета поиска. В меню, в очередь и в порядок отбора она не
+    идёт - за это сторож и стоит, - но раздачи СВОЕЙ картины из неё больше не гибнут:
+    их откладывает :func:`~torrcast.usecases.reinforce._aside._aside`, и спрашиваются они
+    ровно там, где иначе человек услышал бы «русской дорожки не нашлось».
+
     ⚠️ Условия узкие нарочно. Строка говорится про ОДНУ картину - ту, что нашлась под этим
     именем в единственном числе. Во франшизе справка отвечает про первую часть, а в
     каталоге может лежать вторая: на «моане 2» широкий вариант этой сверки ругался бы на
@@ -48,6 +61,10 @@ def _as_is(
         if proven_native(about, picture.title):
             picture.native = True
     stays = (raw, cluster(_catalogue_port().to_releases(raw)), found)
+    if wide:
+        aside = [release for picture in wide for release in picture.releases]
+        _aside(stays[1], aside)
+        _aside(found, aside)
     if about.year is None or len(found) != 1 or found[0].year is None:
         return stays
     if abs(found[0].year - about.year) <= 1:

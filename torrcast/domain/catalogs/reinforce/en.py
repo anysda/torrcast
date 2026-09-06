@@ -34,4 +34,7 @@ def en() -> dict[str, str]:
             "“{title}” has Russian only where nothing can play it - "
             "topped up via “{exact}”: releases now {now}"
         ),
+        "reinforce.late_voice_note": (
+            "no track in your language turned up - taking {now} more releases set aside"
+        ),
     }

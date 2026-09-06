@@ -20,6 +20,12 @@ class Picture:
     also: str = ""
     aliases: tuple[str, ...] = ()
     releases: list[Release] = field(default_factory=list)
+    #: Раздачи этой же картины, привезённые добором, который сторож отверг за то, что тот
+    #: расширил предмет поиска (:func:`torrcast.usecases.reinforce._aside._aside`). В меню,
+    #: в очередь и в отбор они не идут: добор не только добавляет, но и вытесняет, а
+    #: вытеснять проверенный показ он права не имеет. Спрашиваются ровно там, где иначе
+    #: человек услышал бы «русской дорожки не нашлось».
+    aside: list[Release] = field(default_factory=list)
     native: bool = False
     #: Год, которым датированную соседку назвали нашим именем: её разобранный
     #: ``original`` совпал с нашим названием (:func:`torrcast.domain.anchor_years.anchor_years`).

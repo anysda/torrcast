@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from tests.usecases.choice.world import Outside, outside, parts
+import torrcast.usecases.choice._played as played_module
+from tests.usecases.choice.world import Outside, outside, parts, plan
+from tests.usecases.rank.releases import media, track
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.not_found_error import NotFoundError
@@ -146,3 +148,95 @@ def test_without_a_live_namesake_the_refusal_reaches_the_person_exactly_as_it_wa
 
     assert bench.asked == [2006], "лишнего круга нет"
     assert world.said == [] and world.events == [], "ухода не было - и говорить не о чем"
+
+
+class VoicelessBench(SwitchBench):
+    """Стенд, чей запасной ход отдаёт релиз с ЯПОНСКИМ звуком: русской дорожки нет ни у кого."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.late: list[str] = []
+
+    def resolve(self, plan: Plan, args: Args, progress: Progress) -> _Prep:
+        self.asked.append(plan.picture.year)
+        if plan.picture.title == "Врата Штейна дубль":
+            self.late.append(plan.picture.title)
+            return _Prep(number=1, release=plan.ranked[0], media=media(tracks=(track(),)))
+        return _Prep(
+            number=1, release=plan.ranked[0], media=media(tracks=(track(0, "jpn", "Original"),))
+        )
+
+
+def _steins(brought: list[Plan] | None) -> tuple[VoicelessBench, list[str]]:
+    """Отбор «Врат Штейна» с поздним кругом, отвечающим ``brought``; вернуть стенд и сказанное."""
+    plans = parts(("Врата Штейна", 2011, 40))
+    bench = VoicelessBench()
+    world = Outside()
+    late = iter(brought or [])
+
+    def circle(*_args: object, **_kw: object) -> Plan | None:
+        return next(late, None)
+
+    with outside(world), pytest.MonkeyPatch.context() as patch:
+        patch.setattr(played_module, "late_voice", circle)
+        got = _played(
+            bench,
+            plans,
+            plans[0],
+            Args(query=["врата", "штейна"]),
+            Quiet(),
+            None,
+            Config(),
+            CAUTIOUS,
+        )
+    return bench, [got[0].picture.title]
+
+
+def test_a_release_without_the_sought_voice_sends_the_show_to_the_late_circle() -> None:
+    """🔴 TC-770. Запасной ход отбора отдал чужой звук - значит спрашивать ещё есть где.
+
+    Человеку обещан показ ПО-РУССКИ, а не показ любой ценой: пул собирали по имени
+    раздачи, а приговор вынес ffprobe по дорожкам, и между этими мерами лежит дыра.
+    """
+    bench, titles = _steins([plan("Врата Штейна дубль", 2011)])
+
+    assert bench.late == ["Врата Штейна дубль"], "поздний круг был, и отбор по нему пошёл"
+    assert titles == ["Врата Штейна дубль"], "играем добранным, а не японским"
+
+
+def test_a_late_circle_that_brings_nothing_leaves_the_gathered_show_alone() -> None:
+    """Круг стоит НА ПУТИ ОТКАЗА: не вышло - у человека остаётся ровно то, что было."""
+    bench, titles = _steins(None)
+
+    assert bench.late == [], "второго отбора не было"
+    assert titles == ["Врата Штейна"], "прежний релиз никуда не делся"
+
+
+def test_a_late_circle_that_falls_over_does_not_take_the_gathered_show_with_it() -> None:
+    """🔴 Отказ позднего круга не имеет права выбрасывать уже собранное.
+
+    Круг идёт сверх того, что человеку уже собрали и сказали. Значит любая его беда -
+    молчащий индексер, отказ службы раздачи - обязана кончиться тем же, чем кончился бы
+    заход без него.
+    """
+    plans = parts(("Врата Штейна", 2011, 40))
+    bench = VoicelessBench()
+
+    def explode(*_args: object, **_kw: object) -> Plan | None:
+        raise RuntimeError("индексер лёг посреди круга")
+
+    with outside(Outside()), pytest.MonkeyPatch.context() as patch:
+        patch.setattr(played_module, "late_voice", explode)
+        played, prep = _played(
+            bench,
+            plans,
+            plans[0],
+            Args(query=["врата", "штейна"]),
+            Quiet(),
+            None,
+            Config(),
+            CAUTIOUS,
+        )
+
+    assert played is plans[0] and prep.release is plans[0].ranked[0], "показ остался прежним"
+    assert bench.late == [], "второго отбора не было"

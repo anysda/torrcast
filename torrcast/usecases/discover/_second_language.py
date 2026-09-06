@@ -168,7 +168,7 @@ def _second_language(
             name=name,
         )
         progress.note(f"{said}; {outcome}" if said else outcome)
-        return _as_is(raw, found, about, progress)
+        return _as_is(raw, found, about, progress, pictures)
     # Транслит - это сами слова запроса, чужого фильма он принести не может; оригинал из
     # справки отвечает про ту самую картину. А вот оригинал из выдачи ничем не подтверждён.
     wider, vouched = _second_wider(pictures, query, alt, index, about, proven)
