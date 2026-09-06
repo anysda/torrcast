@@ -42,6 +42,7 @@ import argparse
 import contextlib
 import json
 import re
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -75,6 +76,14 @@ _FRANCHISE_TITLES: Final = (
 #: Сколько ждать доборные части карточки (справка, серии, родня): продукт отвечает
 #: сразу и досылает их фоном, помечая недоехавшее заголовком ``X-Torrcast-Partial``.
 _PARTIAL_WAIT: Final = 30.0
+#: Сериал для пункта 7. Карточка фильма из пункта 3 серий не содержит по устройству
+#: продукта, и судить по ней список серий - вечная краснота независимо от кода. Замер
+#: 06-09-2026 на стенде: у этого имени разбирается первый сезон целиком, 7 серий.
+_SERIES_TITLE: Final = "Во все тяжкие"
+#: Сколько ждать тело карточки, открытой кликом: карточка едет по сети, и нажимать
+#: стрелки по скелету значит мерить скорость сети, а не навигацию. Замер 06-09-2026 на
+#: стенде: у сериала разбор раздачи в TorrServer доезжает за 25-30 с, у фильма - сразу.
+_CARD_READY_WAIT: Final = 45000.0
 
 #: Число внутри строки рейтинга: «IMDb 8.7» - оценка есть, «IMDb» без цифры - нет.
 _NUMBER_RE: Final = re.compile(r"\d+[.,]?\d*")
@@ -400,14 +409,65 @@ def check_6_restart(ctx: Ctx, bookmark_ok: bool) -> Result:
     return Result(6, "Сначала", ok, None, f"кнопка найдена, после клика currentTime={current:.1f}")
 
 
+def _await_card(ctx: Ctx) -> bool:
+    """Дождаться тела открытой карточки: кнопка показа есть - карточка доехала."""
+    if not ctx.page.url.rsplit(ctx.base, 1)[-1].startswith("/card/"):
+        return False
+    # Признак «доехала» - кнопка показа ИЛИ непустое описание: у сериала кнопка ждёт
+    # разбора раздачи дольше, чем справка, и судить только по ней значит терять
+    # карточку, которая уже читается человеком.
+    with contextlib.suppress(Exception):
+        ctx.page.wait_for_function(
+            "() => { const p = document.querySelector('[data-tc-play]');"
+            " const d = document.querySelector('[data-tc-card-description]');"
+            " return !!p || !!(d && d.innerText.trim()); }",
+            timeout=_CARD_READY_WAIT,
+        )
+        return True
+    return False
+
+
+def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
+    """Открыть карточку ТЕМ ЖЕ путём, что и человек: поиск, плитка, карточка.
+
+    Возвращает причину отказа строкой или ``None``, если карточка открыта и доехала.
+    """
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    placeholder = ctx.english.get("web.search.placeholder", "")
+    field = ctx.page.get_by_placeholder(placeholder, exact=True) if placeholder else None
+    if field is None or field.count() == 0:
+        return f"поле поиска не найдено: input[placeholder={placeholder!r}]"
+    field.first.click()
+    field.first.type(title)
+    ctx.page.keyboard.press("Enter")
+    with contextlib.suppress(Exception):
+        ctx.page.locator("[data-tc-tile]").first.wait_for(state="visible", timeout=20000)
+    if ctx.page.locator("[data-tc-tile]").count() == 0:
+        return f"поиск {title!r} не дал ни одной плитки"
+    ctx.page.locator("[data-tc-tile]").first.click()
+    if not _await_card(ctx):
+        return f"карточка {title!r} не доехала за {_CARD_READY_WAIT / 1000:.0f} с"
+    return None
+
+
 def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
-    """Сериал: список серий непуст, выбор s1e2 → закладка на s1e2."""
+    """Сериал: список серий непуст, выбор s1e2 → закладка на s1e2.
+
+    Карточку пункт открывает СВОЮ, а не донашивает ту, что осталась от пункта 3: там
+    стоит фильм, у которого серий не бывает по устройству продукта.
+    """
     if not card_ok:
         return Result(7, "Сериал", False, "пункт 3 (карточки нет)", "список серий негде искать")
+    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    if refusal is not None:
+        return Result(7, "Сериал", False, None, refusal)
+    with contextlib.suppress(Exception):
+        ctx.page.locator("[data-tc-episode]").first.wait_for(state="visible", timeout=30000)
     episodes = ctx.page.locator("[data-tc-episode]")
     count = episodes.count()
     if count == 0:
-        return Result(7, "Сериал", False, None, "нет [data-tc-episode] в открытой карточке")
+        detail = f"нет [data-tc-episode] в карточке {_SERIES_TITLE!r}"
+        return Result(7, "Сериал", False, None, detail)
     target = episodes.locator('[data-tc-episode="s1e2"]')
     if target.count() == 0:
         return Result(7, "Сериал", False, None, f"серий {count}, но s1e2 среди них нет")
@@ -523,6 +583,10 @@ def check_11_arrows(ctx: Ctx) -> Result:
         key = keys[i % len(keys)]
         ctx.page.keyboard.press(key)
         ctx.page.wait_for_timeout(150)
+        # Enter на плитке уводит на карточку, а она едет по сети. Стрелка по скелету
+        # никуда не ведёт не потому, что навигация плоха, а потому, что кнопок ещё нет:
+        # мера пункта - НАЖАТИЯ, а не миллисекунды, и ждать тело тут честно.
+        _await_card(ctx)
         ctx.page.screenshot(path=str(ctx.shots / f"arrow-{i:02d}.png"))
         active = ctx.page.evaluate(
             "() => { const e = document.activeElement; if (!e) return 'null';"
@@ -616,6 +680,12 @@ def check_14_gate(repo: Path) -> Result:
     if not script.exists():
         detail = f"{script} не найден - на этом хосте гейт не гоняется отсюда"
         return Result(14, "Гейт", False, f"нет репозитория по --repo {repo}", detail)
+    missing = [tool for tool in ("jq", "uv", "ffmpeg") if shutil.which(tool) is None]
+    if missing:
+        # Прибор живёт на машине с браузером (CT502), а гейт - на машине с деревом и
+        # инструментами. Красный тут значил бы «продукт сломан», хотя сломана площадка.
+        detail = f"на этой машине нет {', '.join(missing)}: гейт гоняется там, где дерево"
+        return Result(14, "Гейт", False, "гейт нечем гонять с этого хоста", detail)
     began = time.monotonic()
     proc = subprocess.run([str(script)], cwd=str(repo), capture_output=True, text=True)
     spent = time.monotonic() - began
