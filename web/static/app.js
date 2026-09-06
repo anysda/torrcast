@@ -128,6 +128,8 @@ const TCRouter = {
     if (path.startsWith('/card/')) {
       const key = decodeURIComponent(path.slice('/card/'.length));
       TCCard.mount(root, key);
+    } else if (path === '/play') {
+      TCPlayer.mount(root);
     } else {
       TCHome.mount(root);
     }

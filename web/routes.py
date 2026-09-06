@@ -32,5 +32,6 @@ def routes() -> tuple[Route, ...]:
         Route("POST", "/api/web/position", position),
         Route("GET", "/api/card/", card, prefix=True),
         Route("GET", "/card/", serve_shell, prefix=True),
+        Route("GET", "/play", serve_shell),
         Route("GET", "/static/", serve_static, prefix=True),
     )

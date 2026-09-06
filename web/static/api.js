@@ -47,12 +47,47 @@ const TCApi = {
     }
   },
 
+  // Успешный запуск переводит страницу в плеер: до сих пор эту дверь не открывал никто
+  // (ни card.js, ни сам api.js), и «Играть» било по продукту, никуда не приводя экран.
   async play(body) {
-    return TCApi._post('/api/play', body);
+    const said = await TCApi._post('/api/play', body);
+    if (said) TCRouter.go('/play');
+    return said;
   },
 
   async toTv() {
     return TCApi._post('/api/to-tv', {});
+  },
+
+  async toWeb() {
+    return TCApi._post('/api/to-web', {});
+  },
+
+  async box() {
+    return TCApi._get('/api/web/box', {});
+  },
+
+  async control(cmd, arg) {
+    return TCApi._post('/api/control', arg === undefined ? { cmd } : { cmd, arg });
+  },
+
+  async next() {
+    return TCApi._post('/api/next', {});
+  },
+
+  // Код ответа, а не тело: 409 ``stale_key`` (второй показ подменил ящик) - решение,
+  // которое плееру надо ОТЛИЧИТЬ от сетевого сбоя, а не одинаково проглотить ``null``.
+  async position(body) {
+    try {
+      const said = await fetch('/api/web/position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return said.status;
+    } catch (error) {
+      return 0;
+    }
   },
 
   async _get(url, fallback) {

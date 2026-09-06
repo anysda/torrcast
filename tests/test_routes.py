@@ -16,6 +16,7 @@ def test_the_page_and_its_files_and_its_words_are_all_here() -> None:
     assert ("POST", "/api/web/position") in named
     assert ("GET", "/api/card/") in named
     assert ("GET", "/card/") in named
+    assert ("GET", "/play") in named
     assert ("GET", "/static/") in named
 
 

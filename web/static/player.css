@@ -1,4 +1,69 @@
-/* Стили плеера. Заготовка: слой дизайн-системы целиком лежит в style.css, а сюда
-   соседний заход кладёт только то, что принадлежит плееру и никому больше. Файл
-   заведён пустым намеренно - связь на него уже прописана в index.html, и добавлять
-   её потом значило бы править чужой файл. */
+/* Стили плеера. Слой дизайн-системы целиком лежит в style.css - тут только раскладка,
+   которой не нашлось соседа: полноэкранное видео, позиционирование верхней/нижней
+   панели над ним и центрирование трёх полноэкранных состояний (подготовка, буферизация,
+   потеря потока). Цвета, шрифты и рамки берутся готовыми переменными и классами. */
+
+.tc-player-frame { position: absolute; inset: 0; overflow: hidden; background: var(--tc-bg); }
+.tc-player-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+                   background: #000; }
+
+/* Виньетки читаемости под шапкой и панелью - как в макете 4.5/A, без лишних узлов. */
+.tc-player-frame::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 13.75rem;
+  background: linear-gradient(180deg, rgba(5, 7, 10, .85) 0%, rgba(5, 7, 10, 0) 100%);
+  pointer-events: none; }
+.tc-player-frame::after { content: ''; position: absolute; inset: auto 0 0 0; height: 22.5rem;
+  background: linear-gradient(0deg, rgba(5, 7, 10, .94) 20%, rgba(5, 7, 10, 0) 100%);
+  pointer-events: none; }
+
+.tc-player-top { position: absolute; top: var(--tc-safe-y); left: var(--tc-safe-x);
+                 right: var(--tc-safe-x); justify-content: space-between; z-index: 2; }
+.tc-player-bottom { position: absolute; left: var(--tc-safe-x); right: var(--tc-safe-x);
+                    bottom: var(--tc-safe-y); display: flex; flex-direction: column;
+                    gap: 1.625rem; z-index: 2; }
+.tc-keys { align-self: center; }
+.tc-player-panel { display: flex; flex-direction: column; gap: 1.625rem; }
+.tc-player-controls { display: flex; justify-content: space-between; align-items: center; }
+.tc-player-actions { display: flex; align-items: stretch; gap: .875rem; }
+.tc-btn--square { width: 3.5rem; flex: 0 0 auto; justify-content: center; padding: 0; }
+
+/* Скрытие панели через простой без движения (§4.5): читаемость управляет opacity,
+   а не display, чтобы переход был плавным и не ронял фокус с кнопки под курсором. */
+.tc-player-frame.is-idle .tc-player-top,
+.tc-player-frame.is-idle .tc-player-bottom { opacity: 0; pointer-events: none; transition: opacity .4s; }
+.tc-player-top, .tc-player-bottom { transition: opacity .4s; }
+
+/* Значок паузы/игры - переворот той же кнопки: два столбика по умолчанию (жми - пауза),
+   треугольник в состоянии паузы (жми - играй). Родная разметка держит два ``i``. */
+.tc-playpause.is-paused i { display: none; }
+.tc-playpause.is-paused::after { content: ''; width: 0; height: 0; margin-left: .3125rem;
+  border-top: .9375rem solid transparent; border-bottom: .9375rem solid transparent;
+  border-left: 1.5625rem solid var(--tc-bg); }
+
+/* Отметка «докуда упаковано» на полосе перемотки: серая в браузерном режиме
+   (``Packaged``), кислотная в режиме «на ТВ» (``TV position``, §4.5). */
+.tc-seek-mark { transform: translateX(-50%); white-space: nowrap; }
+.tc-seek-mark.is-tv { color: var(--tc-acid); }
+
+/* --- Полноэкранные состояния: подготовка / буферизация / потеря потока ---------- */
+.tc-preparing, .tc-buffering-screen, .tc-lost {
+  position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2.25rem;
+  background-image: var(--tc-scanlines);
+}
+.tc-next { z-index: 5; }
+.tc-preparing-body { position: relative; padding: 3.75rem 5.625rem; }
+.tc-preparing-bar.is-indeterminate > i { width: 30%; animation: tcprepindet 1.4s ease-in-out infinite; }
+@keyframes tcprepindet {
+  0% { margin-left: 0%; }
+  50% { margin-left: 70%; }
+  100% { margin-left: 0%; }
+}
+
+.tc-lost-actions { display: flex; align-items: center; gap: 1.375rem; }
+
+/* --- Режим «на ТВ»: заголовок и подпись поверх приглушённого видео --------------- */
+.tc-ontv-note { text-align: center; }
+
+/* --- Плашка автоперехода: подкладка для картинки и кнопок ------------------------ */
+.tc-next-body { flex: 1; display: flex; flex-direction: column; gap: .875rem; }
+.tc-next-buttons { display: flex; gap: 1rem; }
