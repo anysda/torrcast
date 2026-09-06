@@ -2,6 +2,8 @@
 
 # torrcast
 
+[![CI](https://github.com/anysda/torrcast/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/anysda/torrcast/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/anysda/torrcast)](https://github.com/anysda/torrcast/releases) [![License](https://img.shields.io/github/license/anysda/torrcast)](https://github.com/anysda/torrcast/blob/master/LICENSE) [![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 **Play a film on your TV by name.**
 
 Someone recommends The Matrix during the day. What usually follows is a chore: scrolling a streaming service's feed, downloading the film in advance, or typing its name into the TV browser with a remote. torrcast is for when you already know what you want to watch. That evening you type `cast the matrix` and the film plays on your TV, with no interface to fight.

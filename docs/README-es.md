@@ -2,6 +2,8 @@
 
 # torrcast
 
+[![CI](https://github.com/anysda/torrcast/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/anysda/torrcast/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/anysda/torrcast)](https://github.com/anysda/torrcast/releases) [![License](https://img.shields.io/github/license/anysda/torrcast)](https://github.com/anysda/torrcast/blob/master/LICENSE) [![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 **Pon una película en el televisor con solo escribir su título.**
 
 Alguien te recomienda Matrix durante el día. Lo que viene después suele ser un engorro: recorrer el catálogo de una plataforma de streaming, descargar la película de antemano o escribir el título en el navegador del televisor con el mando. torrcast es para cuando ya sabes qué quieres ver. Esa noche escribes `cast matrix` y la película empieza en el televisor, sin pelearte con la interfaz.

@@ -2,6 +2,8 @@
 
 # torrcast
 
+[![CI](https://github.com/anysda/torrcast/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/anysda/torrcast/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/anysda/torrcast)](https://github.com/anysda/torrcast/releases) [![License](https://img.shields.io/github/license/anysda/torrcast)](https://github.com/anysda/torrcast/blob/master/LICENSE) [![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 **作品名を入力するだけで、テレビで映画を再生。**
 
 昼間、誰かに『マトリックス』を勧められたとします。そこから観るまでには、たいていひと手間かかります。動画配信サービスの作品一覧をスクロールしたり、あらかじめ映画をダウンロードしたり、リモコンでテレビのブラウザーに作品名を入力したり。torrcast は、観たい作品がもう決まっているときのためのツールです。その晩、`cast マトリックス` と入力すれば、面倒な操作に悩まされることなく、テレビで映画が始まります。

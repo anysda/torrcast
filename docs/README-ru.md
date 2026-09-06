@@ -2,6 +2,8 @@
 
 # torrcast
 
+[![CI](https://github.com/anysda/torrcast/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/anysda/torrcast/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/anysda/torrcast)](https://github.com/anysda/torrcast/releases) [![License](https://img.shields.io/github/license/anysda/torrcast)](https://github.com/anysda/torrcast/blob/master/LICENSE) [![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 **Включайте кино на телевизоре по названию.**
 
 Днём кто-то посоветовал «Матрицу». Обычно дальше начинается возня: листать ленту стримингового сервиса, скачивать фильм заранее или набирать название с пульта в неудобном браузере телевизора. torrcast для тех, кто уже знает, что хочет посмотреть. Вечером вы набираете `cast матрица`, и фильм идёт на телевизоре, без сражения с интерфейсом.
