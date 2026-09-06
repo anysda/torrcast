@@ -11,6 +11,7 @@ from torrcast.domain.by_subtitle import _by_subtitle
 from torrcast.domain.by_words import _by_words
 from torrcast.domain.confirmed_continuations import confirmed_continuations
 from torrcast.domain.franchise_item_key import _franchise_item_key
+from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.franchises import franchises
 from torrcast.domain.group_weight import _group_weight
 from torrcast.domain.in_digits import in_digits
@@ -34,6 +35,14 @@ def pick_franchise(
     spelled: dict[str, str] = {}
     for written, target in sorted(aliases.items()):
         spelled.setdefault(spell(written), target)
+    # Второе имя картины во ФРАНШИЗНОЙ форме, без подзаголовка: подзаголовок называет
+    # одну часть, и спрошенное из него слово («towers», «rohirrim») отвечает ей, а не
+    # всей франшизе. Полные слаги оригиналов для моста поэтому не годятся.
+    abroad = {
+        alias: key
+        for alias, key in aliases.items()
+        if alias in {franchise_key(p.original) for g in groups.values() for p in g if p.original}
+    }
     third: dict[str, str] = {}
     for group_key, items in groups.items():
         for picture in items:
@@ -73,12 +82,16 @@ def pick_franchise(
             # точное совпадение слага: один псевдоним уводил «стражи» во французских
             # «Часовых» мимо «Стражей Галактики» на 157 раздач.
             return _richer_namesake(groups, wanted, pointed) or pointed
-        if hits := [k for k in groups if wanted in k]:
+        # Слаг группы - имя картины на языке каталога, и подстрочный поиск по одним лишь
+        # группам не видит второго имени: «matrix» доставал «the-animatrix», а «Матрицу»
+        # (58 раздач) нет, потому что её группа зовётся «матрица».
+        second = {alias: key for alias, key in abroad.items() if wanted in alias}
+        if hits := {**second, **{key: key for key in groups if wanted in key}}:
             return _nearest_group(wanted, groups, hits)
         if loose := _by_words(wanted, groups):
             return loose
-        if hits := [k for k in groups if k and k in wanted]:
-            return max(hits, key=len)
+        if inside := [k for k in groups if k and k in wanted]:
+            return max(inside, key=len)
         return spelled.get(spell(wanted))
 
     name, index = split_franchise_index(query)

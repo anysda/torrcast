@@ -14,7 +14,6 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.domain.other_words import other_words
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.split_franchise_index import split_franchise_index
@@ -24,6 +23,7 @@ from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._named import _also, _different_display_names, _title
 from torrcast.usecases.discover._ask import _ask
+from torrcast.usecases.discover._catalog_note import _catalog_note
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
@@ -142,8 +142,6 @@ def search_circle(
     if not found:
         raise NotFoundError(_nothing(name, index, pictures))
     lead = _leading(found)
-    if lead is not None and other_words(name, lead):
-        progress.note(phrase("discover.catalog_alias", name=name, other=_title(lead)))
     if lead is not None and lead.also:
         # Склейка картин (:func:`~torrcast.domain.glue.glue`) - решение автоматическое, и молчать
         # о нём нельзя: человек спросил одно имя, а в меню и в отборе теперь оба.
@@ -182,6 +180,8 @@ def search_circle(
         )
         if plan.ranked:
             plans.append(plan)
+    if plans and (note := _catalog_note(name, plans, args)):
+        progress.note(note)
     for line in season_gaps(found, {plan.picture.key for plan in plans}, args.episode):
         progress.note(line)
     # Соседи по франшизе, до меню не доехавшие: понадобятся, если у выбранной картины

@@ -16,6 +16,7 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.state_store.slot import install
+from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
 
@@ -230,3 +231,34 @@ def test_the_source_of_the_denominator_is_named_in_the_trace() -> None:
     assert guesses and {fields["src"] for fields in guesses} == {"guess"}, (
         "прикидка в следе подписана прикидкой"
     )
+
+
+def test_the_catalogue_line_is_silent_when_the_taken_picture_is_named_as_asked() -> None:
+    """🔴 TC-1064. Строку каталога пишет ВЗЯТАЯ картина, а не самая тяжёлая из найденных.
+
+    На «повелитель» строка называла «Константин: Повелитель тьмы» - в нём спрошенного
+    слова и правда нет, но и в показ он не шёл: Enter брал «Повелителя». Один экран
+    называл три разные картины, а названная в строке не бралась никогда.
+    """
+    wire_catalogue()
+    namesakes = [row("Повелитель / Overlord (2015) BDRip 1080p | D", "a", seeders=60)] + [
+        row("Константин: Повелитель тьмы / Constantine (2005) BDRip 1080p | D", str(n), seeders=90)
+        for n in range(5)
+    ]
+    said = Said()
+
+    plans = search_circle(
+        _CONFIG,
+        Args(query=["повелитель"]),
+        said,
+        indexer=lambda *_a, **_k: Indexer(answers={"повелитель": namesakes}),
+        passport=lambda *_a, **_k: Origin(),
+    )
+
+    taken = plans[enter_take(plans, "повелитель").number - 1].picture
+
+    assert taken.title == "Повелитель"
+    # Тяжёлый однофамилец в меню есть - значит прежнему счёту было что назвать, и
+    # молчание строки это решение, а не пустота выдачи.
+    assert "Константин: Повелитель тьмы" in [plan.picture.title for plan in plans]
+    assert [note for note in said.notes if "каталоге" in note] == []

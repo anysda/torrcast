@@ -243,3 +243,51 @@ def test_a_third_name_does_not_hand_the_query_to_a_barely_known_picture() -> Non
 
     assert got
     assert all("Стражи" in picture.title for picture in got), [p.title for p in got]
+
+
+#: 🔴 TC-1064. Каталог двуязычен: у «Матрицы» русское название и оригинал в одной строке,
+#: а у однофамильцев названия только латинские. Замер на стенде, запрос «matrix»: 68 картин,
+#: и «Матрица» (58 раздач) не попадала в ответ вовсе - её группа зовётся «матрица», а
+#: спрошенное слово подстрокой сидит в «the-animatrix».
+_BILINGUAL = [
+    "Матрица / The Matrix (1999) BDRip 1080p",
+    "Матрица: Перезагрузка / The Matrix Reloaded (2003) BDRip 1080p",
+    "The Animatrix (2003) BDRip 1080p",
+    "L-MATRIX (2011) WEBRip 720p",
+    "Slave Matrix (2018) WEBRip 720p",
+]
+
+
+def test_a_latin_word_reaches_the_picture_titled_in_the_other_language() -> None:
+    """Неполное имя латиницей находит картину, которая этим словом называется."""
+    pictures = cluster([parse_release_name(name) for name in _BILINGUAL])
+
+    assert [p.title for p in pick_franchise("matrix", pictures)][:1] == ["Матрица"]
+
+
+def test_a_latin_namesake_is_still_reachable_by_its_own_full_word() -> None:
+    """Второе имя не съедает однофамильца: спрошенное «animatrix» остаётся своим."""
+    pictures = cluster([parse_release_name(name) for name in _BILINGUAL])
+
+    assert [p.title for p in pick_franchise("animatrix", pictures)] == ["The Animatrix"]
+
+
+#: 🔴 TC-1064. Подзаголовок называет ОДНУ часть, а не франшизу. Замер на пуле стенда:
+#: мост, взявший полные слаги оригиналов, растворял «towers» и «rohirrim» во весь
+#: «Властелин колец» - слово из подзаголовка отвечало картине, которой в нём нет.
+_SUBTITLED = [
+    "Властелин колец: Братство кольца / The Lord of the Rings: The Fellowship of the Ring"
+    " (2001) BDRip 1080p",
+    "Властелин колец: Братство кольца / The Lord of the Rings: The Fellowship of the Ring"
+    " (2001) BDRip 720p",
+    "Властелин колец: Две крепости / The Lord of the Rings: The Two Towers (2002) BDRip 1080p",
+]
+
+
+def test_a_word_from_the_subtitle_answers_its_own_part_not_the_whole_franchise() -> None:
+    """Мост во второе имя идёт по франшизному имени, а не по полному слагу оригинала."""
+    pictures = cluster([parse_release_name(name) for name in _SUBTITLED])
+
+    found = pick_franchise("towers", pictures)
+
+    assert [p.title for p in found] == ["Властелин колец: Две крепости"]

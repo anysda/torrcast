@@ -6,8 +6,15 @@ from torrcast.domain.group_weight import _group_weight
 from torrcast.domain.picture import Picture
 
 
-def _nearest_group(wanted: str, groups: dict[str, list[Picture]], hits: list[str]) -> str:
-    """Какая из групп, чей слаг СОДЕРЖИТ спрошенный, и есть спрошенная картина.
+def _nearest_group(wanted: str, groups: dict[str, list[Picture]], hits: dict[str, str]) -> str:
+    """Какая из групп, чьё имя СОДЕРЖИТ спрошенное слово, и есть спрошенная картина.
+
+    🔴 TC-1064. Имя и группа - разные вещи: ключ ``hits`` это имя, под которым группу
+    нашли, значение - сама группа. Совпадают они, только пока каталог одноязычен, а он
+    двуязычен: «Матрицу» индексер отдаёт русским названием, и спрошенное «matrix» живёт
+    не в слаге её группы, а во втором её имени. Одна группа приходит поэтому под
+    несколькими именами, и мерка ставится на группу ОДИН раз: иначе длинное второе имя
+    («the-matrix-resurrections») отодвигало бы франшизу дальше её же однофамильца.
 
     🔴 TC-1025. Близость меряется ЛИШНИМИ СЛОВАМИ, а не буквами. Пока мерили длину
     слага, «властелин» уводил зрителя в «Властелин мира» (1961, 2 раздачи, 0 сид) мимо
@@ -25,8 +32,9 @@ def _nearest_group(wanted: str, groups: dict[str, list[Picture]], hits: list[str
     одного корпуса нельзя сравнить между собой.
     """
     asked = len(wanted.split("-"))
+    keys = sorted(set(hits.values()))
     return min(
-        hits,
+        keys,
         key=lambda key: (
             len(key.split("-")) - asked,
             -_group_weight(groups, key),
