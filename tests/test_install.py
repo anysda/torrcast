@@ -1082,6 +1082,70 @@ def test_a_shim_knob_with_a_space_reaches_the_process_whole() -> None:
     assert env["TORRCAST_PROBE_UA"] == agent
 
 
+def _constant(name: str) -> int:
+    found = re.search(rf"^{name}=(\d+)$", SCRIPT, re.M)
+    assert found is not None, f"в установщике нет константы {name}"
+    return int(found.group(1))
+
+
+def _memory_knobs(budget: int, family: str) -> dict[str, str]:
+    """Ручки памяти службы раздачи, собранные текстом самого установщика.
+
+    Берётся кусок ``install_torrserver`` от сборки ручек до ``run_service`` и гоняется
+    как есть: меряется то, что доедет до юнита, а не то, что написано рядом.
+    """
+    body = _body("install_torrserver")
+    tail = body.split("local memory_knobs=", 1)[1].split("\n    run_service", 1)[0]
+    script = "\n".join(
+        [
+            "set -euo pipefail",
+            "loud() { :; }",
+            f"TS_GOGC={_constant('TS_GOGC')}",
+            f"OS_FAMILY={family}",
+            f"budget={budget}",
+            f"memory_knobs={tail}",
+            'printf "%s\\n" "$memory_knobs"',
+        ]
+    )
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
+    env: dict[str, str] = {}
+    for line in done.stdout.splitlines():
+        if not line.startswith("Environment="):
+            continue
+        for assignment in shlex.split(line.removeprefix("Environment=")):
+            name, _, value = assignment.partition("=")
+            env[name] = value
+    return env
+
+
+@pytest.mark.parametrize("family", ["linux", "macos"])
+def test_the_service_is_told_the_overhead_its_cache_was_sized_by(family: str) -> None:
+    """🔴 TC-1060. Делитель, которым размерен кэш, обязан быть СКАЗАН самой службе.
+
+    ``TS_MEM_OVERHEAD`` вычитался из памяти машины при выборе размера кэша, а службе не
+    сообщался ничем: Go по умолчанию растит кучу вдвое над живым кэшем, то есть ровно до
+    бюджета, и запаса машине не оставалось. Замер на стенде 06-09-2026 (кэш 3.13 ГиБ,
+    потолок контейнера 8196 МиБ): RSS службы 5911 МиБ, контейнер 8131 МиБ - 99.2 %
+    потолка и 876 событий реклейма, после чего контейнер вставал колом без ssh.
+
+    Мера смотрит не на присутствие строки, а на соотношение: что бы ни стояло делителем,
+    ручка сборщика обязана держать перерасход СТРОГО ниже него. Строго - потому что
+    равенство и есть дефект: умолчание Go ``GOGC=100`` - это ровно перерасход 2 при
+    делителе 2, то самое, что дало 5911 МиБ и 99.2 % потолка. Мера, стоящая границей на
+    дефекте, ловила бы снятие ручки, но пропускала бы возврат её к дефектному значению.
+    Обе семьи проверяются нарочно - у launchd жёсткого потолка нет вовсе, и там эта
+    ручка единственная.
+    """
+    overhead = _constant("TS_MEM_OVERHEAD")
+    env = _memory_knobs(6 * 1024**3, family)
+
+    assert "GOGC" in env, "служба не знает, каким перерасходом ей размерили кэш"
+    assert 1 + int(env["GOGC"]) / 100 < overhead, (
+        f"GOGC={env['GOGC']} разрешает куче перерасход {1 + int(env['GOGC']) / 100}, "
+        f"а делитель кэша {overhead} - запаса машине не остаётся"
+    )
+
+
 def _quoted_knobs(knobs: str) -> list[str]:
     """Строки секции ``[Service]`` так, как их окавычит общее место установщика."""
     snippet = f'{_funcs("quoted_knobs")}\nquoted_knobs "$1"\n'
