@@ -567,9 +567,24 @@ def test_a_yearless_fan_edit_does_not_outweigh_the_living_part() -> None:
     # Названные каталогом номера с годом отвечают как прежде - явный номер не ослаблен.
     assert [p.title for p in pick_franchise("матрица 2", pictures)] == ["Матрица: Перезагрузка"]
     assert [p.title for p in pick_franchise("матрица 3", pictures)] == ["Матрица: Революция"]
-    # Живой части рядом нет - безгодовый носитель остаётся единственным, кого каталог
-    # назвал этим номером, и честно показывается.
-    lonely = [p for p in pictures if p.title != "Матрица: Воскрешение"]
+    # Живой части рядом нет - склеивать не с чем, и носитель номера остаётся единственным,
+    # кого каталог назвал этим номером, и честно показывается.
+    lonely = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Матрица / The Matrix (1999) WEB-DL 720p от SuperMin | D | Open Matte",
+                "Матрица: Перезагрузка / The Matrix Reloaded (2003) BDRemux 1080p | Dub",
+                "Матрица 2: Перезагрузка / The Matrix Reloaded (2003) WEB-DL 2160p | Dub",
+                "Матрица: Революция / The Matrix Revolutions (2003) BDRemux 1080p | Dub",
+                "Матрица 3: Революция / The Matrix Revolutions (2003) BDRip | Dub",
+                "Матрица 4  / Matrix 4 - As It Should Be (2021/2022) HDRip-AVC | P | "
+                "Фанатская версия",
+                "Матрица 4 / Matrix 4 - As It Should Be (2021/2022) HDRip 1080p | P | "
+                "Фанатская версия",
+            )
+        ]
+    )
     assert [p.title for p in pick_franchise("матрица 4", lonely)] == ["Матрица 4"]
 
 

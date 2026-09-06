@@ -17,12 +17,17 @@ from torrcast.domain.kin_pairs import _kin_pairs
 from torrcast.domain.kind import Kind
 from torrcast.domain.link import _link
 from torrcast.domain.picture import Picture
+from torrcast.domain.proven_part import _proven_part
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
+from torrcast.domain.subtitle_aliases import subtitle_aliases
 
 
 def glue(pictures: list[Picture]) -> list[Picture]:
     parent = list(range(len(pictures)))
+    subtitles = subtitle_aliases(
+        name for p in pictures for name in (p.title, p.original or "", *p.aliases)
+    )
 
     def identity(name: str) -> str:
         plain = re.sub("(?:-)?(?:в-)?3[дd]$", "", slugify(name)).rstrip("-")
@@ -48,7 +53,7 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         # Примета экранизации («The Animation») снимается ЗДЕСЬ ЖЕ, но по своему списку:
         # о виде она не говорит, и потому её же снимает ключ франшизы. Слово формы там
         # снимать нельзя, а тут - нужно, и поэтому списка два, а не один.
-        return _adaptationless(_formless(_editionless(identity(name))))
+        return _adaptationless(_formless(_editionless(identity(subtitles.get(name, name)))))
 
     def alternative_release(release: Release) -> bool:
         title = release.raw_name.split(" / ", 1)[0]
@@ -170,6 +175,7 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     for i, j in _kin_pairs(pictures, identity, root, named=False):
         if two_kinds_one_bare_name(pictures[i], pictures[j]):
             union(i, j)
+    _proven_part(pictures, identity, root, union, alternative)
     groups: dict[int, list[int]] = {}
     for i in range(len(pictures)):
         groups.setdefault(root(i), []).append(i)
