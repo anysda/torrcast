@@ -123,6 +123,7 @@ const TCHome = {
         caption2: String(hit.year || ''),
         best: !!hit.default,
         group: 'search-results',
+        query: TCHome._query,
         onActivate: TCHome._openCard,
       }));
     });
@@ -144,6 +145,7 @@ const TCHome = {
           caption2: item.label || '',
           progress: item.dur ? item.pos / item.dur : 0,
           group: 'shelf-continue',
+          query: item.title,
           onActivate: TCHome._openCard,
         }))));
     }
@@ -161,6 +163,7 @@ const TCHome = {
       poster: hit.poster,
       quality: hit.quality,
       caption2: String(hit.year || ''),
+      query: hit.query || hit.title,
       onActivate: TCHome._openCard,
     };
   },
@@ -194,8 +197,8 @@ const TCHome = {
     return shelf;
   },
 
-  _openCard(key) {
-    TCRouter.go('/card/' + encodeURIComponent(key));
+  _openCard(key, query) {
+    TCRouter.card(key, query);
   },
 };
 

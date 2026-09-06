@@ -114,6 +114,14 @@ const TCRouter = {
     TCRouter.render();
   },
 
+  // Ключ картины БЕЗ строки поиска ничей: ``/api/card/{key}`` ищет круг раздач тем же
+  // запросом, что и выдача, и на пустой ``query`` отвечает 400. Значит адрес карточки
+  // собирается одним местом и всегда вместе с запросом, иначе плитка ведёт на скелет.
+  card(key, query) {
+    const tail = query ? '?query=' + encodeURIComponent(query) : '';
+    TCRouter.go('/card/' + encodeURIComponent(key) + tail);
+  },
+
   render() {
     const root = document.getElementById('tc-root');
     const path = location.pathname;
