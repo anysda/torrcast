@@ -1,0 +1,100 @@
+#!/bin/sh
+# Раскладка интеграции Home Assistant на стенд из рабочего дерева, воспроизводимо.
+#
+#   scripts/hass-deploy root@192.168.1.30:/mnt/data/supervisor/homeassistant
+#   scripts/hass-deploy --port 22222 root@192.168.1.30:/config
+#   scripts/hass-deploy --port 22222 --check root@192.168.1.30:/config
+#
+# Выпуск на живой Home Assistant кладёт HACS, и это остаётся его делом. Здесь другое:
+# на стенд надо положить РАБОЧЕЕ ДЕРЕВО, которое ещё не выпущено, - иначе HA-правку
+# доказать живьём нечем, а раскладывалась она до сих пор руками, каждый раз по-своему.
+#
+# 🔴 Состав берётся у `git ls-files`, а не у каталога. Каталог знает только то, что в
+# нём уже лежит, и уехавший из дерева файл пережил бы любое число раскладок.
+#
+# 🔴 Каталог на стенде СНОСИТСЯ целиком, а не досыпается поверх. Ровно этим куплено
+# правило: досыпка поверх оставила бы и вложенный `torrcast/torrcast/` от раскладки с
+# неверной глубиной, и файлы прошлых выпусков, и стенд перестал бы быть копией репы.
+# Отсюда же идемпотентность: снос с распаковкой дают один и тот же состав всегда.
+#
+# ⚠️ `__pycache__` в сверке не участвует. Его пишет сам Home Assistant при импорте, и
+# после первого же подъёма он появится снова: считать его расхождением значит объявить
+# стенд битым навсегда. На .30 он датируется той же минутой, что и `.py`.
+#
+# 🔴 Файлы - это ещё не служба. Python держит уже импортированные модули в памяти, и
+# новый код доедет до человека только с подъёмом Home Assistant заново: `--restart`.
+# Без него раскладка честно кончается файлами и говорит об этом вслух.
+set -eu
+
+PORT=22
+CHECK=0
+RESTART=0
+DEST=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --port) PORT="$2"; shift 2 ;;
+        --check) CHECK=1; shift ;;
+        --restart) RESTART=1; shift ;;
+        -*) echo "неизвестный ключ: $1" >&2; exit 2 ;;
+        *) DEST="$1"; shift ;;
+    esac
+done
+
+if [ -z "$DEST" ]; then
+    echo "куда класть: [пользователь@]узел:/каталог/конфига" >&2
+    exit 2
+fi
+
+HOST="${DEST%%:*}"
+CONFIG="${DEST#*:}"
+if [ "$HOST" = "$DEST" ] || [ -z "$CONFIG" ]; then
+    echo "адрес без каталога конфига: $DEST" >&2
+    exit 2
+fi
+
+HOME_DIR="custom_components/torrcast"
+FAR="$CONFIG/$HOME_DIR"
+
+# Состав - у гита, путями внутри самого каталога интеграции: тарбол не несёт ни
+# `custom_components/`, ни `torrcast/`, и распаковывать его глубиной уже не ошибёшься.
+LIST=$(git ls-files "$HOME_DIR" | sed "s|^$HOME_DIR/||")
+if [ -z "$LIST" ]; then
+    echo "git ls-files $HOME_DIR ничего не дал - не корень репы?" >&2
+    exit 2
+fi
+COUNT=$(printf '%s\n' "$LIST" | wc -l | tr -d ' ')
+
+if [ "$CHECK" -eq 0 ]; then
+    echo "кладу в $HOST:$FAR файлов: $COUNT"
+    printf '%s\n' "$LIST" | tar -cz -C "$HOME_DIR" -T - -f - \
+        | ssh -p "$PORT" "$HOST" "rm -rf '$FAR' && mkdir -p '$FAR' && tar -xz -C '$FAR' -f -"
+fi
+
+# Сверка идёт ПОСЛЕ раскладки и о том же самом составе: что лежит на стенде против
+# того, что числится в дереве. Разошлись - печатаем именно расхождение, а не итог.
+THERE=$(ssh -p "$PORT" "$HOST" "cd '$FAR' && find . -type f | sed 's|^\./||' | grep -v '^__pycache__/' | sort")
+HERE=$(printf '%s\n' "$LIST" | sort)
+
+if [ "$THERE" = "$HERE" ]; then
+    echo "стенд совпадает с деревом файл в файл, всего файлов: $COUNT"
+else
+    echo "стенд РАЗОШЁЛСЯ с деревом (< дерево, > стенд):" >&2
+    WORK=$(mktemp -d)
+    trap 'rm -rf "$WORK"' EXIT
+    printf '%s\n' "$HERE" > "$WORK/here"
+    printf '%s\n' "$THERE" > "$WORK/there"
+    diff "$WORK/here" "$WORK/there" >&2 || true
+    exit 1
+fi
+
+if [ "$CHECK" -eq 1 ]; then
+    exit 0
+fi
+
+if [ "$RESTART" -eq 1 ]; then
+    echo "поднимаю Home Assistant заново - без этого новый код не импортируется"
+    ssh -p "$PORT" "$HOST" "ha core restart"
+else
+    echo "файлы разложены; Home Assistant заново НЕ поднят, старый код ещё в памяти"
+fi
