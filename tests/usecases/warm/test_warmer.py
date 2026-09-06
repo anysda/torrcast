@@ -55,6 +55,33 @@ def test_the_thread_starts_the_work_and_the_stop_ends_it(tmp_path: Path) -> None
     assert warm.stopped
 
 
+def test_a_place_that_cannot_be_taken_does_not_hold_up_the_spot_recode(tmp_path: Path) -> None:
+    """🔴 TC-1061. Недающееся место перестаёт быть целью, и очередь идёт дальше.
+
+    Дорого в застое прогрева именно это: точечный перекод тяжёлых мест идёт ПОЗДНИМ
+    отдельным заходом, после укладки, и пока прогрев топчется на одном месте, тяжёлые
+    куски остаются копией навсегда - под ними показу нужна сеть.
+    """
+    world()
+    kind, taken = counting()
+    store = vault(tmp_path)
+    for slot in range(5):
+        lay(store, slot)
+    warm = warmer(
+        tmp_path,
+        kind=kind,
+        vault=store,
+        spots=(2,),
+        spot_encode=cast(Any, object()),
+        slack=GUARD_HIGH + 1.0,
+    )
+    warm.hopeless.add(5)
+
+    warm._work()
+
+    assert taken == [(2, 2, True)], "прогрев так и стоит на месте, которого ему не взять"
+
+
 def test_the_work_yields_before_it_even_raises_a_run(tmp_path: Path) -> None:
     """Уступка начинается раньше первого захода: пробный прогон - это тоже ffmpeg."""
 

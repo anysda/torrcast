@@ -21,6 +21,10 @@ def ru() -> dict[str, str]:
         "warm.blind": "не сверен",
         "warm.skew_where": "v{slot} на {minute}-й минуте лёг мимо сетки ({diff} с)",
         "warm.skew_hole": "{where} - это место осталось непрогретым",
+        "warm.barren_spot": (
+            "v{slot} на {minute}-й минуте не даётся: {tries} захода подряд впустую - "
+            "это место осталось непрогретым"
+        ),
         "warm.skew_retry": "{where} - перекладываю его заново",
         "warm.blind_why_timecode": "таймкод не прочитан",
         "warm.blind_why_not_movie": "лента прогона, а не фильма",

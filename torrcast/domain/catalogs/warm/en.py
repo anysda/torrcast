@@ -21,6 +21,10 @@ def en() -> dict[str, str]:
         "warm.blind": "unchecked",
         "warm.skew_where": "v{slot} landed off the grid at minute {minute} ({diff} s)",
         "warm.skew_hole": "{where} - this spot is left unwarmed",
+        "warm.barren_spot": (
+            "v{slot} at minute {minute} will not come: {tries} runs in a row yielded nothing - "
+            "this spot is left unwarmed"
+        ),
         "warm.skew_retry": "{where} - relaying it again",
         "warm.blind_why_timecode": "timecode unreadable",
         "warm.blind_why_not_movie": "run tape, not the picture",

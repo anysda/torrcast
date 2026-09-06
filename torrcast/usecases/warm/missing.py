@@ -17,8 +17,12 @@ def _missing(state: _State) -> tuple[int, int] | None:
     Сначала хвост от места показа, потом голова: обрыв связи бьёт по будущему, а не
     по уже пройденному. Прогон всегда доводится до конца своего участка — это и есть
     «один прогон, один непрерывный звук».
+
+    Места, которые упаковка не берёт вовсе (:attr:`hopeless`), целью не считаются: иначе
+    прогрев топчется на первом же таком месте, не доходит до конца никогда, и точечный
+    перекод тяжёлых мест, идущий после укладки, не начинается вовсе (:func:`_barren`).
     """
-    have = state.vault.slots()
+    have = state.vault.slots() | state.hopeless
     for first in range(state.began_at, state.grid.count):
         if first not in have:
             return first, state.grid.count - 1

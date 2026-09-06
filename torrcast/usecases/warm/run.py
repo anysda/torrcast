@@ -17,7 +17,7 @@ from torrcast.usecases.warm.forecast import _forecast
 from torrcast.usecases.warm.lay_heavy import _lay_heavy
 from torrcast.usecases.warm.segment_start import _Clock, segment_start
 from torrcast.usecases.warm.settings import RUN_DIR
-from torrcast.usecases.warm.stall import _stall
+from torrcast.usecases.warm.stall import _barren, _stall
 from torrcast.usecases.warm.throttle import _resume, _throttle
 from torrcast.usecases.warm.verify import _inspect
 
@@ -195,5 +195,4 @@ def _run(
         state._say(f"прогрев оборвался на {state.grid.end(packer.edge) / 60:.0f}-й минуте")
         _state._environment.sleep(5.0)
     elif not got:
-        state._say(f"прогрев не дал ни куска за {spent:.0f} с - жду и пробую снова")
-        _state._environment.sleep(10.0)
+        _barren(state, first, spent)

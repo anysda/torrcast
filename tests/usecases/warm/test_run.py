@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from tests.usecases.warm.world import grid, warmer, world
+from tests.usecases.warm.world import FakeEnvironment, grid, warmer, world
 from torrcast.adapters.recode.encode import Encode
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
+from torrcast.usecases.warm.missing import _missing
 from torrcast.usecases.warm.run import _run
 from torrcast.usecases.warm.segment_start import _Clock
-from torrcast.usecases.warm.settings import RUN_DIR
+from torrcast.usecases.warm.settings import BARREN_TRIES, RUN_DIR
 from torrcast.usecases.warm.vault import Vault
 
 if TYPE_CHECKING:
@@ -229,6 +230,103 @@ def test_a_run_that_gave_nothing_says_so_and_waits(tmp_path: Path) -> None:
 
     assert any("не дал ни куска" in line for line in said)
     assert fake.slept[-1] == 10.0, "прогрев тут же полез в раздачу снова"
+
+
+def test_a_place_that_never_gives_a_piece_is_named_and_let_go(tmp_path: Path) -> None:
+    """🔴 TC-1061. Место, которое упаковка не берёт, не крутится вечно и не молчит.
+
+    Замер на стенде 06-09-2026, «Теория большого взрыва» s1e2, последний слот 116 из 117:
+    30 пустых заходов подряд по 3.5 с, 67 одинаковых строк «жду и пробую снова» в журнал
+    службы и ни одного слова человеку - ``cast status`` всё это время повторял «прогрето
+    0:20:38 из 0:21:09». Конца у этого цикла не было бы никогда, а точечный перекод
+    тяжёлых мест идёт ПОСЛЕ укладки и не начинался вовсе.
+    """
+    said: list[str] = []
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    fake = cast(_Paced, world(_Paced, **parts))
+    fake.step = QUICK_RUN
+    warm = warmer(tmp_path, log=said.append)
+
+    for _ in range(BARREN_TRIES):
+        _run(warm, 0, -1)
+
+    assert warm.trouble, "прогрев топчется на непокоряемом месте и молчит об этом"
+    assert "v0" in warm.trouble, "прогрев встал, но не назвал места"
+    assert warm.trouble in said[-1], "причина застоя не доехала до человека"
+    assert len(fake.slept) == BARREN_TRIES - 1, "прогрев всё ещё ждёт и пробует снова"
+    assert _missing(warm) == (1, 5), "непокоряемое место так и осталось целью прогрева"
+
+
+#: Сколько длится пустой заход на месте, которое упаковка не берёт, секунды. Не порог, а
+#: ЗАМЕР стенда 06-09-2026 (s1e2, слот 116): 30 заходов из 30, каждый 3.5 с. Считать это
+#: число от :data:`BARREN_SPENT` нельзя - вход пробы уехал бы вместе с порогом, и порог
+#: остался бы без меры.
+QUICK_RUN = 3.5
+#: Сколько длится пустой заход при пропавшей сети, секунды. Тот же журнал стенда: «прогрев
+#: не дал ни куска за 62 с». Такой заход хоронить место не имеет права.
+LOST_NETWORK = 62.0
+
+
+class _Paced(FakeEnvironment):
+    """Часы, у которых каждый вопрос о времени двигает стрелку на ``step``.
+
+    Длина захода - единственное, чем :func:`_barren` отличает пропавшую сеть от места,
+    которое не берётся, и мерить её надо на настоящем пути захода, а не подсовывая
+    ``spent`` мимо :func:`_run`.
+    """
+
+    step: float = 0.0
+
+    def monotonic(self) -> float:
+        self.now += self.step
+        return self.now
+
+
+def test_a_slow_empty_run_is_the_network_and_buries_no_place(tmp_path: Path) -> None:
+    """🔴 TC-1061. Долгий пустой заход - это пропавшая сеть, и места по нему не хоронят.
+
+    Место, которое не берётся, отваливается мгновенно и всегда одинаково (замер стенда:
+    3.5-4 с, 30 заходов из 30), а пропавшая сеть держит ffmpeg до его собственного срока
+    и возвращается сама (тот же журнал: «не дал ни куска за 62 с»). Похоронить место по
+    второму случаю значит на каждом обрыве связи получать мёртвый прогрев.
+    """
+    said: list[str] = []
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    fake = cast(_Paced, world(_Paced, **parts))
+    fake.step = LOST_NETWORK
+    warm = warmer(tmp_path, log=said.append)
+
+    for _ in range(BARREN_TRIES):
+        _run(warm, 0, -1)
+
+    assert not warm.trouble, "прогрев похоронил место, которого не отдавала сеть"
+    assert warm.hopeless == set(), "место записано в недающиеся по длинному заходу"
+    assert _missing(warm) == (0, 5), "прогрев перестал целиться в место, которое взялось бы"
+    assert fake.slept == [10.0] * BARREN_TRIES, "прогрев не ждёт возвращения сети"
+
+
+def test_a_lost_network_breaks_the_streak_of_empty_runs(tmp_path: Path) -> None:
+    """🔴 TC-1061. Обрыв связи череду РВЁТ, а не просто не продлевает её.
+
+    «Подряд» в приговоре обязано означать заходы одной природы. Порядок тут - тот
+    единственный, на котором рвущий счёт отличается от не считающего: череда быстрых
+    пустых заходов, разорванная обрывом связи посередине, и ещё один быстрый после. Без
+    разрыва счёт досчитывает старую череду до :data:`BARREN_TRIES` и хоронит место,
+    хотя подряд быстрых заходов столько и не было.
+    """
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    fake = cast(_Paced, world(_Paced, **parts))
+    warm = warmer(tmp_path, log=[].append)
+
+    for step in [QUICK_RUN] * (BARREN_TRIES - 1) + [LOST_NETWORK, QUICK_RUN]:
+        fake.step = step
+        _run(warm, 0, -1)
+
+    assert warm.barren == {0: 1}, "череду быстрых заходов не разорвал обрыв связи"
+    assert not warm.trouble, "место похоронено чередой, которой не было"
 
 
 def test_the_heavy_hook_of_the_warming_is_handed_to_the_packer(tmp_path: Path) -> None:
