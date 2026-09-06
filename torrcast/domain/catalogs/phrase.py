@@ -1,193 +1,58 @@
 """Надпись по ключу на языке человека, со значениями, подставленными по имени.
 
 Каталоги распределены по кластерам продукта: у каждого кластера своя пара файлов
-``ru.py`` / ``en.py``, и растёт список кластеров, а не один файл на весь продукт.
+``ru.py`` / ``en.py`` в своей папке рядом. Список кластеров этот файл не хранит -
+он собирает его обходом соседних папок (:func:`_clusters`), один раз при импорте.
+Заход перевода заводит только папку своего кластера и не правит тут ни строки: без
+этого каждый новый кластер придвигал бы файл к потолку длины чужим по смыслу кодом
+(структурный сторож меряет длину строго этого файла, а не всего каталога).
 Английский тут одновременно язык по умолчанию и запасной каталог: ключ, которого в
 русском ещё нет, отвечает по-английски, а не пустотой и не ключом.
 """
 
 from __future__ import annotations
 
+import importlib
+from collections.abc import Callable
+from pathlib import Path
 from typing import Final
 
-from torrcast.domain.catalogs.account_watched.en import en as account_watched_en
-from torrcast.domain.catalogs.account_watched.ru import ru as account_watched_ru
-from torrcast.domain.catalogs.bookmark.en import en as bookmark_en
-from torrcast.domain.catalogs.bookmark.ru import ru as bookmark_ru
-from torrcast.domain.catalogs.cache.en import en as cache_en
-from torrcast.domain.catalogs.cache.ru import ru as cache_ru
-from torrcast.domain.catalogs.choice.en import en as choice_en
-from torrcast.domain.catalogs.choice.ru import ru as choice_ru
-from torrcast.domain.catalogs.chromecast_scan.en import en as chromecast_scan_en
-from torrcast.domain.catalogs.chromecast_scan.ru import ru as chromecast_scan_ru
-from torrcast.domain.catalogs.chromecast_talk.en import en as chromecast_talk_en
-from torrcast.domain.catalogs.chromecast_talk.ru import ru as chromecast_talk_ru
-from torrcast.domain.catalogs.cli.en import en as cli_en
-from torrcast.domain.catalogs.cli.ru import ru as cli_ru
-from torrcast.domain.catalogs.cmd_play.en import en as cmd_play_en
-from torrcast.domain.catalogs.cmd_play.ru import ru as cmd_play_ru
-from torrcast.domain.catalogs.configure.en import en as configure_en
-from torrcast.domain.catalogs.configure.ru import ru as configure_ru
-from torrcast.domain.catalogs.console.en import en as console_en
-from torrcast.domain.catalogs.console.ru import ru as console_ru
-from torrcast.domain.catalogs.digest.en import en as digest_en
-from torrcast.domain.catalogs.digest.ru import ru as digest_ru
-from torrcast.domain.catalogs.discover.en import en as discover_en
-from torrcast.domain.catalogs.discover.ru import ru as discover_ru
-from torrcast.domain.catalogs.doctor.en import en as doctor_en
-from torrcast.domain.catalogs.doctor.ru import ru as doctor_ru
-from torrcast.domain.catalogs.feed.en import en as feed_en
-from torrcast.domain.catalogs.feed.ru import ru as feed_ru
-from torrcast.domain.catalogs.frames.en import en as frames_en
-from torrcast.domain.catalogs.frames.ru import ru as frames_ru
-from torrcast.domain.catalogs.health.en import en as health_en
-from torrcast.domain.catalogs.health.ru import ru as health_ru
-from torrcast.domain.catalogs.http_server.en import en as http_server_en
-from torrcast.domain.catalogs.http_server.ru import ru as http_server_ru
-from torrcast.domain.catalogs.hunt.en import en as hunt_en
-from torrcast.domain.catalogs.hunt.ru import ru as hunt_ru
-from torrcast.domain.catalogs.launchd.en import en as launchd_en
-from torrcast.domain.catalogs.launchd.ru import ru as launchd_ru
-from torrcast.domain.catalogs.main_config.en import en as main_config_en
-from torrcast.domain.catalogs.main_config.ru import ru as main_config_ru
-from torrcast.domain.catalogs.media_binaries.en import en as media_binaries_en
-from torrcast.domain.catalogs.media_binaries.ru import ru as media_binaries_ru
-from torrcast.domain.catalogs.notes.en import en as notes_en
-from torrcast.domain.catalogs.notes.ru import ru as notes_ru
-from torrcast.domain.catalogs.playback.en import en as playback_en
-from torrcast.domain.catalogs.playback.ru import ru as playback_ru
-from torrcast.domain.catalogs.playback_session.en import en as playback_session_en
-from torrcast.domain.catalogs.playback_session.ru import ru as playback_session_ru
-from torrcast.domain.catalogs.ports.en import en as ports_en
-from torrcast.domain.catalogs.ports.ru import ru as ports_ru
-from torrcast.domain.catalogs.profile_detector.en import en as profile_detector_en
-from torrcast.domain.catalogs.profile_detector.ru import ru as profile_detector_ru
-from torrcast.domain.catalogs.prowlarr.en import en as prowlarr_en
-from torrcast.domain.catalogs.prowlarr.ru import ru as prowlarr_ru
-from torrcast.domain.catalogs.rank.en import en as rank_en
-from torrcast.domain.catalogs.rank.ru import ru as rank_ru
-from torrcast.domain.catalogs.receiver.en import en as receiver_en
-from torrcast.domain.catalogs.receiver.ru import ru as receiver_ru
-from torrcast.domain.catalogs.recode.en import en as recode_en
-from torrcast.domain.catalogs.recode.ru import ru as recode_ru
-from torrcast.domain.catalogs.reinforce.en import en as reinforce_en
-from torrcast.domain.catalogs.reinforce.ru import ru as reinforce_ru
-from torrcast.domain.catalogs.releases.en import en as releases_en
-from torrcast.domain.catalogs.releases.ru import ru as releases_ru
-from torrcast.domain.catalogs.revive.en import en as revive_en
-from torrcast.domain.catalogs.revive.ru import ru as revive_ru
-from torrcast.domain.catalogs.runtime.en import en as runtime_en
-from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
-from torrcast.domain.catalogs.screen.en import en as screen_en
-from torrcast.domain.catalogs.screen.ru import ru as screen_ru
-from torrcast.domain.catalogs.season.en import en as season_en
-from torrcast.domain.catalogs.season.ru import ru as season_ru
-from torrcast.domain.catalogs.select.en import en as select_en
-from torrcast.domain.catalogs.select.ru import ru as select_ru
-from torrcast.domain.catalogs.select_bench.en import en as select_bench_en
-from torrcast.domain.catalogs.select_bench.ru import ru as select_bench_ru
-from torrcast.domain.catalogs.series.en import en as series_en
-from torrcast.domain.catalogs.series.ru import ru as series_ru
-from torrcast.domain.catalogs.showing.en import en as showing_en
-from torrcast.domain.catalogs.showing.ru import ru as showing_ru
-from torrcast.domain.catalogs.spans.en import en as spans_en
-from torrcast.domain.catalogs.spans.ru import ru as spans_ru
-from torrcast.domain.catalogs.status.en import en as status_en
-from torrcast.domain.catalogs.status.ru import ru as status_ru
-from torrcast.domain.catalogs.stop.en import en as stop_en
-from torrcast.domain.catalogs.stop.ru import ru as stop_ru
-from torrcast.domain.catalogs.stream.en import en as stream_en
-from torrcast.domain.catalogs.stream.ru import ru as stream_ru
-from torrcast.domain.catalogs.stream_pack.en import en as stream_pack_en
-from torrcast.domain.catalogs.stream_pack.ru import ru as stream_pack_ru
-from torrcast.domain.catalogs.stream_probe.en import en as stream_probe_en
-from torrcast.domain.catalogs.stream_probe.ru import ru as stream_probe_ru
-from torrcast.domain.catalogs.systemd.en import en as systemd_en
-from torrcast.domain.catalogs.systemd.ru import ru as systemd_ru
-from torrcast.domain.catalogs.telegram.en import en as telegram_en
-from torrcast.domain.catalogs.telegram.ru import ru as telegram_ru
-from torrcast.domain.catalogs.telegram_config.en import en as telegram_config_en
-from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
-from torrcast.domain.catalogs.torrserver.en import en as torrserver_en
-from torrcast.domain.catalogs.torrserver.ru import ru as torrserver_ru
-from torrcast.domain.catalogs.trace.en import en as trace_en
-from torrcast.domain.catalogs.trace.ru import ru as trace_ru
-from torrcast.domain.catalogs.upgrade.en import en as upgrade_en
-from torrcast.domain.catalogs.upgrade.ru import ru as upgrade_ru
-from torrcast.domain.catalogs.voices_command.en import en as voices_command_en
-from torrcast.domain.catalogs.voices_command.ru import ru as voices_command_ru
-from torrcast.domain.catalogs.warm.en import en as warm_en
-from torrcast.domain.catalogs.warm.ru import ru as warm_ru
-from torrcast.domain.catalogs.watch.en import en as watch_en
-from torrcast.domain.catalogs.watch.ru import ru as watch_ru
-from torrcast.domain.catalogs.web.en import en as web_en
-from torrcast.domain.catalogs.web.ru import ru as web_ru
-from torrcast.domain.catalogs.worker.en import en as worker_en
-from torrcast.domain.catalogs.worker.ru import ru as worker_ru
 
-#: Кластеры каталога: (английский, русский). Заход перевода добавляет сюда строку -
-#: пару файлов своего кластера, - а не правит эту функцию. Строка на кластер и запятая
-#: в конце: так соседний заход добавляет свой кластер, не трогая ничьей чужой строки.
-_CLUSTERS: Final = (
-    (account_watched_en, account_watched_ru),
-    (bookmark_en, bookmark_ru),
-    (cache_en, cache_ru),
-    (choice_en, choice_ru),
-    (cli_en, cli_ru),
-    (digest_en, digest_ru),
-    (discover_en, discover_ru),
-    (frames_en, frames_ru),
-    (health_en, health_ru),
-    (hunt_en, hunt_ru),
-    (rank_en, rank_ru),
-    (receiver_en, receiver_ru),
-    (select_bench_en, select_bench_ru),
-    (select_en, select_ru),
-    (series_en, series_ru),
-    (spans_en, spans_ru),
-    (stream_en, stream_ru),
-    (trace_en, trace_ru),
-    (telegram_config_en, telegram_config_ru),
-    (telegram_en, telegram_ru),
-    (ports_en, ports_ru),
-    (profile_detector_en, profile_detector_ru),
-    (runtime_en, runtime_ru),
-    (chromecast_talk_en, chromecast_talk_ru),
-    (media_binaries_en, media_binaries_ru),
-    (stream_pack_en, stream_pack_ru),
-    (stream_probe_en, stream_probe_ru),
-    (main_config_en, main_config_ru),
-    (playback_session_en, playback_session_ru),
-    (chromecast_scan_en, chromecast_scan_ru),
-    (console_en, console_ru),
-    (http_server_en, http_server_ru),
-    (prowlarr_en, prowlarr_ru),
-    (recode_en, recode_ru),
-    (systemd_en, systemd_ru),
-    (torrserver_en, torrserver_ru),
-    (revive_en, revive_ru),
-    (playback_en, playback_ru),
-    (screen_en, screen_ru),
-    (feed_en, feed_ru),
-    (status_en, status_ru),
-    (season_en, season_ru),
-    (doctor_en, doctor_ru),
-    (showing_en, showing_ru),
-    (stop_en, stop_ru),
-    (upgrade_en, upgrade_ru),
-    (watch_en, watch_ru),
-    (worker_en, worker_ru),
-    (configure_en, configure_ru),
-    (releases_en, releases_ru),
-    (voices_command_en, voices_command_ru),
-    (notes_en, notes_ru),
-    (cmd_play_en, cmd_play_ru),
-    (reinforce_en, reinforce_ru),
-    (warm_en, warm_ru),
-    (launchd_en, launchd_ru),
-    (web_en, web_ru),
-)
+#: Каталог кластера: без аргументов, отдаёт ключ -> шаблон.
+_Side = Callable[[], dict[str, str]]
+
+
+def _cluster_pair(name: str) -> tuple[_Side, _Side]:
+    """Импортировать `en.py`/`ru.py` кластера `name` и вернуть его каталоги.
+
+    Импорт по строке, собранной из имени папки, - единственный честный способ
+    подшить кластер, найденный обходом каталога, а не перечисленный тут поимённо.
+    Гейт знает про этот вызов поимённо (`scripts/structure_gate.py`,
+    `NAMED_EXCEPTIONS`), а поиск мёртвого кода - отдельно (`scripts/dead_code.py`,
+    `roots`), чтобы обход каталога не читался у него мёртвым импортом.
+    """
+    package = f"torrcast.domain.catalogs.{name}"
+    english_module = importlib.import_module(f"{package}.en")
+    russian_module = importlib.import_module(f"{package}.ru")
+    english: _Side = english_module.en
+    russian: _Side = russian_module.ru
+    return english, russian
+
+
+def _clusters() -> tuple[tuple[_Side, _Side], ...]:
+    """Собрать кластеры обходом соседних папок: у каждой свои `en.py` и `ru.py`."""
+    root = Path(__file__).parent
+    names = sorted(
+        entry.name
+        for entry in root.iterdir()
+        if entry.is_dir() and (entry / "en.py").is_file() and (entry / "ru.py").is_file()
+    )
+    return tuple(_cluster_pair(name) for name in names)
+
+
+#: Кластеры каталога, собранные один раз при импорте модуля: смотри :func:`_clusters`.
+_CLUSTERS: Final = _clusters()
 
 
 def phrase(key: str, **values: object) -> str:

@@ -87,6 +87,21 @@ def _named(modules: set[str], candidates: Iterable[str]) -> set[str]:
     return found
 
 
+def _catalog_leaves() -> Iterator[str]:
+    """Имена `en`/`ru` каждого кластера каталога надписей.
+
+    :func:`torrcast.domain.catalogs.phrase._clusters` подшивает их тем же обходом
+    соседних папок и импортом по собранной строке - графу импортов такой вызов не
+    виден, и без этой пригоршни имён каждый кластер читался бы осиротевшим модулем,
+    хотя зовёт его ровно один настоящий, просто не статический вызывающий.
+    """
+    catalogs = REPO / "torrcast" / "domain" / "catalogs"
+    for cluster in sorted(p for p in catalogs.iterdir() if p.is_dir()):
+        if (cluster / "en.py").is_file() and (cluster / "ru.py").is_file():
+            yield f"torrcast.domain.catalogs.{cluster.name}.en"
+            yield f"torrcast.domain.catalogs.{cluster.name}.ru"
+
+
 def roots(modules: set[str]) -> set[str]:
     """Корни графа: всё, откуда пакет зовут в обход импорта из самого пакета."""
     named: list[str] = []
@@ -102,6 +117,9 @@ def roots(modules: set[str]) -> set[str]:
     named.extend(_mentioned_in(REPO / "install.sh"))
     for definition in sorted((REPO / "scripts").glob("*.yml")):
         named.extend(_mentioned_in(definition))
+    # Каталог надписей: `phrase.py` зовёт свои кластеры импортом по строке, собранной
+    # обходом папок, а не именем, которое видел бы граф.
+    named.extend(_catalog_leaves())
     found = _named(modules, named)
     # `__main__` не импортирует никто по построению: его исполняет `python -m пакет`.
     # Показ так и поднимается отдельным процессом (см. `start_play_unit`), и имя модуля

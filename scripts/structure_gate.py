@@ -160,6 +160,19 @@ HOME_ASSISTANT_SHAPE: Final = {
     "custom_components/torrcast/__init__.py": frozenset({"единица", "раздача"}),
     "custom_components/torrcast/media_player.py": frozenset({"имя"}),
 }
+#: Снятые правила по причине, отличной от формы Home Assistant: своя опись, чтобы не
+#: путать чужую вынужденную форму с собственным решением архитектуры. Единственная
+#: запись сегодня - каталог надписей (:mod:`torrcast.domain.catalogs.phrase`): он
+#: собирает кластеры обходом соседних папок, а не перечислением, и импорт по имени,
+#: собранному из имени папки, - единственный честный способ подшить кластер, которого
+#: в этом файле никто не назвал. Перечислить кластеры тут значило бы вернуть файл к
+#: прежней болезни - строке на кластер, придвигающей его к потолку длины чужим
+#: кодом, - ради того же самого счётчика, который эта запись и снимает. Молчащего
+#: исключения тут нет: протухнуть записи не даёт та же проба, что и для
+#: :data:`HOME_ASSISTANT_SHAPE` (`tests/test_structure_gate.py`).
+NAMED_EXCEPTIONS: Final = {
+    "torrcast/domain/catalogs/phrase.py": frozenset({"обход"}),
+}
 ALLOWED: Final = {
     "domain": frozenset({"domain"}),
     "ports": frozenset({"domain", "ports"}),
@@ -1332,7 +1345,12 @@ def check(root: Path, modules: list[Module] | None = None) -> list[Violation]:
     failures.extend(_cycle_violations(modules, edges))
     failures.extend(_empty_test_violations(root))
     order = {rule: index for index, rule in enumerate(RULES)}
-    kept = [item for item in failures if item.rule not in HOME_ASSISTANT_SHAPE.get(item.path, ())]
+    kept = [
+        item
+        for item in failures
+        if item.rule not in HOME_ASSISTANT_SHAPE.get(item.path, ())
+        and item.rule not in NAMED_EXCEPTIONS.get(item.path, ())
+    ]
     return sorted(kept, key=lambda item: (order[item.rule], item.path, item.line, item.message))
 
 

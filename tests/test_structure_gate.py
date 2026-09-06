@@ -40,9 +40,11 @@ def live_violations(live_tree: list[structure_gate.Module]) -> list[structure_ga
     соседей - прибор начинал двигать то, что мерит.
     """
     root = Path(structure_gate.__file__).parents[1]
-    named = [item for item in live_tree if item.relative in structure_gate.HOME_ASSISTANT_SHAPE]
+    shaped = {*structure_gate.HOME_ASSISTANT_SHAPE, *structure_gate.NAMED_EXCEPTIONS}
+    named = [item for item in live_tree if item.relative in shaped]
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(structure_gate, "HOME_ASSISTANT_SHAPE", {})
+        patch.setattr(structure_gate, "NAMED_EXCEPTIONS", {})
         return structure_gate.check(root, named)
 
 
@@ -1015,6 +1017,44 @@ def test_every_shape_taken_by_home_assistant_still_hides_a_live_violation(
         assert (root / path).exists(), f"снятое правило висит на пропавшем файле {path}"
         for rule in rules:
             assert (path, rule) in raw, f"правило {rule} у {path} снято, а нарушать его нечем"
+
+
+def test_every_named_exception_still_hides_a_live_violation(
+    live_violations: list[structure_gate.Violation],
+) -> None:
+    """Та же проба протухания, что и у :data:`structure_gate.HOME_ASSISTANT_SHAPE`.
+
+    Опись своя (:data:`structure_gate.NAMED_EXCEPTIONS`), причина другая - но щель
+    от молча протухшей строки та же самая.
+    """
+    root = Path(structure_gate.__file__).parents[1]
+    raw = {(item.path, item.rule) for item in live_violations}
+
+    for path, rules in structure_gate.NAMED_EXCEPTIONS.items():
+        assert (root / path).exists(), f"снятое правило висит на пропавшем файле {path}"
+        for rule in rules:
+            assert (path, rule) in raw, f"правило {rule} у {path} снято, а нарушать его нечем"
+
+
+def test_the_named_exception_is_wired_into_check(tmp_path: Path) -> None:
+    """Опись :data:`structure_gate.NAMED_EXCEPTIONS` и правда снимает правило в `check`."""
+    (tmp_path / "torrcast" / "domain" / "catalogs").mkdir(parents=True)
+    (tmp_path / "tests" / "domain" / "catalogs").mkdir(parents=True)
+    where = "torrcast/domain/catalogs/phrase.py"
+    body = (
+        '"""Модуль."""\n\nfrom __future__ import annotations\n\nimport importlib\n\n'
+        'importlib.import_module("torrcast.domain.catalogs.tongue")\n'
+    )
+    (tmp_path / where).write_text(body, encoding="utf-8")
+    (tmp_path / "tests/domain/catalogs/test_phrase.py").write_text("", encoding="utf-8")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(structure_gate, "NAMED_EXCEPTIONS", {})
+        raw = {(item.path, item.rule) for item in structure_gate.check(tmp_path)}
+    kept = {(item.path, item.rule) for item in structure_gate.check(tmp_path)}
+
+    assert (where, "обход") in raw, "нарушать нечего - проба пуста"
+    assert (where, "обход") not in kept
 
 
 def test_the_shape_taken_by_home_assistant_is_wired_into_check(tmp_path: Path) -> None:
