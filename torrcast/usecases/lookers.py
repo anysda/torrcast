@@ -5,12 +5,9 @@ from __future__ import annotations
 import contextlib
 import threading
 from collections.abc import Callable, Hashable
-from typing import Generic, TypeVar
-
-_Answer = TypeVar("_Answer")
 
 
-class Lookers(Generic[_Answer]):
+class Lookers[Answer]:
     """Нитки, поднятые по ключу: одна на ключ, и опоздавший ответ не пропадает.
 
     Срок у справки есть, а способа оборвать нитку, залипшую в системном вызове, в Python
@@ -26,11 +23,11 @@ class Lookers(Generic[_Answer]):
     """
 
     def __init__(self) -> None:
-        self._found: dict[Hashable, _Answer] = {}
+        self._found: dict[Hashable, Answer] = {}
         self._running: dict[Hashable, threading.Thread] = {}
         self._lock = threading.Lock()
 
-    def ask(self, key: Hashable, work: Callable[[], _Answer], timeout: float) -> _Answer | None:
+    def ask(self, key: Hashable, work: Callable[[], Answer], timeout: float) -> Answer | None:
         """Ответ по ключу в отведённый срок; не успел - ``None``, а нитка остаётся одна."""
         known = self.found(key)
         if known is not None:
@@ -38,12 +35,12 @@ class Lookers(Generic[_Answer]):
         self.looker(key, work).join(timeout)
         return self.found(key)
 
-    def found(self, key: Hashable) -> _Answer | None:
+    def found(self, key: Hashable) -> Answer | None:
         """Ответ по ключу, если он уже приехал, - хоть бы и после чьего-то срока."""
         with self._lock:
             return self._found.get(key)
 
-    def looker(self, key: Hashable, work: Callable[[], _Answer]) -> threading.Thread:
+    def looker(self, key: Hashable, work: Callable[[], Answer]) -> threading.Thread:
         """Нитка, отвечающая на ключ: уже поднятая, если она жива, иначе новая.
 
         Ждут её по своему сроку сами спрашивающие: у одного он длиннее, у другого короче,

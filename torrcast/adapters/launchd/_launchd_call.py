@@ -9,12 +9,11 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Callable
-from typing import TypeAlias
 
 #: Чем команда задания зовёт launchd. Боевое умолчание у всех команд одно и то же
 #: (:func:`_launchd`), поэтому продукт про этот довод не знает вовсе; стенду он нужен,
 #: чтобы не лезть в модуль соседа за именем и не заводить настоящих заданий на машине.
-LaunchdCall: TypeAlias = Callable[..., subprocess.CompletedProcess[str]]
+type LaunchdCall = Callable[..., subprocess.CompletedProcess[str]]
 
 
 def _domain() -> str:

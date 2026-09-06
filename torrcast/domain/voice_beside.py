@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Final, TypeVar
+from typing import Final
 
 from torrcast.domain._name_data.data_3 import VIDEO_EXT
 from torrcast.domain.file_like import FileLike
@@ -12,12 +12,11 @@ from torrcast.domain.file_like import FileLike
 #: не случайно: студии озвучки кладут дорожку именно так, и в аниме это типовая раскладка.
 _AUDIO_EXT: Final = (".mka", ".ac3", ".dts", ".eac3", ".flac", ".aac", ".m4a", ".mp3", ".opus")
 
-#: Правило отвечает файлом ТОГО ЖЕ вида, что ему дали: зовущему нужен его номер в раздаче.
-_File = TypeVar("_File", bound=FileLike)
 
-
-def voice_beside(video: _File, files: Sequence[_File]) -> _File | None:
+def voice_beside[File: FileLike](video: File, files: Sequence[File]) -> File | None:
     """Файл со звуком, относящийся именно к этому видео; ``None`` - такого нет.
+
+    Отвечает файлом ТОГО ЖЕ вида, что ему дали: зовущему нужен его номер в раздаче.
 
     Правил ровно два, и оба отвечают «не знаю» там, где не уверены: подмешать чужую
     дорожку хуже, чем не подмешать никакой.

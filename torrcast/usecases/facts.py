@@ -6,7 +6,6 @@ import contextlib
 import threading
 import time
 from collections.abc import Callable, Iterable
-from typing import TypeAlias
 
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.facts_budget import facts_budget
@@ -14,7 +13,7 @@ from torrcast.domain.facts.topup_limit import topup_limit
 from torrcast.ports.blurb_source import BlurbSource
 from torrcast.ports.blurb_store import BlurbStore
 
-FactPicture: TypeAlias = tuple[str, int | None] | tuple[str, int | None, str]
+type FactPicture = tuple[str, int | None] | tuple[str, int | None, str]
 
 
 class Facts:

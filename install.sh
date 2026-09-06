@@ -111,10 +111,19 @@ if [ -z "$LANGUAGE" ] && [ -r "$CONFIG_DIR/config.json" ]; then
     LANGUAGE="$(sed -n 's/.*"language" *: *"\(en\|ru\)".*/\1/p' "$CONFIG_DIR/config.json" | head -n 1)"
 fi
 [ -n "$LANGUAGE" ] || LANGUAGE=en
-#: Интерпретатор ищем, а не прибиваем: на Debian 12 есть только python3.11,
-#: python3.12 в её репозиториях нет вовсе. Нижняя граница — 3.11
-#: (requires-python), на ней зелены тесты и mypy --strict.
+#: Интерпретатор ищем, а не прибиваем. Нижняя граница - 3.12 (requires-python), и на
+#: Debian 12 её нет вовсе: в репозиториях у неё только python3.11. Такую машину
+#: установщик не бросает и чужих apt-репозиториев ей не дописывает - интерпретатор
+#: приносит uv, рядом с продуктом (:func:`pick_python`).
 PYTHON="${TORRCAST_PYTHON:-}"
+#: Куда ложатся сам uv и принесённый им интерпретатор. Место продуктовое, а не
+#: домашнее: $HOME у перезапуска под sudo чужой и разный, а повторная установка и
+#: `cast --upgrade` обязаны найти уже принесённое и не качать его заново.
+UV_DIR="${TORRCAST_UV_DIR:-$PREFIX/uv}"
+UV_PYTHON_DIR="${TORRCAST_UV_PYTHON_DIR:-$PREFIX/python}"
+#: Официальный установщик uv. Переопределение - для стендовой проверки шва, живой
+#: адрес меняется только вслед за astral.sh.
+UV_INSTALL_URL="${TORRCAST_UV_URL:-https://astral.sh/uv/install.sh}"
 #: Индекс пакетов Python. В части сетей штатный индекс не отвечает вовсе, поэтому
 #: рядом лежат полные зеркала (индекс + файлы) — установка сама выберет живое.
 #: Зеркала намеренно из разных геозон: первое вне китайского сегмента, два других
@@ -1168,8 +1177,8 @@ setup_locale() {
 APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl python3-venv)
 
 # На macOS curl, bsdtar, LibreSSL и системное доверие уже даёт сама ОС; python venv
-# входит в brew python. Формулами ставятся только jq, Python >= 3.11 и ffmpeg >= 7.
-BREW_PACKAGES=(jq python@3.11 ffmpeg)
+# входит в brew python. Формулами ставятся только jq, Python >= 3.12 и ffmpeg >= 7.
+BREW_PACKAGES=(jq python@3.12 ffmpeg)
 
 #: Официальный установщик Homebrew. Переопределение - для стендовой проверки шва,
 #: живой URL меняется только вслед за brew.sh.
@@ -1226,18 +1235,80 @@ brew_as_invoker() {
     "$SUDO" -H -u "$SUDO_USER" "$brew_bin" "$@"
 }
 
-# Самый свежий интерпретатор не ниже 3.11. Явный TORRCAST_PYTHON уважаем как есть.
+uv_bin() {  # печатает путь к uv; код 1 - его нет
+    if [ -x "$UV_DIR/uv" ]; then
+        printf '%s' "$UV_DIR/uv"
+        return 0
+    fi
+    local found
+    found="$(command -v uv 2>/dev/null || true)"
+    [ -n "$found" ] || return 1
+    printf '%s' "$found"
+}
+
+#: uv ставим САМИ, официальным установщиком, и вслух: чужой инструмент на машине
+#: человека - событие, о котором говорят. UV_INSTALL_DIR уводит бинарь в продуктовый
+#: каталог (в $HOME ему делать нечего: под sudo он чужой), INSTALLER_NO_MODIFY_PATH
+#: оставляет в покое профили оболочки - PATH человека не наше имущество. Весь вывод
+#: шага в stderr: шаг зовут из ветки, чей stdout читают как путь к интерпретатору.
+install_uv() {
+    loud "no python 3.12 on this machine - installing uv into $UV_DIR to bring one (https://astral.sh)" \
+        "python 3.12 в системе нет - ставлю uv в $UV_DIR, он принесёт интерпретатор (https://astral.sh)"
+    local script; script="$(mktemp "${TMPDIR:-/tmp}/uv-install.XXXXXX")"
+    fetch -o "$script" "$UV_INSTALL_URL" \
+        || die "could not download the uv installer from $UV_INSTALL_URL" \
+            "не скачался установщик uv: $UV_INSTALL_URL"
+    UV_INSTALL_DIR="$UV_DIR" INSTALLER_NO_MODIFY_PATH=1 sh "$script" >&2 \
+        || die "the uv installer failed" "установщик uv не отработал"
+    rm -f "$script"
+}
+
+#: Интерпретатор 3.12 руками uv - для машин, где своего такого нет (Debian 12). Сначала
+#: спрашиваем уже принесённый и только потом качаем: повторная установка обязана быть
+#: тихой и быстрой, а не тянуть те же 30 МБ второй раз. Каталог принесённого назван
+#: явно (UV_PYTHON_INSTALL_DIR), иначе `find` и `install` смотрели бы в $HOME, который
+#: у перезапуска под sudo меняется, - и каждый заход выглядел бы как первый.
+bring_python() {
+    local uv found
+    if ! uv="$(uv_bin)"; then
+        install_uv
+        uv="$(uv_bin)" || die "the uv installer finished but uv still does not run" \
+            "установщик uv отработал, а uv всё ещё не запускается"
+    fi
+    export UV_PYTHON_INSTALL_DIR="$UV_PYTHON_DIR"
+    #: Спрашиваем РОВНО принесённое uv (`--managed-python`) и мимо здешнего проекта
+    #: (`--no-project`): без этих двух слов `find` отвечает первым, что видит, - и на
+    #: машине, где установку запустили из каталога с `.venv`, отвечает венвом. Продукт
+    #: уехал бы жить в чужое временное окружение, которое назавтра сотрут.
+    found="$("$uv" python find --managed-python --no-project '>=3.12' 2>/dev/null || true)"
+    if [ -n "$found" ]; then
+        skip "python 3.12 brought by uv ($found)" "принесённый uv python 3.12 ($found)"
+    else
+        loud "uv is bringing python 3.12 into $UV_PYTHON_DIR - the system has none" \
+            "uv несёт python 3.12 в $UV_PYTHON_DIR - в системе его нет"
+        "$uv" python install 3.12 >&2 \
+            || die "uv could not install python 3.12" "uv не смог поставить python 3.12"
+        found="$("$uv" python find --managed-python --no-project '>=3.12' 2>/dev/null || true)"
+    fi
+    [ -n "$found" ] && [ -x "$found" ] || die \
+        "python 3.12 or newer is required and uv could not bring it (see requires-python in pyproject.toml)" \
+        "нужен python 3.12 или новее, и принести его через uv не вышло (см. requires-python в pyproject.toml)"
+    PYTHON="$found"
+}
+
+# Самый свежий интерпретатор не ниже 3.12. Явный TORRCAST_PYTHON уважаем как есть.
+# Своего такого в системе нет - зовём uv; там, где есть, uv не участвует вовсе.
 pick_python() {
     [ -n "$PYTHON" ] && return 0
     local candidate
-    for candidate in python3.13 python3.12 python3.11 python3; do
+    for candidate in python3.14 python3.13 python3.12 python3; do
         command -v "$candidate" >/dev/null 2>&1 || continue
-        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'; then
             PYTHON="$candidate"
             return 0
         fi
     done
-    die "python 3.11 or newer is required (see requires-python in pyproject.toml)" "нужен python 3.11 или новее (см. requires-python в pyproject.toml)"
+    bring_python
 }
 
 #: ffmpeg не ниже 6.1 — из-за -readrate_initial_burst. В Debian 12 живёт 5.1, а без burst
@@ -1567,6 +1638,28 @@ install_packages() {
 
 # --- 2. Пакет torrcast в собственный venv ------------------------------------
 
+#: Venv продукта: заводим, когда его нет, и ПЕРЕСОБИРАЕМ, когда он собран питоном ниже
+#: нижней границы. 🔴 Второе куплено переходом на 3.12: у машины, где продукт стоял с
+#: 3.11, каталог venv на месте и `python` в нём запускается, так что проверка «уже есть»
+#: уводила установку мимо, - а pip в таком venv отказывается ставить пакет по существу
+#: («requires a different Python»), и обновление умирало бы на ровном месте. Спрашиваем
+#: не наличие каталога, а ВЕРСИЮ. Пересборка безопасна: всё, что в venv лежит, кладёт
+#: туда следующий же шаг (pip ставит пакет, install_cast_command переписывает команду).
+ensure_venv() {
+    if [ -x "$PREFIX/venv/bin/python" ] && ! "$PREFIX/venv/bin/python" -c \
+        'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null; then
+        loud "venv $PREFIX/venv is built on a python below 3.12 - rebuilding it on $PYTHON" \
+            "venv $PREFIX/venv собран питоном ниже 3.12 - пересобираю его на $PYTHON"
+        rm -rf "$PREFIX/venv"
+    fi
+    if [ ! -x "$PREFIX/venv/bin/python" ]; then
+        install -d -m 0755 "$PREFIX"
+        "$PYTHON" -m venv "$PREFIX/venv"
+    else
+        skip "venv $PREFIX/venv" "venv $PREFIX/venv"
+    fi
+}
+
 # Отвечает ли индекс пакетов. Спрашиваем страницу одного пакета, а не корень индекса:
 # корневой листинг — десятки мегабайт, и замер упирался бы в его размер, а не в
 # доступность. Молчаливо: неответ здесь — штатная ветка, а не ошибка.
@@ -1621,12 +1714,7 @@ install_torrcast() {
     local installed site
     log "torrcast package -> $PREFIX" "пакет torrcast → $PREFIX"
     pick_python  # фаза может гоняться и в одиночку, без `packages`
-    if [ ! -x "$PREFIX/venv/bin/python" ]; then
-        install -d -m 0755 "$PREFIX"
-        "$PYTHON" -m venv "$PREFIX/venv"
-    else
-        skip "venv $PREFIX/venv" "venv $PREFIX/venv"
-    fi
+    ensure_venv
     pick_pip_index
     site="$("$PREFIX/venv/bin/python" -P -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" ||
         die "venv $PREFIX/venv does not respond - there is nowhere to install the package" "venv $PREFIX/venv не отвечает - ставить пакет некуда"
@@ -3509,7 +3597,7 @@ EOF
         local command="$3"
         command="${command//&/\&amp;}"; command="${command//</\&lt;}"; command="${command//>/\&gt;}"
         # У launchd свой PATH (/usr/bin:/bin:/usr/sbin:/sbin), Homebrew в него не
-        # входит: команда вида `python3.11 ...` под заданием умерла бы с «not found».
+        # входит: команда вида `python3.12 ...` под заданием умерла бы с «not found».
         # Отдаём тот PATH, под которым идёт сама установка, - фаза `packages` уже
         # добавила туда префикс Homebrew.
         local path_xml="$PATH"

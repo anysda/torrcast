@@ -706,7 +706,7 @@ def test_a_mac_without_homebrew_gets_it_from_the_installer_itself(tmp_path: Path
     assert len(setup) == 1, f"установщик Homebrew позван не ровно один раз: {calls!r}"
     assert f"-u {user}" in setup[0], f"Homebrew ставит не позвавший sudo: {setup[0]!r}"
     assert "NONINTERACTIVE=1" in setup[0], f"установщику дали повеситься на RETURN: {setup[0]!r}"
-    assert "install jq python@3.11 ffmpeg" in brew_log.read_text(encoding="utf-8")
+    assert "install jq python@3.12 ffmpeg" in brew_log.read_text(encoding="utf-8")
 
     # Второй прогон по уже поставленному: brew на месте, ставить заново нельзя.
     second = subprocess.run(
@@ -725,6 +725,214 @@ def test_a_mac_without_homebrew_gets_it_from_the_installer_itself(tmp_path: Path
     assert len([line for line in calls if "homebrew-install" in line]) == 1, (
         f"установщик Homebrew позван повторно: {calls!r}"
     )
+
+
+def _python_stand(tmp_path: Path, *, has_312: bool) -> tuple[str, Path, Path]:
+    """Стенд выбора интерпретатора: PATH без 3.12 (или с ним) и подставной установщик uv.
+
+    🔴 Настоящий astral.sh в этой проверке участвовать не может: он принёс бы на машину
+    живой бинарь и полсотни мегабайт интерпретатора, о которых она не просила. Поэтому
+    адрес установщика назван явно (`UV_INSTALL_URL`), а подделка только записывает, как
+    её позвали, и кладёт `uv`, отвечающий на два вопроса - `python find` и
+    `python install`.
+
+    Кандидаты в PATH подделаны все до одного, а сам PATH урезан до системных каталогов:
+    на машине-стенде свой python3 есть всегда, а нередко и свой uv - без подделки проба
+    мерила бы их, а не ветку, и настоящий uv качал бы настоящий интерпретатор.
+    """
+    box = tmp_path / "box"
+    bindir = box / "bin"
+    bindir.mkdir(parents=True)
+    for name in ("python3.14", "python3.13", "python3.12", "python3"):
+        shim = bindir / name
+        if has_312 and name == "python3.12":
+            shim.write_text(
+                f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n', encoding="utf-8"
+            )
+        else:
+            # Debian 12: своего 3.12 нет вовсе, а python3 отвечает 3.11 - проба версии
+            # у него не проходит.
+            shim.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        shim.chmod(0o755)
+    uv_log = box / "uv.log"
+    installer_log = box / "uv-installer.log"
+    installer = box / "uv-install.sh"
+    installer.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "${{UV_INSTALL_DIR:-нет}} ${{INSTALLER_NO_MODIFY_PATH:-нет}}"'
+        f' >> "{installer_log}"\n'
+        'mkdir -p "$UV_INSTALL_DIR"\n'
+        'cat > "$UV_INSTALL_DIR/uv" <<UV\n'
+        "#!/bin/sh\n"
+        f'printf "%s | %s\\\\n" "\\$*" "\\${{UV_PYTHON_INSTALL_DIR:-нет}}" >> "{uv_log}"\n'
+        'case "\\$*" in\n'
+        '    (*"python find"*)\n'
+        '        [ -x "\\$UV_PYTHON_INSTALL_DIR/bin/python3.12" ] || exit 1\n'
+        '        printf "%s\\\\n" "\\$UV_PYTHON_INSTALL_DIR/bin/python3.12" ;;\n'
+        '    (*"python install"*)\n'
+        '        mkdir -p "\\$UV_PYTHON_INSTALL_DIR/bin"\n'
+        f"        printf '#!/bin/sh\\\\nexec {sys.executable} \"\\$@\"\\\\n' "
+        '> "\\$UV_PYTHON_INSTALL_DIR/bin/python3.12"\n'
+        '        chmod +x "\\$UV_PYTHON_INSTALL_DIR/bin/python3.12" ;;\n'
+        "esac\n"
+        "UV\n"
+        'chmod +x "$UV_INSTALL_DIR/uv"\n',
+        encoding="utf-8",
+    )
+    installer.chmod(0o755)
+    script = f"""
+set -eu
+PATH={shlex.quote(str(bindir))}:/usr/bin:/bin
+LANGUAGE=ru
+DL_TRIES=1
+PYTHON=
+UV_DIR={shlex.quote(str(box / "opt" / "uv"))}
+UV_PYTHON_DIR={shlex.quote(str(box / "opt" / "python"))}
+UV_INSTALL_URL=file://{installer}
+eval "$(sed -n '/^fetch() {{/,/^}}$/p;/^uv_bin() {{/,/^}}$/p;/^install_uv() {{/,/^}}$/p;\
+/^bring_python() {{/,/^}}$/p;/^pick_python() {{/,/^}}$/p' \
+    {shlex.quote(str(REPO / "install.sh"))})"
+info() {{ printf 'info: %s\\n' "$1" >&2; }}
+skip() {{ printf 'skip: %s\\n' "$1" >&2; }}
+loud() {{ printf 'loud: %s\\n' "$1" >&2; }}
+die()  {{ printf 'die: %s\\n' "$1" >&2; exit 9; }}
+pick_python
+printf '%s\\n' "$PYTHON"
+"""
+    return script, uv_log, installer_log
+
+
+@pytest.mark.machine
+def test_a_machine_without_python_312_gets_one_from_uv(tmp_path: Path) -> None:
+    """🔴 Debian 12 везёт только python3.11, а нижняя граница продукта - 3.12.
+
+    Такую машину установщик не бросает и чужих репозиториев ей не дописывает:
+    интерпретатор приносит uv, рядом с продуктом. Мера - поведение выбора, а не текст:
+    смотрим, чем в итоге оказался $PYTHON и как для этого позвали uv.
+
+    Второй прогон по тому же стенду обязан пройти тихо: uv уже лежит, интерпретатор
+    уже принесён, и качать их заново незачем - ровно так выглядит `cast --upgrade` и
+    повторная установка.
+    """
+    script, uv_log, installer_log = _python_stand(tmp_path, has_312=False)
+
+    first = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert first.returncode == 0, first.stderr
+    brought = tmp_path / "box" / "opt" / "python" / "bin" / "python3.12"
+    assert first.stdout.strip() == str(brought), f"интерпретатор взят не у uv: {first.stdout!r}"
+    assert installer_log.read_text(encoding="utf-8").splitlines() == [
+        f"{tmp_path / 'box' / 'opt' / 'uv'} 1"
+    ], "uv ставится не в продуктовый каталог или переписывает профиль оболочки"
+    asked = uv_log.read_text(encoding="utf-8").splitlines()
+    assert any(line.startswith("python install 3.12 ") for line in asked), asked
+    assert all(line.endswith(str(tmp_path / "box" / "opt" / "python")) for line in asked), (
+        f"uv не назвали каталог для интерпретатора - он уедет в $HOME: {asked!r}"
+    )
+    assert "loud" in first.stderr, f"чужой инструмент принесён молча: {first.stderr!r}"
+
+    second = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert second.returncode == 0, second.stderr
+    assert second.stdout == first.stdout
+    assert len(installer_log.read_text(encoding="utf-8").splitlines()) == 1, (
+        "uv скачан повторно поверх живого"
+    )
+    again = uv_log.read_text(encoding="utf-8").splitlines()[len(asked) :]
+    assert not any(line.startswith("python install") for line in again), (
+        f"интерпретатор качается заново на втором прогоне: {again!r}"
+    )
+    assert "skip" in second.stderr, f"о пропуске сказано не было: {second.stderr!r}"
+
+
+@pytest.mark.machine
+def test_a_machine_that_has_python_312_never_calls_uv(tmp_path: Path) -> None:
+    """Там, где свой 3.12 есть, uv не участвует вовсе: ни установки, ни вопроса к нему.
+
+    Иначе продукт тащил бы на всякую машину второй интерпретатор и второй пакетный
+    менеджер ради того, что у неё уже есть.
+    """
+    script, uv_log, installer_log = _python_stand(tmp_path, has_312=True)
+
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "python3.12", f"взят не системный 3.12: {done.stdout!r}"
+    assert not installer_log.exists(), "uv ставится там, где интерпретатор уже есть"
+    assert not uv_log.exists(), "uv спрашивают там, где интерпретатор уже есть"
+
+
+def _venv_stand(tmp_path: Path, standing: str | None) -> tuple[str, Path, Path]:
+    """Стенд :func:`ensure_venv`: ``standing`` - версия УЖЕ лежащего venv или ``None``.
+
+    Настоящий venv тут ни к чему: спрашивают у него ровно одно - проходит ли его python
+    пробу версии, и подделка отвечает на это кодом возврата. Зато метка внутри каталога
+    настоящая: по ней и видно, пересобран venv или оставлен как был.
+    """
+    box = tmp_path / "box"
+    prefix = box / "opt"
+    build_log = box / "build.log"
+    if standing is not None:
+        binder = prefix / "venv" / "bin"
+        binder.mkdir(parents=True)
+        (binder / "python").write_text(
+            f"#!/bin/sh\nexit {0 if standing == '3.12' else 1}\n", encoding="utf-8"
+        )
+        (binder / "python").chmod(0o755)
+        (prefix / "venv" / "марка").write_text(standing, encoding="utf-8")
+    maker = box / "python-maker"
+    maker.parent.mkdir(parents=True, exist_ok=True)
+    maker.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> "{build_log}"\n'
+        'if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then\n'
+        '    mkdir -p "$3/bin"\n'
+        '    printf "#!/bin/sh\\nexit 0\\n" > "$3/bin/python"\n'
+        '    chmod +x "$3/bin/python"\n'
+        "fi\n",
+        encoding="utf-8",
+    )
+    maker.chmod(0o755)
+    script = f"""
+set -eu
+PREFIX={shlex.quote(str(prefix))}
+PYTHON={shlex.quote(str(maker))}
+eval "$(sed -n '/^ensure_venv() {{/,/^}}$/p' {shlex.quote(str(REPO / "install.sh"))})"
+skip() {{ printf 'skip: %s\\n' "$1" >&2; }}
+loud() {{ printf 'loud: %s\\n' "$1" >&2; }}
+ensure_venv
+"""
+    return script, build_log, prefix / "venv" / "марка"
+
+
+@pytest.mark.machine
+def test_a_venv_built_on_an_older_python_is_rebuilt_not_kept(tmp_path: Path) -> None:
+    """🔴 Машина, где продукт стоял с 3.11, переживает переход молча: каталог venv на
+    месте, python в нём запускается, и прежний вопрос «есть ли venv» уводил установку
+    мимо. А pip в таком venv отказывает уже по существу («requires a different Python»),
+    и обновление умирало бы на ровном месте. Спрашивать надо ВЕРСИЮ.
+
+    Пара к этому - venv нужной версии: его трогать нельзя, иначе всякая повторная
+    установка сносила бы рабочее окружение и ставила всё заново.
+    """
+    script, built, mark = _venv_stand(tmp_path / "старый", "3.11")
+
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stderr
+    made = built.read_text(encoding="utf-8") if built.exists() else ""
+    assert "-m venv" in made, f"venv на 3.11 оставлен как был: {made!r}"
+    assert not mark.exists(), "каталог не пересобран, а дополнен поверх старого"
+    assert "loud" in done.stderr, f"venv пересобран молча: {done.stderr!r}"
+
+    script, built, mark = _venv_stand(tmp_path / "годный", "3.12")
+
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stderr
+    assert not built.exists(), "годный venv пересобран без нужды"
+    assert mark.exists(), "годный venv снесён"
+    assert "skip" in done.stderr, f"о пропуске сказано не было: {done.stderr!r}"
 
 
 def test_case_arms_inside_command_substitutions_keep_their_balancing_paren() -> None:
@@ -1426,6 +1634,9 @@ def fake_venv(box: Path) -> None:
         '#!/bin/sh\ncase "$*" in\n'
         f"  *sysconfig*) printf '%s\\n' {shlex.quote(str(site))} ;;\n"
         f"  *torrcast*) printf '%s\\n' {shlex.quote(str(site / 'torrcast'))} ;;\n"
+        # Проба версии: подделка играет venv, собранный годным питоном, - иначе фаза
+        # снесла бы её и пересобрала настоящим, а мерят тут не это.
+        "  *version_info*) exit 0 ;;\n"
         "  *) exit 1 ;;\nesac\n",
         encoding="utf-8",
     )
@@ -1818,7 +2029,7 @@ def _pip_stand(tmp_path: Path, pip_version: str, *, had_package: bool) -> tuple[
     pip = prefix / "venv" / "bin" / "pip"
     pip.write_text(
         "#!/bin/sh\n"
-        f'if [ "$1" = "--version" ]; then printf "pip {pip_version} from x (python 3.11)\\n";'
+        f'if [ "$1" = "--version" ]; then printf "pip {pip_version} from x (python 3.12)\\n";'
         " exit 0; fi\n"
         f'printf "%s\\n" "$*" >> {shlex.quote(str(calls))}\n'
         f'case "$*" in *"{tmp_path / "src"}"*) mkdir -p {shlex.quote(str(landed))};; esac\n'
@@ -1839,6 +2050,7 @@ eval "$(sed -n '/^pip_new_enough() {{/,/^}}$/p;/^install_torrcast() {{/,/^}}$/p'
 log() {{ :; }}; skip() {{ :; }}; info() {{ :; }}; loud() {{ :; }}
 die() {{ printf 'die: %s\\n' "$1" >&2; exit 9; }}
 pick_python() {{ :; }}
+ensure_venv() {{ :; }}
 pick_pip_index() {{ :; }}
 drop_pip_leftovers() {{ :; }}
 install_cast_command() {{ :; }}

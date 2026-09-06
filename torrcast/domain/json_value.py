@@ -7,9 +7,7 @@
 
 from __future__ import annotations
 
-from typing import TypeAlias
-
 #: Значение разобранного JSON. Псевдоним рекурсивный намеренно: вложенный объект и
 #: вложенный список - такой же JSON, и обрывать описание на первом уровне значило бы
 #: снова сказать «дальше что угодно».
-JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
+type JsonValue = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None

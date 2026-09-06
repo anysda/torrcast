@@ -16,10 +16,10 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
 #: Чем щуп спрашивает Prowlarr: боевой HTTP-запрос (:func:`_json`) или ответ стенда.
-Ask: TypeAlias = Callable[[str, str, str, float], Any]
+type Ask = Callable[[str, str, str, float], Any]
 
 
 def _json(base: str, key: str, path: str, timeout: float) -> Any:

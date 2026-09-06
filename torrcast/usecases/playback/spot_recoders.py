@@ -12,9 +12,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeAlias
 
 from torrcast.ports.recode.spot_recoder import SpotRecoder
 
 #: Чем показ заводит кодировщик тяжёлых кусков.
-SpotRecoders: TypeAlias = Callable[..., SpotRecoder]
+type SpotRecoders = Callable[..., SpotRecoder]

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Container, Mapping
-from typing import TypeVar
 
 from torrcast.domain.json_value import JsonValue
 
-T = TypeVar("T")
 
-
-def json_model(model: Callable[..., T], data: Mapping[str, JsonValue], known: Container[str]) -> T:
+def json_model[T](
+    model: Callable[..., T], data: Mapping[str, JsonValue], known: Container[str]
+) -> T:
     """Собрать модель из словаря JSON, молча потеряв ключи, которых у неё нет.
 
     Так читаются оба наших файла - настройки и состояние. Незнакомый ключ не ошибка, а

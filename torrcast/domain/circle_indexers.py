@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TypeAlias
 
 from torrcast.domain.anime_indexer import anime_indexer
 from torrcast.domain.anime_query import anime_query
 
 #: Индексер, каким его назвал Prowlarr: номер и имя.
-Indexer: TypeAlias = tuple[int, str]
+type Indexer = tuple[int, str]
 
 
 def circle_indexers(

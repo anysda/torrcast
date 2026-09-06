@@ -7,10 +7,10 @@ name = "torrcast"
 dynamic = ["version"]
 description = "Поиск торрент-релиза и каст его на ТВ без скачивания и без облака"
 readme = "README.md"
-# Debian 12 везёт python3.11 и никакого python3.12 в репозиториях у неё нет. Нижняя
-# граница снижена до 3.11, чтобы установка оставалась двумя командами; на 3.11 зелены
-# и тесты, и mypy --strict.
-requires-python = ">=3.11"
+# Debian 12 везёт python3.11 и никакого python3.12 в репозиториях у неё нет. Нижней
+# границе это больше не указ: где системного 3.12 нет, установщик приносит его сам
+# через uv (install.sh, pick_python), и установка остаётся теми же двумя командами.
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "anysda", email = "anysdaw@gmail.com" }]
 dependencies = [
@@ -56,7 +56,7 @@ packages = ["torrcast", "tgbot", "hass"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 # ARG - параметр, который никто не читает: это мёртвый код в малом, и он же первый
@@ -81,7 +81,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 known-first-party = ["torrcast", "tgbot", "hass", "custom_components"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 incremental = false
 files = ["torrcast", "tgbot", "hass", "custom_components", "tests", "scripts"]

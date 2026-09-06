@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     #: Чем ищется выдача: тот же поиск, что и у показа (:func:`search_circle`), либо ответ
     #: подделки в тесте. Тип назван подписью самого поиска, а не свободным `Any`:
     #: таблица зовёт его ровно этими четырьмя доводами и ждёт ровно планы картин.
-    Search: TypeAlias = Callable[[Config, Args, Progress, Profile], list[Plan]]
+    type Search = Callable[[Config, Args, Progress, Profile], list[Plan]]
 
 #: Внешний мир таблицы: настройки, справка о картинах, паспорт приёмника и память
 #: показанного порядка. Кладёт их композиционный корень (:mod:`torrcast.runtime.wire`) -

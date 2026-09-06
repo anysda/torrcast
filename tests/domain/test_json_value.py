@@ -20,8 +20,13 @@ DOCUMENT = (
 
 
 def _named() -> set[type]:
-    """Типы, названные в псевдониме: у обобщённых берётся сам контейнер."""
-    return {get_origin(part) or part for part in get_args(JsonValue)}
+    """Типы, названные в псевдониме: у обобщённых берётся сам контейнер.
+
+    🔴 Псевдоним объявлен словом ``type`` (3.12), и сам он - не объединение, а обёртка
+    над ним: ``get_args`` у обёртки отвечает пустотой. Спрашивать надо ``__value__``,
+    иначе мера ответила бы «названо ничего» и на любом составе псевдонима, и на пустом.
+    """
+    return {get_origin(part) or part for part in get_args(JsonValue.__value__)}
 
 
 def _shapes(value: JsonValue) -> set[type]:

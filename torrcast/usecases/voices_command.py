@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     #: Чем ищется выдача: тот же круг поиска, что у показа (:func:`search_circle`), либо
     #: ответ подделки на стенде. Тип назван подписью самого поиска, а не свободным `Any`:
     #: меню зовёт его ровно этими тремя доводами и ждёт ровно планы картин.
-    Search: TypeAlias = Callable[[Config, Args, Progress], list[Plan]]
+    type Search = Callable[[Config, Args, Progress], list[Plan]]
 
 #: Внешний мир меню озвучек: настройки, служба раздач и происхождение картины. Кладёт
 #: их композиционный корень (:mod:`torrcast.runtime.wire`). Имена длиннее очевидных

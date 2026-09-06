@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from typing import Final, TypeVar
+from typing import Final
 
 from torrcast.domain.facts.settings import FACTS_BUDGET
 
@@ -15,12 +15,10 @@ from torrcast.domain.facts.settings import FACTS_BUDGET
 #: держать его незачем - ответа к этому сроку не ждёт уже никто.
 _CLOSING: Final = FACTS_BUDGET
 
-_Answer = TypeVar("_Answer")
 
-
-def closed_wave(
-    wave: list[threading.Thread], deadline: float, take: Callable[[], _Answer]
-) -> _Answer:
+def closed_wave[Answer](
+    wave: list[threading.Thread], deadline: float, take: Callable[[], Answer]
+) -> Answer:
     """Дождаться поднятой волны до ``deadline``, снять ответ и закрыть за собой поднятое.
 
     Срок и закрытие - разные вещи, и платят их разные. Срок принадлежит спрашивающему: в

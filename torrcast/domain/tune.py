@@ -1,7 +1,7 @@
 """Накладывает пороги профиля телевизора на не переопределённые настройки."""
 
 from dataclasses import replace
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 from torrcast.domain.profile import CAUTIOUS, Profile
 
@@ -31,10 +31,7 @@ class _Config(Protocol):
     def hls_seam_lead(self) -> float: ...
 
 
-_C = TypeVar("_C", bound=_Config)
-
-
-def tune(config: _C, profile: Profile) -> _C:
+def tune[C: _Config](config: C, profile: Profile) -> C:
     """Заменить только значения, равные осторожным умолчаниям."""
     return replace(  # type: ignore[type-var]
         config,

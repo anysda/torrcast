@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import Any, Final, TypeAlias
+from typing import Any, Final
 
 from torrcast.domain.raw_result import RawResult
 
@@ -12,7 +12,7 @@ _HASH_RE: Final = re.compile(r"^[0-9a-fA-F]{40}$")
 #: Сырые поля одной строки выдачи: имя, хэш, размер, сиды, индексер - и в этом порядке.
 #: Что в них лежит на самом деле, решает каталог, а не мы: поля приезжают из чужого JSON
 #: и чужого XML, и назвать их честнее нечем - ради этой границы адаптер и заведён.
-Row: TypeAlias = tuple[Any, ...]
+type Row = tuple[Any, ...]
 
 
 def collect_rows(rows: Iterable[Row]) -> list[RawResult]:

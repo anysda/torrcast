@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
-from typing import Final, TypeAlias
+from typing import Final
 
 from torrcast.domain.infra_error import InfraError
 
@@ -15,7 +15,7 @@ BOT_UNIT: Final = "torrcast-bot.service"
 
 #: Чем звать systemd. Боевое умолчание одно (:func:`_systemctl`); стенду довод нужен,
 #: чтобы не заводить настоящих юнитов на машине, где идёт проверка.
-SystemctlCall: TypeAlias = Callable[..., subprocess.CompletedProcess[str]]
+type SystemctlCall = Callable[..., subprocess.CompletedProcess[str]]
 
 
 def _systemctl(*args: str) -> subprocess.CompletedProcess[str]:

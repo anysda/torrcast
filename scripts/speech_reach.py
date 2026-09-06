@@ -26,10 +26,9 @@ from speech_sites import Site, fingerprint, sites
 # развела бы места не по тем строкам.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-#: Наблюдатель за запуском кода. Взят через ``getattr``, а не именем: пакет объявлен от
-#: 3.11, а ``sys.monitoring`` живёт с 3.12, и разбор типов ведётся по нижней границе.
-#: Нет его - карта не снимается, и молчать об этом нельзя (см. :func:`pytest_configure`).
-monitoring: Any = getattr(sys, "monitoring", None)
+#: Наблюдатель за запуском кода. ``sys.monitoring`` живёт с 3.12, и ровно от 3.12
+#: объявлен пакет (requires-python) - на всякой машине, где вообще идёт гейт, он есть.
+monitoring: Any = sys.monitoring
 
 #: Переменная среды с каталогом, куда лечь карте. Не задана - плагин молчит и не мерит.
 OUT_VAR: Final = "SPEECH_REACH_OUT"
@@ -67,13 +66,6 @@ def _callback(code: Any, offset: int) -> None:
 def pytest_configure(config: Any) -> None:
     if not os.environ.get(OUT_VAR):
         return
-    if monitoring is None:
-        raise RuntimeError(
-            "карта досягаемости речи снимается наблюдателем sys.monitoring, а его нет: "
-            f"нужен Python 3.12 и выше, здесь {sys.version_info.major}."
-            f"{sys.version_info.minor}. Пустая карта тут хуже отказа: сторож речи принял "
-            "бы её за честную и назвал бы голыми все 92 места разом."
-        )
     from torrcast.domain.catalogs.phrase import phrase
 
     root = Path(config.rootpath)

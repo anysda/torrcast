@@ -38,7 +38,7 @@ def test_macos_services_use_persistent_launchd_jobs() -> None:
     assert "<key>EnvironmentVariables</key>" in write
     assert "<key>StandardOutPath</key>" in write
     # launchd's default PATH lacks the Homebrew prefix; without carrying the
-    # installer's PATH a `python3.11 ...` job dies with "not found".
+    # installer's PATH a `python3.12 ...` job dies with "not found".
     assert "<key>PATH</key><string>$path_xml</string>" in write
     # A literal \" inside the unquoted heredoc lands in the plist verbatim and
     # launchd refuses the job with a bare "Input/output error".

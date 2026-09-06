@@ -12,7 +12,6 @@ from collections.abc import Callable, Iterator
 from importlib import import_module
 from pathlib import Path
 from string import Formatter
-from typing import TypeAlias
 
 import pytest
 
@@ -23,7 +22,7 @@ _ROOT = Path(__file__).parents[3]
 _CATALOGS = _ROOT / "torrcast" / "domain" / "catalogs"
 _CYRILLIC = range(ord("\u0400"), ord("\u052f") + 1)
 
-CatalogPair: TypeAlias = tuple[str, dict[str, str], dict[str, str]]
+type CatalogPair = tuple[str, dict[str, str], dict[str, str]]
 
 
 @pytest.fixture(autouse=True)

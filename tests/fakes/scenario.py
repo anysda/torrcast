@@ -1,14 +1,10 @@
 """Запоминает запросы сценария и возвращает заранее заданный ответ."""
 
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
-
-Request = TypeVar("Request")
-Result = TypeVar("Result")
 
 
 @dataclass
-class FakeScenario(Generic[Request, Result]):
+class FakeScenario[Request, Result]:
     result: Result
     requests: list[Request] = field(default_factory=list)
 

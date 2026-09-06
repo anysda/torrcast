@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, TypeAlias
+from typing import Any
 
 import aiohttp
 from homeassistant.components import persistent_notification
@@ -135,4 +135,4 @@ class Coordinator(DataUpdateCoordinator[dict[str, Any]]):
 #: Псевдоним назван псевдонимом вслух: без Home Assistant в венве `ConfigEntry` для
 #: тайпчека - `Any`, а `X = Any[Y]` он читает как переменную, а не как тип, и все
 #: подписи, где стоит эта запись, тихо перестают что-либо значить.
-TorrcastConfigEntry: TypeAlias = ConfigEntry[Coordinator]
+type TorrcastConfigEntry = ConfigEntry[Coordinator]

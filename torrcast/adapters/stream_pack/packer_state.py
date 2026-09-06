@@ -10,18 +10,18 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, TypeAlias
+from typing import Protocol
 
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.feed_grid import FeedGrid
 
 #: Кого позвать, когда сегмент ушёл наружу: ``(слот, чем он ушёл)``.
-_Told: TypeAlias = Callable[[int, str], None]
+type _Told = Callable[[int, str], None]
 #: Кого спросить про кусок по его весу: ``(слот, вес копии) -> bool``.
-_Asked: TypeAlias = Callable[[int, int], bool]
+type _Asked = Callable[[int, int], bool]
 #: Ужатие: ``True`` - сделано, ``None`` - перекод доехал сам, ``False`` - пропуск.
-_Shrink: TypeAlias = Callable[[int, int], bool | None]
+type _Shrink = Callable[[int, int], bool | None]
 
 
 class _Process(Protocol):

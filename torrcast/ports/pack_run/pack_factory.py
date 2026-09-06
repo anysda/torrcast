@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, TypeAlias
+from typing import Protocol
 
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.segment_container import MPEGTS, SegmentContainer
@@ -10,11 +10,11 @@ from torrcast.ports.feed_grid import FeedGrid
 from torrcast.ports.pack_run.pack_run import PackRun
 
 #: Кого позвать, когда сегмент ушёл наружу: ``(слот, чем он ушёл)``.
-PackTold: TypeAlias = Callable[[int, str], None]
+type PackTold = Callable[[int, str], None]
 #: Кого спросить про кусок по его весу: ``(слот, вес копии) -> bool``.
-PackAsked: TypeAlias = Callable[[int, int], bool]
+type PackAsked = Callable[[int, int], bool]
 #: Решение тяжёлого места: ужато, готовый перекод доехал сам или пропуск.
-PackShrink: TypeAlias = Callable[[int, int], bool | None]
+type PackShrink = Callable[[int, int], bool | None]
 
 
 class PackFactory(Protocol):

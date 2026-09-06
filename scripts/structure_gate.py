@@ -670,6 +670,13 @@ def _contract_sites(
             elif _mentions_any(node.annotation, names):
                 what = "тип поля не назван" if owner else "тип слота не назван"
                 yield node.lineno, what, f"{name}: {ast.unparse(node.annotation)}"
+        elif isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
+            # Псевдоним из 3.12 (`type RawRow = Any`) - тот же размен, что и
+            # `RawRow: TypeAlias = Any`, только ДРУГИМ узлом разбора. Ветка заведена
+            # вместе с переходом дерева на этот синтаксис: без неё мера отвечала бы
+            # «годен» на каждый переписанный псевдоним, и молча.
+            if _mentions_any(node.value, names):
+                yield node.lineno, "имя подменено на Any", f"{owner}{node.name.id}"
         elif isinstance(node, ast.Assign) and _mentions_any(node.value, names, typed=False):
             assigned = [target.id for target in node.targets if isinstance(target, ast.Name)]
             for name in assigned:

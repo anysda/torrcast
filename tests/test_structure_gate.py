@@ -243,6 +243,23 @@ def test_trade_rule_turns_red_on_a_type_alias_in_a_port(tmp_path: Path) -> None:
     assert "размен" in _rules(root)
 
 
+def test_trade_rule_turns_red_on_a_type_statement_alias_in_a_port(tmp_path: Path) -> None:
+    """Псевдоним из 3.12 (`type RawRow = Any`) разменивает договор ровно так же.
+
+    Дерево переехало на этот синтаксис вместе с нижней границей 3.12, а разбором это
+    ДРУГОЙ узел (`ast.TypeAlias`), и старая ветка про пометку `TypeAlias` его не видит
+    вовсе: мера отвечала бы «годен» там, где мерить перестала.
+    """
+    root = _tree(tmp_path)
+    _in_layer(
+        root,
+        "ports",
+        "raw_row",
+        '"""Модуль."""\nfrom typing import Any\n\ntype RawRow = Any\n',
+    )
+    assert "размен" in _rules(root)
+
+
 def test_trade_rule_counts_any_hidden_inside_a_generic(tmp_path: Path) -> None:
     """`Callable[..., Any]` разменивает договор ровно так же, как голое `Any`."""
     root = _tree(tmp_path)
