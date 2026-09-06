@@ -231,6 +231,7 @@ def _load_modules(root: Path) -> list[Module]:
         *(root / "torrcast").rglob("*.py"),
         *(root / "tgbot").rglob("*.py"),
         *(root / "hass").rglob("*.py"),
+        *(root / "web").rglob("*.py"),
         *(root / "custom_components").rglob("*.py"),
     ]
     for path in sorted(package_paths):

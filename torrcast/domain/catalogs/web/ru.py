@@ -1,0 +1,73 @@
+"""Русские надписи кластера страницы в браузере.
+
+Язык страницы по умолчанию английский, но форма каталога двуязычна с первого дня: смена
+языка обязана менять словарь, а не вёрстку. Клавиши на колпачках (``SPACE``, ``ESC``,
+``F``, стрелки) сюда не заведены намеренно - это легенда клавиатуры, одинаковая на любом
+языке, ровно как значки качества ``2160``/``1080``/``720`` и само имя продукта.
+"""
+
+from __future__ import annotations
+
+
+def ru() -> dict[str, str]:
+    """Вернуть русский каталог кластера страницы в браузере."""
+    return {
+        "web.header.seat": "Домашняя сеть_одно место",
+        "web.header.now_playing": "Сейчас идёт ▶",
+        "web.header.on_tv": "На ТВ",
+        "web.search.placeholder": "Что смотрим?",
+        "web.search.hint_enter": "Enter — искать",
+        "web.search.hint_esc": "Esc — очистить",
+        "web.search.searching": "Ищем в {n} источниках…",
+        "web.search.counter": "{n} находок · {m} источников",
+        "web.search.best_match": "Лучшее совпадение",
+        "web.search.empty": "Ничего для вас",
+        "web.shelf.continue_watching": "Продолжить просмотр",
+        "web.shelf.new": "Новинки",
+        "web.shelf.popular": "Популярное",
+        "web.shelf.empty": "Здесь пока пусто",
+        "web.shelf.loading": "Грузим_",
+        "web.tile.no_art": "Без обложки_",
+        "web.detail.back": "‹ Назад",
+        "web.detail.more": "Ещё_",
+        "web.detail.play": "▶ Смотреть",
+        "web.detail.start_over": "Сначала",
+        "web.detail.play_on_tv": "Показать на ТВ",
+        "web.detail.audio": "Звук ▾",
+        "web.detail.series": "Ещё из этой серии",
+        "web.detail.releases": "{n} раздач из {m} источников",
+        "web.detail.no_releases": "Раздач не нашлось",
+        "web.detail.resumes": "Продолжит {label} · {time}",
+        "web.detail.season": "Сезон {n}",
+        "web.detail.watched": "✓ Просмотрено",
+        "web.detail.resumes_here": "▶ Отсюда · {time}",
+        "web.player.preparing": "Готовим…",
+        "web.player.preparing_in": "начнётся через ~{seconds} с",
+        "web.player.packaging": "Упаковка потока_источник {n} из {m}",
+        "web.player.buffering": "Буферизация_",
+        "web.player.packaged": "Упаковано →",
+        "web.player.back_ten": "−10 с",
+        "web.player.forward_ten": "+10 с",
+        "web.player.volume": "ГРОМК",
+        "web.player.audio": "Звук",
+        "web.player.next_episode": "Следующая серия",
+        "web.player.play_on_tv": "Показать на ТВ",
+        "web.player.next_in": "Следующая серия через {n}",
+        "web.player.play_now": "Смотреть сейчас",
+        "web.player.cancel": "Отмена",
+        "web.player.on_tv": "▶ На ТВ",
+        "web.player.playing_on_tv": "Идёт на ТВ",
+        "web.player.muted": "Вкладка без звука — громкость управляет телевизором",
+        "web.player.tv_volume": "ГРОМК ТВ",
+        "web.player.tv_position": "Позиция на ТВ",
+        "web.player.back_to_browser": "Вернуть в браузер",
+        "web.player.lost": "Поток потерян",
+        "web.player.lost_code": "Упаковщик перестал отвечать_код {code}",
+        "web.player.retry": "Ещё раз",
+        "web.player.back": "‹ Назад",
+        "web.keys.pause": "Пауза",
+        "web.keys.seek": "±10 с",
+        "web.keys.volume": "Громкость",
+        "web.keys.fullscreen": "Во весь экран",
+        "web.keys.back": "Назад",
+    }

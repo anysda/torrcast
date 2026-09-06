@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Torrcast</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<!--
+  Оболочка страницы. Все связи со стилями и сценариями прописаны тут ЗАРАНЕЕ, включая
+  ещё пустые: соседний заход дописывает свой файл, а этот трогать не должен вовсе.
+  Внешних адресов на странице нет ни одного - ни шрифта, ни плеера, ни CDN: домашняя
+  сеть под DPI, и продукт ставится без связи с интернетом.
+-->
+<link rel="stylesheet" href="/static/fonts/archivo.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/player.css">
+<body>
+  <div id="tc-root" class="tc-screen"></div>
+  <script src="/static/hls-1.5.17.min.js"></script>
+  <script src="/static/app.js"></script>
+  <script src="/static/player.js"></script>
+</body>

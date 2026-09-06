@@ -1,0 +1,441 @@
+/* torrcast web: слой дизайн-системы.
+
+   Числа тут не «примерно как в макете», а из макета: `Torrcast Frames.dc.html` и
+   `Tile.dc.html`. Пиксель макета переведён в rem делением на 16, а корневой размер
+   считается от ширины окна (см. ниже), поэтому кадр 1920x1080 переносится целиком и
+   ужимается пропорционально в любое окно.
+
+   МАСШТАБ. `html { font-size: calc(100vw / 120) }` даёт ровно 16px при ширине 1920,
+   значит `1rem == 16px макета`, а перевод числа из макета в стиль - деление на 16 и
+   ничего больше. Выбран корневой размер, а не zoom: zoom по-разному ломает единицы у
+   разных движков и не даёт медиазапросам работать, а тут вся раскладка живёт в rem и
+   едет за корнем сама. Высота намеренно не участвует: полки прокручиваются, и растянуть
+   их под низкое окно значило бы резать плитку, а не показывать меньше плиток.
+
+   ШРИФТ. Archivo лежит рядом (fonts/archivo.css) и НЕ покрывает кириллицу; знаков
+   ▶ ✓ ✕ ⤢ ■ ‹ › в его подмножествах тоже нет наполовину. Лечится это не подбором
+   второго шрифта в разметке, а стопкой в --tc-font: у @font-face объявлен unicode-range,
+   поэтому браузер сам, посимвольно, берёт для непокрытого знака следующее семейство. */
+
+:root {
+  /* --- Design Tokens: цвет --- */
+  --tc-bg: #0B0B0B;
+  --tc-bg-player: #05070A;
+  --tc-bg-preparing: #07080A;
+  --tc-bg-lost: #060608;
+  --tc-acid: #C6FF00;
+  --tc-text: #F2F2EF;
+  --tc-text-soft: #E6E6DC;
+  --tc-body: #C9C9BE;
+  --tc-body-dim: #B9B9AE;
+  --tc-muted: #75756B;
+  --tc-muted-dim: #5A5A50;
+  --tc-hair: #3B3B33;
+  --tc-hair-dim: #2A2A24;
+  --tc-ghost: #1A1A17;
+  --tc-ghost-line: #1E1E1A;
+  --tc-empty-ink: #22221E;
+  --tc-disabled-bg: #1C1C18;
+  --tc-disabled-ink: #4A4A42;
+  --tc-error: #FF3D2E;
+  --tc-shadow: rgba(198, 255, 0, 0.16);
+  --tc-shadow-drop: rgba(198, 255, 0, 0.18);
+
+  /* --- Design Tokens: раскладка --- */
+  --tc-safe-y: 3.375rem;   /* 54px */
+  --tc-safe-x: 6rem;       /* 96px */
+  --tc-gap: 1.5rem;        /* 24px */
+  --tc-tile-focus: 16.75rem; /* 268px, полка под фокусом */
+  --tc-tile-rest: 13.125rem; /* 210px, остальные полки */
+  --tc-tile-search: 10.5rem; /* 168px, вторая строка выдачи поиска */
+
+  /* --- Design Tokens: рамки --- */
+  --tc-border: 0.1875rem;  /* 3px: вторичные кнопки, выпадашка, пустая полка */
+  --tc-border-thin: 0.125rem; /* 2px: колпачки клавиш, значки качества */
+  --tc-underline: 0.375rem; /* 6px: подчёркивание поля поиска */
+  --tc-focus-ring: 0.4375rem; /* 7px: обводка плитки под фокусом */
+
+  /* Ни одного скругления и ни одной мягкой тени: тень в системе ровно одна и она
+     жёсткая, со смещением. Держится это переменными, а не памятью автора. */
+  --tc-radius: 0;
+  --tc-shadow-block: 1.25rem 1.25rem 0 var(--tc-shadow);  /* 20px 20px */
+  --tc-shadow-menu: 1rem 1rem 0 var(--tc-shadow-drop);    /* 16px 16px */
+
+  --tc-font: 'Archivo', 'Noto Sans', 'DejaVu Sans', 'Segoe UI Symbol',
+             'Noto Sans Symbols 2', 'Apple Symbols', system-ui, sans-serif;
+  --tc-scanlines: repeating-linear-gradient(0deg, rgba(0, 0, 0, .25) 0 1px, transparent 1px 5px);
+}
+
+*, *::before, *::after { box-sizing: border-box; border-radius: var(--tc-radius); }
+
+html { font-size: calc(100vw / 120); }
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  background: var(--tc-bg);
+  color: var(--tc-text);
+  font-family: var(--tc-font);
+  font-weight: 500;
+  font-size: 1.75rem;  /* 28px, базовый */
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Числа читаются столбиком: 41:12 не должен прыгать, пока идёт показ. */
+.tc-num, time, .tc-time, .tc-cap2, .tc-meta { font-variant-numeric: tabular-nums; }
+
+/* --- Типографика --------------------------------------------------------- */
+/* Ничего мельче 22px в системе нет; ярусы взяты из README дизайн-передачи. */
+.tc-title-frame { font-weight: 900; font-size: 6rem; line-height: .85; letter-spacing: -.03em;
+                  text-transform: uppercase; }
+.tc-title-detail { font-weight: 900; font-size: 6.875rem; line-height: .85; letter-spacing: -.03em;
+                   text-transform: uppercase; }
+.tc-section { font-weight: 900; font-size: 2.375rem; text-transform: uppercase;
+              letter-spacing: -.01em; }
+.tc-section-mark { color: var(--tc-acid); }
+.tc-body { font-weight: 500; font-size: 1.6875rem; line-height: 1.5; color: var(--tc-body); }
+.tc-caption { font-weight: 900; font-size: 1.5rem; line-height: 1.1; letter-spacing: -.005em; }
+.tc-cap2 { font-weight: 700; font-size: 1.375rem; letter-spacing: .08em; color: var(--tc-muted); }
+.tc-label { font-weight: 700; font-size: 1.25rem; letter-spacing: .14em;
+            text-transform: uppercase; color: var(--tc-muted-dim); }
+.tc-label-wide { font-weight: 700; font-size: 1.375rem; letter-spacing: .24em;
+                 text-transform: uppercase; color: var(--tc-muted-dim); }
+.tc-meta { font-weight: 700; font-size: 1.5rem; letter-spacing: .08em; color: var(--tc-body-dim);
+           text-transform: uppercase; }
+
+/* --- Каркас экрана ------------------------------------------------------- */
+.tc-screen { position: relative; min-height: 100vh; background: var(--tc-bg); overflow: hidden; }
+.tc-safe { padding: var(--tc-safe-y) var(--tc-safe-x); }
+.tc-scan { position: absolute; inset: 0; pointer-events: none; background: var(--tc-scanlines); }
+
+/* --- Шапка --------------------------------------------------------------- */
+.tc-header { display: flex; align-items: center; justify-content: space-between;
+             gap: var(--tc-gap); }
+.tc-brand { display: flex; align-items: center; gap: .75rem; font-weight: 900; font-size: 2.25rem;
+            letter-spacing: -.02em; text-transform: uppercase; }
+.tc-brand-square { width: 1.125rem; height: 1.125rem; background: var(--tc-acid); }
+.tc-brand-tail { color: var(--tc-acid); }
+.tc-seat { font-weight: 700; font-size: 1.25rem; letter-spacing: .24em; text-transform: uppercase;
+           color: var(--tc-muted-dim); }
+
+/* Чип «сейчас идёт»: миниатюра, название и время. Пустой шапки он не занимает. */
+.tc-now { display: flex; align-items: center; gap: 1rem; padding: .625rem .875rem;
+          border: var(--tc-border) solid var(--tc-hair-dim); }
+.tc-now-art { width: 2.75rem; height: 4.125rem; background: var(--tc-hair-dim); }
+.tc-now-label { font-weight: 700; font-size: 1.25rem; letter-spacing: .16em;
+                text-transform: uppercase; color: var(--tc-acid); }
+.tc-now-title { font-weight: 900; font-size: 1.5rem; text-transform: uppercase; }
+.tc-now-time { font-weight: 700; font-size: 1.375rem; color: var(--tc-muted); }
+.tc-now-tv { padding: .25rem .625rem; background: var(--tc-acid); color: var(--tc-bg);
+             font-weight: 900; font-size: 1.25rem; letter-spacing: .06em;
+             text-transform: uppercase; }
+
+/* --- Поле поиска --------------------------------------------------------- */
+.tc-search { width: 100%; margin-top: 2.75rem; }
+.tc-search-input { width: 100%; padding: 0 0 1.125rem; border: 0;
+                   border-bottom: var(--tc-underline) solid var(--tc-text);
+                   background: transparent; color: var(--tc-text); font-family: inherit;
+                   font-weight: 900; font-size: 3.375rem; letter-spacing: -.02em;
+                   text-transform: uppercase; }
+.tc-search-input::placeholder { color: var(--tc-hair); }
+.tc-search-input:focus { outline: 0; border-bottom-color: var(--tc-acid); }
+.tc-search-hints { display: flex; gap: 2.125rem; margin-top: 1rem; }
+.tc-hint { font-weight: 700; font-size: 1.25rem; letter-spacing: .14em; text-transform: uppercase;
+           color: var(--tc-muted-dim); }
+.tc-searching { display: flex; align-items: center; gap: .875rem; margin-top: 2rem;
+                font-weight: 900; font-size: 1.75rem; letter-spacing: .06em;
+                text-transform: uppercase; color: var(--tc-acid); }
+.tc-searching-square { width: .875rem; height: .875rem; background: var(--tc-acid); }
+.tc-results-count { font-weight: 700; font-size: 1.375rem; letter-spacing: .16em;
+                    text-transform: uppercase; color: var(--tc-muted); }
+.tc-nothing { font-weight: 900; font-size: 6.5rem; line-height: .9; text-transform: uppercase;
+              letter-spacing: -.03em; color: var(--tc-empty-ink);
+              -webkit-text-stroke: 0.125rem var(--tc-disabled-ink); }
+
+/* --- Полки и сетка ------------------------------------------------------- */
+.tc-shelf { margin-top: 3rem; }
+.tc-shelf-head { display: flex; align-items: baseline; justify-content: space-between;
+                 margin-bottom: var(--tc-gap); }
+.tc-shelf-arrows { font-weight: 900; font-size: 2.125rem; letter-spacing: .3em;
+                   color: var(--tc-muted-dim); }
+.tc-row { display: flex; gap: var(--tc-gap); }
+.tc-row > * { flex: 0 0 var(--tc-tile-rest); width: var(--tc-tile-rest); }
+.tc-row--focused > * { flex-basis: var(--tc-tile-focus); width: var(--tc-tile-focus); }
+.tc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--tc-gap); }
+.tc-grid--second > * { width: var(--tc-tile-search); }
+.tc-shelf-empty { display: flex; align-items: center; justify-content: center; height: 17.5rem;
+                  border: var(--tc-border) solid var(--tc-ghost-line);
+                  background: repeating-linear-gradient(135deg, #121210 0 2px, #0B0B0B 2px 18px);
+                  font-weight: 900; font-size: 2.5rem; text-transform: uppercase;
+                  color: var(--tc-disabled-ink); }
+.tc-loading { font-weight: 900; font-size: 1.625rem; letter-spacing: .2em;
+              text-transform: uppercase; color: var(--tc-body-dim); }
+
+/* --- Плитка (Tile.dc.html) ----------------------------------------------- */
+.tc-tile { position: relative; container-type: inline-size; z-index: 1;
+           transition: transform .12s ease-out; }
+.tc-tile-frame { position: relative; width: 100%; aspect-ratio: 2 / 3; overflow: hidden;
+                 background: var(--tc-ghost); }
+/* Обложка рисуется градиентом по тону названия: своей картинки у плитки может не быть
+   в четверти случаев, и это штатное состояние, а не поломка. */
+.tc-tile-art { position: absolute; inset: 0;
+               background: linear-gradient(155deg,
+                 oklch(.58 .19 var(--tc-hue, 120)) 0%,
+                 oklch(.30 .13 calc(var(--tc-hue, 120) + 40)) 52%,
+                 oklch(.14 .05 calc(var(--tc-hue, 120) + 70)) 100%); }
+.tc-tile-art-title { position: absolute; left: .75rem; right: .75rem; bottom: .625rem;
+                     font-weight: 900; font-size: min(11cqw, 1.875rem); line-height: .95;
+                     text-transform: uppercase; text-shadow: .1875rem .1875rem 0 rgba(0, 0, 0, .55); }
+.tc-tile-scan { position: absolute; inset: 0;
+                background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 1px,
+                            transparent 1px 5px); }
+/* Без обложки: кислотный блок с названием, а не серая дыра. */
+.tc-tile-noart { position: absolute; inset: 0; display: flex; flex-direction: column;
+                 justify-content: flex-end; gap: .5rem; padding: .875rem;
+                 background: var(--tc-acid); color: var(--tc-bg); }
+.tc-tile-noart-title { font-weight: 900; font-size: min(15cqw, 2.875rem); line-height: .9;
+                       text-transform: uppercase; }
+.tc-tile-noart-mark { display: flex; align-items: center; gap: .5rem; font-weight: 700;
+                      font-size: min(8cqw, 1.25rem); letter-spacing: .18em;
+                      text-transform: uppercase; }
+.tc-tile-noart-square { width: 1rem; height: 1rem; background: var(--tc-bg); }
+.tc-tile-skeleton { position: absolute; inset: 0; background-size: 250% 100%;
+                    background-image: linear-gradient(100deg, #161613 40%, #22221c 50%, #161613 60%);
+                    animation: tcshimmer 1.4s linear infinite; }
+.tc-tile-quality { position: absolute; top: 0; right: 0; padding: .375rem .75rem;
+                   background: var(--tc-bg); color: var(--tc-text); font-weight: 900;
+                   font-size: 1.375rem; letter-spacing: .04em; }
+.tc-tile-best { position: absolute; top: 0; left: 0; padding: .5rem .875rem;
+                background: var(--tc-bg); color: var(--tc-acid); font-weight: 900;
+                font-size: 1.375rem; letter-spacing: .06em; text-transform: uppercase;
+                white-space: nowrap;
+                border-right: .375rem solid var(--tc-acid);
+                border-bottom: .375rem solid var(--tc-acid); }
+.tc-tile-progress { position: absolute; left: 0; right: 0; bottom: 0; height: .625rem;
+                    background: rgba(0, 0, 0, .6); }
+.tc-tile-progress > i { display: block; height: 100%; background: var(--tc-acid); }
+
+/* Подпись под плиткой. В покое одна строка с обрезкой, под фокусом - инверсия и полный
+   текст: подпись до 24 знаков читать с трёх метров иначе нечем. */
+.tc-tile-cap { padding: .75rem 0 0; transform-origin: top center; }
+.tc-tile-cap .tc-caption { color: var(--tc-text); white-space: nowrap; overflow: hidden;
+                           text-overflow: ellipsis; }
+.tc-tile-cap .tc-cap2 { color: var(--tc-muted); }
+
+/* Фокус = наведение мышью: одно и то же состояние, одним классом. */
+.tc-tile:is(:hover, :focus-within, .is-focused) { transform: scale(1.06); z-index: 2; }
+.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-frame {
+  outline: var(--tc-focus-ring) solid var(--tc-acid); }
+.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-cap {
+  background: var(--tc-acid); padding: .625rem .875rem; margin-top: .625rem;
+  transform: scale(1.06); }
+.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-cap .tc-caption {
+  color: var(--tc-bg); white-space: normal; }
+.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-cap .tc-cap2 {
+  color: rgba(11, 11, 11, .72); }
+/* Уголки: четыре скобки 26x26 штрихом 7px, вынесенные на 20px наружу кадра. */
+.tc-tile-corner { position: absolute; width: 1.625rem; height: 1.625rem; opacity: 0; }
+.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-corner { opacity: 1; }
+.tc-tile-corner--tl { top: -1.25rem; left: -1.25rem;
+  border-top: var(--tc-focus-ring) solid var(--tc-acid);
+  border-left: var(--tc-focus-ring) solid var(--tc-acid); }
+.tc-tile-corner--tr { top: -1.25rem; right: -1.25rem;
+  border-top: var(--tc-focus-ring) solid var(--tc-acid);
+  border-right: var(--tc-focus-ring) solid var(--tc-acid); }
+.tc-tile-corner--bl { bottom: -1.25rem; left: -1.25rem;
+  border-bottom: var(--tc-focus-ring) solid var(--tc-acid);
+  border-left: var(--tc-focus-ring) solid var(--tc-acid); }
+.tc-tile-corner--br { bottom: -1.25rem; right: -1.25rem;
+  border-bottom: var(--tc-focus-ring) solid var(--tc-acid);
+  border-right: var(--tc-focus-ring) solid var(--tc-acid); }
+
+/* --- Кнопки -------------------------------------------------------------- */
+.tc-btn { display: inline-flex; align-items: center; gap: .625rem; border: 0;
+          font-family: inherit; font-weight: 900; text-transform: uppercase; cursor: pointer;
+          letter-spacing: -.01em; }
+.tc-btn--primary { padding: 1.25rem 2.75rem; background: var(--tc-acid); color: var(--tc-bg);
+                   font-size: 1.875rem; }
+.tc-btn--secondary { padding: 1.0625rem 1.625rem; background: transparent; color: var(--tc-text);
+                     border: var(--tc-border) solid var(--tc-text); font-size: 1.5rem; }
+.tc-btn--accent { padding: 1.0625rem 1.625rem; background: transparent; color: var(--tc-acid);
+                  border: var(--tc-border) solid var(--tc-acid); font-size: 1.5rem; }
+.tc-btn--disabled, .tc-btn:disabled { background: var(--tc-disabled-bg);
+                                      color: var(--tc-disabled-ink); border-color: transparent;
+                                      cursor: default; }
+.tc-btn:is(:hover, :focus-visible, .is-focused) { outline: .25rem solid var(--tc-text);
+                                                  outline-offset: .25rem; }
+
+/* --- Выпадашка озвучек --------------------------------------------------- */
+.tc-drop { width: 35rem; background: var(--tc-bg); border: var(--tc-border) solid var(--tc-acid);
+           box-shadow: var(--tc-shadow-menu); }
+.tc-drop-row { display: flex; align-items: baseline; justify-content: space-between;
+               gap: 1rem; padding: 1.125rem 1.375rem; }
+.tc-drop-row.is-selected { background: var(--tc-acid); color: var(--tc-bg); }
+.tc-drop-square { width: .875rem; height: .875rem; background: var(--tc-bg); }
+.tc-drop-name { font-weight: 900; font-size: 1.5625rem; text-transform: uppercase; }
+.tc-drop-meta { font-weight: 700; font-size: 1.25rem; letter-spacing: .08em; color: var(--tc-muted); }
+.tc-drop-row.is-selected .tc-drop-meta { color: rgba(11, 11, 11, .72); }
+
+/* --- Карточка картины ---------------------------------------------------- */
+.tc-back { font-weight: 900; font-size: 1.5rem; letter-spacing: .06em; text-transform: uppercase;
+           color: var(--tc-muted); }
+.tc-orig { font-weight: 700; font-size: 1.75rem; color: var(--tc-muted); }
+.tc-more { font-weight: 900; text-transform: uppercase; color: var(--tc-acid); }
+.tc-buttons { display: flex; align-items: center; gap: 1rem; margin-top: 2.25rem; }
+.tc-series-head { font-weight: 900; font-size: 1.875rem; text-transform: uppercase; }
+.tc-releases { font-weight: 700; font-size: 1.375rem; letter-spacing: .16em;
+               text-transform: uppercase; color: var(--tc-muted-dim); }
+.tc-norel { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.375rem;
+            border: var(--tc-border) solid var(--tc-hair-dim); }
+.tc-norel-mark { display: flex; align-items: center; justify-content: center; width: 2.25rem;
+                 height: 2.25rem; background: var(--tc-text); color: var(--tc-bg);
+                 font-weight: 900; font-size: 1.625rem; }
+.tc-resumes { font-weight: 700; font-size: 1.375rem; letter-spacing: .12em;
+              text-transform: uppercase; color: var(--tc-muted); }
+
+/* --- Сезоны и серии ------------------------------------------------------ */
+.tc-tabs { display: flex; gap: .75rem; }
+.tc-tab { padding: .875rem 1.875rem; border: var(--tc-border) solid var(--tc-hair-dim);
+          background: transparent; color: var(--tc-muted); font-family: inherit; font-weight: 900;
+          font-size: 1.625rem; text-transform: uppercase; cursor: pointer; }
+.tc-tab.is-active { background: var(--tc-acid); border-color: var(--tc-acid); color: var(--tc-bg); }
+.tc-ep { position: relative; display: grid; grid-template-columns: 4.75rem 1fr auto;
+         align-items: center; gap: 1.375rem; height: 4rem; padding: 0 1.375rem;
+         border-bottom: var(--tc-border-thin) solid var(--tc-ghost); }
+.tc-ep-num { font-weight: 900; font-size: 1.5rem; color: var(--tc-disabled-ink); }
+.tc-ep-title { font-weight: 700; font-size: 1.5625rem; text-transform: uppercase;
+               color: var(--tc-text-soft); }
+.tc-ep-meta { font-weight: 700; font-size: 1.25rem; letter-spacing: .1em; color: var(--tc-muted-dim); }
+.tc-ep.is-watched .tc-ep-title { color: var(--tc-muted); }
+.tc-ep.is-resume { background: var(--tc-acid); color: var(--tc-bg); }
+.tc-ep.is-resume :is(.tc-ep-num, .tc-ep-title, .tc-ep-meta) { color: var(--tc-bg); }
+.tc-ep-progress { position: absolute; left: 0; bottom: 0; height: .375rem;
+                  background: var(--tc-bg); }
+
+/* --- Плеер: нижняя панель ------------------------------------------------ */
+.tc-player { background: var(--tc-bg-player); color: var(--tc-text); }
+.tc-player-top { display: flex; align-items: baseline; gap: 1rem; }
+.tc-player-title { font-weight: 900; font-size: 2.25rem; text-transform: uppercase; }
+.tc-player-ep { font-weight: 900; font-size: 2.25rem; color: var(--tc-acid); }
+.tc-player-sub { font-weight: 700; font-size: 1.375rem; letter-spacing: .16em;
+                 text-transform: uppercase; color: var(--tc-muted); }
+.tc-bar { display: flex; align-items: center; gap: 1.375rem; }
+.tc-playpause { display: flex; align-items: center; justify-content: center; gap: .5rem;
+                width: 3.75rem; height: 3.75rem; border: 0; background: var(--tc-acid);
+                cursor: pointer; }
+.tc-playpause i { width: .5rem; height: 1.625rem; background: var(--tc-bg); }
+.tc-time { font-weight: 900; font-size: 1.75rem; }
+.tc-time-total { color: var(--tc-muted); }
+.tc-vol-label { font-weight: 700; font-size: 1.25rem; letter-spacing: .14em;
+                text-transform: uppercase; }
+.tc-vol { width: 8.125rem; height: .5rem; background: rgba(255, 255, 255, .2); }
+.tc-vol > i { display: block; height: 100%; background: var(--tc-text); }
+
+/* Полоса перемотки: три яруса. Светлый - насколько лента УЖЕ упакована вперёд, и это
+   не украшение: перемотать дальше упакованного нельзя, и человек обязан это видеть. */
+.tc-seek { position: relative; height: .75rem; background: rgba(255, 255, 255, .18); }
+.tc-seek-packed { position: absolute; left: 0; top: 0; height: 100%;
+                  background: rgba(255, 255, 255, .35); }
+.tc-seek-played { position: absolute; left: 0; top: 0; height: 100%; background: var(--tc-acid); }
+.tc-seek-head { position: absolute; top: -.5rem; width: .625rem; height: 1.75rem;
+                background: var(--tc-text); }
+.tc-seek-mark { position: absolute; top: -1.875rem; font-weight: 700; font-size: 1.125rem;
+                letter-spacing: .14em; text-transform: uppercase; color: var(--tc-muted); }
+
+/* --- Подсказка клавиш ---------------------------------------------------- */
+.tc-keys { display: flex; align-items: center; gap: 2.125rem; padding: 1.25rem 2.25rem;
+           background: rgba(5, 7, 10, .85); border: var(--tc-border) solid var(--tc-hair-dim); }
+.tc-key { display: flex; align-items: center; gap: .625rem; }
+.tc-key-cap { padding: .25rem .875rem; border: var(--tc-border-thin) solid var(--tc-text);
+              font-weight: 900; font-size: 1.375rem; }
+.tc-key-what { font-weight: 700; font-size: 1.25rem; letter-spacing: .14em;
+               text-transform: uppercase; color: var(--tc-muted); }
+
+/* --- Плеер: подготовка и буферизация ------------------------------------- */
+.tc-preparing { background: var(--tc-bg-preparing); }
+.tc-preparing-title { font-weight: 900; font-size: 4.625rem; line-height: .9;
+                      text-transform: uppercase; letter-spacing: -.03em; }
+.tc-preparing-when { color: var(--tc-acid); }
+.tc-preparing-bar { width: 35rem; height: .75rem; background: rgba(255, 255, 255, .18); }
+.tc-preparing-bar > i { display: block; height: 100%; background: var(--tc-acid); }
+.tc-preparing-note { font-weight: 700; font-size: 1.375rem; letter-spacing: .22em;
+                     text-transform: uppercase; color: var(--tc-muted-dim); }
+/* Скобки по углам кадра подготовки: 34px штрихом 8px. */
+.tc-bracket { position: absolute; width: 2.125rem; height: 2.125rem; }
+.tc-bracket--tl { top: var(--tc-safe-y); left: var(--tc-safe-x);
+                  border-top: .5rem solid var(--tc-acid); border-left: .5rem solid var(--tc-acid); }
+.tc-bracket--tr { top: var(--tc-safe-y); right: var(--tc-safe-x);
+                  border-top: .5rem solid var(--tc-acid); border-right: .5rem solid var(--tc-acid); }
+.tc-bracket--bl { bottom: var(--tc-safe-y); left: var(--tc-safe-x);
+                  border-bottom: .5rem solid var(--tc-acid); border-left: .5rem solid var(--tc-acid); }
+.tc-bracket--br { bottom: var(--tc-safe-y); right: var(--tc-safe-x);
+                  border-bottom: .5rem solid var(--tc-acid); border-right: .5rem solid var(--tc-acid); }
+.tc-spinner { width: 5.25rem; height: 5.25rem; border: .5rem solid rgba(255, 255, 255, .18);
+              border-top-color: var(--tc-acid); border-radius: 50%;
+              animation: tcspin .8s linear infinite; }
+.tc-buffering { font-weight: 900; font-size: 1.625rem; letter-spacing: .2em;
+                text-transform: uppercase; color: var(--tc-body-dim); }
+
+/* --- Карточка автоперехода ----------------------------------------------- */
+.tc-next { position: absolute; right: var(--tc-safe-x); bottom: var(--tc-safe-y); width: 40rem;
+           display: flex; gap: 1.375rem; padding: 1.375rem; background: var(--tc-bg-player);
+           border: .25rem solid var(--tc-acid); box-shadow: var(--tc-shadow-block); }
+.tc-next-art { flex: 0 0 9.375rem; aspect-ratio: 2 / 3; background: var(--tc-hair-dim); }
+.tc-next-badge { display: inline-block; padding: .375rem .875rem; background: var(--tc-acid);
+                 color: var(--tc-bg); font-weight: 900; font-size: 1.5rem;
+                 text-transform: uppercase; }
+.tc-next-title { font-weight: 900; font-size: 1.875rem; text-transform: uppercase; }
+/* Кнопка «смотреть сейчас» сама себе счётчик: полоса внутри неё вытекает за 10 с. */
+.tc-next-now { position: relative; overflow: hidden; outline: .25rem solid var(--tc-text);
+               outline-offset: .25rem; }
+.tc-next-now > i { position: absolute; left: 0; bottom: 0; height: .4375rem;
+                   background: rgba(11, 11, 11, .4); }
+
+/* --- Показ на телевизоре ------------------------------------------------- */
+.tc-ontv-badge { display: inline-flex; align-items: center; gap: .625rem; padding: .625rem 1.5rem;
+                 background: var(--tc-bg); border: .25rem solid var(--tc-acid);
+                 color: var(--tc-acid); font-weight: 900; font-size: 1.75rem;
+                 letter-spacing: .06em; text-transform: uppercase; }
+.tc-ontv-title { display: inline-block; padding: 1.25rem 2.5rem; background: var(--tc-acid);
+                 color: var(--tc-bg); font-weight: 900; font-size: 4rem; line-height: .9;
+                 text-transform: uppercase; letter-spacing: -.03em; }
+.tc-ontv-note { font-weight: 700; font-size: 1.625rem; letter-spacing: .1em;
+                text-transform: uppercase; color: var(--tc-body-dim); }
+.tc-ontv-vol { padding: .25rem .75rem; background: var(--tc-acid); color: var(--tc-bg);
+               font-weight: 900; font-size: 1.25rem; letter-spacing: .1em;
+               text-transform: uppercase; }
+
+/* --- Потеря потока ------------------------------------------------------- */
+.tc-lost { position: relative; background: var(--tc-bg-lost); }
+.tc-lost-title { position: relative; font-weight: 900; font-size: 8.125rem; line-height: .85;
+                 text-transform: uppercase; letter-spacing: -.03em; color: var(--tc-text); }
+.tc-lost-title > span { position: absolute; inset: 0; }
+.tc-lost-title > span:nth-child(1) { color: var(--tc-acid); animation: tcglitcha 1.7s steps(1) infinite; }
+.tc-lost-title > span:nth-child(2) { color: var(--tc-error); animation: tcglitchb 2.1s steps(1) infinite; }
+.tc-lost-title { animation: tcglitchbase 2.4s steps(1) infinite; }
+.tc-lost-code { font-weight: 700; font-size: 1.5rem; letter-spacing: .18em;
+                text-transform: uppercase; color: var(--tc-muted); }
+.tc-toast { display: flex; align-items: center; gap: 1.25rem; padding: 1rem 1.375rem;
+            border: var(--tc-border) solid var(--tc-error); background: rgba(255, 61, 46, .06); }
+.tc-toast-title { font-weight: 900; font-size: 1.375rem; text-transform: uppercase; }
+.tc-toast-act { padding: .375rem .875rem; background: var(--tc-error); color: var(--tc-bg);
+                font-weight: 900; font-size: 1.375rem; text-transform: uppercase; }
+
+@keyframes tcshimmer { 0% { background-position: 200% 0; } 100% { background-position: -60% 0; } }
+@keyframes tcspin { to { transform: rotate(360deg); } }
+@keyframes tcglitcha { 0%, 92% { transform: none; opacity: 0; }
+                       93% { transform: translate(-.375rem, .125rem); opacity: .9; }
+                       100% { transform: none; opacity: 0; } }
+@keyframes tcglitchb { 0%, 88% { transform: none; opacity: 0; }
+                       89% { transform: translate(.5rem, -.1875rem); opacity: .85; }
+                       100% { transform: none; opacity: 0; } }
+@keyframes tcglitchbase { 0%, 96% { transform: none; }
+                          97% { transform: translate(.1875rem, 0); }
+                          100% { transform: none; } }
+
+/* Движения в системе ровно столько, сколько нужно фокусу. Кому оно мешает - тому его
+   и не будет: просьба системы уважается целиком, а не наполовину. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

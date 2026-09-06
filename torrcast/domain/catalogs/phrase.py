@@ -121,6 +121,8 @@ from torrcast.domain.catalogs.warm.en import en as warm_en
 from torrcast.domain.catalogs.warm.ru import ru as warm_ru
 from torrcast.domain.catalogs.watch.en import en as watch_en
 from torrcast.domain.catalogs.watch.ru import ru as watch_ru
+from torrcast.domain.catalogs.web.en import en as web_en
+from torrcast.domain.catalogs.web.ru import ru as web_ru
 from torrcast.domain.catalogs.worker.en import en as worker_en
 from torrcast.domain.catalogs.worker.ru import ru as worker_ru
 
@@ -184,6 +186,7 @@ _CLUSTERS: Final = (
     (reinforce_en, reinforce_ru),
     (warm_en, warm_ru),
     (launchd_en, launchd_ru),
+    (web_en, web_ru),
 )
 
 

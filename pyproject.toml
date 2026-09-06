@@ -52,7 +52,7 @@ dev = [
 path = "torrcast/domain/version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["torrcast", "tgbot", "hass"]
+packages = ["torrcast", "tgbot", "hass", "web"]
 
 [tool.ruff]
 line-length = 100
@@ -78,13 +78,13 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "scripts/vulture-whitelist.py" = ["F821", "B018"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["torrcast", "tgbot", "hass", "custom_components"]
+known-first-party = ["torrcast", "tgbot", "hass", "custom_components", "web"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 incremental = false
-files = ["torrcast", "tgbot", "hass", "custom_components", "tests", "scripts"]
+files = ["torrcast", "tgbot", "hass", "web", "custom_components", "tests", "scripts"]
 # Белый список vulture переехал в `scripts`, то есть в охват mypy, но кодом он не
 # является: имена в нём намеренно нигде не определены, их читает только vulture.
 exclude = ['scripts/vulture-whitelist\.py$']

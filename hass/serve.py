@@ -3,6 +3,11 @@
 Авторизации нет намеренно: продукт живёт в домашней сети и наружу не смотрит - ровно
 как раздача HLS, которую забирает телевизор. Всё, что мост умеет, лежит в
 :class:`hass.bridge.Bridge`; здесь только разбор запроса и коды ответа.
+
+Восьмой маршрут сюда не дописывается: страница в браузере объявляет свои маршруты
+таблицей (:func:`web.routes.routes`), и спрашивают её ПОСЛЕ этих семи, которые не
+меняются. Ответ ``None`` от :func:`web.answer_for.answer_for` значит «путь не её», и
+чужой путь получает тот же 404, что и до появления страницы.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE
 from hass.stopping import STOP
 from torrcast.domain.json_value import JsonValue
+from web.answer_for import answer_for
 
 #: Порт моста. Занят он бывает только другим таким же мостом.
 PORT = 8479
@@ -50,19 +56,19 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith(POSTER):
             self._picture(path[len(POSTER) :])
             return
-        if path != STATE:
-            self._answer(404, {"error": "not_found"})
+        if path == STATE:
+            self._answer(200, self.bridge.state())
             return
-        self._answer(200, self.bridge.state())
+        self._offer({})
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path not in (PLAY, CONTROL, NEXT, SEARCH, RESUME):
-            self._answer(404, {"error": "not_found"})
-            return
         body = self._body()
         if body is None:
             self._answer(400, {"error": "bad_json"})
+            return
+        if path not in (PLAY, CONTROL, NEXT, SEARCH, RESUME):
+            self._offer(body)
             return
         try:
             self._command(path, body)
@@ -125,6 +131,18 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self.bridge.control(str(command), float(arg) if isinstance(arg, int | float) else 0.0)
         self._answer(204, None)
+
+    def _offer(self, body: dict[str, JsonValue]) -> None:
+        """Спросить таблицу страницы последней; не её путь остаётся прежним 404."""
+        found = answer_for(self.command, self.path, body)
+        if found is None:
+            self._answer(404, {"error": "not_found"})
+            return
+        self.send_response(found.code)
+        for name, value in found.headers():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(found.body)
 
     def _picture(self, name: str) -> None:
         """Байты картинки, которую мост уже нашёл; чужое имя отвечает тем же 404.

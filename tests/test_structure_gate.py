@@ -878,7 +878,7 @@ def test_the_rule_proves_its_zero_on_the_whole_live_tree(
     measured, seen, places = structure_gate.translation_volume(live_tree)
     on_disk = [
         path.relative_to(root).as_posix()
-        for folder in ("torrcast", "tgbot", "hass", "custom_components")
+        for folder in ("torrcast", "tgbot", "hass", "custom_components", "web")
         for path in (root / folder).rglob("*.py")
     ]
     on_disk += [name for name in structure_gate.SCRIPTS if (root / name).exists()]

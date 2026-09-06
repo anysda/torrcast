@@ -1,0 +1,73 @@
+"""Английские надписи кластера страницы в браузере.
+
+Строки взяты дословно из макета (`Torrcast Frames.dc.html`): регистр тут такой, каким
+его набрал дизайнер, а прописные буквы витрины делает `text-transform` в стиле. Держать
+надпись прописной прямо здесь значило бы вшить в каталог решение показа: русская строка
+из соседнего файла набирается иначе, а рисуется тем же классом.
+"""
+
+from __future__ import annotations
+
+
+def en() -> dict[str, str]:
+    """Вернуть английский каталог кластера страницы в браузере."""
+    return {
+        "web.header.seat": "Home net_single seat",
+        "web.header.now_playing": "Now playing ▶",
+        "web.header.on_tv": "On TV",
+        "web.search.placeholder": "What are we watching?",
+        "web.search.hint_enter": "Enter — search",
+        "web.search.hint_esc": "Esc — clear",
+        "web.search.searching": "Searching {n} sources…",
+        "web.search.counter": "{n} results · {m} sources",
+        "web.search.best_match": "Best match",
+        "web.search.empty": "Nothing for you",
+        "web.shelf.continue_watching": "Continue watching",
+        "web.shelf.new": "New",
+        "web.shelf.popular": "Popular",
+        "web.shelf.empty": "Nothing here yet",
+        "web.shelf.loading": "Loading_",
+        "web.tile.no_art": "No art_",
+        "web.detail.back": "‹ Back",
+        "web.detail.more": "More_",
+        "web.detail.play": "▶ Play",
+        "web.detail.start_over": "Start over",
+        "web.detail.play_on_tv": "Play on TV",
+        "web.detail.audio": "Audio ▾",
+        "web.detail.series": "More from this series",
+        "web.detail.releases": "{n} releases from {m} sources",
+        "web.detail.no_releases": "No releases found",
+        "web.detail.resumes": "Resumes {label} · {time}",
+        "web.detail.season": "Season {n}",
+        "web.detail.watched": "✓ Watched",
+        "web.detail.resumes_here": "▶ Resumes here · {time}",
+        "web.player.preparing": "Preparing…",
+        "web.player.preparing_in": "starts in ~{seconds} s",
+        "web.player.packaging": "Packaging stream_source {n} of {m}",
+        "web.player.buffering": "Buffering_",
+        "web.player.packaged": "Packaged →",
+        "web.player.back_ten": "−10 s",
+        "web.player.forward_ten": "+10 s",
+        "web.player.volume": "VOL",
+        "web.player.audio": "Audio",
+        "web.player.next_episode": "Next episode",
+        "web.player.play_on_tv": "Play on TV",
+        "web.player.next_in": "Next episode in {n}",
+        "web.player.play_now": "Play now",
+        "web.player.cancel": "Cancel",
+        "web.player.on_tv": "▶ On TV",
+        "web.player.playing_on_tv": "Playing on TV",
+        "web.player.muted": "This tab is muted — volume controls the TV",
+        "web.player.tv_volume": "TV VOL",
+        "web.player.tv_position": "TV position",
+        "web.player.back_to_browser": "Back to browser",
+        "web.player.lost": "Stream lost",
+        "web.player.lost_code": "Packager stopped responding_code {code}",
+        "web.player.retry": "Retry",
+        "web.player.back": "‹ Back",
+        "web.keys.pause": "Pause",
+        "web.keys.seek": "±10 s",
+        "web.keys.volume": "Volume",
+        "web.keys.fullscreen": "Fullscreen",
+        "web.keys.back": "Back",
+    }
