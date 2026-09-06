@@ -41,13 +41,6 @@ def test_the_loop_and_its_next_episode_lookup_are_callable() -> None:
     assert callable(_worker_loop) and callable(_following)
 
 
-class _EmitTape(Tape):
-    """Лента, помнящая и свободные события: снимок порогов уезжает именно ими."""
-
-    def emit(self, phase: str, event: str, **fields: object) -> None:
-        self.calls.append((f"{phase}/{event}", dict(fields)))
-
-
 def test_the_loop_pins_the_thresholds_snapshot_to_the_session_start_record(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -68,7 +61,7 @@ def test_the_loop_pins_the_thresholds_snapshot_to_the_session_start_record(
     )
     state.save(fresh)
     state_slot.install(state)
-    tape = _EmitTape()
+    tape = Tape()
     journal_slot.install(tape)
     asked: list[tuple[Config, Profile]] = []
 
@@ -115,7 +108,7 @@ def _shown_title(entry: Entry, _ports: None = None) -> str:
     fresh.put(key, entry)
     state.save(fresh)
     state_slot.install(state)
-    journal_slot.install(_EmitTape())
+    journal_slot.install(Tape())
     seen: list[str] = []
 
     def play(config: Config, source: str, audio: int, about: str, *args: Any, **kw: Any) -> int:

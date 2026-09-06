@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from tests.fakes.journal import Tape
 from torrcast.adapters.wiki.poster_bodies import PosterBodies
 from torrcast.domain.facts.ask import Ask
 
@@ -63,3 +64,17 @@ def test_a_picture_without_addresses_is_not_asked_of_the_network() -> None:
     files = FakeBytesClient()
     assert PosterBodies(files).bodies({HERE: []}, 5.0) == {}
     assert files.asked == []
+
+
+def test_a_silent_address_names_its_refusal_in_the_journal(tape: Tape) -> None:
+    """🔴 Промах байтов оставляет признак: молча он неотличим от «постера нет вовсе».
+
+    Плитка обещала картинку и осталась битой, а в журнале не было ни строки - отличить
+    оборванный поход от честного «у картины нет постера» было нечем ничем.
+    """
+    files = FakeBytesClient(broken={SMALL})
+    assert PosterBodies(files).bodies({HERE: [SMALL]}, 5.0) == {}
+    missed = tape.named("posters/poster_body_missed")
+    assert len(missed) == 1, "промах байтов назван в следе ровно один раз"
+    assert missed[0]["address"] == SMALL
+    assert "OSError" in str(missed[0]["refusal"])

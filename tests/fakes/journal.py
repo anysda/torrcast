@@ -41,6 +41,15 @@ class Tape(Silent):
     def seek(self, frm: float, to: float, wait: float | None, why: str = "") -> None:
         self.calls.append(("seek", {"frm": frm, "to": to, "wait": wait, "why": why}))
 
+    def emit(self, phase: str, event: str, **fields: Any) -> None:
+        """Свободное событие под составным именем - тем же, каким его знает лента.
+
+        Имя тут склеенное, ``фаза/событие``, потому что именно так его печатает
+        ``cast log``: спрашивать двойник иначе, чем спрашивают ленту, значило бы
+        сверять рассказ с самим собой.
+        """
+        self.calls.append((f"{phase}/{event}", fields))
+
     def mark(self, name: str, **facts: Any) -> None:
         """Помеченное событие: имя ему даёт зовущий, по нему же его и спрашивают.
 
