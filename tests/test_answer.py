@@ -31,6 +31,13 @@ def test_the_type_and_the_cache_are_the_answers_own() -> None:
     assert dict(answer.headers())["Cache-Control"] == "max-age=60"
 
 
+def test_extra_headers_ride_along_after_the_fixed_three() -> None:
+    """Карточка метит недоехавший ответ своим заголовком - он должен доехать до сокета."""
+    answer = Answer(200, b"{}", extra=(("X-Torrcast-Partial", "1"),))
+
+    assert answer.headers()[-1] == ("X-Torrcast-Partial", "1")
+
+
 def test_an_answer_cannot_be_edited_after_it_is_made() -> None:
     answer = Answer(404, b"{}")
 

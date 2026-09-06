@@ -21,11 +21,16 @@ class Answer:
     body: bytes
     kind: str = JSON
     cache: str = NO_STORE
+    #: Заголовки сверх обязательной тройки: карточка метит недоехавший ответ
+    #: ``X-Torrcast-Partial``, чтобы страница знала, когда переспрашивать, не разбирая
+    #: тело. Пусто у всех, кому нечего сказать сверху.
+    extra: tuple[tuple[str, str], ...] = ()
 
     def headers(self) -> tuple[tuple[str, str], ...]:
-        """Заголовки ответа: тип тела, срок годности и длина."""
+        """Заголовки ответа: тип тела, срок годности, длина и то, что добавил маршрут."""
         return (
             ("Content-Type", self.kind),
             ("Cache-Control", self.cache),
             ("Content-Length", str(len(self.body))),
+            *self.extra,
         )
