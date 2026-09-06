@@ -72,6 +72,35 @@ def test_search_reports_empty_result_as_not_found() -> None:
         _client([]).search("нетакогофильма")
 
 
+def test_feed_asks_without_a_query_string_and_without_the_apart_circle() -> None:
+    """Лента (TC-1110) не должна платить круг врозь: одна сессия, один запрос без query."""
+    payload = [
+        {
+            "title": "Матрица 1999",
+            "infoHash": "a" * 40,
+            "size": 1,
+            "seeders": 5,
+            "indexer": "rutor",
+            "publishDate": "2026-09-01T00:00:00Z",
+        }
+    ]
+    client = _client(payload)
+
+    rows = client.feed(limit=50)
+
+    session = client._api.session
+    assert isinstance(session, _FakeSession)
+    assert "query=" not in session.url
+    assert "&categories=2000&categories=5000" in session.url
+    assert "&limit=50" in session.url
+    assert [row.raw.info_hash for row in rows] == ["a" * 40]
+
+
+def test_an_empty_feed_is_not_a_not_found_error() -> None:
+    """Пустая лента - штатное состояние (индексер молчит между раздачами), не отказ."""
+    assert _client([]).feed() == []
+
+
 def _row(name: str, tag: str) -> dict[str, object]:
     """Одна строка выдачи: хэш подделываем из тега, чтобы раздачи не склеились."""
     return {

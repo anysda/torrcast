@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from torrcast.adapters.prowlarr.circle_trace import circle_trace
+from torrcast.adapters.prowlarr.feed_url import feed_url
+from torrcast.adapters.prowlarr.from_feed_json import from_feed_json
 from torrcast.adapters.prowlarr.from_json import from_json
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_http_client import _IndexersUnavailableError
@@ -11,6 +13,7 @@ from torrcast.adapters.prowlarr.search_url import search_url
 from torrcast.domain.anime_fallback import anime_fallback
 from torrcast.domain.capped_indexers import capped_indexers
 from torrcast.domain.circle_indexers import circle_indexers
+from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.nothing_found import nothing_found
 from torrcast.domain.raw_result import RawResult
@@ -39,6 +42,17 @@ class Prowlarr(_State):
                 query, self.banned, self._roster.refused(self.banned, self._begun_at), self.silent
             )
         return results
+
+    def feed(self, limit: int = 200) -> list[FeedRow]:
+        """Раздачи ленты без строки поиска: одним запросом, за все индексеры сразу.
+
+        Полкам «Новинки»/«Популярное» (TC-1110) не нужен круг врозь (:meth:`_apart`) -
+        он платит за самый медленный индексер целиком поиска, а тут спешить некуда:
+        полки строятся раз в час фоном, и молчаливый ответит в следующий раз. Пустая
+        лента - не отказ каталога: индексеры делают паузы между выдачей новых раздач,
+        и с пустым списком справится сама полка.
+        """
+        return from_feed_json(self._api.get_json(feed_url(self.base_url, self.apikey, limit)))
 
     def late(self, wait: float = 0.0) -> list[RawResult]:
         """Выдача опоздавших: круг ушёл по опорным, а эти доехали уже потом (TC-118)."""

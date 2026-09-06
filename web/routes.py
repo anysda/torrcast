@@ -5,6 +5,7 @@ from __future__ import annotations
 from web.phrases import phrases
 from web.route import Route
 from web.serve_static import serve_static
+from web.shelves import shelves
 
 
 def routes() -> tuple[Route, ...]:
@@ -20,5 +21,6 @@ def routes() -> tuple[Route, ...]:
     return (
         Route("GET", "/", serve_static),
         Route("GET", "/api/phrases", phrases),
+        Route("GET", "/api/shelves", shelves),
         Route("GET", "/static/", serve_static, prefix=True),
     )
