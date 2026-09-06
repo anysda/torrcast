@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -25,8 +26,17 @@ def _wired(monkeypatch: pytest.MonkeyPatch, tv: str = "192.168.1.104") -> FakeRe
     monkeypatch.setattr("web.to_tv.load_config", lambda: Config(tv=tv))
     receiver = FakeReceiver(Position(0.0, 0.0))
     monkeypatch.setattr(SESSION, "factory", lambda address, profile: receiver)
+    monkeypatch.setattr(SESSION, "poll_seconds", 0.01)
     monkeypatch.setattr(SESSION, "_receiver", None)
     return receiver
+
+
+@pytest.fixture(autouse=True)
+def _stop_any_cast_left_running() -> Iterator[None]:
+    """Убирает опрос, если тест поднял каст и не снял его: без этого фоновый поток
+    держателя (:mod:`web.tv_session`) жил бы до конца всего прогона тестов."""
+    yield
+    SESSION.stop()
 
 
 def test_no_configured_tv_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
