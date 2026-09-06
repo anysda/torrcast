@@ -1,0 +1,140 @@
+"""Проверяет приёмник-вкладку: задание, снятие и обе границы молчания страницы."""
+
+from __future__ import annotations
+
+import dataclasses
+from pathlib import Path
+
+from tests.fakes.clock import FakeClock
+from torrcast.adapters.browser.browser_receiver import BrowserReceiver
+from torrcast.adapters.browser.read_web_box import read_web_box
+from torrcast.adapters.browser.read_web_position import read_web_position
+from torrcast.adapters.browser.write_web_position import write_web_position
+from torrcast.domain.position import Position
+from torrcast.domain.profile import CAUTIOUS
+
+#: Профиль с обеими границами молчания, взятыми короткими числами - тесту не важна
+#: боевая величина, важно только то, что 60 больше 15 и обе больше нуля.
+_STALE_PROFILE = dataclasses.replace(CAUTIOUS, key="test-browser", lost_after=15.0, gone_after=60.0)
+
+
+def test_play_writes_a_fresh_mailbox_and_forgets_the_last_session(tmp_path: Path) -> None:
+    receiver = BrowserReceiver(tmp_path)
+    write_web_position(tmp_path, key="old", pos=1.0, dur=2.0, phase="playing", wall=0.0)
+
+    receiver.play("http://x/out.m3u8", title="Interstellar", at=42.0)
+
+    box = read_web_box(tmp_path)
+    assert box["url"] == "http://x/out.m3u8"
+    assert box["title"] == "Interstellar"
+    assert box["at"] == 42.0
+    assert box["key"]
+    assert read_web_position(tmp_path) is None
+
+
+def test_stop_clears_both_the_mailbox_and_the_position(tmp_path: Path) -> None:
+    receiver = BrowserReceiver(tmp_path)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=1.0, dur=2.0, phase="playing", wall=0.0)
+
+    receiver.stop()
+
+    assert read_web_box(tmp_path) == {}
+    assert read_web_position(tmp_path) is None
+
+
+def test_before_the_page_has_reported_anything_it_reads_as_buffering_and_alive(
+    tmp_path: Path,
+) -> None:
+    """Пустой держатель показа не должен решить, что показ сорвался - страница ещё грузится."""
+    receiver = BrowserReceiver(tmp_path)
+    receiver.play("http://x/out.m3u8", title="t", at=12.0)
+
+    assert receiver.position() == Position(12.0, 0.0, True, "BUFFERING")
+
+
+def test_a_stale_key_from_a_past_session_reads_the_same_as_no_report_yet(tmp_path: Path) -> None:
+    receiver = BrowserReceiver(tmp_path)
+    receiver.play("http://x/out.m3u8", title="t", at=5.0)
+    write_web_position(
+        tmp_path, key="not-the-current-key", pos=90.0, dur=100.0, phase="playing", wall=0.0
+    )
+
+    assert receiver.position() == Position(5.0, 0.0, True, "BUFFERING")
+
+
+def test_a_fresh_report_of_playing_is_read_through(tmp_path: Path) -> None:
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="playing", wall=clock.wall())
+
+    assert receiver.position() == Position(30.0, 120.0, True, "PLAYING")
+
+
+def test_a_paused_report_is_read_through(tmp_path: Path) -> None:
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="paused", wall=clock.wall())
+
+    assert receiver.position() == Position(30.0, 120.0, False, "PAUSED")
+
+
+def test_an_ended_report_is_read_as_idle_not_playing(tmp_path: Path) -> None:
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
+
+    assert receiver.position() == Position(119.0, 120.0, False, "IDLE")
+
+
+def test_silence_short_of_lost_after_is_not_yet_declared_lost(tmp_path: Path) -> None:
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_STALE_PROFILE)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="playing", wall=clock.wall())
+
+    clock.now += _STALE_PROFILE.lost_after - 1.0
+
+    assert receiver.position() == Position(30.0, 120.0, True, "PLAYING")
+
+
+def test_silence_past_lost_after_but_short_of_gone_after_holds_the_session_alive(
+    tmp_path: Path,
+) -> None:
+    """15 с молчания - «lost», но показ ещё жив: _hold не должен пытаться его поднять."""
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_STALE_PROFILE)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="playing", wall=clock.wall())
+
+    clock.now += _STALE_PROFILE.lost_after
+
+    position = receiver.position()
+    assert position == Position(30.0, 120.0, True, "lost", stale=True)
+    assert position.playing is True
+
+
+def test_silence_past_gone_after_closes_the_session_by_reporting_not_playing(
+    tmp_path: Path,
+) -> None:
+    """60 с молчания - «gone»: держатель показа встречает playing=False и закрывает сеанс."""
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_STALE_PROFILE)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="playing", wall=clock.wall())
+
+    clock.now += _STALE_PROFILE.gone_after
+
+    position = receiver.position()
+    assert position == Position(30.0, 120.0, False, "lost", stale=True)
+    assert position.playing is False

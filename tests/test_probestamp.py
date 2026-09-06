@@ -75,8 +75,16 @@ def test_подпись_не_принимает_неназванный_приб�
 
 
 def test_закрытый_список_допустимых_имён_приборов() -> None:
-    """Реестр допускает ровно четыре известных щупа и честную отметку долга."""
+    """Реестр допускает ровно шесть известных щупов и честную отметку долга."""
     stamp = tool("probestamp")
 
-    known = {"tvprobe", "seekcheck", "seekbench", "framebench", stamp.UNNAMED}
+    known = {
+        "tvprobe",
+        "seekcheck",
+        "seekbench",
+        "framebench",
+        "decodebench",
+        "staleprobe",
+        stamp.UNNAMED,
+    }
     assert frozenset(known) == stamp.TOOLS

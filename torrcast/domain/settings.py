@@ -9,7 +9,7 @@ class Settings:
     """Configuration needed by scenarios, independent of its source."""
 
     tv: str | None = None
-    receiver: Literal["chromecast", "mock"] = "chromecast"
+    receiver: Literal["chromecast", "mock", "browser"] = "chromecast"
     receiver_profile: str = ""
     torrserver_url: str = "http://127.0.0.1:8090"
     prowlarr_url: str = "http://127.0.0.1:9696"

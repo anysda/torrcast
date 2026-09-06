@@ -14,7 +14,7 @@ class _ConfigSources:
     """Приёмник, поиск и раздача: с кем показ разговаривает по сети."""
 
     tv: str | None = None
-    receiver: Literal["chromecast", "mock"] = "chromecast"
+    receiver: Literal["chromecast", "mock", "browser"] = "chromecast"
     #: Профиль приёмника РУКАМИ (:mod:`torrcast.domain.profile`): ``q70d``, ``androidtv``.
     #:
     #: **Пусто - нормальный режим**: профиль выбирается сам, по паспорту устройства, и

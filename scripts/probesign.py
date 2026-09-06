@@ -41,7 +41,11 @@ from probestamp import APART, SIGN, TOOLS, TRACTS, UNNAMED, WHERE
 #: Корень репозитория: у щупа он один - родитель ``scripts/``.
 ROOT: Final = Path(__file__).resolve().parent.parent
 #: Что спрашивается по умолчанию.
-PROFILES: Final = ("torrcast/domain/receiver_profile.py", "torrcast/domain/android_tv_profile.py")
+PROFILES: Final = (
+    "torrcast/domain/receiver_profile.py",
+    "torrcast/domain/android_tv_profile.py",
+    "torrcast/domain/browser_profile.py",
+)
 #: Поля профиля, которые ничего не меряют: имя ключа и подпись для человека.
 NOT_MEASURED: Final = frozenset({"key", "title_key"})
 #: Слова, которыми комментарий ссылается на замер. Ссылается - значит обязан назвать чем.

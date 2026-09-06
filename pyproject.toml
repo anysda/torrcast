@@ -108,8 +108,9 @@ pretty = true
 # ослабляет, они проверяются как раньше.
 [[tool.mypy.overrides]]
 # `aiohttp` тут в той же роли: его в венв тянет Home Assistant, а не torrcast.
-# `playwright` - щуп приёмки TC-1116 (`scripts/web-acceptance.py`): инструмент разработчика,
-# ставится только на стенде и в венв гейта поэтому не входит вовсе.
+# `playwright` - щуп разработчика (`scripts/web-acceptance.py`, `scripts/decodebench.py`):
+# ставится только на стенде (CT502, /opt/pwenv) и берётся лениво, с ловлей ImportError.
+# В венв гейта и в зависимости продукта он не входит вовсе.
 module = [
     "aiohttp.*",
     "homeassistant.*",

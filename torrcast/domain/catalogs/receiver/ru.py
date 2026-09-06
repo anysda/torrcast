@@ -14,6 +14,7 @@ def ru() -> dict[str, str]:
         # Профили приёмников: подпись профиля, а не его ключ.
         "receiver.profile_cautious": "осторожный (Samsung Q70D)",
         "receiver.profile_android_tv": "приставка Android TV (Xiaomi TV Stick)",
+        "receiver.profile_browser": "браузер (этот компьютер)",
         "receiver.unnamed": "приёмник",
         # Откуда взялся порог: конфиг, профиль или умолчание.
         "receiver.source_config": "написан в конфиге",

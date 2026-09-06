@@ -18,7 +18,7 @@ class FakeReceivers:
 
     def __call__(
         self,
-        kind: Literal["chromecast", "mock"],
+        kind: Literal["chromecast", "mock", "browser"],
         address: str = "",
         ca: str = "",
         profile: Profile = CAUTIOUS,

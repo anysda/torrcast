@@ -21,7 +21,9 @@ class Configure:
     приёмник сама: отдельного шага «после установки позови ``cast --tv``» нет.
 
     Отдельное значение ``mock`` включает headless-приёмник: так torrcast проверяется без
-    телевизора, и адрес ТВ в конфиге при этом отсутствует физически.
+    телевизора, и адрес ТВ в конфиге при этом отсутствует физически. Отдельное значение
+    ``browser`` включает приёмник-вкладку (TC-1108): показ едет не на устройство в сети,
+    а на страницу той же машины, и адреса у него по той же причине нет.
     """
 
     def __init__(self, store: ConfigurationStore, finder: ReceiverFinder, console: Console) -> None:
@@ -32,9 +34,11 @@ class Configure:
     def run(self, address: str | None = None) -> int:
         """Сохраняет названный адрес либо выбранный найденный приёмник."""
         device = ReceiverInfo(name="", address=address) if address is not None else self._found_tv()
-        receiver: Literal["chromecast", "mock"] = (
-            "mock" if device.address == "mock" else "chromecast"
-        )
+        receiver: Literal["chromecast", "mock", "browser"] = "chromecast"
+        if device.address == "mock":
+            receiver = "mock"
+        elif device.address == "browser":
+            receiver = "browser"
         settings = replace(self._store.load(), tv=device.address, receiver=receiver)
         self._store.save(settings)
         note = phrase("configure.headless_note") if device.address == "mock" else ""

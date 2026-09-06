@@ -20,6 +20,7 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.usecases.playback._play import _play
+from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.stopped import _on_term
 from torrcast.usecases.torrents import _own_torrent, _release_torrents
 from torrcast.usecases.worker_loop import _worker_loop
@@ -98,9 +99,13 @@ def _cmd_worker(key: str, *, play: Callable[..., int] = _play) -> int:
     # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
     signal.signal(signal.SIGTERM, _on_term)
     torrserver = _worker_engines(config.torrserver_url)
+    # У вкладки браузера нет сетевого адреса - в этом слоте у неё едет уже разрешённый
+    # каталог сегментов показа: ей и мосту (:mod:`web.box`, :mod:`web.position`) нужен
+    # именно он, а не ``config.tv``, которого при этом виде приёмника попросту нет.
+    address = str(hls_root(config.hls_dir)) if config.receiver == "browser" else (config.tv or "")
     receiver = _worker_receivers(
         config.receiver,
-        config.tv or "",
+        address,
         config.hls_cert if config.transport == "https" else "",
         profile=chosen.profile,
     )
