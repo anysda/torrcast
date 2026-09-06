@@ -6,10 +6,12 @@ from torrcast.adapters.wiki.facts_file_cache import FactsFileCache
 from torrcast.adapters.wiki.imdb_names import ImdbNames
 from torrcast.adapters.wiki.wiki_articles import WikiArticles
 from torrcast.adapters.wiki.wiki_blurbs import WikiBlurbs
+from torrcast.adapters.wiki.wikidata_kin import WikidataKin
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import USER_AGENT
 from torrcast.runtime.facts_wiring import FACTS, FactsWiring
+from torrcast.usecases.franchise_kin import FranchiseKin
 from torrcast.usecases.passport import Passport
 
 
@@ -21,6 +23,8 @@ def test_the_process_gets_one_assembled_reference() -> None:
     assert isinstance(FACTS.blurbs, WikiBlurbs)
     assert isinstance(FACTS.catalogue, ImdbNames)
     assert isinstance(FACTS.cache, FactsFileCache)
+    assert isinstance(FACTS.kin, WikidataKin)
+    assert isinstance(FACTS.franchise, FranchiseKin)
 
 
 def test_one_client_and_one_catalogue_serve_every_step(tmp_path: Path) -> None:
@@ -34,6 +38,10 @@ def test_one_client_and_one_catalogue_serve_every_step(tmp_path: Path) -> None:
     assert isinstance(wiring.catalogue, ImdbNames)
     assert wiring.catalogue.ratings is wiring.ratings
     assert wiring.passport.store is wiring.cache
+    assert wiring.franchise.passport == wiring.passport.of
+    assert wiring.franchise.store is wiring.cache
+    assert wiring.franchise.kin is wiring.kin
+    assert wiring.kin.client is wiring.client
 
 
 def test_different_state_directories_do_not_read_each_others_cache(tmp_path: Path) -> None:

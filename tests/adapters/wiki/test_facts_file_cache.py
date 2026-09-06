@@ -7,6 +7,7 @@ from tests.fakes.json_store import FakeJsonStore
 from torrcast.adapters.wiki.facts_file_cache import FactsFileCache
 from torrcast.adapters.wiki.json_file_store import JsonFileStore
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import EMPTY_TTL, FACTS_RULES, SOURCE_WIKI
 
@@ -54,6 +55,26 @@ def test_an_empty_answer_is_remembered_with_an_expiry() -> None:
     stale = FactsFileCache(store, lambda: now + EMPTY_TTL + 1)
     assert stale.blurbs([("Моана", 2016)]) == {}, "срок вышел - ряда как не было"
     assert stale.blurbs([("Тачки", 2006)]), "у найденной справки срока нет"
+
+
+def test_kin_is_written_once_and_read_back_by_its_entity() -> None:
+    """Родня лежит в своём ряду и не путается с паспортами того же файла."""
+    cache = FactsFileCache(FakeJsonStore())
+    found = [Kin("Q105993", "Крепкий орешек 2", 1990)]
+
+    assert cache.read_kin("Q105598") is None
+    cache.write_kin("Q105598", found)
+
+    assert cache.read_kin("Q105598") == found
+    assert cache.read_kin("Q999999") is None
+
+
+def test_kin_without_a_franchise_is_remembered_as_an_empty_shelf() -> None:
+    """Пустой список - тоже ответ: франшизы нет, и в сеть за ней больше не идут."""
+    cache = FactsFileCache(FakeJsonStore())
+    cache.write_kin("Q1", [])
+
+    assert cache.read_kin("Q1") == []
 
 
 def test_nothing_to_remember_never_touches_the_store() -> None:

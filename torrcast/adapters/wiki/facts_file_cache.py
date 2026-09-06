@@ -14,6 +14,8 @@ from torrcast.domain.facts.cache_rows import (
     _row_origin,
 )
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.kin import Kin
+from torrcast.domain.facts.kin_rows import _kin_key, _kin_row, _row_kin
 from torrcast.domain.facts.origin import Origin
 from torrcast.ports.json_store import JsonStore
 
@@ -37,6 +39,17 @@ class FactsFileCache:
         """Дописать паспорт к тому, что уже лежит в хранилище."""
         raw = self.store.read()
         raw[_origin_key(title, series)] = _origin_row(found)
+        self.store.write(raw)
+
+    def read_kin(self, entity: str) -> list[Kin] | None:
+        """Родня по Q-идентификатору: ``None`` - не спрашивали, пустой список - нет её."""
+        row = self.store.read().get(_kin_key(entity))
+        return _row_kin(row) if row is not None else None
+
+    def write_kin(self, entity: str, found: list[Kin]) -> None:
+        """Дописать родню к тому, что уже лежит в хранилище."""
+        raw = self.store.read()
+        raw[_kin_key(entity)] = _kin_row(found)
         self.store.write(raw)
 
     def blurbs(self, wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:

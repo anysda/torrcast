@@ -17,7 +17,9 @@ from torrcast.adapters.wiki.wiki_articles import WikiArticles
 from torrcast.adapters.wiki.wiki_blurbs import WikiBlurbs
 from torrcast.adapters.wiki.wiki_spelling import WikiSpelling
 from torrcast.adapters.wiki.wikidata_dates import WikidataDates
+from torrcast.adapters.wiki.wikidata_kin import WikidataKin
 from torrcast.domain.facts.settings import USER_AGENT
+from torrcast.usecases.franchise_kin import FranchiseKin
 from torrcast.usecases.passport import Passport
 
 
@@ -44,6 +46,8 @@ class FactsWiring:
         self.passport = Passport(
             self.articles, self.catalogue, self.cache, WikidataDates(self.client)
         )
+        self.kin = WikidataKin(self.client)
+        self.franchise = FranchiseKin(self.passport.of, self.kin, self.cache)
 
 
 #: Проводка справки на весь процесс: один HTTPS-клиент со своей памятью адресов, один
