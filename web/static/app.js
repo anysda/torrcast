@@ -1,5 +1,7 @@
-// Заготовка страницы: словарь надписей и шапка. Экраны, полки и D-pad - соседний заход,
-// и живут они в ЭТОМ файле, чтобы плееру (player.js) не пришлось его открывать.
+// Точка входа: словарь надписей, шапка с плашкой «сейчас идёт», числовые подписи и
+// самый маленький маршрутизатор - без адресов, без правил, только путь в один из двух
+// экранов (`home.js` / `card.js`). Сама логика экранов и D-pad живёт в СВОИХ файлах:
+// этот держится коротким нарочно, а не потому что нечего было сказать.
 'use strict';
 
 const TC = {
@@ -24,7 +26,9 @@ const TC = {
     return TC.phrases;
   },
 
-  header() {
+  // Шапка живёт только на главной; ``state`` - ответ ``/api/state`` (или ``null``,
+  // пока он не приехал): плашка «сейчас идёт» появляется, только когда показ не в покое.
+  header(state) {
     const brand = document.createElement('div');
     brand.className = 'tc-brand';
     const square = document.createElement('span');
@@ -42,16 +46,93 @@ const TC = {
 
     const header = document.createElement('header');
     header.className = 'tc-header tc-safe';
-    header.append(brand, seat);
+    header.append(brand);
+    header.append(state && state.state && state.state !== 'idle' ? TC._chip(state) : seat);
     return header;
   },
 
-  async start() {
-    await TC.load();
+  // Договора о «показ идёт на ТВ, а не в браузере» в ``/api/state`` сегодня нет
+  // (поле ``tv`` - имя настроенного телевизора, не флаг места показа): значок «На ТВ»
+  // тут намеренно не рисуется, это честный пробел контракта, а не забытая строка.
+  _chip(state) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'tc-now';
+    chip.addEventListener('click', () => {
+      if (window.TCPlayer && TCPlayer.open) TCPlayer.open();
+    });
+    const art = document.createElement('div');
+    art.className = 'tc-now-art';
+    if (state.image) {
+      art.style.backgroundImage = 'url(' + state.image + ')';
+      art.style.backgroundSize = 'cover';
+      art.style.backgroundPosition = 'center';
+    }
+    const label = document.createElement('div');
+    label.className = 'tc-now-label';
+    label.textContent = TC.say('web.header.now_playing');
+    const title = document.createElement('div');
+    title.className = 'tc-now-title';
+    title.textContent = state.shown_as || state.title || '';
+    const time = document.createElement('div');
+    time.className = 'tc-now-time';
+    time.textContent = TCTime.clock(state.position) + ' / ' + TCTime.clock(state.duration);
+    chip.append(art, label, title, time);
+    return chip;
+  },
+};
+
+// Числа страницы: часы читаются столбиком, и им нужен один и тот же формат везде -
+// в шапке, на плитке «Продолжить» и на карточке, а не свой в каждом файле.
+const TCTime = {
+  clock(seconds) {
+    if (seconds === null || seconds === undefined) return '--:--';
+    const total = Math.max(0, Math.round(seconds));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const two = (n) => String(n).padStart(2, '0');
+    return h > 0 ? h + ':' + two(m) + ':' + two(s) : m + ':' + two(s);
+  },
+
+  // Длительность фильма в словах каталога («2 h 49 min» / «38 min»); поле контракта
+  // ``runtime`` идёт в секундах, как ``position``/``duration`` у показа.
+  runtimeWords(seconds) {
+    if (seconds === null || seconds === undefined) return '';
+    const total = Math.round(seconds / 60);
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return h > 0 ? TC.say('web.detail.runtime_hm', { h, m }) : TC.say('web.detail.runtime_m', { m });
+  },
+};
+
+// Два экрана, один корень: путь решает, кому его отдать. Ни правил, ни параметров -
+// точный маршрут только у карточки (``/card/{key}``), остальное - главная.
+const TCRouter = {
+  go(path) {
+    history.pushState({}, '', path);
+    TCRouter.render();
+  },
+
+  render() {
     const root = document.getElementById('tc-root');
-    root.replaceChildren(TC.header());
+    const path = location.pathname;
+    if (path.startsWith('/card/')) {
+      const key = decodeURIComponent(path.slice('/card/'.length));
+      TCCard.mount(root, key);
+    } else {
+      TCHome.mount(root);
+    }
   },
 };
 
 window.TC = TC;
-document.addEventListener('DOMContentLoaded', () => { TC.start(); });
+window.TCTime = TCTime;
+window.TCRouter = TCRouter;
+window.addEventListener('popstate', TCRouter.render);
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await TC.load();
+  TCNav.init();
+  TCRouter.render();
+});

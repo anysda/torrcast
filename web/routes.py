@@ -6,6 +6,7 @@ from web.card import card
 from web.history import history
 from web.phrases import phrases
 from web.route import Route
+from web.serve_shell import serve_shell
 from web.serve_static import serve_static
 from web.shelves import shelves
 
@@ -26,5 +27,6 @@ def routes() -> tuple[Route, ...]:
         Route("GET", "/api/shelves", shelves),
         Route("GET", "/api/history", history),
         Route("GET", "/api/card/", card, prefix=True),
+        Route("GET", "/card/", serve_shell, prefix=True),
         Route("GET", "/static/", serve_static, prefix=True),
     )

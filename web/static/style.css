@@ -154,12 +154,13 @@ body {
               -webkit-text-stroke: 0.125rem var(--tc-disabled-ink); }
 
 /* --- Полки и сетка ------------------------------------------------------- */
+.tc-shelf-safe { padding: 0 var(--tc-safe-x) var(--tc-safe-y); }
 .tc-shelf { margin-top: 3rem; }
 .tc-shelf-head { display: flex; align-items: baseline; justify-content: space-between;
                  margin-bottom: var(--tc-gap); }
 .tc-shelf-arrows { font-weight: 900; font-size: 2.125rem; letter-spacing: .3em;
                    color: var(--tc-muted-dim); }
-.tc-row { display: flex; gap: var(--tc-gap); }
+.tc-row { display: flex; gap: var(--tc-gap); overflow-x: hidden; scroll-behavior: smooth; }
 .tc-row > * { flex: 0 0 var(--tc-tile-rest); width: var(--tc-tile-rest); }
 .tc-row--focused > * { flex-basis: var(--tc-tile-focus); width: var(--tc-tile-focus); }
 .tc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--tc-gap); }
@@ -187,6 +188,11 @@ body {
 .tc-tile-art-title { position: absolute; left: .75rem; right: .75rem; bottom: .625rem;
                      font-weight: 900; font-size: min(11cqw, 1.875rem); line-height: .95;
                      text-transform: uppercase; text-shadow: .1875rem .1875rem 0 rgba(0, 0, 0, .55); }
+/* Настоящая обложка: то же место, что у градиента-заглушки, но картинкой. Плитка без
+   своего постера в четверти случаев - штатно, и градиент под ней остаётся на месте,
+   пока `<img>` либо не загрузится, либо не откажет (тогда её убирает сам вызывающий). */
+.tc-tile-art-img { position: absolute; inset: 0; width: 100%; height: 100%;
+                   object-fit: cover; display: block; }
 .tc-tile-scan { position: absolute; inset: 0;
                 background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 1px,
                             transparent 1px 5px); }
@@ -250,6 +256,36 @@ body {
   border-bottom: var(--tc-focus-ring) solid var(--tc-acid);
   border-right: var(--tc-focus-ring) solid var(--tc-acid); }
 
+/* --- Карточка: подложка и раскладка (4.3/4.4) ----------------------------- */
+/* Оттенок подложки берёт тот же приём, что и заглушка плитки: своя переменная
+   --tc-hue на элементе, а не вторая система цвета для одного и того же постера. */
+.tc-detail { position: relative; min-height: 100vh; background: var(--tc-bg); overflow: hidden; }
+.tc-detail-blur { position: absolute; inset: -12%; filter: blur(5.625rem); opacity: .5;
+                  background: linear-gradient(155deg,
+                    oklch(.5 .17 var(--tc-hue, 20)) 0%,
+                    oklch(.14 .06 calc(var(--tc-hue, 20) + 60)) 70%); }
+.tc-detail-shade { position: absolute; inset: 0;
+                   background: linear-gradient(90deg, rgba(11, 11, 11, .94) 0%,
+                     rgba(11, 11, 11, .68) 100%); }
+.tc-detail-frame { position: absolute; inset: 0; padding: var(--tc-safe-y) var(--tc-safe-x);
+                   box-sizing: border-box; display: flex; flex-direction: column; }
+.tc-detail-top { display: flex; justify-content: space-between; margin-bottom: 2.125rem; }
+.tc-detail-body { display: flex; gap: 4rem; flex: 1; min-height: 0; }
+.tc-detail-poster { width: 26.875rem; flex-shrink: 0; }
+.tc-detail-poster--show { width: 23.75rem; }
+.tc-detail-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.tc-detail-title-row { display: flex; align-items: baseline; gap: 1.875rem; flex-wrap: wrap; }
+.tc-detail-meta { display: flex; align-items: center; gap: 1.5rem; margin-top: 1.25rem;
+                  flex-wrap: wrap; }
+.tc-dot { width: .625rem; height: .625rem; background: var(--tc-hair); flex-shrink: 0; }
+.tc-detail-desc { margin-top: 1.5rem; max-width: 62.5rem; }
+.tc-detail-skel { display: flex; flex-direction: column; gap: 1rem; margin-top: 1.875rem;
+                  max-width: 62.5rem; }
+.tc-skel-line { height: 1.6875rem; background-size: 250% 100%;
+                background-image: linear-gradient(100deg, #161613 40%, #22221c 50%, #161613 60%);
+                animation: tcshimmer 1.4s linear infinite; }
+.tc-releases { margin-top: auto; }
+
 /* --- Кнопки -------------------------------------------------------------- */
 .tc-btn { display: inline-flex; align-items: center; gap: .625rem; border: 0;
           font-family: inherit; font-weight: 900; text-transform: uppercase; cursor: pointer;
@@ -293,9 +329,12 @@ body {
                  font-weight: 900; font-size: 1.625rem; }
 .tc-resumes { font-weight: 700; font-size: 1.375rem; letter-spacing: .12em;
               text-transform: uppercase; color: var(--tc-muted); }
+.tc-detail-series-block { margin-top: 2.25rem; display: flex; flex-direction: column; gap: 1.375rem; }
 
 /* --- Сезоны и серии ------------------------------------------------------ */
-.tc-tabs { display: flex; gap: .75rem; }
+.tc-tabs { display: flex; gap: .75rem; margin-top: 2.25rem; }
+.tc-episodes { display: flex; flex-direction: column; overflow-y: auto; margin-top: 1.375rem;
+               max-height: 24rem; }
 .tc-tab { padding: .875rem 1.875rem; border: var(--tc-border) solid var(--tc-hair-dim);
           background: transparent; color: var(--tc-muted); font-family: inherit; font-weight: 900;
           font-size: 1.625rem; text-transform: uppercase; cursor: pointer; }
@@ -312,6 +351,15 @@ body {
 .tc-ep.is-resume :is(.tc-ep-num, .tc-ep-title, .tc-ep-meta) { color: var(--tc-bg); }
 .tc-ep-progress { position: absolute; left: 0; bottom: 0; height: .375rem;
                   background: var(--tc-bg); }
+
+/* Фокус клавиатурой = наведение мышью, тем же приёмом, что и у плитки (styles above). */
+.tc-tab:is(:hover, :focus-within, .is-focused) { outline: var(--tc-border) solid var(--tc-acid);
+                                                 outline-offset: -.1875rem; }
+.tc-ep:is(:hover, :focus-within, .is-focused) { background: var(--tc-ghost); }
+.tc-ep.is-resume:is(:hover, :focus-within, .is-focused) { background: var(--tc-acid); }
+.tc-drop-row:is(:hover, :focus-within, .is-focused) { background: var(--tc-hair-dim); }
+.tc-drop-row.is-selected:is(:hover, :focus-within, .is-focused) { background: var(--tc-acid); }
+.tc-tile:focus, .tc-tab:focus, .tc-ep:focus, .tc-drop-row:focus { outline: none; }
 
 /* --- Плеер: нижняя панель ------------------------------------------------ */
 .tc-player { background: var(--tc-bg-player); color: var(--tc-text); }
