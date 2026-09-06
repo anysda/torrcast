@@ -800,12 +800,21 @@ def test_client_gone_before_the_answer_is_one_line_not_a_traceback(
     уход клал в журнал сорок строк трейсбека - штатное событие выглядело аварией и
     топило настоящие поломки.
     """
-    origin, _ = backend
+    origin, counter = backend
     port = origin.server_address[1]
     routes = {"tracker.test": shim.Route("tracker.test", [f"https://127.0.0.1:{port}"])}
     server = _shim(tls, routes, opener=_plain)
     try:
         conn = _open_and_send(server.server_address[1], "tracker.test")
+        # Уход клиента обязан застать шим ЗА ожиданием origin - это и есть случай из
+        # докстроки. Без этой сверки момент ухода выбирали часы машины: на четырёх
+        # ядрах обрыв успевал раньше, чем шим доходил до хоста, и журнал молчал по
+        # совсем другой причине. Origin держит запрос HOLD секунд - столько у нас и
+        # есть на обрыв, а `counter.now` встаёт в единицу в самом начале удержания.
+        held = time.monotonic() + 5.0
+        while counter.now == 0 and time.monotonic() < held:
+            time.sleep(0.005)
+        assert counter.now == 1, "шим обязан ждать origin в момент ухода клиента"
         # Обрыв с RST, а не вежливое закрытие: так запись ответа упадёт наверняка,
         # а не когда повезёт с буферами.
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))

@@ -1,0 +1,70 @@
+name: ci
+
+# Приёмка гоняется целиком: `scripts/test-gate` без аргументов - тот же прогон, что
+# объявляет зелень на машине разработки. Ярус обратной связи (`--quick`) стоит только
+# на pull_request и приёмкой не считается: mypy там инкрементальный, машинные и
+# ffmpeg-овые наборы не гоняются вовсе. Ветка попадает в master только push'ем, а push
+# гоняет полный гейт - обойти приёмку дешёвым ярусом не выйдет.
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  gate:
+    name: gate (python ${{ matrix.python }})
+    # Версия раннера названа числом, а не `ubuntu-latest`: apt здесь везёт ffmpeg 6.1,
+    # то есть ровно наш минимум (`-readrate_initial_burst`, torrcast/domain/_config_hls.py).
+    # Плавающая картинка меняла бы версию ffmpeg молча, а с ней и предмет замера.
+    runs-on: ubuntu-24.04
+    # Гейт на четырёх ядрах раннера идёт заметно дольше, чем на 44 потоках машины
+    # разработки. Потолок стоит с запасом: резать набор ради времени нельзя.
+    timeout-minutes: 90
+    strategy:
+      # Версия здесь одна, и это не выбор из удобства: гейт снимает карту досягаемости
+      # речи наблюдателем `sys.monitoring` (`scripts/speech_reach.py`), а тот живёт с
+      # 3.12. На 3.11 гейт отказывается мерить вслух, и отказ этот правильный - пустая
+      # карта назвала бы голыми все места речи разом. Отсюда прямое следствие, которое
+      # лучше знать: обещание `requires-python >=3.11` из pyproject.toml этим CI НЕ
+      # сторожится вовсе, 3.11 не измеряется здесь ничем.
+      matrix:
+        python: ["3.12"]
+    env:
+      # Гейт зовёт `.venv/bin/python`, `.venv/bin/ruff` и `.venv/bin/mypy` по имени, а не
+      # ищет окружение. Место венва названо явно, чтобы умолчание uv не решало за гейт.
+      UV_PROJECT_ENVIRONMENT: .venv
+    steps:
+      - uses: actions/checkout@v4
+
+      # ffmpeg в картинке раннера не приходит, а без него не собрать ни ffmpeg-овый
+      # набор, ни сторож стыков: тот строит вход настоящим кодированием.
+      - name: ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # `--frozen` - ровно тот способ, которым окружение гейта заводится на машине
+      # разработки: ставится то, что записано в uv.lock, и лок при этом не трогается.
+      # `--locked` тут был бы НЕ строже, а другим правилом: он сверяет свежесть лока,
+      # чего гейт не проверяет вовсе. На нынешнем дереве он и краснеет по причине,
+      # к приёмке отношения не имеющей: версия у пакета динамическая, uv для такой
+      # версию в локе не держит, а `scripts/set-version.py` её туда пишет.
+      # Dev-зависимости лежат в `[dependency-groups]`, поэтому группа названа словом.
+      - name: uv sync
+        run: uv sync --frozen --group dev --python ${{ matrix.python }}
+
+      - name: test-gate
+        run: scripts/test-gate ${{ github.event_name == 'pull_request' && '--quick' || '' }}
