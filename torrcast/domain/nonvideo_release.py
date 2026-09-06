@@ -25,14 +25,16 @@ _VIDEO_RE = re.compile(
     r"x264|x265|h\.?264|h\.?265|hevc|avc|av1|xvid|divx|prores|"
     r"\d{3,4}[pi]|4k|uhd|mkv|avi|mp4|m2ts|vob|iso)(?![a-z])"
 )
-_AUDIO_RE = re.compile(r"(?i)(?<![a-z])(ape|flac|mp3|wav|ogg|m4a|alac|dsd|tak|wv)(?![a-z])")
+_AUDIO_RE = re.compile(
+    r"(?i)(?<![a-z])(ape|flac|mp3|wav|ogg|m4a|m4b|opus|aac|alac|dsd|tak|wv)(?![a-z])"
+)
 _IMAGE_RE = re.compile(
     r"(?i)(?<![a-z])(jpe?g|png|tiff|bmp|psd)(?![a-z])"
-    r"|\[(?:art|wallpapers?|scans|cosplay|calendar)\]|обои|артбук|artbook"
+    r"|\[(?:art|scans|cosplay|calendar)\]|\bwallpapers?\b|обои|артбук|artbook"
 )
 _TEXT_RE = re.compile(
     r"(?i)(?<![a-z])(pdf|epub|fb2|djvu|cbr|cbz|mobi)(?![a-z])"
-    r"|манга|манхва|комикс|light novel|ラノベ"
+    r"|манга|манхва|комикс|light novel|ラノベ|\bsheet music\b|\bguitar tablature\b"
 )
 #: Буква ЛЮБОГО алфавита. Латинская граница `(?<![a-z])` кириллицу за букву не считает и
 #: берёт `рс` внутри «Фо*рс*аж», «ве*рс*ия», «Ха*рс*»: 1133 имени и 19 живых картин на
@@ -41,10 +43,16 @@ _LETTER = r"[^\W\d_]"
 #: `PC`/`РС` в САМОМ КОНЦЕ имени - тоже игра, разделителя рядом может не быть.
 #: Хвост, а не токен где угодно: подмена картины дороже пропуска игры, а на корпусах
 #: репы обе формы берут одни и те же 48 имён, и лишней ширине нечем себя оправдать.
+#:
+#: Ведущий платформенный префикс (`[CD]`, `[DL]`, `[PS2]`, `[Xbox...]`) - секция игр на
+#: трекере: 7 имён на корпусе-655 и шести живых выдачах .64 (06-09-2026), и все семь -
+#: игры («[CD] Fallout [P] (1997, RPG)», «[PS2] Ratchet: Deadlocked»), ни одного видео.
+#: Префикс, а не токен где угодно: «[ 9 CD ]» в середине имени саундтрека - не оно.
 _GAME_RE = re.compile(
     r"(?i)(repack|gog-rip|steam-rip|\bpc\b\s*[|-]|\|\s*pc\b|"
     rf"(?<!{_LETTER})(?:pc|рс)(?!{_LETTER})\s*$|"
-    r"(?<![a-z])android(?![a-z])|(?<![a-z])apk(?![a-z]))"
+    r"(?<![a-z])android(?![a-z])|(?<![a-z])apk(?![a-z])|"
+    r"^\s*\[(?:cd|dl|ps\d|xbox)[^\]]*\])"
 )
 
 
