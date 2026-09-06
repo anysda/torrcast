@@ -10,6 +10,20 @@
 # Формат: `[версия]` открывает раздел, `en текст` / `ru текст` - запись на своём языке.
 # Порядок записей внутри раздела - порядок на экране. Пустые строки и `#` пропускаются.
 
+[1.1.4]
+en the installer brings its own Python 3.12 where the system has none
+ru установщик приносит свой Python 3.12 там, где системного нет
+en every change is checked by a public ci run before it ships
+ru каждая правка проверяется публичным прогоном ci до выпуска
+en a picture is found by its name in the other language
+ru картина находится по имени на другом языке
+en games, sheet music and audiobooks stay out of the menu
+ru игры, ноты и аудиокниги в меню больше не попадают
+en a poster no longer disappears when the ready ones crowd it out
+ru постер больше не пропадает, когда готовые его вытесняют
+en torrserver memory is bounded, a long show no longer swells the host
+ru память torrserver ограничена, долгий показ больше не раздувает хост
+
 [1.1.3]
 en a lagging indexer no longer holds the search menu
 ru отстающий индексер больше не держит меню поиска
