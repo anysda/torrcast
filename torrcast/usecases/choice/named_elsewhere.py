@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
+from torrcast.domain.picture_names import picture_names
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.usecases.choice._named import _named
@@ -87,13 +88,10 @@ def _slugs(picture: Picture) -> set[str]:
 
     Имя человека сверяется со ВСЕМИ именами картины, а не с одним русским: «cars» и
     «spirited away» зовут те же картины, что и русские названия, и ограждение не вправе
-    отключаться от одной смены раскладки.
+    отключаться от одной смены раскладки. Набор имён тут общий с карточкой страницы
+    (:func:`web.card_lookup.card_lookup`), потому и живёт в домене.
     """
-    return {
-        slugify(picture.title),
-        slugify(picture.original or ""),
-        slugify(picture.also or ""),
-    } | set(picture.aliases)
+    return {slugify(name) for name in picture_names(picture)}
 
 
 def _unplayable_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
