@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Sequence
 from queue import Queue
 
@@ -77,6 +78,23 @@ class Orders:
                 return False
             self._abandoned = True
             return True
+
+    def settled(self, timeout: float) -> bool:
+        """Дождаться, пока и подъём кончится, и очередь опустеет.
+
+        Спрашивает это ровно один: показ, встающий поверх идущего
+        (:func:`hass.starting.starting`), - и там же названо, почему ждать надо ДО
+        :meth:`take`.
+        """
+        began = time.monotonic()
+        while time.monotonic() - began < timeout:
+            # `unfinished_tasks` - счётчик самой очереди, и спадает он в `task_done`, а
+            # не когда поручение вынули. `empty()` тут соврал бы про идущую остановку:
+            # она уже не в очереди, но ещё не сделана.
+            if not self.underway() and self._queue.unfinished_tasks == 0:
+                return True
+            time.sleep(0.05)
+        return False
 
     def force(self, args: list[str]) -> None:
         """Положить поручение, не спрашивая занятости: остановке отказать нечем."""

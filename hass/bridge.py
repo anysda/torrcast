@@ -28,6 +28,7 @@ from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE, say
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
+from hass.starting import starting
 from hass.stopping import STOP, stopping
 from hass.volume import Volume
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -158,8 +159,8 @@ class Bridge:
     # ------------------------------------------------------------------ внутреннее
 
     def _start(self, args: list[str]) -> str:
-        """Отдать команду рабочему потоку; очереди нет, второй заход - это отказ."""
-        if not self._orders.take(args):
+        """Отдать команду рабочему потоку; идущий показ новый СНИМАЕТ (ТЗ §7.4)."""
+        if not starting(self._orders, self._session, args):
             raise RefusedError(BUSY)
         return secrets.token_hex(4)
 

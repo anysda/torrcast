@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING
+
+import pytest
 
 from hass.orders import Orders
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+#: Сколько ждать движения чужого потока, прежде чем считать, что его не будет.
+PATIENCE = 5.0
 
 
 def _nothing(_argv: Sequence[str] | None) -> int:
@@ -121,3 +127,37 @@ def test_the_loop_leaves_when_it_is_asked_to() -> None:
 
     orders.leave()
     assert not orders.run_one()
+
+
+@pytest.mark.machine
+def test_the_queue_is_settled_only_when_the_order_taken_out_of_it_is_also_done() -> None:
+    """🔴 Очередь ПУСТА и очередь СДЕЛАНА - разные вещи, и путать их дорого.
+
+    Остановка кладётся мимо очереди (:meth:`Orders.force`) и защёлку подъёма не ставит:
+    пока она идёт, очередь уже пуста, а дело ещё не сделано. Ждёт этого показ, встающий
+    поверх идущего (:func:`hass.starting.starting`), - взять поручение в эту щель значит
+    встать ЗА остановкой, и она снимет защёлку подъёма в своём ``finally`` уже с нового
+    показа: мост будет считать себя свободным при идущем показе.
+    """
+    began, may_finish = threading.Event(), threading.Event()
+
+    def stopping(_argv: Sequence[str] | None) -> int:
+        began.set()
+        may_finish.wait(PATIENCE)
+        return 0
+
+    orders = Orders(stopping)
+    thread = threading.Thread(target=orders.run, daemon=True)
+    thread.start()
+    try:
+        orders.force(["stop"])
+        assert began.wait(PATIENCE), "поручение так и не поехало"
+
+        assert not orders.settled(0.2), "остановка идёт, а очередь назвали свободной"
+
+        may_finish.set()
+        assert orders.settled(PATIENCE), "остановка сделана, а очередь назвали занятой"
+    finally:
+        may_finish.set()
+        orders.leave()
+        thread.join(timeout=PATIENCE)

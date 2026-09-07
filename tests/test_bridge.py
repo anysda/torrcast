@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from hass.bridge import BUSY, NO_NEXT, NO_VOLUME, NOTHING_PLAYING, VOLUME, Bridge
+from hass.bridge import NO_NEXT, NO_VOLUME, NOTHING_PLAYING, VOLUME, Bridge
 from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE
@@ -217,16 +217,40 @@ def test_a_refused_toggle_changes_no_word() -> None:
     assert bridge.state()["state"] == "playing"
 
 
-def test_a_second_show_while_the_first_is_still_starting_is_refused() -> None:
-    bridge = _bridge(FakePlaybackSession())
+def test_a_second_show_takes_the_queue_from_the_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 ТЗ веб-кинотеатра §7.4: «Играть» поверх идущего показа СНИМАЕТ его.
+
+    Отказ ``busy`` тут делал кнопку немой - страница получала 409 и не меняла ни строки.
+    Мост берёт очередь у идущего показа (:func:`hass.starting.starting`), и зеркало
+    сторожит ровно это: слова отказа не звучит, прошлому показу приходит остановка, а
+    новый встаёт в очередь ПОСЛЕ неё.
+
+    Ожидание тут подменено, и не для удобства: ждёт оно ГЛАВНЫЙ поток, а в зеркале его
+    нет - очередь крутит сам тест. Само ожидание сторожит `tests/test_starting.py` на
+    настоящем потоке; здесь меряется то, ЧТО мост делает с идущим показом.
+    """
+    session = FakePlaybackSession(playing=True)
+    taken: list[list[str]] = []
+    bridge = _bridge(session, command=_remembering(taken))
+    monkeypatch.setattr("hass.orders.Orders.settled", _instead_of_the_main_thread)
 
     bridge.play("матрица")  # команда в очереди, но ещё не сделана: показ поднимается
-    with pytest.raises(RefusedError) as refusal:
-        bridge.play("муха")
+    assert bridge.play("муха"), "второму показу отказали вместо снятия первого"
 
-    assert refusal.value.word == BUSY
-    assert bridge.run_one()
-    assert bridge.play("муха")  # кончился первый - второй берётся
+    assert bridge.run_one() and bridge.run_one()
+    assert taken == [["матрица"], [STOP], ["муха"]]
+    assert session.stopped == 1, "идущий показ не погасили"
+
+
+def _instead_of_the_main_thread(orders: Any, _timeout: float) -> bool:
+    """Довести идущий подъём до конца руками: настоящий это делает в главном потоке.
+
+    Остановку из очереди тут НЕ вынимают - её оттуда возьмёт тест, и порядок поручений
+    останется ровно тем, каким его выстроил мост.
+    """
+    while orders.underway():
+        orders.run_one()
+    return True
 
 
 def _remembering(taken: list[list[str]]) -> Callable[[Sequence[str] | None], int]:
