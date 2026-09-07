@@ -17,9 +17,11 @@
 каждого либо оценка, либо явная пометка «заблокирован» с причиной.
 
 🔴 Полоса упаковки на запущенном экземпляре ОДНА: второй читатель уводит головку у
-первого. Показ (пункты 4, 6, 8-10) поэтому НЕ запускается сам по себе - только по
+первого. Показ (пункты 4, 6-11, 20) поэтому НЕ запускается сам по себе - только по
 ``--play``, и без него проверка доказывает выключение отчётом ``/api/state``, а не
-имитацией. Пункты 9-10 (Chromecast) читают состояние приёмника через продуктовое
+имитацией. ``allow_play`` - единственная дверь к показу для всего прибора: и клик, и
+слепой Enter по фокусу, вставшему на «Играть» (пункт 11), проходят один и тот же
+тормоз. Пункты 9-10 (Chromecast) читают состояние приёмника через продуктовое
 ``/api/state``, а не вторым ``pychromecast``: второй сендер к тому же приёмнику неотличим
 от первого для приёмника и рвёт чужой показ
 (:class:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver`,
@@ -468,12 +470,16 @@ def _cyrillic_split(names: list[str]) -> tuple[int, list[str]]:
 def check_19_latin_titles(ctx: Ctx) -> Result:
     """При языке `en` латинское имя картины идёт на экран, если оно записано.
 
-    Пункт не требует нуля кириллицы на полках: у части картин латинского имени нет
-    вовсе (см. `torrcast/domain/spoken_title.py`), и тогда экран законно показывает
-    записанное имя как есть. Порог сам не выдумывается - печатается ЧИСЛО и СПИСОК
-    оставшихся кириллицей имён по каждой полке, поиску и карточке, а решение, законны
-    ли они, остаётся человеку. Единственное, что пункт судит сам - отрицательная
-    проба: у картины с известным латинским именем («Матрица» → «The Matrix») экран
+    🔴 Решение по объёму судимого (карточка TC-1140): пункт судит РОВНО одну пробу, а
+    не число оставшейся кириллицы на полках/поиске/родне - и это не недосмотр, а выбор.
+    Автоматического порога «сколько кириллицы много» не бывает: у части картин
+    латинского имени нет вовсе (`torrcast/domain/spoken_title.py`), и экран законно
+    показывает записанное имя как есть. Судить по числу значило бы либо красить пункт
+    на легальных непереведённых именах (ложный красный), либо занижать порог до
+    бесполезности (ложный зелёный на настоящей порче). Три диагностических числа
+    остаются в печати для человека, но получают пометку «не судится», чтобы название
+    пункта не обещало больше, чем он проверяет: единственное судимое - отрицательная
+    проба, у картины с известным латинским именем («Матрица» → «The Matrix») экран
     обязан показать именно его.
     """
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
@@ -512,6 +518,11 @@ def check_19_latin_titles(ctx: Ctx) -> Result:
         cyr_n, cyr_names = _cyrillic_split(names)
         search_part = f"{cyr_n} из {len(names)} {cyr_names}"
 
+    # Родня едет фоном (см. `_card_of`): не согреть кэш здесь значит всегда печатать
+    # ноль по холодному экземпляру, каким бы стоящим ни было судимое рядом. Согреваем
+    # тем же путём, каким карточку спрашивает продукт, - сырым HTTP до X-Torrcast-Partial.
+    _card_of(ctx.base, _LATIN_KNOWN_TITLE)
+
     card_part = "карточка не открылась - пробу не с чем сверять"
     card_title = ""
     related_part = ""
@@ -538,23 +549,59 @@ def check_19_latin_titles(ctx: Ctx) -> Result:
             )
             if related_names:
                 cyr_n, cyr_names = _cyrillic_split(related_names)
-                related_part = f"; похожее: {cyr_n} из {len(related_names)} {cyr_names}"
+                related_part = (
+                    f"; похожее (не судится): {cyr_n} из {len(related_names)} {cyr_names}"
+                )
             else:
-                related_part = "; похожее: полки родни на этой карточке нет"
+                related_part = "; похожее (не судится): полки родни на этой карточке нет"
 
     negative_ok = bool(card_title.strip()) and not _CYRILLIC_RE.search(card_title)
     ok = negative_ok
     detail = (
-        f"полки главной: {'; '.join(shelf_parts) or 'полок нет'}; "
-        f"поиск «{_LATIN_KNOWN_TITLE}»: {search_part}; "
+        f"полки главной (не судится): {'; '.join(shelf_parts) or 'полок нет'}; "
+        f"поиск «{_LATIN_KNOWN_TITLE}» (не судится): {search_part}; "
         f"карточка «{_LATIN_KNOWN_TITLE}»: {card_part}{related_part}; "
-        f"проба «латинское имя есть → на экране латиница»: {negative_ok}"
+        f"проба «латинское имя есть → на экране латиница» (судимое): {negative_ok}"
     )
     # Возвращаем страницу в состояние «главная»: следующие пункты (поиск, карточка)
     # ждут этого стартового условия так же, как после пункта 1.
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
     ctx.page.wait_for_timeout(300)
     return Result(19, "Латиница", ok, None, detail)
+
+
+def check_21_merge_hits(ctx: Ctx) -> Result:
+    """Слияние плиток поиска не хоронит второй план одной картины под тем же `key`.
+
+    🔴 Красный сейчас на `dev` - это правда: соседняя полоса поиска нашла, что сервер
+    честно отдаёт два разных плана одной картины под ОДНИМ `key`, а `TCHome._mergeHits`
+    схлопывал их через `Map` по голому `key` - второй план терялся молча, без единой
+    ошибки. Личность плитки та полоса переводит на `key` + номер повторения по счёту;
+    пункт зеленеет, когда её правка доходит до `dev` (TC-1140, по заказу той полосы).
+
+    Проверяется код напрямую, а не живым поиском: `TCHome` - обычный глобальный объект
+    (`const TCHome = {...}` в `home.js`, простой `<script>` без `type="module"`), и
+    `window.TCHome._mergeHits` доступен сразу после `page.goto` на главную. Замер не
+    зависит ни от состояния пула, ни от конкретных картин - только от кода функции.
+    """
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    result = ctx.page.evaluate(
+        "() => { const f = window.TCHome && window.TCHome._mergeHits;"
+        " if (typeof f !== 'function') return {missing: true};"
+        " const merged = f([], [{key: 'k', title: 'A'}, {key: 'k', title: 'B'}]);"
+        " return {missing: false, length: (merged || []).length,"
+        "   titles: (merged || []).map((one) => one && one.title)}; }"
+    )
+    if result.get("missing"):
+        return Result(21, "Слияние", False, None, "window.TCHome._mergeHits не найден")
+    length = result.get("length")
+    titles = result.get("titles") or []
+    ok = length == 2 and "A" in titles and "B" in titles
+    detail = (
+        f"_mergeHits([], [{{key:k,title:A}}, {{key:k,title:B}}]) -> "
+        f"длина {length}, заголовки {titles}"
+    )
+    return Result(21, "Слияние", ok, None, detail)
 
 
 def _shelf_tiles(payload: Any) -> dict[str, list[dict[str, Any]]]:
@@ -627,6 +674,57 @@ def check_16_junk(base: str) -> Result:
             if found:
                 caught.append(f"{key}: {title.strip()!r} по слову {found.group()!r}")
     return Result(16, "Мусор", not caught, None, "; ".join(caught) if caught else "мусора нет")
+
+
+#: Ведущие плитки полки, которые проверяет пункт 22 - тем же окном, каким человек их
+#: видит на экране без прокрутки, не всей полкой разом.
+_CARD_OPEN_WINDOW: Final = 12
+
+
+def check_22_shelf_cards_open(base: str) -> Result:
+    """С плитки полки «Новинки» карточка обязана открываться, а не 404.
+
+    🔴 Найдено соседней полосой (TC-1139) и снято на стенде 07-09-2026, не мной: все
+    двенадцать проверенных ведущих плиток полки «Новинки» отвечали `404 not_found` на
+    `/api/card` - карточка не наливалась, из вёрстки жил один «‹ Back». Дефект - в
+    `web/card.py`/`search_circle`/`card_lookup`, чинить его не мне (файлы вне моей
+    полосы). Пункт красный ПРЯМО СЕЙЧАС на этом дереве - так и должно быть; зеленеет он
+    приходом чужой правки, а не подгонкой этого сторожа.
+    """
+    code, body = _get(base + "/api/shelves")
+    if code != 200:
+        return Result(22, "Полка → карточка", False, None, f"GET /api/shelves -> {code}")
+    try:
+        shelves = _shelf_tiles(json.loads(body))
+    except json.JSONDecodeError as exc:
+        return Result(22, "Полка → карточка", False, None, f"тело не JSON: {exc}")
+    tiles = shelves.get("fresh") or next(iter(shelves.values()), [])
+    if not tiles:
+        empty_detail = "полка «Новинки» пуста - нечего открывать"
+        return Result(22, "Полка → карточка", False, None, empty_detail)
+    window = tiles[:_CARD_OPEN_WINDOW]
+    opened = 0
+    failures: list[str] = []
+    for one in window:
+        key = str(one.get("key") or "")
+        query = str(one.get("query") or one.get("title") or "")
+        if not key or not query:
+            failures.append(f"{key!r}: нет query/title, спрашивать нечем")
+            continue
+        url = f"{base}/api/card/{urllib.parse.quote(key)}?query={urllib.parse.quote(query)}"
+        card_code, card_body = _get(url)
+        if card_code == 200:
+            opened += 1
+            continue
+        why = ""
+        with contextlib.suppress(json.JSONDecodeError):
+            why = str(json.loads(card_body).get("error", ""))
+        failures.append(f"{key!r} ({query!r}): код {card_code} {why}".rstrip())
+    ok = opened == len(window)
+    detail = f"открылось {opened}/{len(window)} с полки «Новинки»; отказы: " + (
+        "; ".join(failures) if failures else "нет"
+    )
+    return Result(22, "Полка → карточка", ok, None, detail)
 
 
 def check_2_search(ctx: Ctx) -> Result:
@@ -713,7 +811,7 @@ def _wake_panel(ctx: Ctx) -> None:
 def _playback_guard(
     number: int, name: str, ctx: Ctx, prev_ok: bool, prev_reason: str
 ) -> Result | None:
-    """Общий тормоз показа (пункты 4, 6, 8-10): чинить нечего - идти некуда без прошлого шага."""
+    """Общий тормоз показа (пункты 4, 6, 7-9): чинить нечего - идти некуда без прошлого шага."""
     if not prev_ok:
         return Result(number, name, False, prev_reason, "предыдущий шаг показа не пройден")
     if not ctx.allow_play:
@@ -922,6 +1020,11 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     target = ctx.page.locator('[data-tc-episode="s1e2"]')
     if target.count() == 0:
         return Result(7, "Сериал", False, None, f"серий {count}, но s1e2 среди них нет")
+    # Клик по серии - тоже старт показа, не иначе, чем кнопка «Играть» в пункте 4: без
+    # `--play` он поднимал show мимо `allow_play` и мимо счётчика соседа. Тормоз тот же.
+    guard = _playback_guard(7, "Сериал", ctx, True, "")
+    if guard:
+        return guard
     target.first.click()
     # Клик лишь КЛАДЁТ заказ: продукт ещё ищет раздачу и поднимает показ, и до тех пор
     # `/api/state` честно отвечает `null`. Полсекунды тут мерили скорость сети.
@@ -1185,6 +1288,60 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
     return Result(10, "На комп", ok, None, detail)
 
 
+#: Порог сторожа TC-1124. Живой замер (`scripts/leftprobe.py`, до и после правки):
+#: хвост показа после ухода со страницы держался 8.3 с после правки против 60.2 с до
+#: неё, а окно `state == "playing"` при неподвижной позиции - 1.1 с против 53.6 с.
+#: 15 с - больше чем вдвое над честным `left_after=5.0`, но меньше половины старого
+#: 60-секундного молчания: откат `left_after` (на 0.0 или на что-то около `gone_after`)
+#: непременно перескакивает порог, а сама правка - никогда.
+_LEAVE_TEARDOWN_LIMIT: Final = 15.0
+
+
+def check_20_leave_tears_down(ctx: Ctx, prev_ok: bool) -> Result:
+    """Сторож TC-1124: закрытая (ушедшая) вкладка разбирает показ за секунды, не за 60.
+
+    Пункт обязан краснеть, если `left_after` откатить: без него уход со страницы ловит
+    только полное молчание (`gone_after=60.0`), и показ ещё почти минуту держит
+    полосу упаковки занятой, а карточку плеера - неверно бегущей (TC-1124).
+    """
+    guard = _playback_guard(20, "Уход", ctx, prev_ok, "пункт 10 (на компе показ не поднят)")
+    if guard:
+        return guard
+    before_code, before_body = _get(ctx.base + "/api/state")
+    # `page.reload()` уходит с текущего адреса и возвращается на него же: тот же путь,
+    # каким уход со страницы ловился в `leftprobe.py` (`pagehide`) - вкладку не закрываем
+    # взаправду, чтобы страница осталась пригодной, если этот пункт не последний.
+    ctx.page.reload(wait_until="load", timeout=15000)
+    began = time.monotonic()
+    after_code: int | None = None
+    after_body: bytes | None = None
+    elapsed: float | None = None
+    while time.monotonic() - began < _LEAVE_TEARDOWN_LIMIT:
+        after_code, after_body = _get(ctx.base + "/api/state")
+        if after_code == 200:
+            with contextlib.suppress(json.JSONDecodeError):
+                if json.loads(after_body).get("state") != "playing":
+                    elapsed = time.monotonic() - began
+                    break
+        time.sleep(0.5)
+    ok = elapsed is not None
+    was = (
+        before_body.decode("utf-8", "replace")[:120] if before_code == 200 else f"код {before_code}"
+    )
+    now = (
+        after_body.decode("utf-8", "replace")[:120]
+        if after_code == 200 and after_body is not None
+        else f"код {after_code}"
+    )
+    took = (
+        f"{elapsed:.1f} с"
+        if elapsed is not None
+        else f"не разобрался за {_LEAVE_TEARDOWN_LIMIT:.0f} с"
+    )
+    detail = f"до ухода: {was}; после ухода ({took}): {now}"
+    return Result(20, "Уход", ok, None, detail)
+
+
 def _focus_of(ctx: Ctx) -> dict[str, Any]:
     """Что сейчас в фокусе: подпись для отчёта и три приметы, по которым выбирают клавишу."""
     found: dict[str, Any] = ctx.page.evaluate(
@@ -1232,14 +1389,20 @@ def check_11_arrows(ctx: Ctx) -> Result:
     started = False
     reached_play = False
     stuck = False
-    # 12-е нажатие стартовало бы показ - тем же риском для полосы упаковки, что и
-    # `--play`; без него скрипт останавливается на 11-м. Судить его при этом по старту
-    # показа значило бы держать пункт вечно красным независимо от продукта: без `--play`
-    # проверяемое утверждение - «стрелки ДОВЕЛИ до кнопки «Играть» за 11 нажатий», а
-    # 12-е нажатие по ней очевидно и есть старт.
-    limit = 11 if not ctx.allow_play else 12
+    # `allow_play` - единственная дверь к показу и здесь: `_dpad_key` зовёт Enter, едва
+    # фокус встал на «Играть», а Enter по ней и есть старт. Раньше от этого прикрывал
+    # только счётчик нажатий (11 без `--play` против 12) - но фокус доходил до кнопки
+    # и раньше 11-го нажатия (замер 07-09-2026: на 4-5-м), и следующая итерация цикла
+    # нажимала Enter по ней вслепую, не спросив `allow_play`. Тормоз теперь стоит там,
+    # где Enter решает: перед нажатием, а не в числе допустимых нажатий.
+    limit = 12
     for i in range(limit):
         was = _focus_of(ctx)
+        if was["play"]:
+            reached_play = True
+            if not ctx.allow_play:
+                steps.append(f"{i + 1}:стоп(фокус на «Играть», --play не задан)")
+                break
         key = _dpad_key(was, stuck)
         ctx.page.keyboard.press(key)
         ctx.page.wait_for_timeout(150)
@@ -1396,7 +1559,7 @@ def main() -> int:
     parser.add_argument(
         "--play",
         action="store_true",
-        help="разрешить настоящий показ (пп. 4,6,8-11) - отнимает полосу упаковки у соседа",
+        help="разрешить настоящий показ (пп. 4,6-11,20) - отнимает полосу упаковки у соседа",
     )
     parser.add_argument("--shots", type=Path, default=Path("/tmp/web-acceptance-shots"))
     args = parser.parse_args()
@@ -1415,6 +1578,7 @@ def main() -> int:
         r17 = _guarded(17, "Колесо", lambda: check_17_wheel(ctx))
         r18 = _guarded(18, "Подпись", lambda: check_18_caption_scroll(ctx))
         r19 = _guarded(19, "Латиница", lambda: check_19_latin_titles(ctx))
+        r21 = _guarded(21, "Слияние", lambda: check_21_merge_hits(ctx))
         r2 = _guarded(2, "Поиск", lambda: check_2_search(ctx))
         r3 = _guarded(3, "Карточка", lambda: check_3_card(ctx, r2.ok))
         r4 = _guarded(4, "Показ", lambda: check_4_playback(ctx, r3.ok))
@@ -1424,12 +1588,14 @@ def main() -> int:
         r8 = _guarded(8, "Автопереход", lambda: check_8_autoplay(ctx, r7.ok))
         r9 = _guarded(9, "На ТВ", lambda: check_9_on_tv(ctx, r4.ok or r7.ok))
         r10 = _guarded(10, "На комп", lambda: check_10_on_pc(ctx, r9.ok))
+        r20 = _guarded(20, "Уход", lambda: check_20_leave_tears_down(ctx, r10.ok))
         r11 = _guarded(11, "Стрелки", lambda: check_11_arrows(ctx))
-        results += [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r17, r18, r19]
+        results += [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r20, r11, r17, r18, r19, r21]
         browser.close()
 
     results.append(_guarded(15, "Обложки", lambda: check_15_posters(args.base)))
     results.append(_guarded(16, "Мусор", lambda: check_16_junk(args.base)))
+    results.append(_guarded(22, "Полка → карточка", lambda: check_22_shelf_cards_open(args.base)))
     results.append(_guarded(12, "Франшиза", lambda: check_12_franchise(args.base)))
     results.append(_guarded(13, "Тексты", lambda: check_13_texts(args.base)))
     results.append(_guarded(14, "Гейт", lambda: check_14_gate(args.repo)))
