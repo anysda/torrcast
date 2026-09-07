@@ -31,6 +31,7 @@ const TCPlayer = {
     TCPlayer._hasNext = false;
     TCPlayer._last = null;
     TCPlayer._idleTimer = null;
+    TCPlayer._leftSent = false;
 
     const wrap = document.createElement('div');
     wrap.className = 'tc-player';
@@ -109,6 +110,26 @@ const TCPlayer = {
       }
       await TCPlayer._sleep(TCPlayer.POSITION_MS);
     }
+    // Ушли с ``/play`` изнутри приложения (не закрытие вкладки - на него отвечает
+    // `pagehide` ниже): цикл это увидел первым, и сказать «ухожу» тут естественно.
+    TCPlayer._left();
+  },
+
+  //: Сказать «ухожу» ровно один раз (TC-1124): страницу закрыли или увели с ``/play``,
+  //: и ждать все секунды молчания (:attr:`torrcast.domain.receiver_profile.
+  //: ReceiverProfile.gone_after`) незачем - сама страница знает об уходе раньше таймера.
+  //: Обновление (``F5``) шлёт то же слово, но тут же переприцепляется свежим отчётом -
+  //: решает это срок на стороне продукта, не эта строка (`browser_receiver.py`).
+  _left() {
+    if (!TCPlayer._key || TCPlayer._leftSent) return;
+    TCPlayer._leftSent = true;
+    const video = TCPlayer._video;
+    TCApi.left({
+      key: TCPlayer._key,
+      phase: 'left',
+      pos: (video && video.currentTime) || 0,
+      dur: (video && video.duration) || 0,
+    });
   },
 
   _onTimeUpdate() {
@@ -347,5 +368,11 @@ document.addEventListener('keydown', (event) => {
   }
   TCPlayer._wake();
 }, true);
+
+// Закрытие вкладки, переход на другой сайт и `F5` роняют один и тот же `pagehide`
+// (TC-1124), в отличие от ухода с ``/play`` внутри приложения - тот ловит сам цикл
+// `_reportPosition`. `fetch` на выгружаемой странице не гарантирован, поэтому «ухожу»
+// шлёт `sendBeacon` (`TCApi.left`), а не обычный запрос позиции.
+window.addEventListener('pagehide', () => { if (TCPlayer._mounted()) TCPlayer._left(); });
 
 window.TCPlayer = TCPlayer;

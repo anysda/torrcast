@@ -24,7 +24,10 @@ from web.tv_session import SESSION
 #: Слова состояния, которые вкладка вправе назвать. Не про удобство: чужое слово тут
 #: молча легло бы в держатель показа (:func:`torrcast.usecases.revive_playback._hold._hold`)
 #: и было бы прочитано как ЕГО состояние - строка без проверки на входе врёт тише всего.
-_PHASES = frozenset({"playing", "paused", "buffering", "ended"})
+#: ``left`` - не состояние плёнки, а слово страницы о самой себе: «ухожу» (закрытие
+#: вкладки, уход с ``/play``), - и решает по нему один
+#: :meth:`torrcast.adapters.browser.browser_receiver.BrowserReceiver.position` (TC-1124).
+_PHASES = frozenset({"playing", "paused", "buffering", "ended", "left"})
 
 
 def _is_number(value: JsonValue) -> TypeGuard[int | float]:

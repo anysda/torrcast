@@ -119,6 +119,25 @@ const TCApi = {
     }
   },
 
+  // Слово «ухожу» (TC-1124): та же дверь, что и у обычной позиции, но её обязаны взять
+  // и тогда, когда вкладка уже наполовину выгружена (закрытие, переход на другой сайт) -
+  // `fetch` там не гарантирован, а `sendBeacon` для этого и сделан. Ответа у него нет, и
+  // спрашивать тут нечего: сказано - и вкладки, считай, уже нет.
+  left(body) {
+    const payload = JSON.stringify(body);
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/web/position', new Blob([payload], { type: 'application/json' }));
+      return;
+    }
+    // Старый браузер без `sendBeacon` - `keepalive` держит запрос живым по ту же цену.
+    fetch('/api/web/position', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+      keepalive: true,
+    }).catch(() => {});
+  },
+
   async _get(url, fallback) {
     try {
       const said = await fetch(url);

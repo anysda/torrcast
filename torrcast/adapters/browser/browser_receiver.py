@@ -98,6 +98,15 @@ class BrowserReceiver:
         if pos > 0.0:
             self._held = pos
         since = self.clock.wall() - float(record.get("wall", 0.0))
+        if phase == "left":
+            # Страница сама сказала «ухожу» (закрытие вкладки, уход с ``/play``,
+            # ``player.js``) - ждать молчания незачем, но и верить слову раньше срока
+            # нельзя: обновление страницы (``F5``) шлёт то же слово и тут же переприцепляется
+            # свежим отчётом (:attr:`ReceiverProfile.left_after`), а от настоящего ухода
+            # новый отчёт не приходит никогда.
+            if self.profile.left_after > 0.0 and since >= self.profile.left_after:
+                return Position(self._held, dur, False, _LOST, stale=True)
+            return Position(self._held, dur, True, _WAITING)
         if self.profile.gone_after > 0.0 and since >= self.profile.gone_after:
             return Position(self._held, dur, False, _LOST, stale=True)
         if self.profile.lost_after > 0.0 and since >= self.profile.lost_after:

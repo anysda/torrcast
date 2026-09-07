@@ -42,7 +42,16 @@ UNNAMED: Final = "НЕ НАЗВАН"
 #: Приборы, которыми вообще меряют живой приёмник. Список закрыт нарочно: новый щуп
 #: попадает в подписи только вместе с правкой здесь, а не самоназванием в комментарии.
 TOOLS: Final = frozenset(
-    {"tvprobe", "seekcheck", "seekbench", "framebench", "decodebench", "staleprobe", UNNAMED}
+    {
+        "tvprobe",
+        "seekcheck",
+        "seekbench",
+        "framebench",
+        "decodebench",
+        "staleprobe",
+        "leftprobe",
+        UNNAMED,
+    }
 )
 #: Тракт, которым материал уехал приёмнику. ``файлом`` - мимо нашей упаковки вовсе,
 #: ``не при чём`` - число не про доставку (темп роя, терпение пустого экрана).
