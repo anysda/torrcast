@@ -50,11 +50,53 @@ def test_a_namesake_in_another_year_keeps_its_own_key() -> None:
     assert card_lookup([plan], "movie:bones-and-all:2022") == (None, 0)
 
 
-def test_a_series_does_not_answer_to_a_movie_key() -> None:
-    """Род стоит в ключе, и подменять его второй ключ не даёт."""
-    plan = _plan("Основание", 2021, "Foundation", kind="tv")
+def test_a_series_does_not_answer_to_a_movie_key_of_another_year() -> None:
+    """Род и год выведены из раздач, и разойтись вправе только один из двух.
+
+    Разошлись оба - это уже другая картина: замер на стенде `.104` 07-09-2026 отдал по
+    запросу «Похищение» три кино-тёзки (1993, 2011, 2019) и сериал 2024 года, и кино
+    1993 года на ключ сериала не отвечает.
+    """
+    plan = _plan("Основание", 2019, "Foundation", kind="tv")
 
     assert card_lookup([plan], "movie:foundation:2021") == (None, 0)
+
+
+def test_a_tile_key_answers_when_only_the_year_drifted() -> None:
+    """Полке год даёт свежий сезон, кругу - начало сериала; картина та же.
+
+    Замер на стенде `.104` 07-09-2026: плитка «Укрытие» несёт ``tv:укрытие:2026`` (в окне
+    ленты одни раздачи сезона 2026), а круг по тому же имени отдаёт ``tv:укрытие:2023``.
+    """
+    plan = _plan("Укрытие", 2023, "Silo", kind="tv")
+
+    assert card_lookup([plan], "tv:укрытие:2026") == (plan, 1)
+
+
+def test_a_tile_key_answers_when_only_the_kind_drifted() -> None:
+    """Род выводится из имён раздач, и узкий набор полки зовёт сериал кино.
+
+    Тот же замер: плитка несёт ``movie:the-great-escape:2016``, круг по «The Great Escape»
+    отдаёт ``tv:the-great-escape:2016`` - год тот же, разошёлся только род.
+    """
+    plan = _plan("The Great Escape", 2016, kind="tv")
+
+    assert card_lookup([plan], "movie:the-great-escape:2016") == (plan, 1)
+
+
+def test_the_exact_picture_wins_over_the_one_whose_kind_drifted() -> None:
+    """Съехавший род уступает точному совпадению, где бы то ни стояло в круге."""
+    drifted = _plan("Укрытие", 2026, "Silo", kind="movie")
+    exact = _plan("Укрытие", 2026, "Silo", kind="tv")
+
+    assert card_lookup([drifted, exact], "tv:укрытие:2026") == (exact, 2)
+
+
+def test_a_namesake_that_shares_neither_kind_nor_year_is_another_picture() -> None:
+    """Тот же замер: «Похищение» 1993 года кругу известно, а ключ у него свой."""
+    plan = _plan("Похищение", 2024, kind="tv")
+
+    assert card_lookup([plan], "movie:похищение:1993") == (None, 0)
 
 
 def test_a_key_nobody_owns_is_no_pick_at_all() -> None:
