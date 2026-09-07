@@ -30,6 +30,12 @@ class FranchiseKin:
         cached = self.store.read_kin(entity)
         if cached is not None:
             return cached
-        found = self.kin.kin(entity, timeout)
+        try:
+            found = self.kin.kin(entity, timeout)
+        except Exception:
+            # 🔴 Молчание сети - НЕ «родни нет», и в кэш ему нельзя: ряд лежит на диске
+            # и переживает и показ, и обновление продукта. Полка пуста на этот заход,
+            # а следующий спросит заново.
+            return []
         self.store.write_kin(entity, found)
         return found

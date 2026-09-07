@@ -26,20 +26,24 @@ class WikidataKin:
     def kin(self, entity: str, timeout: float = HTTP_TIMEOUT) -> list[Kin]:
         """Другие части франшизы по Q-идентификатору картины; франшизы нет - пустой список.
 
-        Отказ сети наверх не поднимается: несверенная родня означает «полка пуста», и это
-        честнее, чем полка с обрывком ответа. Чужой идентификатор до сети не доезжает
-        вовсе - строка, не прошедшая :data:`_ENTITY_RE`, отвечает пустым списком на месте.
+        🔴 Отказ сети поднимается наверх ИСКЛЮЧЕНИЕМ, а не пустым списком. Пустой список
+        отсюда значит одно: Wikidata ответила, и родни у картины нет, - а такой ответ
+        кладётся в кэш навсегда (:meth:`torrcast.usecases.franchise_kin.FranchiseKin.of`).
+        Пока молчание сети приезжало сюда тем же пустым списком, одна оборванная связь
+        гасила полку франшизы на всю жизнь установки: замер 07-09-2026 на стенде `.104` -
+        «Форсаж» лёг в `facts.json` пустым рядом и отвечал пусто за 0,0 с, при том что
+        живой запрос в ту же минуту давал десять картин.
+
+        Чужой идентификатор до сети не доезжает вовсе - строка, не прошедшая
+        :data:`_ENTITY_RE`, отвечает пустым списком на месте: это ответ, а не молчание.
         """
         if not _ENTITY_RE.match(entity):
             return []
-        try:
-            payload = self.client.get(
-                WIKIDATA_HOST,
-                WIKIDATA_PATH,
-                {"query": kin_query(entity)},
-                dict(SPARQL_HEAD),
-                timeout,
-            )
-        except Exception:
-            return []
+        payload = self.client.get(
+            WIKIDATA_HOST,
+            WIKIDATA_PATH,
+            {"query": kin_query(entity)},
+            dict(SPARQL_HEAD),
+            timeout,
+        )
         return read_kin(payload)

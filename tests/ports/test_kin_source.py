@@ -15,6 +15,6 @@ def test_fake_answers_by_entity_and_records_that_it_was_asked() -> None:
     assert fake.asked == ["Q105598", "Q1"]
 
 
-def test_a_silent_source_answers_with_an_empty_shelf() -> None:
-    """Умолчание фейка - молчание Wikidata: родни нет, и это законный исход."""
+def test_a_source_that_found_nothing_answers_with_an_empty_shelf() -> None:
+    """Умолчание фейка - ОТВЕТ «родни нет», а не молчание сети: молчание тут - отказ."""
     assert FakeKinSource().kin("Q1", 1.0) == []

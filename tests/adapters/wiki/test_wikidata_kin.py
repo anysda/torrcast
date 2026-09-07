@@ -2,6 +2,8 @@
 
 from typing import Any
 
+import pytest
+
 from tests.fakes.json_client import FakeJsonClient
 from torrcast.adapters.wiki.endpoints import WIKIDATA_HOST
 from torrcast.adapters.wiki.wikidata_kin import WikidataKin
@@ -41,13 +43,18 @@ def test_a_stranger_string_never_reaches_the_body_of_the_query() -> None:
     assert client.calls == [], "мусор поехал в Wikidata запросом"
 
 
-def test_a_refused_network_means_an_empty_shelf_and_not_a_broken_card() -> None:
-    """Отказ сети не поднимается наверх: пустая полка честнее оборванного ответа."""
+def test_a_refused_network_is_told_apart_from_a_franchise_without_kin() -> None:
+    """🔴 Отказ сети поднимается наверх, а не приезжает пустой полкой.
+
+    Пустой список отсюда кэшируется навсегда, и молчание сети в его виде гасило полку на
+    всю жизнь установки (:meth:`torrcast.usecases.franchise_kin.FranchiseKin.of`).
+    """
 
     def refuse(host: str, path: str, params: dict[str, str]) -> Any:
         raise OSError("HTTP 429")
 
-    assert WikidataKin(FakeJsonClient(refuse)).kin("Q105598", 1.0) == []
+    with pytest.raises(OSError, match="HTTP 429"):
+        WikidataKin(FakeJsonClient(refuse)).kin("Q105598", 1.0)
 
 
 def test_a_picture_without_a_franchise_answers_with_an_empty_shelf() -> None:
