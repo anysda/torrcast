@@ -126,7 +126,10 @@ const TCHome = {
       const nothing = document.createElement('div');
       nothing.className = 'tc-nothing';
       nothing.textContent = TC.say('web.search.empty');
-      body.appendChild(nothing);
+      const hint = document.createElement('div');
+      hint.className = 'tc-nothing-hint';
+      hint.textContent = TC.say('web.search.empty_hint');
+      body.append(nothing, hint);
       return body;
     }
     const grid = document.createElement('div');

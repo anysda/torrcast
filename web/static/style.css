@@ -152,6 +152,8 @@ body {
 .tc-nothing { font-weight: 900; font-size: 6.5rem; line-height: .9; text-transform: uppercase;
               letter-spacing: -.03em; color: var(--tc-empty-ink);
               -webkit-text-stroke: 0.125rem var(--tc-disabled-ink); }
+.tc-nothing-hint { margin-top: 1.25rem; font-weight: 700; font-size: 1.375rem;
+                   letter-spacing: .1em; text-transform: uppercase; color: var(--tc-muted); }
 
 /* --- Полки и сетка ------------------------------------------------------- */
 .tc-shelf-safe { padding: 0 var(--tc-safe-x) var(--tc-safe-y); }

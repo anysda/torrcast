@@ -22,6 +22,7 @@ def en() -> dict[str, str]:
         "web.search.counter": "{n} results · {m} sources",
         "web.search.best_match": "Best match",
         "web.search.empty": "Nothing for you",
+        "web.search.empty_hint": "Try a different title",
         "web.shelf.continue_watching": "Continue watching",
         "web.shelf.new": "New",
         "web.shelf.popular": "Popular",
