@@ -21,11 +21,15 @@ def play_argv(
     from_start: bool,
 ) -> list[str]:
     """``argv``, каким CLI уже читает ``--pick``, серию, ``--voice`` и ``--new``."""
+    # 🔴 Серия идёт СРАЗУ за запросом, до любого флага, и это не про красоту. Запрос у
+    # CLI - позиционный довод из многих слов (``nargs="*"``); argparse забирает их до
+    # первого флага, а всё позиционное ПОСЛЕ него объявляет лишним: `--pick 2 s1e2` даёт
+    # `unrecognized arguments: s1e2` и обрывает показ серии с выбранной раздачей.
     args = [query]
-    if pick is not None:
-        args += ["--pick", str(pick)]
     if season is not None and episode is not None:
         args.append(f"s{season}e{episode}")
+    if pick is not None:
+        args += ["--pick", str(pick)]
     if voice:
         args += ["--voice", str(voice)]
     if from_start:

@@ -763,7 +763,10 @@ def test_play_combines_pick_season_episode_voice_and_from_start_in_one_call() ->
     bridge.play("шоу", pick=2, season=1, episode=4, voice="LostFilm", from_start=True)
     bridge.run_one()
 
-    assert asked == [["шоу", "--pick", "2", "s1e4", "--voice", "LostFilm", "--new"]]
+    # Серия стоит СРАЗУ за запросом, до флагов: argparse забирает позиционные доводы до
+    # первого флага, и `s1e4` после `--pick 2` уходит в «unrecognized arguments»
+    # (:mod:`hass.play_argv`).
+    assert asked == [["шоу", "s1e4", "--pick", "2", "--voice", "LostFilm", "--new"]]
 
 
 def test_carrying_on_asks_the_product_with_the_empty_call_a_bare_cast_makes() -> None:
