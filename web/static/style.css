@@ -54,6 +54,8 @@
   --tc-border-thin: 0.125rem; /* 2px: колпачки клавиш, значки качества */
   --tc-underline: 0.375rem; /* 6px: подчёркивание поля поиска */
   --tc-focus-ring: 0.4375rem; /* 7px: обводка плитки под фокусом */
+  /* Две строки подписи (1.5rem через 1.1) плюс поля .625rem сверху и снизу. */
+  --tc-cap-height: 4.55rem;
 
   /* Ни одного скругления и ни одной мягкой тени: тень в системе ровно одна и она
      жёсткая, со смещением. Держится это переменными, а не памятью автора. */
@@ -235,12 +237,19 @@ body {
                     background: rgba(0, 0, 0, .6); }
 .tc-tile-progress > i { display: block; height: 100%; background: var(--tc-acid); }
 
-/* Подпись под плиткой. В покое одна строка с обрезкой, под фокусом - инверсия и полный
-   текст: подпись до 24 знаков читать с трёх метров иначе нечем. */
-.tc-tile-cap { padding: .75rem 0 0; transform-origin: top center; }
+/* Подпись под плиткой. В покое одна строка с обрезкой, под выделением - инверсия и
+   полный текст: подпись до 24 знаков читать с трёх метров иначе нечем.
+   🔴 Место под подпись отведено под ДВЕ строки ВСЕГДА, и высота его не зависит от
+   выделения ни на пиксель: иначе выросшая подпись толкала бы вниз весь следующий ряд
+   сетки, и человек читал бы одну плитку, пока под ней уезжают остальные. Текст, не
+   влезший в две строки, прокручивается ВНУТРИ отведённого места. */
+.tc-tile-cap { height: var(--tc-cap-height); padding: .625rem .875rem; margin-top: .125rem;
+               overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+               transform-origin: top center; }
+.tc-tile-cap::-webkit-scrollbar { width: 0; height: 0; }
 .tc-tile-cap .tc-caption { color: var(--tc-text); white-space: nowrap; overflow: hidden;
                            text-overflow: ellipsis; }
-.tc-tile-cap .tc-cap2 { color: var(--tc-muted); }
+.tc-tile-cap .tc-cap2 { color: var(--tc-muted); line-height: 1.1; }
 
 /* Фокус = наведение мышью: одно и то же состояние, одним классом. */
 .tc-tile:is(:hover, :focus-within, .is-focused) { transform: scale(1.06); z-index: 2; }
