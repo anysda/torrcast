@@ -46,6 +46,11 @@ class TvSession:
     компромисс, что и с порогом перекода (ТЗ §7.5, решение 3): назван, а не спрятан.
     """
 
+    #: Ключ показа, отданного на ТВ. Каст принадлежит ЯЩИКУ, из которого он поднят: пока
+    #: он идёт, вкладка помолчит про место (ТЗ §7.5.3), - но ящик мог уехать под другой
+    #: показ, и молчать про НЕГО уже нельзя, иначе новая картина не двинет закладку ни
+    #: разу и навсегда останется в ``starting``.
+    key: str = ""
     factory: Callable[[str, Profile], Receiver] = _live_receiver
     profile: Profile = CAUTIOUS
     poll_seconds: float = POLL_SECONDS
@@ -58,6 +63,10 @@ class TvSession:
         """Идёт ли каст на ТВ прямо сейчас."""
         return self._receiver is not None
 
+    def owns(self, key: str) -> bool:
+        """Каст идёт и он про ЭТОТ показ; чужой ключ - «не мой», а не «каста нет»."""
+        return self._receiver is not None and self.key == key
+
     def start(
         self,
         address: str,
@@ -65,6 +74,7 @@ class TvSession:
         url: str,
         at: float,
         echo: Callable[[Position], None] | None = None,
+        key: str = "",
     ) -> None:
         """Позвать приёмник ТВ тем же ``play``, каким продукт стартует консольный показ.
 
@@ -79,11 +89,13 @@ class TvSession:
         receiver = self.factory(address, self.profile)
         receiver.play(url, title, at=at)
         self._receiver = receiver
+        self.key = key
         self._arm(receiver, echo)
 
     def stop(self) -> float:
         """Снять каст и назвать секунду, на которой он стоял; без каста - ноль."""
         receiver, self._receiver = self._receiver, None
+        self.key = ""
         if receiver is None:
             return 0.0
         self._disarm()
@@ -95,6 +107,7 @@ class TvSession:
     def _release(self) -> None:
         """Закрыть прежнюю связь без чтения её места - её никто не спрашивал."""
         receiver, self._receiver = self._receiver, None
+        self.key = ""
         if receiver is None:
             return
         self._disarm()

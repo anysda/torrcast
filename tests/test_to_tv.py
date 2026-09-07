@@ -14,9 +14,10 @@ from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.domain.config import Config
 from torrcast.domain.position import Position
+from torrcast.ports.receiver import Receiver
 from web.request import Request
-from web.to_tv import to_tv
-from web.tv_session import SESSION
+from web.to_tv import _echo, to_tv
+from web.tv_session import SESSION, TvSession
 
 
 def _post() -> Request:
@@ -103,26 +104,40 @@ def test_the_tv_position_becomes_the_one_the_product_remembers(
     """
     monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
     _wired(monkeypatch)
-    heard: list[Callable[[Position], None] | None] = []
+    caught: list[Callable[[Position], None] | None] = []
+    armed = TvSession._arm
 
-    def caught(
-        address: str,
-        title: str,
-        url: str,
-        at: float,
-        echo: Callable[[Position], None] | None = None,
+    def arming(
+        session: TvSession, receiver: Receiver, echo: Callable[[Position], None] | None = None
     ) -> None:
-        heard.append(echo)
+        caught.append(echo)
+        armed(session, receiver, echo)
 
-    monkeypatch.setattr(SESSION, "start", caught)
+    monkeypatch.setattr(TvSession, "_arm", arming)
     write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
 
     assert to_tv(_post()).code == 204
-    assert heard and heard[0] is not None, "держателю не дали слушателя места"
-    heard[0](Position(742.0, 8000.0, playing=True))
+    assert caught and caught[0] is not None, "держателю не дали слушателя места"
+    caught[0](Position(742.0, 8000.0, playing=True))
 
     record = read_web_position(tmp_path)
     assert record is not None
     assert record["key"] == "k1", "место ТВ уехало под чужим ключом и не читается"
     assert record["pos"] == 742.0
     assert record["phase"] == "playing"
+
+
+def test_the_listener_goes_quiet_once_the_mailbox_moves_to_another_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Слушатель места умолкает вместе со сменой ящика, а не переживает её."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    _wired(monkeypatch)
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
+
+    assert to_tv(_post()).code == 204
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Dune", at=0.0, key="k2")
+    heard = _echo(tmp_path, "k1")
+    heard(Position(742.0, 8000.0, playing=True))
+
+    assert read_web_position(tmp_path) is None, "место ТВ легло поверх нового показа"

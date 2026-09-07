@@ -83,13 +83,13 @@ def test_a_position_that_is_not_a_number_is_refused(
     assert json.loads(answer.body) == {"error": "bad_number"}
 
 
-def _casting(monkeypatch: pytest.MonkeyPatch) -> None:
+def _casting(monkeypatch: pytest.MonkeyPatch, key: str) -> None:
     """Поднять каст на ТВ так, как его поднимает ``/api/to-tv``, но без сети."""
     tv = FakeReceiver(Position(0.0, 0.0))
     monkeypatch.setattr(SESSION, "factory", lambda address, profile: tv)
     monkeypatch.setattr(SESSION, "poll_seconds", 0.01)
     monkeypatch.setattr(SESSION, "_receiver", None)
-    SESSION.start("192.168.1.90", "t", "u", 0.0)
+    SESSION.start("192.168.1.90", "t", "u", 0.0, key=key)
 
 
 def test_while_the_show_is_on_tv_the_tab_no_longer_moves_the_bookmark(
@@ -99,7 +99,7 @@ def test_while_the_show_is_on_tv_the_tab_no_longer_moves_the_bookmark(
     monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
     write_web_box(tmp_path, url="u", title="t", at=0.0, key="k1")
     write_web_position(tmp_path, key="k1", pos=500.0, dur=8000.0, phase="playing", wall=0.0)
-    _casting(monkeypatch)
+    _casting(monkeypatch, key="k1")
     try:
         answer = position(_post({"key": "k1", "pos": 30.0, "dur": 8000.0, "phase": "playing"}))
     finally:
@@ -117,10 +117,32 @@ def test_a_stale_key_is_still_refused_while_the_show_is_on_tv(
     """409 - единственный сигнал вкладке о подмене ящика, и каст его не глушит."""
     monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
     write_web_box(tmp_path, url="u", title="t", at=0.0, key="k2")
-    _casting(monkeypatch)
+    _casting(monkeypatch, key="k2")
     try:
         answer = position(_post({"key": "k1", "pos": 30.0, "dur": 8000.0, "phase": "playing"}))
     finally:
         SESSION.stop()
 
     assert answer.code == 409
+
+
+def test_a_cast_of_another_show_does_not_silence_the_tab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ящик уехал под новую картину, а ТВ играет прежнюю: место новой пишет вкладка.
+
+    Иначе показ, начатый в браузере поверх живого каста, не двинул бы закладку ни разу и
+    навсегда остался бы в ``starting`` - продукт узнаёт о начале показа только отсюда.
+    """
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="u", title="t", at=0.0, key="new")
+    _casting(monkeypatch, key="old")
+    try:
+        answer = position(_post({"key": "new", "pos": 30.0, "dur": 8000.0, "phase": "playing"}))
+    finally:
+        SESSION.stop()
+
+    assert answer.code == 204
+    record = read_web_position(tmp_path)
+    assert record is not None
+    assert record["pos"] == 30.0, "новую картину заперло чужим кастом"

@@ -41,8 +41,8 @@ def to_tv(request: Request) -> Answer:
     at = float(box.get("at", 0.0))
     if record is not None and record.get("key") == box.get("key"):
         at = float(record.get("pos", at))
-    echo = _echo(out, str(box.get("key", "")))
-    SESSION.start(address, str(box.get("title", "")), url, at, echo=echo)
+    key = str(box.get("key", ""))
+    SESSION.start(address, str(box.get("title", "")), url, at, echo=_echo(out, key), key=key)
     return Answer(204, b"")
 
 
@@ -60,6 +60,11 @@ def _echo(out: Path, key: str) -> Callable[[Position], None]:
     """
 
     def heard(spot: Position) -> None:
+        # Ящик уехал под другой показ - слушатель умолкает и отдаёт файл вкладке: иначе
+        # он писал бы место ТВ под ключом, которого в ящике уже нет, а новая картина
+        # осталась бы вовсе без места (:meth:`web.tv_session.TvSession.owns`).
+        if not SESSION.owns(str(read_web_box(out).get("key", ""))):
+            return
         write_web_position(
             out,
             key=key,
