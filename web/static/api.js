@@ -27,6 +27,13 @@ const TCApi = {
     };
   },
 
+  // Число включённых источников для «Ищем в N источниках…» (§4.2); нет ответа - ноль,
+  // а не выдуманное число.
+  async sources() {
+    const said = await TCApi._get('/api/web/sources', null);
+    return typeof (said && said.count) === 'number' ? said.count : 0;
+  },
+
   async search(query) {
     const said = await TCApi._post('/api/search', { query });
     return Array.isArray(said && said.results) ? said.results : [];

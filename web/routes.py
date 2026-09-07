@@ -11,6 +11,7 @@ from web.route import Route
 from web.serve_shell import serve_shell
 from web.serve_static import serve_static
 from web.shelves import shelves
+from web.sources import sources
 from web.to_tv import to_tv
 from web.to_web import to_web
 
@@ -30,6 +31,7 @@ def routes() -> tuple[Route, ...]:
         Route("GET", "/api/phrases", phrases),
         Route("GET", "/api/shelves", shelves),
         Route("GET", "/api/history", history),
+        Route("GET", "/api/web/sources", sources),
         Route("GET", "/api/web/box", box),
         Route("POST", "/api/web/position", position),
         Route("POST", "/api/to-tv", to_tv),

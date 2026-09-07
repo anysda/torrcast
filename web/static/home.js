@@ -8,6 +8,7 @@ const TCHome = {
   _token: 0,
   _lastHistory: [],
   _lastShelves: { fresh: [], popular: [] },
+  _sourcesCount: 0,
 
   async mount(root) {
     root.replaceChildren();
@@ -21,6 +22,7 @@ const TCHome = {
     root.append(scan, header, wrap);
     wrap.querySelector('.tc-search-input').focus();
 
+    TCApi.sources().then((count) => { TCHome._sourcesCount = count; });
     const [state, history, shelves] = await Promise.all([
       TCApi.state(), TCApi.history(), TCApi.shelves(),
     ]);
@@ -94,6 +96,7 @@ const TCHome = {
   _searchLoading() {
     const body = document.createElement('div');
     body.id = 'tc-body';
+    body.appendChild(TCHome._searchingLine());
     const grid = document.createElement('div');
     grid.className = 'tc-grid';
     for (let index = 0; index < 14; index += 1) {
@@ -101,6 +104,19 @@ const TCHome = {
     }
     body.appendChild(grid);
     return body;
+  },
+
+  // «Ищем в N источниках…» (§4.2): N - число индексеров, включённых у самого круга
+  // поиска (`TCApi.sources`), а не выдумка страницы.
+  _searchingLine() {
+    const line = document.createElement('div');
+    line.className = 'tc-searching';
+    const square = document.createElement('div');
+    square.className = 'tc-searching-square';
+    const label = document.createElement('div');
+    label.textContent = TC.say('web.search.searching', { n: TCHome._sourcesCount });
+    line.append(square, label);
+    return line;
   },
 
   _searchResults(results) {

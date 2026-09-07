@@ -12,6 +12,7 @@ def test_the_page_and_its_files_and_its_words_are_all_here() -> None:
     assert ("GET", "/api/phrases") in named
     assert ("GET", "/api/shelves") in named
     assert ("GET", "/api/history") in named
+    assert ("GET", "/api/web/sources") in named
     assert ("GET", "/api/web/box") in named
     assert ("POST", "/api/web/position") in named
     assert ("POST", "/api/to-tv") in named
