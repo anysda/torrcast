@@ -33,6 +33,10 @@ torrcast-ha = "hass.main:main"
 [dependency-groups]
 dev = [
     "grimp>=3.15",
+    # Тот же сборочный бэкенд, что и `[build-system]` - зовём его хуком колеса
+    # (scripts/hatch_build_id_hook.py) без сетевой сборочной изоляции: колесо для
+    # разбора собирается тем же интерпретатором прямо в тесте, оффлайн.
+    "hatchling>=1.25",
     "mypy>=1.11",
     "pyte>=0.8",
     "pytest>=8.3",
@@ -53,6 +57,13 @@ path = "torrcast/domain/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["torrcast", "tgbot", "hass", "web"]
+
+# Хэш HEAD исходного дерева, из которого собирается КОЛЕСО - не тарбол выпуска и не
+# sdist. Закрывает обычную установку `pip install <каталог>` (так ставят на стенды):
+# `.git` рядом есть, но сама установка ни разу не `-e`, и без хука родного пробника
+# в `torrcast/adapters/health/build_id.py` внутри собранного колеса уже неоткуда взять.
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "scripts/hatch_build_id_hook.py"
 
 [tool.ruff]
 line-length = 100

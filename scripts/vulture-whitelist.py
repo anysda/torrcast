@@ -93,3 +93,10 @@ _bot
 pytest_configure
 pytest_runtest_protocol
 pytest_sessionfinish
+
+# `BuildIdHook` (scripts/hatch_build_id_hook.py) конструирует и зовёт сам hatchling: имя
+# приезжает из `path` в `[tool.hatch.build.targets.wheel.hooks.custom]` пути
+# pyproject.toml, находит класс - потомок `BuildHookInterface` - и вызывает `initialize`
+# сам, при сборке колеса. Вызывающей стороны в нашем дереве нет и быть не может.
+BuildIdHook
+_.initialize
