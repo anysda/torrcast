@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Прибор приёмки TC-1116 (ТЗ §11): 14 пунктов, каждый - число, а не «открылось».
+"""Прибор приёмки TC-1116 (ТЗ §11): 16 пунктов, каждый - число, а не «открылось».
 
 Инструмент разработчика: headless Chromium (playwright), в устанавливаемый пакет не
 входит и в зависимости продукта не входит - как ``scripts/kinshelfprobe.py`` и
@@ -9,7 +9,7 @@
     PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers /opt/pwenv/bin/python3 \
         scripts/web-acceptance.py --base http://192.168.1.104:8479
 
-Пункты 13-14 не ходят через браузер и репозиторий тестируют локально; пункт 14 обязан
+Пункты 12-13 и 15-16 не ходят через браузер вовсе, им хватает выдачи; пункт 14 обязан
 запускаться там, где лежит дерево ``torrcast`` (``--repo``), а не с CT502 - там его нет.
 
 Прибор обязан называть, ЧЕМ именно он недоволен - конкретный запрос, конкретное число,
@@ -80,6 +80,19 @@ _FRANCHISE_TITLES: Final = (
 )
 #: Сколько ждать доборные части карточки (справка, серии, родня): продукт отвечает
 #: сразу и досылает их фоном, помечая недоехавшее заголовком ``X-Torrcast-Partial``.
+#: Окно §9: столько плиток полки видно человеку, и по ним же меряются обложки и мусор.
+_SHELF_WINDOW: Final = 30
+#: Планка §9 по обложкам: «не ниже потолка выдачи (60%)».
+_POSTER_BAR: Final = 0.6
+#: Чем плитка называет себя НЕ кино. Приметы прибора, а не продукта, и потому короткие:
+#: сюда попадает лишь то, что в титуле картины не стоит никогда - платформа, сцен-метка
+#: перевыпуска, формат звука, книги. Замер 07-09-2026: «Mortal Kombat 1 ... PC | RePack»
+#: приезжал на «Новинки» плиткой фильма, и ни один из четырнадцати пунктов этого не видел.
+_JUNK_RE: Final = re.compile(
+    r"(?i)(?<![a-z])(repack|gog-rip|steam-rip|flac|mp3|ape|epub|fb2|djvu|apk|"
+    r"artbook|artbuk|wallpapers?)(?![a-z])|\|\s*pc\b|\bpc\s*[|]"
+)
+
 _PARTIAL_WAIT: Final = 30.0
 #: Сериал для пункта 7. Карточка фильма из пункта 3 серий не содержит по устройству
 #: продукта, и судить по ней список серий - вечная краснота независимо от кода. Замер
@@ -266,6 +279,70 @@ def check_1_home(ctx: Ctx) -> Result:
     by_key = ", ".join(f"{k.rsplit('.', 1)[-1]}={c}" for k, c in found)
     detail = f"GET / -> {code}; полок в DOM по тексту {shelves_seen}/3 ({by_key}); {shelves_detail}"
     return Result(1, "Главная", ok, None, detail)
+
+
+def _shelf_tiles(payload: Any) -> dict[str, list[dict[str, Any]]]:
+    """Сами плитки по полкам из `/api/shelves`, в тех же двух формах ответа."""
+    shelves: dict[str, list[dict[str, Any]]] = {}
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            tiles = value if isinstance(value, list) else (value or {}).get("tiles")
+            if isinstance(tiles, list):
+                shelves[str(key)] = [one for one in tiles if isinstance(one, dict)]
+    return {key: tiles for key, tiles in shelves.items() if tiles}
+
+
+def check_15_posters(base: str) -> Result:
+    """Обложки: доля плиток с картинкой не ниже 60% в каждой непустой полке (ТЗ §9).
+
+    Планка §9 своего номера в таблице §11 не получила, и мерить её было нечем: пункт 1
+    считает ПЛИТКИ, а не картинки на них. Полка из одних букв - законный вид главной по
+    всем четырнадцати пунктам, и первым это увидел бы человек, а не прибор.
+
+    Доля считается по ПЕРВЫМ 30 плиткам, тем же окном, каким §9 меряет мусор: столько
+    видно на экране, а хвост полки человек листает уже зная, что показывают.
+    """
+    code, body = _get(base + "/api/shelves")
+    if code != 200:
+        return Result(15, "Обложки", False, None, f"GET /api/shelves -> {code}")
+    try:
+        shelves = _shelf_tiles(json.loads(body))
+    except json.JSONDecodeError as exc:
+        return Result(15, "Обложки", False, None, f"тело не JSON: {exc}")
+    shares: dict[str, str] = {}
+    ok = bool(shelves)
+    for key, tiles in shelves.items():
+        head = tiles[:_SHELF_WINDOW]
+        with_poster = sum(1 for one in head if str(one.get("poster") or ""))
+        shares[key] = f"{with_poster}/{len(head)}"
+        if with_poster < _POSTER_BAR * len(head):
+            ok = False
+    return Result(15, "Обложки", ok, None, f"планка {_POSTER_BAR:.0%}, по полкам {shares}")
+
+
+def check_16_junk(base: str) -> Result:
+    """Мусор: ни одной не-киношной плитки в первых 30 каждой полки (ТЗ §9).
+
+    Приметы тут СВОИ, а не продуктовые: прибор, спрашивающий продукт его же правилом,
+    подтверждал бы, что правило применилось, а не что мусора нет. Продукт отсеивает по
+    имени РАЗДАЧИ, прибор смотрит на титул готовой ПЛИТКИ - разные концы тракта, и
+    «Mortal Kombat ... PC | RePack» проехал бы первый и остался виден второму.
+    """
+    code, body = _get(base + "/api/shelves")
+    if code != 200:
+        return Result(16, "Мусор", False, None, f"GET /api/shelves -> {code}")
+    try:
+        shelves = _shelf_tiles(json.loads(body))
+    except json.JSONDecodeError as exc:
+        return Result(16, "Мусор", False, None, f"тело не JSON: {exc}")
+    caught: list[str] = []
+    for key, tiles in shelves.items():
+        for one in tiles[:_SHELF_WINDOW]:
+            title = f"{one.get('title') or ''} {one.get('original') or ''}"
+            found = _JUNK_RE.search(title)
+            if found:
+                caught.append(f"{key}: {title.strip()!r} по слову {found.group()!r}")
+    return Result(16, "Мусор", not caught, None, "; ".join(caught) if caught else "мусора нет")
 
 
 def check_2_search(ctx: Ctx) -> Result:
@@ -858,7 +935,7 @@ def _guarded(number: int, name: str, run: Callable[[], Result]) -> Result:
 
     07-09-2026 прогон дошёл до девятого пункта и умер на `<video>`, которого не было в
     DOM: тринадцать остальных приговоров пропали вместе с ним, включая уже снятые.
-    Приёмка обязана назвать все четырнадцать - иначе она не приёмка, а первый отказ.
+    Приёмка обязана назвать их все - иначе она не приёмка, а первый отказ.
     """
     try:
         return run()
@@ -910,6 +987,8 @@ def main() -> int:
         results += [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11]
         browser.close()
 
+    results.append(_guarded(15, "Обложки", lambda: check_15_posters(args.base)))
+    results.append(_guarded(16, "Мусор", lambda: check_16_junk(args.base)))
     results.append(_guarded(12, "Франшиза", lambda: check_12_franchise(args.base)))
     results.append(_guarded(13, "Тексты", lambda: check_13_texts(args.base)))
     results.append(_guarded(14, "Гейт", lambda: check_14_gate(args.repo)))
