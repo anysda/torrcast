@@ -50,8 +50,12 @@ const TCApi = {
   // Успешный запуск переводит страницу в плеер: до сих пор эту дверь не открывал никто
   // (ни card.js, ни сам api.js), и «Играть» било по продукту, никуда не приводя экран.
   async play(body) {
+    // Ящик, лежащий в эту секунду, заказу не принадлежит: показ перепишет его сам,
+    // когда поднимется (`player-box.js`), а до тех пор вкладке играть нечего.
+    await TCPlayerBox.holdStale();
     const said = await TCApi._post('/api/play', body);
     if (said) TCRouter.go('/play');
+    else TCPlayerBox.dropStale();
     return said;
   },
 

@@ -15,6 +15,27 @@
 'use strict';
 
 const TCPlayerBox = {
+  //: Где вкладка держит ключ ящика, застигнутого заказом показа. sessionStorage, а не
+  //: поле: перезагрузка `/play` посреди подготовки не должна снимать эту память.
+  STALE: 'tc.box.stale',
+
+  // 🔴 Запомнить ящик, который лежал ДО заказа: пока в нём тот же ключ, показ ЧУЖОЙ.
+  // Ящик переписывает не «Играть», а показ, когда он готов, - и это десятки секунд
+  // спустя. Всё это время вкладка находила в ящике ПРЕДЫДУЩУЮ картину и честно её
+  // играла: зритель, попросивший «Интерстеллар», получал хвост вчерашнего фильма со
+  // звуком, а прибор приёмки - откат позиции с 2900 на 0 в середине замера ровности
+  // (замер на стенде `.104` 07-09-2026, пункт 4: `POST /api/web/position` -> 409,
+  // и следом `t=2900.50` -> `t=0.00`).
+  async holdStale() {
+    const box = await TCApi.box();
+    sessionStorage.setItem(TCPlayerBox.STALE, (box && box.key) || '');
+  },
+
+  // Заказ не состоялся или показ уже наш - метке больше нечего сторожить.
+  dropStale() {
+    sessionStorage.removeItem(TCPlayerBox.STALE);
+  },
+
   // Перецепиться на ящик, если показ в нём другой; отвечает, случилось ли это.
   // Пустой ящик - не отказ, а «показ ещё не готов» (§7.3): зовущий спросит снова.
   async rebox(player) {
@@ -22,6 +43,8 @@ const TCPlayerBox = {
     if (!box) return false;
     TCPlayerBox._tv(player, !!box.tv);
     if (!box.url || !box.key || box.key === player._key) return false;
+    if (box.key === sessionStorage.getItem(TCPlayerBox.STALE)) return false;
+    TCPlayerBox.dropStale();
     player._key = box.key;
     player._url = box.url;
     // Новая серия имеет право на свою плашку отсчёта: она уже не та, что доигралa.
