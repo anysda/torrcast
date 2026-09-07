@@ -182,3 +182,23 @@ def test_bytes_come_from_the_narrowed_address_first() -> None:
     ask = Ask("Паразиты", 1999, "movie", "Les parasites")
     assert imdb.bodies(imdb.wanted([ask], 5.0), 5.0) == {ask: PICTURE}
     assert files.asked == [SMALL]
+
+
+def test_a_picture_with_one_name_is_asked_by_its_own_title() -> None:
+    """Отдельного ``original`` нет - латинский титул и есть то имя, которым зовёт источник.
+
+    🔴 Замер 07-09-2026 на живых полках стенда: пока спрашивался один ``original``, каждая
+    картина с одним именем не спрашивалась у подсказчика ни разу, и 17 плиток из 25
+    оставались без обложки при живой картинке у источника.
+    """
+    imdb, _ = _imdb({"Bob's Burgers": [_row("tt1561755", "Bob's Burgers", 2011, "tvSeries")]})
+    ask = Ask("Bob's Burgers", 2011, "tv")
+    assert imdb.wanted([ask], 5.0) == {ask: [SMALL, RAW]}
+
+
+def test_a_russian_title_without_an_original_is_not_asked_at_all() -> None:
+    """Русским именем подсказчика не спрашивают: совпасть с латинским ответом ему нечем."""
+    imdb, client = _imdb({"Укрытие": [_row("tt14688458", "Silo", 2023, "tvSeries")]})
+    ask = Ask("Укрытие", 2026, "tv")
+    assert imdb.wanted([ask], 5.0) == {ask: []}
+    assert client.calls == [], "русское имя ушло в сеть"

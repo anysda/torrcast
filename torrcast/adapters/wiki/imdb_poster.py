@@ -17,8 +17,8 @@ Home Assistant через сеть, где режут по SNI.
 
 * русское прокатное имя спрашивается у офлайн-карты выгрузки IMDb - она отвечает
   единственным id на точную тройку «имя, год, род» и молчит, если id не один;
-* оригинальное имя спрашивается у подсказчика, и годится только тот ответ, который
-  источник назвал ТЕМ ЖЕ именем, каким спросили, - и только если он один такой.
+* имя латиницей (``original``, а нет его - собственный титул) спрашивается у подсказчика,
+  и годится лишь ответ, названный источником ТЕМ ЖЕ именем, и только если он один такой.
 
 Молчание тут - ответ, а не отказ: строка остаётся строкой, и битой плитки не бывает.
 """
@@ -34,6 +34,7 @@ from urllib.parse import quote
 from torrcast.adapters.wiki.poster_bodies import PosterBodies
 from torrcast.adapters.wiki.poster_files import POSTER_WIDTH
 from torrcast.domain.facts.ask import Ask
+from torrcast.domain.said_in_latin import _said_in_latin
 from torrcast.domain.slugify import slugify
 from torrcast.ports.bytes_client import BytesClient
 from torrcast.ports.json_client import JsonClient
@@ -128,13 +129,17 @@ class ImdbPoster:
     def _by_name(self, ask: Ask, timeout: float) -> dict[str, Any] | None:
         """Единственная картина, которую источник назвал ровно тем именем, каким спросили.
 
-        Спрашивается ОРИГИНАЛЬНОЕ имя, а не русское, и это не забывчивость. Своим именем
-        (поле ``l``) IMDb называет картину латиницей всегда, поэтому русское имя тут не
-        совпало бы ни с чем и годился бы любой ответ ранжировщика - ровно то, чем чужая
-        картинка и приезжает. Русское имя спрашивается у карты (:meth:`_known`), где оно
-        сверено с годом и родом.
+        Спрашивается имя, сказанное ЛАТИНИЦЕЙ: своим именем (поле ``l``) IMDb называет
+        картину латиницей всегда, и русское тут не совпало бы ни с чем - годился бы любой
+        ответ ранжировщика. Русское спрашивается у карты (:meth:`_known`), с годом и родом.
+
+        🔴 Латинское имя не всегда лежит в ``original``: поле заполняется только там, где
+        имён ДВА (:func:`torrcast.domain.picture_tile.picture_tile`), и пока спрашивалось
+        одно оно, картина с ОДНИМ именем не спрашивалась тут ни разу. Замер 07-09-2026 на
+        живых полках стенда: из 25 плиток без обложки 17 получили её по собственному титулу
+        («Bob's Burgers», «Doraemon»), и планка §9 ТЗ в 60% без них не берётся.
         """
-        text = ask.original.strip()
+        text = ask.original.strip() or (ask.title.strip() if _said_in_latin(ask.title) else "")
         if not text:
             return None
         rows = [
