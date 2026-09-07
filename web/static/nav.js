@@ -11,21 +11,87 @@ const TCNav = {
   input: 'key',
   // Единственное горящее место на кадре или ``null``, если не горит ничего.
   lit: null,
+  // Бегущая анимация подписи под горящей плиткой: `<div class="tc-tile-cap">` → сама
+  // функция кадра. Пока элемент - ключ карты, его цикл продолжается; исчез из карты -
+  // прошлый `requestAnimationFrame` увидит чужой шаг и остановится сам, без отмены по id.
+  _capAnim: new Map(),
 
   init() {
     document.addEventListener('keydown', TCNav._onKey);
     document.addEventListener('focusin', TCNav._onFocusIn);
     document.addEventListener('pointermove', TCNav._onPointer, { passive: true });
     document.addEventListener('pointerdown', TCNav._onPointer, { passive: true });
+    // Колесо мыши крутит полку вбок. Работает только над полкой, которой правда есть
+    // куда ехать (`scrollWidth > clientWidth`): пустая полка и весь остальной документ
+    // вертикальное колесо не замечают и листаются как обычно. Боковое движение колеса
+    // или трекпада (`deltaX`) сюда не попадает вовсе - у него уже есть родная прокрутка
+    // через `overflow-x: auto`, и отбирать её незачем.
+    document.addEventListener('wheel', TCNav._onWheel, { passive: false });
   },
 
   // Показ выделения переносится на новое место ЦЕЛИКОМ: сначала гаснет старое, потом
   // загорается новое, поэтому двух горящих мест разом не бывает даже на один кадр.
   light(place) {
     if (TCNav.lit === place) return;
-    if (TCNav.lit) TCNav.lit.classList.remove('is-lit');
+    if (TCNav.lit) {
+      TCNav.lit.classList.remove('is-lit');
+      TCNav._stopCapScroll(TCNav.lit);
+    }
     TCNav.lit = place;
-    if (place) place.classList.add('is-lit');
+    if (place) {
+      place.classList.add('is-lit');
+      TCNav._startCapScroll(place);
+    }
+  },
+
+  // Полка едет разом на весь дельта колеса, без плавного разгона: `.tc-row` держит
+  // `scroll-behavior: smooth` ради стрелок (`scrollIntoView`), а тот же переход у
+  // `scrollLeft` только ЗАПИСЫВАЕТ движение в очередь браузера и не меняет свойство
+  // немедленно - следующий тик колеса складывался бы с недоехавшим прошлым. Инлайновый
+  // `auto` на миг перебивает класс ровно на один прыжок и тут же снимается, стрелкам
+  // достаётся прежний плавный ход.
+  _onWheel(event) {
+    if (event.deltaX !== 0 || event.deltaY === 0) return;
+    const row = event.target.closest && event.target.closest('.tc-row');
+    if (!row || row.scrollWidth <= row.clientWidth) return;
+    event.preventDefault();
+    const was = row.style.scrollBehavior;
+    row.style.scrollBehavior = 'auto';
+    row.scrollLeft += event.deltaY;
+    row.style.scrollBehavior = was;
+  },
+
+  // Подпись, не влезшая в отведённые две строки (`is-lit` разворачивает её в
+  // `white-space: normal` внутри короба фиксированной высоты), едет вниз до конца и
+  // обратно, пока плитка горит: место под текст не растёт ни на пиксель, а прочитать
+  // остаток можно, просто задержавшись взглядом. `is-lit` уже применён строкой раньше,
+  // так что `scrollHeight` меряет разложенный текст, а не однострочный обрезок.
+  _startCapScroll(place) {
+    const cap = place.querySelector && place.querySelector('.tc-tile-cap');
+    if (!cap) return;
+    const max = cap.scrollHeight - cap.clientHeight;
+    if (max <= 0) return;
+    const half = 1400;
+    const started = performance.now();
+    const step = (now) => {
+      if (TCNav._capAnim.get(cap) !== step) return;
+      const t = (now - started) % (half * 2);
+      const phase = t < half ? t / half : 2 - t / half;
+      cap.scrollTop = max * phase;
+      requestAnimationFrame(step);
+    };
+    TCNav._capAnim.set(cap, step);
+    requestAnimationFrame(step);
+  },
+
+  // Гаснущая плитка возвращает подпись на начало сразу, а не там, где её застало
+  // выключение: следующий взгляд на неё в покое должен видеть тот же обрезок, что и до
+  // наведения.
+  _stopCapScroll(place) {
+    const cap = place.querySelector && place.querySelector('.tc-tile-cap');
+    if (!cap) return;
+    TCNav._capAnim.delete(cap);
+    cap.scrollTop = 0;
   },
 
   // Фокус НЕ снимается вместе с показом: он нужен и навигации, и чтению с экрана.
