@@ -84,6 +84,8 @@ _PARTIAL_WAIT: Final = 30.0
 #: Сериал для пункта 7. Карточка фильма из пункта 3 серий не содержит по устройству
 #: продукта, и судить по ней список серий - вечная краснота независимо от кода. Замер
 #: 06-09-2026 на стенде: у этого имени разбирается первый сезон целиком, 7 серий.
+#: Фильм приёмки: его ищет пункт 2, его же карточку открывают пункты 3 и 6.
+_MOVIE_TITLE: Final = "Интерстеллар"
 _SERIES_TITLE: Final = "Во все тяжкие"
 #: Сколько ждать тело карточки, открытой кликом: карточка едет по сети, и нажимать
 #: стрелки по скелету значит мерить скорость сети, а не навигацию. Замер 06-09-2026 на
@@ -273,7 +275,7 @@ def check_2_search(ctx: Ctx) -> Result:
     if field is None or field.count() == 0:
         detail = f"поле поиска не найдено: input[placeholder={placeholder!r}] нет в DOM"
         return Result(2, "Поиск", False, None, detail)
-    field.first.fill("Интерстеллар")
+    field.first.fill(_MOVIE_TITLE)
     field.first.press("Enter")
     began = time.monotonic()
     tiles = ctx.page.locator("[data-tc-tile]")
@@ -332,6 +334,19 @@ def check_3_card(ctx: Ctx, search_ok: bool) -> Result:
         f"озвучек {audio_count}; «Играть» {'активна' if play_ok else 'недоступна/отсутствует'}"
     )
     return Result(3, "Карточка", ok, None, detail)
+
+
+def _wake_panel(ctx: Ctx) -> None:
+    """Разбудить панель плеера движением мыши - ровно так, как это делает зритель.
+
+    🔴 Через 3 с простоя (``TCPlayer.IDLE_MS``) панель уходит в ``.is-idle`` и получает
+    ``pointer-events: none`` (ТЗ §4.5): клик по её кнопке перехватывает `<video>`, и
+    прибор без движения мышью получал таймаут вместо ответа продукта.
+    """
+    box = ctx.page.viewport_size or {"width": 1280, "height": 720}
+    ctx.page.mouse.move(box["width"] / 2, box["height"] / 2)
+    ctx.page.mouse.move(box["width"] / 2 + 8, box["height"] / 2 + 8)
+    ctx.page.wait_for_timeout(100)
 
 
 def _playback_guard(
@@ -462,11 +477,16 @@ def check_6_restart(ctx: Ctx, bookmark_ok: bool) -> Result:
     guard = _playback_guard(6, "Сначала", ctx, bookmark_ok, "пункт 5 (закладки нет)")
     if guard:
         return guard
-    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    # 🔴 «Сначала» живёт на КАРТОЧКЕ картины (`web.detail.start_over`), а не на главной:
+    # главная предлагает продолжить полкой «Продолжить», и искать кнопку там - значит
+    # звать дефектом ту раскладку, которую ТЗ §4.3 и задаёт.
+    refusal = _open_card_by_page(ctx, _MOVIE_TITLE)
+    if refusal is not None:
+        return Result(6, "Сначала", False, None, refusal)
     label = ctx.english.get("web.detail.start_over", "")
     button = ctx.page.get_by_text(label, exact=True) if label else None
     if button is None or button.count() == 0:
-        return Result(6, "Сначала", False, None, f"кнопка {label!r} не найдена после захода")
+        return Result(6, "Сначала", False, None, f"кнопка {label!r} не найдена на карточке")
     button.first.click()
     # Клик лишь КЛАДЁТ заказ: продукту ещё искать раздачу и паковать. Секунда тут мерила
     # скорость сети, а `<video>` на главной нет вовсе - страница показа только едет.
@@ -597,10 +617,11 @@ def check_9_on_tv(ctx: Ctx, play_ok: bool) -> Result:
     # `<video>` на странице есть, а играть ему ещё нечего.
     if not _await_playback(ctx):
         return Result(9, "На ТВ", False, None, "перед передачей на ТВ показ не идёт")
-    label = ctx.english.get("web.detail.play_on_tv", "")
+    label = ctx.english.get("web.player.play_on_tv", "")
     button = ctx.page.get_by_text(label, exact=True) if label else None
     if button is None or button.count() == 0:
         return Result(9, "На ТВ", False, None, f"кнопка {label!r} не найдена")
+    _wake_panel(ctx)
     button.first.click()
     ctx.page.wait_for_timeout(2000)
     shown = _video(ctx, "v => v.muted")
@@ -633,6 +654,7 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
     if button is None or button.count() == 0:
         return Result(10, "На комп", False, None, f"кнопка {label!r} не найдена")
     code_before, body_before = _get(ctx.base + "/api/state")
+    _wake_panel(ctx)
     button.first.click()
     ctx.page.wait_for_timeout(2000)
     shown = _video(ctx, "v => v.muted")
