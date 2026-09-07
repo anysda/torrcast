@@ -6,8 +6,19 @@ from torrcast.domain.facts.kin_rows import _kin_key, _kin_row, _row_kin
 
 def test_the_key_names_the_entity_it_was_asked_about() -> None:
     """Ключ ряда родни отличим от ключей паспортов и справки в том же файле."""
-    assert _kin_key("Q105598") == "kin|Q105598"
+    assert _kin_key("Q105598") == "kin|2|Q105598"
     assert _kin_key("Q105598") != _kin_key("Q46717")
+
+
+def test_the_key_carries_the_number_of_the_question_that_filled_it() -> None:
+    """🔴 Пустая полка - законный ряд кэша, и без номера спроса она вечна.
+
+    Установка, один раз получившая пусто старым запросом, держит эту пустоту на диске
+    (``facts.json``) и правку запроса не видит никогда: :meth:`FranchiseKin.of` читает
+    ряд первым и до сети не доходит. Номер в ключе - единственное, что отличает «пусто
+    по старому спросу» от «пусто по нынешнему», и двигается он вместе с запросом.
+    """
+    assert _kin_key("Q105598").startswith("kin|2|")
 
 
 def test_kin_survives_the_round_trip_through_a_row() -> None:

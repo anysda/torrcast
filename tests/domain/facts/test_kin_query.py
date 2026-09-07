@@ -9,7 +9,18 @@ def test_both_series_and_chain_properties_are_asked_in_one_query() -> None:
 
     assert "wd:Q105598 wdt:P179" in query
     assert "wd:Q105598 (wdt:P155|wdt:P156)*" in query
-    assert query.count("wd:Q105598") == 3, "картина упомянута в серии, цепочке и фильтре"
+    assert query.count("wd:Q105598") == 4, "серия, цепочка, обратная ветка и фильтр"
+
+
+def test_the_pictures_that_point_at_the_franchise_are_asked_too() -> None:
+    """🔴 Обратная ветка: имя франшизы паспорт отдаёт статьёй САМОЙ франшизы.
+
+    Франшиза частью себя не является, и прямые ветки на ней молчат. Картины смотрят на
+    неё сами - через свою серию и «часть от» (`P361`), потому что между картиной и
+    медиафраншизой стоит ещё и элемент серии. Замер 07-09-2026 по десяти франшизам
+    ТЗ §8: без этой ветки полка пуста у четырёх из них.
+    """
+    assert "?item wdt:P179/wdt:P361* wd:Q216930" in kin_query("Q216930")
 
 
 def test_the_asked_picture_is_filtered_out_of_its_own_kin() -> None:
