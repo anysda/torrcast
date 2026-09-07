@@ -482,6 +482,26 @@ def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
     return None
 
 
+def _release_lane(ctx: Ctx) -> str:
+    """Отпустить полосу упаковки: она одна на машину, и занятый показ отказывает новому.
+
+    Пункт 7 оставляет сериал играть намеренно - на нём стоит пункт 8. Дальше показ уже
+    никому не нужен, а `/api/play` при занятой полосе отвечает отказом молча: страница
+    не меняется, и пункт 11 читался бы как «стрелки не доводят до показа», хотя стрелки
+    ни при чём.
+    """
+    code, _ = _post(ctx.base + "/api/control", {"cmd": "stop"})
+    began = time.monotonic()
+    while time.monotonic() - began < 20.0:
+        state_code, body = _get(ctx.base + "/api/state")
+        if state_code == 200:
+            with contextlib.suppress(json.JSONDecodeError):
+                if json.loads(body).get("state") == "idle":
+                    return f"полоса отпущена за {time.monotonic() - began:.0f} с"
+        time.sleep(1.0)
+    return f"полоса занята и после стопа (control -> {code})"
+
+
 def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     """Сериал: список серий непуст, выбор s1e2 → закладка на s1e2.
 
@@ -506,15 +526,19 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     if target.count() == 0:
         return Result(7, "Сериал", False, None, f"серий {count}, но s1e2 среди них нет")
     target.first.click()
-    ctx.page.wait_for_timeout(500)
-    code, body = _get(ctx.base + "/api/state")
+    # Клик лишь КЛАДЁТ заказ: продукт ещё ищет раздачу и поднимает показ, и до тех пор
+    # `/api/state` честно отвечает `null`. Полсекунды тут мерили скорость сети.
     season = episode = None
-    if code == 200:
-        try:
-            payload = json.loads(body)
-            season, episode = payload.get("season"), payload.get("episode")
-        except json.JSONDecodeError:
-            pass
+    began = time.monotonic()
+    while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
+        code, body = _get(ctx.base + "/api/state")
+        if code == 200:
+            with contextlib.suppress(json.JSONDecodeError):
+                payload = json.loads(body)
+                season, episode = payload.get("season"), payload.get("episode")
+        if season is not None and episode is not None:
+            break
+        time.sleep(1.0)
     ok = season == 1 and episode == 2
     detail = f"серий {count}, выбран s1e2, /api/state season={season!r} episode={episode!r}"
     return Result(7, "Сериал", ok, None, detail)
@@ -595,6 +619,7 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
 
 def check_11_arrows(ctx: Ctx) -> Result:
     """Стрелки: от поля поиска до старта показа за ≤12 нажатий, фокус виден на кадре."""
+    lane = _release_lane(ctx) if ctx.allow_play else "показа не было"
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
     placeholder = ctx.english.get("web.search.placeholder", "")
     field = ctx.page.get_by_placeholder(placeholder, exact=True) if placeholder else None
@@ -641,7 +666,7 @@ def check_11_arrows(ctx: Ctx) -> Result:
     goal = "показ стартовал" if ctx.allow_play else "фокус дошёл до «Играть»"
     got = started if ctx.allow_play else reached_play
     stop_note = "" if ctx.allow_play else " (--play не задан: пункт судится по фокусу)"
-    detail = f"нажатий {len(steps)}/{limit}, кадры в {ctx.shots}, {goal}: {got}{stop_note}"
+    detail = f"нажатий {len(steps)}/{limit}, кадры в {ctx.shots}, {lane}, {goal}: {got}{stop_note}"
     return Result(11, "Стрелки", ok, None, "; ".join(steps) + " | " + detail)
 
 
