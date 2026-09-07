@@ -680,10 +680,21 @@ def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
     ctx.page.eval_on_selector("video", f"v => {{ v.currentTime = {max(duration - 15.0, 0.0)}; }}")
     began = time.monotonic()
     overlay = ctx.page.locator("[data-tc-next-episode]")
-    while time.monotonic() - began < 20.0 and overlay.count() == 0:
+    # 🔴 Перемотка к концу попадает в НЕУПАКОВАННОЕ место, и продукт честно перезапускает
+    # оттуда упаковку (ТЗ §7.1): до плашки надо ещё доиграть последние 15 секунд, а до них
+    # дождаться первого куска. Двадцати секунд на это не хватает никогда - прибор судил
+    # раньше, чем продукт успевал ответить (замер `.104` 07-09-2026). Срок тут тот же, что
+    # продукт сам отводит на подъём показа, плюс те 15 с, которые надо доиграть.
+    limit = _PLAY_START_WAIT / 1000.0 + 15.0
+    while time.monotonic() - began < limit and overlay.count() == 0:
         ctx.page.wait_for_timeout(300)
     if overlay.count() == 0:
-        return Result(8, "Автопереход", False, None, "плашка [data-tc-next-episode] не появилась")
+        at = _video(ctx, "v => v.currentTime")
+        why = (
+            f"плашка [data-tc-next-episode] не появилась за {limit:.0f} с; "
+            f"позиция {at} из {duration:.1f}"
+        )
+        return Result(8, "Автопереход", False, None, why)
     before_code, before_body = _get(ctx.base + "/api/state")
     ctx.page.wait_for_timeout(10_000)
     after_code, after_body = _get(ctx.base + "/api/state")
@@ -712,21 +723,47 @@ def check_9_on_tv(ctx: Ctx, play_ok: bool) -> Result:
     if shown is None:
         return Result(9, "На ТВ", False, None, "после «На ТВ» на странице нет `<video>`")
     muted = bool(shown)
-    code_a, body_a = _get(ctx.base + "/api/state")
-    ctx.page.wait_for_timeout(2000)
-    code_b, body_b = _get(ctx.base + "/api/state")
+    # 🔴 Каст поднимается не мгновенно: соединение с приёмником, LOAD и первый кадр на
+    # телевизоре - это секунды. Прибор спрашивал позицию через 2 с после нажатия и звал
+    # ненаступившее отказом, хотя каст поднимался следом и играл потом ещё полчаса (замер
+    # `.104` 07-09-2026). Ждём, пока продукт НАЗОВЁТ приёмник, и только тогда меряем ход.
+    took = _await_tv(ctx)
     tv_running = False
-    if code_a == 200 and code_b == 200:
-        try:
-            state_a, state_b = json.loads(body_a), json.loads(body_b)
-            tv_running = state_a.get("tv") == ctx.receiver and state_b.get(
-                "position", 0
-            ) > state_a.get("position", 0)
-        except json.JSONDecodeError:
-            pass
+    if took is not None:
+        state_a = _state(ctx)
+        ctx.page.wait_for_timeout(2000)
+        state_b = _state(ctx)
+        tv_running = state_b.get("position", 0.0) > state_a.get("position", 0.0)
     ok = muted and tv_running
-    detail = f"muted={muted}, /api/state tv растёт между снимками: {tv_running}"
+    waited = "не поднялся" if took is None else f"{took:.0f} с"
+    detail = f"muted={muted}, каст поднялся за {waited}, позиция ТВ растёт: {tv_running}"
     return Result(9, "На ТВ", ok, None, detail)
+
+
+#: Сколько ждать, пока продукт назовёт приёмник ТВ своим: рукопожатие и первый кадр.
+_TV_WAIT: Final = 60.0
+
+
+def _state(ctx: Ctx) -> dict[str, Any]:
+    """Снимок ``/api/state``; не ответил или не JSON - пустой словарь, а не исключение."""
+    code, body = _get(ctx.base + "/api/state")
+    if code != 200:
+        return {}
+    try:
+        got = json.loads(body)
+    except json.JSONDecodeError:
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def _await_tv(ctx: Ctx) -> float | None:
+    """Дождаться, пока ``/api/state`` назовёт приёмник; не назвал - ``None``."""
+    began = time.monotonic()
+    while time.monotonic() - began < _TV_WAIT:
+        if _state(ctx).get("tv") == ctx.receiver:
+            return time.monotonic() - began
+        ctx.page.wait_for_timeout(1000)
+    return None
 
 
 def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
