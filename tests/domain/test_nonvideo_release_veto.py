@@ -27,3 +27,7 @@ def test_a_cyrillic_video_mark_still_vetoes() -> None:
     assert not _is_nonvideo_release("Аватар / Avatar (2009) 4К, FLAC 5.1")
     assert not _is_nonvideo_release("Джанго освобождённый (2012) НЕVC, MP3")
     assert not _is_nonvideo_release("Игра престолов (2011) 1080р, MP3 5.1")
+
+
+def test_a_video_mark_vetoes_a_volume_shaped_title() -> None:
+    assert not _is_nonvideo_release("The Match v01-10 (2020) 1080p WEB-DL")
