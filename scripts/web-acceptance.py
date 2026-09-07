@@ -413,27 +413,47 @@ def check_4_playback(ctx: Ctx, card_ok: bool) -> Result:
     return Result(4, "Показ", ok, None, detail)
 
 
+#: Куда прибор ставит показ перед остановкой, секунды от начала КАРТИНЫ.
+_BOOKMARK_AT: Final = 90.0
+#: Сколько ждать, пока закладка догонит остановленную вкладку, секунды. Вкладка шлёт
+#: место раз в ``TCPlayer.POSITION_MS`` (2 с), а сторож кладёт его в запись раз в
+#: :data:`torrcast.usecases.watch.WATCH_SECONDS` (10 с) - полсекунды тут мерили такт.
+_BOOKMARK_WAIT: Final = 30.0
+
+
 def check_5_bookmark(ctx: Ctx, play_ok: bool) -> Result:
-    """Закладка: стоп на 90-й секунде → `WatchState`/`/api/state` даёт `pos` в 90±3."""
+    """Закладка: стоп на 90-й секунде → `WatchState`/`/api/state` даёт `pos` в 90±3.
+
+    🔴 До 90-й секунды показ ПЕРЕМАТЫВАЕТСЯ, а не досиживается. Поток - полносеточный
+    VOD всей картины, и `currentTime` у него считает от начала КАРТИНЫ, а не от начала
+    показа: поднявшись с прежней закладки (замер 07-09-2026 на стенде `.104`: «Интерстеллар»
+    поехал с 410,9 с), вкладка уже на первом же круге больше девяноста - прибор мерил
+    место старой закладки и звал это провалом продукта.
+    """
     if not play_ok:
         return Result(5, "Закладка", False, "пункт 4 (показ не идёт)", "остановить нечего")
+    ctx.page.eval_on_selector("video", f"v => {{ v.currentTime = {_BOOKMARK_AT}; }}")
     began = time.monotonic()
-    while time.monotonic() - began < 100.0:
+    current = 0.0
+    while time.monotonic() - began < 30.0:
         current = float(ctx.page.eval_on_selector("video", "v => v.currentTime"))
-        if current >= 90.0:
+        if abs(current - _BOOKMARK_AT) <= 2.0:
+            break
+        time.sleep(0.5)
+    ctx.page.eval_on_selector("video", "v => v.pause()")
+    position = None
+    began = time.monotonic()
+    while time.monotonic() - began < _BOOKMARK_WAIT:
+        code, body = _get(ctx.base + "/api/state")
+        if code == 200:
+            with contextlib.suppress(json.JSONDecodeError):
+                position = json.loads(body).get("position")
+        if isinstance(position, int | float) and abs(position - _BOOKMARK_AT) <= 3.0:
             break
         time.sleep(1.0)
-    ctx.page.eval_on_selector("video", "v => v.pause()")
-    ctx.page.wait_for_timeout(500)
-    code, body = _get(ctx.base + "/api/state")
-    position = None
-    if code == 200:
-        try:
-            position = json.loads(body).get("position")
-        except json.JSONDecodeError:
-            position = None
-    ok = isinstance(position, int | float) and abs(position - 90.0) <= 3.0
-    detail = f"стоп у 90 с; /api/state -> {code}, position={position!r}"
+    ok = isinstance(position, int | float) and abs(position - _BOOKMARK_AT) <= 3.0
+    where = f"{_BOOKMARK_AT:.0f}"
+    detail = f"перемотка на {where} с, стоп у {current:.1f}; /api/state position={position!r}"
     return Result(5, "Закладка", ok, None, detail)
 
 
@@ -448,7 +468,10 @@ def check_6_restart(ctx: Ctx, bookmark_ok: bool) -> Result:
     if button is None or button.count() == 0:
         return Result(6, "Сначала", False, None, f"кнопка {label!r} не найдена после захода")
     button.first.click()
-    ctx.page.wait_for_timeout(1000)
+    # Клик лишь КЛАДЁТ заказ: продукту ещё искать раздачу и паковать. Секунда тут мерила
+    # скорость сети, а `<video>` на главной нет вовсе - страница показа только едет.
+    if not _await_playback(ctx):
+        return Result(6, "Сначала", False, None, "после «Сначала» первого кадра не было")
     current = float(ctx.page.eval_on_selector("video", "v => v.currentTime"))
     ok = current < 5.0
     return Result(6, "Сначала", ok, None, f"кнопка найдена, после клика currentTime={current:.1f}")
@@ -537,11 +560,18 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     return Result(7, "Сериал", ok, None, detail)
 
 
-def check_8_autoplay(ctx: Ctx, play_ok: bool) -> Result:
-    """Автопереход: перемотка к концу → плашка с отсчётом → через 10 с следующая серия."""
-    guard = _playback_guard(8, "Автопереход", ctx, play_ok, "пункт 4 (показ не идёт)")
+def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
+    """Автопереход: перемотка к концу → плашка с отсчётом → через 10 с следующая серия.
+
+    🔴 Мерится на СЕРИАЛЕ, который поднял пункт 7, а не на фильме из пункта 4: следующей
+    серии у фильма нет по устройству продукта, и плашка на нём не появится никогда
+    (замер 07-09-2026: пункт держался красным на «Интерстелларе» и звал это дефектом).
+    """
+    guard = _playback_guard(8, "Автопереход", ctx, series_ok, "пункт 7 (сериал не поднялся)")
     if guard:
         return guard
+    if not _await_playback(ctx):
+        return Result(8, "Автопереход", False, None, "первого кадра серии так и не было")
     duration = float(ctx.page.eval_on_selector("video", "v => v.duration"))
     ctx.page.eval_on_selector("video", f"v => {{ v.currentTime = {max(duration - 15.0, 0.0)}; }}")
     began = time.monotonic()
@@ -563,6 +593,10 @@ def check_9_on_tv(ctx: Ctx, play_ok: bool) -> Result:
     guard = _playback_guard(9, "На ТВ", ctx, play_ok, "пункт 4 (показ не идёт)")
     if guard:
         return guard
+    # Пункт 8 доводит серию до конца и уводит показ на следующую: до её первого кадра
+    # `<video>` на странице есть, а играть ему ещё нечего.
+    if not _await_playback(ctx):
+        return Result(9, "На ТВ", False, None, "перед передачей на ТВ показ не идёт")
     label = ctx.english.get("web.detail.play_on_tv", "")
     button = ctx.page.get_by_text(label, exact=True) if label else None
     if button is None or button.count() == 0:
@@ -616,6 +650,35 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
     return Result(10, "На комп", ok, None, detail)
 
 
+def _focus_of(ctx: Ctx) -> dict[str, Any]:
+    """Что сейчас в фокусе: подпись для отчёта и три приметы, по которым выбирают клавишу."""
+    found: dict[str, Any] = ctx.page.evaluate(
+        "() => { const e = document.activeElement;"
+        " if (!e) return {sig: 'null', play: false, tile: false, field: false};"
+        " return {sig: e.tagName + '#' + (e.id || '-')"
+        "   + (e.hasAttribute('data-tc-play') ? '!play' : '')"
+        "   + (e.hasAttribute('data-tc-tile') ? '!tile' : ''),"
+        "  play: e.hasAttribute('data-tc-play'), tile: e.hasAttribute('data-tc-tile'),"
+        "  field: e.tagName === 'INPUT'}; }"
+    )
+    return found
+
+
+def _dpad_key(focus: dict[str, Any], stuck: bool) -> str:
+    """Клавиша, которую нажал бы человек с пультом, глядя на нынешний фокус.
+
+    🔴 Не «Right, Down, Enter по кругу»: заводной порядок клавиш уводит фокус С кнопки
+    «Играть», на которую сам же и привёл (замер 07-09-2026: фокус вставал на кнопку
+    четвёртым нажатием и уходил пятым, показ не стартовал ни разу за 12). Прибор мерил
+    бы тогда свой круг клавиш, а не путь, который проходит зритель.
+    """
+    if focus["play"] or focus["tile"]:
+        return "Enter"
+    # Из поля ввода вправо уезжает КАРЕТКА, а не фокус: наружу поле отпускает вниз.
+    # Так же и упёршийся в край строки: следующая полка - под ней.
+    return "ArrowDown" if focus["field"] or stuck else "ArrowRight"
+
+
 def check_11_arrows(ctx: Ctx) -> Result:
     """Стрелки: от поля поиска до старта показа за ≤12 нажатий, фокус виден на кадре."""
     # Полосу упаковки тут НЕ освобождают нарочно: предыдущие пункты оставляют показ, и
@@ -629,10 +692,10 @@ def check_11_arrows(ctx: Ctx) -> Result:
         return Result(11, "Стрелки", False, None, detail)
     field.first.focus()
     ctx.shots.mkdir(parents=True, exist_ok=True)
-    keys = ("ArrowRight", "ArrowDown", "Enter")
     steps: list[str] = []
     started = False
     reached_play = False
+    stuck = False
     # 12-е нажатие стартовало бы показ - тем же риском для полосы упаковки, что и
     # `--play`; без него прибор останавливается на 11-м. Судить его при этом по старту
     # показа значило бы держать пункт вечно красным независимо от продукта: без `--play`
@@ -640,7 +703,8 @@ def check_11_arrows(ctx: Ctx) -> Result:
     # 12-е нажатие по ней очевидно и есть старт.
     limit = 11 if not ctx.allow_play else 12
     for i in range(limit):
-        key = keys[i % len(keys)]
+        was = _focus_of(ctx)
+        key = _dpad_key(was, stuck)
         ctx.page.keyboard.press(key)
         ctx.page.wait_for_timeout(150)
         # Enter на плитке уводит на карточку, а она едет по сети. Стрелка по скелету
@@ -648,13 +712,10 @@ def check_11_arrows(ctx: Ctx) -> Result:
         # мера пункта - НАЖАТИЯ, а не миллисекунды, и ждать тело тут честно.
         _await_card(ctx)
         ctx.page.screenshot(path=str(ctx.shots / f"arrow-{i:02d}.png"))
-        active = ctx.page.evaluate(
-            "() => { const e = document.activeElement; if (!e) return 'null';"
-            " const play = e.hasAttribute('data-tc-play') ? '!play' : '';"
-            " return e.tagName + '#' + (e.id || '-') + play; }"
-        )
-        steps.append(f"{i + 1}:{key}->{active}")
-        reached_play = reached_play or active.endswith("!play")
+        active = _focus_of(ctx)
+        stuck = key == "ArrowRight" and active["sig"] == was["sig"]
+        steps.append(f"{i + 1}:{key}->{active['sig']}")
+        reached_play = reached_play or bool(active["play"])
         video = ctx.page.locator("video")
         if video.count() and float(ctx.page.eval_on_selector("video", "v => v.currentTime")) > 0:
             started = True
@@ -820,8 +881,8 @@ def main() -> int:
         r5 = _guarded(5, "Закладка", lambda: check_5_bookmark(ctx, r4.ok))
         r6 = _guarded(6, "Сначала", lambda: check_6_restart(ctx, r5.ok))
         r7 = _guarded(7, "Сериал", lambda: check_7_series(ctx, r3.ok))
-        r8 = _guarded(8, "Автопереход", lambda: check_8_autoplay(ctx, r4.ok))
-        r9 = _guarded(9, "На ТВ", lambda: check_9_on_tv(ctx, r4.ok))
+        r8 = _guarded(8, "Автопереход", lambda: check_8_autoplay(ctx, r7.ok))
+        r9 = _guarded(9, "На ТВ", lambda: check_9_on_tv(ctx, r4.ok or r7.ok))
         r10 = _guarded(10, "На комп", lambda: check_10_on_pc(ctx, r9.ok))
         r11 = _guarded(11, "Стрелки", lambda: check_11_arrows(ctx))
         results += [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11]
