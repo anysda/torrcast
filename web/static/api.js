@@ -100,6 +100,11 @@ const TCApi = {
     }
   },
 
+  // 🔴 Пустое тело - это «сделано, сказать нечего» (204), а не отказ. `said.json()` на
+  // пустом теле бросает всегда, ошибка уезжала в общий `catch`, и `null` от сделанного
+  // дела был неотличим от разрыва сети. На этом молча ломалась кнопка «На ТВ»: сервер
+  // звал приёмник и отвечал 204, а вкладка читала отказ и не гасила свой звук - показ шёл
+  // в двух местах разом (замер на стенде `.104` 07-09-2026, пункт 9 приёмки).
   async _post(url, body) {
     try {
       const said = await fetch(url, {
@@ -108,7 +113,8 @@ const TCApi = {
         body: JSON.stringify(body),
       });
       if (!said.ok) return null;
-      return await said.json();
+      const text = await said.text();
+      return text ? JSON.parse(text) : {};
     } catch (error) {
       return null;
     }
