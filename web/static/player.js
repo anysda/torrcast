@@ -75,14 +75,7 @@ const TCPlayer = {
   async _live() {
     TCPlayer._screenPreparing();
     while (TCPlayer._mounted() && !TCPlayer._url) {
-      const box = await TCApi.box();
-      if (box && box.url) {
-        TCPlayer._key = box.key || '';
-        TCPlayer._url = box.url;
-        TCPlayer._screenBuffering();
-        TCPlayer._attach(box.url, box.at || 0);
-        break;
-      }
+      if (await TCPlayerBox.rebox(TCPlayer)) break;
       await TCPlayer._sleep(1000);
     }
   },
@@ -107,9 +100,12 @@ const TCPlayer = {
       if (video && TCPlayer._key) {
         const phase = video.ended ? 'ended' : video.paused ? 'paused'
           : video.readyState < 3 ? 'buffering' : 'playing';
-        await TCApi.position({
+        const code = await TCApi.position({
           key: TCPlayer._key, phase, pos: video.currentTime || 0, dur: video.duration || 0,
         });
+        //: 409 - ящик уже подменён другим показом, и это единственный сигнал о смене,
+        //: который вкладка получает даром (`player-box.js`).
+        if (code === 409) await TCPlayerBox.rebox(TCPlayer);
       }
       await TCPlayer._sleep(TCPlayer.POSITION_MS);
     }
