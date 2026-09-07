@@ -139,7 +139,7 @@ const TCHome = {
         key: hit.key,
         title: hit.shown || hit.title,
         poster: hit.poster,
-        caption2: String(hit.year || ''),
+        year: hit.year,
         best: !!hit.default,
         group: 'search-results',
         query: TCHome._query,
@@ -175,13 +175,14 @@ const TCHome = {
     return body;
   },
 
+  // Год стоит НА обложке и второй раз под плиткой не повторяется; полка «продолжить»
+  // собирается отдельно и несёт под плиткой метку серии, а не год.
   _tileFrom(hit) {
     return {
       key: hit.key,
       title: hit.title,
       poster: hit.poster,
-      quality: hit.quality,
-      caption2: String(hit.year || ''),
+      year: hit.year,
       query: hit.query || hit.title,
       onActivate: TCHome._openCard,
     };

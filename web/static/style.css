@@ -220,9 +220,11 @@ body {
 .tc-tile-skeleton { position: absolute; inset: 0; background-size: 250% 100%;
                     background-image: linear-gradient(100deg, #161613 40%, #22221c 50%, #161613 60%);
                     animation: tcshimmer 1.4s linear infinite; }
-.tc-tile-quality { position: absolute; top: 0; right: 0; padding: .375rem .75rem;
-                   background: var(--tc-bg); color: var(--tc-text); font-weight: 900;
-                   font-size: 1.375rem; letter-spacing: .04em; }
+/* Год стоит в НИЖНЕМ углу обложки: верхний занят отметкой лучшего совпадения, и на
+   лучшей находке год оказывался под ней наполовину закрыт. */
+.tc-tile-year { position: absolute; bottom: 0; right: 0; padding: .375rem .75rem;
+                background: var(--tc-bg); color: var(--tc-text); font-weight: 900;
+                font-size: 1.375rem; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .tc-tile-best { position: absolute; top: 0; left: 0; padding: .5rem .875rem;
                 background: var(--tc-bg); color: var(--tc-acid); font-weight: 900;
                 font-size: 1.375rem; letter-spacing: .06em; text-transform: uppercase;

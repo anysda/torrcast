@@ -5,7 +5,7 @@
 'use strict';
 
 const TCTile = {
-  // shape: {key, title, year, kind, quality, poster, query, caption2, best, progress,
+  // shape: {key, title, year, kind, poster, query, caption2, best, progress,
   //         group, loading, onActivate}
   build(shape) {
     const tile = document.createElement('div');
@@ -31,7 +31,10 @@ const TCTile = {
 
     frame.appendChild(TCTile._art(shape));
     frame.appendChild(TCTile._scan());
-    if (shape.quality) frame.appendChild(TCTile._badge('tc-tile-quality', shape.quality));
+    // В углу обложки стоит ГОД, а не разрешение файла: год отличает одно название от
+    // его же переснятой копии, а разрешение к выбору картины отношения не имеет и
+    // всё равно выбирается позже, на самой карточке.
+    if (shape.year) frame.appendChild(TCTile._badge('tc-tile-year', String(shape.year)));
     if (shape.best) frame.appendChild(TCTile._badge('tc-tile-best', TC.say('web.search.best_match')));
     if (shape.progress !== undefined && shape.progress !== null) {
       frame.appendChild(TCTile._progress(shape.progress));
