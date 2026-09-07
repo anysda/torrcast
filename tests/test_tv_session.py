@@ -35,6 +35,32 @@ def test_stop_reads_the_position_before_stopping_and_forgets_the_receiver() -> N
     assert not session.active()
 
 
+def test_settle_keeps_the_cast_that_belongs_to_the_asked_box() -> None:
+    receiver = FakeReceiver(Position(0.0, 0.0))
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    session.start("192.168.1.90", "t", "u", 0.0, key="k1")
+
+    assert session.settle("k1") is True
+    assert session.active()
+
+    session.stop()
+
+
+def test_settle_takes_down_a_cast_whose_show_is_gone() -> None:
+    """Ящик уехал под другую картину - каст первой снимается, а не живёт вечно."""
+    receiver = FakeReceiver(Position(0.0, 0.0))
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    session.start("192.168.1.90", "t", "u", 0.0, key="k1")
+
+    assert session.settle("k2") is False
+    assert receiver.stops == [True]
+    assert not session.active()
+
+
+def test_settle_without_a_cast_says_no_and_touches_nothing() -> None:
+    assert TvSession().settle("k1") is False
+
+
 def test_stop_without_a_cast_is_a_harmless_zero() -> None:
     session = TvSession()
 

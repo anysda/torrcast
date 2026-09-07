@@ -57,8 +57,34 @@ def test_a_live_cast_is_told_to_the_tab_so_it_does_not_play_aloud_too(
     monkeypatch.setattr(SESSION, "poll_seconds", 0.01)
     monkeypatch.setattr(SESSION, "_receiver", None)
     write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
-    SESSION.start("192.168.1.90", "Interstellar", "http://x/out.m3u8", 12.0)
+    SESSION.start("192.168.1.90", "Interstellar", "http://x/out.m3u8", 12.0, key="k1")
     try:
         assert json.loads(box(_get()).body)["tv"] is True
+    finally:
+        SESSION.stop()
+
+
+def test_a_cast_of_another_show_is_no_cast_for_this_tab_and_is_taken_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Зритель отправил картину на ТВ и выбрал в браузере другую: первый каст осиротел.
+
+    Вкладке про него говорить нельзя - она бы заглушила себя и тянула свою секунду к
+    чужой картине, - а телевизору нечего играть: показа, из которого каст поднят, больше
+    нет (замер на стенде `.104` 07-09-2026).
+    """
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    tv = FakeReceiver(Position(0.0, 0.0))
+    monkeypatch.setattr(SESSION, "factory", lambda address, profile: tv)
+    monkeypatch.setattr(SESSION, "poll_seconds", 0.01)
+    monkeypatch.setattr(SESSION, "_receiver", None)
+    write_web_box(tmp_path, url="http://x/one.m3u8", title="Interstellar", at=12.0, key="k1")
+    SESSION.start("192.168.1.90", "Interstellar", "http://x/one.m3u8", 12.0, key="k1")
+    write_web_box(tmp_path, url="http://x/two.m3u8", title="Dune", at=0.0, key="k2")
+
+    try:
+        assert json.loads(box(_get()).body)["tv"] is False
+        assert tv.stops == [True]
+        assert not SESSION.active()
     finally:
         SESSION.stop()

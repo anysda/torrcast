@@ -27,8 +27,11 @@ def box(request: Request) -> Answer:
     """
     del request  # ящик один на процесс - доводов запроса ему спрашивать нечем
     out = hls_root(load_config().hls_dir)
+    seen = read_web_box(out)
     # ``tv`` - не про показ, а про то, где его слышно: вкладка, зашедшая на страницу уже
     # во время каста (перезагрузка, переход из карточки), иначе включила бы свою плёнку со
     # звуком поверх ТВ, потому что режим «на ТВ» до сих пор жил ТОЛЬКО в её памяти и на
     # заходе всегда начинался с «нет» (ТЗ §7.5.4).
-    return Answer(200, json.dumps({**read_web_box(out), "tv": SESSION.active()}).encode())
+    return Answer(
+        200, json.dumps({**seen, "tv": SESSION.settle(str(seen.get("key", "")))}).encode()
+    )
