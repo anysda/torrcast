@@ -7,9 +7,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.read_web_position import read_web_position
+from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.system_clock import CLOCK
+from torrcast.domain.position import Position
 from torrcast.usecases.playback.hls_root import hls_root
 from web.answer import Answer
 from web.refusal import refusal
@@ -35,5 +41,32 @@ def to_tv(request: Request) -> Answer:
     at = float(box.get("at", 0.0))
     if record is not None and record.get("key") == box.get("key"):
         at = float(record.get("pos", at))
-    SESSION.start(address, str(box.get("title", "")), url, at)
+    echo = _echo(out, str(box.get("key", "")))
+    SESSION.start(address, str(box.get("title", "")), url, at, echo=echo)
     return Answer(204, b"")
+
+
+def _echo(out: Path, key: str) -> Callable[[Position], None]:
+    """Класть место ТВ туда же, откуда продукт читает место вкладки (ТЗ §7.5.3).
+
+    Источник секунды на время каста один, и это приёмник ТВ: вкладка свою плёнку не
+    останавливает (она подстраивается под ТВ, §4.5), и оба писателя в один файл двигали
+    бы закладку по очереди - то на секунду ТВ, то на секунду вкладки. Отсюда и запрет
+    вкладке писать, пока каст жив (:func:`web.position.position`).
+
+    Ключ берётся ящика, а не приёмника: файл места читается только вместе с ящиком, и
+    чужой ключ в нём означал бы «места нет» (:mod:`torrcast.adapters.browser.
+    browser_receiver`).
+    """
+
+    def heard(spot: Position) -> None:
+        write_web_position(
+            out,
+            key=key,
+            pos=spot.pos,
+            dur=spot.dur,
+            phase="playing" if spot.playing else "paused",
+            wall=CLOCK.wall(),
+        )
+
+    return heard

@@ -62,13 +62,17 @@ def test_the_live_cast_is_polled_periodically_so_the_position_stays_fresh() -> N
     (замерено на стенде ``.104``, см. докстроку :data:`web.tv_session.POLL_SECONDS`)."""
     receiver = FakeReceiver(Position(0.0, 120.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    heard: list[Position] = []
 
-    session.start("192.168.1.104", "t", "u", 0.0)
+    session.start("192.168.1.104", "t", "u", 0.0, echo=heard.append)
 
     for _ in range(200):
         if receiver.fronts:
             break
         time.sleep(0.01)
     assert receiver.fronts, "опрос не пришёл за 2 секунды"
+    # Тот же опрос отдаёт место слушателю: пока каст идёт, других источников секунды нет
+    # (ТЗ §7.5.3, :func:`web.to_tv._echo`).
+    assert heard, "опрос был, а слушатель места о нём не узнал"
 
     session.stop()

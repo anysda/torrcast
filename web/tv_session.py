@@ -14,6 +14,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.receiver import Receiver
 
@@ -57,17 +58,28 @@ class TvSession:
         """Идёт ли каст на ТВ прямо сейчас."""
         return self._receiver is not None
 
-    def start(self, address: str, title: str, url: str, at: float) -> None:
+    def start(
+        self,
+        address: str,
+        title: str,
+        url: str,
+        at: float,
+        echo: Callable[[Position], None] | None = None,
+    ) -> None:
         """Позвать приёмник ТВ тем же ``play``, каким продукт стартует консольный показ.
 
         Старую связь, если она была, отпускаем первой: иначе повторное нажатие «На ТВ»
         оставляло бы прежнее соединение висеть незакрытым и опрашиваемым.
+
+        ``echo`` слышит каждый опрос приёмника: пока каст идёт, место показа знает ТВ, а
+        не вкладка (ТЗ §7.5.3), и опрос из повода «держать ``current_time`` свежим»
+        становится ещё и единственным источником секунды.
         """
         self._release()
         receiver = self.factory(address, self.profile)
         receiver.play(url, title, at=at)
         self._receiver = receiver
-        self._arm(receiver)
+        self._arm(receiver, echo)
 
     def stop(self) -> float:
         """Снять каст и назвать секунду, на которой он стоял; без каста - ноль."""
@@ -89,11 +101,11 @@ class TvSession:
         with self._lock:
             receiver.stop(quit_app=True)
 
-    def _arm(self, receiver: Receiver) -> None:
+    def _arm(self, receiver: Receiver, echo: Callable[[Position], None] | None = None) -> None:
         """Завести опрос: держит место у pychromecast свежим, пока каст живёт."""
         stop_poll = threading.Event()
         self._stop_poll = stop_poll
-        poll = threading.Thread(target=self._pump, args=(receiver, stop_poll), daemon=True)
+        poll = threading.Thread(target=self._pump, args=(receiver, stop_poll, echo), daemon=True)
         self._poll = poll
         poll.start()
 
@@ -105,13 +117,24 @@ class TvSession:
             self._poll.join(timeout=self.poll_seconds)
         self._stop_poll = self._poll = None
 
-    def _pump(self, receiver: Receiver, stop_poll: threading.Event) -> None:
-        """Опрашивать приёмник, пока сеанс жив; чужому сеансу опрос не отвечает."""
+    def _pump(
+        self,
+        receiver: Receiver,
+        stop_poll: threading.Event,
+        echo: Callable[[Position], None] | None,
+    ) -> None:
+        """Опрашивать приёмник, пока сеанс жив; чужому сеансу опрос не отвечает.
+
+        Слушателю место передаётся ВНЕ замка: он пишет на диск, и держать на этом время
+        замок значило бы заставлять ``stop`` ждать файловой записи.
+        """
         while not stop_poll.wait(self.poll_seconds):
             with self._lock:
                 if self._receiver is not receiver:
                     return
-                receiver.position()
+                spot = receiver.position()
+            if echo is not None:
+                echo(spot)
 
 
 #: Один держатель на процесс страницы: оба маршрута спрашивают именно его.

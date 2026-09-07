@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
 from tests.fakes.receiver import FakeReceiver
+from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.domain.config import Config
@@ -87,3 +88,41 @@ def test_a_stale_mailbox_position_is_ignored_for_a_fresh_box(
 
     assert answer.code == 204
     assert receiver.plays == [("http://x/out.m3u8", "Interstellar", 5.0)]
+
+
+def test_the_tv_position_becomes_the_one_the_product_remembers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ТЗ §7.5.3: пока каст идёт, секунду в файл места кладёт опрос приёмника ТВ.
+
+    Так закладка двигается по тому, что человек ДОСМОТРЕЛ на телевизоре, а не по плёнке
+    вкладки, которая всё это время идёт беззвучно и сама по себе. Слушатель тут зовётся
+    руками, а не ожиданием опроса: сам опрос сторожит :func:`tests.test_tv_session.
+    test_the_live_cast_is_polled_periodically_so_the_position_stays_fresh`, и второй
+    тест на стенных часах стоил бы прогону секунд, ничего не добавив.
+    """
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    _wired(monkeypatch)
+    heard: list[Callable[[Position], None] | None] = []
+
+    def caught(
+        address: str,
+        title: str,
+        url: str,
+        at: float,
+        echo: Callable[[Position], None] | None = None,
+    ) -> None:
+        heard.append(echo)
+
+    monkeypatch.setattr(SESSION, "start", caught)
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
+
+    assert to_tv(_post()).code == 204
+    assert heard and heard[0] is not None, "держателю не дали слушателя места"
+    heard[0](Position(742.0, 8000.0, playing=True))
+
+    record = read_web_position(tmp_path)
+    assert record is not None
+    assert record["key"] == "k1", "место ТВ уехало под чужим ключом и не читается"
+    assert record["pos"] == 742.0
+    assert record["phase"] == "playing"

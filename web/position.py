@@ -19,6 +19,7 @@ from torrcast.usecases.playback.hls_root import hls_root
 from web.answer import Answer
 from web.refusal import refusal
 from web.request import Request
+from web.tv_session import SESSION
 
 #: Слова состояния, которые вкладка вправе назвать. Не про удобство: чужое слово тут
 #: молча легло бы в держатель показа (:func:`torrcast.usecases.revive_playback._hold._hold`)
@@ -39,6 +40,13 @@ def position(request: Request) -> Answer:
     box = read_web_box(out)
     if not key or key != box.get("key"):
         return refusal(409, "stale_key")
+    # Пока показ на ТВ, закладку двигает приёмник, а не вкладка (ТЗ §7.5.3): страница
+    # остаётся слушать и докладывать (её плёнка идёт беззвучно и подстраивается, §4.5),
+    # но её секунда - не та, по которой продукт помнит место. Отказом это не отвечается:
+    # доклад принят, писать по нему нечего. Ключ сверяется ДО - 409 остаётся единственным
+    # сигналом вкладке, что ящик подменили (``web/static/player-box.js``).
+    if SESSION.active():
+        return Answer(204, b"")
     phase = str(body.get("phase", ""))
     if phase not in _PHASES:
         return refusal(400, "bad_phase")
