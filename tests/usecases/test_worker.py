@@ -118,3 +118,51 @@ def test_the_unit_takes_its_own_torrent_away_when_the_show_ends(
     assert _dropped == ["hash"]
     said = phrase("watch.finished", what="", pos=_hms(90.0), duration=_hms(90.0))
     assert said in capsys.readouterr().out, "досмотрено объявлено вслух, а не только в state"
+
+
+def _play_seeing(seen: list[str]) -> Any:
+    """Показ, запоминающий приёмник запуска: он и есть ответ на вопрос «куда играть»."""
+
+    def played(
+        config: Any, source: str, audio: int, about: str, clock: Any, watch: Any, **_rest: Any
+    ) -> int:
+        seen.append(config.receiver)
+        watch.see(watch.entry.dur)
+        watch.close()
+        return 0
+
+    return played
+
+
+def test_the_tab_that_asked_becomes_the_receiver_of_that_very_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Без этой развилки страница уходит на ТВ и остаётся на «готовлю» навсегда.
+
+    Вкладка не разговаривает с показом по сокету: url ей кладёт в коробку приёмник
+    ``browser``, и другого писателя у коробки нет. Уйди запуск на ``chromecast`` -
+    коробка не наполнится ничем, и на странице нечего будет играть.
+    """
+    seen: list[str] = []
+    composition.use_profile(monkeypatch, lambda config: Choice(ANDROID_TV, "спрошен приёмник"))
+
+    assert _cmd_worker(KEY, here=True, play=_play_seeing(seen)) == 0
+
+    assert seen == ["browser"], "запрос «играй у меня» решает приёмник ЭТОГО запуска"
+
+
+def test_the_next_run_without_that_word_goes_back_to_the_tv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Отрицательная проба к строке выше: решение вкладки живёт один запуск, а не всегда.
+
+    Настройка машины не переписывается, иначе один просмотр во вкладке стоил бы человеку
+    строки в ``config.json``: следующий ``cast`` молча играл бы в пустоту вместо ТВ.
+    """
+    seen: list[str] = []
+    composition.use_profile(monkeypatch, lambda config: Choice(ANDROID_TV, "спрошен приёмник"))
+
+    assert _cmd_worker(KEY, here=True, play=_play_seeing(seen)) == 0
+    assert _cmd_worker(KEY, play=_play_seeing(seen)) == 0
+
+    assert seen == ["browser", "chromecast"], "вкладка не переписала настройку машины"
