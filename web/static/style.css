@@ -64,6 +64,8 @@
   --tc-font: 'Archivo', 'Noto Sans', 'DejaVu Sans', 'Segoe UI Symbol',
              'Noto Sans Symbols 2', 'Apple Symbols', system-ui, sans-serif;
   --tc-scanlines: repeating-linear-gradient(0deg, rgba(0, 0, 0, .25) 0 1px, transparent 1px 5px);
+  --tc-marquee-fade: linear-gradient(90deg, transparent 0, #000 3rem,
+                     #000 calc(100% - 3rem), transparent 100%);
 }
 
 *, *::before, *::after { box-sizing: border-box; border-radius: var(--tc-radius); }
@@ -116,8 +118,15 @@ body {
             letter-spacing: -.02em; text-transform: uppercase; }
 .tc-brand-square { width: 1.125rem; height: 1.125rem; background: var(--tc-acid); }
 .tc-brand-tail { color: var(--tc-acid); }
-.tc-seat { font-weight: 700; font-size: 1.25rem; letter-spacing: .24em; text-transform: uppercase;
-           color: var(--tc-muted-dim); }
+/* Имя продукта идёт по шапке без конца. Лента внутри одна, но собрана из двух
+   одинаковых полос и уезжает ровно на половину себя: в этот миг вторая полоса стоит
+   на месте первой, поэтому ни стыка, ни края не видно. Края шапки размыты маской -
+   строка появляется и уходит, а не обрубается о рамку окна. */
+.tc-marquee { flex: 1 1 auto; min-width: 0; overflow: hidden;
+              -webkit-mask-image: var(--tc-marquee-fade); mask-image: var(--tc-marquee-fade); }
+.tc-marquee-track { display: flex; width: max-content;
+                    animation: tcmarquee 26s linear infinite; }
+.tc-marquee-band { display: flex; gap: 3rem; padding-right: 3rem; }
 
 /* Чип «сейчас идёт»: миниатюра, название и время. Пустой шапки он не занимает. */
 .tc-now { display: flex; align-items: center; gap: 1rem; padding: .625rem .875rem;
@@ -472,6 +481,7 @@ body {
 .tc-toast-act { padding: .375rem .875rem; background: var(--tc-error); color: var(--tc-bg);
                 font-weight: 900; font-size: 1.375rem; text-transform: uppercase; }
 
+@keyframes tcmarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 @keyframes tcshimmer { 0% { background-position: 200% 0; } 100% { background-position: -60% 0; } }
 @keyframes tcspin { to { transform: rotate(360deg); } }
 @keyframes tcglitcha { 0%, 92% { transform: none; opacity: 0; }

@@ -9,6 +9,11 @@ const TC = {
   // запасной каталог живёт на стороне продукта (torrcast/domain/catalogs/web).
   phrases: {},
 
+  // Сколько имён в одной ленте бегущей строки. Лента обязана быть ШИРЕ шапки, иначе
+  // на стыке двух лент открылась бы дыра; восемь имён шире окна в любую ширину, потому
+  // что размер знака сам считается от ширины окна.
+  BRAND_COPIES: 8,
+
   // Надпись по ключу; неизвестный ключ виден сам собой, а не молча пропадает.
   say(key, values) {
     let line = TC.phrases[key];
@@ -29,6 +34,32 @@ const TC = {
   // Шапка живёт только на главной; ``state`` - ответ ``/api/state`` (или ``null``,
   // пока он не приехал): плашка «сейчас идёт» появляется, только когда показ не в покое.
   header(state) {
+    const header = document.createElement('header');
+    header.className = 'tc-header tc-safe';
+    header.append(TC._marquee());
+    if (state && state.state && state.state !== 'idle') header.append(TC._chip(state));
+    return header;
+  },
+
+  // Имя продукта идёт по шапке бегущей строкой без конца. Лент ровно ДВЕ и они
+  // одинаковые: пока первая уезжает на свою же ширину, вторая стоит ровно на её месте,
+  // поэтому конца у строки не видно и «дорисовать ещё копию» никогда не требуется.
+  _marquee() {
+    const marquee = document.createElement('div');
+    marquee.className = 'tc-marquee';
+    const track = document.createElement('div');
+    track.className = 'tc-marquee-track';
+    for (let band = 0; band < 2; band += 1) {
+      const strip = document.createElement('div');
+      strip.className = 'tc-marquee-band';
+      for (let copy = 0; copy < TC.BRAND_COPIES; copy += 1) strip.appendChild(TC._brand());
+      track.appendChild(strip);
+    }
+    marquee.appendChild(track);
+    return marquee;
+  },
+
+  _brand() {
     const brand = document.createElement('div');
     brand.className = 'tc-brand';
     const square = document.createElement('span');
@@ -39,16 +70,7 @@ const TC = {
     tail.className = 'tc-brand-tail';
     tail.textContent = '_';
     brand.append(square, name, tail);
-
-    const seat = document.createElement('div');
-    seat.className = 'tc-seat';
-    seat.textContent = TC.say('web.header.seat');
-
-    const header = document.createElement('header');
-    header.className = 'tc-header tc-safe';
-    header.append(brand);
-    header.append(state && state.state && state.state !== 'idle' ? TC._chip(state) : seat);
-    return header;
+    return brand;
   },
 
   // Договора о «показ идёт на ТВ, а не в браузере» в ``/api/state`` сегодня нет

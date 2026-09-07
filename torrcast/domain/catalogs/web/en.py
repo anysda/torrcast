@@ -12,7 +12,6 @@ from __future__ import annotations
 def en() -> dict[str, str]:
     """Вернуть английский каталог кластера страницы в браузере."""
     return {
-        "web.header.seat": "Home net_single seat",
         "web.header.now_playing": "Now playing ▶",
         "web.header.on_tv": "On TV",
         "web.search.placeholder": "What are we watching?",

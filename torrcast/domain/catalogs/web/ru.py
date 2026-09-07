@@ -12,7 +12,6 @@ from __future__ import annotations
 def ru() -> dict[str, str]:
     """Вернуть русский каталог кластера страницы в браузере."""
     return {
-        "web.header.seat": "Домашняя сеть_одно место",
         "web.header.now_playing": "Сейчас идёт ▶",
         "web.header.on_tv": "На ТВ",
         "web.search.placeholder": "Что смотрим?",
