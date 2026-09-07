@@ -346,10 +346,18 @@ const TCPlayer = {
             if (TCPlayer._last) TCPlayer._video.currentTime = TCPlayer._last.position || 0;
           });
         } else {
+          // 🔴 Звук на компе снимается ПО НАЖАТИЮ, а не по ответу продукта: между ними
+          // рукопожатие с приёмником и загрузка потока - секунды, а не миллисекунды, и
+          // всё это время вкладка гремела на всю комнату (замер на стенде `.104`
+          // 07-09-2026, пункт 9: через 2 с после «На ТВ» `video.muted` был `false`).
+          // Решение 4 владельца требует обратного. Отказ каста возвращает звук назад.
+          TCPlayer._video.muted = true;
           TCApi.toTv().then((said) => {
-            if (!said) return;
+            if (!said) {
+              TCPlayer._video.muted = false;
+              return;
+            }
             TCPlayer._onTv = true;
-            TCPlayer._video.muted = true;
           });
         }
       },
