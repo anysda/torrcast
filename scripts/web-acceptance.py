@@ -48,6 +48,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -482,26 +483,6 @@ def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
     return None
 
 
-def _release_lane(ctx: Ctx) -> str:
-    """Отпустить полосу упаковки: она одна на машину, и занятый показ отказывает новому.
-
-    Пункт 7 оставляет сериал играть намеренно - на нём стоит пункт 8. Дальше показ уже
-    никому не нужен, а `/api/play` при занятой полосе отвечает отказом молча: страница
-    не меняется, и пункт 11 читался бы как «стрелки не доводят до показа», хотя стрелки
-    ни при чём.
-    """
-    code, _ = _post(ctx.base + "/api/control", {"cmd": "stop"})
-    began = time.monotonic()
-    while time.monotonic() - began < 20.0:
-        state_code, body = _get(ctx.base + "/api/state")
-        if state_code == 200:
-            with contextlib.suppress(json.JSONDecodeError):
-                if json.loads(body).get("state") == "idle":
-                    return f"полоса отпущена за {time.monotonic() - began:.0f} с"
-        time.sleep(1.0)
-    return f"полоса занята и после стопа (control -> {code})"
-
-
 def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     """Сериал: список серий непуст, выбор s1e2 → закладка на s1e2.
 
@@ -576,7 +557,10 @@ def check_9_on_tv(ctx: Ctx, play_ok: bool) -> Result:
         return Result(9, "На ТВ", False, None, f"кнопка {label!r} не найдена")
     button.first.click()
     ctx.page.wait_for_timeout(2000)
-    muted = bool(ctx.page.eval_on_selector("video", "v => v.muted"))
+    shown = _video(ctx, "v => v.muted")
+    if shown is None:
+        return Result(9, "На ТВ", False, None, "после «На ТВ» на странице нет `<video>`")
+    muted = bool(shown)
     code_a, body_a = _get(ctx.base + "/api/state")
     ctx.page.wait_for_timeout(2000)
     code_b, body_b = _get(ctx.base + "/api/state")
@@ -605,8 +589,11 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
     code_before, body_before = _get(ctx.base + "/api/state")
     button.first.click()
     ctx.page.wait_for_timeout(2000)
-    muted = bool(ctx.page.eval_on_selector("video", "v => v.muted"))
-    current = float(ctx.page.eval_on_selector("video", "v => v.currentTime"))
+    shown = _video(ctx, "v => v.muted")
+    if shown is None:
+        return Result(10, "На комп", False, None, "после «На комп» на странице нет `<video>`")
+    muted = bool(shown)
+    current = float(_video(ctx, "v => v.currentTime") or 0.0)
     tv_position = None
     if code_before == 200:
         with contextlib.suppress(json.JSONDecodeError):
@@ -619,7 +606,9 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
 
 def check_11_arrows(ctx: Ctx) -> Result:
     """Стрелки: от поля поиска до старта показа за ≤12 нажатий, фокус виден на кадре."""
-    lane = _release_lane(ctx) if ctx.allow_play else "показа не было"
+    # Полосу упаковки тут НЕ освобождают нарочно: предыдущие пункты оставляют показ, и
+    # ТЗ §7.4 велит новой «Играть» СНИМАТЬ идущий. Освободить её прибором значило бы
+    # снять с продукта ровно то требование, ради которого пункт и меряет старт показа.
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
     placeholder = ctx.english.get("web.search.placeholder", "")
     field = ctx.page.get_by_placeholder(placeholder, exact=True) if placeholder else None
@@ -666,7 +655,7 @@ def check_11_arrows(ctx: Ctx) -> Result:
     goal = "показ стартовал" if ctx.allow_play else "фокус дошёл до «Играть»"
     got = started if ctx.allow_play else reached_play
     stop_note = "" if ctx.allow_play else " (--play не задан: пункт судится по фокусу)"
-    detail = f"нажатий {len(steps)}/{limit}, кадры в {ctx.shots}, {lane}, {goal}: {got}{stop_note}"
+    detail = f"нажатий {len(steps)}/{limit}, кадры в {ctx.shots}, {goal}: {got}{stop_note}"
     return Result(11, "Стрелки", ok, None, "; ".join(steps) + " | " + detail)
 
 
@@ -769,6 +758,26 @@ def _print(results: list[Result]) -> int:
     return 0 if passed == len(results) else 1
 
 
+def _guarded(number: int, name: str, run: Callable[[], Result]) -> Result:
+    """Упавший пункт - провал ЭТОГО пункта, а не потеря всей приёмки.
+
+    07-09-2026 прогон дошёл до девятого пункта и умер на `<video>`, которого не было в
+    DOM: тринадцать остальных приговоров пропали вместе с ним, включая уже снятые.
+    Приёмка обязана назвать все четырнадцать - иначе она не приёмка, а первый отказ.
+    """
+    try:
+        return run()
+    except Exception as error:  # прибору не дано права уронить прогон целиком
+        return Result(number, name, False, None, f"прибор упал: {type(error).__name__}: {error}")
+
+
+def _video(ctx: Ctx, expr: str) -> Any:
+    """Спросить `<video>`, если он есть; нет его - `None`, а не падение прибора."""
+    if ctx.page.locator("video").count() == 0:
+        return None
+    return ctx.page.eval_on_selector("video", expr)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="http://192.168.1.104:8479", help="адрес стенда")
@@ -792,23 +801,23 @@ def main() -> int:
         browser = driver.chromium.launch(headless=True)
         page = browser.new_page()
         ctx = Ctx(args.base, page, args.receiver, args.play, args.shots, english)
-        r1 = check_1_home(ctx)
-        r2 = check_2_search(ctx)
-        r3 = check_3_card(ctx, r2.ok)
-        r4 = check_4_playback(ctx, r3.ok)
-        r5 = check_5_bookmark(ctx, r4.ok)
-        r6 = check_6_restart(ctx, r5.ok)
-        r7 = check_7_series(ctx, r3.ok)
-        r8 = check_8_autoplay(ctx, r4.ok)
-        r9 = check_9_on_tv(ctx, r4.ok)
-        r10 = check_10_on_pc(ctx, r9.ok)
-        r11 = check_11_arrows(ctx)
+        r1 = _guarded(1, "Главная", lambda: check_1_home(ctx))
+        r2 = _guarded(2, "Поиск", lambda: check_2_search(ctx))
+        r3 = _guarded(3, "Карточка", lambda: check_3_card(ctx, r2.ok))
+        r4 = _guarded(4, "Показ", lambda: check_4_playback(ctx, r3.ok))
+        r5 = _guarded(5, "Закладка", lambda: check_5_bookmark(ctx, r4.ok))
+        r6 = _guarded(6, "Сначала", lambda: check_6_restart(ctx, r5.ok))
+        r7 = _guarded(7, "Сериал", lambda: check_7_series(ctx, r3.ok))
+        r8 = _guarded(8, "Автопереход", lambda: check_8_autoplay(ctx, r4.ok))
+        r9 = _guarded(9, "На ТВ", lambda: check_9_on_tv(ctx, r4.ok))
+        r10 = _guarded(10, "На комп", lambda: check_10_on_pc(ctx, r9.ok))
+        r11 = _guarded(11, "Стрелки", lambda: check_11_arrows(ctx))
         results += [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11]
         browser.close()
 
-    results.append(check_12_franchise(args.base))
-    results.append(check_13_texts(args.base))
-    results.append(check_14_gate(args.repo))
+    results.append(_guarded(12, "Франшиза", lambda: check_12_franchise(args.base)))
+    results.append(_guarded(13, "Тексты", lambda: check_13_texts(args.base)))
+    results.append(_guarded(14, "Гейт", lambda: check_14_gate(args.repo)))
     return _print(results)
 
 
