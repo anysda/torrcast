@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import itertools
 import json
 import re
 import shutil
@@ -98,6 +99,14 @@ _JUNK_RE: Final = re.compile(
     r"|(?<![a-z0-9])v?0\d{1,3}\s*-\s*0?\d{1,3}(?![a-z0-9])"
     r"|\b(all elite wrestling|wwe raw|wwe smackdown|match of the day|ufc \d+)\b"
 )
+
+#: Картина, у которой латинское имя точно есть и известно нам заранее (франшиза
+#: «Матрица» → «The Matrix») - опора отрицательной пробы §19: экран обязан показать
+#: латинское имя, раз оно записано, а не оставить кириллицу от запроса.
+_LATIN_KNOWN_TITLE: Final = "Матрица"
+#: Кириллица - единственная примета, которую ищет пункт 19. Диапазон покрывает и
+#: основной алфавит, и расширение (Ё, Ѐ и т.п.).
+_CYRILLIC_RE: Final = re.compile(r"[\u0400-\u04ff]")
 
 _PARTIAL_WAIT: Final = 30.0
 #: Сериал для пункта 7. Карточка фильма из пункта 3 серий не содержит по устройству
@@ -284,6 +293,268 @@ def check_1_home(ctx: Ctx) -> Result:
     by_key = ", ".join(f"{k.rsplit('.', 1)[-1]}={c}" for k, c in found)
     detail = f"GET / -> {code}; полок в DOM по тексту {shelves_seen}/3 ({by_key}); {shelves_detail}"
     return Result(1, "Главная", ok, None, detail)
+
+
+def check_17_wheel(ctx: Ctx) -> Result:
+    """Колесо мыши: вертикальный скролл над полкой едет вбок, мимо полки - листает страницу.
+
+    Пункт сперва ищет полку, которой правда есть куда ехать (`scrollWidth > clientWidth`):
+    без такой полки испытывать нечего, и это говорится словом, а не тонет в зелёном OK.
+    Отрицательная проба - тем же прогоном: то же самое колесо ВНЕ полки обязано листать
+    страницу и не трогать `scrollLeft` полки, которую только что сдвинуло.
+    """
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    ctx.page.wait_for_timeout(300)
+    row = ctx.page.evaluate(
+        """
+        () => {
+            const rows = Array.from(document.querySelectorAll('.tc-row'));
+            const row = rows.find(r => r.scrollWidth > r.clientWidth);
+            if (!row) return null;
+            row.scrollIntoView({ block: 'center' });
+            const rect = row.getBoundingClientRect();
+            return {
+                index: rows.indexOf(row),
+                x: rect.x + rect.width / 2,
+                y: rect.y + rect.height / 2,
+                scrollLeft: row.scrollLeft,
+            };
+        }
+        """
+    )
+    if row is None:
+        detail = (
+            "ни одна полка не переполнена по ширине "
+            "(scrollWidth <= clientWidth) - колесу негде ехать вбок"
+        )
+        return Result(17, "Колесо", False, "нет переполненной полки", detail)
+
+    before = int(row["scrollLeft"])
+    ctx.page.mouse.move(row["x"], row["y"])
+    ctx.page.mouse.wheel(0, 240)
+    ctx.page.wait_for_timeout(100)
+    over_row = int(
+        ctx.page.evaluate("(i) => document.querySelectorAll('.tc-row')[i].scrollLeft", row["index"])
+    )
+
+    # Отрицательная проба: то же колесо, но указатель НЕ над полкой.
+    ctx.page.evaluate("() => window.scrollTo(0, 0)")
+    page_before = int(ctx.page.evaluate("() => window.scrollY"))
+    outside = ctx.page.evaluate(
+        """
+        () => {
+            const el = document.querySelector('.tc-search') || document.body;
+            const rect = el.getBoundingClientRect();
+            return { x: rect.x + 10, y: Math.max(5, rect.y + 5) };
+        }
+        """
+    )
+    ctx.page.mouse.move(outside["x"], outside["y"])
+    ctx.page.mouse.wheel(0, 300)
+    ctx.page.wait_for_timeout(100)
+    page_after = int(ctx.page.evaluate("() => window.scrollY"))
+    row_after_outside = int(
+        ctx.page.evaluate("(i) => document.querySelectorAll('.tc-row')[i].scrollLeft", row["index"])
+    )
+
+    row_moved = over_row > before
+    page_moved = page_after > page_before
+    row_untouched = row_after_outside == over_row
+    ok = row_moved and page_moved and row_untouched
+    detail = (
+        f"над полкой[{row['index']}]: scrollLeft {before} -> {over_row}; "
+        f"мимо полки: window.scrollY {page_before} -> {page_after}, "
+        f"scrollLeft полки не тронут ({over_row} -> {row_after_outside})"
+    )
+    return Result(17, "Колесо", ok, None, detail)
+
+
+def check_18_caption_scroll(ctx: Ctx) -> Result:
+    """Автопрокрутка подписи: настоящая переполненная подпись едет вниз и обратно при наведении.
+
+    Пункт сперва ищет на живой полке плитку, чья НАСТОЯЩАЯ подпись после разворота
+    (`is-lit`) не влезает в отведённые две строки. Синтетическую подпись он себе не
+    рисует: если такой плитки не нашлось ни одной, это отдельная находка о самой полке,
+    а не повод подменить пробу и объявить пункт зелёным.
+    """
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    ctx.page.wait_for_timeout(300)
+    candidate = ctx.page.evaluate(
+        """
+        () => {
+            const tiles = Array.from(document.querySelectorAll('.tc-tile[data-tc-focusable]'));
+            for (let i = 0; i < tiles.length; i++) {
+                const tile = tiles[i];
+                const box = tile.querySelector('.tc-tile-cap');
+                if (!box) continue;
+                tile.classList.add('is-lit');
+                const overflow = box.scrollHeight - box.clientHeight;
+                tile.classList.remove('is-lit');
+                box.scrollTop = 0;
+                if (overflow > 4) {
+                    const title = tile.querySelector('.tc-caption');
+                    return { index: i, overflow, title: title ? title.textContent : '' };
+                }
+            }
+            return null;
+        }
+        """
+    )
+    if candidate is None:
+        detail = (
+            "настоящих длинных подписей на полке нет - ни одна не переполняет отведённые две строки"
+        )
+        return Result(18, "Подпись", False, "нет переполненной подписи на живой полке", detail)
+
+    rect = ctx.page.evaluate(
+        """
+        (i) => {
+            const tile = document.querySelectorAll('.tc-tile[data-tc-focusable]')[i];
+            tile.scrollIntoView({ block: 'center' });
+            const r = tile.getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        }
+        """,
+        candidate["index"],
+    )
+    ctx.page.mouse.move(rect["x"], rect["y"])
+    ctx.page.wait_for_timeout(60)
+    samples: list[int] = []
+    for _ in range(6):
+        value = ctx.page.evaluate(
+            """
+            (i) => document.querySelectorAll('.tc-tile[data-tc-focusable]')[i]
+                .querySelector('.tc-tile-cap').scrollTop
+            """,
+            candidate["index"],
+        )
+        samples.append(int(value))
+        ctx.page.wait_for_timeout(220)
+
+    run = 1
+    best_run = 1
+    for prev, cur in itertools.pairwise(samples):
+        run = run + 1 if cur > prev else 1
+        best_run = max(best_run, run)
+    rising = best_run >= 3
+
+    ctx.page.mouse.move(5, 5)
+    ctx.page.wait_for_timeout(150)
+    after_leave = int(
+        ctx.page.evaluate(
+            """
+        (i) => document.querySelectorAll('.tc-tile[data-tc-focusable]')[i]
+            .querySelector('.tc-tile-cap').scrollTop
+        """,
+            candidate["index"],
+        )
+    )
+
+    ok = rising and after_leave == 0
+    detail = (
+        f"настоящая переполненная подпись найдена ({candidate['title']!r}, "
+        f"переполнение {candidate['overflow']} px); scrollTop во времени {samples} "
+        f"(подряд растущих отсчётов: {best_run}); после увода указателя scrollTop={after_leave}"
+    )
+    return Result(18, "Подпись", ok, None, detail)
+
+
+def _cyrillic_split(names: list[str]) -> tuple[int, list[str]]:
+    """Сколько имён из списка несут кириллицу и какие именно - для печати, не для суда."""
+    hits = [name for name in names if _CYRILLIC_RE.search(name)]
+    return len(hits), hits
+
+
+def check_19_latin_titles(ctx: Ctx) -> Result:
+    """При языке `en` латинское имя картины идёт на экран, если оно записано.
+
+    Пункт не требует нуля кириллицы на полках: у части картин латинского имени нет
+    вовсе (см. `torrcast/domain/spoken_title.py`), и тогда экран законно показывает
+    записанное имя как есть. Порог сам не выдумывается - печатается ЧИСЛО и СПИСОК
+    оставшихся кириллицей имён по каждой полке, поиску и карточке, а решение, законны
+    ли они, остаётся человеку. Единственное, что пункт судит сам - отрицательная
+    проба: у картины с известным латинским именем («Матрица» → «The Matrix») экран
+    обязан показать именно его.
+    """
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    ctx.page.wait_for_timeout(300)
+
+    shelves = ctx.page.evaluate(
+        """
+        () => Array.from(document.querySelectorAll('.tc-shelf')).map((shelf) => {
+            const head = shelf.querySelector('.tc-section');
+            const caps = Array.from(shelf.querySelectorAll('.tc-tile-cap .tc-caption'));
+            return {
+                label: head ? head.textContent : '(без заголовка)',
+                names: caps.map((c) => c.textContent || ''),
+            };
+        })
+        """
+    )
+    shelf_parts = []
+    for shelf in shelves:
+        cyr_n, cyr_names = _cyrillic_split(shelf["names"])
+        shelf_parts.append(f"{shelf['label']}: {cyr_n} из {len(shelf['names'])} {cyr_names}")
+
+    placeholder = ctx.english.get("web.search.placeholder", "")
+    field = ctx.page.get_by_placeholder(placeholder, exact=True) if placeholder else None
+    search_part = "поле поиска не найдено"
+    if field is not None and field.count() > 0:
+        field.first.fill(_LATIN_KNOWN_TITLE)
+        field.first.press("Enter")
+        began = time.monotonic()
+        tiles = ctx.page.locator(_LIVE_TILE)
+        while time.monotonic() - began < 15.0 and tiles.count() == 0:
+            ctx.page.wait_for_timeout(300)
+        names = ctx.page.eval_on_selector_all(
+            "[data-tc-tile] .tc-tile-cap .tc-caption", "els => els.map((e) => e.textContent || '')"
+        )
+        cyr_n, cyr_names = _cyrillic_split(names)
+        search_part = f"{cyr_n} из {len(names)} {cyr_names}"
+
+    card_part = "карточка не открылась - пробу не с чем сверять"
+    card_title = ""
+    related_part = ""
+    live_tiles = ctx.page.locator(_LIVE_TILE)
+    if live_tiles.count() > 0:
+        live_tiles.first.click()
+        card = ctx.page.locator("[data-tc-card]")
+        try:
+            card.first.wait_for(state="visible", timeout=15000)
+        except Exception:  # у playwright свой класс исключения; ловим отсутствие узла
+            card = None
+        if card is not None:
+            deadline = time.monotonic() + _PARTIAL_WAIT
+            title_node = card.locator(".tc-title-detail")
+            while time.monotonic() < deadline:
+                card_title = title_node.inner_text() if title_node.count() else ""
+                if card_title.strip():
+                    break
+                ctx.page.wait_for_timeout(1000)
+            card_part = f"заголовок {card_title!r}"
+            related_names = ctx.page.eval_on_selector_all(
+                ".tc-detail-series-block .tc-tile-cap .tc-caption",
+                "els => els.map((e) => e.textContent || '')",
+            )
+            if related_names:
+                cyr_n, cyr_names = _cyrillic_split(related_names)
+                related_part = f"; похожее: {cyr_n} из {len(related_names)} {cyr_names}"
+            else:
+                related_part = "; похожее: полки родни на этой карточке нет"
+
+    negative_ok = bool(card_title.strip()) and not _CYRILLIC_RE.search(card_title)
+    ok = negative_ok
+    detail = (
+        f"полки главной: {'; '.join(shelf_parts) or 'полок нет'}; "
+        f"поиск «{_LATIN_KNOWN_TITLE}»: {search_part}; "
+        f"карточка «{_LATIN_KNOWN_TITLE}»: {card_part}{related_part}; "
+        f"проба «латинское имя есть → на экране латиница»: {negative_ok}"
+    )
+    # Возвращаем страницу в состояние «главная»: следующие пункты (поиск, карточка)
+    # ждут этого стартового условия так же, как после пункта 1.
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    ctx.page.wait_for_timeout(300)
+    return Result(19, "Латиница", ok, None, detail)
 
 
 def _shelf_tiles(payload: Any) -> dict[str, list[dict[str, Any]]]:
@@ -1141,6 +1412,9 @@ def main() -> int:
         page = browser.new_page()
         ctx = Ctx(args.base, page, args.play, args.shots, english)
         r1 = _guarded(1, "Главная", lambda: check_1_home(ctx))
+        r17 = _guarded(17, "Колесо", lambda: check_17_wheel(ctx))
+        r18 = _guarded(18, "Подпись", lambda: check_18_caption_scroll(ctx))
+        r19 = _guarded(19, "Латиница", lambda: check_19_latin_titles(ctx))
         r2 = _guarded(2, "Поиск", lambda: check_2_search(ctx))
         r3 = _guarded(3, "Карточка", lambda: check_3_card(ctx, r2.ok))
         r4 = _guarded(4, "Показ", lambda: check_4_playback(ctx, r3.ok))
@@ -1151,7 +1425,7 @@ def main() -> int:
         r9 = _guarded(9, "На ТВ", lambda: check_9_on_tv(ctx, r4.ok or r7.ok))
         r10 = _guarded(10, "На комп", lambda: check_10_on_pc(ctx, r9.ok))
         r11 = _guarded(11, "Стрелки", lambda: check_11_arrows(ctx))
-        results += [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11]
+        results += [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r17, r18, r19]
         browser.close()
 
     results.append(_guarded(15, "Обложки", lambda: check_15_posters(args.base)))
