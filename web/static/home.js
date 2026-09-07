@@ -191,7 +191,7 @@ const TCHome = {
       body.appendChild(TCHome._shelf('web.shelf.continue_watching', 'shelf-continue',
         history.map((item) => ({
           key: item.key,
-          title: item.title,
+          title: item.shown || item.title,
           poster: item.poster,
           caption2: item.label || '',
           progress: item.dur ? item.pos / item.dur : 0,
@@ -212,7 +212,7 @@ const TCHome = {
   _tileFrom(hit) {
     return {
       key: hit.key,
-      title: hit.title,
+      title: hit.shown || hit.title,
       poster: hit.poster,
       year: hit.year,
       query: hit.query || hit.title,

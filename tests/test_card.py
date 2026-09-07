@@ -384,6 +384,34 @@ def test_a_shelf_key_named_in_the_original_opens_the_same_picture(
     assert body["original"] == "Bones and All"
 
 
+def test_the_shown_name_speaks_the_original_under_english(
+    monkeypatch: pytest.MonkeyPatch, _english: None
+) -> None:
+    """§8: карточка говорит найденной латиницей, а запись остаётся розыскной, под английским."""
+    _wired(monkeypatch, [_RUSSIAN_PLAN])
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked("movie:bones-and-all:2022", query="Bones and All")
+
+    assert code == 200
+    assert body["title"] == "Целиком и полностью"
+    assert body["shown"] == "Bones and All"
+
+
+def test_the_shown_name_stays_recorded_under_russian_even_with_an_original(
+    monkeypatch: pytest.MonkeyPatch, _russian_product: None
+) -> None:
+    """Позитивный контроль: под русским языком найденная латиница ничего не меняет."""
+    _wired(monkeypatch, [_RUSSIAN_PLAN])
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked("movie:bones-and-all:2022", query="Bones and All")
+
+    assert code == 200
+    assert body["title"] == "Целиком и полностью"
+    assert body["shown"] == "Целиком и полностью"
+
+
 def test_a_namesake_in_another_year_is_not_taken_for_the_asked_picture(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -20,6 +20,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.release import Release
+from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.progress.slot import progress
@@ -44,7 +45,7 @@ _PARTIAL = "X-Torrcast-Partial"
 #: (см. :class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
 #: Родня картины по Wikidata (§8) - тот же приём фонового кэша, что и у серий.
-_related = RelatedLookup(franchise=FACTS.franchise.of)
+_related = RelatedLookup(franchise=FACTS.franchise.of, passport=FACTS.passport.of)
 
 
 def card(request: Request) -> Answer:
@@ -80,6 +81,7 @@ def _answer(plan: Plan, config: Config, pick: int) -> Answer:
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
         "pick": pick,
         "title": picture.title,
+        "shown": spoken_title(picture.title, picture.original or ""),
         "original": picture.original or None,
         "year": picture.year,
         "kind": picture.kind,

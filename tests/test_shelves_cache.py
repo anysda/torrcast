@@ -8,11 +8,12 @@ from pathlib import Path
 import pytest
 
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
+from torrcast.domain.facts.origin import Origin
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
-from web.shelves_cache import Feed, Offer, ShelvesCache, Spawn
+from web.shelves_cache import Feed, Offer, PassportOf, ShelvesCache, Spawn
 
 _MOMENT = datetime(2026, 9, 6, tzinfo=UTC)
 
@@ -31,6 +32,7 @@ def _cache(
     *,
     feed: Feed | None = None,
     offer: Offer | None = None,
+    passport: PassportOf | None = None,
     spawn: Spawn | None = None,
 ) -> ShelvesCache:
     return ShelvesCache(
@@ -38,6 +40,7 @@ def _cache(
         catalogue=torrent_catalogue,
         offer=offer or (lambda records: records),
         path=tmp_path / "shelves.json",
+        passport=passport or (lambda title, series, timeout: Origin()),
         spawn=spawn or (lambda job: None),
         clock=lambda: _MOMENT,
     )
@@ -71,8 +74,94 @@ def test_rebuild_fills_both_shelves_with_projected_tiles(tmp_path: Path) -> None
     assert isinstance(fresh, list)
     assert len(fresh) == 1
     tile = _tile(fresh, 0)
-    assert set(tile) == {"key", "title", "year", "kind", "quality", "poster", "query"}
+    assert set(tile) == {"key", "title", "shown", "year", "kind", "quality", "poster", "query"}
     assert tile["title"] == "Матрица"
+    assert tile["shown"] == "Матрица"
+
+
+def _offer_with_original(records: list[JsonValue]) -> list[JsonValue]:
+    """Подмена ``offer``: как поле пришло бы с найденной латиницей у картины."""
+    decorated: list[JsonValue] = []
+    for record in records:
+        assert isinstance(record, dict)
+        decorated.append({**record, "original": "The Matrix"})
+    return decorated
+
+
+def test_a_tile_speaks_the_latin_name_under_english_and_stays_recorded_under_russian(
+    tmp_path: Path, _english: None
+) -> None:
+    """§8: под английским языком плитка говорит найденной латиницей, а не записью."""
+    cache = _cache(tmp_path, offer=_offer_with_original)
+
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    tile = _tile(body["fresh"], 0)
+    assert tile["title"] == "Матрица"
+    assert tile["shown"] == "The Matrix"
+
+
+def test_a_tile_keeps_the_recorded_name_under_russian_even_with_a_latin_original(
+    tmp_path: Path, _russian_product: None
+) -> None:
+    """Позитивный контроль: под русским языком найденная латиница ничего не меняет."""
+    cache = _cache(tmp_path, offer=_offer_with_original)
+
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    tile = _tile(body["fresh"], 0)
+    assert tile["title"] == "Матрица"
+    assert tile["shown"] == "Матрица"
+
+
+def test_a_tile_without_its_own_latin_name_asks_the_passport_under_english(
+    tmp_path: Path, _english: None
+) -> None:
+    """Раздача латиницы не назвала - паспорт добирает её тем же приёмом, что и родня."""
+    asked: list[str] = []
+
+    def _passport(title: str, _series: bool, _timeout: float) -> Origin:
+        asked.append(title)
+        return Origin(title="The Matrix")
+
+    cache = _cache(tmp_path, passport=_passport)
+
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    tile = _tile(body["fresh"], 0)
+    assert tile["title"] == "Матрица"
+    assert tile["shown"] == "The Matrix"
+    # Полки собираются раздельно (:meth:`ShelvesCache._rebuild`), и картина, попавшая
+    # сразу в обе, спрашивает паспорт дважды - он дисковый кэш, а не сетевой поход.
+    assert asked == ["Матрица", "Матрица"]
+
+
+def test_a_tile_without_its_own_latin_name_never_asks_the_passport_under_russian(
+    tmp_path: Path, _russian_product: None
+) -> None:
+    """Позитивный контроль: под русским языком паспорт не звонит вовсе - незачем."""
+    asked: list[str] = []
+
+    def _passport(title: str, _series: bool, _timeout: float) -> Origin:
+        asked.append(title)
+        return Origin(title="The Matrix")
+
+    cache = _cache(tmp_path, passport=_passport)
+
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    tile = _tile(body["fresh"], 0)
+    assert tile["title"] == "Матрица"
+    assert tile["shown"] == "Матрица"
+    assert asked == []
 
 
 def test_rebuild_persists_the_cache_and_a_fresh_instance_reads_it_back(tmp_path: Path) -> None:

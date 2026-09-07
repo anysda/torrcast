@@ -76,3 +76,50 @@ def test_an_item_carries_the_fields_the_tile_needs() -> None:
     assert item["dur"] == 1200.0
     assert item["resumable"] is True
     assert isinstance(item["poster"], str) and item["poster"]
+    assert item["shown"] == "Show"
+
+
+def test_the_shown_name_speaks_the_original_under_english(_english: None) -> None:
+    """§8: закладка на главной говорит найденной латиницей, а не записью, под английским."""
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries["movie:matrix:1999"] = Entry(
+        "Матрица",
+        "magnet:matrix",
+        kind="movie",
+        pos=10.0,
+        dur=100.0,
+        updated="2026-01-01T00:00:00",
+        original="The Matrix",
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    item = _asked()["items"][0]
+
+    assert item["title"] == "Матрица"
+    assert item["shown"] == "The Matrix"
+
+
+def test_the_shown_name_stays_recorded_under_russian_even_with_an_original(
+    _russian_product: None,
+) -> None:
+    """Позитивный контроль: под русским языком найденная латиница ничего не меняет."""
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries["movie:matrix:1999"] = Entry(
+        "Матрица",
+        "magnet:matrix",
+        kind="movie",
+        pos=10.0,
+        dur=100.0,
+        updated="2026-01-01T00:00:00",
+        original="The Matrix",
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    item = _asked()["items"][0]
+
+    assert item["title"] == "Матрица"
+    assert item["shown"] == "Матрица"

@@ -9,6 +9,7 @@ from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.domain.feed_row import FeedRow
+from torrcast.runtime.facts_wiring import FACTS
 from web.answer import Answer
 from web.request import Request
 from web.shelves_cache import ShelvesCache
@@ -28,7 +29,9 @@ def _feed(limit: int) -> list[FeedRow]:
 
 #: Кэш полок процесса - один на весь юнит показа; фон встаёт при первом же запросе,
 #: а не при импорте (см. :func:`_feed`).
-_cache = ShelvesCache(feed=_feed, catalogue=torrent_catalogue, offer=hits.offer)
+_cache = ShelvesCache(
+    feed=_feed, catalogue=torrent_catalogue, offer=hits.offer, passport=FACTS.passport.of
+)
 
 
 def shelves(_request: Request) -> Answer:

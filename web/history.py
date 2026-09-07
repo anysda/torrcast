@@ -25,10 +25,16 @@ def history(_request: Request) -> Answer:
 
 
 def _item(key: str, entry: Entry) -> dict[str, JsonValue]:
-    """Одна строка списка: ровно то, что просит вёрстка плитки."""
+    """Одна строка списка: ровно то, что просит вёрстка плитки.
+
+    ``shown`` - имя ДЛЯ ЧЕЛОВЕКА (:attr:`torrcast.domain.entry.Entry.spoken`); ``title``
+    остаётся записанным именем - им ищет карточку клик по плитке, если своего запроса
+    у строки нет (:mod:`web.static.home`).
+    """
     return {
         "key": key,
         "title": entry.title,
+        "shown": entry.spoken,
         "kind": entry.kind,
         "year": entry.year or None,
         "label": entry.label,

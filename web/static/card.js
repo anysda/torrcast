@@ -155,7 +155,7 @@ const TCCard = {
   _titleBlock(data, isShow) {
     const title = document.createElement('div');
     title.className = 'tc-title-detail';
-    title.textContent = data.title || '';
+    title.textContent = data.shown || data.title || '';
     if (isShow) {
       const row = document.createElement('div');
       row.className = 'tc-detail-title-row';
@@ -167,7 +167,7 @@ const TCCard = {
     }
     const meta = document.createElement('div');
     meta.className = 'tc-detail-meta';
-    if (data.original && data.original !== data.title) {
+    if (data.original && data.original !== (data.shown || data.title)) {
       const orig = document.createElement('div');
       orig.className = 'tc-orig';
       orig.textContent = data.original;

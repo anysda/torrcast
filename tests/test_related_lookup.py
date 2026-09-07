@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.domain.facts.kin import Kin
+from torrcast.domain.facts.origin import Origin
 from torrcast.domain.json_value import JsonValue
 from web.related_lookup import RelatedLookup
 
@@ -41,8 +42,9 @@ def test_a_synchronous_build_answers_the_very_same_call_with_tiles_shaped_like_s
     assert len(related) == 2
     first = related[0]
     assert isinstance(first, dict)
-    assert set(first) == {"key", "title", "year", "kind", "quality", "poster", "query"}
+    assert set(first) == {"key", "title", "shown", "year", "kind", "quality", "poster", "query"}
     assert first["title"] == "Гарри Поттер и Тайная комната"
+    assert first["shown"] == "Гарри Поттер и Тайная комната"
     assert first["kind"] == "movie"
     assert first["key"] == "movie:гарри-поттер-и-тайная-комната:2002"
 
@@ -101,3 +103,49 @@ def test_the_poster_offer_decorates_tiles_the_same_way_as_the_shelves() -> None:
     assert isinstance(tile, dict)
     assert tile["poster"] == "abc123"
     assert "original" not in tile
+
+
+def _passport(_title: str, _series: bool, _timeout: float) -> Origin:
+    return Origin(title="Harry Potter and the Chamber of Secrets")
+
+
+def test_the_related_tile_speaks_the_passports_latin_name_under_english(
+    _english: None,
+) -> None:
+    """§8: под английским языком плитка родни говорит паспортом, а не записью Wikidata."""
+    lookup = RelatedLookup(
+        franchise=lambda *_a: [_ONE], offer=_passthrough, passport=_passport, spawn=_sync
+    )
+
+    related = lookup.of("Гарри Поттер и философский камень", False)
+
+    assert related is not None
+    tile = related[0]
+    assert isinstance(tile, dict)
+    assert tile["title"] == "Гарри Поттер и Тайная комната"
+    assert tile["shown"] == "Harry Potter and the Chamber of Secrets"
+
+
+def test_the_related_tile_keeps_the_recorded_name_under_russian_even_with_a_passport(
+    _russian_product: None,
+) -> None:
+    """Позитивный контроль: под русским языком найденный паспорт ничего не меняет
+    и не звонит - незачем."""
+    asked: list[str] = []
+
+    def _watched(title: str, series: bool, timeout: float) -> Origin:
+        asked.append(title)
+        return _passport(title, series, timeout)
+
+    lookup = RelatedLookup(
+        franchise=lambda *_a: [_ONE], offer=_passthrough, passport=_watched, spawn=_sync
+    )
+
+    related = lookup.of("Гарри Поттер и философский камень", False)
+
+    assert related is not None
+    tile = related[0]
+    assert isinstance(tile, dict)
+    assert tile["title"] == "Гарри Поттер и Тайная комната"
+    assert tile["shown"] == "Гарри Поттер и Тайная комната"
+    assert asked == []
