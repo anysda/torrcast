@@ -62,16 +62,20 @@ _SHELF_KEYS: Final = (
 
 #: Те же десять франшиз, что и в `scripts/kinshelfprobe.py` (ТЗ §8) - число обязано
 #: сходиться с тем щупом: расхождение само по себе находка, а не шум.
+#: Десять франшиз ТЗ §8, названные ТАК ЖЕ, как их называет само ТЗ. Именем франшизы, а
+#: не конкретной части: «Миссия невыполнима 2» продукт отвергает по делу («в франшизе 9
+#: картин, номера 2 среди них нет»), и мерился бы этим не охват Wikidata, а моя догадка
+#: о нумерации. Зритель набирает ровно название, а какую часть открыть - решает продукт.
 _FRANCHISE_TITLES: Final = (
     "Крепкий орешек",
-    "Гарри Поттер и философский камень",
-    "Пираты Карибского моря: Проклятие Чёрной жемчужины",
+    "Гарри Поттер",
+    "Пираты Карибского моря",
     "Матрица",
     "Чужой",
     "Терминатор",
     "Форсаж",
-    "Миссия невыполнима 2",
-    "Джон Уик 2",
+    "Миссия невыполнима",
+    "Джон Уик",
     "Шрек",
 )
 #: Сколько ждать доборные части карточки (справка, серии, родня): продукт отвечает
@@ -199,14 +203,22 @@ def _card_of(base: str, title: str) -> dict[str, Any]:
     """
     code, body = _post(base + "/api/search", {"query": title})
     if code != 200:
-        return {"_error": f"POST /api/search -> {code}"}
+        detail = ""
+        with contextlib.suppress(json.JSONDecodeError):
+            detail = str(json.loads(body).get("error", ""))[:120]
+        return {"_error": f"POST /api/search -> {code} {detail}".rstrip()}
     try:
         results = json.loads(body).get("results") or []
     except json.JSONDecodeError as exc:
         return {"_error": f"выдача поиска не JSON: {exc}"}
     if not results:
         return {"_error": "поиск не дал ни одной картины"}
-    key = urllib.parse.quote(str(results[0].get("key", "")))
+    # Открывать надо ту картину, которую продукт САМ назвал лучшим совпадением
+    # (`default` в выдаче, «Лучшее совпадение» на плитке), а не первую подряд. По
+    # «Пиратам Карибского моря» первой приезжает «Фильм о фильме», и родни у него нет
+    # никакой - замер франшизы вышел бы замером порядка выдачи, а не полки.
+    chosen = next((row for row in results if row.get("default")), results[0])
+    key = urllib.parse.quote(str(chosen.get("key", "")))
     query = urllib.parse.quote(title)
     deadline = time.monotonic() + _PARTIAL_WAIT
     while True:
