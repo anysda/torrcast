@@ -285,6 +285,21 @@ const TCCard = {
       onTv.tabIndex = 0;
       onTv.dataset.tcFocusable = '1';
       onTv.dataset.tcGroup = 'buttons';
+      // Кнопка стояла нажимаемой и не делала НИЧЕГО: обработчика ей не завели вовсе, в
+      // отличие от соседних «Играть» и «Сначала» (замер на стенде `.104` 07-09-2026).
+      onTv.addEventListener('click', () => {
+        TCApi.toTv().then((said) => { if (said) TCRouter.go('/play'); });
+      });
+      // ТЗ §5: кнопка есть только там, где показ ЭТОЙ картины уже идёт в браузере - на ТВ
+      // передаётся идущий поток, а не новый показ, и над неигранной картиной она обещала
+      // бы несуществующее. Карточка про показ не знает, поле это не её: спрашивается ящик
+      // вкладки - тот же, из которого показ берёт плеер. Скрытую кнопку обходит и пульт
+      // (`nav.js` отсеивает по `offsetParent`), так что второго запрета не нужно.
+      onTv.hidden = true;
+      TCApi.box().then((box) => {
+        const shown = box && box.url ? String(box.title || '') : '';
+        onTv.hidden = !shown || (shown !== data.title && shown !== data.original);
+      });
       row.appendChild(onTv);
     }
 
