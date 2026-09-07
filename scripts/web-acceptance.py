@@ -146,7 +146,6 @@ class Ctx:
 
     base: str
     page: Any
-    receiver: str
     allow_play: bool
     shots: Path
     english: dict[str, str]
@@ -730,17 +729,17 @@ def check_9_on_tv(ctx: Ctx, play_ok: bool) -> Result:
     took = _await_tv(ctx)
     tv_running = False
     if took is not None:
-        state_a = _state(ctx)
-        ctx.page.wait_for_timeout(2000)
-        state_b = _state(ctx)
-        tv_running = state_b.get("position", 0.0) > state_a.get("position", 0.0)
+        before = _position(ctx)
+        ctx.page.wait_for_timeout(4000)
+        after = _position(ctx)
+        tv_running = before is not None and after is not None and after > before
     ok = muted and tv_running
     waited = "не поднялся" if took is None else f"{took:.0f} с"
     detail = f"muted={muted}, каст поднялся за {waited}, позиция ТВ растёт: {tv_running}"
     return Result(9, "На ТВ", ok, None, detail)
 
 
-#: Сколько ждать, пока продукт назовёт приёмник ТВ своим: рукопожатие и первый кадр.
+#: Сколько ждать, пока продукт назовёт каст своим: рукопожатие, LOAD и первый кадр.
 _TV_WAIT: Final = 60.0
 
 
@@ -756,12 +755,36 @@ def _state(ctx: Ctx) -> dict[str, Any]:
     return got if isinstance(got, dict) else {}
 
 
+def _position(ctx: Ctx) -> float | None:
+    """Секунда показа из ``/api/state``; показа нет - ``null``, и это не ноль.
+
+    🔴 ``null`` тут - штатный ответ продукта про несостоявшийся показ (:func:`hass.
+    payload._nothing`), а не отсутствие поля. Прибор читал его как ``0.0`` умолчанием
+    ``dict.get`` и падал на сравнении двух ``None`` (прогон 11 на стенде `.104`
+    07-09-2026), унося весь пункт в «прибор упал» вместо честного приговора.
+    """
+    at = _state(ctx).get("position")
+    return float(at) if isinstance(at, int | float) else None
+
+
 def _await_tv(ctx: Ctx) -> float | None:
-    """Дождаться, пока ``/api/state`` назовёт приёмник; не назвал - ``None``."""
+    """Дождаться, пока каст поднимется; не поднялся за :data:`_TV_WAIT` - ``None``.
+
+    🔴 Спрашивается ЯЩИК, а не ``/api/state``: поле ``tv`` снимка - это настройка
+    ``config.tv`` (:func:`hass.bridge.Bridge.state`), она равна адресу приёмника и в
+    простое, и до всякого нажатия. Прибор ждал её и получал «поднялся за 0 с» всегда,
+    в том числе тогда, когда ``POST /api/to-tv`` ответил отказом (прогон 11 на стенде
+    `.104` 07-09-2026: 409, а пункт всё равно пошёл мерить ход). Ящик же отвечает
+    ``tv: true`` ровно тогда, когда каст жив И держит ЭТОТ показ
+    (:meth:`web.tv_session.TvSession.settle`).
+    """
     began = time.monotonic()
     while time.monotonic() - began < _TV_WAIT:
-        if _state(ctx).get("tv") == ctx.receiver:
-            return time.monotonic() - began
+        code, body = _get(ctx.base + "/api/web/box")
+        if code == 200:
+            with contextlib.suppress(json.JSONDecodeError):
+                if json.loads(body).get("tv") is True:
+                    return time.monotonic() - began
         ctx.page.wait_for_timeout(1000)
     return None
 
@@ -998,7 +1021,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="http://192.168.1.104:8479", help="адрес стенда")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
-    parser.add_argument("--receiver", default="192.168.1.90", help="адрес Chromecast приёмника")
     parser.add_argument(
         "--play",
         action="store_true",
@@ -1016,7 +1038,7 @@ def main() -> int:
     with sync_playwright() as driver:
         browser = driver.chromium.launch(headless=True)
         page = browser.new_page()
-        ctx = Ctx(args.base, page, args.receiver, args.play, args.shots, english)
+        ctx = Ctx(args.base, page, args.play, args.shots, english)
         r1 = _guarded(1, "Главная", lambda: check_1_home(ctx))
         r2 = _guarded(2, "Поиск", lambda: check_2_search(ctx))
         r3 = _guarded(3, "Карточка", lambda: check_3_card(ctx, r2.ok))
