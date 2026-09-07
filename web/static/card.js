@@ -26,11 +26,26 @@ const TCCard = {
     const { data, partial } = await TCApi.card(key, query);
     const body = root.querySelector('#tc-card-body');
     if (!body) return;
+    // Тело карточки подменяется целиком на каждом доборе (до пяти раз), и вместе с ним
+    // уезжает элемент, на котором СТОЯЛ фокус: зритель с пультом терял место посреди
+    // чтения. Место возвращается по классу - своего имени у кнопок нет, а класс у них
+    // один и тот же до и после подмены.
+    const stood = document.activeElement;
+    const held = body.contains(stood) ? stood.className : '';
     if (data) body.replaceWith(TCCard._body(data, key, query));
+    if (held) TCCard._standAgain(root, held);
     if (partial && TCCard._tries < 5) {
       TCCard._tries += 1;
       setTimeout(() => TCCard._load(root, key, query), 2000);
     }
+  },
+
+  // Вернуть фокус туда же, где он стоял до подмены тела; такой кнопки в новом теле нет -
+  // отдать его первой помеченной, чтобы пульт не остался ни на чём.
+  _standAgain(root, held) {
+    const same = held ? root.querySelector('[data-tc-focusable].' + held.trim().split(/\s+/).join('.')) : null;
+    const goes = same || root.querySelector('[data-tc-focusable]');
+    if (goes) goes.focus();
   },
 
   _shell(key) {

@@ -20,12 +20,26 @@ const TCNav = {
     const way = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[event.key];
     if (!way) return;
     const here = document.activeElement;
-    if (!here || !here.matches || !here.matches('[data-tc-focusable]')) return;
+    if (!here || !here.matches || !here.matches('[data-tc-focusable]')) return TCNav._wake(event);
     const there = TCNav.nearest(here, way);
     if (!there) return;
     event.preventDefault();
     there.focus();
     there.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  },
+
+  // 🔴 Фокус НИГДЕ - обычное состояние экрана, а не сбой: так страница открывается у
+  // всякого, кто пришёл с пультом и мыши не касался, и так же она остаётся после того,
+  // как карточка доехала фоном и подменила своё тело вместе с элементом под фокусом.
+  // Стрелка отсюда не делала НИЧЕГО, и выйти из этого положения клавишами было нельзя
+  // вовсе: `document.activeElement` - `<body>`, а он не помечен (замер на стенде `.104`
+  // 07-09-2026, пункт 11 приёмки: 12 нажатий, фокус остался на `BODY`).
+  _wake(event) {
+    const first = TCNav._candidates()[0];
+    if (!first) return;
+    event.preventDefault();
+    first.focus();
+    first.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   },
 
   // Кандидаты - всё видимое и помеченное; спрятанное (``display:none`` или чужая полка,
