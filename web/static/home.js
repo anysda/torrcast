@@ -6,11 +6,16 @@ const TCHome = {
   _query: '',
   _timer: null,
   _token: 0,
+  _found: null,
   _lastHistory: [],
   _lastShelves: { fresh: [], popular: [] },
   _sourcesCount: 0,
 
   async mount(root) {
+    // Что искали, написано в АДРЕСЕ (`/?query=…`), а не только в памяти страницы:
+    // иначе «назад» из картины возвращает на чистую главную, хотя уходили с выдачи.
+    const asked = TCHome._asked();
+    TCHome._query = asked;
     root.replaceChildren();
     const scan = document.createElement('div');
     scan.className = 'tc-scan';
@@ -18,9 +23,11 @@ const TCHome = {
     let header = TC.header(null);
     const wrap = document.createElement('div');
     wrap.className = 'tc-shelf-safe';
-    wrap.append(TCHome._search(), TCHome._loadingBody());
+    wrap.append(TCHome._search(), asked ? TCHome._askedBody(asked) : TCHome._loadingBody());
     root.append(scan, header, wrap);
-    wrap.querySelector('.tc-search-input').focus();
+    const input = wrap.querySelector('.tc-search-input');
+    input.value = asked;
+    input.focus();
 
     TCApi.sources().then((count) => { TCHome._sourcesCount = count; });
     const [state, history, shelves] = await Promise.all([
@@ -30,8 +37,24 @@ const TCHome = {
     const fresh = TC.header(state);
     header.replaceWith(fresh);
     header = fresh;
+    TCHome._lastHistory = history;
+    TCHome._lastShelves = shelves;
     const body = document.getElementById('tc-body');
-    if (body) body.replaceWith(TCHome._body(history, shelves));
+    if (body && !TCHome._query) body.replaceWith(TCHome._body(history, shelves));
+  },
+
+  _asked() {
+    return new URLSearchParams(location.search).get('query') || '';
+  },
+
+  // Возврат на свою выдачу: находки, которые уже приезжали, показываются сразу, и
+  // только незнакомый запрос уходит в источники заново.
+  _askedBody(text) {
+    if (TCHome._found && TCHome._found.query === text) {
+      return TCHome._searchResults(TCHome._found.results);
+    }
+    TCHome._runSearch(text);
+    return TCHome._searchLoading();
   },
 
   _loadingBody() {
@@ -75,6 +98,7 @@ const TCHome = {
   _onType(event) {
     const text = event.target.value.trim();
     TCHome._query = text;
+    TCHome._remember(text);
     clearTimeout(TCHome._timer);
     const body = document.getElementById('tc-body');
     if (text.length < 2) {
@@ -85,10 +109,18 @@ const TCHome = {
     TCHome._timer = setTimeout(() => TCHome._runSearch(text), 400);
   },
 
+  // Адрес переписывается на месте, а не добавляется в историю: иначе «назад» отматывал
+  // бы набранное по букве вместо возврата на тот экран, с которого ушли.
+  _remember(text) {
+    const want = text.length < 2 ? '/' : '/?query=' + encodeURIComponent(text);
+    if (location.pathname + location.search !== want) history.replaceState({}, '', want);
+  },
+
   async _runSearch(text) {
     const mine = ++TCHome._token;
     const results = await TCApi.search(text);
     if (mine !== TCHome._token || TCHome._query !== text) return;
+    TCHome._found = { query: text, results };
     const body = document.getElementById('tc-body');
     if (body) body.replaceWith(TCHome._searchResults(results));
   },
