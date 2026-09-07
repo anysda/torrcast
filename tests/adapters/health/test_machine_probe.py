@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+import pytest
+
+from torrcast.adapters.health import build_id as build_id_module
 from torrcast.adapters.health.machine_probe import MachineProbe
 
 
@@ -34,3 +37,9 @@ def test_the_shelf_limits_are_numbers_and_the_clock_moves_forward() -> None:
     assert keys_kept > 0 and probe_kept > 0
     assert MachineProbe.now() > 0
     assert MachineProbe.retain_days() > 0
+
+
+def test_build_id_delegates_to_the_dedicated_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Мост про код спрашивает `MachineProbe` - тот отвечает тем же, что и своя проба."""
+    monkeypatch.setattr(build_id_module, "BAKED_BUILD_ID", "cafef00dfeed")
+    assert MachineProbe.build_id() == "cafef00dfeed"

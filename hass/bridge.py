@@ -78,9 +78,9 @@ class Bridge:
         active = self._session.active()
         shown = self._session.snapshot(self._session.key() if active else "")
         return payload(
-            # Место у карточки своё, пока перемотка моста приземляется (:meth:`Motion.aimed`).
             self._motion.aimed(shown),
             version=__version__,
+            build=MachineProbe.build_id(),
             tv=config.tv or "",
             state=self._motion.phase(shown, active=active, starting=self._orders.underway()),
             volume=self._volume_of(config).level(),

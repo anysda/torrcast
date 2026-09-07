@@ -17,6 +17,7 @@ def payload(
     shown: PlaybackSnapshot | None,
     *,
     version: str,
+    build: str | None,
     tv: str,
     state: str,
     volume: float | None,
@@ -30,6 +31,12 @@ def payload(
     about = _about(shown) if known else _nothing()
     return {
         "version": version,
+        # Номер выпуска не двигается от тега до тега; это - клеймо КОДА (хэш коммита,
+        # `+dirty` при незакоммиченной правке), которым отличаются два снимка `dev` с
+        # одинаковым `version`. Узнать неоткуда (тарбол выпуска без git на машине
+        # человека, а клейма ещё нет) - честный ``null``, а не выдуманное значение
+        # (:func:`torrcast.adapters.health.build_id.build_id`).
+        "build": build,
         "tv": tv or None,
         "state": state,
         **about,

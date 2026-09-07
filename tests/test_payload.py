@@ -21,6 +21,7 @@ def test_full_snapshot_becomes_json_the_card_can_draw() -> None:
     body = payload(
         shown,
         version="1.0.3",
+        build="abc123def456",
         tv="10.0.1.7",
         state=PLAYING,
         volume=0.42,
@@ -30,6 +31,7 @@ def test_full_snapshot_becomes_json_the_card_can_draw() -> None:
         has_next=True,
     )
     assert body["state"] == PLAYING
+    assert body["build"] == "abc123def456"
     assert body["has_next"] is True
     assert body["title"] == "Чернобыль"
     assert body["shown_as"] == "Чернобыль s1e3"
@@ -55,6 +57,7 @@ def test_holey_snapshot_says_null_and_does_not_invent_numbers() -> None:
     body = payload(
         shown,
         version="1.0.3",
+        build="abc123def456",
         tv="",
         state=PLAYING,
         volume=None,
@@ -86,6 +89,7 @@ def test_idle_does_not_answer_with_the_picture_that_already_ended() -> None:
     body = payload(
         shown,
         version="1.0.3",
+        build="abc123def456",
         tv="10.0.1.7",
         state=IDLE,
         volume=0.5,
@@ -116,6 +120,7 @@ def test_the_picture_is_named_by_the_serve_and_carries_its_own_fingerprint() -> 
     body = payload(
         shown,
         version="1.0.3",
+        build="abc123def456",
         tv="10.0.1.7",
         state=PLAYING,
         volume=0.4,
@@ -128,3 +133,24 @@ def test_the_picture_is_named_by_the_serve_and_carries_its_own_fingerprint() -> 
     assert body["image"] == "/api/poster/2f8c1d"
     assert body["image_hash"] == "2f8c1d"
     assert not str(body["image"]).startswith("http"), "адрес чужого хоста в карточке"
+
+
+def test_an_unknown_build_says_so_instead_of_a_made_up_value() -> None:
+    """Клейма нет и не у кого спросить (тарбол без git) - ``null``, а не выдумка."""
+    shown = PlaybackSnapshot(key="movie:муха:1986", title="Муха", position=0.0)
+    body = payload(
+        shown,
+        version="1.0.3",
+        build=None,
+        tv="",
+        state=PLAYING,
+        volume=None,
+        disk_free=0,
+        last_error="",
+        picture=("", ""),
+        has_next=False,
+    )
+    assert body["build"] is None
+    # Номер выпуска остаётся: то, что клейма нет, не отменяет уже существующего
+    # договора с интеграцией (custom_components/torrcast/serve_client.py).
+    assert body["version"] == "1.0.3"

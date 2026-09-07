@@ -17,6 +17,7 @@ from torrcast.adapters.filesystem.state.state_path import state_path
 from torrcast.adapters.filesystem.trace_journal.health import health as trace_health
 from torrcast.adapters.filesystem.trace_journal.log_dir import log_dir
 from torrcast.adapters.filesystem.trace_journal.prune import RETAIN_DAYS
+from torrcast.adapters.health.build_id import build_id as _build_id
 from torrcast.adapters.stream_probe.shelf_weight import shelf_weight
 from torrcast.domain.warm_open import KEYS_KEPT, PROBE_KEPT
 from torrcast.domain.warm_settings import WARM_DIR
@@ -156,3 +157,8 @@ class MachineProbe:
     def now() -> float:
         """Настенные часы: возраст записи считается от них."""
         return time.time()
+
+    @staticmethod
+    def build_id() -> str | None:
+        """Метка кода на диске: см. :func:`torrcast.adapters.health.build_stamp.build_id`."""
+        return _build_id()

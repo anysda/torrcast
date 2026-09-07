@@ -75,6 +75,31 @@ substitute_version() {  # $1 - каталог клона, $2 - версия бе
         || die "версия $ver не разнеслась по дереву клона"
 }
 
+# --- 3b. клеймо кода в тарбол -------------------------------------------------
+# Номер выпуска не двигается от тега до тега (TC-1138): тарбол несёт ещё и клеймо
+# коммита, из которого он собран, - `.git` внутри тарбола нет (см. build_tarball),
+# поэтому значение подставляется здесь, РОВНО одной заменой, тем же приёмом, что и
+# scripts/set-version.py: лишнее или нулевое совпадение останавливает выпуск.
+bake_build_id() {  # $1 - каталог клона
+    src="$1" file="$1/torrcast/adapters/health/build_id.py"
+    commit="$(cd "$src" && git rev-parse --short=12 HEAD)" \
+        || die "не читается HEAD клона для клейма кода"
+    python3 - "$file" "$commit" <<'PY' || die "клеймо кода не легло в дерево клона"
+import re
+import sys
+
+path, commit = sys.argv[1], sys.argv[2]
+text = open(path, encoding="utf-8").read()
+pattern = r'^BAKED_BUILD_ID: str \| None = None$'
+matches = list(re.finditer(pattern, text, flags=re.MULTILINE))
+if len(matches) != 1:
+    sys.exit(f"{path}: ожидалось ровно одно совпадение клейма, найдено {len(matches)}")
+match = matches[0]
+new_text = text[: match.start()] + f'BAKED_BUILD_ID: str | None = "{commit}"' + text[match.end() :]
+open(path, "w", encoding="utf-8").write(new_text)
+PY
+}
+
 # --- 4. zip интеграции для HACS ----------------------------------------------
 # В корне архива лежит СОДЕРЖИМОЕ `custom_components/torrcast` (manifest.json рядом с
 # `__init__.py`), а не сам каталог: так собирает релизы сам HACS, и так их и ждёт
@@ -197,6 +222,7 @@ main() {
     ver="${tag#v}"
     info "[3] подставляю версию $ver в дерево"
     substitute_version "$work/src" "$ver"
+    bake_build_id "$work/src"
 
     info "[4] собираю tarball + sha256 + zip интеграции"
     build_tarball "$work" "$ver"

@@ -33,6 +33,12 @@ def _write_repo(root: Path) -> None:
     (root / "torrcast" / "domain" / "version.py").write_text(
         '"""Версия."""\n\n__version__ = "1.0.0"\n', encoding="utf-8"
     )
+    # Клеймо кода (TC-1138): плейсхолдер, который bake_build_id() подменяет хэшем
+    # HEAD клона РОВНО одной заменой - как настоящий torrcast/adapters/health/build_id.py.
+    (root / "torrcast" / "adapters" / "health").mkdir(parents=True)
+    (root / "torrcast" / "adapters" / "health" / "build_id.py").write_text(
+        '"""Клеймо."""\n\nBAKED_BUILD_ID: str | None = None\n', encoding="utf-8"
+    )
     (root / "tgbot").mkdir()
     (root / "tgbot" / "__init__.py").write_text("", encoding="utf-8")
     (root / "hass").mkdir()
@@ -244,6 +250,14 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
         version_py = tar.extractfile("torrcast/domain/version.py")
         assert version_py is not None
         assert '__version__ = "9.9.9"' in version_py.read().decode()
+
+        # TC-1138: номер выпуска не двигается от тега до тега, поэтому тарбол несёт
+        # ещё и клеймо коммита, из которого он собран - его читает
+        # torrcast.adapters.health.build_id.build_id() на машине без .git вовсе.
+        commit = _git(repo, "rev-parse", "--short=12", "v9.9.9")
+        build_id_py = tar.extractfile("torrcast/adapters/health/build_id.py")
+        assert build_id_py is not None
+        assert f'BAKED_BUILD_ID: str | None = "{commit}"' in build_id_py.read().decode()
 
         # pyproject.toml не трогается: он не хранит номер, а тянет его динамически из
         # torrcast/domain/version.py ([tool.hatch.version]) - и остаётся ровно тем же.
