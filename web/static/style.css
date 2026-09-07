@@ -251,20 +251,18 @@ body {
                            text-overflow: ellipsis; }
 .tc-tile-cap .tc-cap2 { color: var(--tc-muted); line-height: 1.1; }
 
-/* Фокус = наведение мышью: одно и то же состояние, одним классом. */
-.tc-tile:is(:hover, :focus-within, .is-focused) { transform: scale(1.06); z-index: 2; }
-.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-frame {
-  outline: var(--tc-focus-ring) solid var(--tc-acid); }
-.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-cap {
-  background: var(--tc-acid); padding: .625rem .875rem; margin-top: .625rem;
-  transform: scale(1.06); }
-.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-cap .tc-caption {
-  color: var(--tc-bg); white-space: normal; }
-.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-cap .tc-cap2 {
-  color: rgba(11, 11, 11, .72); }
+/* Выделение = ровно одно место на кадре, и какое именно - решает последнее действие
+   человека: мышь гасит выделение от клавиатуры, клавиша гасит выделение от мыши.
+   Оба состояния сведены в один класс, который ставит навигация (`nav.js`), поэтому
+   двух подсвеченных плиток разом здесь нечем нарисовать. */
+.tc-tile.is-lit { transform: scale(1.06); z-index: 2; }
+.tc-tile.is-lit .tc-tile-frame { outline: var(--tc-focus-ring) solid var(--tc-acid); }
+.tc-tile.is-lit .tc-tile-cap { background: var(--tc-acid); transform: scale(1.06); }
+.tc-tile.is-lit .tc-tile-cap .tc-caption { color: var(--tc-bg); white-space: normal; }
+.tc-tile.is-lit .tc-tile-cap .tc-cap2 { color: rgba(11, 11, 11, .72); }
 /* Уголки: четыре скобки 26x26 штрихом 7px, вынесенные на 20px наружу кадра. */
 .tc-tile-corner { position: absolute; width: 1.625rem; height: 1.625rem; opacity: 0; }
-.tc-tile:is(:hover, :focus-within, .is-focused) .tc-tile-corner { opacity: 1; }
+.tc-tile.is-lit .tc-tile-corner { opacity: 1; }
 .tc-tile-corner--tl { top: -1.25rem; left: -1.25rem;
   border-top: var(--tc-focus-ring) solid var(--tc-acid);
   border-left: var(--tc-focus-ring) solid var(--tc-acid); }
@@ -321,7 +319,7 @@ body {
 .tc-btn--disabled, .tc-btn:disabled { background: var(--tc-disabled-bg);
                                       color: var(--tc-disabled-ink); border-color: transparent;
                                       cursor: default; }
-.tc-btn:is(:hover, :focus-visible, .is-focused) { outline: .25rem solid var(--tc-text);
+.tc-btn.is-lit { outline: .25rem solid var(--tc-text);
                                                   outline-offset: .25rem; }
 
 /* --- Выпадашка озвучек --------------------------------------------------- */
@@ -374,13 +372,14 @@ body {
 .tc-ep-progress { position: absolute; left: 0; bottom: 0; height: .375rem;
                   background: var(--tc-bg); }
 
-/* Фокус клавиатурой = наведение мышью, тем же приёмом, что и у плитки (styles above). */
-.tc-tab:is(:hover, :focus-within, .is-focused) { outline: var(--tc-border) solid var(--tc-acid);
+/* Тем же одним классом, что и плитка: горит место, названное последним действием
+   человека, а не сразу два - под мышью и под клавиатурой. */
+.tc-tab.is-lit { outline: var(--tc-border) solid var(--tc-acid);
                                                  outline-offset: -.1875rem; }
-.tc-ep:is(:hover, :focus-within, .is-focused) { background: var(--tc-ghost); }
-.tc-ep.is-resume:is(:hover, :focus-within, .is-focused) { background: var(--tc-acid); }
-.tc-drop-row:is(:hover, :focus-within, .is-focused) { background: var(--tc-hair-dim); }
-.tc-drop-row.is-selected:is(:hover, :focus-within, .is-focused) { background: var(--tc-acid); }
+.tc-ep.is-lit { background: var(--tc-ghost); }
+.tc-ep.is-resume.is-lit { background: var(--tc-acid); }
+.tc-drop-row.is-lit { background: var(--tc-hair-dim); }
+.tc-drop-row.is-selected.is-lit { background: var(--tc-acid); }
 .tc-tile:focus, .tc-tab:focus, .tc-ep:focus, .tc-drop-row:focus { outline: none; }
 
 /* --- Плеер: нижняя панель ------------------------------------------------ */

@@ -1,22 +1,55 @@
 // D-pad по-геометрии: ни одной библиотеки, только getBoundingClientRect() и оценка
-// «кто ближе в нажатую сторону». Ссылка на приём и её причину - SPEC.md §4.6.
+// «кто ближе в нажатую сторону». Тут же живёт и ПОКАЗ выделения: гореть на кадре
+// должно ровно одно место, и какое - решает последнее действие человека.
 'use strict';
 
 const TCNav = {
   // Полка помнит, на какой своей плитке стояли в последний раз: Map «имя полки» → элемент.
   remembered: new Map(),
+  // Чем человек трогал страницу последним: 'key' или 'mouse'. Начинается с клавиш -
+  // так страницу открывает всякий, кто пришёл с пультом и мыши не касался.
+  input: 'key',
+  // Единственное горящее место на кадре или ``null``, если не горит ничего.
+  lit: null,
 
   init() {
     document.addEventListener('keydown', TCNav._onKey);
     document.addEventListener('focusin', TCNav._onFocusIn);
+    document.addEventListener('pointermove', TCNav._onPointer, { passive: true });
+    document.addEventListener('pointerdown', TCNav._onPointer, { passive: true });
+  },
+
+  // Показ выделения переносится на новое место ЦЕЛИКОМ: сначала гаснет старое, потом
+  // загорается новое, поэтому двух горящих мест разом не бывает даже на один кадр.
+  light(place) {
+    if (TCNav.lit === place) return;
+    if (TCNav.lit) TCNav.lit.classList.remove('is-lit');
+    TCNav.lit = place;
+    if (place) place.classList.add('is-lit');
+  },
+
+  // Фокус НЕ снимается вместе с показом: он нужен и навигации, и чтению с экрана.
+  // Мышь гасит только ПОКАЗ клавиатурного выделения, а не сам фокус.
+  _onPointer(event) {
+    TCNav.input = 'mouse';
+    const under = event.target.closest && event.target.closest('[data-tc-focusable]');
+    TCNav.light(under || null);
   },
 
   _onFocusIn(event) {
     const holder = event.target.closest && event.target.closest('[data-tc-group]');
     if (holder) TCNav.remembered.set(holder.dataset.tcGroup, holder);
+    if (TCNav.input === 'key') TCNav.light(TCNav._focused());
+  },
+
+  _focused() {
+    const here = document.activeElement;
+    return here && here.matches && here.matches('[data-tc-focusable]') ? here : null;
   },
 
   _onKey(event) {
+    TCNav.input = 'key';
+    TCNav.light(TCNav._focused());
     const way = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[event.key];
     if (!way) return;
     const here = document.activeElement;
@@ -32,8 +65,7 @@ const TCNav = {
   // всякого, кто пришёл с пультом и мыши не касался, и так же она остаётся после того,
   // как карточка доехала фоном и подменила своё тело вместе с элементом под фокусом.
   // Стрелка отсюда не делала НИЧЕГО, и выйти из этого положения клавишами было нельзя
-  // вовсе: `document.activeElement` - `<body>`, а он не помечен (замер на стенде `.104`
-  // 07-09-2026, пункт 11 приёмки: 12 нажатий, фокус остался на `BODY`).
+  // вовсе: `document.activeElement` - `<body>`, а он не помечен.
   _wake(event) {
     const first = TCNav._candidates()[0];
     if (!first) return;
