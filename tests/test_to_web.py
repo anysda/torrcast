@@ -47,7 +47,7 @@ def test_the_tv_position_becomes_the_new_box_at(
 
     answer = to_web(_post())
 
-    assert answer.code == 204
+    assert answer.code == 202
     assert receiver.stops == [True]
     box = read_web_box(tmp_path)
     assert box is not None
@@ -65,5 +65,5 @@ def test_an_emptied_box_is_not_recreated(tmp_path: Path, monkeypatch: pytest.Mon
 
     answer = to_web(_post())
 
-    assert answer.code == 204
+    assert answer.code == 202
     assert read_web_box(tmp_path) == {}

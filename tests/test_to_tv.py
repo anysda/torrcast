@@ -71,7 +71,7 @@ def test_the_running_show_is_cast_without_restarting_the_pack(
 
     answer = to_tv(_post())
 
-    assert answer.code == 204
+    assert answer.code == 202
     assert receiver.plays == [("http://x/out.m3u8", "Interstellar", 88.0)]
 
 
@@ -87,7 +87,7 @@ def test_a_stale_mailbox_position_is_ignored_for_a_fresh_box(
 
     answer = to_tv(_post())
 
-    assert answer.code == 204
+    assert answer.code == 202
     assert receiver.plays == [("http://x/out.m3u8", "Interstellar", 5.0)]
 
 
@@ -116,7 +116,7 @@ def test_the_tv_position_becomes_the_one_the_product_remembers(
     monkeypatch.setattr(TvSession, "_arm", arming)
     write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
 
-    assert to_tv(_post()).code == 204
+    assert to_tv(_post()).code == 202
     assert caught and caught[0] is not None, "держателю не дали слушателя места"
     caught[0](Position(742.0, 8000.0, playing=True))
 
@@ -135,7 +135,7 @@ def test_the_listener_goes_quiet_once_the_mailbox_moves_to_another_show(
     _wired(monkeypatch)
     write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
 
-    assert to_tv(_post()).code == 204
+    assert to_tv(_post()).code == 202
     write_web_box(tmp_path, url="http://x/out.m3u8", title="Dune", at=0.0, key="k2")
     heard = _echo(tmp_path, "k1")
     heard(Position(742.0, 8000.0, playing=True))

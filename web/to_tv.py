@@ -43,7 +43,7 @@ def to_tv(request: Request) -> Answer:
         at = float(record.get("pos", at))
     key = str(box.get("key", ""))
     SESSION.start(address, str(box.get("title", "")), url, at, echo=_echo(out, key), key=key)
-    return Answer(204, b"")
+    return Answer(202, b"")
 
 
 def _echo(out: Path, key: str) -> Callable[[Position], None]:

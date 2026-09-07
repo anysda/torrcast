@@ -30,4 +30,4 @@ def to_web(request: Request) -> Answer:
         write_web_box(
             out, url=str(box["url"]), title=str(box.get("title", "")), at=at, key=str(box["key"])
         )
-    return Answer(204, b"")
+    return Answer(202, b"")
