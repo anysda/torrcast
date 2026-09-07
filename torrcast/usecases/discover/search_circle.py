@@ -22,7 +22,7 @@ from torrcast.ports.progress.progress import Progress
 from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._named import _also, _different_display_names, _title
-from torrcast.usecases.discover._ask import _ask
+from torrcast.usecases.discover._ask import _ask, _notify
 from torrcast.usecases.discover._catalog_note import _catalog_note
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._reread import _relayout, _titled_number
@@ -56,6 +56,7 @@ def search_circle(
     *,
     indexer: Callable[[str, str], IndexerClient] | None = None,
     passport: Callable[..., Origin] | None = None,
+    on_indexer: Callable[[IndexerClient], None] | None = None,
 ) -> list[Plan]:
     """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов.
 
@@ -70,7 +71,7 @@ def search_circle(
     ``indexer`` и ``passport`` - откуда берутся клиент индексеров и справка. Умолчание
     боевое (:class:`~torrcast.adapters.prowlarr.prowlarr.Prowlarr`,
     :func:`~torrcast.usecases.passport.Passport.of`); называют их те, у кого своих служб нет, -
-    тесты и щупы.
+    тесты и щупы. ``on_indexer`` - шов превью (TC-1126): звонок сразу после сборки клиента.
     """
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
         raise InfraError(phrase("discover.prowlarr_not_configured"))
@@ -79,6 +80,7 @@ def search_circle(
     client = (indexer or _search_state._search_indexers)(
         config.prowlarr_url, config.prowlarr_apikey
     )
+    _notify(on_indexer, client)
     progress.phase(phrase("discover.search_phase", query=name))
     raw = _ask(client, name)
     if not raw:
@@ -151,12 +153,10 @@ def search_circle(
             progress.note(phrase("discover.glued_pictures", also=also, title=title, count=count))
     progress.phase("")
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
-    # стоять вторыми, а безномерные - после линейки
-    # (:func:`~torrcast.domain.menu_order.menu_order`).
+    # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.domain.menu_order.menu_order`)
     found = menu_order(found)
-    # Память картины доезжает до отбора здесь, и здесь же по одной причине: ступень
-    # студии нужна КАЖДОМУ, кто строит меню, - и показу, и `cast releases`, - иначе
-    # таблица показывала бы один порядок, а играл бы другой.
+    # Память картины доезжает до отбора здесь по одной причине: ступень студии нужна и показу, и
+    # `cast releases`, иначе таблица показывала бы один порядок, а играл бы другой.
     seen = watch_store().load()
     remembered = seen.find(args.title_query)
     plans = []

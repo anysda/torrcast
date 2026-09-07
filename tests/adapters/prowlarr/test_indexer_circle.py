@@ -157,6 +157,21 @@ def test_круг_без_опорных_дожидается_всех() -> None:
     assert circle.waiting() == ()
 
 
+@pytest.mark.machine
+def test_inflight_отдаёт_ответившего_опорного_не_дожидаясь_опоздавшего() -> None:
+    """🔴 TC-1126: превью читает то, что круг УЖЕ собрал, не трогая его ожидание."""
+    circle, _http = _circle(rows=2, delay={3: 0.4})
+    circle.run([_KNABEN, _NYAA], "Naruto [TV]", 100)
+    assert sorted(row.title for row in circle.inflight()) == ["picture.1.0", "picture.1.1"]
+
+
+def test_inflight_пуст_до_первого_ответа_и_ноль_не_путает_с_пустотой() -> None:
+    circle, _http = _circle(empty={1})
+    assert circle.inflight() == []
+    circle.run([_KNABEN], "матрица", 100)
+    assert circle.inflight() == []  # честный ноль строк - это тоже ответ, но строк нет
+
+
 def test_новый_расклад_не_помнит_прошлый_круг_но_помнит_ответивших() -> None:
     """Молчуны и счёт строк - про этот круг, а «было ли чем искать» - про весь поиск."""
     circle, _http = _circle(rows=2, mute={2})

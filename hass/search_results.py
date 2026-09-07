@@ -17,11 +17,32 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.picture import Picture
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.usecases.choice._named import _named
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
+
+
+def _hit(picture: Picture, number: int, *, default: bool) -> JsonValue:
+    """Одна запись выдачи по картине круга: та же форма, что и у полного списка.
+
+    Отдельной функцией ради превью (TC-1126, :mod:`hass.search_progress`): оно строит
+    записи по картинам, найденным ещё БЕЗ плана (:class:`~torrcast.usecases.select.
+    plan.Plan`) - отбор релизов до конца круга не доехал, а список показать уже можно.
+    """
+    return {
+        "pick": number,
+        "key": picture.key,
+        "title": picture.title,
+        "shown": spoken_title(picture.title, picture.original or ""),
+        "named": _named(picture, item=True),
+        "year": picture.year,
+        "kind": picture.kind,
+        "original": picture.original or "",
+        "default": default,
+    }
 
 
 def search_results(plans: list[Plan], taken: int) -> list[JsonValue]:
@@ -65,16 +86,6 @@ def search_results(plans: list[Plan], taken: int) -> list[JsonValue]:
     (``tests/hass_integration/test_search_media.py``).
     """
     return [
-        {
-            "pick": number,
-            "key": plan.picture.key,
-            "title": plan.picture.title,
-            "shown": spoken_title(plan.picture.title, plan.picture.original or ""),
-            "named": _named(plan.picture, item=True),
-            "year": plan.picture.year,
-            "kind": plan.picture.kind,
-            "original": plan.picture.original or "",
-            "default": number == taken,
-        }
+        _hit(plan.picture, number, default=number == taken)
         for number, plan in enumerate(plans, start=1)
     ]

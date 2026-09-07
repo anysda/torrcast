@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
@@ -19,3 +21,9 @@ def _ask(client: IndexerClient, query: str) -> list[RawResult]:
         return client.search(query)
     except NotFoundError:
         return []
+
+
+def _notify(on_indexer: Callable[[IndexerClient], None] | None, client: IndexerClient) -> None:
+    """Шов превью (TC-1126): звонок сразу после сборки клиента, до захода в сеть."""
+    if on_indexer is not None:
+        on_indexer(client)

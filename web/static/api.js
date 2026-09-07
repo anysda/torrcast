@@ -39,6 +39,24 @@ const TCApi = {
     return Array.isArray(said && said.results) ? said.results : [];
   },
 
+  // Поиск с показом по мере прихода (TC-1126): та же метка ``X-Torrcast-Partial``, что
+  // и у карточки (см. `card()` ниже) - `true` значит «список ещё растёт».
+  async searchProgress(query) {
+    try {
+      const said = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, progressive: true }),
+      });
+      if (!said.ok) return { results: [], partial: false };
+      const data = await said.json();
+      const results = Array.isArray(data && data.results) ? data.results : [];
+      return { results, partial: said.headers.get('X-Torrcast-Partial') === '1' };
+    } catch (error) {
+      return { results: [], partial: false };
+    }
+  },
+
   // Карточка иногда приходит частями (заголовок ``X-Torrcast-Partial``): её самой
   // читает card.js, который и решает, звать ли следующий заход через 2 с.
   async card(key, query) {

@@ -60,6 +60,25 @@ def test_the_kin_of_the_menu_travels_with_every_plan() -> None:
     assert all(plan.kin == plans[0].kin for plan in plans)
 
 
+def test_on_indexer_is_told_the_exact_client_the_circle_uses() -> None:
+    """🔴 TC-1126: превью моста ловит клиента ровно тем, кем ищет сам круг, и до сети."""
+    wire_catalogue()
+    client = Indexer(answers={"тачки": _CARS})
+    caught: list[object] = []
+
+    search_circle(
+        _CONFIG,
+        Args(query=["тачки"]),
+        Said(),
+        indexer=lambda *_a, **_k: client,
+        passport=lambda *_a, **_k: Origin(),
+        on_indexer=caught.append,
+    )
+
+    assert caught == [client]
+    assert client.asked, "звонок пришёл до захода в сеть, а не вместо него"
+
+
 def test_an_empty_catalogue_is_a_refusal_with_a_word() -> None:
     """Молчаливых отказов не бывает: пустая выдача называет сам запрос."""
     with pytest.raises(NotFoundError, match="по запросу «нетакого» ничего не нашлось"):

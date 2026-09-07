@@ -27,6 +27,7 @@ from hass.play_argv import play_argv
 from hass.posters import Posters
 from hass.refused_error import RefusedError
 from hass.say import SEEKBY, TOGGLE, say
+from hass.search_progress import search_progress
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
 from hass.starting import starting
 from hass.stopping import STOP, stopping
@@ -104,6 +105,10 @@ class Bridge:
         которую включил бы голый :meth:`play` без номера."""
         return searching(self._settings(), query, self._search, self._detect, self._remember)
 
+    def search_progress(self, query: str) -> tuple[list[JsonValue], bool]:
+        """``POST /api/search`` с ``progressive: true``: превью или готовый список (TC-1126)."""
+        return search_progress(self._settings(), query, self._detect, self._remember)
+
     def play(
         self,
         query: str,
@@ -119,14 +124,12 @@ class Bridge:
         return self._start(play_argv(query, pick, voice, season, episode, from_start, here))
 
     def resume(self) -> str:
-        """``POST /api/resume``: поднять показ ровно так, как это делает пустой ``cast``.
+        """``POST /api/resume``: поднять показ ровно так же, как пустой ``cast``.
 
-        Картину и место выбирает ПРОДУКТ, а не мост: сюда уходит пустой argv, и дальше
-        последнее смотренное называет тот же
-        :func:`torrcast.usecases.cast_command._default_query._default_query`, а место
-        поднимает та же закладка. Складывать это на стороне моста значило бы завести
-        второй ответ на один вопрос. Отказ пустому ``query`` у :meth:`play` остаётся:
-        показ ПО ЗАПРОСУ без запроса - по-прежнему брак, а это другая просьба.
+        Картину и место выбирает ПРОДУКТ: пустой argv отправляет в тот же
+        :func:`torrcast.usecases.cast_command._default_query._default_query` и закладку, так что
+        мост своего ответа не заводит. Пустой ``query`` у :meth:`play` остаётся отказом: показ БЕЗ
+        запроса - другая просьба.
         """
         return self._start([])
 
@@ -165,10 +168,7 @@ class Bridge:
         return secrets.token_hex(4)
 
     def abandoned(self) -> bool:
-        """Снят ли заказ на идущий подъём: спрашивает это сам подъём.
-
-        Кладёт факт :func:`hass.stopping.stopping`, и там же названо, почему отдельным.
-        """
+        """Снят ли заказ на идущий подъём; факт кладёт :func:`hass.stopping.stopping`."""
         return self._orders.abandoned()
 
     def run(self) -> None:

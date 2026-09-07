@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import signal
-from typing import TYPE_CHECKING, Any
+import time
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -658,6 +659,37 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
         }
         for number, plan in enumerate(plans, start=1)
     ]
+
+
+def test_the_progressive_route_answers_with_the_finished_menu_once_the_circle_lands(
+    monkeypatch: pytest.MonkeyPatch, _english: None
+) -> None:
+    """🔴 TC-1126: полнота превью-маршрута не отличается от обычного - тот же круг внутри."""
+    import hass.search_progress as search_progress_module
+
+    search_progress_module._jobs.clear()
+    monkeypatch.setattr("hass.searching.OFFER", lambda results: results)
+    bridge = _bridge(FakePlaybackSession(), settings=lambda: _SEARCH_CONFIG)
+    plans = _real_search({"тачки": _CARS})(_SEARCH_CONFIG, Args(query=["тачки"]), Said())
+    taken = enter_take(plans, "тачки").number
+    wire_catalogue()
+    # Превью зовёт настоящий `search_circle` без `indexer=` (ровно как в бою) - клиента
+    # ему называет разводка круга, а не аргумент вызова.
+    monkeypatch.setattr(
+        "torrcast.usecases.discover._search_state._search_indexers",
+        lambda *_a, **_k: Indexer(answers={"тачки": _CARS}),
+    )
+
+    results, partial = bridge.search_progress("тачки")
+    deadline = time.monotonic() + 2.0
+    while partial and time.monotonic() < deadline:
+        results, partial = bridge.search_progress("тачки")
+
+    records = cast("list[dict[str, Any]]", results)
+    assert partial is False
+    assert [record["key"] for record in records] == [plan.picture.key for plan in plans]
+    assert sum(1 for record in records if record["default"]) == 1
+    assert [record["pick"] for record in records if record["default"]] == [taken]
 
 
 def test_a_search_refusal_carries_the_products_own_words(_russian_product: None) -> None:

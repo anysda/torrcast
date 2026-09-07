@@ -1,13 +1,10 @@
 """Семь маршрутов моста поверх стандартной библиотеки. Новой зависимости тут нет.
 
-Авторизации нет намеренно: продукт живёт в домашней сети и наружу не смотрит - ровно
-как раздача HLS, которую забирает телевизор. Всё, что мост умеет, лежит в
-:class:`hass.bridge.Bridge`; здесь только разбор запроса и коды ответа.
-
-Восьмой маршрут сюда не дописывается: страница в браузере объявляет свои маршруты
-таблицей (:func:`web.routes.routes`), и спрашивают её ПОСЛЕ этих семи, которые не
-меняются. Ответ ``None`` от :func:`web.answer_for.answer_for` значит «путь не её», и
-чужой путь получает тот же 404, что и до появления страницы.
+Авторизации нет намеренно: продукт живёт в домашней сети, как раздача HLS для телевизора. Всё, что
+мост умеет, лежит в :class:`hass.bridge.Bridge`, здесь только разбор запроса.
+Восьмой маршрут не заводится: страница объявляет маршруты сама (:func:`web.routes.routes`) и её
+спрашивают ПОСЛЕ этих семи. ``None`` от :func:`web.answer_for.answer_for` значит «не её путь» - тот
+же 404, что и раньше.
 """
 
 from __future__ import annotations
@@ -32,12 +29,10 @@ ANY_INTERFACE = "0.0.0.0"
 BODY_LIMIT = 64 * 1024
 STATE, PLAY, CONTROL, NEXT = "/api/state", "/api/play", "/api/control", "/api/next"
 SEARCH = "/api/search"
-#: Показ без запроса вовсе - то же самое, что пустой ``cast``. Отдельным маршрутом, а не
-#: пустым ``query`` у :data:`PLAY`: тому, кто просит показ ПО ЗАПРОСУ, пустой запрос
-#: по-прежнему брак, и отказ ``no_query`` за ним остаётся.
+#: Показ без запроса - тот же пустой ``cast``, отдельным маршрутом: пустой ``query`` у :data:`PLAY`
+#: остаётся отказом ``no_query``.
 RESUME = "/api/resume"
-#: Картинку играющей картины раздаёт САМ серв: Home Assistant за ней наружу не ходит,
-#: иначе её тянул бы клиент через сеть, где режут по SNI (:mod:`hass.posters`).
+#: Играющую картинку раздаёт серв сам: клиент наружу не ходит (SNI режет, :mod:`hass.posters`).
 POSTER = "/api/poster/"
 #: Команды пульта, которым число обязательно (``seekby`` - секунды со знаком).
 NEEDS_ARG = (SEEKBY, VOLUME)
@@ -81,11 +76,9 @@ class _Handler(BaseHTTPRequestHandler):
         self._answer(405, {"error": "method_not_allowed"})
 
     def do_DELETE(self) -> None:
-        """Чужой метод: удалять у моста нечего."""
         self.do_PUT()
 
     def do_PATCH(self) -> None:
-        """Чужой метод: править у моста нечего."""
         self.do_PUT()
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -100,6 +93,12 @@ class _Handler(BaseHTTPRequestHandler):
             query = body.get("query")
             if not isinstance(query, str) or not query.strip():
                 self._answer(400, {"error": "no_query"})
+                return
+            if body.get("progressive") is True:
+                # Опт-ин (TC-1126): страница читает ``X-Torrcast-Partial``, HA - нет.
+                results, partial = self.bridge.search_progress(query.strip())
+                headers = {"X-Torrcast-Partial": "1" if partial else "0"}
+                self._answer(200, {"results": results}, headers=headers)
                 return
             self._answer(200, {"results": self.bridge.search(query.strip())})
             return
@@ -150,10 +149,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(found.body)
 
     def _picture(self, name: str) -> None:
-        """Байты картинки, которую мост уже нашёл; чужое имя отвечает тем же 404.
-
-        Тела тут не собираются из имени и не читаются с диска по нему: имя приезжает
-        снаружи, а мост знает только те картинки, которые нашёл сам.
+        """Байты картинки, которую мост уже нашёл; чужое имя отвечает тем же 404 - тела не
+        собираются из имени и не читаются с диска, мост знает только найденные картинки.
         """
         found = self.bridge.poster(name)
         if found is None:
@@ -179,8 +176,10 @@ class _Handler(BaseHTTPRequestHandler):
             return None
         return parsed if isinstance(parsed, dict) else None
 
-    def _answer(self, code: int, body: dict[str, JsonValue] | None) -> None:
-        """Один ответ на запрос: 204 идёт без тела вовсе."""
+    def _answer(
+        self, code: int, body: dict[str, JsonValue] | None, *, headers: dict[str, str] | None = None
+    ) -> None:
+        """Один ответ на запрос: 204 идёт без тела вовсе; ``headers`` - для превью (TC-1126)."""
         self.send_response(code)
         if body is None:
             self.send_header("Content-Length", "0")
@@ -189,6 +188,8 @@ class _Handler(BaseHTTPRequestHandler):
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
 

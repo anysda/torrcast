@@ -46,6 +46,9 @@ class IndexerCircle:
         self.answered: set[str] = set()
         #: Опоздавшие: круг ушёл по опорным, а эти ещё в пути (TC-118).
         self._late: list[_Ask] = []
+        #: Все спрошенные обоих кругов этого поиска - только для :meth:`inflight`
+        #: (TC-1126): сам круг по нему не ждёт и не судит, кто молчун.
+        self._asked: list[_Ask] = []
 
     def begin(self) -> None:
         """Начать новый расклад: кругов у поиска бывает два, а счёт по ним общий.
@@ -56,6 +59,18 @@ class IndexerCircle:
         self.counts = {}
         self.spent = {}
         self.lost = []
+        self._asked = []
+
+    def inflight(self) -> list[RawResult]:
+        """Что уже ответило прямо сейчас, не дожидаясь конца круга (TC-1126).
+
+        Только превью: список читает флаг ``done`` каждого спрошенного, ничего не ждёт
+        и не трогает счёт молчунов - опорные (:func:`~torrcast.domain.wait_indexer.
+        wait_indexer`) как ждались, так и ждутся этим же :meth:`run`.
+        """
+        return [
+            row for ask in list(self._asked) if ask.done.is_set() and ask.rows for row in ask.rows
+        ]
 
     def waiting(self) -> tuple[str, ...]:
         """Имена тех, кто ещё в пути: круг их не дождался, а долив может."""
@@ -88,6 +103,7 @@ class IndexerCircle:
         Возвращает выдачи и причину последней потери - она понадобится, если смолчат все.
         """
         asked = [self._spawn(query, limit, num, name, cap) for num, name in pairs]
+        self._asked.extend(asked)
         core = [ask for ask in asked if wait_indexer(ask.name)] or asked
         for ask in core:
             ask.done.wait(ask.budget + self.slack)

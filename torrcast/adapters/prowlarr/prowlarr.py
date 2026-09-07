@@ -58,6 +58,10 @@ class Prowlarr(_State):
         """Выдача опоздавших: круг ушёл по опорным, а эти доехали уже потом (TC-118)."""
         return self._circle.late(wait)
 
+    def inflight(self) -> list[RawResult]:
+        """Превью прямо сейчас, не дожидаясь конца круга (TC-1126)."""
+        return self._circle.inflight()
+
     def waiting(self) -> tuple[str, ...]:
         """Имена тех, кто ещё в пути: их части каталога в этой выдаче нет (TC-118).
 

@@ -24,6 +24,8 @@ class _Bridge:
         self.extras: list[dict[str, Any]] = []
         self.searched: list[str] = []
         self.results: list[dict[str, Any]] = []
+        self.progressed: list[str] = []
+        self.progress_partial = False
         self.controlled: list[tuple[str, float]] = []
         self.nexted = 0
         self.resumed = 0
@@ -39,6 +41,12 @@ class _Bridge:
             raise RefusedError(self.refuse)
         self.searched.append(query)
         return self.results
+
+    def search_progress(self, query: str) -> tuple[list[dict[str, Any]], bool]:
+        if self.refuse:
+            raise RefusedError(self.refuse)
+        self.progressed.append(query)
+        return self.results, self.progress_partial
 
     def play(
         self,
@@ -203,6 +211,49 @@ def test_a_search_refusal_becomes_409_with_the_products_own_word(
 
     assert code == 409
     assert json.loads(body) == {"error": bridge.refuse}
+
+
+def test_a_progressive_search_carries_the_partial_header(address: str, bridge: _Bridge) -> None:
+    """🔴 TC-1126: опт-ин ``progressive`` идёт мимо обычного маршрута, а без него
+    поведение старое - ни заголовка, ни отдельного счёта заходов."""
+    bridge.results = [{"pick": 1, "key": "movie:тачки:2006", "title": "Тачки"}]
+    bridge.progress_partial = True
+    body = json.dumps({"query": "тачки", "progressive": True}).encode()
+
+    request = urllib.request.Request(
+        f"{address}/api/search",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=5) as answer:
+        code = answer.status
+        said = json.loads(answer.read().decode("utf-8"))
+        partial = answer.headers.get("X-Torrcast-Partial")
+
+    assert code == 200
+    assert said == {"results": bridge.results}
+    assert partial == "1"
+    assert bridge.progressed == ["тачки"]
+    assert bridge.searched == [], "обычный поиск прогрессивный опрос не звал"
+
+
+def test_a_finished_progressive_search_carries_the_partial_false_header(
+    address: str, bridge: _Bridge
+) -> None:
+    bridge.progress_partial = False
+    body = json.dumps({"query": "тачки", "progressive": True}).encode()
+
+    request = urllib.request.Request(
+        f"{address}/api/search",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=5) as answer:
+        partial = answer.headers.get("X-Torrcast-Partial")
+
+    assert partial == "0"
 
 
 def test_play_carries_the_pick_from_search_into_the_show(address: str, bridge: _Bridge) -> None:

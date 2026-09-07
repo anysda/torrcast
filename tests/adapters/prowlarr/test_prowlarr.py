@@ -670,6 +670,19 @@ def test_круг_уходит_по_кворуму_не_дожидаясь_ос�
         client.late(wait=5.0)
 
 
+def test_inflight_показывает_опорных_раньше_опоздавшего() -> None:
+    """🔴 TC-1126: превью моста (`hass.search_progress`) читает ровно это - клиент,
+    пойманный на сборке (``on_indexer`` у `search_circle`), отдаёт то, что уже ответило,
+    пока опоздавший индексер ещё не отпущен."""
+    client = _swarm(rows=2, hold={3})
+    try:
+        client.search("Naruto [TV]")
+        assert len(client.inflight()) == 4  # Knaben и RuTor, Nyaa ещё держат
+    finally:
+        _swarm_of(client).gate.set()
+        client.late(wait=5.0)
+
+
 def test_опоздавший_доливается_после_круга_а_не_теряется() -> None:
     """Выдача опоздавшего не выбрасывается: она забирается :meth:`Prowlarr.late` уже
     после того, как список показан. Пока индексер в пути, долив пуст - ждать его на
