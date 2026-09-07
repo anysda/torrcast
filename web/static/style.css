@@ -173,7 +173,14 @@ body {
                  margin-bottom: var(--tc-gap); }
 .tc-shelf-arrows { font-weight: 900; font-size: 2.125rem; letter-spacing: .3em;
                    color: var(--tc-muted-dim); }
-.tc-row { display: flex; gap: var(--tc-gap); overflow-x: hidden; scroll-behavior: smooth; }
+/* Полка едет вбок сама: тонкая полоса прокрутки - единственное, чем мышь вообще
+   способна добраться до плиток, не влезших в окно. Стрелки пульта её не замечают:
+   `scrollIntoView` двигает ту же полку тем же способом. */
+.tc-row { display: flex; gap: var(--tc-gap); overflow-x: auto; scroll-behavior: smooth;
+          scrollbar-width: thin; scrollbar-color: var(--tc-hair) transparent; }
+.tc-row::-webkit-scrollbar { height: .5rem; }
+.tc-row::-webkit-scrollbar-track { background: transparent; }
+.tc-row::-webkit-scrollbar-thumb { background: var(--tc-hair); }
 .tc-row > * { flex: 0 0 var(--tc-tile-rest); width: var(--tc-tile-rest); }
 .tc-row--focused > * { flex-basis: var(--tc-tile-focus); width: var(--tc-tile-focus); }
 .tc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--tc-gap); }
@@ -279,7 +286,10 @@ body {
 /* --- Карточка: подложка и раскладка (4.3/4.4) ----------------------------- */
 /* Оттенок подложки берёт тот же приём, что и заглушка плитки: своя переменная
    --tc-hue на элементе, а не вторая система цвета для одного и того же постера. */
-.tc-detail { position: relative; min-height: 100vh; background: var(--tc-bg); overflow: hidden; }
+/* Экран картины растёт вниз вместе со своим содержимым, а не обрезается по краю окна:
+   пока кадр стоял вплотную к окну (`inset: 0`), всё, что не влезло, было недостижимо
+   ничем - ни колесом, ни клавишей. Подложка и рябь по-прежнему кроются по кадру. */
+.tc-detail { position: relative; min-height: 100vh; background: var(--tc-bg); overflow: clip; }
 .tc-detail-blur { position: absolute; inset: -12%; filter: blur(5.625rem); opacity: .5;
                   background: linear-gradient(155deg,
                     oklch(.5 .17 var(--tc-hue, 20)) 0%,
@@ -287,10 +297,12 @@ body {
 .tc-detail-shade { position: absolute; inset: 0;
                    background: linear-gradient(90deg, rgba(11, 11, 11, .94) 0%,
                      rgba(11, 11, 11, .68) 100%); }
-.tc-detail-frame { position: absolute; inset: 0; padding: var(--tc-safe-y) var(--tc-safe-x);
+.tc-detail-frame { position: relative; min-height: 100vh; padding: var(--tc-safe-y) var(--tc-safe-x);
                    box-sizing: border-box; display: flex; flex-direction: column; }
 .tc-detail-top { display: flex; justify-content: space-between; margin-bottom: 2.125rem; }
-.tc-detail-body { display: flex; gap: 4rem; flex: 1; min-height: 0; }
+/* Растянуться по окну - да, сжаться ниже своего содержимого - нет: сжатие как раз и
+   прятало низ карточки за краем окна. */
+.tc-detail-body { display: flex; gap: 4rem; flex: 1 0 auto; min-height: 0; }
 .tc-detail-poster { width: 26.875rem; flex-shrink: 0; }
 .tc-detail-poster--show { width: 23.75rem; }
 .tc-detail-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
