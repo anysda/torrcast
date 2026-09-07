@@ -221,75 +221,22 @@ const TCPlayer = {
   },
   // ------------------------------------------------------------------ экраны
 
+  //: Три состояния оверлея рисует `player-screens.js` - тут только зовём его нужным
+  //: экраном, разметка и текст лежат там.
   _clearOverlay() {
-    if (TCPlayer._overlay) TCPlayer._overlay.replaceChildren();
+    TCPlayerScreens.clear(TCPlayer._overlay);
   },
 
-  //: Ящик ещё пуст. Продукт не отдаёт наружу оценку старта (``start_budget``,
-  //: ``start_clock``) - это честный пробел, названный в отчёте, а не «Preparing…20 s»
-  //: из воздуха: тут только слово, без числа и без имени источника.
   _screenPreparing() {
-    const screen = document.createElement('div');
-    screen.className = 'tc-preparing';
-    for (const corner of ['tl', 'tr', 'bl', 'br']) {
-      const bracket = document.createElement('div');
-      bracket.className = 'tc-bracket tc-bracket--' + corner;
-      screen.appendChild(bracket);
-    }
-    const body = document.createElement('div');
-    body.className = 'tc-preparing-body';
-    const title = document.createElement('div');
-    title.className = 'tc-preparing-title';
-    title.textContent = TC.say('web.player.preparing');
-    const bar = document.createElement('div');
-    bar.className = 'tc-preparing-bar is-indeterminate';
-    bar.appendChild(document.createElement('i'));
-    body.append(title, bar);
-    screen.appendChild(body);
-    TCPlayer._overlay.replaceChildren(screen);
+    TCPlayerScreens.preparing(TCPlayer._overlay);
   },
 
   _screenBuffering() {
-    const screen = document.createElement('div');
-    screen.className = 'tc-buffering-screen';
-    const spinner = document.createElement('div');
-    spinner.className = 'tc-spinner';
-    const label = document.createElement('div');
-    label.className = 'tc-buffering';
-    label.textContent = TC.say('web.player.buffering');
-    screen.append(spinner, label);
-    TCPlayer._overlay.replaceChildren(screen);
+    TCPlayerScreens.buffering(TCPlayer._overlay);
   },
 
   _screenLost(code) {
-    const screen = document.createElement('div');
-    screen.className = 'tc-lost';
-    const title = document.createElement('div');
-    title.className = 'tc-lost-title';
-    const said = TC.say('web.player.lost');
-    title.textContent = said;
-    for (let i = 0; i < 2; i += 1) {
-      const span = document.createElement('span');
-      span.textContent = said;
-      title.appendChild(span);
-    }
-    const note = document.createElement('div');
-    note.className = 'tc-lost-code';
-    note.textContent = TC.say('web.player.lost_code', { code });
-    const actions = document.createElement('div');
-    actions.className = 'tc-lost-actions';
-    const retry = document.createElement('button');
-    retry.type = 'button';
-    retry.className = 'tc-btn tc-btn--primary';
-    retry.textContent = TC.say('web.player.retry');
-    retry.tabIndex = 0;
-    retry.dataset.tcFocusable = '1';
-    retry.dataset.tcGroup = 'lost';
-    retry.addEventListener('click', TCPlayer._retry);
-    actions.appendChild(retry);
-    screen.append(title, note, actions);
-    TCPlayer._overlay.replaceChildren(screen);
-    retry.focus();
+    TCPlayerScreens.lost(TCPlayer._overlay, code, TCPlayer._retry);
   },
 
   // ------------------------------------------------------------------ фокус и клавиши
