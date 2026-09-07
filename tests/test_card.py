@@ -346,3 +346,69 @@ class _ReadyFacts:
 class _Fact:
     rating: str = "IMDb 8.5"
     about: str = "Сюжет"
+
+
+_RUSSIAN = Picture(title="Целиком и полностью", year=2022, kind="movie", original="Bones and All")
+_RUSSIAN_RELEASE = Release(
+    raw_name="Bones and All 2022 BDRip 1080p", title="Bones and All", quality="1080p", seeders=20
+)
+_RUSSIAN.releases = [_RUSSIAN_RELEASE]
+_RUSSIAN_PLAN = Plan(picture=_RUSSIAN, ranked=[_RUSSIAN_RELEASE], runtime=7980.0, warn_mbit=12.0)
+
+_NAMESAKE = Picture(
+    title="Энтони Джесельник: Целиком и полностью",
+    year=2024,
+    kind="movie",
+    original="Anthony Jeselnik: Bones and All",
+)
+_NAMESAKE.releases = [_RUSSIAN_RELEASE]
+_NAMESAKE_PLAN = Plan(picture=_NAMESAKE, ranked=[_RUSSIAN_RELEASE], runtime=3600.0, warn_mbit=12.0)
+
+
+def test_a_shelf_key_named_in_the_original_opens_the_same_picture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Плитка полки зовёт картину именем раздачи, круг - прокатным: ключи расходятся.
+
+    До этого всякая плитка «Новинок» и «Популярного» открывала пустую карточку: ключ
+    ленты не совпадал ни с одним ключом круга, и ответом был 404 (замер на стенде
+    `.104` 07-09-2026).
+    """
+    _wired(monkeypatch, [_RUSSIAN_PLAN])
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked("movie:bones-and-all:2022", query="Bones and All")
+
+    assert code == 200
+    assert body["title"] == "Целиком и полностью"
+    assert body["original"] == "Bones and All"
+
+
+def test_a_namesake_in_another_year_is_not_taken_for_the_asked_picture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Второй ключ собран правилом :attr:`Picture.key`, а не поиском имени в строке."""
+    _wired(monkeypatch, [_NAMESAKE_PLAN])
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked("movie:bones-and-all:2022", query="Bones and All")
+
+    assert code == 404
+    assert body == {"error": "not_found"}
+
+
+def test_the_card_carries_its_own_number_in_the_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Номер картины в круге - то, чем «Играть» просит показ ИМЕННО ЭТУ картину.
+
+    Без него показ брал бы главную по запросу, и карточка второй находки запускала
+    первую (ТЗ §4.3).
+    """
+    _wired(monkeypatch, [_NAMESAKE_PLAN, _RUSSIAN_PLAN])
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked("movie:bones-and-all:2022", query="Bones and All")
+
+    assert code == 200
+    assert body["pick"] == 2

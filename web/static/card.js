@@ -407,6 +407,11 @@ const TCCard = {
     const picked = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
     TCApi.play({
       query: query || data.title || data.original || key,
+      // 🔴 Номер картины В КРУГЕ обязателен: без него показ брал бы ту, которую круг
+      // считает главной по запросу, а не ту, которую человек открыл. Карточка второй
+      // находки запускала первую, и виднее всего это на полке - плитка «Bones and All»
+      // зовётся запросом, у которого в круге две картины (замер `.104` 07-09-2026).
+      pick: data.pick || undefined,
       voice: picked,
       from_start: fromStart,
       season,

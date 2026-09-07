@@ -29,6 +29,7 @@ from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
+from web.card_lookup import card_lookup
 from web.episode_lookup import EpisodeLookup
 from web.rating_score import rating_score
 from web.refusal import refusal
@@ -59,13 +60,13 @@ def card(request: Request) -> Answer:
         plans = search_circle(tune(config, chosen.profile), args, progress(), chosen.profile)
     except TorrcastError as failed:
         return refusal(409, str(failed))
-    plan = next((p for p in plans if p.picture.key == key), None)
+    plan, pick = card_lookup(plans, key)
     if plan is None:
         return refusal(404, "not_found")
-    return _answer(plan, config)
+    return _answer(plan, config, pick)
 
 
-def _answer(plan: Plan, config: Config) -> Answer:
+def _answer(plan: Plan, config: Config, pick: int) -> Answer:
     """Тело ответа плюс заголовок недоехавшей части: справка или список серий."""
     picture = plan.picture
     entry = store().load().get(picture.key)
@@ -75,6 +76,9 @@ def _answer(plan: Plan, config: Config) -> Answer:
     seasons, seasons_partial = _seasons(plan, entry, config.torrserver_url)
     related = _related.of(picture.title, picture.kind == "tv")
     body: dict[str, JsonValue] = {
+        # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
+        # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
+        "pick": pick,
         "title": picture.title,
         "original": picture.original or None,
         "year": picture.year,
