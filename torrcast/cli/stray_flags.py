@@ -28,14 +28,16 @@ _FLAG: Final[Mapping[str, str]] = {
     "since": "--since",
     "play_key": "--play-key",
     "upgrade": "--upgrade",
+    "here": "--here",
 }
 
 #: Что читает сам показ. ``language`` тут потому, что язык рядом с работой запоминает
 #: точка входа (:func:`torrcast.cli.main.main`): для человека флаг понят и работы не
 #: отменяет. ``telegram``, ``upgrade`` и ``play_key`` показом не бывают вовсе - каждый
 #: уводит разбор в свою команду (:attr:`Args.command`), - и в ответе они не появятся.
+#: ``here`` - приёмник ЭТОГО запуска, его читает тот же показ, что и ``dry``.
 _READ_BY_PLAY: Final = frozenset(
-    {"language", "release", "pick", "menu", "file", "voice", "from_start", "dry"}
+    {"language", "release", "pick", "menu", "file", "voice", "from_start", "dry", "here"}
 )
 
 #: Умолчание поля и есть «флаг не назван»: у всех до одного оно ``None`` или ``False``.

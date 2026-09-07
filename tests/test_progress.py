@@ -116,7 +116,7 @@ def test_resume_is_silent_and_starts_from_the_saved_position(
         asked.append(prompt)
         return ""
 
-    composition.use_start_unit(monkeypatch, started.append)
+    composition.use_start_unit(monkeypatch, lambda key, here=False: started.append(key))
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )
@@ -137,7 +137,7 @@ def test_new_keeps_the_release_but_drops_the_position(
 ) -> None:
     """``--new`` - та же раздача и дорожка, позиция ноль."""
     remember(pos=2467.0, dur=5978.0, audio=1)
-    composition.use_start_unit(monkeypatch, lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key, here=False: None)
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )
@@ -170,7 +170,7 @@ def test_new_restarts_the_recorded_episode_not_the_series(
         ),
     )
     state.save()
-    composition.use_start_unit(monkeypatch, lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key, here=False: None)
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )
@@ -205,7 +205,7 @@ def test_new_jumps_to_the_named_episode_in_the_saved_release(
         ),
     )
     state.save()
-    composition.use_start_unit(monkeypatch, lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key, here=False: None)
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )
@@ -233,7 +233,7 @@ def test_watched_movie_restarts_without_a_question(
         asked.append(prompt)
         return ""
 
-    composition.use_start_unit(monkeypatch, started.append)
+    composition.use_start_unit(monkeypatch, lambda key, here=False: started.append(key))
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )
@@ -260,7 +260,9 @@ def test_dry_resume_does_not_touch_the_unit(
 ) -> None:
     remember(pos=2467.0, dur=5978.0)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
-    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("--dry юнитов не поднимает"))
+    composition.use_start_unit(
+        monkeypatch, lambda key, here=False: pytest.fail("--dry юнитов не поднимает")
+    )
 
     assert main(["моана", "2", "--dry"]) == 0
     assert "not casting" in capsys.readouterr().out
@@ -521,7 +523,7 @@ def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
     torrents = _Torrents()
     composition.use_engines(monkeypatch, torrents)
     show_unit.alive = False
-    composition.use_start_unit(monkeypatch, lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key, here=False: None)
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )

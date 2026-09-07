@@ -42,13 +42,26 @@ class _Shown:
         self.asked: list[str] = []
 
     def launch(
-        self, config: Config, key: str, saved: Entry, about: str, clock: _Clock, dry: bool = False
+        self,
+        config: Config,
+        key: str,
+        saved: Entry,
+        about: str,
+        clock: _Clock,
+        dry: bool = False,
+        here: bool = False,
     ) -> int:
         self.launched.append((saved.label, about))
         return EXIT_OK
 
     def resume(
-        self, config: Config, key: str, saved: Entry, clock: _Clock, dry: bool = False
+        self,
+        config: Config,
+        key: str,
+        saved: Entry,
+        clock: _Clock,
+        dry: bool = False,
+        here: bool = False,
     ) -> int:
         self.resumed.append(saved.title)
         return EXIT_OK

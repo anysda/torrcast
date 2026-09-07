@@ -8,13 +8,13 @@ from hass.play_extras import play_extras
 def test_an_old_call_without_any_new_field_asks_for_nothing_extra() -> None:
     extras = play_extras({"query": "интерстеллар"})
 
-    assert extras == {"from_start": False}
+    assert extras == {"from_start": False, "here": False}
 
 
 def test_a_named_voice_travels_through() -> None:
     extras = play_extras({"query": "q", "voice": "LostFilm"})
 
-    assert extras == {"from_start": False, "voice": "LostFilm"}
+    assert extras == {"from_start": False, "voice": "LostFilm", "here": False}
 
 
 def test_a_non_string_voice_is_refused() -> None:
@@ -24,7 +24,7 @@ def test_a_non_string_voice_is_refused() -> None:
 def test_season_and_episode_travel_through_together() -> None:
     extras = play_extras({"season": 1, "episode": 4})
 
-    assert extras == {"from_start": False, "season": 1, "episode": 4}
+    assert extras == {"from_start": False, "season": 1, "episode": 4, "here": False}
 
 
 def test_a_season_without_an_episode_is_refused() -> None:
@@ -46,7 +46,7 @@ def test_a_boolean_episode_is_refused_even_though_it_is_an_int_in_python() -> No
 def test_from_start_travels_through() -> None:
     extras = play_extras({"from_start": True})
 
-    assert extras == {"from_start": True}
+    assert extras == {"from_start": True, "here": False}
 
 
 def test_a_non_boolean_from_start_is_refused() -> None:
@@ -56,4 +56,10 @@ def test_a_non_boolean_from_start_is_refused() -> None:
 def test_the_result_carries_every_field_the_card_sent() -> None:
     extras = play_extras({"voice": "LostFilm", "season": 1, "episode": 2})
 
-    assert extras == {"from_start": False, "voice": "LostFilm", "season": 1, "episode": 2}
+    assert extras == {
+        "from_start": False,
+        "voice": "LostFilm",
+        "season": 1,
+        "episode": 2,
+        "here": False,
+    }

@@ -94,7 +94,7 @@ def _no_questions(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _no_unit(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     started: list[str] = []
-    composition.use_start_unit(monkeypatch, lambda key: started.append(key))
+    composition.use_start_unit(monkeypatch, lambda key, here=False: started.append(key))
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )
@@ -413,7 +413,7 @@ def test_an_episode_outside_the_release_goes_looking_for_it(
     цепочка идёт искать релиз нужного сезона (тут упирается в ненастроенный Prowlarr).
     """
     remember(episode=1, pos=600.0, dur=MINUTES_24)
-    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("играть нечего"))
+    composition.use_start_unit(monkeypatch, lambda key, here=False: pytest.fail("играть нечего"))
 
     assert main(["киберпанк", "s2e5"]) == 2
 

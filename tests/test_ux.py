@@ -78,7 +78,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     composition.use_prober(
         monkeypatch, lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080)
     )
-    composition.use_start_unit(monkeypatch, lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key, here=False: None)
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )
@@ -938,7 +938,7 @@ def test_a_pick_outside_the_menu_is_an_honest_error(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Номер, которого нет в меню, - ошибка вслух, а не молчаливый первый пункт."""
-    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("не кастим"))
+    composition.use_start_unit(monkeypatch, lambda key, here=False: pytest.fail("не кастим"))
     _answers(monkeypatch)
 
     assert main(["моана", "--pick", "7"]) == 1
@@ -1461,7 +1461,7 @@ def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPat
             return f"hash-{magnet[:30]}"
 
     composition.use_engines(monkeypatch, _Slow)
-    composition.use_start_unit(monkeypatch, lambda key: started.append(key))
+    composition.use_start_unit(monkeypatch, lambda key, here=False: started.append(key))
     _answers(monkeypatch, "")
 
     assert main(["моана", "2"]) == 0

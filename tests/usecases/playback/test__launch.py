@@ -268,7 +268,7 @@ def test_a_relaunch_does_not_carry_a_past_sessions_frame_into_the_new_one(
     """
     composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
     monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
-    monkeypatch.setattr(_show_state, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: None)
     composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
 
     key = "movie:кино"
@@ -293,7 +293,7 @@ def test_a_raise_the_person_called_off_never_reaches_the_unit(
     composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
     monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
     raised: list[str] = []
-    monkeypatch.setattr(_show_state, "start_play_unit", raised.append)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: raised.append(key))
     composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
     abandon_slot.install(lambda: True)
 

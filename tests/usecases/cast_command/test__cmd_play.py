@@ -290,7 +290,7 @@ def test_a_series_recognised_by_the_files_of_the_release_reaches_the_bookmark(
     composition.use_facts(monkeypatch, _Facts)
     composition.use_engines(monkeypatch, lambda url, timeout=30.0: object())
     started: list[str] = []
-    composition.use_start_unit(monkeypatch, started.append)
+    composition.use_start_unit(monkeypatch, lambda key, here=False: started.append(key))
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
     )
