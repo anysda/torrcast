@@ -322,12 +322,13 @@ const TCCard = {
     return episode && episode.pos ? TCTime.clock(episode.pos) : null;
   },
 
-  // Отмеченной строкой список отвечает только на СВОЙ выбор зрителя за эту сессию.
-  // Подсветить первую попавшуюся значило бы соврать: показ выбирает раздачу своим
-  // поиском, и дорожка у неё выйдет та, какую он нашёл, а не та, что подсвечена.
+  // Отмечена та, что выбрал бы продукт (`default` от карточки), пока зритель не назвал
+  // свою. Это ПОДСКАЗКА, а не заказ: в запуск она не уходит - показ ищет раздачу заново
+  // и берёт дорожку той, которую нашёл (см. `_play`).
   _chosenVoice(voices) {
     const kept = sessionStorage.getItem(TCCard._voiceKey);
-    return kept ? voices.find((v) => v.name === kept) || null : null;
+    const mine = kept ? voices.find((v) => v.name === kept) : null;
+    return mine || voices.find((v) => v.default) || null;
   },
 
   _audio(voices, chosen) {
