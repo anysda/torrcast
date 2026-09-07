@@ -21,6 +21,7 @@ class _PlayExtras(TypedDict, total=False):
     season: int
     episode: int
     from_start: bool
+    here: bool
 
 
 def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
@@ -36,7 +37,13 @@ def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
     from_start = body.get("from_start", False)
     if not isinstance(from_start, bool):
         return "bad_from_start"
-    extras: _PlayExtras = {"from_start": from_start}
+    # «here» - своя вкладка страницы просит показ себе (TC: «каста в браузер нет»), а не
+    # на ``config.tv``. Молчание поля - это Home Assistant и бот, у них его не бывает
+    # вовсе, и показ идёт на телевизор, как играл всегда.
+    here = body.get("here", False)
+    if not isinstance(here, bool):
+        return "bad_here"
+    extras: _PlayExtras = {"from_start": from_start, "here": here}
     if voice:
         extras["voice"] = voice
     if isinstance(season, int) and isinstance(episode, int):

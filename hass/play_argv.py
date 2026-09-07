@@ -19,8 +19,9 @@ def play_argv(
     season: int | None,
     episode: int | None,
     from_start: bool,
+    here: bool = False,
 ) -> list[str]:
-    """``argv``, каким CLI уже читает ``--pick``, серию, ``--voice`` и ``--new``."""
+    """``argv``, каким CLI уже читает ``--pick``, серию, ``--voice``, ``--new`` и ``--here``."""
     # 🔴 Серия идёт СРАЗУ за запросом, до любого флага, и это не про красоту. Запрос у
     # CLI - позиционный довод из многих слов (``nargs="*"``); argparse забирает их до
     # первого флага, а всё позиционное ПОСЛЕ него объявляет лишним: `--pick 2 s1e2` даёт
@@ -34,4 +35,6 @@ def play_argv(
         args += ["--voice", str(voice)]
     if from_start:
         args.append(FROM_START_FLAG)
+    if here:
+        args.append("--here")
     return args

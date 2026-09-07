@@ -7,6 +7,7 @@ from __future__ import annotations
 import contextlib
 import signal
 from collections.abc import Callable
+from dataclasses import replace
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
@@ -51,11 +52,18 @@ def _configure_worker(
     _worker_detect = detect
 
 
-def _cmd_worker(key: str, *, play: Callable[..., int] = _play) -> int:
+def _cmd_worker(key: str, here: bool = False, *, play: Callable[..., int] = _play) -> int:
     """Показ внутри transient-юнита: своей раздачей, своей упаковкой и своим сторожем.
 
     Руками не зовётся — это ``ExecStart`` юнита ``torrcast-play``. Всё, что нужно знать о
     показе, лежит в записи состояния: magnet, файл, дорожка и позиция.
+
+    ``here`` - решение ОДНОГО запуска, а не настройки машины: страница попросила «играй
+    у меня» ключом ``--here`` (:mod:`torrcast.cli.parse_args`), приехавшим той же дорогой,
+    что и ``--play-key``, - через командную строку юнита. Боевой ``config.receiver``
+    (``chromecast``) при этом не читается и не пишется вовсе: приёмник этого запуска
+    решает запрос, а не файл настроек, - иначе одной строкой в ``config.json`` пришлось
+    бы платить за то, что человек однажды посмотрел показ во вкладке.
 
     Сериал юнит доигрывает сам: серия дошла до конца — сторож записал в
     состояние следующую, и цикл берёт её же раздачу и следующий файл, не спрашивая CLI.
@@ -91,6 +99,11 @@ def _cmd_worker(key: str, *, play: Callable[..., int] = _play) -> int:
     """
     journal().mark("процесс показа")
     config = _worker_configs()
+    if here:
+        # Запрос играет у себя - вкладка становится приёмником ЭТОГО запуска, а
+        # настройка машины остаётся прежней (``chromecast``): следующий ``cast`` без
+        # ``--here`` снова пойдёт на ТВ, как будто вкладки не бывало.
+        config = replace(config, receiver="browser")
     # Профиль приёмника юнит выбирает себе сам, а не получает от CLI: юнит переживает
     # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
     chosen = _worker_detect(config)

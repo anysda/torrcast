@@ -68,7 +68,7 @@ def _continue(
             entry = _voiced(config, entry, args, own)
             if _buried(config, entry, args, own, dead):
                 return None  # записанная раздача больше не играется - ищем другую
-            code = resume(config, key, entry, clock=clock, dry=args.dry)
+            code = resume(config, key, entry, clock=clock, dry=args.dry, here=args.here)
             own.handed = not args.dry  # показ пошёл и раздача та же - дальше она его
             return code
         entry = _voiced(config, entry, args, own)
@@ -83,7 +83,7 @@ def _continue(
             entry = entry.jump(first[0], first[1]) or entry
         if _buried(config, entry, args, own, dead):
             return None  # записанная раздача больше не играется - ищем другую
-        code = launch(config, key, entry, _about(entry), clock, args.dry)
+        code = launch(config, key, entry, _about(entry), clock, args.dry, args.here)
         own.handed = not args.dry
         return code
     finally:

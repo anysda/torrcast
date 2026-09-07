@@ -49,8 +49,9 @@ class ShowEnvironment:
     #: Настоящее место старта (TC-1010): куда показ сел на самом деле, и как это узнать.
     mark_landed: Callable[[Path, float], None]
     read_landed: Callable[[Path, float], float]
-    #: Подъём юнита показа и карта опорных кадров файла.
-    start_unit: Callable[[str], None]
+    #: Подъём юнита показа и карта опорных кадров файла. Второй довод - ``here``: этот
+    #: запуск играет у того, кто попросил показ, а не на ``Config.tv``.
+    start_unit: Callable[[str, bool], None]
     #: Медиатракт: сетка сегментов, раздача по http и оба кодировщика.
     grid: MediaGrids
     server: StreamServers

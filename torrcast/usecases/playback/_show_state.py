@@ -44,7 +44,7 @@ forget_playing: Callable[[Path], None]
 #: канала между двумя процессами нет.
 mark_landed: Callable[[Path, float], None]
 read_landed: Callable[[Path, float], float]
-start_play_unit: Callable[[str], None]
+start_play_unit: Callable[[str, bool], None]
 grid_for: MediaGrids
 #: Раздача по http (:class:`torrcast.adapters.http_server.hls_server.HlsServer`), оба
 #: кодировщика (:class:`torrcast.adapters.recode.encode.Encode`,

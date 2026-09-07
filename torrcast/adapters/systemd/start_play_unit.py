@@ -12,7 +12,9 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.unit_naming import _PASS_ENV, _UNIT_NAME, _UNIT_TAG
 
 
-def start_play_unit(key: str, unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd) -> None:
+def start_play_unit(
+    key: str, here: bool = False, unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd
+) -> None:
     """Запустить показ в transient-юните: ``cast`` завершился — показ продолжается,
     логи бесплатно в journald. Переменные окружения проброшены, иначе юнит возьмёт
     прод-пути конфига и состояния вместо dev-овских.
@@ -22,6 +24,10 @@ def start_play_unit(key: str, unit: str = _UNIT_NAME, *, call: SystemdCall = _sy
     (``tests/runtime/test___main__.py``) - пока пакет команд был одним модулем, тут
     стояло ``-m torrcast.cli``, и после разворота в пакет каст падал строкой «No module
     named torrcast.cli.__main__», которую ни один сухой тест не видел.
+
+    ``here`` - этот запуск играет у того, кто попросил показ, а не на ``Config.tv``:
+    юниту это уходит своим ключом командной строки (``--here``), а не файлом настроек,
+    который остаётся прежним для следующего показа.
 
     ``call`` - чем звать systemd; боевое умолчание одно и то же у всех команд юнита
     (:data:`~torrcast.adapters.systemd._systemd_call.SystemdCall`). Погашение прошлого
@@ -35,6 +41,7 @@ def start_play_unit(key: str, unit: str = _UNIT_NAME, *, call: SystemdCall = _sy
         "systemd-run", f"--unit={unit}", "--collect", "--quiet",
         f"--description={_UNIT_TAG}{key}", *env,
         sys.executable, "-m", "torrcast.runtime", "--play-key", key,
+        *(["--here"] if here else []),
     )  # fmt: skip
     if done.returncode != 0:
         detail = done.stderr.strip()[:120] or "systemd-run"

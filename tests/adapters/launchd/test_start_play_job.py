@@ -126,7 +126,7 @@ def test_the_log_of_the_previous_show_does_not_speak_for_the_new_one(files: Path
 
 def test_a_probe_can_raise_its_own_long_command(files: Path) -> None:
     """Щуп поднимает свою долгую команду под своей меткой, а не чужой показ."""
-    start_play_job("ключ", "torrcast.проба", call=_answers([]), program=["/bin/sleep", "600"])
+    start_play_job("ключ", unit="torrcast.проба", call=_answers([]), program=["/bin/sleep", "600"])
 
     plist = dict(plistlib.loads((files / "torrcast.проба.plist").read_bytes()))
     assert plist["Label"] == "torrcast.проба"

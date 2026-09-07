@@ -101,8 +101,7 @@ class Bridge:
 
         Весь шаг - у :func:`hass.searching.searching`: профиль приёмника, круг поиска,
         память показанного порядка под ``--pick N`` и поле ``default`` у той записи,
-        которую включил бы голый :meth:`play` без номера.
-        """
+        которую включил бы голый :meth:`play` без номера."""
         return searching(self._settings(), query, self._search, self._detect, self._remember)
 
     def play(
@@ -114,9 +113,10 @@ class Bridge:
         season: int | None = None,
         episode: int | None = None,
         from_start: bool = False,
+        here: bool = False,
     ) -> str:
-        """``POST /api/play``: поднять показ; ``argv`` собирает :func:`play_argv`."""
-        return self._start(play_argv(query, pick, voice, season, episode, from_start))
+        """``POST /api/play``: argv собирает :func:`play_argv`. ``here`` - показ у просившего."""
+        return self._start(play_argv(query, pick, voice, season, episode, from_start, here))
 
     def resume(self) -> str:
         """``POST /api/resume``: поднять показ ровно так, как это делает пустой ``cast``.

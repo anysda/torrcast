@@ -119,6 +119,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         "--since", metavar=phrase("cli.metavar_since"), help=phrase("cli.help_since")
     )
     parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
+    parser.add_argument("--here", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--upgrade",
         action="store_true",

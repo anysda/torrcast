@@ -11,6 +11,6 @@ from torrcast.domain.args import Args
 from torrcast.usecases.worker import _cmd_worker
 
 
-def worker(args: Args, command: Callable[[str], int] = _cmd_worker) -> int:
+def worker(args: Args, command: Callable[[str, bool], int] = _cmd_worker) -> int:
     """``cast --play-key KEY`` — своя раздача, свой приёмник и своя уборка на выходе."""
-    return command(str(args.play_key))
+    return command(str(args.play_key), args.here)

@@ -22,22 +22,22 @@ def test_every_slot_of_the_show_is_filled_by_the_composition_root() -> None:
 
 def test_the_word_of_the_composition_reaches_the_slot(monkeypatch: pytest.MonkeyPatch) -> None:
     """Слот берёт то, что положил корень, и берёт это КАЖДЫЙ раз, а не на импорте."""
-    started: list[str] = []
-    composition.use_start_unit(monkeypatch, started.append)
+    started: list[tuple[str, bool]] = []
+    composition.use_start_unit(monkeypatch, lambda key, here: started.append((key, here)))
 
-    _state.start_play_unit("кино")
+    _state.start_play_unit("кино", False)
 
-    assert started == ["кино"]
+    assert started == [("кино", False)]
 
 
 def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> None:
     """Корень сказал заново - показ берёт новое, а не первое."""
     wire()
     previous = _state.start_play_unit
-    first: list[str] = []
-    second: list[str] = []
+    first: list[tuple[str, bool]] = []
+    second: list[tuple[str, bool]] = []
     try:
-        composition.use_start_unit(monkeypatch, first.append)
+        composition.use_start_unit(monkeypatch, lambda key, here: first.append((key, here)))
         _configure_playback(
             ShowEnvironment(
                 clock=_state.CLOCK,
@@ -51,7 +51,7 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
                 forget_flag=_state.forget_playing,
                 mark_landed=_state.mark_landed,
                 read_landed=_state.read_landed,
-                start_unit=second.append,
+                start_unit=lambda key, here: second.append((key, here)),
                 grid=_state.grid_for,
                 server=_state.HlsServer,
                 encode=_state.Encode,
@@ -63,9 +63,9 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
                 recode_dir=_state.RECODE_DIR,
             )
         )
-        _state.start_play_unit("кино")
+        _state.start_play_unit("кино", True)
 
-        assert (first, second) == ([], ["кино"])
+        assert (first, second) == ([], [("кино", True)])
     finally:
         _state.start_play_unit = previous
 
