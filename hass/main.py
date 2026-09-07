@@ -23,6 +23,7 @@ from types import FrameType
 from hass.announce import Announce
 from hass.bridge import Bridge
 from hass.serve import PORT, serve
+from hass.warm_facts import warm_facts
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain.version import __version__
 from torrcast.ports.abandon.slot import install as install_abandon
@@ -50,6 +51,9 @@ def main() -> int:
     этом не ждут показа - их разбирает сервер в своём потоке.
     """
     wire()
+    # Долгий процесс платит ленивый разбор офлайн-карты один раз, на старте, а не на
+    # первом же поиске, которому она понадобится (:func:`warm_facts`, TC-1126).
+    warm_facts()
     bridge = Bridge()
     # Про отказ человека знает только мост: у консоли отказываться некому. Назначается
     # это здесь, в композиционном корне, а не самим мостом.

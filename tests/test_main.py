@@ -13,6 +13,7 @@ from hass.serve import PORT
 REPO = Path(__file__).parents[1]
 INSTALL = (REPO / "install.sh").read_text(encoding="utf-8")
 PYPROJECT = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+MAIN_SOURCE = (REPO / "hass" / "main.py").read_text(encoding="utf-8")
 
 
 def _body(name: str) -> str:
@@ -50,6 +51,17 @@ def test_the_bridge_unit_runs_the_same_way_the_bot_unit_does() -> None:
     # стадия `installer language contract`, ставящая установщик без прав на /etc/systemd.
     assert "[ -f /etc/systemd/system/torrcast-ha.service ] || return 0" in bridge
     assert "setup_bot_unit; setup_ha_unit;" in INSTALL
+
+
+def test_the_offline_map_warms_before_the_bridge_starts_serving() -> None:
+    # Прогрев (:func:`hass.warm_facts.warm_facts`) обязан стоять ДО ``Bridge()``: он не
+    # держит поток (фоновый), но смысл - платить разбор карты, пока сервис только
+    # поднимается, а не когда в очереди уже стоит первый живой поиск.
+    wire_at = MAIN_SOURCE.index("wire()")
+    warm_at = MAIN_SOURCE.index("warm_facts()")
+    bridge_at = MAIN_SOURCE.index("bridge = Bridge()")
+    assert wire_at < warm_at < bridge_at
+    assert "from hass.warm_facts import warm_facts" in MAIN_SOURCE
 
 
 def test_the_package_is_named_in_every_list_that_ships_it() -> None:
