@@ -286,10 +286,17 @@ def _shelf_tiles(payload: Any) -> dict[str, list[dict[str, Any]]]:
     shelves: dict[str, list[dict[str, Any]]] = {}
     if isinstance(payload, dict):
         for key, value in payload.items():
-            tiles = value if isinstance(value, list) else (value or {}).get("tiles")
+            # Не всякое поле ответа - полка: рядом с ними лежит время сборки строкой
+            # (`built_at`), и вопрос «а нет ли внутри плиток» валил прибор целиком.
+            tiles = value if isinstance(value, list) else _inner(value)
             if isinstance(tiles, list):
                 shelves[str(key)] = [one for one in tiles if isinstance(one, dict)]
     return {key: tiles for key, tiles in shelves.items() if tiles}
+
+
+def _inner(value: Any) -> Any:
+    """Плитки полки, названной объектом; поле не полка вовсе - ``None``."""
+    return value.get("tiles") if isinstance(value, dict) else None
 
 
 def check_15_posters(base: str) -> Result:
