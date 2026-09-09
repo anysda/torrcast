@@ -36,6 +36,12 @@ class SegmentAudit:
     ) -> None:
         """Пройти манифест до конца показа, держась за декодером.
 
+        🔴 Конец декодера сверку не отменяет. Флаг `done` ставит и снятый показ, и ffmpeg,
+        дошедший до конца потока, а выход по нему стирал уже сыгранные куски: ночной прогон
+        печатал `segments 0` при `decoded 61 s`, и досмотренный показ объявлялся недосмотренным.
+        Кто кого обгонит, сверка или декодер, решает загрузка машины, поэтому приёмка на этом
+        стоять не может.
+
         🔴 Кусок, который КОНЧАЕТСЯ на месте захода, приёмнику не нужен: он весь позади.
         Строгое «кончился раньше» оставляло его в списке (на сетке по 10 с заход на 10.0 с
         честно спрашивал нулевой кусок), и раздача уходила паковать с нуля - тот самый
@@ -60,13 +66,19 @@ class SegmentAudit:
                 continue
             while not done.is_set() and position() + AHEAD_SECONDS < end:
                 done.wait(0.5)
-            if done.is_set():
+            # Кусок, который декодер уже проиграл, засчитывается и после его конца:
+            # отдачу этого куска доказал сам декодер, а спросить раздачу уже нельзя -
+            # показ гасит хозяйство сразу за декодером.
+            played = end <= position() + GRID_SLACK
+            if done.is_set() and not played:
                 return
             self.report.segments += 1
             number = _NUM_RE.search(name)
             if number and last >= 0 and int(number.group(1)) != last + 1:
                 self.report.gaps += 1
             last = int(number.group(1)) if number else last
+            if done.is_set():
+                continue
             self.measure(session, f"{base}/{name}", seconds)
 
     def measure(self, session: Any, url: str, seconds: float) -> None:

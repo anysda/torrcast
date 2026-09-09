@@ -154,3 +154,33 @@ def test_the_audit_holds_behind_the_decoder_and_stops_with_it() -> None:
 
     assert _heads(answers) == [], "снятый показ сегментов больше не спрашивает"
     assert report.duration == 60.0, "манифест сверка успела прочитать"
+
+
+def test_the_pieces_the_decoder_already_played_are_counted_after_it_stops() -> None:
+    """🔴 Декодер, кончивший первым, не отменяет куски, которые он успел проиграть.
+
+    Ночной прогон 09-09-2026 напечатал `segments 0` при `decoded 61 s`: сверка вышла по
+    флагу конца декодера, и досмотренный показ был объявлен недосмотренным. Вес куска
+    после конца показа мерить негде, а вот отдан он был - это доказал сам декодер.
+    """
+    answers = _Answers(_manifest([f"v{slot}.ts" for slot in range(6)]))
+    audit, report = _audit(answers)
+    done = threading.Event()
+    done.set()  # ffmpeg вышел, дойдя до конца потока
+
+    audit.run(URL, 0.0, lambda: 61.0, done)
+
+    assert report.segments == 6 and report.gaps == 0
+    assert _heads(answers) == [], "показ кончился - спрашивать раздачу уже нечего"
+
+
+def test_a_show_taken_down_midway_counts_only_what_the_decoder_reached() -> None:
+    """Снятый посреди показ засчитывает сыгранное и не сочиняет остаток манифеста."""
+    answers = _Answers(_manifest([f"v{slot}.ts" for slot in range(6)]))
+    audit, report = _audit(answers)
+    done = threading.Event()
+    done.set()
+
+    audit.run(URL, 0.0, lambda: 25.0, done)
+
+    assert report.segments == 2, "куски до 25 с сыграны, дальше показа не было"
