@@ -139,37 +139,24 @@ const TCHome = {
     for (let tries = 0; tries < 40; tries += 1) {
       const { results, partial } = await TCApi.searchProgress(text);
       if (mine !== TCHome._token || TCHome._query !== text) return;
-      const next = TCHome._mergeHits(known, results);
-      // Пустое превью посреди поиска не рисуется вовсе: иначе «ничего не нашлось»
-      // мигало бы на экране раньше настоящего ответа источников. Неродственная
-      // плитка тоже не должна первой попасть под клик, пока поиск ещё растёт.
-      if (!partial || TCHome._hasExactTitle(next, text)) {
-        known = next;
-        TCHome._found = { query: text, results: known };
-        const body = document.getElementById('tc-body');
-        if (body) body.replaceWith(TCHome._searchResults(known, partial));
-      }
+      const next = TCHome._mergeHits(known, results, partial);
+      known = next;
+      TCHome._found = { query: text, results: known };
+      const body = document.getElementById('tc-body');
+      if (body) body.replaceWith(TCHome._searchResults(known, partial));
       if (!partial) return;
       await new Promise((done) => setTimeout(done, 400));
     }
   },
 
-  _hasExactTitle(results, query) {
-    const plain = (value) => String(value || '').toLocaleLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, '');
-    const asked = plain(query);
-    return asked !== '' && results.some((hit) =>
-      [hit.title, hit.shown, hit.original].some((name) => plain(name) === asked));
-  },
-
-  // Уже показанная плитка МЕСТА не меняет: следующий ответ только дописывает новые
+  // Уже показанная плитка МЕСТА не меняет: частичный ответ только дописывает новые
   // находки в конец и обновляет поля у тех же ключей - прыгающая под курсором выдача
-  // хуже медленной. Плитка пропадает, только если очередной ответ её больше не несёт.
+  // хуже медленной. Убрать плитку может только финальный ответ.
   //
   // Ключ у двух РАЗНЫХ пунктов меню бывает одним и тем же (одна картина, два плана) -
   // мерж по одному `key` тогда съедал бы второй пункт. Личность плитки - `key` и номер
   // ЕЁ повторения по счёту, а не сам `key` в одиночку.
-  _mergeHits(known, fresh) {
+  _mergeHits(known, fresh, partial) {
     const ids = (list) => {
       const seen = new Map();
       return list.map((hit) => {
@@ -182,9 +169,12 @@ const TCHome = {
     const byId = new Map(freshIds.map((id, index) => [id, fresh[index]]));
     const keptIds = new Set();
     const kept = [];
-    for (const id of ids(known)) {
+    for (const [index, id] of ids(known).entries()) {
       if (byId.has(id)) {
         kept.push(byId.get(id));
+        keptIds.add(id);
+      } else if (partial) {
+        kept.push(known[index]);
         keptIds.add(id);
       }
     }
@@ -226,6 +216,9 @@ const TCHome = {
   // уже найденным, тем же индикатором, что и до первой находки (`_searchingLine`), а
   // не вторым своим. Без аргумента (кеш уже завершённого поиска) строки нет вовсе.
   _searchResults(results, partial) {
+    // Нулевой частичный ответ не приговор: источники ещё отвечают, поэтому экран
+    // остаётся поиском с теми же скелетами, что и до первого ответа.
+    if (results.length === 0 && partial) return TCHome._searchLoading();
     const body = document.createElement('div');
     body.id = 'tc-body';
     if (results.length === 0) {
