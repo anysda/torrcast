@@ -11,6 +11,7 @@ import pytest
 from tests.fakes.state_store import FakeStateStore
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.torrcast_error import TorrcastError
@@ -183,7 +184,7 @@ def test_the_rating_leaves_as_a_number_because_the_page_says_the_source_itself(
     assert body["rating"] == 8.5
 
 
-def test_the_partial_header_appears_until_the_facts_cache_has_something(
+def test_the_partial_header_stands_while_the_source_has_not_answered_yet(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _wired(monkeypatch, [_MOVIE_PLAN])
@@ -195,6 +196,26 @@ def test_the_partial_header_appears_until_the_facts_cache_has_something(
     assert body["blurb"] is None
     assert body["rating"] is None
     assert "X-Torrcast-Partial" in extra
+
+
+def test_a_picture_the_source_answered_nothing_about_is_not_marked_partial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Статьи нет - описания не будет никогда, и переспрашивать карточку незачем.
+
+    Замер 10-09-2026 на стенде `.104`: у `tv:пассажиры-2:2022` (ни статьи, ни родни)
+    страница делала шесть ходов в `/api/card` и останавливалась только своим потолком
+    в пять доборов, а не потому, что карточка налилась.
+    """
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _AnsweredEmptyFacts())
+
+    _code, body, extra = _asked(_MOVIE.key)
+
+    assert body["blurb"] is None
+    assert body["rating"] is None
+    assert "X-Torrcast-Partial" not in extra
 
 
 def test_a_series_without_a_bookmark_only_counts_seasons_from_release_names(
@@ -357,6 +378,22 @@ class _ReadyFacts:
 
     def ready(self, _title: str, _year: int | None) -> Any:
         return _Fact()
+
+    def answered(self, _title: str, _year: int | None) -> bool:
+        return True
+
+
+class _AnsweredEmptyFacts:
+    """Источник ОТВЕТИЛ, и сказать ему нечего: справка пустая, но законченная."""
+
+    def start(self) -> None:
+        return None
+
+    def ready(self, _title: str, _year: int | None) -> Any:
+        return Fact()
+
+    def answered(self, _title: str, _year: int | None) -> bool:
+        return True
 
 
 @dataclass

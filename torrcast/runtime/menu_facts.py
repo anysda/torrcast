@@ -26,3 +26,15 @@ class MenuFacts(Facts):
         budget: float | None = None,
     ) -> None:
         super().__init__(pictures, budget, store=FACTS.cache, source=FACTS.blurbs)
+
+    def answered(self, title: str, year: int | None) -> bool:
+        """Ответил ли источник про эту картину; пустая справка - тоже ответ, а не молчание.
+
+        :meth:`~torrcast.usecases.facts.Facts.ready` обе беды отдаёт одинаково - пустым
+        :class:`~torrcast.domain.facts.fact.Fact`, - а они разные: у картины без статьи
+        справки не будет НИКОГДА, и спрашивающему (карточка веба) надо знать, что
+        переспрашивать нечего. Кэш это уже различает: ряд с отметкой ``empty`` лежит на
+        полке, а неспрошенного на ней нет вовсе
+        (:func:`~torrcast.domain.facts.cache_rows._cached_facts`).
+        """
+        return (title, year) in self.found

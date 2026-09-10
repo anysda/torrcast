@@ -5,6 +5,9 @@
 его заново, как и обещает договор (ключ без запроса ничей). Описание и рейтинг едут
 фоновым добором (:class:`torrcast.usecases.facts.Facts`) и не задерживают ответ: не
 приехало - поле ``null`` и заголовок ``X-Torrcast-Partial``, страница переспросит сама.
+
+Пустое поле недоездом НЕ считается: у картины без статьи описания не будет никогда, и
+заголовок стоит только там, где переспрашивать есть смысл (:func:`_answer`).
 """
 
 from __future__ import annotations
@@ -70,6 +73,8 @@ def _answer(plan: Plan, config: Config, pick: int) -> Answer:
     facts = MenuFacts([(picture.title, picture.year, picture.kind)], budget=0.0)
     facts.start()
     fact = facts.ready(picture.title, picture.year)
+    # Ответил ли источник, а не пуста ли справка: пустая справка - законченный ответ.
+    told = facts.answered(picture.title, picture.year)
     seasons, seasons_partial = _seasons(plan, entry, config.torrserver_url)
     related = _others(picture.key, _related.of(picture.title, picture.kind == "tv"))
     body: dict[str, JsonValue] = {
@@ -94,7 +99,7 @@ def _answer(plan: Plan, config: Config, pick: int) -> Answer:
         "releases_count": len(picture.releases),
         "sources_count": _sources_count(picture.releases),
     }
-    partial = not fact or seasons_partial or related is None
+    partial = not told or seasons_partial or related is None
     extra = ((_PARTIAL, "1"),) if partial else ()
     return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
 

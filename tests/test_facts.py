@@ -44,6 +44,24 @@ def test_the_passport_entry_point_answers_from_the_same_cache() -> None:
     assert FACTS.cache.read("Тачки", True) is None
 
 
+def test_an_answered_emptiness_is_told_apart_from_a_reference_that_never_came() -> None:
+    """Пустая справка и НЕДОЕХАВШАЯ справка - разные вещи, и спрашивающий их различает.
+
+    ``ready`` обе отдаёт одинаково, пустым ``Fact``, и карточка веба на этом метила
+    ``X-Torrcast-Partial`` картину без статьи навсегда: замер 10-09-2026 на стенде
+    `.104` - страница ходила за `tv:пассажиры-2:2022` шесть раз и умолкала только своим
+    потолком в пять доборов, а не потому, что карточка налилась.
+    """
+    blank = ("Тачки: Мультачки. Байки Мэтра", 2008)
+    FACTS.cache.remember({}, [blank])
+    facts = Facts([blank], budget=0.0)
+    facts.start()
+
+    assert facts.ready(*blank) == Fact(), "статьи нет - справка пуста"
+    assert facts.answered(*blank), "источник ответил: статьи нет, и переспрашивать нечего"
+    assert not facts.answered("Моана", 2016), "про неё не спрашивали - ответа нет"
+
+
 def test_menu_prints_the_old_line_when_there_is_no_help() -> None:
     """Без справки меню — ровно тот же список, что и до неё."""
     from tests.test_cli import _moana_franchise
