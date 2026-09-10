@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
 from torrcast.adapters.systemd._systemd_call import SystemdCall
 from torrcast.adapters.systemd.stop_play_unit import stop_play_unit
+from torrcast.domain.instance_slug import STATE_ENV
 from torrcast.domain.unit_naming import _UNIT_NAME
+
+
+@pytest.fixture(autouse=True)
+def _default_instance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Прогон сидит на чужом состоянии (conftest), а тут проверяется имя БОЕВОГО юнита."""
+    monkeypatch.delenv(STATE_ENV, raising=False)
 
 
 def _remember(seen: list[tuple[str, ...]]) -> SystemdCall:

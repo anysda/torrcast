@@ -7,11 +7,11 @@ import json
 
 from torrcast.adapters.systemd._systemd_call import SystemdCall, _systemd
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.domain.unit_naming import _UNIT_NAME
+from torrcast.domain.unit_name import unit_name
 from torrcast.domain.why import why
 
 
-def unit_why(unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd) -> str:
+def unit_why(unit: str = "", *, call: SystemdCall = _systemd) -> str:
     """Последняя внятная строка САМОГО ПОКАЗА из journald — наружу без трейсбеков.
 
     🔴 Спрашивают отсюда одно: почему на экране нет картинки, - и отвечать на это
@@ -26,7 +26,7 @@ def unit_why(unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd) -> str:
     """
     try:
         done = call(
-            "journalctl", "-u", unit, "-n", "30", "--no-pager",
+            "journalctl", "-u", unit or unit_name(), "-n", "30", "--no-pager",
             "-o", "json", "--output-fields=MESSAGE,SYSLOG_IDENTIFIER",
         )  # fmt: skip
     except Exception as exc:

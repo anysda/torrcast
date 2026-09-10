@@ -10,7 +10,14 @@ import pytest
 from torrcast.adapters.systemd._systemd_call import SystemdCall
 from torrcast.adapters.systemd.start_play_unit import start_play_unit
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.instance_slug import STATE_ENV
 from torrcast.domain.unit_naming import _PASS_ENV, _UNIT_NAME, _UNIT_TAG
+
+
+@pytest.fixture(autouse=True)
+def _default_instance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Прогон сидит на чужом состоянии (conftest), а тут проверяется имя БОЕВОГО юнита."""
+    monkeypatch.delenv(STATE_ENV, raising=False)
 
 
 def _answers(seen: list[tuple[str, ...]], code: int = 0) -> SystemdCall:

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from torrcast.adapters.launchd._launchd_call import LaunchdCall, _domain, _launchd, _running
-from torrcast.domain.unit_naming import _JOB_KEY_ENV, _UNIT_NAME
+from torrcast.domain.unit_name import unit_name
+from torrcast.domain.unit_naming import _JOB_KEY_ENV
 
 
-def job_key(unit: str = _UNIT_NAME, *, call: LaunchdCall = _launchd) -> str:
+def job_key(unit: str = "", *, call: LaunchdCall = _launchd) -> str:
     """Ключ состояния играющего показа - из окружения живого задания.
 
     Описания, где systemd держит ключ, у launchd нет, зато ``launchctl print``
@@ -20,7 +21,7 @@ def job_key(unit: str = _UNIT_NAME, *, call: LaunchdCall = _launchd) -> str:
 
     ``call`` - чем звать launchd; боевое умолчание одно, и меняет его только стенд.
     """
-    done = call("launchctl", "print", f"{_domain()}/{unit}")
+    done = call("launchctl", "print", f"{_domain()}/{unit or unit_name()}")
     if done.returncode != 0 or not _running(done.stdout):
         return ""
     marker = f"{_JOB_KEY_ENV} => "

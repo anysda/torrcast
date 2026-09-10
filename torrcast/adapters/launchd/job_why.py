@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from torrcast.adapters.launchd._job_files import _log_path
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.domain.unit_naming import _UNIT_NAME
+from torrcast.domain.unit_name import unit_name
 from torrcast.domain.why import why
 
 #: Сколько байт читается с конца журнала: внятная строка - одна из последних, а за
@@ -12,7 +12,7 @@ from torrcast.domain.why import why
 _TAIL: int = 16384
 
 
-def job_why(unit: str = _UNIT_NAME) -> str:
+def job_why(unit: str = "") -> str:
     """Последняя внятная строка САМОГО ПОКАЗА - наружу без трейсбеков.
 
     journald на macOS нет: оба потока задания пишутся в файл (``StandardErrorPath`` в
@@ -20,7 +20,7 @@ def job_why(unit: str = _UNIT_NAME) -> str:
     в файле только показ. Ответ - последняя непустая его строка.
     """
     try:
-        with _log_path(unit).open("rb") as stream:
+        with _log_path(unit or unit_name()).open("rb") as stream:
             stream.seek(0, 2)
             size = stream.tell()
             stream.seek(max(0, size - _TAIL))

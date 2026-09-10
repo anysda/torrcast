@@ -14,7 +14,14 @@ import pytest
 from torrcast.adapters.launchd._launchd_call import LaunchdCall
 from torrcast.adapters.launchd.start_play_job import _JOB_PATH, start_play_job
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.instance_slug import STATE_ENV
 from torrcast.domain.unit_naming import _JOB_KEY_ENV, _PASS_ENV, _UNIT_NAME
+
+
+@pytest.fixture(autouse=True)
+def _default_instance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Прогон сидит на чужом состоянии (conftest), а тут проверяется имя БОЕВОГО задания."""
+    monkeypatch.delenv(STATE_ENV, raising=False)
 
 
 def _answers(seen: list[tuple[str, ...]], code: int = 0) -> LaunchdCall:

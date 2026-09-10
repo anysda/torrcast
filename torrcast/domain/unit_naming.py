@@ -4,6 +4,9 @@ from typing import Final
 
 from torrcast.domain.timeline_env import TIMELINE_ENV
 
+#: Основа имени юнита. Боевой экземпляр зовётся ровно так; прочие получают суффикс
+#: экземпляра (:func:`torrcast.domain.unit_name.unit_name`), иначе все полосы узла били
+#: бы в один юнит (TC-1137).
 _UNIT_NAME: Final = "torrcast-play"
 
 #: Описание юнита несёт ключ показа - по нему ``status`` знает, что играет.

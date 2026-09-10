@@ -13,7 +13,8 @@ from torrcast.adapters.launchd._launchd_call import LaunchdCall, _domain, _launc
 from torrcast.adapters.launchd.stop_play_job import stop_play_job
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.unit_naming import _JOB_KEY_ENV, _PASS_ENV, _UNIT_NAME
+from torrcast.domain.unit_name import unit_name
+from torrcast.domain.unit_naming import _JOB_KEY_ENV, _PASS_ENV
 
 #: PATH задания показа. У launchd он голый - ``/usr/bin:/bin:/usr/sbin:/sbin``, и под
 #: ``sudo`` у процесса ``cast`` ровно тот же secure_path (замер 02-09-2026 на macOS 26):
@@ -27,7 +28,7 @@ _JOB_PATH: Final = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sb
 def start_play_job(
     key: str,
     here: bool = False,
-    unit: str = _UNIT_NAME,
+    unit: str = "",
     *,
     call: LaunchdCall = _launchd,
     program: Sequence[str] | None = None,
@@ -56,6 +57,7 @@ def start_play_job(
     запуск, но не видит, чем погашен прошлый показ, а живой ``launchctl bootout``
     уходит на хозяйскую машину прямо посреди сухого теста.
     """
+    unit = unit or unit_name()
     stop_play_job(unit, call=call)
     _log_path(unit).unlink(missing_ok=True)
     env = {name: os.environ[name] for name in _PASS_ENV if name in os.environ}

@@ -9,11 +9,12 @@ from torrcast.adapters.systemd._systemd_call import SystemdCall, _systemd
 from torrcast.adapters.systemd.stop_play_unit import stop_play_unit
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.unit_naming import _PASS_ENV, _UNIT_NAME, _UNIT_TAG
+from torrcast.domain.unit_name import unit_name
+from torrcast.domain.unit_naming import _PASS_ENV, _UNIT_TAG
 
 
 def start_play_unit(
-    key: str, here: bool = False, unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd
+    key: str, here: bool = False, unit: str = "", *, call: SystemdCall = _systemd
 ) -> None:
     """Запустить показ в transient-юните: ``cast`` завершился — показ продолжается,
     логи бесплатно в journald. Переменные окружения проброшены, иначе юнит возьмёт
@@ -35,6 +36,7 @@ def start_play_unit(
     запуск, но не видит, чем погашен прошлый показ, а живой ``systemctl stop`` уходит
     на хозяйскую машину прямо посреди сухого теста.
     """
+    unit = unit or unit_name()
     stop_play_unit(unit, call=call)
     env = [f"--setenv={n}={os.environ[n]}" for n in _PASS_ENV if n in os.environ]
     done = call(

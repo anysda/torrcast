@@ -9,7 +9,14 @@ import pytest
 
 import torrcast.adapters.launchd.job_why as job_why_module
 from torrcast.adapters.launchd.job_why import job_why
+from torrcast.domain.instance_slug import STATE_ENV
 from torrcast.domain.unit_naming import _UNIT_NAME
+
+
+@pytest.fixture(autouse=True)
+def _default_instance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Прогон сидит на чужом состоянии (conftest), а тут проверяется имя БОЕВОГО задания."""
+    monkeypatch.delenv(STATE_ENV, raising=False)
 
 
 @pytest.fixture

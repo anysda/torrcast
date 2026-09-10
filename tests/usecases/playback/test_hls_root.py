@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from torrcast.domain._config_hls import DEFAULT_HLS_DIR
+from torrcast.domain.instance_slug import STATE_ENV
 from torrcast.usecases.playback.hls_root import HLS_ENV, hls_root
 
 if TYPE_CHECKING:
@@ -30,10 +31,40 @@ def test_the_unchanged_default_yields_to_the_environment(monkeypatch: pytest.Mon
 def test_without_the_environment_the_default_stays_the_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Подмены нет - умолчание доезжает до боевого места как было."""
+    """Подмены нет и экземпляр боевой - умолчание доезжает до боевого места как было."""
     monkeypatch.delenv(HLS_ENV, raising=False)
+    monkeypatch.delenv(STATE_ENV, raising=False)
 
     assert str(hls_root(DEFAULT_HLS_DIR)) == DEFAULT_HLS_DIR
+
+
+def test_a_non_default_instance_gets_its_own_marked_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-1137: каталог сегментов - свой у каждого экземпляра узла, а не один на всех.
+
+    Общий каталог значил, что показ одной полосы стенда выметал сегменты и ящик другой:
+    запуск во вкладке гасил идущий показ на ТВ соседнего экземпляра.
+    """
+    monkeypatch.delenv(HLS_ENV, raising=False)
+    monkeypatch.setenv(STATE_ENV, "/полоса/а.json")
+    first = str(hls_root(DEFAULT_HLS_DIR))
+    monkeypatch.setenv(STATE_ENV, "/полоса/б.json")
+    second = str(hls_root(DEFAULT_HLS_DIR))
+
+    assert first.startswith(DEFAULT_HLS_DIR + "-"), first
+    assert second.startswith(DEFAULT_HLS_DIR + "-"), second
+    assert first != second
+
+
+def test_the_environment_override_still_beats_the_instance_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Явная подмена сильнее и метки экземпляра: тестовый прогон важнее разводки."""
+    monkeypatch.setenv(HLS_ENV, "/сандбокс/hls")
+    monkeypatch.setenv(STATE_ENV, "/полоса/а.json")
+
+    assert str(hls_root(DEFAULT_HLS_DIR)) == "/сандбокс/hls"
 
 
 def _unit_of(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
