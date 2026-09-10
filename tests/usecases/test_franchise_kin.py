@@ -1,11 +1,30 @@
 """Проверяет полку родни картины: паспорт даёт Q-идентификатор, кэш стоит перед сетью."""
 
+from dataclasses import dataclass, field
+
 from tests.fakes.kin_source import FakeKinSource
 from tests.fakes.kin_store import FakeKinStore
 from tests.fakes.passport import FakePassport
 from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.origin import Origin
 from torrcast.usecases.franchise_kin import FranchiseKin
+
+
+@dataclass
+class TypedPassport:
+    """Паспорт, различающий род: у фильма и сериала статьи разные, и ответы тоже.
+
+    Общий :class:`tests.fakes.passport.FakePassport` знает только имя, а весь предмет
+    здесь - именно род: ``series=None`` это режим «оба типа», которым продукт спрашивает,
+    когда подсказанный род не дал статьи.
+    """
+
+    known: dict[bool | None, Origin] = field(default_factory=dict)
+    asked: list[bool | None] = field(default_factory=list)
+
+    def __call__(self, _title: str, series: bool | None = False, _budget: float = 0.0) -> Origin:
+        self.asked.append(series)
+        return self.known.get(series, Origin())
 
 
 def test_the_entity_from_the_passport_is_what_wikidata_gets_asked_about() -> None:
@@ -102,6 +121,54 @@ def test_a_degraded_passport_is_asked_again_live() -> None:
     assert got == found
     assert fresh.asked == ["Крепкий орешек"]
     assert kin.asked == ["Q105598"]
+
+
+def test_a_kind_named_by_the_releases_does_not_get_to_silence_the_whole_shelf() -> None:
+    """🔴 Род пришёл из разбора раздач, и статьи под ним нет - спрашиваем «оба типа».
+
+    Замер 10-09-2026 на стенде `.104`: лучшим совпадением на «Чужой» продукт называет
+    `tv:чужой:2021`, статьи о сериале с таким именем нет вовсе, и полка стояла пустой
+    при шести частях франшизы у фильма 1979 года.
+    """
+    passport = TypedPassport({None: Origin(title="Alien", entity="Q103569", source="wiki")})
+    found = [Kin("Q104814", "Чужие", 1986)]
+    kin = FakeKinSource(lambda entity, timeout: found if entity == "Q103569" else [])
+
+    shelf = FranchiseKin(passport, kin, FakeKinStore(), FakePassport())
+    got = shelf.of("Чужой", True, 1.0)
+
+    assert got == found
+    assert passport.asked == [True, None], "режим «оба типа» обязан идти ПОСЛЕ подсказанного"
+    assert kin.asked == ["Q103569"]
+
+
+def test_a_show_that_really_has_no_franchise_keeps_its_empty_shelf() -> None:
+    """Молчат оба типа - полка честно пуста, и Wikidata об этом не спрашивают вовсе.
+
+    Отрицательный полюс соседней проверки: переспрос «обоими типами» не выдумывает родню
+    там, где её нет, - :class:`~torrcast.usecases.passport_either.PassportEither` молчит,
+    когда фильм и сериал одного имени расходятся или молчат оба.
+    """
+    passport = TypedPassport()
+    kin = FakeKinSource()
+
+    shelf = FranchiseKin(passport, kin, FakeKinStore(), FakePassport())
+
+    assert shelf.of("Сериал без франшизы", True, 1.0) == []
+    assert passport.asked == [True, None]
+    assert kin.asked == []
+
+
+def test_a_named_kind_that_answers_is_never_second_guessed() -> None:
+    """Подсказанный род дал Q-идентификатор - «оба типа» не спрашиваются: тип известен."""
+    passport = TypedPassport({True: Origin(title="Fargo", entity="Q1", source="wiki")})
+    found = [Kin("Q2", "Фарго, сезон 2", 2015)]
+    kin = FakeKinSource(lambda entity, timeout: found)
+
+    shelf = FranchiseKin(passport, kin, FakeKinStore(), FakePassport())
+
+    assert shelf.of("Фарго", True, 1.0) == found
+    assert passport.asked == [True], "тип назван и подтверждён статьёй - переспрашивать нечего"
 
 
 def test_a_wiki_passport_without_an_entity_is_not_reasked() -> None:
