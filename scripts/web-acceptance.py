@@ -144,6 +144,19 @@ _SAY_KEY_RE: Final = re.compile(r"""\.say\(\s*['"]([\w.]+)['"]""")
 #: CSS-свойство `content:` (не `justify-content:`) - единственное место, откуда CSS
 #: способен показать человеку текст.
 _CONTENT_PROP_RE: Final = re.compile(r"""(?<![\w-])content\s*:\s*(['"])((?:\\.|(?!\1).)*)\1""")
+#: Селектор (`.tc-tile-art-img, .tc-tile-noart`) и css-значение (`calc(100% + 1rem)`):
+#: служебные токены с пробелом внутри, которые иначе идут за текст человеку. Обе
+#: приметы узкие нарочно - строка человека не начинается с точки и не зовётся `calc(`.
+_SELECTOR_RE: Final = re.compile(r"^[.#][a-z][\w-]*(?:\s*,\s*[.#][a-z][\w-]*)*$")
+_CALC_RE: Final = re.compile(r"^calc\(.*\)$")
+#: Что страница грузит сама. Список файлов пункт 13 берёт из её разметки, а не из
+#: своего перечня имён: перечень внутри пункта устаревает молча, и новый скрипт
+#: `index.html` выпадает из-под сторожа, ничего никому не сказав.
+_PAGE_SCRIPT_RE: Final = re.compile(r"""<script[^>]*\bsrc=["'](/static/[^"']+\.js)["']""")
+_PAGE_STYLE_RE: Final = re.compile(r"""<link[^>]*\bhref=["'](/static/[^"']+\.css)["']""")
+#: Чужое добро, которое пункт 13 не судит: минифицированный бандл плеера и шрифтовой
+#: css. Литералы там не наши, и правит их не эта репа.
+_VENDORED_RE: Final = re.compile(r"\.min\.js$|^/static/fonts/")
 
 
 @dataclass(slots=True)
@@ -213,14 +226,23 @@ def _shelf_tile_counts(payload: Any) -> dict[str, int]:
 
 
 def _is_prose(text: str) -> bool:
-    """Похоже ли содержимое литерала на текст человеку, а не на служебный токен."""
+    """Похоже ли содержимое литерала на текст человеку, а не на служебный токен.
+
+    Пробел по КРАЯМ примету не даёт: `' is-active'` - склейка с классом (`className +=`),
+    а не фраза. Пробел внутри строки тем не менее остаётся приметой, поэтому обрезка
+    идёт только перед сверкой со служебными формами, а не перед сверкой на пробел:
+    иначе `'Play '` перестала бы считаться текстом человеку.
+    """
     if not any(ch.isalpha() for ch in text):
         return False
     if _KEY_RE.match(text):
         return False
     if " " not in text:
         return False
-    return not _CLASS_LIST_RE.match(text)
+    token = text.strip()
+    if _SELECTOR_RE.match(token) or _CALC_RE.match(token):
+        return False
+    return not _CLASS_LIST_RE.match(token)
 
 
 def _post(url: str, body: dict[str, Any], timeout: float = 30.0) -> tuple[int, bytes]:
@@ -770,6 +792,11 @@ def check_16_junk(base: str) -> Result:
     подтверждал бы, что правило применилось, а не что мусора нет. Продукт отсеивает по
     имени РАЗДАЧИ, скрипт смотрит на титул готовой ПЛИТКИ - разные концы тракта, и
     «Mortal Kombat ... PC | RePack» проехал бы первый и остался виден второму.
+
+    Ноль плиток - это отказ, а не «мусора нет»: на пустой выдаче условие «ни одной
+    не-киношной» верно само по себе, и пункт зеленел бы ровно тогда, когда смотреть
+    было не на что. Сколько плиток осмотрено, пункт называет числом (так же, как
+    соседний пункт 15 объявляет отсутствие полок красным, а не тихим OK).
     """
     code, body = _get(base + "/api/shelves")
     if code != 200:
@@ -779,13 +806,20 @@ def check_16_junk(base: str) -> Result:
     except json.JSONDecodeError as exc:
         return Result(16, "Мусор", False, None, f"тело не JSON: {exc}")
     caught: list[str] = []
+    looked = 0
     for key, tiles in shelves.items():
         for one in tiles[:_SHELF_WINDOW]:
+            looked += 1
             title = f"{one.get('title') or ''} {one.get('original') or ''}"
             found = _JUNK_RE.search(title)
             if found:
                 caught.append(f"{key}: {title.strip()!r} по слову {found.group()!r}")
-    return Result(16, "Мусор", not caught, None, "; ".join(caught) if caught else "мусора нет")
+    if not looked:
+        empty_detail = f"полок {len(shelves)}, плиток 0 - мусор искать не в чем"
+        return Result(16, "Мусор", False, None, empty_detail)
+    seen = f"осмотрено плиток {looked} в {len(shelves)} полках"
+    detail = f"{seen}; " + ("; ".join(caught) if caught else "мусора нет")
+    return Result(16, "Мусор", not caught, None, detail)
 
 
 #: Ведущие плитки полки, которые проверяет пункт 22 - тем же окном, каким человек их
@@ -1558,66 +1592,116 @@ def check_11_arrows(ctx: Ctx) -> Result:
 
 
 def check_12_franchise(base: str) -> Result:
-    """Франшиза: 8 из 10 полок родни непусты - полем ``related`` карточки.
+    """Франшиза: все 10 полок родни непусты - полем ``related`` карточки.
 
     Шов родни на веб-поверхности один: карточка картины отдаёт полку в ``related``
     (:mod:`web.related_lookup`). Отдельного маршрута франшизы нет и не задумано, поэтому
     скрипт идёт тем же путём, что и страница: поиск по названию даёт ключ, ключ даёт
     карточку. Родня приезжает фоном, значит ждать её надо по ``X-Torrcast-Partial``.
+
+    Планка - ДЕСЯТЬ из десяти, а не восемь. Пока продукт держал пустую полку у «Чужого»
+    (TC-1163), допуск в две франшизы делал пункт зелёным ровно на том дефекте, ради
+    которого пункт и заведён: полка родни пуста либо у всех, либо ни у кого, и «две
+    пустые - ещё не беда» неоткуда взять, кроме как из состояния дерева. Продукт дал
+    десять из десяти (стенд `.104`, 10-09-2026, три прогона подряд), и допуск снят.
+    Пустая полка называется в детали ПОИМЁННО: считать нули в списке размеров глазами
+    человеку не с руки.
     """
     non_empty = 0
     sizes: list[str] = []
+    empty: list[str] = []
     for title in _FRANCHISE_TITLES:
         card = _card_of(base, title)
         kin = card.get("related") if isinstance(card, dict) else None
         size = len(kin) if isinstance(kin, list) else 0
         non_empty += size > 0
-        sizes.append(f"{title.split()[0]}={size if isinstance(kin, list) else 'нет'}")
-    ok = non_empty >= 8
+        short = title.split()[0]
+        sizes.append(f"{short}={size if isinstance(kin, list) else 'нет'}")
+        if size == 0:
+            empty.append(short)
+    ok = non_empty == len(_FRANCHISE_TITLES)
     detail = f"непустых полок {non_empty} из {len(_FRANCHISE_TITLES)}; " + ", ".join(sizes)
+    if empty:
+        detail += f"; пусто у франшиз: {', '.join(empty)}"
     return Result(12, "Франшиза", ok, None, detail)
 
 
+def _page_assets(base: str) -> tuple[list[str], list[str], list[str]]:
+    """Скрипты и стили, которые страница называет сама; третьим списком - недоехавшее."""
+    code, body = _get(base + "/")
+    if code != 200:
+        return [], [], [f"GET / -> {code}"]
+    shell = body.decode("utf-8", "replace")
+    scripts = [one for one in _PAGE_SCRIPT_RE.findall(shell) if not _VENDORED_RE.search(one)]
+    styles = [one for one in _PAGE_STYLE_RE.findall(shell) if not _VENDORED_RE.search(one)]
+    return scripts, styles, []
+
+
 def check_13_texts(base: str) -> Result:
-    """Тексты: нет литералов человеку в static/*, все ключи app.js в каталоге, ru = набор."""
+    """Тексты: нет литералов человеку в static/*, все ключи страницы в каталоге, ru = набор.
+
+    Файлы берутся из разметки самой страницы, а не из перечня имён внутри пункта. До
+    10-09-2026 перечень был `app.js`/`player.js` - два файла из четырнадцати, которые
+    грузит `index.html`, и три ключа `say()` из тридцати девяти. Одиннадцать скриптов с
+    надписями человеку (`card.js`, `home.js`, `player-screens.js` и прочие) проезжали
+    мимо сторожа, при том что название пункта обещает `static/*` целиком: ключ, забытый
+    в каталоге, зеленел бы вплоть до пустого места на экране.
+
+    Файл, который страница называет, а сервер не отдаёт, - отказ пункта, а не тихий ноль
+    находок: «литералов не нашлось, потому что читать было нечего» и «литералов нет» с
+    вывода прибора выглядят одинаково, и различить их обязан прибор, а не человек.
+
+    ⚠️ Грепом, а не разбором AST (см. шапку модуля).
+    """
     en_code, en_body = _get(base + "/api/phrases")
     ru_code, ru_body = _get(base + "/api/phrases?lang=ru")
     english = json.loads(en_body) if en_code == 200 else {}
     russian = json.loads(ru_body) if ru_code == 200 else {}
     same_keys = en_code == 200 and ru_code == 200 and set(english) == set(russian)
 
+    scripts, styles, unreachable = _page_assets(base)
     referenced: set[str] = set()
-    for name in ("app.js", "player.js"):
-        code, body = _get(base + f"/static/{name}")
-        if code == 200:
-            referenced |= set(_SAY_KEY_RE.findall(body.decode("utf-8", "replace")))
-    missing_keys = sorted(referenced - set(english))
-
     suspects: list[str] = []
-    for name in ("app.js", "player.js"):
-        code, body = _get(base + f"/static/{name}")
+    for path in scripts:
+        code, body = _get(base + path)
         if code != 200:
+            unreachable.append(f"GET {path} -> {code}")
             continue
-        for lineno, line in enumerate(body.decode("utf-8", "replace").splitlines(), start=1):
+        text = body.decode("utf-8", "replace")
+        referenced |= set(_SAY_KEY_RE.findall(text))
+        name = path.rsplit("/", 1)[-1]
+        for lineno, line in enumerate(text.splitlines(), start=1):
             for match in _STRING_RE.finditer(line):
                 if _is_prose(match.group(2)):
                     suspects.append(f"{name}:{lineno}:{match.group(2)!r}")
+    missing_keys = sorted(referenced - set(english))
 
     css_suspects: list[str] = []
-    for name in ("style.css", "player.css"):
-        code, body = _get(base + f"/static/{name}")
+    for path in styles:
+        code, body = _get(base + path)
         if code != 200:
+            unreachable.append(f"GET {path} -> {code}")
             continue
+        name = path.rsplit("/", 1)[-1]
         for lineno, line in enumerate(body.decode("utf-8", "replace").splitlines(), start=1):
             for match in _CONTENT_PROP_RE.finditer(line):
                 if any(ch.isalpha() for ch in match.group(2)):
                     css_suspects.append(f"{name}:{lineno}:{match.group(2)!r}")
 
-    ok = same_keys and not missing_keys and not suspects and not css_suspects
+    ok = (
+        same_keys
+        and bool(scripts)
+        and not unreachable
+        and not missing_keys
+        and not suspects
+        and not css_suspects
+    )
     detail = (
         f"EN ключей {len(english)} (код {en_code}), RU ключей {len(russian)} (код {ru_code}), "
         f"наборы {'совпадают' if same_keys else 'РАСХОДЯТСЯ'}; "
-        f"ключей из app.js/player.js {len(referenced)}, вне каталога: {missing_keys or 'нет'}; "
+        f"осмотрено файлов страницы: {len(scripts)} js + {len(styles)} css"
+        + (f", НЕ ПРОЧИТАНО: {'; '.join(unreachable)}" if unreachable else "")
+        + f"; ключей из них {len(referenced)}, вне каталога: {missing_keys or 'нет'}; "
         f"JS-литералов человеку: {len(suspects)} {suspects}; "
         f"CSS content-литералов: {len(css_suspects)} {css_suspects}"
     )
