@@ -1981,13 +1981,17 @@ def check_14_gate(repo: Path) -> Result:
         )
     except subprocess.TimeoutExpired as hung:
         spent = time.monotonic() - began
-        out = hung.stdout or b""
-        err = hung.stderr or b""
-        if isinstance(out, bytes):
-            out = out.decode("utf-8", "replace")
-        if isinstance(err, bytes):
-            err = err.decode("utf-8", "replace")
-        tail = "\n".join((out + err).splitlines()[-25:])
+        out_text = (
+            hung.stdout.decode("utf-8", "replace")
+            if isinstance(hung.stdout, bytes)
+            else str(hung.stdout or "")
+        )
+        err_text = (
+            hung.stderr.decode("utf-8", "replace")
+            if isinstance(hung.stderr, bytes)
+            else str(hung.stderr or "")
+        )
+        tail = "\n".join((out_text + err_text).splitlines()[-25:])
         detail = (
             f"гейт не кончился за {spent:.0f} с (срок {_GATE_WAIT:.0f} с); "
             f"стоял на:\n{tail or 'молчал - не напечатал ни строки'}"
