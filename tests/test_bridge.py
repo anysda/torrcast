@@ -411,6 +411,39 @@ def test_the_next_episode_is_asked_for_by_the_query_a_human_would_type() -> None
     assert asked == [["чернобыль s1e4"]]
 
 
+def test_a_next_call_the_shows_own_watch_already_did_starts_nothing() -> None:
+    """Вкладка назвала доигранную серию, а запись уже дальше: переход сделан без нас.
+
+    Сторож юнита доигрывает сериал сам (:mod:`torrcast.usecases.worker`), и запоздалый
+    зов вкладки, отвеченный запуском, перепрыгивал серию и снимал идущий показ (замер
+    на стенде `.104` 10-09-2026: вкладка получила s1e4 на телевизоре и чёрный экран).
+    """
+    state_slot.install(FakeStateStore())
+    store = state_slot.store()
+    state = store.load()
+    state.entries["tv:чернобыль"] = Entry(
+        title="Чернобыль",
+        magnet="magnet:?xt=1",
+        kind="tv",
+        season=1,
+        episode=4,
+        episodes=[[1, 3, 0, 0], [1, 4, 1, 0]],
+        query="чернобыль",
+    )
+    store.save(state)
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(playing=True, play_key="tv:чернобыль"), command=command)
+
+    bridge.next({"season": 1, "episode": 3})
+
+    assert asked == [], f"запоздалый переход снял идущий показ: {asked}"
+
+
 def test_the_snapshot_says_a_playing_movie_has_no_next_episode() -> None:
     """🔴 TC-1040. Признак снимка, а не решение фронта: фильм не несёт следующего файла."""
     state_slot.install(FakeStateStore())

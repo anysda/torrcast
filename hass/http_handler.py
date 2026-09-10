@@ -120,7 +120,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._answer(202, {"key": self.bridge.resume()})
             return
         if path == NEXT:
-            self.bridge.next()
+            self.bridge.next(body)
             self._answer(204, None)
             return
         command, arg = body.get("cmd"), body.get("arg")

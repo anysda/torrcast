@@ -149,12 +149,25 @@ const TCPlayer = {
       history.back();
       return;
     }
+    // 🔴 Кончившаяся серия называется серверу поимённо и СЕЙЧАС, до отсчёта: за его
+    // 10 секунд сторож юнита доигрывает сериал сам, и снимок к ответу уже говорил бы
+    // про НОВУЮ серию - её имя вместо кончившейся читалось бы как «перейди дальше»,
+    // и показ перепрыгивал серию, уезжая со вкладки на телевизор (замер на стенде
+    // `.104` 10-09-2026: s1e2 кончилась, вкладка получила s1e4 на ТВ и чёрный экран).
+    const ended = TCPlayer._endedMark();
     TCPlayer._overlay.replaceChildren();
     TCPlayerNext.mount(
       TCPlayer._overlay,
-      () => TCApi.next(),
+      () => TCApi.next(ended),
       () => TCPlayer._clearOverlay(),
     );
+  },
+
+  //: Серия, которая играет в эту секунду, поимённо - тело ``POST /api/next``; снимок её
+  //: ещё не назвал (фильм, первые секунды) - пустой зов, старое поведение без имени.
+  _endedMark() {
+    const state = TCPlayer._last || {};
+    return state.season && state.episode ? { season: state.season, episode: state.episode } : {};
   },
   // ------------------------------------------------------------------ hls.js
 
@@ -305,7 +318,7 @@ const TCPlayer = {
         const dur = TCPlayer._video.duration || 0;
         if (dur > 0) TCPlayer._video.currentTime = frac * dur;
       },
-      onNext() { TCApi.next(); },
+      onNext() { TCApi.next(TCPlayer._endedMark()); },
       onToggleTv() {
         if (TCPlayer._onTv) {
           TCApi.toWeb().then(() => {

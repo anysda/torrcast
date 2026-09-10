@@ -27,7 +27,7 @@ class _Bridge:
         self.progressed: list[str] = []
         self.progress_partial = False
         self.controlled: list[tuple[str, float]] = []
-        self.nexted = 0
+        self.nexted: list[dict[str, Any] | None] = []
         self.resumed = 0
         self.refuse = ""
         self.pictures: dict[str, tuple[bytes, str]] = {}
@@ -89,10 +89,10 @@ class _Bridge:
         self.asked.append(name)
         return self.pictures.get(name)
 
-    def next(self) -> None:
+    def next(self, body: dict[str, Any] | None = None) -> None:
         if self.refuse:
             raise RefusedError(self.refuse)
-        self.nexted += 1
+        self.nexted.append(body)
 
 
 @pytest.fixture
@@ -157,7 +157,17 @@ def test_the_remote_and_the_next_episode_answer_without_a_body(
     assert _call(f"{address}/api/control", "POST", control) == (204, "")
     assert _call(f"{address}/api/next", "POST", b"") == (204, "")
     assert bridge.controlled == [("seekby", 90.0)]
-    assert bridge.nexted == 1
+    assert bridge.nexted == [{}]
+
+
+def test_the_episode_the_page_names_as_ended_reaches_the_bridge(
+    address: str, bridge: _Bridge
+) -> None:
+    """Вкладка зовёт следующую серию, называя доигранную: тело доезжает до моста."""
+    ended = json.dumps({"season": 1, "episode": 2}).encode()
+
+    assert _call(f"{address}/api/next", "POST", ended) == (204, "")
+    assert bridge.nexted == [{"season": 1, "episode": 2}]
 
 
 def test_a_refusal_of_the_bridge_becomes_409_with_the_same_word(

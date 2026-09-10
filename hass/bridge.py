@@ -21,6 +21,7 @@ from collections.abc import Callable
 
 from hass.following import following
 from hass.motion import Motion
+from hass.next_show import next_show
 from hass.orders import Command, Orders
 from hass.payload import payload
 from hass.play_argv import play_argv
@@ -146,12 +147,10 @@ class Bridge:
         say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
         self._motion.commanded(command, arg)
 
-    def next(self) -> None:
+    def next(self, body: dict[str, JsonValue] | None = None) -> None:
         """``POST /api/next``: следующая серия той же раздачи, названная запросом."""
-        query = following(self._session)
-        if query is None:
-            raise RefusedError(NO_NEXT)
-        self._start([query])
+        if args := next_show(self._session, body or {}):
+            self._start(args)
 
     # ------------------------------------------------------------------ внутреннее
 
