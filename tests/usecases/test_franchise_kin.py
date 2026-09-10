@@ -60,9 +60,11 @@ def test_a_franchise_without_kin_is_remembered_as_an_empty_shelf() -> None:
 def test_a_silent_network_leaves_no_row_in_the_cache() -> None:
     """🔴 Молчание сети не кладётся в кэш: ряд на диске переживёт и показ, и обновление.
 
-    Разница с пустым ответом - вся суть: «родни нет» продукт узнал, а «сеть молчит» не
-    узнал ничего. Замер 07-09-2026 на стенде `.104`: «Форсаж» лёг пустым рядом от одной
-    оборванной связи и отвечал пусто за 0,0 с, пока живой запрос давал десять картин.
+    Разница с пустым ответом - вся суть: «родни нет» продукт узнал и отвечает списком,
+    а «сеть молчит» не узнал ничего и отвечает ``None`` - незаконченным, чтобы следующий
+    заход спросил заново. Замер 07-09-2026 на стенде `.104`: «Форсаж» лёг пустым рядом
+    от одной оборванной связи и отвечал пусто за 0,0 с, пока живой запрос давал десять
+    картин.
     """
     passport = FakePassport({"Форсаж": Origin(title="The Fast and the Furious", entity="Q1")})
     calls: list[str] = []
@@ -74,9 +76,9 @@ def test_a_silent_network_leaves_no_row_in_the_cache() -> None:
     store = FakeKinStore()
     shelf = FranchiseKin(passport, FakeKinSource(silence), store, FakePassport())
 
-    assert shelf.of("Форсаж", False, 1.0) == []
+    assert shelf.of("Форсаж", False, 1.0) is None
     assert store.written == [], "молчание сети записано в кэш пустой полкой"
-    assert shelf.of("Форсаж", False, 1.0) == []
+    assert shelf.of("Форсаж", False, 1.0) is None
     assert calls == ["Q1", "Q1"], "второй заход обязан спросить сеть заново"
 
 

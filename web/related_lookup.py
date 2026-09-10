@@ -21,8 +21,10 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
 from torrcast.domain.spoken_title import spoken_title
 
-#: Тот же ``FranchiseKin.of``: имя, серия ли картина, срок сети - родня.
-Franchise = Callable[[str, bool, float], list[Kin]]
+#: Тот же ``FranchiseKin.of``: имя, серия ли картина, срок сети - родня; ``None`` -
+#: сеть промолчала, и это НЕ законченный ответ: в кэш ему нельзя, следующий вопрос
+#: заводит новый добор (:meth:`RelatedLookup._build`).
+Franchise = Callable[[str, bool, float], list[Kin] | None]
 #: Тот же ``Passport.of``: паспорт родни латиницей - Wikidata своего не называет
 #: (:func:`_seed`).
 PassportOf = Callable[[str, bool, float], Origin]
@@ -110,12 +112,29 @@ class RelatedLookup:
             return cached[0] if cached is not None else None
 
     def _build(self, title: str, series: bool) -> None:
-        found = self.franchise(title, series, TIMEOUT)
-        seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
-        tiles = [_project(record) for record in self.offer(seeds)]
-        with self._lock:
-            self._tiles[title] = (tiles, self.clock() + RETRY)
-            self._pending.discard(title)
+        """Собрать плитки родни; молчание сети в кэш не ложится - переспросит следующий.
+
+        🔴 Пустая полка кэшируется только когда она ОТВЕЧЕНА (:meth:`FranchiseKin.of`
+        отдал список). ``None`` - сеть промолчала, и записать его «родни нет» на час
+        (:data:`RETRY`) значило бы гасить полку одной оборванной связью: замер
+        10-09-2026 на стенде `.104` - «Чужой» отвечал пустой полкой при шести частях
+        франшизы в живом ответе Wikidata. Ошибка добора - тоже не ответ: без
+        ``try/finally`` упавший фон держал имя в ``_pending`` вечно, и полка висела
+        недоехавшей до перезапуска процесса.
+        """
+        try:
+            found = self.franchise(title, series, TIMEOUT)
+            if found is None:
+                return
+            seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
+            tiles = [_project(record) for record in self.offer(seeds)]
+            with self._lock:
+                self._tiles[title] = (tiles, self.clock() + RETRY)
+        except Exception:
+            return
+        finally:
+            with self._lock:
+                self._pending.discard(title)
 
     def _latin_of(self, name: str) -> str:
         """Латиница родни из паспорта - под русским языком показ на неё не смотрит.

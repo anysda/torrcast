@@ -10,7 +10,7 @@ from torrcast.ports.passport_source import PassportSource
 
 
 class FranchiseKin:
-    """Полка родни картины: пустой список - франшизы нет, паспорт не найден, или сеть молчит.
+    """Полка родни картины: пустой список - франшизы нет, ``None`` - сеть молчит.
 
     Кэш стоит ПЕРЕД походом за родней, а не вокруг паспорта: паспорт картины и так кэширован
     своим хранилищем (:class:`~torrcast.usecases.passport.Passport`), а второй поход за той же
@@ -29,8 +29,15 @@ class FranchiseKin:
         self.store = store
         self.refresh = refresh
 
-    def of(self, title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) -> list[Kin]:
+    def of(
+        self, title: str, series: bool = False, timeout: float = HTTP_TIMEOUT
+    ) -> list[Kin] | None:
         """Родня картины по названию: без Q-идентификатора спрашивать Wikidata не о чем.
+
+        ``None`` - сеть промолчала и продукт не узнал НИЧЕГО: это не «родни нет», и
+        отвечать им как законченной пустой полкой нельзя - тот, кто спросил, обязан
+        переспросить позже (:class:`web.related_lookup.RelatedLookup` так и делает).
+        Пустой список - только законченный ответ «Wikidata ответила: родни нет».
 
         Паспорт без Q-идентификатора, не подписанный Википедией, - деградированный: его
         ответила офлайн-карта в минуту молчания сети, и кэш хранит его бессрочно. Такой
@@ -52,8 +59,8 @@ class FranchiseKin:
             found = self.kin.kin(entity, timeout)
         except Exception:
             # 🔴 Молчание сети - НЕ «родни нет», и в кэш ему нельзя: ряд лежит на диске
-            # и переживает и показ, и обновление продукта. Полка пуста на этот заход,
+            # и переживает и показ, и обновление продукта. Полка молчит на этот заход,
             # а следующий спросит заново.
-            return []
+            return None
         self.store.write_kin(entity, found)
         return found

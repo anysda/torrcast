@@ -49,7 +49,7 @@ def main() -> int:
     hits = 0
     for title in _TITLES:
         origin = wiring.passport.of(title)
-        shelf = wiring.franchise.of(title)
+        shelf = wiring.franchise.of(title) or []
         names = ", ".join(f"{k.name} ({k.year})" for k in shelf)
         state = "OK" if shelf else "ПУСТО"
         if shelf:
