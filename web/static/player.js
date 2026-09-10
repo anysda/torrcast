@@ -231,7 +231,14 @@ const TCPlayer = {
       paused = state.state === 'paused';
       volume = typeof state.volume === 'number' ? state.volume : 0;
       packagedPct = typeof state.warm === 'number' ? state.warm : null;
-      if (video && Math.abs((video.currentTime || 0) - pos) > TCPlayer.DRIFT_S) video.currentTime = pos;
+      if (video) {
+        // Поправка асимметрична: отставшую плёнку догоняем сразу, а обогнавшую
+        // доклад - только когда обгон больше целого шага докладов (~10 с). Меньший
+        // обгон - не расходство, а погрешность самого доклада: он на ре-якоре шагает
+        // назад, и поправка под него дёргала картинку вспять (замер 10-09-2026).
+        const diff = (video.currentTime || 0) - pos;
+        if (diff < -TCPlayer.DRIFT_S || diff > 2 * TCPlayer.DRIFT_S) video.currentTime = pos;
+      }
     } else if (video) {
       pos = video.currentTime || 0;
       dur = video.duration || 0;
