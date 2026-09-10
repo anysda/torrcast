@@ -9,8 +9,9 @@ const TCNav = {
   // Чем человек трогал страницу последним: 'key' или 'mouse'. Начинается с клавиш -
   // так страницу открывает всякий, кто пришёл с пультом и мыши не касался.
   input: 'key',
-  // Единственное горящее место на кадре или ``null``, если не горит ничего.
+  // Единственное горящее место на кадре (или ``null``) и ряд, раздуваемый под ним.
   lit: null,
+  _sizedRow: null,
   // Бегущая анимация подписи под горящей плиткой: `<div class="tc-tile-cap">` → сама
   // функция кадра. Пока элемент - ключ карты, его цикл продолжается; исчез из карты -
   // прошлый `requestAnimationFrame` увидит чужой шаг и остановится сам, без отмены по id.
@@ -41,6 +42,13 @@ const TCNav = {
     if (place) {
       place.classList.add('is-lit');
       TCNav._startCapScroll(place);
+    }
+    // Размерная иерархия хендофа: ряд с горящей плиткой крупный (268px), иные мелкие.
+    const row = place && place.closest ? place.closest('.tc-row') : null;
+    if (TCNav._sizedRow !== row) {
+      if (TCNav._sizedRow) TCNav._sizedRow.classList.remove('tc-row--focused');
+      TCNav._sizedRow = row;
+      if (row) row.classList.add('tc-row--focused');
     }
   },
 

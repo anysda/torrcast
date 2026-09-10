@@ -159,7 +159,7 @@ body {
                 text-transform: uppercase; color: var(--tc-acid); }
 .tc-searching-square { width: .875rem; height: .875rem; background: var(--tc-acid); }
 .tc-results-count { font-weight: 700; font-size: 1.375rem; letter-spacing: .16em;
-                    text-transform: uppercase; color: var(--tc-muted); }
+                    text-transform: uppercase; color: var(--tc-muted); white-space: nowrap; }
 .tc-nothing { font-weight: 900; font-size: 6.5rem; line-height: .9; text-transform: uppercase;
               letter-spacing: -.03em; color: var(--tc-empty-ink);
               -webkit-text-stroke: 0.125rem var(--tc-disabled-ink); }
@@ -182,9 +182,13 @@ body {
 .tc-row::-webkit-scrollbar-track { background: transparent; }
 .tc-row::-webkit-scrollbar-thumb { background: var(--tc-hair); }
 .tc-row > * { flex: 0 0 var(--tc-tile-rest); width: var(--tc-tile-rest); }
-.tc-row--focused > * { flex-basis: var(--tc-tile-focus); width: var(--tc-tile-focus); }
 .tc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--tc-gap); }
-.tc-grid--second > * { width: var(--tc-tile-search); }
+/* Вторая строка выдачи поиска (§4.2): та же полка, но мельче - 168px. Одного `width`
+   мало: `flex-basis` базового `.tc-row` перебивает ширину, поэтому `flex` целиком. */
+.tc-grid--second > * { flex: 0 0 var(--tc-tile-search); width: var(--tc-tile-search); }
+/* Полка под фокусом крупнее остальных (268px, «Size hierarchy» хендофа) - правило всех
+   экранов с несколькими рядами, поэтому стоит последним: перебивает и `--second`. */
+.tc-row--focused > * { flex-basis: var(--tc-tile-focus); width: var(--tc-tile-focus); }
 .tc-shelf-empty { display: flex; align-items: center; justify-content: center; height: 17.5rem;
                   border: var(--tc-border) solid var(--tc-ghost-line);
                   background: repeating-linear-gradient(135deg, #121210 0 2px, #0B0B0B 2px 18px);

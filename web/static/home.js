@@ -29,7 +29,13 @@ const TCHome = {
     input.value = asked;
     input.focus();
 
-    TCApi.sources().then((count) => { TCHome._sourcesCount = count; });
+    TCApi.sources().then((count) => {
+      TCHome._sourcesCount = count;
+      // Счётчик мог встать на шапку раньше ответа про источники - переписать число.
+      if (TCHome._found && TCHome._found.query === TCHome._query) {
+        TCHome._syncCount(TCHome._found.results.length);
+      }
+    });
     const [state, history, shelves] = await Promise.all([
       TCApi.state(), TCApi.history(), TCApi.shelves(),
     ]);
@@ -37,6 +43,10 @@ const TCHome = {
     const fresh = TC.header(state);
     header.replaceWith(fresh);
     header = fresh;
+    // Шапка пересобрана - счётчик выдачи, вставший в старую, надо вернуть.
+    if (TCHome._found && TCHome._found.query === TCHome._query) {
+      TCHome._syncCount(TCHome._found.results.length);
+    }
     TCHome._lastHistory = history;
     TCHome._lastShelves = shelves;
     const body = document.getElementById('tc-body');
@@ -186,6 +196,7 @@ const TCHome = {
   },
 
   _searchLoading() {
+    TCHome._syncCount(null);
     const body = document.createElement('div');
     body.id = 'tc-body';
     body.appendChild(TCHome._searchingLine());
@@ -218,6 +229,7 @@ const TCHome = {
     const body = document.createElement('div');
     body.id = 'tc-body';
     if (results.length === 0) {
+      TCHome._syncCount(null);
       const nothing = document.createElement('div');
       nothing.className = 'tc-nothing';
       nothing.textContent = TC.say('web.search.empty');
@@ -228,27 +240,58 @@ const TCHome = {
       return body;
     }
     if (partial) body.appendChild(TCHome._searchingLine());
-    const grid = document.createElement('div');
-    grid.className = 'tc-grid';
-    results.forEach((hit, index) => {
-      grid.appendChild(TCTile.build({
+    TCHome._syncCount(results.length);
+    // Выдача - два РЯДА, а не сетка (§4.2): первые семь крупные (210px, у самой первой
+    // плашка «Best match»), остальные второй строкой мельче (168px, `tc-grid--second`).
+    body.appendChild(TCHome._hitsRow(results.slice(0, 7), 'tc-row', true));
+    if (results.length > 7) {
+      body.appendChild(TCHome._hitsRow(results.slice(7), 'tc-row tc-grid--second', false));
+    }
+    return body;
+  },
+
+  _hitsRow(hits, cls, firstBest) {
+    const row = document.createElement('div');
+    row.className = cls;
+    hits.forEach((hit, index) => {
+      row.appendChild(TCTile.build({
         key: hit.key,
         title: hit.shown || hit.title,
         poster: hit.poster,
         year: hit.year,
-        best: !!hit.default,
+        best: firstBest && index === 0,
         group: 'search-results',
         query: TCHome._query,
         onActivate: TCHome._openCard,
       }));
     });
-    body.appendChild(grid);
-    return body;
+    return row;
+  },
+
+  // Счётчик «N находок · M источников» стоит в шапке справа (§4.2/B), на месте плашки
+  // «сейчас идёт». Нарисован только над выдачей: ни «ищем», ни «ничего не нашлось»,
+  // ни чистая главная его не несут - ``null`` снимает. Числа настоящие: сколько плиток
+  // на экране и сколько источников у круга поиска (`TCApi.sources`).
+  _syncCount(shown) {
+    const header = document.querySelector('.tc-header');
+    if (!header) return;
+    let line = header.querySelector('.tc-results-count');
+    if (shown === null || shown === 0) {
+      if (line) line.remove();
+      return;
+    }
+    if (!line) {
+      line = document.createElement('div');
+      line.className = 'tc-results-count';
+      header.appendChild(line);
+    }
+    line.textContent = TC.say('web.search.counter', { n: shown, m: TCHome._sourcesCount });
   },
 
   _body(history, shelves) {
     TCHome._lastHistory = history;
     TCHome._lastShelves = shelves;
+    TCHome._syncCount(null);
     const body = document.createElement('div');
     body.id = 'tc-body';
     if (history.length > 0) {
