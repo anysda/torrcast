@@ -12,6 +12,10 @@ const TCTile = {
     tile.className = 'tc-tile';
     tile.dataset.tcTile = '1';
     if (shape.group) tile.dataset.tcGroup = shape.group;
+    // Пометка для прогрева (`warm.js`) - ТОТ ЖЕ запрос, с которым откроется карточка:
+    // другого источника у неё нет, и разойтись им негде. Стоит на самой плитке, потому
+    // что видно на экране именно её, а не строку списка.
+    if (shape.query) tile.dataset.tcWarm = shape.query;
     if (!shape.loading) {
       tile.tabIndex = 0;
       tile.dataset.tcFocusable = '1';

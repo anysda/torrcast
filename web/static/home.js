@@ -273,6 +273,8 @@ const TCHome = {
         best: firstBest && index === 0,
         group: 'search-results',
         query: TCHome._query,
+        // У всей выдачи запрос ОДИН - тот, что человек написал: весь экран находок
+        // стоит прогреву одного круга, а не одного круга на плитку.
         onActivate: TCHome._openCard,
       }));
     });
@@ -334,6 +336,8 @@ const TCHome = {
       poster: hit.poster,
       year: hit.year,
       query: hit.query || hit.title,
+      // Греется по ЗАПИСАННОМУ имени: им же карточка ищет круг и им же зовётся справка,
+      // а `title` плитки - это имя для человека, и в кэше справки его нет.
       onActivate: TCHome._openCard,
     };
   },

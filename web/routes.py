@@ -8,6 +8,7 @@ from web.history import history
 from web.phrases import phrases
 from web.position import position
 from web.route import Route
+from web.seen import seen
 from web.serve_shell import serve_shell
 from web.serve_static import serve_static
 from web.shelves import shelves
@@ -34,6 +35,7 @@ def routes() -> tuple[Route, ...]:
         Route("GET", "/api/web/sources", sources),
         Route("GET", "/api/web/box", box),
         Route("POST", "/api/web/position", position),
+        Route("POST", "/api/seen", seen),
         Route("POST", "/api/to-tv", to_tv),
         Route("POST", "/api/to-web", to_web),
         Route("GET", "/api/card/", card, prefix=True),

@@ -12,22 +12,17 @@ from __future__ import annotations
 import json
 
 from hass.poster_name import poster_name
-from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.torrserver.torr_server import TorrServer
-from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.release import Release
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.domain.tune import tune
-from torrcast.ports.progress.slot import progress
 from torrcast.ports.state_store.slot import store
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
-from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
 from web.card_lookup import card_lookup
@@ -36,6 +31,7 @@ from web.rating_score import rating_score
 from web.refusal import refusal
 from web.related_lookup import RelatedLookup
 from web.request import Request
+from web.warm_wiring import WARM
 
 #: Префикс, под которым живёт вся карточка; ключ картины - хвост пути после него.
 _PREFIX = "/api/card/"
@@ -55,10 +51,10 @@ def card(request: Request) -> Answer:
         return refusal(400, "no_query")
     key = request.path[len(_PREFIX) :]
     config = load_config()
-    chosen = detector.detect(config)
-    args = parse_args([query])
     try:
-        plans = search_circle(tune(config, chosen.profile), args, progress(), chosen.profile)
+        # Согретый круг отдаётся сразу (:mod:`web.warm_cache`), несогретый считается
+        # тут же и вперёд фона: живой запрос не встаёт в очередь прогрева.
+        plans = WARM.take(query)
     except TorrcastError as failed:
         return refusal(409, str(failed))
     plan, pick = card_lookup(plans, key)

@@ -9,11 +9,9 @@ from typing import Any
 import pytest
 
 from tests.fakes.state_store import FakeStateStore
-from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.picture import Picture
-from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.state_store import slot as state_slot
@@ -21,6 +19,7 @@ from torrcast.usecases.select.plan import Plan
 from web.answer import JSON
 from web.card import card
 from web.request import Request
+from web.warm_cache import WarmCache
 
 _MOVIE = Picture(title="Interstellar", year=2014, kind="movie", original="Interstellar")
 _LEAD = Release(
@@ -87,6 +86,11 @@ class _StubRelated:
         return self.result
 
 
+def _warm(circle: Any) -> WarmCache:
+    """Свой прогрев на каждую пробу: согретое соседкой не должно доставаться этой."""
+    return WarmCache(circle=circle, blurbs=lambda _pictures: None, spawn=lambda _job: None)
+
+
 def _wired(
     monkeypatch: pytest.MonkeyPatch,
     plans: list[Plan],
@@ -94,15 +98,9 @@ def _wired(
     related: list[Any] | None = None,
 ) -> None:
     monkeypatch.setattr("web.card.load_config", lambda: Config())
-    monkeypatch.setattr("web.card.detector", _Detector())
-    monkeypatch.setattr("web.card.search_circle", _plans(plans))
+    monkeypatch.setattr("web.card.WARM", _warm(_plans(plans)))
     monkeypatch.setattr("web.card._episodes", _StubEpisodes(episodes))
     monkeypatch.setattr("web.card._related", _StubRelated(related))
-
-
-class _Detector:
-    def detect(self, _config: Config) -> Choice:
-        return Choice(CAUTIOUS, "тест")
 
 
 def _asked(key: str, query: str = "interstellar") -> tuple[int, dict[str, Any], tuple[str, ...]]:
@@ -117,7 +115,7 @@ def test_no_query_is_refused_before_any_search_runs(monkeypatch: pytest.MonkeyPa
         raise AssertionError("поиск не должен звать при пустом query")
 
     _wired(monkeypatch, [])
-    monkeypatch.setattr("web.card.search_circle", _boom)
+    monkeypatch.setattr("web.card.WARM", _warm(_boom))
 
     answer = card(Request("GET", f"/api/card/{_MOVIE.key}", {}, {}))
 
@@ -142,7 +140,7 @@ def test_a_search_refusal_surfaces_as_409_with_the_products_own_word(
         raise TorrcastError("nothing_found")
 
     _wired(monkeypatch, [])
-    monkeypatch.setattr("web.card.search_circle", _refused)
+    monkeypatch.setattr("web.card.WARM", _warm(_refused))
 
     code, body, _extra = _asked(_MOVIE.key)
 

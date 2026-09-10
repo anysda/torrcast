@@ -167,4 +167,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   await TC.load();
   TCNav.init();
   TCRouter.render();
+  TCWarm.start();
 });
