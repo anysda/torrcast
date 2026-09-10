@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from torrcast.adapters.filesystem.state.shelves_cache_path import shelves_cache_path
 from torrcast.adapters.filesystem.state.write_atomic import _write_atomic
@@ -25,6 +25,7 @@ from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
+from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
 from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
 from torrcast.usecases.shelves.popular_shelf import popular_shelf
 from web.min_tiles import FLOOR, min_tiles
@@ -34,6 +35,10 @@ from web.shelf_tiles import Offer, PassportOf, _no_passport, shelf_tiles
 Feed = Callable[[int], list[FeedRow]]
 #: Кто запускает фоновую сборку; в бою - настоящий поток-демон.
 Spawn = Callable[[Callable[[], None]], None]
+#: Сколько кандидатов собирается на полку сверх видимых плиток: картины без обложки
+#: на полку не попадают, а их места добираются следующими картинами с обложкой
+#: (:func:`web.shelf_tiles._covered`), и запас кандидатов - это из чего добирать.
+_CANDIDATES: Final = SHELF_LIMIT * 3
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -100,7 +105,8 @@ class ShelvesCache:
         сборка выходит короче планки ТЗ §9 (:data:`web.min_tiles.FLOOR`). Такую
         полку человеку не отдают: фон добирает ленту ещё заходами, склеивая строки по
         хэшу раздачи, и берёт самую полную из попыток; а собранную полную полку
-        короткая сборка не заменяет вовсе.
+        короткая сборка не заменяет вовсе. Тем же счётом меряется и отбор плиток без
+        обложки: полка после него не вправе стать короче, чем была бы без него.
         """
         rows: dict[str, FeedRow] = {}
         best: dict[str, JsonValue] | None = None
@@ -130,14 +136,14 @@ class ShelvesCache:
         """Тело ответа из строк ленты: обе полки и отметка времени сборки."""
         now = self.clock()
         return {
-            "fresh": self._tiles(fresh_shelf(rows, self.catalogue, now=now)),
-            "popular": self._tiles(popular_shelf(rows, self.catalogue, now=now)),
+            "fresh": self._tiles(fresh_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES)),
+            "popular": self._tiles(popular_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES)),
             "built_at": now.isoformat(),
         }
 
     def _tiles(self, pictures: list[Any]) -> list[JsonValue]:
-        """Плитки картин с предложенной обложкой, ужатые под контракт ``/api/shelves``."""
-        return shelf_tiles(pictures, self.offer, self.passport)
+        """Видимые плитки полки: только картины с обложкой, в числе видимых ТЗ §9."""
+        return shelf_tiles(pictures, self.offer, self.passport, limit=SHELF_LIMIT)
 
     def _load(self) -> dict[str, JsonValue]:
         try:

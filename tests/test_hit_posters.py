@@ -174,6 +174,35 @@ def test_a_miss_holds_off_the_next_walk_for_the_same_picture(tmp_path: Path) -> 
     assert len(source.judged) == 1, f"за приговором сходили снова: {source.judged}"
 
 
+@dataclass
+class SilentSource(FakeSource):
+    """Источник, который сперва молчит (сеть легла), а потом отвечает."""
+
+    down: bool = True
+
+    def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
+        if self.down:
+            raise OSError("сеть легла")
+        return super().wanted(asks, timeout)
+
+
+def test_a_silent_source_is_not_a_miss_and_is_asked_again(tmp_path: Path) -> None:
+    """🔴 Молчание источника - не «постеров нет»: промах не пишется, спросят снова.
+
+    Запиши молчание промахом - и очнувшийся источник ждал бы конца отложенного срока,
+    а полки главной собирались бы без обложок ровно на только что поднявшейся сети.
+    """
+    source = SilentSource()
+    hits = _hits(tmp_path, source, now=lambda: 0.0)
+    first = hits.offer([_row()])[0]
+    assert isinstance(first, dict) and FIELD not in first
+
+    source.down = False
+    name = _named(hits, _row())
+
+    assert hits.read(name) == (POSTER, "image/jpeg")
+
+
 def test_the_original_name_rides_along_to_the_walk(tmp_path: Path) -> None:
     """Оригинальное имя доезжает до похода: у части картин русской статьи нет вовсе."""
     source = FakeSource()

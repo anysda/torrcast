@@ -39,10 +39,33 @@ def _no_passport(_title: str, _series: bool, _timeout: float) -> Origin:
     return Origin()
 
 
-def shelf_tiles(pictures: list[Any], offer: Offer, passport: PassportOf) -> list[JsonValue]:
+def shelf_tiles(
+    pictures: list[Any], offer: Offer, passport: PassportOf, limit: int | None = None
+) -> list[JsonValue]:
     """Плитки картин с предложенной обложкой, ужатые под контракт ``/api/shelves``."""
     seeds: list[JsonValue] = [picture_tile(picture) for picture in pictures]
-    return [_project(record, passport) for record in offer(seeds)]
+    offered = offer(seeds)
+    if limit is not None:
+        offered = _covered(offered, limit)
+    return [_project(record, passport) for record in offered]
+
+
+def _covered(records: list[JsonValue], limit: int) -> list[JsonValue]:
+    """Первые limit записей с обложкой: место выброшенной добирает следующая картина.
+
+    Рекомендация без картинки - не рекомендация: полку листают глазами, а не читают.
+    «Обложки нет» тут - ПРИГОВОР источника, а не «обложка ещё едет»: имя выдаётся сразу
+    после приговора, пока байты едут фоном (:class:`hass.hit_posters.HitPosters`), и у
+    едущей обложки поле ``poster`` уже на месте.
+
+    🔴 Имени нет НИ У ОДНОЙ записи - приговора не было вовсе: источник картинок молчит,
+    и отличить «обложки нет» от «не спросили» нечем. Такую сборку отбор не трогает -
+    полка из заглушек честнее пустой, - а фон переспросит следующим заходом.
+    """
+    covered: list[JsonValue] = [
+        record for record in records if isinstance(record, dict) and record.get("poster")
+    ]
+    return covered[:limit] if covered else records[:limit]
 
 
 def _project(record: JsonValue, passport: PassportOf) -> JsonValue:

@@ -79,13 +79,15 @@ class HitPosters:
         asks = [_about(record) for record in results]
         state = {ask: self._state(ask) for ask in dict.fromkeys(a for a in asks if a)}
         fresh = [ask for ask, one in state.items() if one is _ASK]
-        ready = self._answer(fresh)
+        answered = self._answer(fresh)
+        ready = answered or {}
         found = {ask for ask, pages in ready.items() if pages}
         self._begin({ask: ready[ask] for ask in found})
-        for ask in fresh:
-            if ask not in found:
-                with self._lock:
-                    self._tried[_name(ask)] = self._now() + _RETRY
+        if answered is not None:
+            for ask in fresh:
+                if ask not in found:
+                    with self._lock:
+                        self._tried[_name(ask)] = self._now() + _RETRY
         known = found | {ask for ask, one in state.items() if one is _READY}
         return [
             {**record, FIELD: _name(ask)} if isinstance(record, dict) and ask in known else record
@@ -134,14 +136,20 @@ class HitPosters:
             self._keep(name, kept)
         return _READY
 
-    def _answer(self, asks: Sequence[Ask]) -> dict[Ask, list[str]]:
-        """Приговор на всю пачку; сеть не ответила - считаем, что статей нет."""
+    def _answer(self, asks: Sequence[Ask]) -> dict[Ask, list[str]] | None:
+        """Приговор на всю пачку; ``None`` - источник МОЛЧИТ, а не «постеров нет».
+
+        Молчание не записывается промахом: оно не говорит про картины ничего, а
+        записанный промах держал бы их без имён ещё пять минут после того, как источник
+        уже очнулся, - и полки главной собрались бы пустыми ровно на очнувшейся сети.
+        Отказавший заход спросят снова: следующей сборкой полок или следующим списком.
+        """
         if not asks:
             return {}
         try:
             return self._source_of().wanted(asks, _TIMEOUT)
         except Exception:
-            return {}
+            return None
 
     def _begin(self, wanted: dict[Ask, list[str]]) -> None:
         """Пометить картинки как ожидаемые и уйти за их байтами фоном."""

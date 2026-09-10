@@ -353,3 +353,32 @@ def test_all_short_attempts_publish_their_fullest_build(tmp_path: Path) -> None:
     body = cache._body
     assert body is not None
     assert isinstance(body["fresh"], list) and len(body["fresh"]) == 15
+
+
+def _half_posters(records: list[JsonValue]) -> list[JsonValue]:
+    """``offer``-подделка: обложку получают записи с нечётным номером картины в имени."""
+    out: list[JsonValue] = []
+    for record in records:
+        assert isinstance(record, dict)
+        number = int(str(record["title"]).split()[1])
+        out.append({**record, "poster": "abc"} if number % 2 else record)
+    return out
+
+
+def test_a_picture_without_a_poster_is_replaced_by_the_next_covered_one(
+    tmp_path: Path,
+) -> None:
+    """Полка не несёт заглушек и не короче планки: выброшенное добрано следующими."""
+    cache = _cache(tmp_path, feed=lambda limit: _many_rows(60), offer=_half_posters)
+
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    for key in ("fresh", "popular"):
+        shelf = body[key]
+        assert isinstance(shelf, list)
+        assert len(shelf) == 30, f"полка {key} стала короче: {len(shelf)}"
+        assert all(isinstance(tile, dict) and tile.get("poster") for tile in shelf), (
+            f"полка {key} несёт плитку без обложки"
+        )
