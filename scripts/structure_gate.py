@@ -151,6 +151,15 @@ SCRIPTS: Final = {
 #: вовсе (`tests/hass_integration/conftest.py`), поэтому вперемешку с остальными тестами
 #: он лежать не может, и путь до зеркала у него свой.
 MIRRORS: Final = {"custom_components": "tests/hass_integration"}
+#: Разрезанные единицы остаются под тем же внешним зеркалом: оно ходит через прежний
+#: фасад, поэтому меряет поведение перенесённого кода, а не его внутреннее имя. Отдельная
+#: копия такого зеркала повторила бы те же провода и не добавила бы ни одной пробы.
+MODULE_MIRRORS: Final = {
+    "hass/http_handler.py": "tests/test_serve.py",
+    "hass/http_routes.py": "tests/test_serve.py",
+    "hass/resuming.py": "tests/test_bridge.py",
+    "torrcast/usecases/discover/_plan_menu.py": "tests/usecases/discover/test_search_circle.py",
+}
 #: Файлы интеграции Home Assistant, форму которых задаёт не наша раскладка, а сам
 #: Home Assistant: он ищет их по имени и сам решает, что внутри. Снятое правило названо
 #: поимённо и с причиной - молчащего исключения тут нет ни одного, а протухнуть записи
@@ -1265,6 +1274,8 @@ def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list
 
 def _mirror(root: Path, module: Module) -> Path:
     """Путь до зеркала модуля: рядом с пакетом либо в каталоге, названном :data:`MIRRORS`."""
+    if module.relative in MODULE_MIRRORS:
+        return root / MODULE_MIRRORS[module.relative]
     parts = Path(module.relative).parts
     home = MIRRORS.get(parts[0])
     if home is not None:
@@ -1373,7 +1384,7 @@ def report(violations: Iterable[Violation]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Запускает гейт в режиме отчёта или строгом режиме с ошибкой."""
+    """Запускает гейт с ошибкой при нарушении; ``--strict`` оставлен старым зовущим."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", nargs="?", type=Path, default=Path.cwd())
     parser.add_argument("--strict", action="store_true")
@@ -1387,7 +1398,7 @@ def main(argv: list[str] | None = None) -> int:
         f"\nОхват правила «перевод»: под мерой файлов {measured}, "
         f"из них с кириллическими местами {seen}, самих мест {places}."
     )
-    return int(arguments.strict and bool(violations))
+    return int(bool(violations))
 
 
 if __name__ == "__main__":

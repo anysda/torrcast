@@ -34,3 +34,11 @@ def stopping(orders: Orders, session: PlaybackSession) -> None:
     if orders.abandon():
         session.stop()
     orders.force([STOP])
+
+
+def _abandoned(orders: Orders) -> bool:
+    """Снят ли заказ на идущий подъём: спрашивает это сам подъём.
+
+    Кладёт факт :func:`hass.stopping.stopping`, и там же названо, почему отдельным.
+    """
+    return orders.abandoned()

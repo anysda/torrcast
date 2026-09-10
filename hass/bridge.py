@@ -26,11 +26,12 @@ from hass.payload import payload
 from hass.play_argv import play_argv
 from hass.posters import Posters
 from hass.refused_error import RefusedError
+from hass.resuming import _resume
 from hass.say import SEEKBY, TOGGLE, say
 from hass.search_progress import search_progress
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
 from hass.starting import starting
-from hass.stopping import STOP, stopping
+from hass.stopping import STOP, _abandoned, stopping
 from hass.volume import Volume
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.health.machine_probe import MachineProbe
@@ -124,14 +125,7 @@ class Bridge:
         return self._start(play_argv(query, pick, voice, season, episode, from_start, here))
 
     def resume(self) -> str:
-        """``POST /api/resume``: поднять показ ровно так же, как пустой ``cast``.
-
-        Картину и место выбирает ПРОДУКТ: пустой argv отправляет в тот же
-        :func:`torrcast.usecases.cast_command._default_query._default_query` и закладку, так что
-        мост своего ответа не заводит. Пустой ``query`` у :meth:`play` остаётся отказом: показ БЕЗ
-        запроса - другая просьба.
-        """
-        return self._start([])
+        return _resume(self._start)
 
     def control(self, command: str, arg: float) -> None:
         """``POST /api/control``: пульт идущего показа, а остановка - дверь наружу.
@@ -168,8 +162,7 @@ class Bridge:
         return secrets.token_hex(4)
 
     def abandoned(self) -> bool:
-        """Снят ли заказ на идущий подъём; факт кладёт :func:`hass.stopping.stopping`."""
-        return self._orders.abandoned()
+        return _abandoned(self._orders)
 
     def run(self) -> None:
         """Исполнять команды, пока не попросят уйти. Зовётся из ГЛАВНОГО потока."""

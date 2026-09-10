@@ -12,24 +12,20 @@ from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.menu_order import menu_order
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
-from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._named import _also, _different_display_names, _title
 from torrcast.usecases.discover._ask import _ask, _notify
-from torrcast.usecases.discover._catalog_note import _catalog_note
 from torrcast.usecases.discover._nothing import _nothing
+from torrcast.usecases.discover._plan_menu import _plans
 from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover._second_typo import _second_typo
-from torrcast.usecases.discover.kin_line import _kin
-from torrcast.usecases.discover.season_gaps import season_gaps
 from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
 from torrcast.usecases.reinforce._ceiling_reinforce import _ceiling_reinforce
@@ -38,10 +34,7 @@ from torrcast.usecases.reinforce._season_reinforce import _season_reinforce
 from torrcast.usecases.reinforce._voice_reinforce import _voice_reinforce
 from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
 from torrcast.usecases.reinforce.lacks_season import lacks_season
-from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
-from torrcast.usecases.select._measured_runtime import _measured_runtime
-from torrcast.usecases.select._studio_seen import _studio_seen
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -151,47 +144,7 @@ def search_circle(
         if _different_display_names(lead):
             count = len(lead.releases)
             progress.note(phrase("discover.glued_pictures", also=also, title=title, count=count))
-    progress.phase("")
-    # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
-    # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.domain.menu_order.menu_order`)
-    found = menu_order(found)
-    # Память картины доезжает до отбора здесь по одной причине: ступень студии нужна и показу, и
-    # `cast releases`, иначе таблица показывала бы один порядок, а играл бы другой.
-    seen = watch_store().load()
-    remembered = seen.find(args.title_query)
-    plans = []
-    for p in found:
-        # 🔴 TC-819. Знаменатель битрейта сперва спрашивается у паспорта файла - у уже
-        # начатой картины он лежит в записи состояния, и прикидке по типу («серия это
-        # 45 минут») верить рядом с замером незачем: на «Киберпанке» она занизила вес
-        # релиза вдвое, и ворота пустили его как «под потолком приёмника» в сплошной
-        # перекод на весь показ. Молчит и паспорт - прикидка идёт в дело под своим
-        # именем: источник знаменателя у каждого плана уходит в след.
-        measured = _measured_runtime(seen, p.key, remembered)
-        plan = plan_for(
-            p, args, config, profile, runtime=measured, studio=_studio_seen(seen, p.key, remembered)
-        )
-        journal().emit(
-            "search",
-            "runtime",
-            title=p.title,
-            secs=round(plan.runtime),
-            src="guess" if plan.runtime_estimated else "passport",
-        )
-        if plan.ranked:
-            plans.append(plan)
-    if plans and (note := _catalog_note(name, plans, args)):
-        progress.note(note)
-    for line in season_gaps(found, {plan.picture.key for plan in plans}, args.episode):
-        progress.note(line)
-    # Соседи по франшизе, до меню не доехавшие: понадобятся, если у выбранной картины
-    # годного релиза не окажется вовсе (:func:`kin_line`).
-    kin = _kin(_leading(found), pictures, {plan.picture.key for plan in plans})
-    for plan in plans:
-        plan.kin = kin
-        # Опоздавший индексер (круг ушёл по кворуму, TC-118) доедет уже после меню -
-        # ручку долива несёт план, а зовут её один раз и после ответа (:func:`_topup`).
-        plan.late = client.late
+    found, plans = _plans(found, pictures, args, config, profile, name, client, progress)
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
         raise NotFoundError(
