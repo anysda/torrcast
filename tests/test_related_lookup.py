@@ -114,6 +114,7 @@ def test_one_name_of_two_kinds_keeps_two_shelves_and_not_one() -> None:
     «Чужого» 1979 года на час, а открытая первой карточка фильма приписывала сериалу
     шесть частей чужой франшизы.
     """
+
     def _by_kind(_title: str, series: bool, _timeout: float) -> list[Kin]:
         return [] if series else [_ONE, _TWO]
 

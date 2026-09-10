@@ -22,7 +22,7 @@ class TypedPassport:
     known: dict[bool | None, Origin] = field(default_factory=dict)
     asked: list[bool | None] = field(default_factory=list)
 
-    def __call__(self, _title: str, series: bool | None = False, _budget: float = 0.0) -> Origin:
+    def __call__(self, title: str, series: bool | None = False, budget: float = 0.0) -> Origin:
         self.asked.append(series)
         return self.known.get(series, Origin())
 
