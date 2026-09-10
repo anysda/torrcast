@@ -151,12 +151,19 @@ const TCHome = {
 
   // Уже показанная плитка МЕСТА не меняет: частичный ответ только дописывает новые
   // находки в конец и обновляет поля у тех же ключей - прыгающая под курсором выдача
-  // хуже медленной. Убрать плитку может только финальный ответ.
+  // хуже медленной. И убрать плитку, и переставить её может только финальный ответ:
+  // порядок находок продуктовый (`hass.search_results`), и берётся он ЦЕЛИКОМ у круга,
+  // иначе первым под клик навсегда встаёт тот, кто просто ответил раньше.
+  //
+  // Превью круга не растёт ровно: `hass.search_progress._preview` пересобирает список
+  // по тому, что у клиента индексеров в руках прямо сейчас, и между шагами круга он
+  // пустеет. Поэтому частичный ответ плитку не отнимает, даже если её в нём нет.
   //
   // Ключ у двух РАЗНЫХ пунктов меню бывает одним и тем же (одна картина, два плана) -
   // мерж по одному `key` тогда съедал бы второй пункт. Личность плитки - `key` и номер
   // ЕЁ повторения по счёту, а не сам `key` в одиночку.
   _mergeHits(known, fresh, partial) {
+    if (!partial) return fresh;
     const ids = (list) => {
       const seen = new Map();
       return list.map((hit) => {
@@ -170,13 +177,8 @@ const TCHome = {
     const keptIds = new Set();
     const kept = [];
     for (const [index, id] of ids(known).entries()) {
-      if (byId.has(id)) {
-        kept.push(byId.get(id));
-        keptIds.add(id);
-      } else if (partial) {
-        kept.push(known[index]);
-        keptIds.add(id);
-      }
+      kept.push(byId.has(id) ? byId.get(id) : known[index]);
+      keptIds.add(id);
     }
     const added = freshIds
       .map((id, index) => ({ id, hit: fresh[index] }))
@@ -236,7 +238,9 @@ const TCHome = {
     TCHome._syncCount(results.length);
     // Выдача - два РЯДА, а не сетка (§4.2): первые семь крупные (210px, у самой первой
     // плашка «Best match»), остальные второй строкой мельче (168px, `tc-grid--second`).
-    body.appendChild(TCHome._hitsRow(results.slice(0, 7), 'tc-row', true));
+    // Пока круг идёт, плашки нет ни у кого: назвать лучшее совпадение можно только по
+    // полной выдаче, а не по тому, кто ответил первым.
+    body.appendChild(TCHome._hitsRow(results.slice(0, 7), 'tc-row', !partial));
     if (results.length > 7) {
       body.appendChild(TCHome._hitsRow(results.slice(7), 'tc-row tc-grid--second', false));
     }
