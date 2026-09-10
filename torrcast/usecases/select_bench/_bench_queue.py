@@ -11,6 +11,7 @@ from torrcast.usecases.discover.unfit_line import unfit_line
 from torrcast.usecases.rank._cut import _cut
 from torrcast.usecases.rank.queue_drops import queue_drops
 from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.start_progress import START
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -46,3 +47,15 @@ def _bench_queue(plan: Plan, args: Args) -> list[int]:
             )
         )
     return queue
+
+
+def _bench_asking(attempt: int, total: int) -> str:
+    """Фраза фазы «источник N из M» - и тот же счёт наружу, тому, кто ждёт у экрана.
+
+    Событие одно: очередь дошла до этого источника. В консоль оно уезжает строкой фазы,
+    а в браузер - числами (:mod:`torrcast.usecases.start_progress`), потому что страница
+    рисует их сама, своим шрифтом и своей полосой. Двух источников счёта у них при этом
+    нет: строка и числа считаются здесь, в одном месте, из одной пары чисел.
+    """
+    START.source(attempt, total)
+    return phrase("select_bench.voice_search_phase", number=attempt, total=total)

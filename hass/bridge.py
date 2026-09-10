@@ -42,6 +42,7 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.version import __version__
 from torrcast.ports.playback_session import PlaybackSession
 from torrcast.runtime.playback_session import playback_session
+from torrcast.usecases.start_progress import START
 
 VOLUME = "volume"
 
@@ -90,6 +91,7 @@ class Bridge:
             last_error=self._orders.last_error,
             picture=self._posters.picture(shown if active else None, self._session.stream_address),
             has_next=following(self._session) is not None,
+            start=START.seen(),
         )
 
     def poster(self, name: str) -> tuple[bytes, str] | None:

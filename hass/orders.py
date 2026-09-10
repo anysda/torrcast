@@ -25,6 +25,7 @@ from queue import Queue
 
 from tgbot.command_result import command_result
 from torrcast.domain.why import why
+from torrcast.usecases.start_progress import START
 
 #: Команда продукта так, как её зовёт консоль: argv на входе, код возврата на выходе.
 Command = Callable[[Sequence[str] | None], int]
@@ -62,6 +63,10 @@ class Orders:
             if self._underway:
                 return False
             self._underway = True
+            # Отсюда же считает своё ожидание и страница: подъём взят в работу, и до
+            # первого кадра идут те самые секунды, о которых она спрашивает
+            # (:mod:`torrcast.usecases.start_progress`).
+            START.began()
             self._abandoned = False  # отказ был от ПРОШЛОГО заказа, а не от этого
             self.last_error = ""  # прошлый отказ живёт до начала следующего показа
         self._queue.put(args)
@@ -127,12 +132,23 @@ class Orders:
         показывать ему за это отдельную жалобу не за что; а сказать её было бы нечем -
         отмена в консоль не пишет ни строки, и словом отказа стал бы голый код возврата.
         """
+        # Поручение подъёма отличается от остановки мимо очереди (:meth:`force`) ровно
+        # защёлкой: остановка её не ставит, и мерить по ней срок показа нечего.
+        lift = self.underway()
+        began = time.monotonic()
         try:
             result = command_result(self._command, args)
             if result.code and not self.abandoned():
                 self.last_error = result.detail
+            elif lift and not result.code:
+                # Картинка дошла до экрана: сколько шёл ЭТОТ подъём, столько же примерно
+                # пойдёт следующий, и этим сроком страница отвечает следующему зрителю.
+                START.landed(time.monotonic() - began)
         except Exception as error:
             self.last_error = why(error)
         finally:
+            # Ожидание кончилось чем угодно - отказом, отменой, остановкой: снимок
+            # подъёма больше ничей, и держать его на экране страницы нечем.
+            START.gone()
             with self._lock:
                 self._underway = False

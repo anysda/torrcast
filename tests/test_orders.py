@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from hass.orders import Orders
+from torrcast.domain.json_value import JsonValue
+from torrcast.usecases.start_progress import START
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -161,3 +163,44 @@ def test_the_queue_is_settled_only_when_the_order_taken_out_of_it_is_also_done()
         may_finish.set()
         orders.leave()
         thread.join(timeout=PATIENCE)
+
+
+def _named_term() -> JsonValue:
+    """Срок, который слот назвал бы следующему зрителю прямо сейчас."""
+    START.began()
+    seen = START.seen()
+    START.gone()
+    assert seen is not None
+    return seen["left"]
+
+
+def test_a_raise_that_reached_the_screen_is_measured_and_a_refused_one_is_not() -> None:
+    """Срок подготовки берётся из ПРОШЛЫХ подъёмов этой машины, а не из бюджета.
+
+    Бюджет старта - сумма потолков всех фаз, то есть минуты: назвать его зрителю значило
+    бы соврать в разы на каждом обычном показе. Отказ в память не идёт вовсе - он мерит
+    не «сколько ждать картинку», а «сколько ждали зря».
+    """
+    waited: list[dict[str, JsonValue] | None] = []
+
+    def good(_argv: Sequence[str] | None) -> int:
+        waited.append(START.seen())
+        return 0
+
+    def bad(_argv: Sequence[str] | None) -> int:
+        return 1
+
+    START.gone()
+    orders = Orders(good)
+    orders.take(["матрица"])
+    orders.run_one()
+    # Пока команда шла, ожидание было видно наружу; кончилась - показывать нечего.
+    assert waited[0] is not None
+    assert START.seen() is None
+    measured = _named_term()
+    assert measured is not None, "подъём дошёл до экрана, а срок остался неизвестным"
+
+    refused = Orders(bad)
+    refused.take(["муха"])
+    refused.run_one()
+    assert _named_term() == measured, "отказ попал в память сроков"

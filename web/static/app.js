@@ -54,12 +54,25 @@ const TC = {
 
   // Шапка живёт только на главной; ``state`` - ответ ``/api/state`` (или ``null``,
   // пока он не приехал): плашка «сейчас идёт» появляется, только когда показ не в покое.
-  header(state) {
+  // ``loading`` - главная ещё собирает полки, и слот шапки говорит об этом вслух.
+  header(state, loading) {
     const header = document.createElement('header');
     header.className = 'tc-header tc-safe';
     header.append(TC._marquee());
     if (state && state.state && state.state !== 'idle') header.append(TC._chip(state));
+    else if (loading) header.append(TC._loading());
     return header;
+  },
+
+  // Слот шапки на время сборки полок (экран 4.1): пока главная ждёт ответы, в нём
+  // стоит «Грузим_», и он уходит вместе с приходом полок. Место то же, что у плашки
+  // «сейчас идёт», и занять их обе разом нельзя: показ идёт - плашка старше.
+  _loading() {
+    const line = document.createElement('div');
+    line.className = 'tc-now-label';
+    line.dataset.tcLoading = '1';
+    line.textContent = TC.say('web.shelf.loading');
+    return line;
   },
 
   // Имя продукта идёт по шапке бегущей строкой без конца. Лент ровно ДВЕ и они

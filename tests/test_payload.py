@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from hass.motion import IDLE, PLAYING
+from hass.motion import IDLE, PLAYING, STARTING
 from hass.payload import payload
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 
@@ -154,3 +154,42 @@ def test_an_unknown_build_says_so_instead_of_a_made_up_value() -> None:
     # Номер выпуска остаётся: то, что клейма нет, не отменяет уже существующего
     # договора с интеграцией (custom_components/torrcast/serve_client.py).
     assert body["version"] == "1.0.3"
+
+
+def test_the_lift_in_progress_reaches_the_one_waiting_at_the_screen() -> None:
+    """Пока картинки нет, снимок несёт срок ожидания и номер источника очереди.
+
+    Экран подготовки (`web/static/player-screens.js`) другого источника числа не имеет:
+    посчитанная на стороне страницы секунда была бы выдумкой. Подъёма нет - поле пустое,
+    и страница рисует подготовку без числа, ровно как до этого поля.
+    """
+    shown = PlaybackSnapshot(key="movie:муха:1986", title="Муха", position=0.0)
+    lifting = payload(
+        shown,
+        version="1.0.3",
+        build="abc123def456",
+        tv="",
+        state=STARTING,
+        volume=None,
+        disk_free=0,
+        last_error="",
+        picture=("", ""),
+        has_next=False,
+        start={"waited": 12.0, "left": 18, "source": 2, "sources": 5},
+    )
+    assert lifting["start"] == {"waited": 12.0, "left": 18, "source": 2, "sources": 5}
+    assert json.loads(json.dumps(lifting)) == lifting
+
+    quiet = payload(
+        shown,
+        version="1.0.3",
+        build="abc123def456",
+        tv="",
+        state=PLAYING,
+        volume=None,
+        disk_free=0,
+        last_error="",
+        picture=("", ""),
+        has_next=False,
+    )
+    assert quiet["start"] is None

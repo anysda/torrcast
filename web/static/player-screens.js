@@ -8,10 +8,22 @@ const TCPlayerScreens = {
     if (overlay) overlay.replaceChildren();
   },
 
-  //: Ящик ещё пуст. Продукт не отдаёт наружу оценку старта (``start_budget``,
-  //: ``start_clock``) - это честный пробел, названный в отчёте, а не «Preparing…20 s»
-  //: из воздуха: тут только слово, без числа и без имени источника.
-  preparing(overlay) {
+  //: Ящик ещё пуст, и человек ждёт. Кроме слова тут идут срок и имя источника из поля
+  //: ``start`` ответа продукта (:mod:`torrcast.usecases.start_progress`): срок там
+  //: ИЗМЕРЕННЫЙ по прошлым подъёмам этой машины. Продукт срока не дал - строки нет
+  //: вовсе и полоса бежит, как раньше: число, посчитанное тут «примерно», было бы
+  //: ложью с точностью до секунды, а она хуже молчания.
+  preparing(overlay, start) {
+    if (!overlay) return;
+    let screen = overlay.querySelector('.tc-preparing');
+    if (!screen) {
+      screen = TCPlayerScreens._prepare();
+      overlay.replaceChildren(screen);
+    }
+    TCPlayerScreens._prepared(screen, start || null);
+  },
+
+  _prepare() {
     const screen = document.createElement('div');
     screen.className = 'tc-preparing';
     for (const corner of ['tl', 'tr', 'bl', 'br']) {
@@ -24,12 +36,38 @@ const TCPlayerScreens = {
     const title = document.createElement('div');
     title.className = 'tc-preparing-title';
     title.textContent = TC.say('web.player.preparing');
+    const when = document.createElement('div');
+    when.className = 'tc-preparing-when';
     const bar = document.createElement('div');
     bar.className = 'tc-preparing-bar is-indeterminate';
     bar.appendChild(document.createElement('i'));
-    body.append(title, bar);
+    const note = document.createElement('div');
+    note.className = 'tc-preparing-note';
+    body.append(title, when, bar, note);
     screen.appendChild(body);
-    overlay.replaceChildren(screen);
+    return screen;
+  },
+
+  //: Экран пересобирается не каждый ответ, а переписывается на месте: ответы идут раз в
+  //: две секунды, и полоса, заново рождающаяся под руками, дёргалась бы вместо хода.
+  //: Полоса идёт ПО ЗНАЧЕНИЮ, пока срок известен: ждём ``waited`` из ``waited + left``.
+  //: Срок кончился (``left`` пуст) - это «больше не знаю», и полоса возвращается к
+  //: бегущей, а не замирает на ста процентах, будто вот-вот.
+  _prepared(screen, start) {
+    const when = screen.querySelector('.tc-preparing-when');
+    const note = screen.querySelector('.tc-preparing-note');
+    const bar = screen.querySelector('.tc-preparing-bar');
+    const left = (start && start.left) || 0;
+    const waited = (start && start.waited) || 0;
+    when.textContent = left > 0 ? TC.say('web.player.preparing_in', { seconds: left }) : '';
+    note.textContent = start && start.source
+      ? TC.say('web.player.packaging', { n: start.source, m: start.sources || start.source })
+      : '';
+    const whole = left > 0 ? waited + left : 0;
+    bar.classList.toggle('is-indeterminate', whole <= 0);
+    bar.firstElementChild.style.width = whole > 0
+      ? Math.max(0, Math.min(100, (100 * waited) / whole)).toFixed(1) + '%'
+      : '';
   },
 
   buffering(overlay) {

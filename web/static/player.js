@@ -90,6 +90,10 @@ const TCPlayer = {
         TCPlayer._hasNext = !!state.has_next;
         TCPlayer._last = state;
         TCPlayer._render(state);
+        //: Пока ящика нет, эти же ответы двигают экран подготовки: раз в две секунды
+        //: срок уменьшается, а полоса идёт по значению. Другого источника числа у
+        //: страницы нет и быть не должно.
+        if (!TCPlayer._url) TCPlayer._screenPreparing(state);
       }
       await TCPlayer._sleep(TCPlayer.POLL_MS);
     }
@@ -245,6 +249,7 @@ const TCPlayer = {
     }
     TCPlayerPanel.update(TCPlayer._nodes, {
       title, episode, pos, dur, paused, volume, packagedPct, hasNext: TCPlayer._hasNext, onTv,
+      toTv: !!TCPlayer._toTv,
     });
   },
 
@@ -299,8 +304,10 @@ const TCPlayer = {
     TCPlayerScreens.clear(TCPlayer._overlay);
   },
 
-  _screenPreparing() {
-    TCPlayerScreens.preparing(TCPlayer._overlay);
+  //: Срок и источник экран берёт из последнего ответа продукта, а не считает сам:
+  //: поле ``start`` кладёт туда :mod:`torrcast.usecases.start_progress`.
+  _screenPreparing(state) {
+    TCPlayerScreens.preparing(TCPlayer._overlay, (state || TCPlayer._last || {}).start);
   },
 
   _screenBuffering() {
@@ -358,6 +365,9 @@ const TCPlayer = {
       },
       onNext() { TCApi.next(TCPlayer._endedMark()); },
       onToggleTv() {
+        // Переход уже идёт - второе нажатие ничего не ускорит, а вторую передачу
+        // приёмнику заказало бы.
+        if (TCPlayer._toTv) return;
         if (TCPlayer._onTv) {
           TCApi.toWeb().then(() => {
             TCPlayer._onTv = false;
@@ -371,9 +381,16 @@ const TCPlayer = {
           // 07-09-2026, пункт 9: через 2 с после «На ТВ» `video.muted` был `false`).
           // Решение 4 владельца требует обратного. Отказ каста возвращает звук назад.
           TCPlayer._video.muted = true;
+          // Между нажатием и картинкой на приёмнике - рукопожатие и подъём показа, то
+          // есть секунды. Всё это время кнопка звала «Показать на ТВ» так же, как до
+          // нажатия, и человеку оставалось гадать, услышали его или нет.
+          TCPlayer._toTv = true;
+          TCPlayer._render(TCPlayer._last || {});
           TCApi.toTv().then((said) => {
+            TCPlayer._toTv = false;
             if (!said) {
               TCPlayer._video.muted = false;
+              TCPlayer._render(TCPlayer._last || {});
               return;
             }
             TCPlayer._onTv = true;

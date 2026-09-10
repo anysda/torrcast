@@ -27,7 +27,7 @@ const TCHome = {
     const scan = document.createElement('div');
     scan.className = 'tc-scan';
 
-    const header = TC.header(null);
+    const header = TC.header(null, true);
     const wrap = document.createElement('div');
     wrap.className = 'tc-shelf-safe';
     wrap.append(TCHome._search(), asked ? TCHome._askedBody(asked) : TCHome._loadingBody());

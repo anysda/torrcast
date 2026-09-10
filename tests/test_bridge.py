@@ -31,6 +31,7 @@ from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
+from torrcast.usecases.start_progress import START
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -922,3 +923,22 @@ def test_by_default_the_bridge_looks_for_the_picture_itself() -> None:
     made = _bridge(FakePlaybackSession(), posters=OWN_POSTERS)
 
     assert isinstance(made._posters, Posters)
+
+
+def test_the_lift_the_viewer_waits_for_is_visible_in_the_state_body() -> None:
+    """Ожидание идёт наружу телом ``GET /api/state``, а не только в консоль.
+
+    Экран подготовки в браузере рисует срок и номер источника только отсюда: другого
+    места, где страница могла бы их УЗНАТЬ (а не выдумать), у неё нет.
+    """
+    session = FakePlaybackSession(playing=False)
+    try:
+        START.began()
+        START.source(3, 7)
+        body = _bridge(session).state()
+        start = cast("dict[str, Any]", body["start"])
+        assert (start["source"], start["sources"]) == (3, 7)
+        assert start["waited"] >= 0.0
+    finally:
+        START.gone()
+    assert _bridge(session).state()["start"] is None

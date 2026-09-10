@@ -198,7 +198,10 @@ const TCPlayerPanel = {
     nodes.volLabel.classList.toggle('tc-ontv-vol', snap.onTv);
     nodes.next.hidden = !snap.hasNext;
     nodes.badge.hidden = !snap.onTv;
-    nodes.tv.textContent = TC.say(snap.onTv ? 'web.player.back_to_browser' : 'web.player.play_on_tv');
+    // Переход на ТВ идёт секундами (рукопожатие и подъём показа на приёмнике), и всё
+    // это время кнопка говорит «Готовим…», а не зовёт нажать себя второй раз.
+    nodes.tv.textContent = snap.toTv ? TC.say('web.player.preparing')
+      : TC.say(snap.onTv ? 'web.player.back_to_browser' : 'web.player.play_on_tv');
     nodes.tv.classList.toggle('tc-btn--primary', !snap.onTv);
     nodes.tv.classList.toggle('tc-btn--secondary', snap.onTv);
   },
