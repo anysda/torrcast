@@ -223,7 +223,7 @@ const TCCard = {
   _showMeta(data) {
     const bits = [];
     if (data.year) bits.push({ text: String(data.year) });
-    bits.push({ text: TC.say('web.detail.seasons', { n: data.seasons.length }) });
+    bits.push({ text: TC.count('web.detail.seasons', data.seasons.length) });
     if (data.rating !== null && data.rating !== undefined) {
       bits.push({ text: TC.say('web.detail.rating', { rating: data.rating }), rating: true });
     }
@@ -449,8 +449,11 @@ const TCCard = {
   _releases(data) {
     const line = document.createElement('div');
     line.className = 'tc-releases';
-    line.textContent = TC.say('web.detail.releases',
-      { n: data.releases_count || 0, m: data.sources_count || 0 });
+    const releases = TC.count('web.detail.release', data.releases_count || 0);
+    line.textContent = data.sources_count
+      ? releases + ' ' + TC.say('web.detail.from') + ' '
+        + TC.count('web.detail.source_from', data.sources_count)
+      : releases;
     return line;
   },
 };

@@ -51,6 +51,53 @@ def test_the_words_the_handoff_screens_need_are_all_here() -> None:
     assert said["web.player.next_in"] == "Next episode in {n}"
 
 
+def test_numbered_words_hold_the_forms_people_read() -> None:
+    english, russian = _said({}), _said({"lang": "ru"})
+    cases = {
+        "web.search.searching": (
+            ("Searching {n} source…", "Searching {n} sources…"),
+            ("Ищем в {n} источнике…", "Ищем в {n} источниках…", "Ищем в {n} источниках…"),
+        ),
+        "web.search.result": (
+            ("{n} result", "{n} results"),
+            ("{n} находка", "{n} находки", "{n} находок"),
+        ),
+        "web.search.source": (
+            ("{n} source", "{n} sources"),
+            ("{n} источник", "{n} источника", "{n} источников"),
+        ),
+        "web.detail.release": (
+            ("{n} release", "{n} releases"),
+            ("{n} раздача", "{n} раздачи", "{n} раздач"),
+        ),
+        "web.detail.source": (
+            ("{n} source", "{n} sources"),
+            ("{n} источник", "{n} источника", "{n} источников"),
+        ),
+        "web.detail.source_from": (
+            ("{n} source", "{n} sources"),
+            ("{n} источника", "{n} источников", "{n} источников"),
+        ),
+        "web.detail.seasons": (
+            ("{n} season", "{n} seasons"),
+            ("{n} сезон", "{n} сезона", "{n} сезонов"),
+        ),
+    }
+    for key, ((en_one, en_other), (ru_one, ru_few, ru_many)) in cases.items():
+        assert (
+            english[key + ".one"],
+            english[key + ".few"],
+            english[key + ".many"],
+            english[key + ".other"],
+        ) == (en_one, en_other, en_other, en_other)
+        assert (
+            russian[key + ".one"],
+            russian[key + ".few"],
+            russian[key + ".many"],
+            russian[key + ".other"],
+        ) == (ru_one, ru_few, ru_many, ru_many)
+
+
 def test_the_dictionary_travels_as_readable_utf8_and_not_as_escapes() -> None:
     answer = phrases(Request("GET", "/api/phrases", {"lang": "ru"}, {}))
 

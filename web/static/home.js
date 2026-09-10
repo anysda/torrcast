@@ -238,7 +238,7 @@ const TCHome = {
     const label = document.createElement('div');
     label.textContent = TCHome._sourcesCount === null
       ? TC.say('web.search.searching_any')
-      : TC.say('web.search.searching', { n: TCHome._sourcesCount });
+      : TC.count('web.search.searching', TCHome._sourcesCount);
     line.append(square, label);
     return line;
   },
@@ -313,9 +313,9 @@ const TCHome = {
       line.className = 'tc-results-count';
       header.appendChild(line);
     }
-    line.textContent = TCHome._sourcesCount === null
-      ? TC.say('web.search.counter_any', { n: shown })
-      : TC.say('web.search.counter', { n: shown, m: TCHome._sourcesCount });
+    const results = TC.count('web.search.result', shown);
+    line.textContent = TCHome._sourcesCount === null ? results
+      : results + ' · ' + TC.count('web.search.source', TCHome._sourcesCount);
   },
 
   _body(history, shelves) {
