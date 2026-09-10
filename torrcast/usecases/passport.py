@@ -70,6 +70,26 @@ class Passport:
             return found
         return self._typed(title, series, budget, remember=True)
 
+    def fresh(
+        self, title: str, series: bool | None = False, budget: float = FACTS_BUDGET
+    ) -> Origin:
+        """Паспорт мимо чтения кэша: переспросить источники и перезаписать ряд при находке.
+
+        🔴 TC-1114. Ряд кэша бессрочен, а деградированный паспорт ложится в него навсегда:
+        молчание Википедии на минуту отвечается офлайн-картой (:meth:`_typed`), и её паспорт
+        не несёт Q-идентификатора. Полке родни без него спрашивать Wikidata не о чем, и
+        «Крепкий орешек» с «Форсажём» отвечали пустой полкой за 0,0 с, пока живая статья
+        знала и QID, и всю серию (замер 10-09-2026 на стенде `.104`, `/root/facts.json`).
+        Переспрос идёт тем же типизированным путём; ничего не нашлось - ряд не трогается,
+        хуже лежащего в нём не станет никогда.
+        """
+        if series is None:
+            found = self.either.of(title, budget)
+            if found:
+                self.store.write(title, series, found)
+            return found
+        return self._typed(title, series, budget, remember=True)
+
     def _typed_now(self, title: str, series: bool, budget: float) -> Origin:
         """Типизированная проба без записи в кэш: её зовёт режим «оба типа»."""
         return self._typed(title, series, budget, remember=False)

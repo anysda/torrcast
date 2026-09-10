@@ -14,7 +14,8 @@ def test_the_entity_from_the_passport_is_what_wikidata_gets_asked_about() -> Non
     found = [Kin("Q105993", "Крепкий орешек 2", 1990)]
     kin = FakeKinSource(lambda entity, timeout: found if entity == "Q105598" else [])
 
-    got = FranchiseKin(passport, kin, FakeKinStore()).of("Крепкий орешек", False, 1.0)
+    shelf = FranchiseKin(passport, kin, FakeKinStore(), FakePassport())
+    got = shelf.of("Крепкий орешек", False, 1.0)
 
     assert got == found
     assert kin.asked == ["Q105598"]
@@ -25,7 +26,8 @@ def test_a_picture_without_an_entity_never_reaches_wikidata() -> None:
     passport = FakePassport({"Неизвестное кино": Origin(title="Unknown")})
     kin = FakeKinSource()
 
-    assert FranchiseKin(passport, kin, FakeKinStore()).of("Неизвестное кино", False, 1.0) == []
+    shelf = FranchiseKin(passport, kin, FakeKinStore(), FakePassport())
+    assert shelf.of("Неизвестное кино", False, 1.0) == []
     assert kin.asked == []
 
 
@@ -35,7 +37,7 @@ def test_a_second_ask_for_the_same_picture_never_touches_the_network() -> None:
     found = [Kin("Q105993", "Крепкий орешек 2", 1990)]
     kin = FakeKinSource(lambda entity, timeout: found)
     store = FakeKinStore()
-    shelf = FranchiseKin(passport, kin, store)
+    shelf = FranchiseKin(passport, kin, store, FakePassport())
 
     assert shelf.of("Крепкий орешек", False, 1.0) == found
     assert shelf.of("Крепкий орешек", False, 1.0) == found
@@ -48,7 +50,7 @@ def test_a_franchise_without_kin_is_remembered_as_an_empty_shelf() -> None:
     passport = FakePassport({"Одинокое кино": Origin(title="Lonely", entity="Q1")})
     kin = FakeKinSource(lambda entity, timeout: [])
     store = FakeKinStore()
-    shelf = FranchiseKin(passport, kin, store)
+    shelf = FranchiseKin(passport, kin, store, FakePassport())
 
     assert shelf.of("Одинокое кино", False, 1.0) == []
     assert shelf.of("Одинокое кино", False, 1.0) == []
@@ -70,9 +72,44 @@ def test_a_silent_network_leaves_no_row_in_the_cache() -> None:
         raise OSError("HTTP 429")
 
     store = FakeKinStore()
-    shelf = FranchiseKin(passport, FakeKinSource(silence), store)
+    shelf = FranchiseKin(passport, FakeKinSource(silence), store, FakePassport())
 
     assert shelf.of("Форсаж", False, 1.0) == []
     assert store.written == [], "молчание сети записано в кэш пустой полкой"
     assert shelf.of("Форсаж", False, 1.0) == []
     assert calls == ["Q1", "Q1"], "второй заход обязан спросить сеть заново"
+
+
+def test_a_degraded_passport_is_asked_again_live() -> None:
+    """🔴 TC-1114. Паспорт офлайн-карты без Q-идентификатора переспрашивается живьём.
+
+    Такой ряд ложится в кэш бессрочно в минуту молчания Википедии, и без переспроса
+    полка глохла навсегда ещё до похода в Wikidata: замер 10-09-2026 на стенде `.104` -
+    «Крепкий орешек» и «Форсаж» лежали в `facts.json` с пустым ``entity`` при живых
+    сериях по четыре и десять картин.
+    """
+    cached = FakePassport({"Крепкий орешек": Origin(title="Die Hard", year=1988, source="map")})
+    fresh = FakePassport(
+        {"Крепкий орешек": Origin(title="Die Hard", year=1988, entity="Q105598", source="wiki")}
+    )
+    found = [Kin("Q105993", "Крепкий орешек 2", 1990)]
+    kin = FakeKinSource(lambda entity, timeout: found)
+
+    got = FranchiseKin(cached, kin, FakeKinStore(), fresh).of("Крепкий орешек", False, 1.0)
+
+    assert got == found
+    assert fresh.asked == ["Крепкий орешек"]
+    assert kin.asked == ["Q105598"]
+
+
+def test_a_wiki_passport_without_an_entity_is_not_reasked() -> None:
+    """Статья прочитана, а Q-идентификатора у неё нет - переспрос того же ответа пуст."""
+    passport = FakePassport({"Короткометражка": Origin(title="Short", source="wiki")})
+    fresh = FakePassport()
+    kin = FakeKinSource()
+
+    got = FranchiseKin(passport, kin, FakeKinStore(), fresh).of("Короткометражка", False, 1.0)
+
+    assert got == []
+    assert fresh.asked == []
+    assert kin.asked == []

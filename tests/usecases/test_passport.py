@@ -296,3 +296,35 @@ def test_a_slow_map_is_read_by_one_thread_no_matter_how_many_ask() -> None:
     assert asked == 1, f"разбор карты один, а было их {asked}"
     left = thread_guard.alive() - before
     assert not left, f"поток на имя один, и он закрыт, а живыми осталось {len(left)}: {left}"
+
+
+def test_fresh_bypasses_the_stored_row_and_rewrites_it() -> None:
+    """🔴 TC-1114. ``fresh`` не читает кэш: деградированный ряд карты переспросом живьём
+    заменяется паспортом статьи с Q-идентификатором, и без него ряд не трогается."""
+    degraded = Origin(title="Die Hard", year=1988, guessed=True, source=SOURCE_MAP)
+    store = FakeOriginStore({("Крепкий орешек", False): degraded})
+    articles = FakeArticleSource(
+        lambda title, series, timeout: Origin(
+            title="Die Hard", year=1988, entity="Q105598", source=SOURCE_WIKI
+        )
+    )
+    passport = _passport(articles, store=store)
+
+    found = passport.fresh("Крепкий орешек", False, 1.0)
+
+    assert found.entity == "Q105598"
+    assert store.read("Крепкий орешек", False) == found
+
+
+def test_fresh_keeps_the_stored_row_when_the_network_is_silent() -> None:
+    """Молчание сети не затирает лежащий ряд: хуже от переспроса не становится."""
+
+    def dead(title: str, series: bool, timeout: float) -> Origin:
+        raise OSError("getaddrinfo: сети нет")
+
+    degraded = Origin(title="Die Hard", year=1988, guessed=True, source=SOURCE_MAP)
+    store = FakeOriginStore({("Крепкий орешек", False): degraded})
+    passport = _passport(FakeArticleSource(dead), store=store)
+
+    assert passport.fresh("Крепкий орешек", False, 1.0) == Origin()
+    assert store.read("Крепкий орешек", False) == degraded

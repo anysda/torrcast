@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.facts.kin import Kin
-from torrcast.domain.facts.settings import HTTP_TIMEOUT
+from torrcast.domain.facts.settings import HTTP_TIMEOUT, SOURCE_WIKI
 from torrcast.ports.kin_source import KinSource
 from torrcast.ports.kin_store import KinStore
 from torrcast.ports.passport_source import PassportSource
@@ -17,14 +17,32 @@ class FranchiseKin:
     родней избыточен ровно так же, как повторный поход за годом одной и той же картины.
     """
 
-    def __init__(self, passport: PassportSource, kin: KinSource, store: KinStore) -> None:
+    def __init__(
+        self,
+        passport: PassportSource,
+        kin: KinSource,
+        store: KinStore,
+        refresh: PassportSource,
+    ) -> None:
         self.passport = passport
         self.kin = kin
         self.store = store
+        self.refresh = refresh
 
     def of(self, title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) -> list[Kin]:
-        """Родня картины по названию: без Q-идентификатора спрашивать Wikidata не о чем."""
-        entity = self.passport(title, series).entity
+        """Родня картины по названию: без Q-идентификатора спрашивать Wikidata не о чем.
+
+        Паспорт без Q-идентификатора, не подписанный Википедией, - деградированный: его
+        ответила офлайн-карта в минуту молчания сети, и кэш хранит его бессрочно. Такой
+        переспрашивается живьём (:func:`~torrcast.usecases.passport.Passport.fresh`) - иначе
+        одна оборванная связь гасила полку на всю жизнь установки ещё ДО похода в Wikidata
+        (замер 10-09-2026: «Крепкий орешек» и «Форсаж» лежали в `facts.json` с пустым
+        ``entity`` и пустой полкой при живых сериях по четыре и десять картин).
+        """
+        origin = self.passport(title, series)
+        entity = origin.entity
+        if not entity and SOURCE_WIKI not in origin.source:
+            entity = self.refresh(title, series).entity
         if not entity:
             return []
         cached = self.store.read_kin(entity)

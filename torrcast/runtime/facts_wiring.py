@@ -47,7 +47,7 @@ class FactsWiring:
             self.articles, self.catalogue, self.cache, WikidataDates(self.client)
         )
         self.kin = WikidataKin(self.client)
-        self.franchise = FranchiseKin(self.passport.of, self.kin, self.cache)
+        self.franchise = FranchiseKin(self.passport.of, self.kin, self.cache, self.passport.fresh)
 
 
 #: Проводка справки на весь процесс: один HTTPS-клиент со своей памятью адресов, один
