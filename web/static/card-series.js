@@ -4,12 +4,12 @@
 'use strict';
 
 const TCCardSeries = {
-  tabs(data, key, query) {
+  tabs(data, key, query, selected) {
     const tabs = document.createElement('div');
     tabs.className = 'tc-tabs';
     data.seasons.forEach((season, index) => {
       const tab = document.createElement('div');
-      tab.className = 'tc-tab' + (index === 0 ? ' is-active' : '');
+      tab.className = 'tc-tab' + (index === selected ? ' is-active' : '');
       tab.textContent = TC.say('web.detail.season', { n: season.n });
       tab.tabIndex = 0;
       tab.dataset.tcFocusable = '1';

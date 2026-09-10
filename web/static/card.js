@@ -143,7 +143,10 @@ const TCCard = {
     info.appendChild(TCCard._descBlock(data));
     info.appendChild(TCCard._buttons(data, key, query, isShow));
     if (isShow) {
-      info.append(TCCardSeries.tabs(data, key, query), TCCardSeries.episodes(data, 0, key, query));
+      const firstSeason = data.seasons.findIndex((season) => season.n === 1);
+      const selected = firstSeason < 0 ? 0 : firstSeason;
+      info.append(TCCardSeries.tabs(data, key, query, selected),
+        TCCardSeries.episodes(data, selected, key, query));
     } else if (Array.isArray(data.related) && data.related.length > 0) {
       info.appendChild(TCCardSeries.related(data));
     }

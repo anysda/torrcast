@@ -129,10 +129,12 @@ const TCHome = {
     for (let tries = 0; tries < 40; tries += 1) {
       const { results, partial } = await TCApi.searchProgress(text);
       if (mine !== TCHome._token || TCHome._query !== text) return;
-      known = TCHome._mergeHits(known, results);
+      const next = TCHome._mergeHits(known, results);
       // Пустое превью посреди поиска не рисуется вовсе: иначе «ничего не нашлось»
-      // мигало бы на экране раньше настоящего ответа источников.
-      if (known.length > 0 || !partial) {
+      // мигало бы на экране раньше настоящего ответа источников. Неродственная
+      // плитка тоже не должна первой попасть под клик, пока поиск ещё растёт.
+      if (!partial || TCHome._hasExactTitle(next, text)) {
+        known = next;
         TCHome._found = { query: text, results: known };
         const body = document.getElementById('tc-body');
         if (body) body.replaceWith(TCHome._searchResults(known, partial));
@@ -140,6 +142,14 @@ const TCHome = {
       if (!partial) return;
       await new Promise((done) => setTimeout(done, 400));
     }
+  },
+
+  _hasExactTitle(results, query) {
+    const plain = (value) => String(value || '').toLocaleLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '');
+    const asked = plain(query);
+    return asked !== '' && results.some((hit) =>
+      [hit.title, hit.shown, hit.original].some((name) => plain(name) === asked));
   },
 
   // Уже показанная плитка МЕСТА не меняет: следующий ответ только дописывает новые
