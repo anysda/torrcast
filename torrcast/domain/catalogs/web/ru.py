@@ -89,7 +89,6 @@ def ru() -> dict[str, str]:
         "web.player.play_now": "Смотреть сейчас",
         "web.player.cancel": "Отмена",
         "web.player.on_tv": "▶ На ТВ",
-        "web.player.playing_on_tv": "Идёт на ТВ",
         "web.player.muted": "Вкладка без звука - громкость управляет телевизором",
         "web.player.tv_volume": "ГРОМК ТВ",
         "web.player.tv_position": "Позиция на ТВ",

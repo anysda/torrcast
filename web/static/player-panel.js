@@ -37,7 +37,13 @@ const TCPlayerPanel = {
     badge.className = 'tc-ontv-badge';
     badge.textContent = TC.say('web.player.on_tv');
     badge.hidden = true;
-    top.append(left, badge);
+    // Почему вкладка молчит: звук снимается вместе с уходом показа на ТВ, и без этой
+    // строки человек читал это как поломку звука (TC-1184).
+    const mutedNote = document.createElement('div');
+    mutedNote.className = 'tc-ontv-note';
+    mutedNote.textContent = TC.say('web.player.muted');
+    mutedNote.hidden = true;
+    top.append(left, mutedNote, badge);
 
     const keys = document.createElement('div');
     keys.className = 'tc-keys';
@@ -145,6 +151,7 @@ const TCPlayerPanel = {
       name,
       ep,
       badge,
+      mutedNote,
       time,
       timeTotal,
       playpause,
@@ -198,6 +205,10 @@ const TCPlayerPanel = {
     nodes.volLabel.classList.toggle('tc-ontv-vol', snap.onTv);
     nodes.next.hidden = !snap.hasNext;
     nodes.badge.hidden = !snap.onTv;
+    // Звук снят с самого нажатия «На ТВ» (``player.js``, ``onToggleTv``), а не с ответа
+    // приёмника: всё время подъёма каста (``toTv``) вкладка уже молчит, и объяснение
+    // стоит на экране ровно столько же, сколько снят звук.
+    nodes.mutedNote.hidden = !snap.onTv && !snap.toTv;
     // Переход на ТВ идёт секундами (рукопожатие и подъём показа на приёмнике), и всё
     // это время кнопка говорит «Готовим…», а не зовёт нажать себя второй раз.
     nodes.tv.textContent = snap.toTv ? TC.say('web.player.preparing')

@@ -89,7 +89,6 @@ def en() -> dict[str, str]:
         "web.player.play_now": "Play now",
         "web.player.cancel": "Cancel",
         "web.player.on_tv": "▶ On TV",
-        "web.player.playing_on_tv": "Playing on TV",
         "web.player.muted": "This tab is muted - volume controls the TV",
         "web.player.tv_volume": "TV VOL",
         "web.player.tv_position": "TV position",

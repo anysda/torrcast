@@ -485,9 +485,6 @@ body {
                  background: var(--tc-bg); border: .25rem solid var(--tc-acid);
                  color: var(--tc-acid); font-weight: 900; font-size: 1.75rem;
                  letter-spacing: .06em; text-transform: uppercase; }
-.tc-ontv-title { display: inline-block; padding: 1.25rem 2.5rem; background: var(--tc-acid);
-                 color: var(--tc-bg); font-weight: 900; font-size: 4rem; line-height: .9;
-                 text-transform: uppercase; letter-spacing: -.03em; }
 .tc-ontv-note { font-weight: 700; font-size: 1.625rem; letter-spacing: .1em;
                 text-transform: uppercase; color: var(--tc-body-dim); }
 .tc-ontv-vol { padding: .25rem .75rem; background: var(--tc-acid); color: var(--tc-bg);
