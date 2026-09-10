@@ -147,7 +147,12 @@ const TCCard = {
       const selected = firstSeason < 0 ? 0 : firstSeason;
       info.append(TCCardSeries.tabs(data, key, query, selected),
         TCCardSeries.episodes(data, selected, key, query));
-    } else if (Array.isArray(data.related) && data.related.length > 0) {
+    }
+    // Серии и франшиза - разные полки, и сериалу положены обе (ТЗ §8): пока полка родни
+    // стояла в `else`, она не рисовалась сериалу вовсе. На стенде `.104` 10-09-2026 это
+    // и было пустое место под «Чужим»: лучшее совпадение продукта - `tv:чужой:2021`,
+    // и шесть частей франшизы приезжали в `related`, но до страницы не доходили.
+    if (Array.isArray(data.related) && data.related.length > 0) {
       info.appendChild(TCCardSeries.related(data));
     }
     info.appendChild(TCCard._releases(data));
