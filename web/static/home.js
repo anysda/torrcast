@@ -53,10 +53,18 @@ const TCHome = {
     if (!document.body.contains(root) || location.pathname !== '/') return;
     TCHome._lastHistory = history;
     TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
-    TCHome._wear(!TCHome._query && !!shelves.partial);
-    const body = document.getElementById('tc-body');
-    if (body && !TCHome._query) {
-      body.replaceWith(TCHome._body(history, TCHome._lastShelves));
+    const assembling = !TCHome._query && !!shelves.partial;
+    TCHome._wear(assembling);
+    // Полки ещё собираются - тело остаётся скелетным, и меняется в нём ровно одна
+    // лента: историю сервер назвал первым же ответом, а ``partial`` приходит только с
+    // пустыми полками, так что готовых плиток скелеты не прячут.
+    if (assembling) {
+      TCHome._wornContinue(history);
+    } else {
+      const body = document.getElementById('tc-body');
+      if (body && !TCHome._query) {
+        body.replaceWith(TCHome._body(history, TCHome._lastShelves));
+      }
     }
     if (shelves.partial) TCHome._waitShelves(root, TCHome._shelfPoll);
   },
@@ -68,6 +76,17 @@ const TCHome = {
     if (!document.body.contains(root) || location.pathname !== '/') return;
     TCHome._state = state;
     TCHome._wear();
+  },
+
+  // История известна с первого ответа, а полки собираются минуту: держать «Продолжить»
+  // скелетом всё это время значит прятать от человека уже готовое. Скелетами остаются
+  // ровно те две полки, которых пока и правда нет; пустой истории нет и полки.
+  _wornContinue(history) {
+    const body = document.getElementById('tc-body');
+    const first = body && body.firstElementChild;
+    if (!first) return;
+    if (history.length === 0) first.remove();
+    else first.replaceWith(TCHome._continue(history));
   },
 
   // Шапка пересобирается целиком, а счётчик выдачи, вставший в прежнюю, надо вернуть:
@@ -96,17 +115,19 @@ const TCHome = {
       }
       const shelves = await TCApi.shelves();
       TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
-      // Тело подменяется только на чистой главной: в выдаче поиска свои плитки, и
-      // доехавшие полки просто запоминаются - встанут при возврате на неё.
-      if (!TCHome._query) {
-        const body = document.getElementById('tc-body');
-        if (body) body.replaceWith(TCHome._body(TCHome._lastHistory, TCHome._lastShelves));
-      }
       if (!shelves.partial) break;
     }
     // Полки дособрались - или не дособрались за все 36 заходов. И там, и там сборки
-    // больше нет, и «Грузим_» обязано уйти: шапка, застрявшая на нём навсегда, врёт
-    // дольше и хуже, чем пустая полка.
+    // больше нет: тело встаёт тем, что пришло, а «Грузим_» уходит. Раньше этой секунды
+    // тело не трогается вовсе - недоехавший ответ приходит ПУСТЫМ, и подменять им
+    // скелеты значит написать «пока пусто» над лентой, которая едет (замер на стенде
+    // `.104`: полки приехали на 15.3 с, а надпись встала бы на 5.2 с).
+    // Тело меняется только на чистой главной: в выдаче поиска свои плитки, и доехавшие
+    // полки просто запоминаются - встанут при возврате на неё.
+    if (!TCHome._query) {
+      const body = document.getElementById('tc-body');
+      if (body) body.replaceWith(TCHome._body(TCHome._lastHistory, TCHome._lastShelves));
+    }
     TCHome._wear(false);
   },
 
@@ -383,24 +404,26 @@ const TCHome = {
     TCHome._syncCount(null);
     const body = document.createElement('div');
     body.id = 'tc-body';
-    if (history.length > 0) {
-      body.appendChild(TCHome._shelf('web.shelf.continue_watching', 'shelf-continue',
-        history.map((item) => ({
-          key: item.key,
-          title: item.shown || item.title,
-          poster: item.poster,
-          caption2: item.label || '',
-          progress: item.dur ? item.pos / item.dur : 0,
-          group: 'shelf-continue',
-          query: item.title,
-          onActivate: TCHome._openCard,
-        }))));
-    }
+    if (history.length > 0) body.appendChild(TCHome._continue(history));
     body.appendChild(TCHome._shelf('web.shelf.new', 'shelf-new',
       shelves.fresh.map(TCHome._tileFrom)));
     body.appendChild(TCHome._shelf('web.shelf.popular', 'shelf-popular',
       shelves.popular.map(TCHome._tileFrom)));
     return body;
+  },
+
+  _continue(history) {
+    return TCHome._shelf('web.shelf.continue_watching', 'shelf-continue',
+      history.map((item) => ({
+        key: item.key,
+        title: item.shown || item.title,
+        poster: item.poster,
+        caption2: item.label || '',
+        progress: item.dur ? item.pos / item.dur : 0,
+        group: 'shelf-continue',
+        query: item.title,
+        onActivate: TCHome._openCard,
+      })));
   },
 
   // Год стоит НА обложке и второй раз под плиткой не повторяется; полка «продолжить»
