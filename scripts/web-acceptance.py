@@ -169,15 +169,28 @@ class Ctx:
 
 
 def _get(url: str, timeout: float = 10.0) -> tuple[int, bytes]:
-    """GET чистым ``urllib``: скрипт не тянет ``requests`` в свой окружающий venv."""
+    """GET чистым ``urllib``: скрипт не тянет ``requests`` в свой окружающий venv.
+
+    Код 0 - «ответа нет вовсе», и тело тогда несёт слова о причине, включая
+    отпущенное время: «молчит дольше N секунд» и «сказал 404» - разные
+    приговоры, и сливать их в одно «скрипт упал» нельзя. ``urlopen`` по
+    истечении времени поднимает голый ``TimeoutError`` (он же
+    ``socket.timeout``) МИМО ``URLError``: до этой правки он улетал в
+    ``_guarded`` и ронял пункт без единого числа, а в ``main()`` (предварительный
+    опрос ``/api/phrases``) - весь прогон целиком.
+    """
     request = urllib.request.Request(url, headers={"User-Agent": "web-acceptance"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         return error.code, error.read()
+    except TimeoutError:
+        return 0, f"нет ответа за {timeout:.0f} с (таймаут)".encode()
     except urllib.error.URLError as error:
         return 0, str(error.reason).encode("utf-8")
+    except OSError as error:
+        return 0, f"сбой транспорта: {error}".encode()
 
 
 def _shelf_tile_counts(payload: Any) -> dict[str, int]:
@@ -712,17 +725,25 @@ def check_16_junk(base: str) -> Result:
 #: Ведущие плитки полки, которые проверяет пункт 22 - тем же окном, каким человек их
 #: видит на экране без прокрутки, не всей полкой разом.
 _CARD_OPEN_WINDOW: Final = 12
+#: Отпущенное время одного открытия карточки в пункте 22. По живому замеру на том же
+#: стенде (10-09-2026) холодный отклик `/api/card` - опрос пула индексеров - доходит
+#: до 11.7 с, и умолчание `_get` в 10 с резало штатный, пусть и медленный, ответ.
+#: Потолок 20 с даёт запас ~1.7x над худшим замеренным, как `_POSITION_GROWTH_WAIT`
+#: над худшим промежутком позиции. Молчание дольше этого - уже дефект продукта, и
+#: пункт обязан показать его красным, а не переждать.
+_CARD_GET_WAIT: Final = 20.0
 
 
 def check_22_shelf_cards_open(base: str) -> Result:
     """С плитки полки «Новинки» карточка обязана открываться, а не 404.
 
-    🔴 Найдено соседней полосой (TC-1139) и снято на стенде 07-09-2026, не мной: все
-    двенадцать проверенных ведущих плиток полки «Новинки» отвечали `404 not_found` на
-    `/api/card` - карточка не наливалась, из вёрстки жил один «‹ Back». Дефект - в
-    `web/card.py`/`search_circle`/`card_lookup`, чинить его не мне (файлы вне моей
-    полосы). Пункт красный ПРЯМО СЕЙЧАС на этом дереве - так и должно быть; зеленеет он
-    приходом чужой правки, а не подгонкой этого сторожа.
+    Найдено соседней полосой (TC-1139) и снято на стенде 07-09-2026, не мной: все
+    двенадцать проверенных ведущих плиток полки «Новинки» отвечали `404 not_found`
+    на `/api/card`. Чужая правка `web/card.py`/`search_circle`/`card_lookup` это
+    починила (10-09-2026 на сведённом `dev`: 12 из 12 отвечают 200), и пункт стоит
+    сторожем регресса. Отдельный приговор - молчание: отклик дольше
+    `_CARD_GET_WAIT` считается по своей строке и называется таймаутом с числом, а
+    не сливается с отказами по коду и не роняет пункт в «скрипт упал».
     """
     code, body = _get(base + "/api/shelves")
     if code != 200:
@@ -737,6 +758,7 @@ def check_22_shelf_cards_open(base: str) -> Result:
         return Result(22, "Полка → карточка", False, None, empty_detail)
     window = tiles[:_CARD_OPEN_WINDOW]
     opened = 0
+    stalled = 0
     failures: list[str] = []
     for one in window:
         key = str(one.get("key") or "")
@@ -745,17 +767,22 @@ def check_22_shelf_cards_open(base: str) -> Result:
             failures.append(f"{key!r}: нет query/title, спрашивать нечем")
             continue
         url = f"{base}/api/card/{urllib.parse.quote(key)}?query={urllib.parse.quote(query)}"
-        card_code, card_body = _get(url)
+        card_code, card_body = _get(url, timeout=_CARD_GET_WAIT)
         if card_code == 200:
             opened += 1
             continue
-        why = ""
-        with contextlib.suppress(json.JSONDecodeError):
-            why = str(json.loads(card_body).get("error", ""))
+        if card_code == 0:
+            stalled += 1
+            why = card_body.decode("utf-8", "replace")[:160]
+        else:
+            why = ""
+            with contextlib.suppress(json.JSONDecodeError):
+                why = str(json.loads(card_body).get("error", ""))
         failures.append(f"{key!r} ({query!r}): код {card_code} {why}".rstrip())
     ok = opened == len(window)
-    detail = f"открылось {opened}/{len(window)} с полки «Новинки»; отказы: " + (
-        "; ".join(failures) if failures else "нет"
+    detail = (
+        f"открылось {opened}/{len(window)} с полки «Новинки», "
+        f"встало по времени/сети {stalled}; отказы: " + ("; ".join(failures) if failures else "нет")
     )
     return Result(22, "Полка → карточка", ok, None, detail)
 
