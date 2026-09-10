@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from hass.next_show import next_show
-from hass.refused_error import RefusedError
+from hass.refused_error import NO_NEXT, RefusedError
 from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.receiver import FakeReceiver
 from tests.fakes.state_store import FakeStateStore
@@ -73,7 +73,7 @@ def test_the_last_episode_refuses_even_when_the_caller_names_it() -> None:
     with pytest.raises(RefusedError) as refusal:
         next_show(_series(1, 4), {"season": 1, "episode": 4})
 
-    assert refusal.value.word == "no_next"
+    assert refusal.value.word == NO_NEXT
 
 
 def test_nothing_playing_refuses_whatever_the_body_says() -> None:

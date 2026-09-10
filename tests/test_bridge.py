@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from hass.bridge import NO_NEXT, NO_VOLUME, NOTHING_PLAYING, VOLUME, Bridge
+from hass.bridge import VOLUME, Bridge
 from hass.posters import Posters
-from hass.refused_error import RefusedError
+from hass.refused_error import NO_NEXT, NO_VOLUME, NOTHING_PLAYING, RefusedError
 from hass.say import SEEKBY, TOGGLE
 from hass.stopping import STOP
 from hass.volume import Volume

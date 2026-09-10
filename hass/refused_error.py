@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+#: Слова отказа пульта и показа: часть того же договора, что и тип, перевода им нет.
+BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
+
 
 class RefusedError(Exception):
     """Отказ моста; слово отказа - часть договора, а не текст для человека.

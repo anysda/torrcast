@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from hass.following import following
 from hass.play_argv import play_argv
-from hass.refused_error import RefusedError
+from hass.refused_error import NO_NEXT, RefusedError
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain.json_value import JsonValue
@@ -38,9 +38,7 @@ def next_show(session: PlaybackSession, body: dict[str, JsonValue]) -> list[str]
         return None
     query = following(session)
     if query is None:
-        # Слово «следующей нет» живёт у моста (:data:`hass.bridge.NO_NEXT`), который
-        # зовёт эту функцию; импортировать его отсюда - кольцо, поэтому буквы повторены.
-        raise RefusedError("no_next")
+        raise RefusedError(NO_NEXT)
     return play_argv(query, None, None, None, None, False, _to_browser())
 
 

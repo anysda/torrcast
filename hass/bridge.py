@@ -26,7 +26,7 @@ from hass.orders import Command, Orders
 from hass.payload import payload
 from hass.play_argv import play_argv
 from hass.posters import Posters
-from hass.refused_error import RefusedError
+from hass.refused_error import BUSY, NO_VOLUME, NOTHING_PLAYING, RefusedError
 from hass.resuming import _resume
 from hass.say import SEEKBY, TOGGLE, say
 from hass.search_progress import search_progress
@@ -43,7 +43,6 @@ from torrcast.domain.version import __version__
 from torrcast.ports.playback_session import PlaybackSession
 from torrcast.runtime.playback_session import playback_session
 
-BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
 VOLUME = "volume"
 
 

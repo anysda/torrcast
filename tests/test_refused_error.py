@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from hass.bridge import BUSY, NO_NEXT, NO_VOLUME, NOTHING_PLAYING
-from hass.refused_error import RefusedError
+from hass.refused_error import BUSY, NO_NEXT, NO_VOLUME, NOTHING_PLAYING, RefusedError
 
 
 def test_the_word_of_the_refusal_survives_the_raise() -> None:
