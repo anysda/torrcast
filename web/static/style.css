@@ -525,3 +525,10 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* 🔴 `hidden` у элемента, которому класс задал `display`, не скрывает НИЧЕГО: правило
+   браузера `[hidden] { display: none }` живёт в его собственной таблице и проигрывает
+   любому авторскому классу той же силы. Так плашка «on TV» висела на экране всегда - и
+   в простое, и при показе во вкладке (TC-1149), а рядом с ней «На ТВ» в карточке и
+   «Следующая» на панели. Слово `hidden` в js значит «убрать», и держит это оно. */
+[hidden] { display: none !important; }
