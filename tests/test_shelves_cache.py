@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,6 +28,21 @@ def _rows() -> list[FeedRow]:
     ]
 
 
+def _many_rows(count: int) -> list[FeedRow]:
+    """Лента из count разных картин одной раздачей на каждую - полные и пустые полки."""
+    return [
+        FeedRow(
+            RawResult(f"Картина {index:02d} 2001 1080p", f"{index:040x}", 1000, 5, "rutor"),
+            datetime(2026, 9, 5, tzinfo=UTC),
+        )
+        for index in range(count)
+    ]
+
+
+def _still(_seconds: float) -> None:
+    """Сон-пустышка: добор проверяет свои заходы, а не течение времени."""
+
+
 def _cache(
     tmp_path: Path,
     *,
@@ -34,12 +50,16 @@ def _cache(
     offer: Offer | None = None,
     passport: PassportOf | None = None,
     spawn: Spawn | None = None,
+    attempts: int = 1,
+    sleep: Callable[[float], None] = _still,
 ) -> ShelvesCache:
     return ShelvesCache(
         feed=feed or (lambda limit: _rows()),
         catalogue=torrent_catalogue,
         offer=offer or (lambda records: records),
         path=tmp_path / "shelves.json",
+        attempts=attempts,
+        sleep=sleep,
         passport=passport or (lambda title, series, timeout: Origin()),
         spawn=spawn or (lambda job: None),
         clock=lambda: _MOMENT,
@@ -252,6 +272,7 @@ def test_the_loop_rebuilds_then_sleeps_for_the_configured_period(tmp_path: Path)
         catalogue=torrent_catalogue,
         offer=lambda records: records,
         path=tmp_path / "shelves.json",
+        attempts=1,
         spawn=lambda job: None,
         sleep=stopping_sleep,
         every=3600.0,
@@ -262,3 +283,73 @@ def test_the_loop_rebuilds_then_sleeps_for_the_configured_period(tmp_path: Path)
 
     assert build_count == 1
     assert slept == [3600.0]
+
+
+def test_a_short_build_is_topped_up_until_the_shelves_meet_the_floor(tmp_path: Path) -> None:
+    """ТЗ §9: короче 20 плиток полка человеку не отдаётся - фон спрашивает ленту ещё."""
+    answers = [_many_rows(18), _many_rows(25)]
+    calls = 0
+
+    def feed(_limit: int) -> list[FeedRow]:
+        nonlocal calls
+        answer = answers[min(calls, len(answers) - 1)]
+        calls += 1
+        return answer
+
+    slept: list[float] = []
+    cache = _cache(tmp_path, feed=feed, attempts=3, sleep=slept.append)
+
+    cache._rebuild()
+
+    assert calls == 2
+    assert slept == [cache.retry_pause]
+    body = cache._body
+    assert body is not None
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 25
+    assert isinstance(body["popular"], list) and len(body["popular"]) == 25
+
+
+def test_a_failed_attempt_is_retried_inside_the_same_rebuild(tmp_path: Path) -> None:
+    """Первый заход ленты упал - сборка спрашивает ещё, не дожидаясь следующего часа."""
+    calls = 0
+
+    def feed(_limit: int) -> list[FeedRow]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise InfraError("прибили")
+        return _many_rows(25)
+
+    cache = _cache(tmp_path, feed=feed, attempts=2)
+
+    cache._rebuild()
+
+    assert calls == 2
+    body = cache._body
+    assert body is not None
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 25
+
+
+def test_a_full_shelf_is_not_replaced_by_a_short_build(tmp_path: Path) -> None:
+    """Полная полка остаётся на месте, когда свежая сборка планку не взяла."""
+    answers = iter([_many_rows(25), _many_rows(18)])
+    cache = _cache(tmp_path, feed=lambda limit: next(answers))
+
+    cache._rebuild()
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 25
+
+
+def test_all_short_attempts_publish_their_fullest_build(tmp_path: Path) -> None:
+    """Источники молчат весь добор - отдаётся самая полная из попыток, честно короткая."""
+    answers = iter([_many_rows(10), _many_rows(15)])
+    cache = _cache(tmp_path, feed=lambda limit: next(answers), attempts=2)
+
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 15
