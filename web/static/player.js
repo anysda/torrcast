@@ -383,7 +383,10 @@ const TCPlayer = {
           TCApi.toWeb().then(() => {
             TCPlayer._onTv = false;
             TCPlayer._video.muted = false;
-            if (TCPlayer._last) TCPlayer._video.currentTime = TCPlayer._last.position || 0;
+            // Последний доклад приёмника может отставать на целую его каденцию. Садим
+            // вкладку на ту же доведённую секунду, что показывали на панели; на паузе
+            // `_tvPosition` нарочно возвращает сам доклад, не сдвигая остановленный кадр.
+            if (TCPlayer._last) TCPlayer._video.currentTime = TCPlayer._tvPosition(TCPlayer._last);
           });
         } else {
           // 🔴 Звук на компе снимается ПО НАЖАТИЮ, а не по ответу продукта: между ними
