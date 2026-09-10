@@ -17,6 +17,10 @@ const TCHome = {
   // Номер живого круга опроса полок: вернувшись на главную, прежний круг гаснет,
   // иначе два таймера спрашивали бы сервер вдвоём.
   _shelfPoll: 0,
+  // Что шапка знает прямо сейчас: последний ответ о показе и идёт ли ещё сборка полок.
+  // Оба приходят порознь и в любом порядке, а шапка на экране одна.
+  _state: null,
+  _assembling: false,
 
   async mount(root) {
     // Что искали, написано в АДРЕСЕ (`/?query=…`), а не только в памяти страницы:
@@ -27,7 +31,9 @@ const TCHome = {
     const scan = document.createElement('div');
     scan.className = 'tc-scan';
 
-    const header = TC.header(null, true);
+    TCHome._state = null;
+    TCHome._assembling = !asked;
+    const header = TC.header(TCHome._state, TCHome._assembling);
     const wrap = document.createElement('div');
     wrap.className = 'tc-shelf-safe';
     wrap.append(TCHome._search(), asked ? TCHome._askedBody(asked) : TCHome._loadingBody());
@@ -47,6 +53,7 @@ const TCHome = {
     if (!document.body.contains(root) || location.pathname !== '/') return;
     TCHome._lastHistory = history;
     TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
+    TCHome._wear(!TCHome._query && !!shelves.partial);
     const body = document.getElementById('tc-body');
     if (body && !TCHome._query) {
       body.replaceWith(TCHome._body(history, TCHome._lastShelves));
@@ -59,10 +66,18 @@ const TCHome = {
   async _stateLater(root) {
     const state = await TCApi.state();
     if (!document.body.contains(root) || location.pathname !== '/') return;
+    TCHome._state = state;
+    TCHome._wear();
+  },
+
+  // Шапка пересобирается целиком, а счётчик выдачи, вставший в прежнюю, надо вернуть:
+  // он живёт в той же шапке, что и слот сборки. Отдельного слова про сборку не сказано -
+  // значит менялся показ, и слот остаётся каким был.
+  _wear(loading) {
+    if (loading !== undefined) TCHome._assembling = loading;
     const header = document.querySelector('.tc-header');
     if (!header) return;
-    header.replaceWith(TC.header(state));
-    // Шапка пересобрана - счётчик выдачи, вставший в старую, надо вернуть.
+    header.replaceWith(TC.header(TCHome._state, TCHome._assembling));
     if (TCHome._found && TCHome._found.query === TCHome._query) {
       TCHome._syncCount(TCHome._found.results.length);
     }
@@ -87,8 +102,12 @@ const TCHome = {
         const body = document.getElementById('tc-body');
         if (body) body.replaceWith(TCHome._body(TCHome._lastHistory, TCHome._lastShelves));
       }
-      if (!shelves.partial) return;
+      if (!shelves.partial) break;
     }
+    // Полки дособрались - или не дособрались за все 36 заходов. И там, и там сборки
+    // больше нет, и «Грузим_» обязано уйти: шапка, застрявшая на нём навсегда, врёт
+    // дольше и хуже, чем пустая полка.
+    TCHome._wear(false);
   },
 
   // Спросить, сколько источников у круга поиска. Ответ приходит из серверного кэша, и
