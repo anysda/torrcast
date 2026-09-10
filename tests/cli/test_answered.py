@@ -14,8 +14,12 @@ from torrcast.cli.answered import answered
 from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.exit_codes import EXIT_CANCELLED, EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.server_down_error import ServerDownError
+from torrcast.domain.start_refusal import SOURCE_DID_NOT_ANSWER
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install
+from torrcast.ports.refusal_record import RefusalRecord
+from torrcast.ports.refusal_record import install as install_refusal
 from torrcast.usecases.stopped import _on_term
 
 
@@ -149,3 +153,38 @@ raise SystemExit(main(["мумия"], commands=commands))
 
     assert done.returncode == EXIT_INFRA
     assert "command interrupted by SIGTERM" in done.stderr
+
+
+class _Kept(RefusalRecord):
+    """Держатель записи об отказе, который запоминает каждый зов как был."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def record(self, reason: str) -> None:
+        self.calls.append(reason)
+
+
+def test_a_distinguishable_refusal_is_named_by_a_word_for_the_waiting_screen() -> None:
+    """Молчание службы раздач - слово «источник не ответил», и пишется оно по классу.
+
+    Экран подготовки страницы ждёт это слово из другого процесса; строку консоли ему
+    переводить нечем, и различает причины ровно класс аварии, а не её текст.
+    """
+    kept = _Kept()
+    install_refusal(kept)
+    try:
+
+        def dead_service() -> int:
+            raise ServerDownError("TorrServer не отвечает")
+
+        assert answered(dead_service) == EXIT_INFRA
+        assert kept.calls == [SOURCE_DID_NOT_ANSWER]
+
+        def nothing_found() -> int:
+            raise NotFoundError("ничего не нашёл")
+
+        assert answered(nothing_found) == EXIT_NOT_FOUND
+        assert kept.calls == [SOURCE_DID_NOT_ANSWER], "неразличимая причина не выдумывается"
+    finally:
+        install_refusal(RefusalRecord())

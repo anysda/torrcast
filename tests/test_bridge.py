@@ -18,6 +18,7 @@ from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.state_store import FakeStateStore
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.adapters.choice_environment import _SystemChoiceEnvironment
+from torrcast.adapters.filesystem.state.file_refusal_record import FileRefusalRecord
 from torrcast.domain.args import Args
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
@@ -26,7 +27,10 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.start_refusal import RECEIVER_DID_NOT_ANSWER
 from torrcast.ports.abandon import slot as abandon_slot
+from torrcast.ports.refusal_record import RefusalRecord
+from torrcast.ports.refusal_record import install as install_refusal
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.enter_take import enter_take
@@ -544,6 +548,32 @@ def test_a_refused_show_leaves_a_spoken_reason_and_the_next_one_clears_it() -> N
     bridge.play("матрица")
     bridge.run_one()
     assert bridge.state()["last_error"] is None
+
+
+def test_the_reason_word_of_the_refusal_is_carried_by_the_state_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Слово-причина отказа едет в ``GET /api/state`` рядом со словесным отказом.
+
+    Пишет слово умирающий юнит файлом рядом с состоянием, читает мост при каждом опросе
+    страницы; зеркало кладёт слово тем же файлом, которым пользуется бой
+    (:mod:`torrcast.domain.start_refusal`).
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    install_refusal(FileRefusalRecord())
+    try:
+        bridge = _bridge(FakePlaybackSession(), command=lambda _argv: 1)
+
+        bridge.play("муха")
+        bridge.run_one()
+        FileRefusalRecord().record(RECEIVER_DID_NOT_ANSWER)
+        assert bridge.state()["refusal"] == "receiver_did_not_answer"
+
+        bridge.play("матрица")
+        bridge.run_one()
+        assert bridge.state()["refusal"] is None, "слово прошлого отказа пережило новый подъём"
+    finally:
+        install_refusal(RefusalRecord())
 
 
 def test_a_command_is_allowed_to_install_a_signal_handler_the_way_cast_does() -> None:

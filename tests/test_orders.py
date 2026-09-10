@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from hass.orders import Orders
+from torrcast.adapters.filesystem.state.file_refusal_record import FileRefusalRecord
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.start_refusal import RECEIVER_DID_NOT_ANSWER
+from torrcast.ports.refusal_record import RefusalRecord
+from torrcast.ports.refusal_record import install as install_refusal
 from torrcast.usecases.start_progress import START
 
 if TYPE_CHECKING:
@@ -122,6 +127,28 @@ def test_the_refusal_of_a_command_is_remembered_in_the_words_the_console_said() 
 
     orders.take(["матрица"])
     assert orders.last_error == "", "прошлый отказ пережил начало следующего показа"
+
+
+def test_the_reason_word_of_the_last_refusal_is_erased_by_the_next_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Слово-причина живёт тем же сроком, что и словесный отказ: до следующего подъёма.
+
+    Пишет слово умирающий юнит, а ждёт его экран подготовки страницы; взятие нового
+    поручения - та самая граница, после которой запись прошлого подъёма стала бы ложью
+    про новый (:mod:`torrcast.domain.start_refusal`).
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    install_refusal(FileRefusalRecord())
+    try:
+        FileRefusalRecord().record(RECEIVER_DID_NOT_ANSWER)
+        orders = Orders(_nothing)
+
+        orders.take(["матрица"])
+
+        assert FileRefusalRecord().read() is None, "слово прошлого отказа пережило новый подъём"
+    finally:
+        install_refusal(RefusalRecord())
 
 
 def test_the_loop_leaves_when_it_is_asked_to() -> None:

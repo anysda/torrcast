@@ -6,25 +6,21 @@
 from __future__ import annotations
 
 import contextlib
-from typing import NoReturn
 
-import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.codec_name import codec_name
 from torrcast.domain.exit_codes import EXIT_OK
-from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import Profile
 from torrcast.domain.recode_note import recode_note
 from torrcast.domain.recodes_whole import recodes_whole
-from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.following import _following
+from torrcast.usecases.playback._show_blame import _blame_the_end
 from torrcast.usecases.playback.stream_server import StreamServer
-from torrcast.usecases.source_blame import _blamed
 from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
@@ -144,57 +140,3 @@ def _handover(watch: Watch | None) -> bool:
         and not watch.closed_by_remote
         and _following(watch.key) is not None
     )
-
-
-def _blame_the_end(
-    supply: StreamSource | None, shown: bool = True, clock: Clock | None = None
-) -> NoReturn:
-    """Показ кончился недосмотренным - назвать виноватого, и назвать верно. Всегда бросает.
-
-    🔴 Последняя строка показа - последняя возможность сказать правду. Раньше показ
-    кончался обвинением «приёмник не досмотрел поток» при живом приёмнике и мёртвой
-    службе раздач. Замерено на стенде: перезапуск службы под показом давал ровно эту
-    строку, и про источник в ней не было ни слова.
-
-    ``shown`` - видел ли зритель хоть один кадр. Разница не косметическая: «не досмотрел»
-    и «не увидел вовсе» - это две разные аварии для того, кто сидит перед экраном, и
-    вторая стоит выше на лестнице цели. Сюда она доходит только исчерпав лестницу
-    воскрешения: показ, не давший кадра, сперва поднимают, и лишь потом хоронят.
-
-    Спросить источник тут можно спокойно: показ уже кончился, горячего пути нет, а
-    человеку и следу уходит одна и та же причина.
-
-    🔴 Здоровая подача - отдельная правда (:func:`_swarm_cleared`): назвать вместо роя
-    приёмник было бы той же подменой с другим именем.
-    """
-    why_source = _blamed(supply, clock if clock is not None else _state.CLOCK)
-    if why_source and not _swarm_cleared(supply):
-        journal().offline(why=why_source, asked=True)
-        if not shown:
-            raise InfraError(phrase("playback.no_picture_source_unreadable", why=why_source))
-        raise InfraError(phrase("playback.source_unreadable_cut_short", why=why_source))
-    if not shown:
-        if supply is not None and supply.kept_up:
-            raise InfraError(phrase("playback.no_picture_supply_held"))
-        raise InfraError(phrase("playback.no_picture_receiver_refused"))
-    raise InfraError(phrase("playback.receiver_did_not_finish"))
-
-
-def _swarm_cleared(supply: StreamSource | None) -> bool:
-    """Снимает ли окно наблюдений сеанса жалобу на просевший рой.
-
-    🔴 Правило живёт ровно ЗДЕСЬ, на похоронах, и нигде больше. Скорость службы - величина
-    нашего же спроса: пока упаковка тянет байты, короткий замер говорит о рое, а после
-    того как показ сдался, тянуть перестали, и тот же замер не говорит уже ни о чём.
-    Замер 03-09-2026 на стенде `.136`: весь сеанс след писал долю 2.99-3.61, а человеку
-    показ назвал посмертные 0.20 Мбит/с и обвинил здоровую раздачу.
-
-    ⚠️ Тем же окном НЕЛЬЗЯ править живой ответ источника: там непустая жалоба - это не
-    строка, а действие, и просадка посреди показа переводит упаковку в ожидание
-    (:func:`torrcast.usecases.revive_playback._endure._endure`). Снятая на живом пути, она
-    превращает переживаемый обрыв в смерть показа - замерено на этой же улике.
-
-    Прочие беды источника окно не трогает: служба, легшая насмерть, и раздача без трекеров
-    лежат одинаково и на живом показе, и на мёртвом, нашим спросом их не измерить.
-    """
-    return supply is not None and supply.thin and supply.kept_up

@@ -26,6 +26,7 @@ def payload(
     picture: tuple[str, str],
     has_next: bool,
     start: dict[str, JsonValue] | None = None,
+    refusal: str | None = None,
 ) -> dict[str, JsonValue]:
     """Снимок показа как тело ``GET /api/state``."""
     known = state not in (IDLE, STARTING)
@@ -58,6 +59,10 @@ def payload(
         # существует всегда (:meth:`torrcast.adapters.health.machine_probe.MachineProbe.disk_free`).
         "disk_free": disk_free or None,
         "last_error": last_error or None,
+        # Слово-причина отказа подъёма тем договором, каким её пишет юнит
+        # (:mod:`torrcast.domain.start_refusal`); ``null`` - отказа не было или причину
+        # продукт не различает, и страница решает по нему, какую строку показать.
+        "refusal": refusal,
         # Ход подъёма для того, кто ждёт у экрана: сколько уже ждём, сколько осталось по
         # ИЗМЕРЕННОМУ сроку прошлых подъёмов и который источник очереди спрашивают
         # (:mod:`torrcast.usecases.start_progress`). Подъёма нет - ``null``, и страница

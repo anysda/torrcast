@@ -1,11 +1,32 @@
-// Экраны поверх плёнки (ТЗ §4.5, §7.1, §7.3): подготовка ящика, буферизация и потеря
-// потока с «Повторить». Три состояния оверлея, ничего больше - ни опроса, ни hls.js;
-// тем решает `player.js`, эти три только рисуют, что он решил.
+// Экраны поверх плёнки (ТЗ §4.5, §7.1, §7.3): подготовка ящика, отказ подъёма,
+// буферизация и потеря потока с «Повторить». Состояния оверлея, ничего больше - ни
+// опроса, ни hls.js; тем решает `player.js`, эти только рисуют, что он решил.
 'use strict';
 
 const TCPlayerScreens = {
   clear(overlay) {
     if (overlay) overlay.replaceChildren();
+  },
+
+  //: Подъём кончился отказом: человек читает об этом словами, а не смотрит на вечную
+  //: подготовку. Строка - каталожная (``web.player.refused``); причину, которую продукт
+  //: различает, пишет юнит словом-договором (:mod:`torrcast.domain.start_refusal`), и
+  //: хвост по нему ищется в том же каталоге. Причины нет - строка остаётся короткой,
+  //: без выдуманного двоеточия. Пересобирается экран один раз: ответы идут раз в две
+  //: секунды, и рождённый заново текст мигал бы под руками.
+  refused(overlay, reason) {
+    if (!overlay) return;
+    if (overlay.querySelector('.tc-refused')) return;
+    const screen = document.createElement('div');
+    screen.className = 'tc-refused';
+    const title = document.createElement('div');
+    title.className = 'tc-refused-title';
+    let line = TC.say('web.player.refused');
+    const why = TC.phrases['web.player.refused_' + (reason || '')];
+    if (why !== undefined) line += ': ' + why;
+    title.textContent = line;
+    screen.appendChild(title);
+    overlay.replaceChildren(screen);
   },
 
   //: Ящик ещё пуст, и человек ждёт. Кроме слова тут идут срок и имя источника из поля

@@ -10,8 +10,10 @@ from torrcast.adapters.chromecast.cast.hush_cosmetic_noise import hush_cosmetic_
 from torrcast.adapters.chromecast.cast.receiver_state import _State
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.start_refusal import RECEIVER_DID_NOT_ANSWER
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.why import why
+from torrcast.ports.refusal_record import refusal_record
 
 
 class _Link(_State):
@@ -122,6 +124,11 @@ class _Link(_State):
         потолок.
         """
         if not self._linked:
+            # Приёмника нет в сети - это знает ровно это место, и знает в процессе юнита:
+            # мосту о смерти юнита виден лишь голый класс InfraError. Слово отказа уходит
+            # в порт записи, иначе экрану подготовки назвать причину нечем
+            # (:mod:`torrcast.domain.start_refusal`).
+            refusal_record().record(RECEIVER_DID_NOT_ANSWER)
             return InfraError(
                 phrase("chromecast_talk.tv_rejected_cast", address=self.address, reason=why(exc))
             )

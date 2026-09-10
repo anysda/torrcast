@@ -68,7 +68,8 @@ from torrcast.usecases.choice._ctl import _ctl, _Steerable
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.playback._launch import _await_playing
 from torrcast.usecases.playback._play import _play
-from torrcast.usecases.playback._show_end import _blame_the_end, _handover
+from torrcast.usecases.playback._show_blame import _blame_the_end
+from torrcast.usecases.playback._show_end import _handover
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.start_budget import START_BUDGET
@@ -891,7 +892,7 @@ def test_a_show_that_never_gave_a_frame_gives_up_out_loud(
     """Лестница исчерпана, кадра так и нет - и это сказано, а не проглочено.
 
     Молчание тут дороже всего на стыке серий: консоли рядом нет, и кроме журнала показа
-    сказать о беде некому (:func:`torrcast.usecases.playback._show_end._blame_the_end`, ``cast
+    сказать о беде некому (:func:`torrcast.usecases.playback._show_blame._blame_the_end`, ``cast
     status``).
     """
 

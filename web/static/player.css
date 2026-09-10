@@ -44,12 +44,14 @@
 .tc-seek-mark { transform: translateX(-50%); white-space: nowrap; }
 .tc-seek-mark.is-tv { color: var(--tc-acid); }
 
-/* --- Полноэкранные состояния: подготовка / буферизация / потеря потока ---------- */
-.tc-preparing, .tc-buffering-screen, .tc-lost {
+/* --- Полноэкранные состояния: подготовка / отказ / буферизация / потеря потока ----- */
+.tc-preparing, .tc-refused, .tc-buffering-screen, .tc-lost {
   position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 2.25rem;
   background-image: var(--tc-scanlines);
 }
+.tc-refused-title { font-size: 1.375rem; font-weight: 700; text-align: center;
+  padding: 0 2.5rem; }
 .tc-next { z-index: 5; }
 .tc-preparing-body { position: relative; padding: 3.75rem 5.625rem; }
 .tc-preparing-bar.is-indeterminate > i { width: 30%; animation: tcprepindet 1.4s ease-in-out infinite; }

@@ -103,4 +103,8 @@ def ru() -> dict[str, str]:
         "web.keys.volume": "Громкость",
         "web.keys.fullscreen": "Во весь экран",
         "web.keys.back": "Назад",
+        "web.player.refused": "Не удалось начать показ",
+        "web.player.refused_receiver_did_not_answer": "приёмник не ответил",
+        "web.player.refused_source_did_not_answer": "источник не ответил",
+        "web.player.refused_source_could_not_be_read": "источник не читается",
     }

@@ -25,6 +25,7 @@ from queue import Queue
 
 from tgbot.command_result import command_result
 from torrcast.domain.why import why
+from torrcast.ports.refusal_record import refusal_record
 from torrcast.usecases.start_progress import START
 
 #: Команда продукта так, как её зовёт консоль: argv на входе, код возврата на выходе.
@@ -69,6 +70,7 @@ class Orders:
             START.began()
             self._abandoned = False  # отказ был от ПРОШЛОГО заказа, а не от этого
             self.last_error = ""  # прошлый отказ живёт до начала следующего показа
+            refusal_record().forget()  # и его слово-причина - тоже: она прошлого подъёма
         self._queue.put(args)
         return True
 

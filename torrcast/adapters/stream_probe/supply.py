@@ -91,7 +91,7 @@ class Supply:
         это не строка человеку, а действие - упаковка переходит в ожидание источника
         (:func:`torrcast.usecases.revive_playback._endure._endure`), а не умирает. Судить
         просадку виной источника или посмертным показанием - дело того, кто ХОРОНИТ показ
-        (:func:`torrcast.usecases.playback._show_end._blame_the_end`), и для этого метод
+        (:func:`torrcast.usecases.playback._show_blame._blame_the_end`), и для этого метод
         оставляет два факта: :attr:`thin` и :attr:`kept_up`.
         """
         self.restored = self.thin = False

@@ -193,3 +193,43 @@ def test_the_lift_in_progress_reaches_the_one_waiting_at_the_screen() -> None:
         has_next=False,
     )
     assert quiet["start"] is None
+
+
+def test_the_reason_word_of_the_refusal_rides_next_to_the_spoken_one() -> None:
+    """Отказ подъёма говорится странице дважды: строкой консоли и договорным словом.
+
+    Строку (``last_error``) экрану переводить нечем - она языка зрителя, а веб -
+    только английский; слово (``refusal``) раскладывается страницей в каталожную строку
+    (:mod:`torrcast.domain.start_refusal`). Слова нет - ``null``, и строка на экране
+    остаётся короткой, без выдуманного хвоста.
+    """
+    shown = PlaybackSnapshot(key="movie:муха:1986", title="Муха", position=0.0)
+    body = payload(
+        shown,
+        version="1.0.3",
+        build="abc123def456",
+        tv="",
+        state=IDLE,
+        volume=None,
+        disk_free=0,
+        last_error="TV 10.0.1.7 did not accept the cast",
+        picture=("", ""),
+        has_next=False,
+        refusal="receiver_did_not_answer",
+    )
+    assert body["refusal"] == "receiver_did_not_answer"
+    assert json.loads(json.dumps(body)) == body
+
+    silent = payload(
+        shown,
+        version="1.0.3",
+        build="abc123def456",
+        tv="",
+        state=IDLE,
+        volume=None,
+        disk_free=0,
+        last_error="",
+        picture=("", ""),
+        has_next=False,
+    )
+    assert silent["refusal"] is None

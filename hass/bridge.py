@@ -41,6 +41,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.version import __version__
 from torrcast.ports.playback_session import PlaybackSession
+from torrcast.ports.refusal_record import refusal_record
 from torrcast.runtime.playback_session import playback_session
 from torrcast.usecases.start_progress import START
 
@@ -90,6 +91,7 @@ class Bridge:
             volume=self._volume_of(config).level(),
             disk_free=MachineProbe.disk_free(config.hls_dir),
             last_error=self._orders.last_error,
+            refusal=refusal_record().read(),
             picture=self._posters.picture(shown if active else None, self._session.stream_address),
             has_next=following(self._session) is not None,
             start=START.seen(),

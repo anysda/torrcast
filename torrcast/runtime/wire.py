@@ -7,6 +7,7 @@
 
 from torrcast.adapters.console.console.progress import Progress
 from torrcast.adapters.filesystem.state.chosen_language import chosen_language
+from torrcast.adapters.filesystem.state.file_refusal_record import FileRefusalRecord
 from torrcast.adapters.filesystem.state.file_state_store import FileStateStore
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
@@ -15,6 +16,7 @@ from torrcast.adapters.warm_environment import environment as warm_environment
 from torrcast.domain.catalogs.tongue import _follow_tongue
 from torrcast.ports.journal.slot import install as install_journal
 from torrcast.ports.progress.slot import install as install_progress
+from torrcast.ports.refusal_record import install as install_refusal
 from torrcast.ports.show_unit.slot import install as install_unit
 from torrcast.ports.state_store.slot import install as install_state
 from torrcast.runtime.configure_cli import configure_cli
@@ -43,6 +45,9 @@ def wire() -> None:
     _follow_tongue(chosen_language)
     install_progress(Progress)
     install_state(FileStateStore())
+    # Слово-причина отказа подъёма пишется файлом рядом с состоянием: читатель её -
+    # мост, и его процесс юнита не видит (:mod:`torrcast.domain.start_refusal`).
+    install_refusal(FileRefusalRecord())
     # Юнит показа - платформенный: systemd на Linux, launchd на macOS. Выбор делает
     # корень и делает один раз на обе половины (:mod:`torrcast.runtime.show_unit`).
     install_unit(show_unit())

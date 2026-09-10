@@ -13,6 +13,7 @@ from tgbot.catalogs.en import en as english
 from tgbot.catalogs.ru import ru as russian
 from tgbot.i18n import i18n
 from torrcast.adapters.console.console.progress import Progress
+from torrcast.adapters.filesystem.state.file_refusal_record import FileRefusalRecord
 from torrcast.adapters.filesystem.state.file_state_store import FileStateStore
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
@@ -27,6 +28,7 @@ from torrcast.domain.media import Media
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install, journal
 from torrcast.ports.progress.slot import factory as progress_factory
+from torrcast.ports.refusal_record import refusal_record
 from torrcast.ports.show_unit.slot import unit
 from torrcast.ports.state_store.slot import store
 from torrcast.runtime.language_command import language_command
@@ -67,6 +69,9 @@ def test_wiring_puts_the_real_ports_and_environments() -> None:
     assert progress_factory() is Progress
     assert type(store()) is FileStateStore
     assert type(unit()) is TransientShowUnit
+    # Запись об отказе подъёма - файлом: её читает мост, а пишет юнит, и оба процесса
+    # делят только диск (:mod:`torrcast.ports.refusal_record`).
+    assert type(refusal_record()) is FileRefusalRecord
 
     # Среда прогрева и её разбор по слотам ленты прогрева.
     assert _warm_state._environment is warm_environment

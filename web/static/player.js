@@ -92,8 +92,15 @@ const TCPlayer = {
         TCPlayer._render(state);
         //: Пока ящика нет, эти же ответы двигают экран подготовки: раз в две секунды
         //: срок уменьшается, а полоса идёт по значению. Другого источника числа у
-        //: страницы нет и быть не должно.
-        if (!TCPlayer._url) TCPlayer._screenPreparing(state);
+        //: страницы нет и быть не должно. Подъём кончился отказом - экран говорит это
+        //: словами, а не ждёт дальше: «уже не поднимется» - это пустой ``start`` при
+        //: названном отказе (``last_error`` кладёт мост, слово-причину ``refusal`` -
+        //: юнит, :mod:`torrcast.domain.start_refusal`). Слова нет - строка остаётся
+        //: короткой, без выдуманного хвоста.
+        if (!TCPlayer._url) {
+          if (!state.start && (state.refusal || state.last_error)) TCPlayer._screenRefused(state.refusal);
+          else TCPlayer._screenPreparing(state);
+        }
       }
       await TCPlayer._sleep(TCPlayer.POLL_MS);
     }
@@ -308,6 +315,10 @@ const TCPlayer = {
   //: поле ``start`` кладёт туда :mod:`torrcast.usecases.start_progress`.
   _screenPreparing(state) {
     TCPlayerScreens.preparing(TCPlayer._overlay, (state || TCPlayer._last || {}).start);
+  },
+
+  _screenRefused(reason) {
+    TCPlayerScreens.refused(TCPlayer._overlay, reason);
   },
 
   _screenBuffering() {

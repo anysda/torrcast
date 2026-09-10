@@ -1,8 +1,7 @@
-"""Зеркало конца показа: причина перекода вслух, гашение хозяйства и поиск виноватого."""
+"""Зеркало конца показа: причина перекода вслух и гашение хозяйства."""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import cast
 
@@ -10,21 +9,14 @@ import pytest
 
 from tests.fakes.clock import FakeClock
 from tests.fakes.journal import Tape
-from tests.fakes.swarm_session import THIN_SWARM
-from tests.usecases.revive_playback.world import (
-    FakeSupply,
-    RemoteClosedReceiver,
-    feed_with_segments,
-)
+from tests.usecases.revive_playback.world import RemoteClosedReceiver, feed_with_segments
 from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
-from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.state_store.slot import store
-from torrcast.ports.stream_source import StreamSource
-from torrcast.usecases.playback._show_end import _blame_the_end, _close_show, _handover, _say_whole
+from torrcast.usecases.playback._show_end import _close_show, _handover, _say_whole
 from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.warm.warmer import Warmer
@@ -220,71 +212,3 @@ def test_a_watched_show_clears_the_warm_vault_and_says_so(
     assert watch.done, "стенд обязан довести показ до конца - иначе проверка пуста"
     assert warmer.vault.cleared == 1, "прогретое досмотренного показа обязано стереться"
     assert phrase("playback.watched_cleared_warm") in capsys.readouterr().out
-
-
-def test_a_dead_source_takes_the_blame_of_the_broken_show() -> None:
-    """Показ оборвался при мёртвом источнике - виноват он, и это сказано человеку."""
-    why = "TorrServer не отвечает"
-    want = phrase("playback.source_unreadable_cut_short", why=why)
-    with pytest.raises(InfraError, match=re.escape(want)):
-        _blame_the_end(cast_supply(FakeSupply(silence=why)), clock=_NoWait())
-
-
-def test_a_live_source_leaves_the_receiver_to_blame() -> None:
-    """Источник здоров - остаётся приёмник, и обвинение достаётся ему."""
-    want = phrase("playback.receiver_did_not_finish")
-    with pytest.raises(InfraError, match=re.escape(want)):
-        _blame_the_end(cast_supply(FakeSupply()), clock=_NoWait())
-
-
-def test_a_show_without_a_single_frame_names_itself_apart() -> None:
-    """«Не увидел ни кадра» и «не досмотрел» - две разные аварии для того, кто у экрана."""
-    want = phrase("playback.no_picture_receiver_refused")
-    with pytest.raises(InfraError, match=re.escape(want)):
-        _blame_the_end(cast_supply(FakeSupply()), shown=False, clock=_NoWait())
-
-
-def test_a_supply_that_held_all_session_is_not_dressed_up_as_someone_elses_fault() -> None:
-    """🔴 TC-1009. Жалоба на рой снята окном сеанса: подача была, картинки не было.
-
-    Свалить темноту на приёмник тут было бы той же подменой с другим именем: про приёмник
-    мы знаем ровно то же, что про рой, - ничего.
-    """
-    held = FakeSupply(silence=THIN_SWARM, kept_up=True, thin=True)
-    want = phrase("playback.no_picture_supply_held")
-    with pytest.raises(InfraError, match=re.escape(want)):
-        _blame_the_end(cast_supply(held), shown=False, clock=_NoWait())
-
-
-def test_a_swarm_thin_all_session_keeps_the_verdict_of_an_unreadable_source() -> None:
-    """Вторая ветка той же строки: рой не тянул весь сеанс - приговор ему остаётся."""
-    thin = FakeSupply(silence=THIN_SWARM, kept_up=False, thin=True)
-    want = phrase("playback.no_picture_source_unreadable", why=THIN_SWARM)
-    with pytest.raises(InfraError, match=re.escape(want)):
-        _blame_the_end(cast_supply(thin), shown=False, clock=_NoWait())
-
-
-def test_a_dead_service_is_not_cleared_by_a_swarm_that_kept_up() -> None:
-    """Окно снимает жалобу на рой и только её: службу нашим спросом не измерить."""
-    down = FakeSupply(silence="TorrServer does not answer", kept_up=True, thin=False)
-    want = phrase("playback.no_picture_source_unreadable", why="TorrServer does not answer")
-    with pytest.raises(InfraError, match=re.escape(want)):
-        _blame_the_end(cast_supply(down), shown=False, clock=_NoWait())
-
-
-class _NoWait:
-    """Часы, которые не ждут: расспрос источника меряется решением, а не секундами."""
-
-    def monotonic(self) -> float:
-        return 0.0
-
-    def wall(self) -> float:
-        return 0.0
-
-    def sleep(self, seconds: float) -> None:
-        return None
-
-
-def cast_supply(supply: FakeSupply) -> StreamSource:
-    """Подделка источника честно занимает место настоящего договора."""
-    return cast(StreamSource, supply)
