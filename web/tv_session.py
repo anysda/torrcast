@@ -55,6 +55,7 @@ class TvSession:
     profile: Profile = CAUTIOUS
     poll_seconds: float = POLL_SECONDS
     _receiver: Receiver | None = field(default=None, init=False, repr=False)
+    _heard: Position | None = field(default=None, init=False, repr=False)
     _stop_poll: threading.Event | None = field(default=None, init=False, repr=False)
     _poll: threading.Thread | None = field(default=None, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
@@ -110,18 +111,26 @@ class TvSession:
         receiver = self.factory(address, self.profile)
         receiver.play(url, title, at=at)
         self._receiver = receiver
+        self._heard = None
         self.key = key
         self._arm(receiver, echo)
 
     def stop(self) -> float:
-        """Снять каст и назвать секунду, на которой он стоял; без каста - ноль."""
+        """Снять каст и назвать секунду, на которой он стоял; без каста - ноль.
+
+        Секунда - ПОСЛЕДНИЙ УСЛЫШАННЫЙ опрос, а не свежее чтение: на живой приставке
+        чтение на излёте вернуло место ДЕСЯТИСЕКУНДНОЙ давности, старше последнего
+        доклада (замер на стенде `.104` 10-09-2026: показ стоял на ~14-й секунде,
+        ``position()`` в ``stop`` ответил 4.8, и «На комп» отматывал зрителя назад).
+        """
         receiver, self._receiver = self._receiver, None
         self.key = ""
         if receiver is None:
             return 0.0
         self._disarm()
+        heard, self._heard = self._heard, None
         with self._lock:
-            at = receiver.position().pos
+            at = heard.pos if heard is not None else receiver.position().pos
             receiver.stop(quit_app=True)
         return at
 
@@ -129,6 +138,7 @@ class TvSession:
         """Закрыть прежнюю связь без чтения её места - её никто не спрашивал."""
         receiver, self._receiver = self._receiver, None
         self.key = ""
+        self._heard = None
         if receiver is None:
             return
         self._disarm()
@@ -167,6 +177,7 @@ class TvSession:
                 if self._receiver is not receiver:
                     return
                 spot = receiver.position()
+                self._heard = spot
             if echo is not None:
                 echo(spot)
 

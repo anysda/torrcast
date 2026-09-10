@@ -35,6 +35,30 @@ def test_stop_reads_the_position_before_stopping_and_forgets_the_receiver() -> N
     assert not session.active()
 
 
+@pytest.mark.machine
+def test_stop_answers_with_the_last_polled_position_not_a_stale_reread() -> None:
+    """Чтение на излёте бывает СТАРШЕ последнего доклада опроса (замер на стенде `.104`
+    10-09-2026: приставка на стопе отдала 4.8 с там, где опрос секунду назад слышал ~14).
+    Ответ «на какой секунде стоял каст» - последний услышанный доклад."""
+    receiver = FakeReceiver(Position(0.0, 120.0))
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    session.start("192.168.1.104", "t", "u", 0.0)
+    for _ in range(200):
+        if receiver.fronts:
+            break
+        time.sleep(0.01)
+    receiver.current = Position(14.0, 120.0)  # очередной доклад опроса
+    for _ in range(200):
+        if len(receiver.fronts) >= 2:
+            break
+        time.sleep(0.01)
+    receiver.current = Position(4.8, 120.0)  # чтение на излёте отвечает старьём
+
+    at = session.stop()
+
+    assert at == 14.0
+
+
 def test_settle_keeps_the_cast_that_belongs_to_the_asked_box() -> None:
     receiver = FakeReceiver(Position(0.0, 0.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
