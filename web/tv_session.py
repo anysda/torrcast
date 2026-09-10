@@ -177,9 +177,23 @@ class TvSession:
                 if self._receiver is not receiver:
                     return
                 spot = receiver.position()
+                if self._backwards(spot):
+                    continue
                 self._heard = spot
             if echo is not None:
                 echo(spot)
+
+    def _backwards(self, spot: Position) -> bool:
+        """Доклад, ушедший НАЗАД посреди каста: это чтение на излёте, а не перемотка.
+
+        Внутри одного каста секунду двигает только сам показ вперёд: перемотка уходит
+        файлом-пультом в юнит показа (:mod:`hass.say`) и приёмника не касается, а новый
+        каст начинается с чистого :attr:`_heard`. Меньшее число - тот же излёт, из-за
+        которого :meth:`stop` перестал перечитывать место. 🔴 Плёнку вкладки ведёт это
+        число: один доклад назад дёргал её (стенд `.104`: 5.4, следом 3.6, вкладка с 15.9 на 4.5).
+        """
+        heard = self._heard
+        return heard is not None and spot.pos < heard.pos
 
 
 #: Один держатель на процесс страницы: оба маршрута спрашивают именно его.

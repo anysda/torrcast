@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 
 import pytest
 
 from tests.fakes.receiver import FakeReceiver
 from torrcast.domain.position import Position
 from web.tv_session import TvSession
+
+
+def _until(said: Callable[[], bool], limit: float = 2.0) -> None:
+    """Ждать события опроса, а не спать наугад: такт опроса тут 0.01 с."""
+    began = time.monotonic()
+    while time.monotonic() - began < limit and not said():
+        time.sleep(0.01)
+    assert said(), "опрос не дошёл до нужного состояния за отведённое время"
 
 
 def test_start_calls_play_with_the_given_url_title_and_position() -> None:
@@ -126,3 +135,25 @@ def test_the_live_cast_is_polled_periodically_so_the_position_stays_fresh() -> N
     assert heard, "опрос был, а слушатель места о нём не узнал"
 
     session.stop()
+
+
+@pytest.mark.machine
+def test_a_report_that_steps_backwards_never_reaches_the_listener() -> None:
+    """Приёмник на прогреве отдаёт место рывком назад (стенд `.104` 10-09-2026: 5.4,
+    следом 3.6), и вкладка, ведущая свою плёнку по этому числу, прыгала с 15.9 на 4.5.
+    Назад секунда каста не ходит: меньший доклад - излёт, и слушателю он не уходит."""
+    receiver = FakeReceiver(Position(5.4, 120.0))
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    heard: list[Position] = []
+
+    session.start("192.168.1.104", "t", "u", 0.0, echo=heard.append)
+    _until(lambda: bool(heard))
+    receiver.current = Position(3.6, 120.0)
+    _until(lambda: len(receiver.fronts) >= 4)
+    receiver.current = Position(13.6, 120.0)
+    _until(lambda: any(spot.pos == 13.6 for spot in heard))
+    session.stop()
+
+    said = [spot.pos for spot in heard]
+    assert 3.6 not in said, f"доклад назад дошёл до вкладки: {said}"
+    assert said == sorted(said), f"место каста ушло назад: {said}"
