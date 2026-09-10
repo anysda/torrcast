@@ -10,7 +10,7 @@ from tests.fakes.torrent_engines import FakeTorrentEngines
 from torrcast.domain.release import Release
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.torr_file import TorrFile
-from web.episode_lookup import EpisodeLookup
+from web.episode_lookup import RETRY, EpisodeLookup
 
 _RELEASE = Release(raw_name="Show s01 WEB-DL 1080p LostFilm", title="Show", magnet="magnet:show")
 _FILES = [
@@ -29,6 +29,16 @@ class _BoomEngine(FakeTorrentEngine):
 
 def _sync(job: Callable[[], None]) -> None:
     job()
+
+
+@dataclass
+class _Clock:
+    """Часы, которые двигает сама проба: срок ряда проверяется без единой секунды сна."""
+
+    now: float = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
 
 
 def test_the_first_ask_starts_the_background_build_and_answers_none_when_still_slow() -> None:
@@ -88,3 +98,25 @@ def test_a_pending_build_is_not_started_twice_for_the_same_magnet() -> None:
     lookup.table(_RELEASE, "http://torrserver")
 
     assert len(spawned) == 1
+
+
+def test_a_parsed_release_is_never_asked_again_but_a_failed_one_is() -> None:
+    """Разбор ответил - ответ окончателен; служба лежала - через :data:`RETRY` спросят снова.
+
+    Обе беды кончались одной пустой таблицей с одним сроком, и по его выходе налитая
+    карточка снова просила страницу переспросить (замер 10-09-2026 на стенде `.104`).
+    """
+    clock = _Clock()
+    whole = FakeTorrentEngines(FakeTorrentEngine(torrent_files=_FILES))
+    down = FakeTorrentEngines(_BoomEngine(torrent_files=_FILES))
+    parsed = EpisodeLookup(engines=whole, spawn=_sync, clock=clock)
+    fallen = EpisodeLookup(engines=down, spawn=_sync, clock=clock)
+    parsed.table(_RELEASE, "http://torrserver")
+    fallen.table(_RELEASE, "http://torrserver")
+    clock.now += RETRY + 1
+
+    parsed.table(_RELEASE, "http://torrserver")
+    fallen.table(_RELEASE, "http://torrserver")
+
+    assert len(whole.asked) == 1, "разобранное не протухает: содержимое раздачи не меняется"
+    assert len(down.asked) == 2, "неудачу спрашивают заново - рой мог ожить"

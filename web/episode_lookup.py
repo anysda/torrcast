@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -27,8 +28,9 @@ Spawn = Callable[[Callable[[], None]], None]
 #: незачем: оба числа те же, что и у прогрева показа (:mod:`torrcast.usecases.select._prep`).
 GRACE = 8.0
 TIMEOUT = 20.0
-#: Неудачу (в том числе честное «раздача без нумерации») переспрашивать не раньше, чем
-#: через это время - рой может ожить, а TorrServer стенда - подняться заново.
+#: Неудачу переспрашивать не раньше, чем через это время - рой может ожить, а TorrServer
+#: стенда - подняться заново. Разобранная раздача сюда не попадает: её ответ окончателен
+#: (в том числе честное «раздача без нумерации»), и срока у него нет (:meth:`_build`).
 RETRY = 60.0
 
 
@@ -82,20 +84,33 @@ class EpisodeLookup:
         довод, что и у брошенных запасных раздач (:attr:`_Prep.dropped`).
         """
         table: list[list[int]] = []
+        parsed = False
         engine = self.engines(base_url, timeout=TIMEOUT)
         torrent_hash = ""
         try:
             torrent_hash = engine.add(release.magnet)
             files = engine.wait_files(torrent_hash, timeout=TIMEOUT, grace=GRACE)
             table = _Series.table(files, release.season)
+            parsed = True
         except TorrcastError:
             table = []
         finally:
             if torrent_hash:
                 engine.drop(torrent_hash)
             with self._lock:
-                self._table[release.magnet] = (table, self.clock() + RETRY)
+                self._table[release.magnet] = (table, self._until(parsed))
                 self._pending.discard(release.magnet)
+
+    def _until(self, parsed: bool) -> float:
+        """Докуда ряд годен: разобранное - навсегда, неудача - до :data:`RETRY`.
+
+        🔴 Раздача без нумерации и лежащий TorrServer давали ОДНУ пустую таблицу с одним
+        сроком, и по его выходе карточка снова метилась недоехавшей: замер 10-09-2026 на
+        стенде `.104` - налитая карточка `tv:пассажиры-2:2022` раз в минуту опять просила
+        страницу переспросить, и та жгла свои пять доборов на уже готовом ответе. Разбор
+        ответил - переспрашивать нечего: содержимое раздачи не меняется.
+        """
+        return math.inf if parsed else self.clock() + RETRY
 
 
 __all__ = ["EpisodeLookup", "Spawn"]
