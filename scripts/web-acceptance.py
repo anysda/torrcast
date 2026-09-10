@@ -266,16 +266,36 @@ def _card_of(base: str, title: str) -> dict[str, Any]:
 
 
 def check_1_home(ctx: Ctx) -> Result:
-    """Главная поднимается: `GET /` 200, три полки в DOM, `/api/shelves` даёт ≥20 плиток."""
+    """Главная сверяет «Продолжить» с историей, а две полки выдачи - с API."""
     code, _ = _get(ctx.base + "/")
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
     ctx.page.wait_for_timeout(300)
-    found = []
-    for key in _SHELF_KEYS:
+    found: list[tuple[str, int]] = []
+    for key in _SHELF_KEYS[1:]:
         text = ctx.english.get(key, "")
         count = ctx.page.get_by_text(text, exact=True).count() if text else 0
         found.append((key, count))
-    shelves_seen = sum(1 for _, c in found if c > 0)
+    continue_text = ctx.english.get(_SHELF_KEYS[0], "")
+    continue_shelf = ctx.page.get_by_text(continue_text, exact=True).locator(
+        "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' tc-shelf ')][1]"
+    )
+    continue_seen = continue_shelf.count() if continue_text else 0
+    continue_tiles = continue_shelf.locator("[data-tc-tile]").count()
+    history_code, history_body = _get(ctx.base + "/api/history")
+    history_count: int | None = None
+    history_detail = f"GET /api/history -> {history_code}"
+    if history_code == 200:
+        try:
+            history = json.loads(history_body)
+        except json.JSONDecodeError as exc:
+            history_detail += f", тело не JSON: {exc}"
+        else:
+            items = history.get("items") if isinstance(history, dict) else None
+            if isinstance(items, list):
+                history_count = len(items)
+                history_detail += f", записей {history_count}"
+            else:
+                history_detail += ", items не список"
     shelves_code, shelves_body = _get(ctx.base + "/api/shelves")
     tiles_ok = False
     shelves_detail = f"GET /api/shelves -> {shelves_code}"
@@ -287,13 +307,19 @@ def check_1_home(ctx: Ctx) -> Result:
         else:
             counts = _shelf_tile_counts(payload)
             shelves_detail += f", полок {len(counts)}, плиток {counts}"
-            # Три полки - в DOM, а выдача даёт >=20 плиток в КАЖДОЙ своей полке. Полка
-            # «Продолжить» живёт из закладок и на чистом запуске пуста законно: требовать
-            # её от выдачи значило бы мерить историю, а не главную.
-            tiles_ok = bool(counts) and all(n >= 20 for n in counts.values())
-    ok = code == 200 and shelves_seen == 3 and tiles_ok
+            tiles_ok = set(counts) == {"fresh", "popular"} and all(n >= 20 for n in counts.values())
+    history_ok = history_count is not None and (
+        (history_count == 0 and continue_seen == 0)
+        or (history_count > 0 and continue_seen == 1 and continue_tiles == history_count)
+    )
+    basics_seen = sum(1 for _, count in found if count > 0)
+    ok = code == 200 and basics_seen == 2 and history_ok and tiles_ok
     by_key = ", ".join(f"{k.rsplit('.', 1)[-1]}={c}" for k, c in found)
-    detail = f"GET / -> {code}; полок в DOM по тексту {shelves_seen}/3 ({by_key}); {shelves_detail}"
+    detail = (
+        f"GET / -> {code}; полки выдачи в DOM по тексту {basics_seen}/2 ({by_key}); "
+        f"continue_watching={continue_seen}, плиток {continue_tiles}; {history_detail}; "
+        f"{shelves_detail}"
+    )
     return Result(1, "Главная", ok, None, detail)
 
 
