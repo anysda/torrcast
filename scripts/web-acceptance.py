@@ -476,12 +476,52 @@ def check_18_caption_scroll(ctx: Ctx) -> Result:
         )
         return Result(18, "Подпись", False, "нет переполненной подписи на живой полке", detail)
 
+    ctx.page.evaluate(
+        """
+        (i) => document.querySelectorAll('.tc-tile[data-tc-focusable]')[i]
+            .scrollIntoView({ block: 'center', inline: 'center' })
+        """,
+        candidate["index"],
+    )
+    # 🔴 Точку наведения нельзя снимать сразу после `scrollIntoView`: у полки
+    # `scroll-behavior: smooth`, и плитка, ушедшая за край, едет вбок ещё сотни
+    # миллисекунд. Свежеснятый rect при этом протухший - указатель ложится туда,
+    # где плитки уже нет (или ещё нет), pointermove бьёт в пустоту и больше не
+    # срабатывает: прокрутка под НЕПОДВИЖНЫМ указателем события не даёт. Пункт
+    # тогда меряет нулевой scrollTop у здоровой подписи. Ждём, пока рамка встанет.
+    rect = None
+    for _ in range(40):
+        ctx.page.wait_for_timeout(50)
+        fresh = ctx.page.evaluate(
+            """
+            (i) => {
+                const r = document.querySelectorAll('.tc-tile[data-tc-focusable]')[i]
+                    .getBoundingClientRect();
+                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            }
+            """,
+            candidate["index"],
+        )
+        if (
+            rect is not None
+            and abs(fresh["x"] - rect["x"]) < 0.5
+            and abs(fresh["y"] - rect["y"]) < 0.5
+        ):
+            break
+        rect = fresh
+    # Увод в инертный угол перед самим наведением: гасит выделение, оставшееся от
+    # прошлых пунктов (ряд при этом сдувается и раскладка едет - поэтому точку
+    # снимаем заново, ПОСЛЕ увода), и гарантирует, что следующий `mouse.move`
+    # сменит позицию указателя и pointermove правда случится. Само наведение -
+    # РОВНО одно движение: второе пришлось бы уже по раздутой рядом раскладке,
+    # где под указателем оказывается соседняя плитка и выделение уходит на неё.
+    ctx.page.mouse.move(5, 5)
+    ctx.page.wait_for_timeout(150)
     rect = ctx.page.evaluate(
         """
         (i) => {
-            const tile = document.querySelectorAll('.tc-tile[data-tc-focusable]')[i];
-            tile.scrollIntoView({ block: 'center' });
-            const r = tile.getBoundingClientRect();
+            const r = document.querySelectorAll('.tc-tile[data-tc-focusable]')[i]
+                .getBoundingClientRect();
             return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
         }
         """,
