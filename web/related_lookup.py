@@ -93,22 +93,33 @@ class RelatedLookup:
     passport: PassportOf = _no_passport
     spawn: Spawn = _daemon
     clock: Callable[[], float] = time.monotonic
-    _tiles: dict[str, tuple[list[JsonValue], float]] = field(default_factory=dict)
-    _pending: set[str] = field(default_factory=set)
+    _tiles: dict[tuple[str, bool], tuple[list[JsonValue], float]] = field(default_factory=dict)
+    _pending: set[tuple[str, bool]] = field(default_factory=set)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def of(self, title: str, series: bool) -> list[JsonValue] | None:
+        """Полка родни картины; ключ кэша - ровно то, чем полка добыта: имя И тип.
+
+        🔴 Тип в ключе не украшение. Карточка спрашивает полку по имени картины и её
+        роду (:mod:`web.card`), а род уходит в паспорт, у которого статья фильма и
+        статья сериала разные. Одно имя на два рода - две РАЗНЫЕ полки, и общий ключ
+        отдавал одну другой: замер 10-09-2026 на стенде `.104` - у «Чужого» (2021, tv)
+        родни нет, и открытая первой его карточка гасила «Чужого» (1979, movie) на
+        целый час (:data:`RETRY`), а открытая первой карточка фильма приписывала
+        сериалу шесть частей чужой франшизы.
+        """
+        asked = (title, series)
         now = self.clock()
         with self._lock:
-            cached = self._tiles.get(title)
+            cached = self._tiles.get(asked)
             if cached is not None and cached[1] > now:
                 return cached[0]
-            if title in self._pending:
+            if asked in self._pending:
                 return None
-            self._pending.add(title)
+            self._pending.add(asked)
         self.spawn(lambda: self._build(title, series))
         with self._lock:
-            cached = self._tiles.get(title)
+            cached = self._tiles.get(asked)
             return cached[0] if cached is not None else None
 
     def _build(self, title: str, series: bool) -> None:
@@ -129,12 +140,12 @@ class RelatedLookup:
             seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
             tiles = [_project(record) for record in self.offer(seeds)]
             with self._lock:
-                self._tiles[title] = (tiles, self.clock() + RETRY)
+                self._tiles[(title, series)] = (tiles, self.clock() + RETRY)
         except Exception:
             return
         finally:
             with self._lock:
-                self._pending.discard(title)
+                self._pending.discard((title, series))
 
     def _latin_of(self, name: str) -> str:
         """Латиница родни из паспорта - под русским языком показ на неё не смотрит.

@@ -105,6 +105,24 @@ def test_a_failed_build_does_not_hold_the_title_pending_forever() -> None:
     assert len(spawned) == 2, "погибший добор держит имя занятым - второй добор не завёлся"
 
 
+def test_one_name_of_two_kinds_keeps_two_shelves_and_not_one() -> None:
+    """🔴 Имя и род - оба ключ полки: у сериала и фильма одного имени полки РАЗНЫЕ.
+
+    Род карточка берёт из разбора раздач и передаёт в паспорт, а статья фильма и статья
+    сериала в Википедии разные. Общий ключ отдавал полку одного другому: замер
+    10-09-2026 на стенде `.104` - открытая первой карточка `tv:чужой:2021` гасила
+    «Чужого» 1979 года на час, а открытая первой карточка фильма приписывала сериалу
+    шесть частей чужой франшизы.
+    """
+    def _by_kind(_title: str, series: bool, _timeout: float) -> list[Kin]:
+        return [] if series else [_ONE, _TWO]
+
+    for order in ((True, False), (False, True)):
+        lookup = RelatedLookup(franchise=_by_kind, offer=_passthrough, spawn=_sync)
+        sizes = {series: len(lookup.of("Чужой", series) or []) for series in order}
+        assert sizes == {True: 0, False: 2}, f"полки перепутались, порядок {order}"
+
+
 def test_the_cached_tiles_answer_the_next_ask_without_asking_wikidata_again() -> None:
     """Второй вопрос о той же картине не зовёт Wikidata заново - ответ уже в кэше."""
     asked: list[str] = []
