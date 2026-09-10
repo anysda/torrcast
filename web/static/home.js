@@ -9,7 +9,11 @@ const TCHome = {
   _found: null,
   _lastHistory: [],
   _lastShelves: { fresh: [], popular: [] },
-  _sourcesCount: 0,
+  // Сколько источников у круга поиска; ``null`` - число ещё неизвестно. Ноль от
+  // сервера это ровно «неизвестно»: `web/sources_cache.py` честно отдаёт ноль, пока
+  // фон не собрал список (TC-1110), и первый круг после рестарта шёл под надписью
+  // «Ищем в 0 источниках…».
+  _sourcesCount: null,
 
   async mount(root) {
     // Что искали, написано в АДРЕСЕ (`/?query=…`), а не только в памяти страницы:
@@ -29,13 +33,7 @@ const TCHome = {
     input.value = asked;
     input.focus();
 
-    TCApi.sources().then((count) => {
-      TCHome._sourcesCount = count;
-      // Счётчик мог встать на шапку раньше ответа про источники - переписать число.
-      if (TCHome._found && TCHome._found.query === TCHome._query) {
-        TCHome._syncCount(TCHome._found.results.length);
-      }
-    });
+    TCHome._askSources();
     const [state, history, shelves] = await Promise.all([
       TCApi.state(), TCApi.history(), TCApi.shelves(),
     ]);
@@ -51,6 +49,19 @@ const TCHome = {
     TCHome._lastShelves = shelves;
     const body = document.getElementById('tc-body');
     if (body && !TCHome._query) body.replaceWith(TCHome._body(history, shelves));
+  },
+
+  // Спросить, сколько источников у круга поиска. Ответ приходит из серверного кэша, и
+  // пока тот не собран, число остаётся неизвестным - потому спрашивается снова с
+  // каждым поиском, а не один раз на загрузку страницы.
+  _askSources() {
+    TCApi.sources().then((count) => {
+      TCHome._sourcesCount = count > 0 ? count : null;
+      // Счётчик мог встать на шапку раньше ответа про источники - переписать число.
+      if (TCHome._found && TCHome._found.query === TCHome._query) {
+        TCHome._syncCount(TCHome._found.results.length);
+      }
+    });
   },
 
   _asked() {
@@ -134,6 +145,7 @@ const TCHome = {
   // Потолок опроса - 40 заходов по 400 мс (16 с): круг поиска живёт секунды, а заказ на
   // сервере - `hass.search_progress.JOB_TTL` (30 с), и это меньше её целиком.
   async _runSearch(text) {
+    if (TCHome._sourcesCount === null) TCHome._askSources();
     const mine = ++TCHome._token;
     let known = [];
     for (let tries = 0; tries < 40; tries += 1) {
@@ -216,14 +228,17 @@ const TCHome = {
   },
 
   // «Ищем в N источниках…» (§4.2): N - число индексеров, включённых у самого круга
-  // поиска (`TCApi.sources`), а не выдумка страницы.
+  // поиска (`TCApi.sources`), а не выдумка страницы. Числа ещё не знаем - строка идёт
+  // без него: ноль тут был бы неправдой про сам поиск, который в это время идёт.
   _searchingLine() {
     const line = document.createElement('div');
     line.className = 'tc-searching';
     const square = document.createElement('div');
     square.className = 'tc-searching-square';
     const label = document.createElement('div');
-    label.textContent = TC.say('web.search.searching', { n: TCHome._sourcesCount });
+    label.textContent = TCHome._sourcesCount === null
+      ? TC.say('web.search.searching_any')
+      : TC.say('web.search.searching', { n: TCHome._sourcesCount });
     line.append(square, label);
     return line;
   },
@@ -298,7 +313,9 @@ const TCHome = {
       line.className = 'tc-results-count';
       header.appendChild(line);
     }
-    line.textContent = TC.say('web.search.counter', { n: shown, m: TCHome._sourcesCount });
+    line.textContent = TCHome._sourcesCount === null
+      ? TC.say('web.search.counter_any', { n: shown })
+      : TC.say('web.search.counter', { n: shown, m: TCHome._sourcesCount });
   },
 
   _body(history, shelves) {
