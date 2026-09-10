@@ -616,14 +616,86 @@ def check_19_latin_titles(ctx: Ctx) -> Result:
     return Result(19, "Латиница", ok, None, detail)
 
 
-def check_21_merge_hits(ctx: Ctx) -> Result:
-    """Слияние плиток поиска не хоронит второй план одной картины под тем же `key`.
+def _call_page_fn(ctx: Ctx, holder: str, name: str, args: list[Any]) -> dict[str, Any]:
+    """Вызвать функцию страницы, сверив число её параметров с числом аргументов.
 
-    🔴 Красный сейчас на `dev` - это правда: соседняя полоса поиска нашла, что сервер
-    честно отдаёт два разных плана одной картины под ОДНИМ `key`, а `TCHome._mergeHits`
-    схлопывал их через `Map` по голому `key` - второй план терялся молча, без единой
-    ошибки. Личность плитки та полоса переводит на `key` + номер повторения по счёту;
-    пункт зеленеет, когда её правка доходит до `dev` (TC-1140, по заказу той полосы).
+    🔴 Пункт 21 звал `TCHome._mergeHits` двумя аргументами, а тот принимает три и
+    начинается с `if (!partial) return fresh` - утверждение мерило `return fresh`,
+    то есть НИЧЕГО, и оставалось зелёным на любом сломанном слиянии. Позиционный
+    вызов пустеет молча всякий раз, как у функции страницы появляется параметр, и
+    поймать это можно только ЧИСЛОМ: `fn.length` против длины списка аргументов.
+
+    Цена приёма названа прямо: параметр, добавленный продуктом, красит пункт, пока
+    прибор не научат новому вызову. Красный пункт - это и есть сигнал; молчаливая
+    зелень на невызванной логике дороже.
+    """
+    answer: dict[str, Any] = ctx.page.evaluate(
+        "([holder, name, args]) => {"
+        " const host = window[holder]; const fn = host && host[name];"
+        " if (typeof fn !== 'function') return {missing: true};"
+        " if (fn.length !== args.length) return {arity: fn.length};"
+        " return {value: fn.apply(host, args)}; }",
+        [holder, name, args],
+    )
+    if answer.get("missing"):
+        return {"error": f"window.{holder}.{name} не найден"}
+    if "arity" in answer:
+        return {
+            "error": (
+                f"window.{holder}.{name}: параметров {answer['arity']}, "
+                f"а прибор передаёт {len(args)} - утверждение мерит не ту функцию"
+            )
+        }
+    return {"value": answer.get("value")}
+
+
+#: Что обязано выдержать слияние плиток: имя, показанное, свежее, `partial`, заголовки.
+_MERGE_CASES: tuple[
+    tuple[str, list[dict[str, str]], list[dict[str, str]], bool, list[str]], ...
+] = (
+    (
+        "два плана одной картины под одним key",
+        [],
+        [{"key": "k", "title": "A"}, {"key": "k", "title": "B"}],
+        True,
+        ["A", "B"],
+    ),
+    (
+        "частичный ответ не отнимает показанную плитку",
+        [{"key": "a", "title": "A"}],
+        [{"key": "b", "title": "B"}],
+        True,
+        ["A", "B"],
+    ),
+    (
+        "частичный ответ обновляет одноключевую пару порознь",
+        [{"key": "k", "title": "A"}, {"key": "k", "title": "B"}],
+        [{"key": "k", "title": "A2"}, {"key": "k", "title": "B2"}],
+        True,
+        ["A2", "B2"],
+    ),
+    (
+        "законченный круг заменяет выдачу целиком",
+        [{"key": "a", "title": "A"}],
+        [{"key": "b", "title": "B"}],
+        False,
+        ["B"],
+    ),
+)
+
+
+def check_21_merge_hits(ctx: Ctx) -> Result:
+    """Слияние плиток поиска: оба режима `TCHome._mergeHits`, а не первая его строка.
+
+    Один `key` носят два РАЗНЫХ плана одной картины (сервер отдаёт их честно), и мерж
+    по голому `key` хоронил второй молча, без единой ошибки: личность плитки - `key`
+    плюс номер её повторения по счёту. Это первое утверждение пункта.
+
+    Остальные три держат то, что слияние делает сверх этого. Пока круг не закончен
+    (`partial`), показанная плитка остаётся на своём месте, даже если её нет в свежем
+    ответе: превью круга между шагами пустеет, и отнимать по нему нельзя. Законченный
+    круг, наоборот, заменяет выдачу ЦЕЛИКОМ - порядок находок продуктовый и берётся у
+    круга, а не у того, кто ответил первым.
 
     Проверяется код напрямую, а не живым поиском: `TCHome` - обычный глобальный объект
     (`const TCHome = {...}` в `home.js`, простой `<script>` без `type="module"`), и
@@ -631,23 +703,17 @@ def check_21_merge_hits(ctx: Ctx) -> Result:
     зависит ни от состояния пула, ни от конкретных картин - только от кода функции.
     """
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
-    result = ctx.page.evaluate(
-        "() => { const f = window.TCHome && window.TCHome._mergeHits;"
-        " if (typeof f !== 'function') return {missing: true};"
-        " const merged = f([], [{key: 'k', title: 'A'}, {key: 'k', title: 'B'}]);"
-        " return {missing: false, length: (merged || []).length,"
-        "   titles: (merged || []).map((one) => one && one.title)}; }"
-    )
-    if result.get("missing"):
-        return Result(21, "Слияние", False, None, "window.TCHome._mergeHits не найден")
-    length = result.get("length")
-    titles = result.get("titles") or []
-    ok = length == 2 and "A" in titles and "B" in titles
-    detail = (
-        f"_mergeHits([], [{{key:k,title:A}}, {{key:k,title:B}}]) -> "
-        f"длина {length}, заголовки {titles}"
-    )
-    return Result(21, "Слияние", ok, None, detail)
+    parts: list[str] = []
+    ok = True
+    for name, known, fresh, partial, want in _MERGE_CASES:
+        answer = _call_page_fn(ctx, "TCHome", "_mergeHits", [known, fresh, partial])
+        if "error" in answer:
+            return Result(21, "Слияние", False, None, str(answer["error"]))
+        merged = answer.get("value") or []
+        titles = [one.get("title") if isinstance(one, dict) else one for one in merged]
+        ok = ok and titles == want
+        parts.append(f"{name}: {titles}, ждали {want}")
+    return Result(21, "Слияние", ok, None, "; ".join(parts))
 
 
 def _shelf_tiles(payload: Any) -> dict[str, list[dict[str, Any]]]:
