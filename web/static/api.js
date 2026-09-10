@@ -19,12 +19,23 @@ const TCApi = {
     return Array.isArray(said && said.items) ? said.items : [];
   },
 
+  // Полки на холодном старте ещё собирает фон, и сервер метит такой ответ заголовком
+  // ``X-Torrcast-Partial`` (та же метка, что у карточки): ``partial: true`` значит
+  // «переспроси позже», и решает это тот, кто звал, - сама обёртка не ждёт.
   async shelves() {
-    const said = await TCApi._get('/api/shelves', null);
-    return {
-      fresh: Array.isArray(said && said.fresh) ? said.fresh : [],
-      popular: Array.isArray(said && said.popular) ? said.popular : [],
-    };
+    const blank = { fresh: [], popular: [], partial: false };
+    try {
+      const said = await fetch('/api/shelves');
+      if (!said.ok) return blank;
+      const data = await said.json();
+      return {
+        fresh: Array.isArray(data && data.fresh) ? data.fresh : [],
+        popular: Array.isArray(data && data.popular) ? data.popular : [],
+        partial: said.headers.get('X-Torrcast-Partial') === '1',
+      };
+    } catch (error) {
+      return blank;
+    }
   },
 
   // Число включённых источников для «Ищем в N источниках…» (§4.2); нет ответа - ноль,

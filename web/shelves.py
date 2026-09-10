@@ -34,13 +34,22 @@ _cache = ShelvesCache(
 )
 
 
+#: Заголовок, которым ответ метится, пока фон ни разу не собрал полки (``built_at``
+#: пуст): та же метка недоехавшего ответа, что и у карточки (:mod:`web.card`) -
+#: страница по ней переспрашивает сама, и открытая на холодном старте вкладка полки
+#: дожидается без перезагрузки.
+_PARTIAL = "X-Torrcast-Partial"
+
+
 def shelves(_request: Request) -> Answer:
     """Полки как тело ``GET /api/shelves``; вся логика - в :class:`web.shelves_cache.ShelvesCache`.
 
     Доводов запроса нет: обе полки видит любой зашедший на главный экран одинаково.
     """
-    body = json.dumps(_cache.get(), ensure_ascii=False).encode("utf-8")
-    return Answer(200, body)
+    said = _cache.get()
+    body = json.dumps(said, ensure_ascii=False).encode("utf-8")
+    extra = ((_PARTIAL, "1"),) if said.get("built_at") is None else ()
+    return Answer(200, body, extra=extra)
 
 
 __all__ = ["shelves"]

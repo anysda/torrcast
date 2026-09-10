@@ -57,6 +57,27 @@ def test_a_receiver_that_will_not_open_answers_null_and_not_a_stale_number() -> 
     assert volume.set(0.5) is False
 
 
+def test_a_refused_receiver_is_not_poked_again_right_away() -> None:
+    """Отказ подъёма держится ``fresh`` секунд, как и прочитанный уровень: лежащий
+    приёмник отвечает отказом через 20 с, и каждый снимок показа их платил."""
+    clock = _Clock()
+    opened: list[str] = []
+
+    def refuse(address: str) -> Any:
+        opened.append(address)
+        raise OSError("приёмник не отозвался")
+
+    volume = Volume("10.0.1.7", connect=refuse, fresh=10.0, clock=clock)
+
+    assert volume.level() is None
+    clock.now = 5.0
+    assert volume.level() is None
+    assert opened == ["10.0.1.7"]
+    clock.now = 11.0
+    assert volume.level() is None
+    assert opened == ["10.0.1.7", "10.0.1.7"]  # спустя паузу приёмник спрашивается честно
+
+
 def test_an_unnamed_receiver_is_not_asked_at_all() -> None:
     asked: list[str] = []
 

@@ -49,7 +49,9 @@ class Volume:
 
     Отказ приёмника не поднимается наружу и не роняет снимок показа: громкость - одно
     поле из тринадцати, и молчащий телевизор не повод не сказать, что играет. Соединение
-    после отказа забывается: следующий вопрос поднимет его заново.
+    после отказа забывается: следующий вопрос поднимет его заново - но не раньше, чем
+    через ``fresh`` секунд: подъём к лежащему приёмнику стоит до 20 с ожидания
+    (:data:`WAIT_TIMEOUT`), и без этой памяти её платит КАЖДЫЙ ``GET /api/state``.
     """
 
     def __init__(
@@ -68,6 +70,9 @@ class Volume:
         self._device: Any = None
         self._level: float | None = None
         self._read_at = 0.0
+        #: Когда последний раз подъём соединения отказал; ``None`` - ещё не отказывал
+        #: (нулём это быть не может: подставные часы тестов начинаются с нуля).
+        self._failed_at: float | None = None
 
     def level(self) -> float | None:
         """Уровень 0..1; приёмник не отозвался - ``None``, а не прошлое число."""
@@ -106,14 +111,21 @@ class Volume:
         self._drop()
 
     def _alive(self) -> Any:
-        """Живое соединение; поднять его не вышло - ``None`` и ни одного исключения."""
+        """Живое соединение; поднять его не вышло - ``None`` и ни одного исключения.
+
+        Недавний отказ не переподнимается сразу: лежащий приёмник отвечает отказом
+        через 20 с, и опрашивающий каждые пару секунд снимок вставал бы навсегда.
+        """
         if not self.address:
             return None
         if self._device is None:
+            if self._failed_at is not None and self._clock() - self._failed_at < self._fresh:
+                return None
             try:
                 self._device = self._connect(self.address)
             except Exception:
                 self._device = None
+                self._failed_at = self._clock()
         return self._device
 
     def _drop(self) -> None:

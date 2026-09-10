@@ -36,3 +36,18 @@ def test_the_route_answers_with_exactly_what_the_cache_holds(
     assert answer.code == 200
     assert json.loads(answer.body) == body
     assert answer.kind == "application/json; charset=utf-8"
+    # Собранные полки метки недоехавшего ответа не несут - переспрашивать нечего.
+    assert answer.extra == ()
+
+
+def test_an_unbuilt_cache_marks_the_answer_partial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Фон ни разу не собрал полки (``built_at`` пуст) - страница переспросит сама."""
+    body: dict[str, JsonValue] = {"fresh": [], "popular": [], "built_at": None}
+    monkeypatch.setattr(shelves_module, "_cache", _FakeCache(body))
+
+    answer = shelves(Request("GET", "/api/shelves", {}, {}))
+
+    assert answer.code == 200
+    assert ("X-Torrcast-Partial", "1") in answer.extra

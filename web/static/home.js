@@ -14,6 +14,9 @@ const TCHome = {
   // фон не собрал список (TC-1110), и первый круг после рестарта шёл под надписью
   // «Ищем в 0 источниках…».
   _sourcesCount: null,
+  // Номер живого круга опроса полок: вернувшись на главную, прежний круг гаснет,
+  // иначе два таймера спрашивали бы сервер вдвоём.
+  _shelfPoll: 0,
 
   async mount(root) {
     // Что искали, написано в АДРЕСЕ (`/?query=…`), а не только в памяти страницы:
@@ -24,7 +27,7 @@ const TCHome = {
     const scan = document.createElement('div');
     scan.className = 'tc-scan';
 
-    let header = TC.header(null);
+    const header = TC.header(null);
     const wrap = document.createElement('div');
     wrap.className = 'tc-shelf-safe';
     wrap.append(TCHome._search(), asked ? TCHome._askedBody(asked) : TCHome._loadingBody());
@@ -34,21 +37,58 @@ const TCHome = {
     input.focus();
 
     TCHome._askSources();
-    const [state, history, shelves] = await Promise.all([
-      TCApi.state(), TCApi.history(), TCApi.shelves(),
-    ]);
+    // Снимок показа полки НЕ держит: с молчащим ресивером ``/api/state`` едет до 20 с
+    // (громкость спрашивается у самого приёмника, `hass/volume.py`), а полки от того,
+    // что играет телевизор, не зависят. Плашка «сейчас идёт» встанет на шапку сама,
+    // когда state доедет.
+    TCHome._stateLater(root);
+    TCHome._shelfPoll += 1;
+    const [history, shelves] = await Promise.all([TCApi.history(), TCApi.shelves()]);
     if (!document.body.contains(root) || location.pathname !== '/') return;
-    const fresh = TC.header(state);
-    header.replaceWith(fresh);
-    header = fresh;
+    TCHome._lastHistory = history;
+    TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
+    const body = document.getElementById('tc-body');
+    if (body && !TCHome._query) {
+      body.replaceWith(TCHome._body(history, TCHome._lastShelves));
+    }
+    if (shelves.partial) TCHome._waitShelves(root, TCHome._shelfPoll);
+  },
+
+  // Плашка «сейчас идёт» доезжает позже полок и пересобирает шапку сама: ждать снимок
+  // ДО отрисовки значило бы запереть готовые полки за опросом телевизора.
+  async _stateLater(root) {
+    const state = await TCApi.state();
+    if (!document.body.contains(root) || location.pathname !== '/') return;
+    const header = document.querySelector('.tc-header');
+    if (!header) return;
+    header.replaceWith(TC.header(state));
     // Шапка пересобрана - счётчик выдачи, вставший в старую, надо вернуть.
     if (TCHome._found && TCHome._found.query === TCHome._query) {
       TCHome._syncCount(TCHome._found.results.length);
     }
-    TCHome._lastHistory = history;
-    TCHome._lastShelves = shelves;
-    const body = document.getElementById('tc-body');
-    if (body && !TCHome._query) body.replaceWith(TCHome._body(history, shelves));
+  },
+
+  // Холодный старт: полки ещё собирает фон, и сервер отвечает пустыми с меткой
+  // ``X-Torrcast-Partial`` - тем же приёмом, что карточка (TC-1172): вкладка
+  // переспрашивает себя сама, и человек дожидается полок, не трогая её. Потолок - 36
+  // заходов по 5 с: добор коротких полок стоит фону до ~90 с (TC-1168). Лента не
+  // собралась вовсе - на экране остаётся честное «пока пусто», а не вечный опрос.
+  async _waitShelves(root, mine) {
+    for (let tries = 0; tries < 36; tries += 1) {
+      await new Promise((done) => setTimeout(done, 5000));
+      if (mine !== TCHome._shelfPoll || !document.body.contains(root) || location.pathname !== '/') {
+        return;
+      }
+      const shelves = await TCApi.shelves();
+      TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
+      // Тело подменяется только на чистой главной: в выдаче поиска свои плитки, и
+      // доехавшие полки просто запоминаются - встанут при возврате на неё.
+      if (!TCHome._query) {
+        const body = document.getElementById('tc-body');
+        if (body) body.replaceWith(TCHome._body(TCHome._lastHistory, TCHome._lastShelves));
+      }
+      if (!shelves.partial) return;
+    }
   },
 
   // Спросить, сколько источников у круга поиска. Ответ приходит из серверного кэша, и
