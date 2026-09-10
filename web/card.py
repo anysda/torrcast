@@ -75,7 +75,7 @@ def _answer(plan: Plan, config: Config, pick: int) -> Answer:
     facts.start()
     fact = facts.ready(picture.title, picture.year)
     seasons, seasons_partial = _seasons(plan, entry, config.torrserver_url)
-    related = _related.of(picture.title, picture.kind == "tv")
+    related = _others(picture.key, _related.of(picture.title, picture.kind == "tv"))
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
@@ -101,6 +101,19 @@ def _answer(plan: Plan, config: Config, pick: int) -> Answer:
     partial = not fact or seasons_partial or related is None
     extra = ((_PARTIAL, "1"),) if partial else ()
     return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
+
+
+def _others(key: str, related: list[JsonValue] | None) -> list[JsonValue] | None:
+    """Полка родни - ДРУГИЕ части франшизы (ТЗ §8): сама картина себе не родня.
+
+    Wikidata запрошенное отсеивает сама (:func:`torrcast.domain.facts.kin_query`), но
+    голое имя серии паспорт намеренно отдаёт статьёй ФРАНШИЗЫ, и тогда первая картина
+    приезжает в родню к себе же: замер 10-09-2026 на стенде `.104` - под карточкой
+    `movie:джон-уик:2014` пятой плиткой стоял «Джон Уик» 2014 года, ведущий на неё же.
+    """
+    if related is None:
+        return None
+    return [tile for tile in related if not isinstance(tile, dict) or tile.get("key") != key]
 
 
 def _voices(plan: Plan) -> list[JsonValue]:

@@ -314,6 +314,25 @@ def test_a_franchise_still_unanswered_by_wikidata_is_marked_partial(
     assert "X-Torrcast-Partial" in extra
 
 
+def test_the_open_picture_is_never_a_tile_in_its_own_franchise_shelf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Полка родни - ДРУГИЕ части франшизы (§8), и плитки на саму себя в ней нет.
+
+    Голое имя серии паспорт отдаёт статьёй франшизы, и родня приезжает вместе с первой
+    картиной: замер 10-09-2026 на стенде `.104` - под `movie:джон-уик:2014` пятой
+    плиткой стоял «Джон Уик» 2014 года, ведущий на эту же страницу.
+    """
+    mine = {"key": _MOVIE.key, "title": "Interstellar", "year": 2014, "kind": "movie"}
+    other = {"key": "movie:tenet:2020", "title": "Tenet", "year": 2020, "kind": "movie"}
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[mine, other])
+    state_slot.install(FakeStateStore())
+
+    _code, body, _extra = _asked(_MOVIE.key)
+
+    assert body["related"] == [other], "картина стоит плиткой в собственной полке родни"
+
+
 def test_a_picture_with_no_franchise_shows_an_empty_related_shelf_not_a_pending_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
