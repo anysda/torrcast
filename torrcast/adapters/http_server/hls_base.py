@@ -11,7 +11,7 @@ from torrcast.domain.infra_error import InfraError
 
 
 def hls_base(config: Config, route: Callable[[str], str] = our_address) -> str:
-    """База URL, под которой ТВ забирает манифест и сегменты.
+    """База URL, под которой приёмник забирает манифест и сегменты.
 
     Имени здесь нет и быть не должно: адрес собирается из транспорта, нашего адреса со
     стороны ТВ и порта — DNS в пути показа не участвует. ``hls_base_url`` в конфиге,
@@ -21,11 +21,18 @@ def hls_base(config: Config, route: Callable[[str], str] = our_address) -> str:
     ``route`` - чем спрашивается свой адрес в сторону ТВ. Умолчание боевое
     (:func:`~torrcast.adapters.http_server.our_address.our_address`), и меняет его только
     стенд: настоящий ответ зависит от таблицы маршрутов машины, где идёт прогон.
+
+    Маршрут нужен тому показу, который забирает ЧУЖОЕ устройство. Вкладка браузера
+    (``receiver: browser``) сидит на этой же машине: телевизора у неё может не быть
+    вовсе, и отказывать ей из-за пустого ``tv`` незачем - ей хватит петли.
     """
     if config.hls_base_url:
         return config.hls_base_url.rstrip("/")
     host = route(config.tv or "")
     if not host:
-        tv = config.tv or phrase("http_server.address_unset")
-        raise InfraError(phrase("http_server.no_route_to_tv", tv=tv))
+        if config.receiver == "browser":
+            host = "127.0.0.1"
+        else:
+            tv = config.tv or phrase("http_server.address_unset")
+            raise InfraError(phrase("http_server.no_route_to_tv", tv=tv))
     return f"{config.transport}://{host}:{config.hls_port}"

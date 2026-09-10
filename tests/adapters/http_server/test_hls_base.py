@@ -35,3 +35,17 @@ def test_without_a_route_to_the_receiver_the_base_is_refused() -> None:
         hls_base(Config(tv="10.0.100.9"), lambda tv: "")
     with pytest.raises(InfraError, match="address not set"):
         hls_base(Config(), lambda tv: "")
+
+
+def test_the_browser_show_without_a_tv_gets_the_loopback() -> None:
+    """Вкладка сидит на той же машине, и телевизора у неё может не быть вовсе.
+
+    Спрашивать маршрут до ``tv``, которого нет, значило бы отказать показу, который
+    забирала бы эта же машина по петле (замер TC-1187: «no route to the TV (address
+    not set)» на машине без телевизора). Маршрут до приёмника при этом не трогается:
+    заданный ``tv`` по-прежнему собирает базу маршрутом, а не петлёй.
+    """
+    config = Config(tv="", receiver="browser", hls_port=8080)
+    assert hls_base(config, lambda tv: "") == "http://127.0.0.1:8080"
+    config = Config(tv="10.0.100.9", receiver="browser", hls_port=8080)
+    assert hls_base(config, lambda tv: "10.0.100.5") == "http://10.0.100.5:8080"
