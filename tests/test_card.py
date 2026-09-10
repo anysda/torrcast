@@ -193,7 +193,7 @@ def test_the_partial_header_stands_while_the_source_has_not_answered_yet(
 
     _code, body, extra = _asked(_MOVIE.key)
 
-    assert body["blurb"] is None
+    assert body["blurb"] == ""
     assert body["rating"] is None
     assert "X-Torrcast-Partial" in extra
 
@@ -213,7 +213,7 @@ def test_a_picture_the_source_answered_nothing_about_is_not_marked_partial(
 
     _code, body, extra = _asked(_MOVIE.key)
 
-    assert body["blurb"] is None
+    assert body["blurb"] == ""
     assert body["rating"] is None
     assert "X-Torrcast-Partial" not in extra
 

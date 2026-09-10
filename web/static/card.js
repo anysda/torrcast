@@ -243,6 +243,13 @@ const TCCard = {
       }
       return skel;
     }
+    if (!String(data.blurb).trim()) {
+      const missing = document.createElement('div');
+      missing.className = 'tc-detail-desc tc-body';
+      missing.dataset.tcCardDescription = '1';
+      missing.textContent = TC.say('web.detail.no_description');
+      return missing;
+    }
     const desc = document.createElement('div');
     desc.className = 'tc-detail-desc tc-body';
     desc.dataset.tcCardDescription = '1';

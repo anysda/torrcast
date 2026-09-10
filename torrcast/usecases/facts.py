@@ -17,11 +17,7 @@ type FactPicture = tuple[str, int | None] | tuple[str, int | None, str]
 
 
 class Facts:
-    """Фоновый добор справки: :meth:`start` — и живи дальше, :meth:`get` — забери.
-
-    Поток один на всю франшизу, а не по потоку на картину: оба источника отвечают
-    пакетом, и четыре картины стоят ровно столько же, сколько одна.
-    """
+    """Фоновый добор справки: :meth:`start` — и живи дальше, :meth:`get` — забери."""
 
     def __init__(
         self,
@@ -38,6 +34,7 @@ class Facts:
         self.store = store
         self.source = source
         self.found: dict[tuple[str, int | None], Fact] = {}
+        self._answered: set[tuple[str, int | None]] = set()
         self._done = threading.Event()
         self._about = threading.Event()
         self._thread: threading.Thread | None = None
@@ -53,6 +50,7 @@ class Facts:
             self._settled()
             return
         self.found = self.store.blurbs(self.wanted)
+        self._answered = set(self.found)
         if len(self.found) == len(self.wanted):  # всё уже лежит в кэше - сети не надо
             self._settled()
             return
@@ -75,6 +73,9 @@ class Facts:
         дописывается в уже показанную строку (:func:`~torrcast.usecases.choice._dress._dress`).
         """
         return self.found.get((title, year), Fact())
+
+    def answered(self, title: str, year: int | None) -> bool:
+        return (title, year) in self._answered
 
     def wait(self) -> None:
         """Дождаться справки в пределах :attr:`budget` - там, где дописывать её некому.
@@ -144,15 +145,15 @@ class Facts:
                 if "unexpected keyword argument 'kinds'" not in str(error):
                     raise
                 fresh, answered = self.source.fetch(missing, ready=self._ready)
-            # Дописываем к тому, что уже лежало в кэше, а не заменяем: сеть отвечает только
-            # про ненайденное, и присваиванием мы выбрасывали справку, которая у нас была.
             self.found = {**self.found, **fresh}
+            self._answered.update(answered)
             # Пустой ответ тоже запоминаем - иначе поход за ним повторяется каждое меню.
             # Но только про то, о чём источник РЕАЛЬНО ответил: неполный ответ не говорит
             # про промолчавшую часть ничего, и «статьи нет» про неё - выдумка на весь срок
             # кэша (🔴 TC-568).
             self.store.remember(
-                fresh, [key for key in missing if key not in fresh and key in answered]
+                {key: fact for key, fact in fresh.items() if key in answered},
+                [key for key in missing if key not in fresh and key in answered],
             )
             self._tell()
         except Exception:

@@ -42,6 +42,7 @@ def en() -> dict[str, str]:
         "web.tile.no_art": "No art_",
         "web.detail.back": "‹ Back",
         "web.detail.more": "More_",
+        "web.detail.no_description": "No description is available",
         "web.detail.play": "▶ Play",
         "web.detail.start_over": "Start over",
         "web.detail.play_on_tv": "Play on TV",

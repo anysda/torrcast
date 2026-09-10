@@ -130,6 +130,19 @@ def test_a_half_heard_answer_is_not_remembered_as_no_article() -> None:
     assert len(source.walks) == 2, "за «Моаной» ходят снова - её справка ещё не добыта"
 
 
+def test_an_unanswered_rating_is_neither_finished_nor_remembered() -> None:
+    """Рейтинг с диска не превращает молчание Wikipedia в законченный ответ."""
+    store = FakeBlurbStore()
+    source = FakeBlurbSource(lambda wanted: {MOANA_KEY: Fact(rating="IMDb 7.6")}, {MOANA_KEY})
+    facts = _menu(source, store)
+    facts.start()
+    facts.finish()
+
+    assert facts.ready(*MOANA_KEY).rating == "IMDb 7.6"
+    assert not facts.answered(*MOANA_KEY)
+    assert store.remembered == [({}, [])]
+
+
 def test_a_menu_with_nothing_to_ask_never_starts_a_walk() -> None:
     """Пустая франшиза и полный кэш одинаково не стоят ни одного похода в сеть."""
     source = FakeBlurbSource()

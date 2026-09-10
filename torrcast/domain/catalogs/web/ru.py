@@ -42,6 +42,7 @@ def ru() -> dict[str, str]:
         "web.tile.no_art": "Без обложки_",
         "web.detail.back": "‹ Назад",
         "web.detail.more": "Ещё_",
+        "web.detail.no_description": "Описание недоступно",
         "web.detail.play": "▶ Смотреть",
         "web.detail.start_over": "Сначала",
         "web.detail.play_on_tv": "Показать на ТВ",

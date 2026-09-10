@@ -89,7 +89,7 @@ def _answer(plan: Plan, config: Config, pick: int) -> Answer:
         "runtime": plan.runtime,
         "runtime_estimated": plan.runtime_estimated,
         "rating": rating_score(fact.rating),
-        "blurb": fact.about or None,
+        "blurb": fact.about if told else None,
         "poster": poster_name(picture.title, picture.year, picture.kind),
         "voices": _voices(plan),
         "resumable": entry.resumable if entry else False,

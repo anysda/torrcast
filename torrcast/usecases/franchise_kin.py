@@ -58,13 +58,18 @@ class FranchiseKin:
         именем нет вовсе, и полка стояла пустой при шести частях франшизы у фильма 1979.
         """
         origin = self.passport(title, series)
+        answered = SOURCE_WIKI in origin.source
         entity = origin.entity
         if not entity and SOURCE_WIKI not in origin.source:
-            entity = self.refresh(title, series).entity
+            origin = self.refresh(title, series)
+            answered = answered or SOURCE_WIKI in origin.source
+            entity = origin.entity
         if not entity:
-            entity = self.passport(title, None).entity
+            origin = self.passport(title, None)
+            answered = answered or SOURCE_WIKI in origin.source
+            entity = origin.entity
         if not entity:
-            return []
+            return [] if answered else None
         cached = self.store.read_kin(entity)
         if cached is not None:
             return cached

@@ -42,12 +42,20 @@ def test_the_entity_from_the_passport_is_what_wikidata_gets_asked_about() -> Non
 
 def test_a_picture_without_an_entity_never_reaches_wikidata() -> None:
     """Без Q-идентификатора спрашивать Wikidata не о чем - полка пуста без похода."""
-    passport = FakePassport({"Неизвестное кино": Origin(title="Unknown")})
+    passport = FakePassport({"Неизвестное кино": Origin(title="Unknown", source="wiki")})
     kin = FakeKinSource()
 
     shelf = FranchiseKin(passport, kin, FakeKinStore(), FakePassport())
     assert shelf.of("Неизвестное кино", False, 1.0) == []
     assert kin.asked == []
+
+
+def test_a_silent_passport_is_not_an_empty_franchise() -> None:
+    """Офлайн-паспорт без QID не доказывает, что Wikidata ответила пустым списком."""
+    passport = FakePassport({"Форсаж": Origin(title="The Fast and the Furious", source="map")})
+    shelf = FranchiseKin(passport, FakeKinSource(), FakeKinStore(), passport)
+
+    assert shelf.of("Форсаж", False, 1.0) is None
 
 
 def test_a_second_ask_for_the_same_picture_never_touches_the_network() -> None:
@@ -149,7 +157,7 @@ def test_a_show_that_really_has_no_franchise_keeps_its_empty_shelf() -> None:
     там, где её нет, - :class:`~torrcast.usecases.passport_either.PassportEither` молчит,
     когда фильм и сериал одного имени расходятся или молчат оба.
     """
-    passport = TypedPassport()
+    passport = TypedPassport({True: Origin(source="wiki"), None: Origin(source="wiki")})
     kin = FakeKinSource()
 
     shelf = FranchiseKin(passport, kin, FakeKinStore(), FakePassport())
