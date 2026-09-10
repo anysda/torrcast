@@ -142,11 +142,25 @@ const TCHome = {
       const next = TCHome._mergeHits(known, results, partial);
       known = next;
       TCHome._found = { query: text, results: known };
-      const body = document.getElementById('tc-body');
-      if (body) body.replaceWith(TCHome._searchResults(known, partial));
+      TCHome._swapBody(TCHome._searchResults(known, partial));
       if (!partial) return;
       await new Promise((done) => setTimeout(done, 400));
     }
+  },
+
+  // Выдача пересобирается целиком на каждом дописывании находок, а фокус клавиатуры
+  // живёт В ПЛИТКЕ: без переноса он каждые 400 мс падал бы на голый `<body>`, и
+  // человек возвращался бы к первой плитке, пока круг ещё растёт.
+  _swapBody(next) {
+    const body = document.getElementById('tc-body');
+    if (!body) return;
+    const live = '[data-tc-tile][data-tc-focusable]';
+    const here = document.activeElement;
+    const at = here && here.matches && here.matches(live) && body.contains(here)
+      ? Array.from(body.querySelectorAll(live)).indexOf(here) : -1;
+    body.replaceWith(next);
+    const tiles = next.querySelectorAll(live);
+    if (at >= 0 && tiles[at]) tiles[at].focus();
   },
 
   // Уже показанная плитка МЕСТА не меняет: частичный ответ только дописывает новые
