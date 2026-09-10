@@ -30,6 +30,7 @@ const TCPlayer = {
     TCPlayer._advanced = false;
     TCPlayer._hasNext = false;
     TCPlayer._last = null;
+    TCPlayer._tvMark = null;
     TCPlayer._idleTimer = null;
     TCPlayer._leftSent = false;
 
@@ -225,7 +226,7 @@ const TCPlayer = {
     const episode = state.season && state.episode ? `s${state.season}e${state.episode}` : '';
     let pos = 0, dur = 0, paused = true, volume = 1, packagedPct = null;
     if (onTv) {
-      pos = state.position || 0;
+      pos = TCPlayer._tvPosition(state);
       dur = state.duration || 0;
       paused = state.state === 'paused';
       volume = typeof state.volume === 'number' ? state.volume : 0;
@@ -241,6 +242,19 @@ const TCPlayer = {
     TCPlayerPanel.update(TCPlayer._nodes, {
       title, episode, pos, dur, paused, volume, packagedPct, hasNext: TCPlayer._hasNext, onTv,
     });
+  },
+
+  //: Секунда показа на ТВ между докладами приёмника. Приставка докладывает место
+  //: рывками раз в ~10 с (замер на стенде `.104` 10-09-2026: шаги 10.0 с ровно), и
+  //: тянуть плёнку вкладки к ЗАСТЫВШЕМУ докладу значило отбрасывать её назад каждые
+  //: пять секунд - 14 откатов с ребуфером за 150 с каста (TC-1147). Между докладами
+  //: идущего показа секунда дооценивается ходом часов; на паузе берётся сам доклад.
+  _tvPosition(state) {
+    const said = state.position || 0;
+    const now = Date.now();
+    if (!TCPlayer._tvMark || TCPlayer._tvMark.pos !== said) TCPlayer._tvMark = { pos: said, at: now };
+    if (state.state !== 'playing') return said;
+    return said + (now - TCPlayer._tvMark.at) / 1000;
   },
 
   _packagedPct(video, dur) {
@@ -311,7 +325,7 @@ const TCPlayer = {
       onSeekTo(frac) {
         if (TCPlayer._onTv) {
           const dur = (TCPlayer._last && TCPlayer._last.duration) || 0;
-          const pos = (TCPlayer._last && TCPlayer._last.position) || 0;
+          const pos = TCPlayer._last ? TCPlayer._tvPosition(TCPlayer._last) : 0;
           if (dur > 0) TCApi.control('seekby', frac * dur - pos);
           return;
         }
