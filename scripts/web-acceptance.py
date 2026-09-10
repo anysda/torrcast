@@ -407,6 +407,10 @@ def check_18_caption_scroll(ctx: Ctx) -> Result:
     """
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
     ctx.page.wait_for_timeout(300)
+    # Наведение теперь раздувает полку («Size hierarchy»: ряд под фокусом 268px), и
+    # подпись, не влезавшая в 210px, в раздутой плитке может поместиться - тогда ехать
+    # ей нечего и незачем. Переполнение меряется при том же раскладе, что создаёт само
+    # наведение: `is-lit` на плитке и `tc-row--focused` на её ряду.
     candidate = ctx.page.evaluate(
         """
         () => {
@@ -415,9 +419,12 @@ def check_18_caption_scroll(ctx: Ctx) -> Result:
                 const tile = tiles[i];
                 const box = tile.querySelector('.tc-tile-cap');
                 if (!box) continue;
+                const row = tile.closest('.tc-row');
                 tile.classList.add('is-lit');
+                if (row) row.classList.add('tc-row--focused');
                 const overflow = box.scrollHeight - box.clientHeight;
                 tile.classList.remove('is-lit');
+                if (row) row.classList.remove('tc-row--focused');
                 box.scrollTop = 0;
                 if (overflow > 4) {
                     const title = tile.querySelector('.tc-caption');

@@ -39,16 +39,16 @@ const TCNav = {
       TCNav._stopCapScroll(TCNav.lit);
     }
     TCNav.lit = place;
-    if (place) {
-      place.classList.add('is-lit');
-      TCNav._startCapScroll(place);
-    }
-    // Размерная иерархия хендофа: ряд с горящей плиткой крупный (268px), иные мелкие.
+    // Ряд под горящей плиткой крупный (268px), иные мелкие; растёт ДО зажигания - бегущая подпись меряет конечную ширину.
     const row = place && place.closest ? place.closest('.tc-row') : null;
     if (TCNav._sizedRow !== row) {
       if (TCNav._sizedRow) TCNav._sizedRow.classList.remove('tc-row--focused');
       TCNav._sizedRow = row;
       if (row) row.classList.add('tc-row--focused');
+    }
+    if (place) {
+      place.classList.add('is-lit');
+      TCNav._startCapScroll(place);
     }
   },
 
