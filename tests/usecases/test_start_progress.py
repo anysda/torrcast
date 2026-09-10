@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.usecases.start_progress import KEPT, StartProgress
+from torrcast.usecases.start_progress import ENOUGH, KEPT, StartProgress
 
 
 class Ticker:
@@ -62,8 +62,9 @@ def test_term_comes_from_measured_lifts_not_from_a_budget() -> None:
 def test_expired_term_says_i_do_not_know_instead_of_zero() -> None:
     tick = Ticker()
     progress = StartProgress(tick)
-    progress.began()
-    progress.landed(30.0)
+    for measured in (30.0, 30.0):
+        progress.began()
+        progress.landed(measured)
     progress.began()
     tick.now += 45.0
     seen = progress.seen()
@@ -84,8 +85,9 @@ def test_picture_arrived_so_the_waiting_is_over() -> None:
 def test_lift_fell_apart_and_nothing_gets_measured() -> None:
     tick = Ticker()
     progress = StartProgress(tick)
-    progress.began()
-    progress.landed(30.0)
+    for measured in (30.0, 30.0):
+        progress.began()
+        progress.landed(measured)
     progress.began()
     progress.gone()
     assert progress.seen() is None
@@ -102,3 +104,21 @@ def test_memory_holds_one_evening_not_the_whole_history() -> None:
     # Первые три замера вытеснены: осталось 4..8, и середина у них - 6, а не 4.
     progress.began()
     assert _left(progress) == 6
+
+
+def test_a_single_measured_lift_is_a_case_and_not_a_term() -> None:
+    tick = Ticker()
+    progress = StartProgress(tick)
+    for _ in range(ENOUGH - 1):
+        progress.began()
+        progress.landed(56.0)
+    progress.began()
+    # Один замер - это случай, а не разброс: живой прогон назвал бы по нему «~56 с» там,
+    # где картинка пришла за 20 с. Срока нет, и страница о нём молчит.
+    assert _left(progress) is None
+    progress.gone()
+    progress.began()
+    progress.landed(24.0)
+    progress.began()
+    # Замеров стало достаточно: наружу идёт их середина.
+    assert _left(progress) == 40
