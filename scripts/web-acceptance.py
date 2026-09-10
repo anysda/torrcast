@@ -441,6 +441,13 @@ def check_18_caption_scroll(ctx: Ctx) -> Result:
     а не повод подменить пробу и объявить пункт зелёным.
     """
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    # На груженом стенде полки приезжают секундами ПОСЛЕ load: скан по ещё пустой
+    # странице молча объявляет «длинных подписей нет», хотя они есть. Ждём первой
+    # плитки; не дождались ни одной - это и есть ответ скану (упадёт ниже честно).
+    for _ in range(60):
+        if ctx.page.evaluate("document.querySelectorAll('.tc-tile[data-tc-focusable]').length"):
+            break
+        ctx.page.wait_for_timeout(500)
     ctx.page.wait_for_timeout(300)
     # Наведение теперь раздувает полку («Size hierarchy»: ряд под фокусом 268px), и
     # подпись, не влезавшая в 210px, в раздутой плитке может поместиться - тогда ехать
