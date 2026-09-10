@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Приёмочная проверка веб-показа: шестнадцать пунктов, каждый - число, а не «открылось».
+"""Приёмочная проверка веб-показа: каждый пункт - число, а не «открылось».
 
 Инструмент разработчика: headless Chromium (playwright), в устанавливаемый пакет не
 входит и в зависимости продукта не входит - как ``scripts/kinshelfprobe.py`` и
@@ -300,10 +300,21 @@ def _card_of(base: str, title: str) -> dict[str, Any]:
         time.sleep(1.0)
 
 
+#: Сколько пункт 1 ждёт настоящих плиток главной, прежде чем судить её состав.
+_HOME_SETTLE_WAIT: Final = 30000.0
+
+
 def check_1_home(ctx: Ctx) -> Result:
     """Главная сверяет «Продолжить» с историей, а две полки выдачи - с API."""
     code, _ = _get(ctx.base + "/")
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    # 🔴 Судить надо УСТОЯВШУЮСЯ главную, а не кадр через 300 мс после `goto`: там полка
+    # «Продолжить» ещё лежит скелетами (6 пустых плиток при пустой истории), и пункт
+    # краснел на здоровом продукте. Мера пункта - СОСТАВ полок, а не скорость их
+    # приезда, поэтому ждём первой живой плитки (тем же приёмом, что и пункт 18),
+    # а не опускаем планку. Не доехала ни одна - состав ниже покрасит сам.
+    with contextlib.suppress(Exception):
+        ctx.page.locator(_LIVE_TILE).first.wait_for(state="visible", timeout=_HOME_SETTLE_WAIT)
     ctx.page.wait_for_timeout(300)
     found: list[tuple[str, int]] = []
     for key in _SHELF_KEYS[1:]:
@@ -786,7 +797,12 @@ def check_21_merge_hits(ctx: Ctx) -> Result:
 
 
 def _shelf_tiles(payload: Any) -> dict[str, list[dict[str, Any]]]:
-    """Сами плитки по полкам из `/api/shelves`, в тех же двух формах ответа."""
+    """Сами плитки по полкам из `/api/shelves`, в тех же двух формах ответа.
+
+    🔴 Пустая полка остаётся в выдаче ПУСТОЙ, а не выбрасывается: фильтр `if tiles`
+    прятал опустевшую полку от всех троих судей (15, 16, 22) разом - они судили
+    выжившую, и главная с одной пустой полкой зеленела.
+    """
     shelves: dict[str, list[dict[str, Any]]] = {}
     if isinstance(payload, dict):
         for key, value in payload.items():
@@ -795,7 +811,7 @@ def _shelf_tiles(payload: Any) -> dict[str, list[dict[str, Any]]]:
             tiles = value if isinstance(value, list) else _inner(value)
             if isinstance(tiles, list):
                 shelves[str(key)] = [one for one in tiles if isinstance(one, dict)]
-    return {key: tiles for key, tiles in shelves.items() if tiles}
+    return shelves
 
 
 def _inner(value: Any) -> Any:
@@ -822,14 +838,25 @@ def check_15_posters(base: str) -> Result:
     except json.JSONDecodeError as exc:
         return Result(15, "Обложки", False, None, f"тело не JSON: {exc}")
     shares: dict[str, str] = {}
+    empty: list[str] = []
     ok = bool(shelves)
     for key, tiles in shelves.items():
+        if not tiles:
+            # Полка без единой плитки - отказ, а не «обложки в порядке»: доля на
+            # пустом окне верна сама по себе, и пункт зеленел бы ровно тогда, когда
+            # смотреть не на что.
+            empty.append(key)
+            ok = False
+            continue
         head = tiles[:_SHELF_WINDOW]
         with_poster = sum(1 for one in head if str(one.get("poster") or ""))
         shares[key] = f"{with_poster}/{len(head)}"
         if with_poster < _POSTER_BAR * len(head):
             ok = False
-    return Result(15, "Обложки", ok, None, f"планка {_POSTER_BAR:.0%}, по полкам {shares}")
+    detail = f"планка {_POSTER_BAR:.0%}, по полкам {shares}"
+    if empty:
+        detail += f"; ПУСТЫЕ полки: {', '.join(empty)}"
+    return Result(15, "Обложки", ok, None, detail)
 
 
 def check_16_junk(base: str) -> Result:
@@ -854,6 +881,7 @@ def check_16_junk(base: str) -> Result:
         return Result(16, "Мусор", False, None, f"тело не JSON: {exc}")
     caught: list[str] = []
     looked = 0
+    empty = [key for key, tiles in shelves.items() if not tiles]
     for key, tiles in shelves.items():
         for one in tiles[:_SHELF_WINDOW]:
             looked += 1
@@ -866,7 +894,11 @@ def check_16_junk(base: str) -> Result:
         return Result(16, "Мусор", False, None, empty_detail)
     seen = f"осмотрено плиток {looked} в {len(shelves)} полках"
     detail = f"{seen}; " + ("; ".join(caught) if caught else "мусора нет")
-    return Result(16, "Мусор", not caught, None, detail)
+    if empty:
+        # Опустевшая полка - отказ того же рода, что и пустая выдача целиком: судить
+        # мусор по выжившим полкам значит зеленеть на главной, где смотреть нечего.
+        detail += f"; ПУСТЫЕ полки: {', '.join(empty)}"
+    return Result(16, "Мусор", not caught and not empty, None, detail)
 
 
 #: Ведущие плитки полки, которые проверяет пункт 22 - тем же окном, каким человек их
@@ -899,8 +931,14 @@ def check_22_shelf_cards_open(base: str) -> Result:
         shelves = _shelf_tiles(json.loads(body))
     except json.JSONDecodeError as exc:
         return Result(22, "Полка → карточка", False, None, f"тело не JSON: {exc}")
-    tiles = shelves.get("fresh") or next(iter(shelves.values()), [])
+    if "fresh" not in shelves:
+        detail = f"полки «Новинки» (fresh) в выдаче нет; приехали: {sorted(shelves)}"
+        return Result(22, "Полка → карточка", False, None, detail)
+    tiles = shelves["fresh"]
     if not tiles:
+        # 🔴 Пустая «Новинки» - отказ, а не повод молча судить ДРУГУЮ полку: откат
+        # `or next(iter(...))` подставлял соседнюю, и пункт зеленел по плиткам, о
+        # которых его имя ничего не обещало.
         empty_detail = "полка «Новинки» пуста - нечего открывать"
         return Result(22, "Полка → карточка", False, None, empty_detail)
     window = tiles[:_CARD_OPEN_WINDOW]
@@ -1083,10 +1121,12 @@ def check_4_playback(ctx: Ctx, card_ok: bool) -> Result:
             first = current
         last, samples = current, samples + 1
         time.sleep(1.0)
-    # ТЗ просит ход монотонный и без провала длиннее 3 с. Требовать прироста в КАЖДОЙ
-    # секундной паре строже написанного: ровно на то и дан допуск провала, а откат назад
-    # (пара с убылью) допуском не покрыт ничем.
-    ok = total > 0 and dropped == 0 and worst_stall <= 3.0
+    # ТЗ просит ход монотонный и без провала длиннее 3 с. Провал в 3 с - это и есть
+    # весь допуск на нерастущие пары, и `grew` СУДИТСЯ этим допуском: замерший, но
+    # набитый буфером кадр (`currentTime` стоит, `readyState >= 3`, провала по
+    # readyState нет) обязан краснеть, а не зеленеть числом, которое считалось только
+    # для печати. Откат назад (пара с убылью) допуском не покрыт ничем.
+    ok = total > 0 and dropped == 0 and worst_stall <= 3.0 and grew >= total - 3
     detail = (
         f"{samples} замеров за 60 с, ход {last - first:.1f} с, растущих пар {grew}/{total}, "
         f"пар с откатом {dropped}, худший провал {worst_stall:.1f} с"
@@ -1282,11 +1322,27 @@ def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
             f"позиция {at} из {duration:.1f}"
         )
         return Result(8, "Автопереход", False, None, why)
-    before_code, before_body = _get(ctx.base + "/api/state")
+    before = _state(ctx)
+    before_pair = (before.get("season"), before.get("episode"))
     ctx.page.wait_for_timeout(10_000)
-    after_code, after_body = _get(ctx.base + "/api/state")
-    ok = before_code == 200 and after_code == 200 and before_body != after_body
-    detail = f"плашка появилась; /api/state до {before_code} и после {after_code} различаются: {ok}"
+    # 🔴 Планка - смена СЕРИИ, а не смена тела снимка: позиция тикает при любом показе,
+    # и `before_body != after_body` зеленело бы и на перезапуске ТОЙ ЖЕ серии, то есть
+    # на целиком сломанном автопереходе. Ждём, пока снимок назовёт другую пару
+    # (сезон, серия): после отсчёта продукту ещё поднимать следующую серию, и судить
+    # ровно через 10 с значило бы мерить скорость подъёма, а не переход.
+    after: dict[str, Any] = {}
+    after_pair = before_pair
+    began = time.monotonic()
+    while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
+        after = _state(ctx)
+        after_pair = (after.get("season"), after.get("episode"))
+        if None not in after_pair and after_pair != before_pair:
+            break
+        ctx.page.wait_for_timeout(1000)
+    ok = None not in after_pair and after_pair != before_pair
+    detail = (
+        f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}, сменилась: {ok}"
+    )
     return Result(8, "Автопереход", ok, None, detail)
 
 
@@ -1319,22 +1375,60 @@ def check_9_on_tv(ctx: Ctx, play_ok: bool) -> Result:
     grew_in = None
     volume_ok = False
     volume_detail = "каст не поднялся"
+    url_ok = False
+    url_detail = "каст не поднялся"
     if took is not None:
         before = _position(ctx)
         tv_running, grew_in = _await_position_growth(ctx, before)
         volume_ok, volume_detail = _volume_follows_page(ctx)
-    ok = muted and tv_running and volume_ok
+        url_ok, url_detail = _cast_url_matches(ctx)
+    ok = muted and tv_running and volume_ok and url_ok
     waited = "не поднялся" if took is None else f"{took:.0f} с"
     grown = "не сдвинулась" if grew_in is None else f"за {grew_in:.1f} с"
     detail = (
         f"muted={muted}, каст поднялся за {waited}, позиция ТВ выросла {grown}; "
-        f"громкость: {volume_detail}"
+        f"url: {url_detail}; громкость: {volume_detail}"
     )
     return Result(9, "На ТВ", ok, None, detail)
 
 
+def _cast_url_matches(ctx: Ctx) -> tuple[bool, str]:
+    """Приёмник обязан играть ТОТ ЖЕ url, что играет вкладка - сверка обоих концов.
+
+    🔴 До этой правки url не сверялся НИ РАЗУ: планка `muted and tv_running and
+    volume_ok` зеленела и на касте чужой картины - позиция растёт и громкость
+    слушается у любого показа. Вкладка называет свой поток ``TCPlayer._url``
+    (``web/static/player.js``), а каст уходит приёмнику из ящика вкладки как есть
+    (:func:`web.to_tv.to_tv` отдаёт ``SESSION.start`` тот ``url``, что лежит в
+    ``/api/web/box``): равенство этих двух концов и есть «тот же url».
+    """
+    page_url = ctx.page.evaluate("() => (window.TCPlayer && TCPlayer._url) || ''")
+    if not isinstance(page_url, str) or not page_url:
+        return False, "вкладка свой url не назвала (TCPlayer._url пуст)"
+    box_code, box_body = _get(ctx.base + "/api/web/box")
+    box_url = ""
+    if box_code == 200:
+        with contextlib.suppress(json.JSONDecodeError):
+            box_url = str(json.loads(box_body).get("url") or "")
+    if not box_url:
+        return False, f"GET /api/web/box -> {box_code}, url в ящике пуст"
+    if page_url != box_url:
+        return False, f"вкладка играет {page_url!r}, а на ТВ ушёл {box_url!r}"
+    return True, f"вкладка и ТВ на одном url ({page_url[:80]})"
+
+
 #: Сколько ждать, пока продукт назовёт каст своим: рукопожатие, LOAD и первый кадр.
 _TV_WAIT: Final = 60.0
+
+#: Худший промежуток между двумя непохожими докладами приёмника в замере TC-1177
+#: 11-09-2026: 9, 20, 11 с (опрос `/api/state` раз в секунду во время каста на `.90`).
+#: Берём максимум, а не среднее: именно следующий, ещё не приехавший доклад определяет,
+#: сколько старая, но законная секунда может прожить в ящике при возврате на вкладку.
+_RECEIVER_REPORT_CADENCE: Final = 20.0
+#: `[10]` снимает кадр через эти две секунды после клика. Допуск ниже составлен, а не
+#: подобран до зелени: 20.0 с худшей измеренной каденции приёмника + 2.0 с до кадра.
+_PC_RETURN_SETTLE: Final = 2.0
+_PC_RESUME_LIMIT: Final = _RECEIVER_REPORT_CADENCE + _PC_RETURN_SETTLE
 
 #: Шаг опроса позиции ТВ - тот же, каким сам продукт держит `current_time` живым
 #: (``web.tv_session.POLL_SECONDS``): чаще спрашивать нечего, у приёмника ещё не
@@ -1390,6 +1484,31 @@ def _position(ctx: Ctx) -> float | None:
     """
     at = _state(ctx).get("position")
     return float(at) if isinstance(at, int | float) else None
+
+
+def _box_at(ctx: Ctx) -> tuple[float | None, bool | None, str]:
+    """Секунда и признак каста из ящика вкладки, либо названная причина отказа.
+
+    ``at`` после ``POST /api/to-web`` пишет :mod:`web.to_web` из результата
+    ``TvSession.stop()`: это последний услышанный ОТ ПРИЁМНИКА доклад. В отличие от
+    ``TCPlayer._last.position`` плеер не берёт ``at`` целью при возврате: ключ ящика
+    остаётся тем же, ``TCPlayerBox.rebox`` не зовёт ``_attach``, а player.js:365 ставит
+    ``video.currentTime`` из ``_last``. Поэтому ``at`` остаётся независимым судьёй
+    свежести и посадки вкладки, а не числом, которое продукт только что сам присвоил.
+    """
+    code, body = _get(ctx.base + "/api/web/box")
+    if code != 200:
+        return None, None, f"GET /api/web/box -> {code}"
+    try:
+        box = json.loads(body)
+    except json.JSONDecodeError as exc:
+        return None, None, f"GET /api/web/box отдал не JSON: {exc}"
+    if not isinstance(box, dict):
+        return None, None, "GET /api/web/box отдал не объект"
+    at = box.get("at")
+    if not isinstance(at, int | float):
+        return None, bool(box.get("tv")), f"at не число: {at!r}"
+    return float(at), bool(box.get("tv")), ""
 
 
 def _await_tv(ctx: Ctx) -> float | None:
@@ -1469,29 +1588,50 @@ def _volume_follows_page(ctx: Ctx) -> tuple[bool, str]:
 
 
 def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
-    """На комп: приёмник остановлен, muted снят, разрыв позиции ≤5 с."""
+    """На комп: вкладка села по независимому докладу ТВ, не по собственной цели."""
     if not on_tv_ok:
         return Result(10, "На комп", False, "пункт 9 (на ТВ не снят)", "возвращать не от чего")
     label = ctx.english.get("web.player.back_to_browser", "")
     button = ctx.page.get_by_text(label, exact=True) if label else None
     if button is None or button.count() == 0:
         return Result(10, "На комп", False, None, f"кнопка {label!r} не найдена")
-    code_before, body_before = _get(ctx.base + "/api/state")
     _wake_panel(ctx)
     button.first.click()
-    ctx.page.wait_for_timeout(2000)
+    # 🔴 Раньше судья был `TCPlayer._last.position`: player.js:365 присваивает это же
+    # число `video.currentTime`, поэтому разрыв через две секунды был просто двумя
+    # секундами проигрывания и пункт зеленел по построению. Теперь обе величины судятся
+    # против `box.at` - последнего независимого доклада ТВ. Отдельная свежесть `_last`
+    # нужна не для дублирования посадки: протухшая на минуту `_last` могла бы посадить
+    # вкладку мимо зрителя, даже если сама плёнка после присваивания честно идёт.
+    ctx.page.wait_for_timeout(int(_PC_RETURN_SETTLE * 1000))
     shown = _video(ctx, "v => v.muted")
     if shown is None:
         return Result(10, "На комп", False, None, "после «На комп» на странице нет `<video>`")
     muted = bool(shown)
     current = float(_video(ctx, "v => v.currentTime") or 0.0)
-    tv_position = None
-    if code_before == 200:
-        with contextlib.suppress(json.JSONDecodeError):
-            tv_position = json.loads(body_before).get("position")
-    gap = abs(current - tv_position) if isinstance(tv_position, int | float) else None
-    ok = not muted and gap is not None and gap <= 5.0
-    detail = f"muted={muted}, currentTime={current:.1f}, разрыв с ТВ-позицией: {gap}"
+    last = ctx.page.evaluate("() => (window.TCPlayer._last || {}).position")
+    receiver_at, still_on_tv, box_problem = _box_at(ctx)
+    landed_gap = abs(current - receiver_at) if receiver_at is not None else None
+    fresh_gap = (
+        abs(float(last) - receiver_at)
+        if isinstance(last, int | float) and receiver_at is not None
+        else None
+    )
+    ok = (
+        not muted
+        and still_on_tv is False
+        and landed_gap is not None
+        and fresh_gap is not None
+        and landed_gap <= _PC_RESUME_LIMIT
+        and fresh_gap <= _PC_RESUME_LIMIT
+    )
+    detail = (
+        f"muted={muted}, box.tv={still_on_tv}; at приёмника={receiver_at}, "
+        f"currentTime={current:.1f}, _last.position={last!r}; "
+        f"разрыв посадки={landed_gap}, свежести _last={fresh_gap}, "
+        f"допуск {_PC_RESUME_LIMIT:.1f} с (каденция {_RECEIVER_REPORT_CADENCE:.1f} + "
+        f"кадр {_PC_RETURN_SETTLE:.1f}); {box_problem or 'ящик прочитан'}"
+    )
     return Result(10, "На комп", ok, None, detail)
 
 
@@ -1578,6 +1718,43 @@ def _dpad_key(focus: dict[str, Any], stuck: bool) -> str:
     return "ArrowDown" if focus["field"] or stuck else "ArrowRight"
 
 
+def _focus_visible(ctx: Ctx) -> tuple[bool, str]:
+    """Виден ли фокус на кадре ПРЯМО СЕЙЧАС: узел в поле зрения и его маркер нарисован.
+
+    Кадры в ``--shots`` разбирал глазами человек, а пункт зеленел не глядя на них.
+    Судится ПОКРАСКА, а не класс: ``is-lit`` без стиля не виден никому. Приметы
+    видимого фокуса из ``web/static/style.css``: контур (``outline``) на самом узле
+    или на рамке плитки ``.tc-tile-frame``, разворот ``transform`` у плитки, заливка
+    фона у строк (серии, выпадайки), а у поля ввода - каретка и кислотная линия
+    снизу, её видно само по себе.
+    """
+    found: dict[str, Any] = ctx.page.evaluate(
+        "() => {"
+        " const e = document.activeElement;"
+        " if (!e || e === document.body) return {visible: false, why: 'фокуса нет'};"
+        " const r = e.getBoundingClientRect();"
+        " const inView = r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0"
+        "   && r.top < window.innerHeight && r.left < window.innerWidth;"
+        " if (!inView) return {visible: false, why: 'фокус вне кадра'};"
+        " const alpha0 = /,\\s*0(?:\\.0+)?\\s*\\)$/;"
+        " const painted = (s) => s.outlineStyle !== 'none'"
+        "   && parseFloat(s.outlineWidth) > 0 && !alpha0.test(s.outlineColor);"
+        " const cs = getComputedStyle(e);"
+        " const frame = e.querySelector ? e.querySelector('.tc-tile-frame') : null;"
+        " if (painted(cs)) return {visible: true, why: 'контур'};"
+        " if (frame && painted(getComputedStyle(frame)))"
+        "   return {visible: true, why: 'контур рамки плитки'};"
+        " if (cs.transform !== 'none') return {visible: true, why: 'разворот'};"
+        " if (e.tagName === 'INPUT') return {visible: true, why: 'поле ввода (каретка)'};"
+        " if ((e.classList.contains('is-lit') || e.closest('.is-lit'))"
+        "   && !alpha0.test(cs.backgroundColor)"
+        "   && cs.backgroundColor !== 'rgba(0, 0, 0, 0)')"
+        "   return {visible: true, why: 'заливка'};"
+        " return {visible: false, why: 'маркер фокуса не нарисован'}; }"
+    )
+    return bool(found["visible"]), str(found["why"])
+
+
 def check_11_arrows(ctx: Ctx) -> Result:
     """Стрелки: от поля поиска до старта показа за ≤12 нажатий, фокус виден на кадре."""
     # Полосу упаковки тут НЕ освобождают нарочно: предыдущие пункты оставляют показ, и
@@ -1596,6 +1773,7 @@ def check_11_arrows(ctx: Ctx) -> Result:
     started = False
     reached_play = False
     stuck = False
+    unseen: list[str] = []
     # `allow_play` - единственная дверь к показу и здесь: `_dpad_key` зовёт Enter, едва
     # фокус встал на «Играть», а Enter по ней и есть старт. Раньше от этого прикрывал
     # только счётчик нажатий (11 без `--play` против 12) - но фокус доходил до кнопки
@@ -1619,6 +1797,14 @@ def check_11_arrows(ctx: Ctx) -> Result:
         _await_card(ctx)
         ctx.page.screenshot(path=str(ctx.shots / f"arrow-{i:02d}.png"))
         active = _focus_of(ctx)
+        # Кадр пишется не для архива, а для суда: «фокус виден на кадре» - планка
+        # пункта, и шаг, на котором маркер фокуса не нарисован, красит пункт целиком.
+        # Enter на «Играть» уводит страницу на /play, и activeElement там - BODY:
+        # навигация кончилась, фокуса на странице больше нет и судить его нечего.
+        if "/play" not in ctx.page.url:
+            visible, why = _focus_visible(ctx)
+            if not visible:
+                unseen.append(f"{i + 1}({active['sig']}: {why})")
         stuck = key == "ArrowRight" and active["sig"] == was["sig"]
         steps.append(f"{i + 1}:{key}->{active['sig']}")
         reached_play = reached_play or bool(active["play"])
@@ -1630,11 +1816,16 @@ def check_11_arrows(ctx: Ctx) -> Result:
     # раздачу и паковать. Судить старт внутри той же итерации значит судить сеть.
     if ctx.allow_play and not started and reached_play:
         started = _await_playback(ctx)
-    ok = started if ctx.allow_play else reached_play
+    ok = (started if ctx.allow_play else reached_play) and not unseen
     goal = "показ стартовал" if ctx.allow_play else "фокус дошёл до «Играть»"
     got = started if ctx.allow_play else reached_play
     stop_note = "" if ctx.allow_play else " (--play не задан: пункт судится по фокусу)"
-    detail = f"нажатий {len(steps)}/{limit}, кадры в {ctx.shots}, {goal}: {got}{stop_note}"
+    sight = (
+        f"фокус виден на всех {len(steps)} кадрах"
+        if not unseen
+        else (f"фокус НЕ виден на кадрах: {', '.join(unseen)}")
+    )
+    detail = f"нажатий {len(steps)}/{limit}, кадры в {ctx.shots}, {goal}: {got}{stop_note}; {sight}"
     return Result(11, "Стрелки", ok, None, "; ".join(steps) + " | " + detail)
 
 
@@ -1755,6 +1946,13 @@ def check_13_texts(base: str) -> Result:
     return Result(13, "Тексты", ok, None, detail)
 
 
+#: Потолок ожидания гейта. Штатный полный прогон - около 400 с (см. `scripts/test-gate`),
+#: срок взят с двойным запасом над ним, а не подогнан: дальше этого гейт не «медленный»,
+#: а вставший (например, на системном приглашении пароля, которое `capture_output`
+#: прячет в трубу), и пункт обязан покраснеть и назвать, на чём гейт стоял.
+_GATE_WAIT: Final = 900.0
+
+
 def check_14_gate(repo: Path) -> Result:
     """Гейт: полный `scripts/test-gate` зелёный на холодном венве, там, где лежит репа."""
     script = repo / "scripts" / "test-gate"
@@ -1768,7 +1966,33 @@ def check_14_gate(repo: Path) -> Result:
         detail = f"на этой машине нет {', '.join(missing)}: гейт гоняется там, где дерево"
         return Result(14, "Гейт", False, "гейт нечем гонять с этого хоста", detail)
     began = time.monotonic()
-    proc = subprocess.run([str(script)], cwd=str(repo), capture_output=True, text=True)
+    # 🔴 `stdin=DEVNULL` обязателен: гейт, упёршийся в приглашение пароля (systemctl,
+    # sudo), с унаследованным stdin ждёт ввод, который некому набрать, а
+    # `capture_output=True` прячет само приглашение в трубу - прибор вставал намертво
+    # и не давал снять приёмку вообще. Срок - вторая половина той же страховки.
+    try:
+        proc = subprocess.run(
+            [str(script)],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=_GATE_WAIT,
+        )
+    except subprocess.TimeoutExpired as hung:
+        spent = time.monotonic() - began
+        out = hung.stdout or b""
+        err = hung.stderr or b""
+        if isinstance(out, bytes):
+            out = out.decode("utf-8", "replace")
+        if isinstance(err, bytes):
+            err = err.decode("utf-8", "replace")
+        tail = "\n".join((out + err).splitlines()[-25:])
+        detail = (
+            f"гейт не кончился за {spent:.0f} с (срок {_GATE_WAIT:.0f} с); "
+            f"стоял на:\n{tail or 'молчал - не напечатал ни строки'}"
+        )
+        return Result(14, "Гейт", False, None, detail)
     spent = time.monotonic() - began
     tail = "\n".join((proc.stdout + proc.stderr).splitlines()[-25:])
     ok = proc.returncode == 0
