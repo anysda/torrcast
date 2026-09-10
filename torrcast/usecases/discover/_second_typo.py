@@ -1,10 +1,11 @@
-"""Круг добора на описку: запрос короче на одно слово, а имя каталога сверяется целиком."""
+"""Круг добора пустой выдачи: запрос короче на слово, а имя каталога сверяется целиком."""
 
 from __future__ import annotations
 
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.cluster import cluster
+from torrcast.domain.exactly_named import exactly_named
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.nearly_named import nearly_named
 from torrcast.domain.pick_franchise import pick_franchise
@@ -24,7 +25,7 @@ def _second_typo(
     raw: list[RawResult],
     progress: Progress,
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
-    """Пустая выдача при описке в одном слове: спросить короче и опознать имя целиком.
+    """Пустая выдача: спросить короче на слово и опознать имя каталога целиком.
 
     Описку в одну букву каталог прощает давно (:func:`~torrcast.domain.nearly_named.nearly_named`),
     но до этой ступени не доезжают: слово с опиской стоит в самом запросе, индексер ищет
@@ -51,6 +52,15 @@ def _second_typo(
     видит и не платит за неё ни секунды. Одно слово укорачивать не во что - и там ветка
     молчит тоже («лёд», «дюна»).
 
+    🔴 TC-1158. Второй предмет ветки - имя БЕЗ описки, которое источник не берёт целиком:
+    лента раздач знает «Tarung Unforgiven» 2026 года, поиск этой же строкой отдаёт НИ
+    ОДНОЙ, а укороченная «Tarung» - обе его раздачи. Такое имя опознаётся не близостью, а
+    ТОЧНЫМ совпадением целиком (:func:`~torrcast.domain.exactly_named.exactly_named`), и
+    второго вопроса источнику у него нет: полное имя первый круг уже спрашивал дословно и
+    получил пусто, - судить остаётся по широкому пулу, другого материала про это имя нет.
+    Совпадение по ЧАСТИ имени не считается: «Unforgiven» 1992 года из той же выдачи это
+    другая картина, и взять её - та же подмена, что и вожак широкого пула.
+
     🔴 TC-1004. **Одним коротким словом судьба картины не решается.** Опознав имя, ступень
     спрашивает источник ЕЩЁ РАЗ - тем самым именем, которое человек и набирал бы без промаха
     клавиши, - и склеивает эту выдачу с широкой. Без второго вопроса картина выбиралась на
@@ -73,16 +83,22 @@ def _second_typo(
         pool = _second_circle(client, name, shorter, None, Origin(), [], pool, progress)
         progress.phase("")
         seen = cluster(_search_state._search_catalogue.to_releases(pool))
-        if not (near := nearly_named(name, seen)):
+        exact = exactly_named(name, seen)
+        if not (recognized := exact or nearly_named(name, seen)):
             continue
-        # Номер части переспрашивается вместе с исправленным именем: описка правится в
-        # имени, а не в номере («байки метра 2» - это по-прежнему просьба про вторую).
-        asked = near if index is None else f"{near} {index}"
-        if not pick_franchise(asked, seen):
+        # Номер части переспрашивается вместе с опознанным именем: правится имя, а не
+        # номер («байки метра 2» - это по-прежнему просьба про вторую).
+        asked = recognized if index is None else f"{recognized} {index}"
+        if not (found := pick_franchise(asked, seen)):
             continue
+        if exact:
+            # 🔴 TC-1158. Полное имя первый круг уже спрашивал ДОСЛОВНО и получил пусто:
+            # спросить его ещё раз - заплатить круг за заведомый ноль. Судим по широкому
+            # пулу: другого материала про это имя у источника нет.
+            return pool, seen, found
         # 🔴 TC-1004. Исправленным именем источник спрашивается ещё раз, и выдача его
         # склеивается с широкой. Иначе судьба картины решалась бы по одному короткому слову.
-        fixed = near.replace("-", " ")
+        fixed = recognized.replace("-", " ")
         progress.phase(phrase("discover.search_phase", query=fixed))
         merged = _search_state._search_catalogue.merge(pool, _ask(client, fixed))
         progress.phase("")

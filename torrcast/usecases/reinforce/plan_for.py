@@ -9,6 +9,7 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.recodes_whole import recodes_whole
+from torrcast.domain.release import Release
 from torrcast.usecases.rank.gate_open import gate_open
 from torrcast.usecases.rank.last_hope import last_hope
 from torrcast.usecases.rank.rank_releases import rank_releases
@@ -22,6 +23,13 @@ else:
     # только называют, но и строят, поэтому во время работы имя берётся оттуда, куда
     # порт и указывает.
     from torrcast.usecases.select.plan import Plan
+
+
+def _covered_seasons(release: Release) -> tuple[int, ...]:
+    """Сезоны, которые раздача назвала сама; молчание имени тут не «первый сезон»."""
+    if release.seasons:
+        return release.seasons
+    return (release.season,) if release.season is not None else ()
 
 
 def plan_for(
@@ -54,6 +62,17 @@ def plan_for(
     pool = picture.releases
     if series is not None:
         pool = [r for r in pool if r.covers(series.want.season)]
+        if not pool and args.episode is None:
+            # Сезон человек не спрашивал, а раздачи назвали только ПОЗДНИЕ сезоны
+            # («Paradise.2025.S02» при пустом первом): цель «s1e1» тут выдумка, и
+            # картина с живыми раздачами выпадала из круга молча - полка главной её
+            # показывала, а карточка по её же ключу отвечала 404. Целью становится
+            # первая серия самого раннего ИЗ НАЗВАННЫХ сезонов; спрошенный сезон
+            # (``args.episode``) по-прежнему честно отказывает, когда его нет.
+            covered = sorted({s for r in picture.releases for s in _covered_seasons(r)})
+            if covered:
+                series = _Series(want=Episode(covered[0], 1))
+                pool = [r for r in picture.releases if r.covers(covered[0])]
     # Потолок отбора - уже не потолок декодера. Тяжёлые куски перекодируются
     # (:mod:`torrcast.adapters.recode`), поэтому честный тяжёлый 1080p теперь берётся, а
     # отбраковывает только то, что перекодированием не спасти, - ``bitrate_hard_mbit``.

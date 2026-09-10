@@ -101,6 +101,40 @@ def test_a_stranger_named_otherwise_is_refused_even_when_it_is_the_only_one() ->
     assert imdb.wanted([ask], 5.0) == {ask: []}
 
 
+def test_a_second_title_the_source_resolves_brings_its_poster() -> None:
+    """Второе название картины подсказчик разрешает сам: ответ под ним - не чужой.
+
+    🔴 Живой замер 10-09-2026, полки главной: «Un dramma borghese» 1979 у IMDb лежит под
+    именем «Mimi», «Enfrentados Marfil» 2026 - под «Drawn Together». На полное имя
+    подсказчик отвечает ровно одной строкой, год и род сходятся - это вторая запись той же
+    картины, а не соседка, и такие плитки оставались без обложки при живой картинке.
+    """
+    imdb, _ = _imdb({"Un dramma borghese": [_row("tt0079077", "Mimi", 1979, "movie")]})
+    ask = Ask("Un dramma borghese", 1979, "movie")
+    assert imdb.wanted([ask], 5.0) == {ask: [SMALL, RAW]}
+
+
+def test_a_full_name_grown_by_a_word_is_a_neighbour_not_the_picture() -> None:
+    """Имя соседки, выросшее из спрошенного добавленным словом, - не она."""
+    imdb, _ = _imdb({"The Paradise": [_row("tt36073210", "The Paradise Hills", 2019, "movie")]})
+    ask = Ask("The Paradise", 2019, "movie")
+    assert imdb.wanted([ask], 5.0) == {ask: []}
+
+
+def test_two_otherwise_named_candidates_refuse_both() -> None:
+    """Двух картин под вторыми именами источник не разбирает: чужая хуже пустой."""
+    imdb, _ = _imdb(
+        {
+            "Verde contro Rosso": [
+                _row("tt1174735", "Green vs. Red", 2008, "video"),
+                _row("tt9999999", "Rosso e Verde", 2008, "movie"),
+            ]
+        }
+    )
+    ask = Ask("Verde contro Rosso", 2008, "movie")
+    assert imdb.wanted([ask], 5.0) == {ask: []}
+
+
 def test_the_offline_map_answers_the_russian_name_without_the_network() -> None:
     """Русское имя сверяет карта на диске, а подсказчик зовётся уже по её id."""
     catalogue = FakeCatalogue({("Решала: Брат", 2022): "tt19412968"})

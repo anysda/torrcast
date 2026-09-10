@@ -58,6 +58,33 @@ def test_the_series_pool_keeps_only_the_asked_season() -> None:
     assert plan.off_season == 1
 
 
+def test_a_series_without_the_first_season_aims_at_its_earliest_one() -> None:
+    """Сезон не спрошен, а раздачи назвали только поздние - цель едет к ним, не в пустоту.
+
+    Цель «s1e1» у такой картины - выдумка: живой случай «Paradise» 2025, у которого на
+    индексерах лежал только второй сезон. Пул по ней пустел, круг выбрасывал картину
+    молча, и полка главной показывала плитку, на чей ключ карточка отвечала 404.
+    """
+    from torrcast.domain.episode import Episode
+
+    picture = pictures([row("Рай / Paradise S02 1080p", "a")])[0]
+
+    plan = plan_for(picture, Args(query=["рай"]), Config())
+
+    assert len(plan.ranked) == 1, "картина с живыми раздачами не выпадает из круга"
+    assert plan.series is not None and plan.series.want == Episode(2, 1)
+    assert plan.off_season == 0
+
+
+def test_an_asked_season_the_releases_do_not_name_stays_a_refusal() -> None:
+    """Спрошенный сезон перенацеливанию не подлежит: его нет - раздач в пуле нет."""
+    picture = pictures([row("Рай / Paradise S02 1080p", "a")])[0]
+
+    plan = plan_for(picture, Args(query=["рай", "s01e01"]), Config())
+
+    assert plan.ranked == []
+
+
 def test_the_ceiling_of_the_plan_is_the_one_recoding_allows() -> None:
     """Потолок отбора - уже не потолок декодера: тяжёлые куски перекодируются.
 

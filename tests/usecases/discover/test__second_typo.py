@@ -206,3 +206,57 @@ def test_the_renaming_second_ask_leaves_the_next_shortened_word_asked() -> None:
         )
 
     assert "метра" in client.asked, "перебор кандидатов оборвался на первом же слове"
+
+
+#: Источник, у которого ПОЛНОЕ верное имя отвечает нулём строк, а укороченное - самой
+#: картиной: описки в имени нет, источник просто не берёт запрос целиком (TC-1158).
+_EXACT_WORLD: dict[str, list[RawResult]] = {
+    "tarung unforgiven": [],
+    "unforgiven": [row("Unforgiven (1992) 1080p BDRip x264", "u")],
+    "tarung": [
+        row("Tarung Unforgiven (2026) 720p WEBRip x264 -YTS", "a"),
+        row("Tarung Unforgiven (2026) 1080p WEBRip 5.1 x264 -YTS", "b"),
+    ],
+}
+
+
+def test_the_name_the_source_cannot_take_whole_reaches_the_picture() -> None:
+    """🔴 TC-1158. «Tarung Unforgiven» источник не берёт целиком, а «tarung» находит её.
+
+    Плитка полки зовётся именем ленты раздач, и карточка по этому имени отвечала отказом,
+    хотя раздачи картины лежат в том же каталоге. Описки в имени нет - опознаётся оно
+    ТОЧНЫМ совпадением целиком, а не близостью в одну букву.
+    """
+    plans, client = _circle(_EXACT_WORLD, "tarung unforgiven")
+
+    assert [plan.picture.title for plan in plans] == ["Tarung Unforgiven"]
+    assert "tarung" in client.asked, "укороченным запросом источник так и не спросили"
+
+
+def test_a_foreign_picture_of_the_wide_pool_does_not_answer_the_exact_name() -> None:
+    """«Unforgiven» 1992 года из первого укороченного круга - другая картина, а не ответ."""
+    plans, _client = _circle(_EXACT_WORLD, "tarung unforgiven")
+
+    assert all(plan.picture.year == 2026 for plan in plans)
+
+
+def test_the_exact_name_is_not_asked_of_the_source_a_second_time() -> None:
+    """Полное имя первый круг уже спрашивал дословно - повторный заход платит за ноль."""
+    _plans, client = _circle(_EXACT_WORLD, "tarung unforgiven")
+
+    assert client.asked.count("tarung unforgiven") == 1
+
+
+def test_a_pool_without_the_exact_name_keeps_the_refusal_worded_as_before() -> None:
+    """Нет имени целиком - выдачи как не было: часть названия картину не опознаёт."""
+    with pytest.raises(NotFoundError) as refusal:
+        _circle(
+            {
+                "tarung unforgiven": [],
+                "unforgiven": [row("Unforgiven (1992) 1080p BDRip x264", "u")],
+                "tarung": [row("Tarung City (2024) WEBRip 1080p", "c")],
+            },
+            "tarung unforgiven",
+        )
+
+    assert "ничего не нашлось" in str(refusal.value)
