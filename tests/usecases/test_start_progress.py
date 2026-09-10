@@ -15,6 +15,13 @@ class Ticker:
         return self.now
 
 
+def _lift(progress: StartProgress, tick: Ticker, seconds: float) -> None:
+    """Подъём, дошедший до экрана за ``seconds``: ровно так он попадает в память."""
+    progress.began()
+    tick.now += seconds
+    progress.landed()
+
+
 def _left(progress: StartProgress) -> object:
     """Названный срок идущего подъёма: другого окна в память замеров у зрителя нет."""
     seen = progress.seen()
@@ -49,8 +56,7 @@ def test_term_comes_from_measured_lifts_not_from_a_budget() -> None:
     tick = Ticker()
     progress = StartProgress(tick)
     for measured in (40.0, 60.0, 50.0):
-        progress.began()
-        progress.landed(measured)
+        _lift(progress, tick, measured)
     # Середина трёх замеров - 50 с, и ровно её остаток идёт наружу.
     progress.began()
     tick.now += 20.0
@@ -63,8 +69,7 @@ def test_expired_term_says_i_do_not_know_instead_of_zero() -> None:
     tick = Ticker()
     progress = StartProgress(tick)
     for measured in (30.0, 30.0):
-        progress.began()
-        progress.landed(measured)
+        _lift(progress, tick, measured)
     progress.began()
     tick.now += 45.0
     seen = progress.seen()
@@ -78,7 +83,12 @@ def test_picture_arrived_so_the_waiting_is_over() -> None:
     progress = StartProgress(tick)
     progress.began()
     progress.source(1, 3)
-    progress.landed(28.0)
+    tick.now += 28.0
+    progress.landed()
+    assert progress.seen() is None
+    # Опрос идущего показа повторяется каждые две секунды, и второй кадр того же
+    # подъёма памяти замеров сказать уже нечего.
+    progress.landed()
     assert progress.seen() is None
 
 
@@ -86,8 +96,7 @@ def test_lift_fell_apart_and_nothing_gets_measured() -> None:
     tick = Ticker()
     progress = StartProgress(tick)
     for measured in (30.0, 30.0):
-        progress.began()
-        progress.landed(measured)
+        _lift(progress, tick, measured)
     progress.began()
     progress.gone()
     assert progress.seen() is None
@@ -97,10 +106,10 @@ def test_lift_fell_apart_and_nothing_gets_measured() -> None:
 
 
 def test_memory_holds_one_evening_not_the_whole_history() -> None:
-    progress = StartProgress(Ticker())
+    tick = Ticker()
+    progress = StartProgress(tick)
     for measured in range(1, KEPT + 4):
-        progress.began()
-        progress.landed(float(measured))
+        _lift(progress, tick, float(measured))
     # Первые три замера вытеснены: осталось 4..8, и середина у них - 6, а не 4.
     progress.began()
     assert _left(progress) == 6
@@ -110,15 +119,13 @@ def test_a_single_measured_lift_is_a_case_and_not_a_term() -> None:
     tick = Ticker()
     progress = StartProgress(tick)
     for _ in range(ENOUGH - 1):
-        progress.began()
-        progress.landed(56.0)
+        _lift(progress, tick, 56.0)
     progress.began()
     # Один замер - это случай, а не разброс: живой прогон назвал бы по нему «~56 с» там,
     # где картинка пришла за 20 с. Срока нет, и страница о нём молчит.
     assert _left(progress) is None
     progress.gone()
-    progress.began()
-    progress.landed(24.0)
+    _lift(progress, tick, 24.0)
     progress.began()
     # Замеров стало достаточно: наружу идёт их середина.
     assert _left(progress) == 40

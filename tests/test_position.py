@@ -13,6 +13,7 @@ from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.position import Position
+from torrcast.usecases.start_progress import START
 from web.position import position
 from web.request import Request
 from web.tv_session import SESSION
@@ -146,3 +147,28 @@ def test_a_cast_of_another_show_does_not_silence_the_tab(
     record = read_web_position(tmp_path)
     assert record is not None
     assert record["pos"] == 30.0, "новую картину заперло чужим кастом"
+
+
+def test_the_first_playing_second_of_the_tab_measures_the_lift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Подъём меряется первой живой секундой ВКЛАДКИ, а не концом команды показа.
+
+    Для человека картинка приходит тогда, когда её показала плёнка; команда показа
+    кончается позже, а запись показа узнаёт про кадр ещё позже (живой замер 10-09-2026:
+    кадр на 17.0 с, конец команды на 20.5 с, слово ``playing`` в состоянии - на 28.0 с).
+    Этим сроком продукт отвечает следующему зрителю, поэтому мерить его надо там, где
+    зритель его и прожил.
+    """
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="u", title="t", at=0.0, key="k1")
+    START.gone()
+    START.began()
+
+    position(_post({"key": "k1", "pos": 0.0, "dur": 120.0, "phase": "buffering"}))
+    # Плёнка ещё копит ящик: кадра не было, и ожидание остаётся ожиданием.
+    assert START.seen() is not None
+
+    position(_post({"key": "k1", "pos": 0.4, "dur": 120.0, "phase": "playing"}))
+
+    assert START.seen() is None, "вкладка играет, а ожидание всё ещё на экране"

@@ -16,6 +16,7 @@ from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.domain.json_value import JsonValue
 from torrcast.usecases.playback.hls_root import hls_root
+from torrcast.usecases.start_progress import START
 from web.answer import Answer
 from web.refusal import refusal
 from web.request import Request
@@ -59,5 +60,12 @@ def position(request: Request) -> Answer:
     if not _is_number(raw_pos) or not _is_number(raw_dur):
         return refusal(400, "bad_number")
     pos, dur = float(raw_pos), float(raw_dur)
+    # Вкладка назвала первую живую секунду - для человека картинка пришла ровно тут, и
+    # этим сроком продукт отвечает следующему зрителю
+    # (:mod:`torrcast.usecases.start_progress`). Идущего подъёма нет - замерять нечего, и
+    # доклады остального сеанса память сроков не трогают. Прошлый показ сюда не доходит:
+    # его ключ отсеян выше отказом ``409``.
+    if phase == "playing" and pos > 0:
+        START.landed()
     write_web_position(out, key=key, pos=pos, dur=dur, phase=phase, wall=CLOCK.wall())
     return Answer(204, b"")

@@ -80,12 +80,13 @@ class Bridge:
         config = self._settings()
         active = self._session.active()
         shown = self._session.snapshot(self._session.key() if active else "")
+        word = self._motion.phase(shown, active=active, starting=self._orders.underway())
         return payload(
             self._motion.aimed(shown),
             version=__version__,
             build=MachineProbe.build_id(),
             tv=config.tv or "",
-            state=self._motion.phase(shown, active=active, starting=self._orders.underway()),
+            state=word,
             volume=self._volume_of(config).level(),
             disk_free=MachineProbe.disk_free(config.hls_dir),
             last_error=self._orders.last_error,

@@ -59,10 +59,18 @@ class StartProgress:
         with self._lock:
             self._source = (number, total)
 
-    def landed(self, seconds: float) -> None:
-        """Картинка на экране за ``seconds``: замер идёт в память, ожидание кончилось."""
+    def landed(self) -> None:
+        """Картинка дошла до экрана: подъём замерен, ожидание кончилось.
+
+        Зовётся с КАЖДЫМ докладом играющей вкладки (:func:`web.position.position`), а
+        не однажды: доклады идут весь сеанс. Подъёма нет - значит эта картинка уже
+        посчитана, и памяти замеров доклад ничего не говорит, иначе каждая секунда
+        показа клала бы туда новое число.
+        """
         with self._lock:
-            self._measured.append(seconds)
+            if self._began is None:
+                return
+            self._measured.append(self._clock() - self._began)
             del self._measured[:-KEPT]
             self._began = None
             self._source = (0, 0)
