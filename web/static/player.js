@@ -11,6 +11,7 @@ const TCPlayer = {
   POLL_MS: 2000,
   POSITION_MS: 2000,
   DRIFT_S: 5,
+  TRIM_RATE: 0.75,
 
   ready() {
     return typeof window.Hls !== 'undefined' && window.Hls.isSupported();
@@ -231,15 +232,11 @@ const TCPlayer = {
       paused = state.state === 'paused';
       volume = typeof state.volume === 'number' ? state.volume : 0;
       packagedPct = typeof state.warm === 'number' ? state.warm : null;
-      if (video) {
-        // Поправка асимметрична: отставшую плёнку догоняем сразу, а обогнавшую
-        // доклад - только когда обгон больше целого шага докладов (~10 с). Меньший
-        // обгон - не расходство, а погрешность самого доклада: он на ре-якоре шагает
-        // назад, и поправка под него дёргала картинку вспять (замер 10-09-2026).
-        const diff = (video.currentTime || 0) - pos;
-        if (diff < -TCPlayer.DRIFT_S || diff > 2 * TCPlayer.DRIFT_S) video.currentTime = pos;
-      }
+      if (video) TCPlayer._follow(video, pos, state.state === 'playing');
     } else if (video) {
+      // Замедление, которым плёнка догоняла телевизор, тут снимается: показ вернулся во
+      // вкладку, и догонять больше некого. Пауза не трогается - она теперь зрителя.
+      video.playbackRate = 1;
       pos = video.currentTime || 0;
       dur = video.duration || 0;
       paused = video.paused;
@@ -262,6 +259,26 @@ const TCPlayer = {
     if (!TCPlayer._tvMark || TCPlayer._tvMark.pos !== said) TCPlayer._tvMark = { pos: said, at: now };
     if (state.state !== 'playing') return said;
     return said + (now - TCPlayer._tvMark.at) / 1000;
+  },
+
+  //: Идти следом за телевизором ТЕМПОМ, а не прыжком. Назад плёнку вкладки не тянем
+  //: вовсе: пока каст поднимается (рукопожатие, LOAD, первый кадр - на стенде `.104`
+  //: 7-12 с), вкладка играет и выходит вперёд ровно на это время, и тяга назад под
+  //: первый же доклад и была тем рывком картины, который видит зритель (замер
+  //: 10-09-2026: вкладка 19.3 при телевизоре 6.9 и прыжок на 7.3). Обгон снимается
+  //: замедлением на четверть: секунда идёт всегда вперёд, и через полминуты плёнки
+  //: сходятся сами. Прыжок остаётся один - вперёд, когда вкладка ОТСТАЛА (ребуфер):
+  //: догонять темпом отставание нечем, скорость выше единицы гонит новый ребуфер.
+  //: Пауза телевизора останавливает и вкладку, иначе она уедет вперёд на всё её время.
+  _follow(video, pos, playing) {
+    if (!playing) {
+      video.pause();
+      return;
+    }
+    const diff = (video.currentTime || 0) - pos;
+    if (diff < -TCPlayer.DRIFT_S) video.currentTime = pos;
+    video.playbackRate = diff > TCPlayer.DRIFT_S ? TCPlayer.TRIM_RATE : 1;
+    if (video.paused) video.play().catch(() => {});
   },
 
   _packagedPct(video, dur) {
