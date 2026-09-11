@@ -118,7 +118,9 @@ const TCPlayerScreens = {
       : '';
   },
 
-  buffering(overlay) {
+  //: ``onBack`` есть, пока первого кадра не было: панель тогда спрятана (`player.js`),
+  //: и выход - «Назад» самого экрана. После кадра буферизация идёт поверх живой панели.
+  buffering(overlay, onBack) {
     const screen = document.createElement('div');
     screen.className = 'tc-buffering-screen';
     const spinner = document.createElement('div');
@@ -127,6 +129,7 @@ const TCPlayerScreens = {
     label.className = 'tc-buffering';
     label.textContent = TC.say('web.player.buffering');
     screen.append(spinner, label);
+    if (onBack) screen.append(TCPlayerScreens._actions(TCPlayerScreens._back(onBack)));
     overlay.replaceChildren(screen);
   },
 

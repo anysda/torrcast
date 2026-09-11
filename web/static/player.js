@@ -35,6 +35,7 @@ const TCPlayer = {
     TCPlayer._idleTimer = null;
     TCPlayer._leftSent = false;
     TCPlayer._halted = false;
+    TCPlayer._framed = false;
 
     const wrap = document.createElement('div');
     wrap.className = 'tc-player';
@@ -50,7 +51,7 @@ const TCPlayer = {
     video.playsInline = true;
     TCPlayer._nodes.frame.prepend(video);
     TCPlayer._video = video;
-    video.addEventListener('playing', () => TCPlayer._clearOverlay());
+    video.addEventListener('playing', () => { TCPlayer._framed = true; TCPlayer._clearOverlay(); });
     video.addEventListener('waiting', () => { if (!TCPlayer._advanced) TCPlayer._screenBuffering(); });
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
     video.addEventListener('ended', () => TCPlayer._startNext());
@@ -126,6 +127,7 @@ const TCPlayer = {
     }
     // Ушли с ``/play`` изнутри приложения (не закрытие вкладки - на него отвечает
     // `pagehide` ниже): цикл это увидел первым, и сказать «ухожу» тут естественно.
+    TCPlayer._callOff();
     TCPlayer._left();
   },
 
@@ -223,6 +225,7 @@ const TCPlayer = {
 
   _retry() {
     TCPlayer._retries = 0;
+    TCPlayer._framed = false;
     TCPlayer._screenBuffering();
     TCPlayer._attach(TCPlayer._url, TCPlayer._video.currentTime || 0);
   },
@@ -327,9 +330,13 @@ const TCPlayer = {
     TCPlayerScreens.refused(TCPlayer._overlay, reason, TCPlayer._leave);
   },
 
+  //: До первого кадра (свежий ящик, «Повторить») панели делать нечего: перематывать и
+  //: слать на ТВ ещё нечего, и её кнопки были мёртвыми (прод 11-09: «куча кнопок, которые
+  //: не работают»). Тогда она прячется, как у подготовки, а выход - «Назад» экрана.
   _screenBuffering() {
-    TCPlayer._halt(false);
-    TCPlayerScreens.buffering(TCPlayer._overlay);
+    const bare = !TCPlayer._framed;
+    TCPlayer._halt(bare);
+    TCPlayerScreens.buffering(TCPlayer._overlay, bare ? TCPlayer._leave : null);
   },
 
   _screenLost(code) {
@@ -349,8 +356,19 @@ const TCPlayer = {
   //: «назад» не имеет (``history.state`` пуст - его кладёт только ``TCRouter.go``), и
   //: шаг назад увёл бы на чужой сайт из истории вкладки: тогда - главная.
   _leave() {
+    TCPlayer._callOff();
     if (history.state !== null && history.length > 1) history.back();
     else TCRouter.go('/');
+  },
+
+  //: Уход с экрана подготовки снимает подъём, который заказала ЭТА вкладка (метка заказа -
+  //: `TCPlayerBox.STALE`): иначе показ поднимался для никого и тянул рой впустую (стенд
+  //: `.104` 11-09: после «Назад» 60 с `starting`). `pagehide` не снимает: `F5` - не уход.
+  _callOff() {
+    if (TCPlayer._url || sessionStorage.getItem(TCPlayerBox.STALE) === null) return;
+    const preparing = !!(TCPlayer._overlay && TCPlayer._overlay.querySelector('.tc-preparing'));
+    TCPlayerBox.dropStale();
+    if (preparing) TCApi.control('stop');
   },
 
   // ------------------------------------------------------------------ фокус и клавиши

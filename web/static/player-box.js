@@ -49,6 +49,7 @@ const TCPlayerBox = {
     player._url = box.url;
     // Новая серия имеет право на свою плашку отсчёта: она уже не та, что доигралa.
     player._advanced = false;
+    player._framed = false;  // кадра этого ящика ещё не было: панели нечего делать
     player._screenBuffering();
     player._attach(box.url, box.at || 0);
     return true;
