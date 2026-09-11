@@ -8,13 +8,19 @@
 
 Пустое поле недоездом НЕ считается: у картины без статьи описания не будет никогда, и
 заголовок стоит только там, где переспрашивать есть смысл (:func:`_answer`).
+
+Переспрос с ``wait=1`` - долгий: ответ держится, пока тело не изменится или не доедет
+целиком, но не дольше :data:`WAIT`. Короткий опрос раз в две секунды бросал страницу
+после пятого захода со скелетом вместо описания и слал по 4-6 GET на картину.
 """
 
 from __future__ import annotations
 
 import json
+import time
+from typing import Final
 
-from hass.poster_name import poster_name
+from hass.hit_posters import hits
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.config import Config
@@ -29,7 +35,9 @@ from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
 from web.card_lookup import card_lookup
-from web.episode_lookup import EpisodeLookup
+from web.card_poster import CardPoster
+from web.card_seasons import card_seasons
+from web.episode_lookup import GRACE, EpisodeLookup
 from web.rating_score import rating_score
 from web.refusal import refusal
 from web.related_lookup import RelatedLookup
@@ -40,11 +48,23 @@ from web.warm_wiring import WARM
 _PREFIX = "/api/card/"
 #: Заголовок, которым карточка метит недоехавшее описание, рейтинг, родню или серии.
 _PARTIAL = "X-Torrcast-Partial"
+#: Потолок долгого переспроса: переживает первый контакт разбора серий с роем, который
+#: завёл ещё первый GET. Равные 8 с кончали заход раньше разбора, и мёртвый рой сериала
+#: стоил странице третьего запроса (стенд `.104`: Knightfall, серии ответили на 8.19 с).
+WAIT: Final = GRACE + 1.0
+#: Шаг, которым долгий переспрос оглядывается на фоновые доборы.
+_TICK: Final = 0.25
 #: Разбор серий той раздачи, которую играл бы показ - один кэш на весь процесс
 #: (см. :class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
 #: Родня картины по Wikidata (§8) - тот же приём фонового кэша, что и у серий.
 _related = RelatedLookup(franchise=FACTS.franchise.of, passport=FACTS.passport.of)
+#: Приговор обложки - тот же, что у выдачи поиска и полки (:mod:`web.card_poster`).
+_poster = CardPoster(offer=hits.offer)
+#: Сколько долгий заход досиживает после первой перемены, пока доезжает остальное: части
+#: приходят порознь (стенд `.104`: родня и серии через 2.1 с, приговор обложки через 2.7 с),
+#: и ответ на каждую перемену стоил странице лишнего запроса.
+_SETTLE: Final = 1.0
 
 
 def card(request: Request) -> Answer:
@@ -63,20 +83,41 @@ def card(request: Request) -> Answer:
     plan, pick = card_lookup(plans, key)
     if plan is None:
         return refusal(404, "not_found")
-    return _answer(plan, config, pick)
+    return _answer(plan, config, pick, WAIT if request.query.get("wait") == "1" else 0.0)
 
 
-def _answer(plan: Plan, config: Config, pick: int) -> Answer:
-    """Тело ответа плюс заголовок недоехавшей части: справка или список серий."""
+def _answer(plan: Plan, config: Config, pick: int, wait: float = 0.0) -> Answer:
+    """Тело ответа плюс заголовок недоехавшей части: справка, обложка, родня, серии."""
     picture = plan.picture
     entry = store().load().get(picture.key)
     facts = MenuFacts([(picture.title, picture.year, picture.kind)], budget=0.0)
     facts.start()
+    until = time.monotonic() + wait
+    first, partial = _body(plan, config, pick, entry, facts)
+    body = first
+    while partial and time.monotonic() < until:
+        time.sleep(_TICK)
+        body, partial = _body(plan, config, pick, entry, facts)
+        if body != first:
+            until = min(until, time.monotonic() + _SETTLE)
+    extra = ((_PARTIAL, "1"),) if partial else ()
+    return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
+
+
+def _body(
+    plan: Plan, config: Config, pick: int, entry: Entry | None, facts: MenuFacts
+) -> tuple[dict[str, JsonValue], bool]:
+    """Тело как оно есть сейчас и «что-то ещё в пути»; пустая справка - готовый ответ."""
+    picture = plan.picture
     fact = facts.ready(picture.title, picture.year)
-    # Ответил ли источник, а не пуста ли справка: пустая справка - законченный ответ.
     told = facts.answered(picture.title, picture.year)
-    seasons, seasons_partial = _seasons(plan, entry, config.torrserver_url)
-    related = _others(picture.key, _related.of(picture.title, picture.kind == "tv"))
+    seasons, seasons_partial = card_seasons(plan, entry, config.torrserver_url, _episodes)
+    series = picture.kind == "tv"
+    related = _others(picture.key, _related.of(picture.title, series))
+    # Родня без идущего похода - молчание источника, а не недоезд: ждать её этой карточке
+    # нечего, и страница переспрашивала её до исчерпания заходов.
+    coming = related is None and _related.waiting(picture.title, series)
+    poster, judging = _poster.of(picture)
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
@@ -90,7 +131,7 @@ def _answer(plan: Plan, config: Config, pick: int) -> Answer:
         "runtime_estimated": plan.runtime_estimated,
         "rating": rating_score(fact.rating),
         "blurb": fact.about if told else None,
-        "poster": poster_name(picture.title, picture.year, picture.kind),
+        "poster": poster,
         "voices": _voices(plan),
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
@@ -99,9 +140,7 @@ def _answer(plan: Plan, config: Config, pick: int) -> Answer:
         "releases_count": len(picture.releases),
         "sources_count": _sources_count(picture.releases),
     }
-    partial = not told or seasons_partial or related is None
-    extra = ((_PARTIAL, "1"),) if partial else ()
-    return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
+    return body, not told or seasons_partial or coming or judging
 
 
 def _others(key: str, related: list[JsonValue] | None) -> list[JsonValue] | None:
@@ -137,61 +176,6 @@ def _voices(plan: Plan) -> list[JsonValue]:
         }
         for name, items in groups.items()
     ]
-
-
-def _seasons(plan: Plan, entry: Entry | None, base_url: str) -> tuple[list[JsonValue], bool]:
-    """Сезоны и серии: из закладки, если она есть; иначе разбор выбранной раздачи.
-
-    Разбор фоновый (:class:`web.episode_lookup.EpisodeLookup`): не готов - вернулась
-    ``None``, и карточка честно показывает только счётчик сезонов из имён раздач, помечая
-    тело недоехавшим (второй элемент пары), совсем как справка (:data:`_PARTIAL`).
-    """
-    picture = plan.picture
-    if picture.kind != "tv":
-        return [], False
-    if entry is not None and entry.episodes:
-        return _seasons_from_entry(entry), False
-    numbers = sorted({season for release in picture.releases for season in _named_seasons(release)})
-    fallback: list[JsonValue] = [{"n": n, "episodes": []} for n in numbers]
-    if not plan.ranked:
-        return fallback, False
-    table = _episodes.table(plan.ranked[0], base_url)
-    if table is None:
-        return fallback, True
-    return (_seasons_from_table(table), False) if table else (fallback, False)
-
-
-def _named_seasons(release: Release) -> tuple[int, ...]:
-    if release.seasons:
-        return release.seasons
-    return (release.season,) if release.season else ()
-
-
-def _seasons_from_entry(entry: Entry) -> list[JsonValue]:
-    at = entry.where(entry.season or 0, entry.episode or 0)
-    seasons: dict[int, list[JsonValue]] = {}
-    for index, row in enumerate(entry.episodes):
-        season, episode = row[0], row[1]
-        current = index == at
-        seasons.setdefault(season, []).append(
-            {
-                "n": episode,
-                "dur": entry.dur if current else 0.0,
-                "watched": entry.watched if current else index < at,
-                "pos": entry.pos if current else 0.0,
-            }
-        )
-    return [{"n": n, "episodes": eps} for n, eps in sorted(seasons.items())]
-
-
-def _seasons_from_table(table: list[list[int]]) -> list[JsonValue]:
-    """Серии из разбора раздачи: картину никто не смотрел, отмечать нечего."""
-    seasons: dict[int, list[JsonValue]] = {}
-    for row in table:
-        season, episode = row[0], row[1]
-        blank: dict[str, JsonValue] = {"n": episode, "dur": 0.0, "watched": False, "pos": 0.0}
-        seasons.setdefault(season, []).append(blank)
-    return [{"n": n, "episodes": eps} for n, eps in sorted(seasons.items())]
 
 
 def _sources_count(releases: list[Release]) -> int:

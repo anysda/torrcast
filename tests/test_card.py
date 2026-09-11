@@ -18,7 +18,8 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.select.plan import Plan
 from web.answer import JSON
-from web.card import card
+from web.card import WAIT, card
+from web.episode_lookup import GRACE
 from web.request import Request
 from web.warm_cache import WarmCache
 
@@ -82,9 +83,24 @@ class _StubRelated:
     """
 
     result: list[Any] | None = None
+    #: ``None`` при идущем походе - недоезд; без похода - молчание источника.
+    pending: bool = True
 
     def of(self, _title: str, _series: bool) -> list[Any] | None:
         return self.result
+
+    def waiting(self, _title: str, _series: bool) -> bool:
+        return self.result is None and self.pending
+
+
+@dataclass
+class _StubPoster:
+    """Подмена :class:`web.card_poster.CardPoster`: приговор уже вынесен, в сеть не ходим."""
+
+    name: str | None = None
+
+    def of(self, _picture: Picture) -> tuple[str | None, bool]:
+        return self.name, False
 
 
 def _warm(circle: Any) -> WarmCache:
@@ -97,15 +113,20 @@ def _wired(
     plans: list[Plan],
     episodes: list[list[int]] | None = None,
     related: list[Any] | None = None,
+    poster: str | None = None,
 ) -> None:
     monkeypatch.setattr("web.card.load_config", lambda: Config())
     monkeypatch.setattr("web.card.WARM", _warm(_plans(plans)))
     monkeypatch.setattr("web.card._episodes", _StubEpisodes(episodes))
     monkeypatch.setattr("web.card._related", _StubRelated(related))
+    monkeypatch.setattr("web.card._poster", _StubPoster(poster))
 
 
-def _asked(key: str, query: str = "interstellar") -> tuple[int, dict[str, Any], tuple[str, ...]]:
-    answer = card(Request("GET", f"/api/card/{key}", {"query": query}, {}))
+def _asked(
+    key: str, query: str = "interstellar", wait: bool = False
+) -> tuple[int, dict[str, Any], tuple[str, ...]]:
+    asked = {"query": query, "wait": "1"} if wait else {"query": query}
+    answer = card(Request("GET", f"/api/card/{key}", asked, {}))
     assert answer.kind == JSON
     body: dict[str, Any] = json.loads(answer.body)
     return answer.code, body, tuple(name for name, _ in answer.extra)
@@ -215,6 +236,23 @@ def test_a_picture_the_source_answered_nothing_about_is_not_marked_partial(
 
     assert body["blurb"] == ""
     assert body["rating"] is None
+    assert "X-Torrcast-Partial" not in extra
+
+
+def test_a_franchise_the_source_went_silent_on_does_not_hold_the_card_partial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Родня без идущего похода - молчание источника: у картины без статьи её не будет,
+    а карточка висела недоехавшей, и страница спрашивала её пять раз (стенд `.104`,
+    11-09-2026: четыре фильма полки из пяти)."""
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    monkeypatch.setattr("web.card._related", _StubRelated(None, pending=False))
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _AnsweredEmptyFacts())
+
+    _code, body, extra = _asked(_MOVIE.key)
+
+    assert body["related"] is None
     assert "X-Torrcast-Partial" not in extra
 
 
@@ -494,3 +532,104 @@ def test_the_card_carries_its_own_number_in_the_circle(
 
     assert code == 200
     assert body["pick"] == 2
+
+
+def test_the_card_names_its_poster_by_the_same_verdict_the_tiles_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Имя без приговора вело на 404: карточка «Usuzumizakura GARO» стояла без обложки."""
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[], poster="f00d")
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _AnsweredEmptyFacts())
+
+    _code, body, extra = _asked(_MOVIE.key)
+
+    assert body["poster"] == "f00d"
+    assert "X-Torrcast-Partial" not in extra
+
+
+def test_a_picture_the_verdict_found_no_art_for_names_no_poster(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Картинки нет - поля нет: страница оставляет обложку плитки, а не битую ссылку."""
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _AnsweredEmptyFacts())
+
+    _code, body, _extra = _asked(_MOVIE.key)
+
+    assert body["poster"] is None
+
+
+class _LateFacts:
+    """Справка, которая доезжает на третьем взгляде: долгий переспрос обязан её дождаться."""
+
+    def __init__(self, after: int) -> None:
+        self.after = after
+        self.looks = 0
+
+    def start(self) -> None:
+        return None
+
+    def ready(self, _title: str, _year: int | None) -> Any:
+        self.looks += 1
+        return _Fact() if self.looks >= self.after else Fact()
+
+    def answered(self, _title: str, _year: int | None) -> bool:
+        return self.looks >= self.after
+
+
+def test_a_waiting_ask_holds_the_answer_until_the_blurb_arrives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Короткий опрос бросал страницу со скелетом: долгий держит ответ до описания."""
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    state_slot.install(FakeStateStore())
+    late = _LateFacts(after=3)
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: late)
+    monkeypatch.setattr("web.card._TICK", 0.0)
+
+    _code, body, extra = _asked(_MOVIE.key, wait=True)
+
+    assert body["blurb"] == "Сюжет"
+    assert "X-Torrcast-Partial" not in extra
+    assert late.looks == 3
+
+
+def test_a_waiting_ask_gives_up_at_its_ceiling_and_still_says_partial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _LateFacts(after=10**9))
+    monkeypatch.setattr("web.card.WAIT", 0.05)
+    monkeypatch.setattr("web.card._TICK", 0.01)
+
+    _code, body, extra = _asked(_MOVIE.key, wait=True)
+
+    assert body["blurb"] is None
+    assert "X-Torrcast-Partial" in extra
+
+
+def test_the_waiting_ask_outlasts_the_first_contact_of_the_episode_lookup() -> None:
+    """🔴 Разбор серий заводит первый ``GET``, долгий заход идёт вторым: при равных 8 с
+    заход кончался раньше приговора мёртвому рою, и страница спрашивала третий раз."""
+    assert WAIT > GRACE
+
+
+def test_a_waiting_ask_brings_parts_landing_close_together_in_one_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Ответ на первую же перемену стоил странице лишнего запроса: родня и серии
+    приехали через 2.1 с, приговор обложки через 2.7 с, и третий ``GET`` не нёс ничего."""
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    state_slot.install(FakeStateStore())
+    looks = [({"related": None}, True), ({"related": []}, True), ({"related": []}, False)]
+    monkeypatch.setattr("web.card._body", lambda *_a: looks.pop(0))
+    monkeypatch.setattr("web.card._TICK", 0.0)
+
+    _code, body, extra = _asked(_MOVIE.key, wait=True)
+
+    assert body == {"related": []}
+    assert "X-Torrcast-Partial" not in extra
+    assert looks == []

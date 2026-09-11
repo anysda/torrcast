@@ -105,6 +105,30 @@ def test_a_key_nobody_owns_is_no_pick_at_all() -> None:
     assert card_lookup([plan], "movie:nobody:1900") == (None, 0)
 
 
+def test_a_tile_key_answers_through_a_typo_when_kind_and_year_both_agree() -> None:
+    """Лента и выдача пишут одно имя по-разному: замер на стенде `.104` 11-09-2026 - плитка
+    «Идущие за хвостом тигра» 1945 года, круг из раздач «Идушие ...», карточка отвечала 404."""
+    plan = _plan("Идушие за хвостом тигра", 1945, "Tora no o wo fumu otokotachi")
+
+    assert card_lookup([plan], "movie:идущие-за-хвостом-тигра:1945") == (plan, 1)
+
+
+def test_a_typo_is_not_trusted_with_a_drifted_year_or_in_a_short_name() -> None:
+    """Опечатка и съехавший год - две натяжки сразу; в коротком имени буква - уже другое имя."""
+    drifted = _plan("Идушие за хвостом тигра", 1946)
+    short = _plan("Мана", 2020)
+
+    assert card_lookup([drifted], "movie:идущие-за-хвостом-тигра:1945") == (None, 0)
+    assert card_lookup([short], "movie:мама:2020") == (None, 0)
+
+
+def test_the_exactly_named_picture_wins_over_a_typo() -> None:
+    typo = _plan("Идушие за хвостом тигра", 1945)
+    exact = _plan("Идущие за хвостом тигра", 1945, kind="tv")
+
+    assert card_lookup([typo, exact], "movie:идущие-за-хвостом-тигра:1945") == (exact, 2)
+
+
 def test_a_picture_answers_to_the_key_made_of_the_name_the_feed_gave_it() -> None:
     """Плитка полки зовёт картину именем ленты раздач, а круг - именем каталога.
 

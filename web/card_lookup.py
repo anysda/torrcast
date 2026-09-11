@@ -8,10 +8,17 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from difflib import SequenceMatcher
+from typing import Final
 
 from torrcast.domain.picture import Picture
 from torrcast.domain.picture_names import picture_names
 from torrcast.usecases.select.plan import Plan
+
+#: Опечатка, а не другая картина: лента раздач и выдача поиска пишут одно имя по-разному
+#: (стенд `.104`, 11-09-2026: плитка «Идущие за хвостом тигра», круг «Идушие ...», 404).
+_NEAR: Final = 0.9
+_NEAR_LEN: Final = 8
 
 
 def card_lookup(plans: list[Plan], key: str) -> tuple[Plan | None, int]:
@@ -59,11 +66,21 @@ def _score(picture: Picture, key: str) -> int:
     best = 0
     for own in _keys(picture):
         own_kind, own_slug, own_year = _parts(own)
-        if own_slug != slug:
-            continue
         matched = (own_kind == kind) + (own_year == year)
-        best = max(best, matched + 1 if matched else 0)
+        if own_slug == slug:
+            best = max(best, matched + 1 if matched else 0)
+        elif matched == 2 and _near(own_slug, slug):
+            # Опечатка в имени верится только при совпавших роде И годе, и любая картина
+            # с точным именем её обходит.
+            best = max(best, 1)
     return best
+
+
+def _near(own: str, asked: str) -> bool:
+    """Одно имя с опечаткой: длинное и разошедшееся буквой-другой, а не другое имя."""
+    if min(len(own), len(asked)) < _NEAR_LEN:
+        return False
+    return SequenceMatcher(None, own, asked).ratio() >= _NEAR
 
 
 def _parts(key: str) -> tuple[str, str, str]:

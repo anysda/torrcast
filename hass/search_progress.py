@@ -24,9 +24,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from hass import searching
 from hass.refused_error import RefusedError
 from hass.search_results import _hit
-from hass.searching import Detect, Remember
+from hass.searching import Detect, Offer, Remember
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.cluster import cluster
@@ -105,6 +106,7 @@ def _run(
     detect: Detect,
     remember: Remember,
     search: ProgressiveSearch,
+    offer: Offer | None = None,
 ) -> None:
     args = parse_args([query])
     chosen = detect(config)
@@ -119,9 +121,13 @@ def _run(
         return
     remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])
     taken = enter_take(plans, args.title_query).number
-    job.results = [
-        _hit(plan.picture, n, default=n == taken) for n, plan in enumerate(plans, start=1)
-    ]
+    hits = [_hit(plan.picture, n, default=n == taken) for n, plan in enumerate(plans, start=1)]
+    # Имя обложки даёт тот же приговор, что и обычному поиску (:data:`hass.searching.OFFER`):
+    # без этого шага веб-выдача шла совсем без обложек. Отказ приговора выдачу не роняет.
+    try:
+        job.results = (searching.OFFER if offer is None else offer)(hits)
+    except (TorrcastError, OSError):
+        job.results = hits
     job.done = True
     job.finished_at = time.monotonic()
 
@@ -150,6 +156,7 @@ def search_progress(
     remember: Remember,
     *,
     search: ProgressiveSearch = PROGRESSIVE_SEARCH,
+    offer: Offer | None = None,
 ) -> tuple[list[JsonValue], bool]:
     """Тело ``POST /api/search`` с ``progressive: true``: превью или готовый список.
 
@@ -171,7 +178,7 @@ def search_progress(
             _jobs[key] = job
             threading.Thread(
                 target=_run,
-                args=(job, config, query, detect, remember, search),
+                args=(job, config, query, detect, remember, search, offer),
                 daemon=True,
                 name="search-progress",
             ).start()

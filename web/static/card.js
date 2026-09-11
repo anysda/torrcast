@@ -5,8 +5,19 @@
 'use strict';
 
 const TCCard = {
-  _tries: 0,
   _voiceKey: 'tc-voice',
+  // Сколько долгих переспросов (`wait=1`) карточка делает после первого ответа. Прежний
+  // опрос раз в 2 с сдавался после пятого захода, и скелет описания оставался навсегда;
+  // долгий заход возвращается только с изменившимся телом.
+  _TURNS: 4,
+  // Сколько после первого тела описание стоит скелетом: дальше честное «нет описания»,
+  // а доехавшее позже встаёт на его место со следующим ответом.
+  _PATIENCE: 6000,
+  _patient: 0,
+  // Ход запуска на ТВ из этой карточки: переживает подмену тела доборами.
+  _tvSaid: null,
+  // Сколько ждать, пока каст поднимется: холодный рой - это десятки секунд.
+  _CAST_WAIT: 150000,
 
   async mount(root, key) {
     root.replaceChildren();
@@ -14,30 +25,54 @@ const TCCard = {
     const shell = TCCard._shell(key);
     root.appendChild(shell);
     shell.querySelector('.tc-back').focus();
-
-    TCCard._tries = 0;
+    if (TCCard._tvSaid && TCCard._tvSaid.done) TCCard._tvSaid = null;
     await TCCard._load(root, key, query);
   },
 
   async _load(root, key, query) {
-    if (!document.body.contains(root) || location.pathname !== '/card/' + encodeURIComponent(key)) {
-      return;
+    TCCard._patient = 0;
+    let data = null;
+    for (let turn = 0; turn <= TCCard._TURNS; turn += 1) {
+      if (!TCCard._here(root, key)) return;
+      const said = await TCApi.card(key, query, turn > 0);
+      if (!TCCard._here(root, key)) return;
+      if (said.data) data = said.data;
+      const last = !said.partial || turn === TCCard._TURNS;
+      if (data && !TCCard._patient) {
+        TCCard._patient = Date.now() + TCCard._PATIENCE;
+        setTimeout(() => TCCard._settle(root, key), TCCard._PATIENCE);
+      }
+      TCCard._show(root, key, query, data || TCCard._fallback(key), last || TCCard._settled());
+      if (last) return;
     }
-    const { data, partial } = await TCApi.card(key, query);
+  },
+
+  _here(root, key) {
+    return document.body.contains(root) && location.pathname === '/card/' + encodeURIComponent(key);
+  },
+
+  _settled() {
+    return TCCard._patient > 0 && Date.now() >= TCCard._patient;
+  },
+
+  // Описание ждёт скелетом не дольше `_PATIENCE` после первого тела; дальше - слова.
+  _settle(root, key) {
+    if (!TCCard._here(root, key)) return;
+    const skel = root.querySelector('.tc-detail-skel[data-tc-card-description]');
+    if (skel) skel.replaceWith(TCCard._descBlock({ blurb: '' }, true));
+  },
+
+  _show(root, key, query, data, settled) {
     const body = root.querySelector('#tc-card-body');
     if (!body) return;
-    // Тело карточки подменяется целиком на каждом доборе (до пяти раз), и вместе с ним
-    // уезжает элемент, на котором СТОЯЛ фокус: зритель с пультом терял место посреди
-    // чтения. Место возвращается по классу - своего имени у кнопок нет, а класс у них
-    // один и тот же до и после подмены.
+    // Тело карточки подменяется целиком на каждом доборе, и вместе с ним уезжает элемент,
+    // на котором СТОЯЛ фокус: зритель с пультом терял место посреди чтения. Место
+    // возвращается по классу - своего имени у кнопок нет, а класс у них один и тот же
+    // до и после подмены.
     const stood = document.activeElement;
     const held = body.contains(stood) ? stood.className : '';
-    if (data) body.replaceWith(TCCard._body(data, key, query));
+    body.replaceWith(TCCard._body(data, key, query, settled));
     if (held) TCCard._standAgain(root, held);
-    if (partial && TCCard._tries < 5) {
-      TCCard._tries += 1;
-      setTimeout(() => TCCard._load(root, key, query), 2000);
-    }
   },
 
   // Вернуть фокус туда же, где он стоял до подмены тела; такой кнопки в новом теле нет -
@@ -46,6 +81,27 @@ const TCCard = {
     const same = held ? root.querySelector('[data-tc-focusable].' + held.trim().split(/\s+/).join('.')) : null;
     const goes = same || root.querySelector('[data-tc-focusable]');
     if (goes) goes.focus();
+  },
+
+  // Что плитка знала о картине в миг клика (`tile.js`): обложка и имя рисуются сразу, а
+  // не после круга поиска (холодная карточка на стенде `.104` ждала его 5.4 с).
+  _hint(key) {
+    try {
+      const kept = JSON.parse(sessionStorage.getItem('tc-art:' + key) || 'null');
+      return kept && typeof kept === 'object' ? kept : {};
+    } catch (_) {
+      return {};
+    }
+  },
+
+  // Карточка не пришла вовсе (отказ поиска, 404, обрыв): вместо вечного скелета - то,
+  // что знала плитка, и честные слова «нет описания» и «нет раздач».
+  _fallback(key) {
+    const hint = TCCard._hint(key);
+    return {
+      title: hint.title || '', year: hint.year || null, poster: null, blurb: '',
+      voices: [], seasons: [], related: [], releases_count: 0,
+    };
   },
 
   _shell(key) {
@@ -81,11 +137,12 @@ const TCCard = {
     brand.textContent = 'Torrcast';
     top.append(back, brand);
 
+    const hint = TCCard._hint(key);
     const body = document.createElement('div');
     body.id = 'tc-card-body';
     body.className = 'tc-detail-body';
-    body.appendChild(TCCard._posterBlock(null, false, true));
-    body.appendChild(TCCard._loadingInfo());
+    body.appendChild(TCCard._posterBlock([hint.poster], false, !hint.poster, hint.title));
+    body.appendChild(TCCard._loadingInfo(hint.title));
 
     frame.append(top, body);
     wrap.append(blur, shade, scan, frame);
@@ -98,13 +155,18 @@ const TCCard = {
     return sum;
   },
 
-  _loadingInfo() {
+  _loadingInfo(named) {
     const info = document.createElement('div');
     info.className = 'tc-detail-info';
     const title = document.createElement('div');
-    title.className = 'tc-skel-line';
-    title.style.height = '5.5rem';
-    title.style.width = '60%';
+    if (named) {
+      title.className = 'tc-title-detail';
+      title.textContent = named;
+    } else {
+      title.className = 'tc-skel-line';
+      title.style.height = '5.5rem';
+      title.style.width = '60%';
+    }
     const skel = document.createElement('div');
     skel.className = 'tc-detail-skel';
     for (const width of ['100%', '93%', '56%']) {
@@ -117,30 +179,48 @@ const TCCard = {
     return info;
   },
 
-  // ``loading`` - карточка ещё не приехала совсем; ``poster`` пустой при этом ничего
-  // не значит про обложку САМОЙ картины - тем и отличается от «обложки честно нет».
-  _posterBlock(poster, isShow, loading) {
+  // ``loading`` - карточка ещё не приехала совсем, и обложки плитки тоже нет: пустой
+  // список имён при этом ничего не значит про обложку САМОЙ картины.
+  _posterBlock(names, isShow, loading, title) {
     const wrap = document.createElement('div');
     wrap.className = 'tc-detail-poster' + (isShow ? ' tc-detail-poster--show' : '');
     const frame = document.createElement('div');
     frame.className = 'tc-tile-frame';
     frame.appendChild(loading ? TCTile.build({ loading: true }).querySelector('.tc-tile-skeleton')
-      : TCTile.build({ poster, loading: false }).querySelector('.tc-tile-art-img, .tc-tile-noart'));
+      : TCCard._art([...new Set(names.filter(Boolean))], title));
     wrap.appendChild(frame);
     return wrap;
   },
 
-  _body(data, key, query) {
+  // Обложка цепочкой: та, что стояла на плитке, потом своя у карточки; не загрузилась
+  // одна - следующая, и лишь когда кончились все, блок «без обложки», как у плитки.
+  // Имя карточки считается по её названию в круге и расходилось с именем плитки
+  // («Usuzumizakura Garo» против «GARO»): одно это имя давало 404 и пустое место.
+  _art(names, title) {
+    if (!names.length) {
+      return TCTile.build({ poster: null, title, loading: false }).querySelector('.tc-tile-noart');
+    }
+    const img = document.createElement('img');
+    img.className = 'tc-tile-art-img';
+    img.alt = '';
+    img.src = TCTile.posterUrl(names[0]);
+    img.addEventListener('error', () => img.replaceWith(TCCard._art(names.slice(1), title)));
+    return img;
+  },
+
+  _body(data, key, query, settled) {
     const isShow = Array.isArray(data.seasons) && data.seasons.length > 0;
     const body = document.createElement('div');
     body.id = 'tc-card-body';
     body.className = 'tc-detail-body';
-    body.appendChild(TCCard._posterBlock(data.poster, isShow, false));
+    const hint = TCCard._hint(key);
+    body.appendChild(TCCard._posterBlock([hint.poster, data.poster], isShow, false,
+      data.shown || data.title || hint.title));
 
     const info = document.createElement('div');
     info.className = 'tc-detail-info';
     info.append(...TCCard._titleBlock(data, isShow));
-    info.appendChild(TCCard._descBlock(data));
+    info.appendChild(TCCard._descBlock(data, settled));
     info.appendChild(TCCard._buttons(data, key, query, isShow));
     if (isShow) {
       const firstSeason = data.seasons.findIndex((season) => season.n === 1);
@@ -230,8 +310,10 @@ const TCCard = {
     return bits;
   },
 
-  _descBlock(data) {
-    if (data.blurb === null || data.blurb === undefined) {
+  // ``settled`` - ждать справку дальше незачем: недоехавшее описание называется словами,
+  // а не остаётся скелетом (замер 11-09: скелет стоял после пятого добора навсегда).
+  _descBlock(data, settled) {
+    if ((data.blurb === null || data.blurb === undefined) && !settled) {
       const skel = document.createElement('div');
       skel.className = 'tc-detail-skel';
       skel.dataset.tcCardDescription = '1';
@@ -243,7 +325,7 @@ const TCCard = {
       }
       return skel;
     }
-    if (!String(data.blurb).trim()) {
+    if (!String(data.blurb || '').trim()) {
       const missing = document.createElement('div');
       missing.className = 'tc-detail-desc tc-body';
       missing.dataset.tcCardDescription = '1';
@@ -311,25 +393,18 @@ const TCCard = {
       const onTv = document.createElement('button');
       onTv.type = 'button';
       onTv.className = 'tc-btn tc-btn--secondary';
-      onTv.textContent = TC.say('web.detail.play_on_tv');
+      onTv.dataset.tcCardTv = '1';
+      const said = TCCard._tvSaid;
+      onTv.textContent = said && said.key === key ? said.text : TC.say('web.detail.play_on_tv');
       onTv.tabIndex = 0;
       onTv.dataset.tcFocusable = '1';
       onTv.dataset.tcGroup = 'buttons';
       // Кнопка стояла нажимаемой и не делала НИЧЕГО: обработчика ей не завели вовсе, в
       // отличие от соседних «Играть» и «Сначала» (замер на стенде `.104` 07-09-2026).
-      onTv.addEventListener('click', () => {
-        TCApi.toTv().then((said) => { if (said) TCRouter.go('/play'); });
-      });
-      // ТЗ §5: кнопка есть только там, где показ ЭТОЙ картины уже идёт в браузере - на ТВ
-      // передаётся идущий поток, а не новый показ, и над неигранной картиной она обещала
-      // бы несуществующее. Карточка про показ не знает, поле это не её: спрашивается ящик
-      // вкладки - тот же, из которого показ берёт плеер. Скрытую кнопку обходит и пульт
-      // (`nav.js` отсеивает по `offsetParent`), так что второго запрета не нужно.
-      onTv.hidden = true;
-      TCApi.box().then((box) => {
-        const shown = box && box.url ? String(box.title || '') : '';
-        onTv.hidden = !shown || (shown !== data.title && shown !== data.original);
-      });
+      // Потом её прятали, пока в ящике вкладки нет показа ЭТОЙ картины, и у неигранной
+      // картины пути на ТВ не стало вовсе (дефект владельца 11-09-2026). Теперь она есть
+      // у всякой картины с раздачами (`_toTv`).
+      onTv.addEventListener('click', () => TCCard._toTv(data, key, query, voices));
       row.appendChild(onTv);
     }
 
@@ -355,6 +430,62 @@ const TCCard = {
       }
     }
     return row;
+  },
+
+  // «На ТВ» всегда новый каст с закладки: поток вкладки, ушедшей с `/play`, сносится через
+  // 5 с (`left_after`), и переданный ТВ показ вставал на первом же куске (стенд, 11-09).
+  // Закладку до ухода двигала сама вкладка, так что ТВ продолжает с её места.
+  async _toTv(data, key, query, voices) {
+    const said = TCCard._tvSaid;
+    if (said && said.key === key && !said.done) return;
+    await TCCard._cast(data, key, query, voices);
+  },
+
+  // Новый показ на ТВ - тот же заказ, что у «Играть» (номер в круге, озвучка зрителя), но
+  // без `here`: его берёт приёмник из настройки машины (`config.tv`). Вкладке играть
+  // нечего, и она остаётся на карточке: ход каста человек видит на самой кнопке
+  // («Готовим…», затем «▶ На ТВ») и в шапке, где встаёт «сейчас играет» с названием.
+  async _cast(data, key, query, voices) {
+    const kept = sessionStorage.getItem(TCCard._voiceKey);
+    const picked = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
+    TCCard._tvSay(key, 'web.player.preparing', false);
+    const names = [data.shown, data.title, data.original].filter(Boolean);
+    // Показ вкладки с тем же именем ещё секунды «играет» после ухода с `/play`: тогда
+    // «На ТВ» только после `starting` нового показа, иначе кнопка врала ~30 с (стенд, 11-09).
+    const before = await TCApi.state();
+    const stale = !!before && before.state === 'playing' && names.includes(before.title);
+    const said = await TCApi.cast({
+      query: query || data.title || data.original || key,
+      pick: data.pick || undefined,
+      voice: picked,
+      from_start: false,
+    });
+    if (!said) {
+      TCCard._tvSay(key, 'web.player.refused', true);
+      return;
+    }
+    const until = Date.now() + TCCard._CAST_WAIT;
+    let began = false;
+    while (Date.now() < until) {
+      await new Promise((done) => setTimeout(done, 1000));
+      const state = await TCApi.state();
+      const now = state && state.state;
+      began = began || now === 'starting';
+      if (now === 'playing' && (began || (!stale && names.includes(state.title)))) {
+        TCCard._tvSay(key, 'web.player.on_tv', true);
+        return;
+      }
+      if (began && now === 'idle') break;
+    }
+    TCCard._tvSay(key, 'web.player.refused', true);
+  },
+
+  _tvSay(key, phrase, done) {
+    TCCard._tvSaid = { key, text: TC.say(phrase), done };
+    const button = document.querySelector('[data-tc-card-tv]');
+    if (button && location.pathname === '/card/' + encodeURIComponent(key)) {
+      button.textContent = TCCard._tvSaid.text;
+    }
   },
 
   // Позиция возобновления есть только у сериалов, и только внутри найденной серии

@@ -52,7 +52,14 @@ const TCTile = {
     tile.appendChild(TCTile._caption(shape));
 
     if (shape.onActivate) {
-      const go = () => shape.onActivate(shape.key, shape.query);
+      const go = () => {
+        // Обложку и имя плитки карточка рисует сразу, до ответа сервера (`card.js`).
+        try {
+          sessionStorage.setItem('tc-art:' + shape.key, JSON.stringify({
+            poster: shape.poster || null, title: shape.title || '', year: shape.year || null }));
+        } catch (_) { /* хранилище закрыто - карточка просто дождётся ответа */ }
+        shape.onActivate(shape.key, shape.query);
+      };
       tile.addEventListener('click', go);
       tile.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {

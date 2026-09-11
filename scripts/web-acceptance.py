@@ -37,6 +37,11 @@
 ⚠️ Пункт 13 - грепом, а не разбором AST: однословный литерал (``'Play'``) от ключа
 каталога не отличить простым грепом по кавычкам. Это названный предел точности этой
 проверки, а не дыра, которую прячут.
+
+Пункты 28-31 - карточка глазами человека: секунды от клика до обложки, имени и описания
+в DOM и число ``GET /api/card`` самой страницы, а не отклик сервера. 31 и 28 идут первыми,
+на свежей странице: пункты после них водят по полкам и греют плитки. ``--only 28,31``
+гоняет только названные пункты.
 """
 
 from __future__ import annotations
@@ -52,7 +57,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -2662,6 +2667,480 @@ def check_14_gate(repo: Path) -> Result:
     return Result(14, "Гейт", ok, None, detail)
 
 
+#: Карточка глазами человека (пункты 28-31): загруженная картинка обложки, имя и описание
+#: ТЕКСТОМ. Скелет описания несёт ту же метку ``data-tc-card-description``, но пуст.
+_CARD_LOOK: Final = """() => {
+  const since = window.__tcClickAt == null ? null : (performance.now() - window.__tcClickAt) / 1000;
+  const card = document.querySelector('[data-tc-card]');
+  if (!card) return { since, poster: false, title: '', desc: '' };
+  const img = card.querySelector('.tc-detail-poster img.tc-tile-art-img');
+  const desc = card.querySelector('[data-tc-card-description]');
+  const title = card.querySelector('.tc-title-detail');
+  return {
+    since,
+    poster: !!(img && img.complete && img.naturalWidth > 0),
+    title: title ? title.textContent.trim() : '',
+    desc: desc && !desc.classList.contains('tc-detail-skel') ? desc.textContent.trim() : '',
+  };
+}"""
+#: Номер последней плитки главной, чью середину человек видит: она в окне и под ней сама
+#: плитка; нет такой - ``-1``. Середина, а не вся плитка: ряд полки обрезан краем окна, и
+#: правило «целиком» оставляло три плитки полки истории, уже согретые. Проверка попадания:
+#: крайнюю плитку ряда накрывает поле у края полки (``tc-shelf-safe``), и клик уходил в него.
+_PICK_TILE: Final = """sel => {
+  let last = -1;
+  document.querySelectorAll(sel).forEach((tile, i) => {
+    const b = tile.getBoundingClientRect();
+    const x = b.left + b.width / 2;
+    const y = b.top + b.height / 2;
+    if (!(b.width > 0 && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)) return;
+    const e = document.elementFromPoint(x, y);
+    if (e && e.closest('[data-tc-tile]') === tile) last = i;
+  });
+  return last;
+}"""
+#: Точка плитки, ближайшая к её середине, в которую клик попадёт в саму плитку; ``null``,
+#: если такой нет.
+_HIT_POINT: Final = """tile => {
+  const b = tile.getBoundingClientRect();
+  const cx = b.left + b.width / 2;
+  const cy = b.top + b.height / 2;
+  const points = [];
+  for (let i = 1; i < 8; i++) {
+    for (let j = 1; j < 8; j++) {
+      points.push([b.left + (b.width * i) / 8, b.top + (b.height * j) / 8]);
+    }
+  }
+  points.sort((p, q) => Math.hypot(p[0] - cx, p[1] - cy) - Math.hypot(q[0] - cx, q[1] - cy));
+  for (const [x, y] of points) {
+    if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
+    const e = document.elementFromPoint(x, y);
+    if (e && e.closest('[data-tc-tile]') === tile) return [x, y];
+  }
+  return null;
+}"""
+#: Запросы плиток с картинкой, чья середина за краем окна: их не грел никто, как у
+#: владельца, долиставшего полку. Берутся первая, средняя и последняя - врозь, чтобы
+#: прогрев соседей одной, пока до неё листали, не согрел следующую.
+_COLD_TILES: Final = """sel => {
+  const out = [];
+  document.querySelectorAll(sel).forEach(tile => {
+    const b = tile.getBoundingClientRect();
+    const x = b.left + b.width / 2;
+    const y = b.top + b.height / 2;
+    const off = b.width > 0 && (x < 0 || y < 0 || x > innerWidth || y > innerHeight);
+    const q = tile.dataset.tcWarm || '';
+    if (off && q && tile.querySelector('img.tc-tile-art-img') && !out.includes(q)) out.push(q);
+  });
+  return out.length <= 3 ? out : [out[0], out[out.length >> 1], out[out.length - 1]];
+}"""
+#: Что под курсором в точке ``[x, y]``: запрос плитки или тег с классом того, что вместо неё.
+_UNDER: Final = """([x, y]) => {
+  const e = document.elementFromPoint(x, y);
+  const t = e && e.closest('[data-tc-tile]');
+  if (t) return t.dataset.tcWarm || 'плитка';
+  return e ? e.tagName.toLowerCase() + '.' + e.className : 'ничего';
+}"""
+_TILE_BY_QUERY: Final = """([sel, q]) =>
+  [...document.querySelectorAll(sel)].findIndex(tile => tile.dataset.tcWarm === q)"""
+_TILE_ART: Final = """tile => {
+  const img = tile.querySelector('img.tc-tile-art-img');
+  return !!(img && img.complete && img.naturalWidth > 0);
+}"""
+#: Плитки выдачи: имя и год, как их различает человек, и загрузилась ли картинка.
+#: ``textContent``, а не ``innerText``: второй отдаёт буквы уже после ``text-transform``.
+_TILE_LOOKS: Final = """tiles => tiles.map(tile => {
+  const img = tile.querySelector('img.tc-tile-art-img');
+  const cap = tile.querySelector('.tc-caption');
+  const year = tile.querySelector('.tc-tile-year');
+  return { title: cap ? cap.textContent.trim() : '', year: year ? year.textContent.trim() : '',
+           art: !!(img && img.complete && img.naturalWidth > 0) };
+})"""
+_PARTS: Final = {"poster": "обложка", "title": "имя", "desc": "описание"}
+#: «Открылась сразу»: обложка, имя и описание - не позже секунды от клика.
+_AT_ONCE: Final = 1.0
+#: N холодной карточки: дольше этого человек не ждёт описание (или слова «нет описания»)
+#: у картины, которую никто не грел. Холодный ``/api/card`` доходит до 11.7 с (замер
+#: пункта 22), и ещё 6 с описание стоит скелетом (``card.js``, ``_PATIENCE``).
+_COLD_CARD: Final = 20.0
+#: Сколько человек смотрит на главную с курсором на плитке, прежде чем кликнуть. До
+#: починки к 15-й секунде после загрузки было согрето 3 из 8 видимых плиток (стенд
+#: ``.104``, окно 1920x1080), и последняя видимая открывалась холодной за 5.4 с.
+_AIM_WAIT: Final = 15.0
+#: Окно счёта ``GET /api/card`` после клика и потолок в нём: первый ответ и один добор.
+#: Журнал прода 11-09-2026 показывал 4-6 запросов на одну картину.
+_GET_WINDOW: Final = 12.0
+_GETS_AT_MOST: Final = 2
+#: Выдача пункта 30 и срок, за который её круг обязан кончиться.
+_MATRIX: Final = "матрица"
+_SEARCH_SETTLE: Final = 60.0
+#: Каст с карточки (пункт 29, только ``--play``): подъём холодного роя.
+_CAST_WAIT: Final = 150.0
+
+
+#: Часы пунктов 28 и 31 идут от клика, который ПОЛУЧИЛА страница, а не от вызова
+#: ``click()``: тот сперва ждёт, пока плитка перестанет ехать (прокрутка, рост ряда), и
+#: это ожидание прибор записывал карточке (1.48 с при оболочке, вставшей за 0.06 с).
+_ARM_CLICK: Final = """() => {
+  window.__tcClickAt = null;
+  document.addEventListener('click', () => { window.__tcClickAt = performance.now(); },
+    { capture: true, once: true });
+}"""
+
+
+class _CardGets:
+    """Запросы страницы к ``/api/card/``: сколько ушло и когда пришёл первый ответ."""
+
+    def __init__(self) -> None:
+        self.began = time.monotonic()
+        self.asked: list[str] = []
+        self.answered_at: float | None = None
+
+    def request(self, request: Any) -> None:
+        if "/api/card/" in request.url:
+            self.asked.append(request.url)
+
+    def response(self, response: Any) -> None:
+        if "/api/card/" in response.url and self.answered_at is None:
+            self.answered_at = time.monotonic()
+
+    def first_answer(self, clicked: float | None) -> float | None:
+        """Секунды от клика до первого ответа; клика или ответа не было - ``None``."""
+        if clicked is None or self.answered_at is None:
+            return None
+        return round(self.answered_at - clicked, 2)
+
+
+@contextlib.contextmanager
+def _counting_gets(ctx: Ctx) -> Iterator[_CardGets]:
+    """Считать ``GET /api/card/`` страницы, пока открыт блок; отсчёт - от входа в него."""
+    gets = _CardGets()
+    ctx.page.on("request", gets.request)
+    ctx.page.on("response", gets.response)
+    try:
+        yield gets
+    finally:
+        ctx.page.remove_listener("request", gets.request)
+        ctx.page.remove_listener("response", gets.response)
+
+
+def _watch_card(
+    ctx: Ctx, ceiling: float
+) -> tuple[dict[str, float | None], dict[str, Any], float | None]:
+    """Секунды от клика (:data:`_ARM_CLICK`) до обложки, имени и описания карточки,
+    последний взгляд на неё и миг клика на часах прибора; клика страница не получила -
+    ``None``, и часы идут от входа сюда."""
+    at: dict[str, float | None] = dict.fromkeys(_PARTS)
+    began = time.monotonic()
+    clicked: float | None = None
+    while True:
+        look = ctx.page.evaluate(_CARD_LOOK) or {}
+        now = time.monotonic()
+        since = look.get("since")
+        if since is not None and clicked is None:
+            clicked = now - float(since)
+        spent = round(now - (began if clicked is None else clicked), 2)
+        for part in at:
+            if at[part] is None and look.get(part):
+                at[part] = spent
+        if None not in at.values() or spent >= ceiling:
+            return at, look, clicked
+        ctx.page.wait_for_timeout(50)
+
+
+def _said_at(at: dict[str, float | None]) -> str:
+    return ", ".join(
+        f"{_PARTS[part]} {'нет' if spent is None else f'{spent:.2f} с'}"
+        for part, spent in at.items()
+    )
+
+
+def _home(ctx: Ctx) -> None:
+    """Свежая главная, как её открывает человек: до первой живой плитки полки."""
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    with contextlib.suppress(Exception):
+        ctx.page.locator(_LIVE_TILE).first.wait_for(
+            state="visible", timeout=_HOME_TILES_WAIT * 1000
+        )
+
+
+def _home_tile(ctx: Ctx) -> Any:
+    """Последняя видимая плитка свежей главной (:data:`_PICK_TILE`); нет такой - ``None``.
+
+    Главная долистана на полэкрана вниз, как её листает человек до полки новинок: без
+    этого последней видимой оставалась плитка «Продолжить», а её прогрев берёт первой.
+    """
+    _home(ctx)
+    ctx.page.evaluate("() => window.scrollBy(0, innerHeight / 2)")
+    ctx.page.wait_for_timeout(1000)
+    index = ctx.page.evaluate(_PICK_TILE, _LIVE_TILE)
+    return ctx.page.locator(_LIVE_TILE).nth(index) if index >= 0 else None
+
+
+def _middle(ctx: Ctx, tile: Any) -> tuple[float, float]:
+    """Куда человек жмёт по плитке сейчас, а не когда её выбрал (:data:`_HIT_POINT`).
+
+    Нет точки попадания - середина ВИДНОЙ части: плитка у нижнего края окна после роста
+    ряда свешивается за край, и клик в середину всей плитки уходил мимо окна.
+    """
+    point = tile.evaluate(_HIT_POINT)
+    if point:
+        return float(point[0]), float(point[1])
+    frame = tile.bounding_box() or {"x": 0, "y": 0, "width": 0, "height": 0}
+    size = ctx.page.viewport_size or {"width": 0, "height": 0}
+    left, right = max(frame["x"], 0), min(frame["x"] + frame["width"], size["width"])
+    top, bottom = max(frame["y"], 0), min(frame["y"] + frame["height"], size["height"])
+    return (left + right) / 2, (top + bottom) / 2
+
+
+def _shot(ctx: Ctx, name: str) -> None:
+    ctx.shots.mkdir(parents=True, exist_ok=True)
+    ctx.page.screenshot(path=str(ctx.shots / name))
+
+
+def check_28_shelf_card(ctx: Ctx) -> Result:
+    """Полка → карточка (дефект 6): обложка плитки в карточке сразу, описание - словами.
+
+    Плитки - три с обложкой за краем окна (:data:`_COLD_TILES`): их не грел никто, и
+    карточка открывается холодной, как у владельца. Каждая - со свежей главной: человек
+    долистывает до плитки и кликает, как только её картинка загрузилась. Обложка и имя
+    обязаны встать за :data:`_AT_ONCE`, описание - текстом или словами «нет описания» за
+    :data:`_COLD_CARD`, и обложка к этому мигу на месте.
+    """
+    _home(ctx)
+    queries = ctx.page.evaluate(_COLD_TILES, _LIVE_TILE)
+    if not queries:
+        return Result(28, "Полка → обложка", False, None, "за краем окна нет плитки с обложкой")
+    ok, said = True, []
+    for number, query in enumerate(queries, 1):
+        _home(ctx)
+        index = ctx.page.evaluate(_TILE_BY_QUERY, [_LIVE_TILE, query])
+        if index < 0:
+            ok = False
+            said.append(f"{query!r}: плитки на свежей главной нет")
+            continue
+        tile = ctx.page.locator(_LIVE_TILE).nth(index)
+        tile.scroll_into_view_if_needed()
+        loaded_by = time.monotonic() + 10.0
+        while not tile.evaluate(_TILE_ART) and time.monotonic() < loaded_by:
+            ctx.page.wait_for_timeout(50)
+        ctx.page.evaluate(_ARM_CLICK)
+        with _counting_gets(ctx) as gets:
+            tile.click()
+            at, look, clicked = _watch_card(ctx, _COLD_CARD)
+        _shot(ctx, f"28-shelf-card-{number}.png")
+        at_once = all((at[part] or _COLD_CARD) <= _AT_ONCE for part in ("poster", "title"))
+        kept = bool(look.get("poster"))
+        ok = ok and at_once and at["desc"] is not None and kept
+        said.append(
+            f"{query!r}: {_said_at(at)}; первый ответ через {gets.first_answer(clicked)} с, "
+            f"GET {len(gets.asked)}; обложка в конце {'на месте' if kept else 'НЕТ'}; "
+            f"описание {str(look.get('desc', ''))[:40]!r}"
+        )
+    return Result(28, "Полка → обложка", ok, None, " | ".join(said))
+
+
+def check_29_card_tv_button(ctx: Ctx) -> Result:
+    """Кнопка «на ТВ» (дефект 7): есть в карточке и сериала, и фильма, а не только при показе.
+
+    Показа во вкладке прибор перед этим не запускает, так что кнопку не оправдывает идущий
+    показ. С ``--play`` кнопка нажимается у фильма: картина обязана заиграть на приёмнике
+    машины, позиция - вырасти между двумя замерами, затем показ останавливается.
+    """
+    label = ctx.english.get("web.detail.play_on_tv", "")
+    if not label:
+        return Result(29, "Кнопка на ТВ", False, None, "в каталоге нет web.detail.play_on_tv")
+    seen: list[str] = []
+    lost: list[str] = []
+    for number, title in enumerate((_SERIES_TITLE, _MOVIE_TITLE)):
+        why = _open_card_by_page(ctx, title)
+        if why:
+            lost.append(why)
+            continue
+        button = ctx.page.locator("[data-tc-card] button", has_text=label)
+        with contextlib.suppress(Exception):
+            button.first.wait_for(state="visible", timeout=_CARD_READY_WAIT)
+        _shot(ctx, f"29-card-{number}.png")
+        if button.count() and button.first.is_visible():
+            seen.append(title)
+        else:
+            lost.append(f"{title!r}: кнопки {label!r} не видно (узлов {button.count()})")
+    if lost:
+        return Result(29, "Кнопка на ТВ", False, None, f"видна у {seen}; " + "; ".join(lost))
+    if not ctx.allow_play:
+        detail = f"видна у {seen}; каст не нажимался: --play не задан"
+        return Result(29, "Кнопка на ТВ", True, None, detail)
+    button = ctx.page.locator("[data-tc-card] button", has_text=label).first
+    ok, said = _cast_from_card(ctx, button)
+    return Result(29, "Кнопка на ТВ", ok, None, f"видна у {seen}; каст: {said}")
+
+
+def _cast_from_card(ctx: Ctx, button: Any) -> tuple[bool, str]:
+    """Нажать «на ТВ»: что пишет кнопка по ходу, заиграло ли, две позиции, затем стоп."""
+    began = time.monotonic()
+    button.click()
+    words: list[str] = []
+    state: dict[str, Any] = {}
+    tv = ctx.page.locator("[data-tc-card-tv]")
+    while time.monotonic() - began < _CAST_WAIT:
+        text = (tv.first.text_content() or "").strip() if tv.count() else ""
+        if text and not any(word.startswith(text + " (") for word in words):
+            words.append(f"{text} ({time.monotonic() - began:.1f} с)")
+        state = _state(ctx)
+        if state.get("state") == "playing":
+            break
+        ctx.page.wait_for_timeout(1000)
+    took = time.monotonic() - began
+    first = _position(ctx)
+    # Приёмник докладывает позицию рывками: пара через 5 с легла на плато при идущем
+    # касте (стенд `.104`: пара 5.7 -> 5.7, а журнал остановил показ на 0:00:09).
+    grew, _within = _await_position_growth(ctx, first)
+    second = _position(ctx)
+    text = (tv.first.text_content() or "").strip() if tv.count() else ""
+    if text and not any(word.startswith(text + " (") for word in words):
+        words.append(f"{text} ({time.monotonic() - began:.1f} с)")
+    _shot(ctx, "29-cast.png")
+    _post(ctx.base + "/api/control", {"cmd": "stop"})
+    ctx.page.wait_for_timeout(3000)
+    after = _state(ctx).get("state")
+    playing = state.get("state") == "playing"
+    said = (
+        f"{'заиграло' if playing else 'НЕ заиграло'} за {took:.0f} с "
+        f"({state.get('title')!r} на {state.get('tv')!r}), позиции {first} → {second}; "
+        f"кнопка: {' → '.join(words) or 'без слов'}; после stop {after!r}"
+    )
+    return playing and grew, said
+
+
+def _final_hits(base: str, query: str) -> list[dict[str, Any]]:
+    """Выдача поиска, когда продукт снял с неё метку «ещё растёт» (или вышел срок)."""
+    body = json.dumps({"query": query, "progressive": True}).encode("utf-8")
+    deadline = time.monotonic() + _SEARCH_SETTLE
+    while True:
+        request = urllib.request.Request(
+            base + "/api/search", data=body, headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(request, timeout=30.0) as answer:
+            # Итог поиск метит "0", а не снимает метку: иначе ждали бы чужого нового круга.
+            partial = answer.headers.get("X-Torrcast-Partial") == "1"
+            got = json.loads(answer.read())
+        if not partial or time.monotonic() >= deadline:
+            rows = got.get("results") if isinstance(got, dict) else None
+            return [row for row in rows or [] if isinstance(row, dict)]
+        time.sleep(1.0)
+
+
+def _card_cover(base: str, key: str, query: str) -> bool | None:
+    """Знает ли карточка картины её обложку: имя в ``poster`` и 200 на ``/api/poster``.
+
+    Карточка не открылась вовсе (404, обрыв) - ``None``: это отказ карточки, пункта 22,
+    а не приговор обложке, и падать из-за него весь пункт не должен.
+    """
+    url = f"{base}/api/card/{urllib.parse.quote(key)}?query={urllib.parse.quote(query)}&wait=1"
+    deadline = time.monotonic() + _PARTIAL_WAIT
+    while True:
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(url), timeout=_CARD_GET_WAIT
+            ) as answer:
+                partial = answer.headers.get("X-Torrcast-Partial")
+                card = json.loads(answer.read())
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+            return None
+        if not partial or time.monotonic() >= deadline:
+            break
+        time.sleep(0.5)
+    name = card.get("poster") if isinstance(card, dict) else None
+    return bool(name) and _get(f"{base}/api/poster/{urllib.parse.quote(str(name))}")[0] == 200
+
+
+def check_30_search_posters(ctx: Ctx) -> Result:
+    """Обложки выдачи (дефект 8): у каждой картины, чья карточка знает обложку, она есть и
+    на плитке выдачи - загруженной картинкой, по итогу поиска через интерфейс.
+
+    Эталон - карточка той же картины (:func:`_card_cover`), а не поле выдачи: судить
+    выдачу по ней самой значило бы мерить её согласие с собой.
+    """
+    placeholder = ctx.english.get("web.search.placeholder", "")
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    box = ctx.page.get_by_placeholder(placeholder, exact=True) if placeholder else None
+    if box is None or box.count() == 0:
+        return Result(30, "Обложки выдачи", False, None, f"поле поиска {placeholder!r} не найдено")
+    box.first.fill(_MATRIX)
+    box.first.press("Enter")
+    hits = _final_hits(ctx.base, _MATRIX)
+    selector = f'[data-tc-tile][data-tc-warm="{_MATRIX}"]'
+    deadline = time.monotonic() + 20.0
+    while time.monotonic() < deadline and ctx.page.locator(selector).count() < len(hits):
+        ctx.page.wait_for_timeout(300)
+    ctx.page.wait_for_timeout(3000)
+    tiles = ctx.page.eval_on_selector_all(selector, _TILE_LOOKS)
+    _shot(ctx, "30-search.png")
+    covered: list[str] = []
+    bare: list[str] = []
+    refused: list[str] = []
+    for hit in hits:
+        name = str(hit.get("shown") or hit.get("title") or "")
+        year = str(hit.get("year") or "")
+        cover = _card_cover(ctx.base, str(hit.get("key") or ""), _MATRIX)
+        if cover is None:
+            refused.append(f"{name} {year}".strip())
+        if not cover:
+            continue
+        covered.append(f"{name} {year}".strip())
+        if not any(t["title"] == name and t["year"] == year and t["art"] for t in tiles):
+            bare.append(f"{name} {year}".strip())
+    with_art = sum(1 for tile in tiles if tile["art"])
+    ok = bool(covered) and not bare
+    detail = (
+        f"«{_MATRIX}»: плиток с обложкой {with_art}/{len(tiles)}; находок {len(hits)}, "
+        f"с обложкой в карточке {len(covered)}; без обложки на плитке: {bare or 'нет'}; "
+        f"карточка не открылась: {refused or 'нет'}"
+    )
+    return Result(30, "Обложки выдачи", ok, None, detail)
+
+
+def check_31_home_card(ctx: Ctx) -> Result:
+    """Главная → карточка (дефект 13): видимая плитка, на которую смотрят, уже согрета.
+
+    Курсор - на последней видимой плитке, :data:`_AIM_WAIT` секунд, клик. Обложка, имя и
+    описание обязаны встать за :data:`_AT_ONCE`, а страница - спросить ``/api/card`` не
+    больше :data:`_GETS_AT_MOST` раз за :data:`_GET_WINDOW` с.
+    """
+    tile = _home_tile(ctx)
+    if tile is None:
+        return Result(31, "Главная → карточка", False, None, "на главной нет видимой плитки")
+    name = tile.locator(".tc-caption").text_content() or ""
+    # Наводка - мышью в точку плитки, а не `hover()`: тот докручивает плитку в окно и
+    # меняет сам экран, который греется. Клик - по самой плитке, где она теперь: ряд под
+    # горящей плиткой растёт (`nav.js`), плитка уезжает из-под курсора, и клик в прежнюю
+    # точку попадал в щель ряда или в поле у края полки. К этому мигу прогрев уже решён.
+    aim = _middle(ctx, tile)
+    ctx.page.mouse.move(*aim)
+    ctx.page.wait_for_timeout(_AIM_WAIT * 1000)
+    under = ctx.page.evaluate(_UNDER, list(aim))
+    ctx.page.evaluate(_ARM_CLICK)
+    with _counting_gets(ctx) as gets:
+        try:
+            tile.click(timeout=5000)
+        except Exception as error:  # промах клика - строка пункта, а не падение прибора
+            under = f"{under}; клик не прошёл: {type(error).__name__}"
+        at, _look, clicked = _watch_card(ctx, _GET_WINDOW)
+        _shot(ctx, "31-home-card.png")
+        rest = _GET_WINDOW - (time.monotonic() - gets.began)
+        if rest > 0:
+            ctx.page.wait_for_timeout(rest * 1000)
+    at_once = all((spent or _GET_WINDOW) <= _AT_ONCE for spent in at.values())
+    ok = at_once and len(gets.asked) <= _GETS_AT_MOST
+    detail = (
+        f"{name.strip()!r} после {_AIM_WAIT:.0f} с под курсором (в миг клика под ним "
+        f"{under!r}): {_said_at(at)}; "
+        f"первый ответ /api/card через {gets.first_answer(clicked)} с; "
+        f"GET /api/card за {_GET_WINDOW:.0f} с: {len(gets.asked)} (потолок {_GETS_AT_MOST})"
+    )
+    return Result(31, "Главная → карточка", ok, None, detail)
+
+
 def _print(results: list[Result]) -> int:
     for result in sorted(results, key=lambda r: r.number):
         state = "OK" if result.ok else ("BLOCKED" if result.blocked else "FAIL")
@@ -2732,6 +3211,20 @@ def main() -> int:
         # Chromium без окна по умолчанию прячет полосы прокрутки (`--hide-scrollbars`):
         # с этим флагом ширина любой полосы 0, и пункт 26 зеленел бы на любой вёрстке.
         browser = driver.chromium.launch(headless=True, ignore_default_args=["--hide-scrollbars"])
+        # 31 и 28 - первыми, на свежей странице: пункты ниже водят по полкам и греют
+        # плитки, и холодную карточку после них было бы не с чего открыть. Окно - экран
+        # ПК владельца (1920x1080), на котором сняты его дефекты карточки.
+        wide = Ctx(
+            args.base,
+            browser.new_page(viewport={"width": 1920, "height": 1080}),
+            args.play,
+            args.shots,
+            english,
+        )
+        pick(31, "Главная → карточка", lambda: check_31_home_card(wide))
+        pick(28, "Полка → обложка", lambda: check_28_shelf_card(wide))
+        pick(30, "Обложки выдачи", lambda: check_30_search_posters(wide))
+        pick(29, "Кнопка на ТВ", lambda: check_29_card_tv_button(wide))
         page = browser.new_page()
         ctx = Ctx(args.base, page, args.play, args.shots, english)
         pick(1, "Главная", lambda: check_1_home(ctx))

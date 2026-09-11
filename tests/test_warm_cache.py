@@ -258,3 +258,37 @@ def test_the_background_waits_while_a_live_request_holds_the_indexers() -> None:
     assert waited == []
     assert order == ["live", "warm"]
     assert not [hand for hand in hands if hand.is_alive()]
+
+
+@pytest.mark.machine
+def test_a_live_request_waits_for_the_circle_the_background_is_already_counting() -> None:
+    """🔴 Карточка с главной: фон уже считает круг плитки, живой не считает его второй раз."""
+    hands: list[threading.Thread] = []
+    started, release = threading.Event(), threading.Event()
+    circle = _Circle()
+
+    def _slow(query: str) -> list[Plan]:
+        started.set()
+        release.wait(5.0)
+        return circle(query)
+
+    def _thread(job: Callable[[], None]) -> None:
+        hand = threading.Thread(target=job, daemon=True)
+        hands.append(hand)
+        hand.start()
+
+    cache = _cache(_slow, spawn=_thread)
+    cache.ask(["Interstellar"])
+    assert started.wait(5.0)
+    taken: list[list[Plan]] = []
+    caller = threading.Thread(target=lambda: taken.append(cache.take("Interstellar")), daemon=True)
+    hands.append(caller)
+    caller.start()
+    time.sleep(0.2)
+    release.set()
+    for hand in hands:
+        hand.join(5.0)
+
+    assert taken == [[_PLAN]]
+    assert circle.asked == ["Interstellar"]
+    assert not [hand for hand in hands if hand.is_alive()]

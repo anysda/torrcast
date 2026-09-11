@@ -14,6 +14,7 @@ from tests.usecases.discover.world import Indexer, row, wire_catalogue
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.usecases.discover.search_circle import search_circle
 
@@ -38,6 +39,11 @@ def _detect(_config: Config) -> Choice:
 
 def _remember(*_args: Any, **_kwargs: Any) -> None:
     return None
+
+
+def _as_is(results: list[JsonValue]) -> list[JsonValue]:
+    """Приговор обложек без сети: фоновый круг переживает тест и не смеет звать настоящий."""
+    return results
 
 
 class _PreviewClient(Indexer):
@@ -70,7 +76,7 @@ def _blocking_search(client: _PreviewClient, gate: threading.Event) -> Any:
 
 
 def _poll(text: str, search: Any) -> tuple[list[Any], bool]:
-    return search_progress(_CONFIG, text, _detect, _remember, search=search)
+    return search_progress(_CONFIG, text, _detect, _remember, search=search, offer=_as_is)
 
 
 def test_a_still_running_job_answers_with_a_preview_before_the_circle_returns() -> None:
@@ -109,6 +115,33 @@ def test_the_final_poll_carries_the_real_default_and_partial_false() -> None:
     assert partial is False
     assert len(results) == 2
     assert sum(1 for hit in results if hit["default"]) == 1
+
+
+def test_the_final_list_goes_through_the_same_poster_verdict_as_plain_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Веб-выдача шла без обложек: итог не проходил приговор, который проходит HA."""
+    wire_catalogue()
+    gate = threading.Event()
+    gate.set()
+    client = _PreviewClient(answers={"тачки": _CARS}, raw=_CARS)
+    search = _blocking_search(client, gate)
+    monkeypatch.setattr(
+        "hass.searching.OFFER",
+        lambda results: [{**hit, "poster": "p-" + hit["key"]} for hit in results],
+    )
+
+    def poll() -> tuple[list[Any], bool]:
+        return search_progress(_CONFIG, "тачки", _detect, _remember, search=search)
+
+    results, partial = poll()
+    deadline = time.monotonic() + 1.0
+    while partial and time.monotonic() < deadline:
+        results, partial = poll()
+
+    assert partial is False
+    assert [hit["poster"] for hit in results] == ["p-" + hit["key"] for hit in results]
+    assert len(results) == 2
 
 
 def test_a_second_poll_of_the_same_query_does_not_start_a_second_search() -> None:

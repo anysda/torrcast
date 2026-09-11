@@ -44,6 +44,8 @@ WORKERS: Final = 1
 LIMIT: Final = 40
 #: Сколько фоновый рабочий ждёт живого, прежде чем оглядеться заново.
 PATIENCE: Final = 5.0
+#: Сколько живой запрос ждёт круг, который уже считает фон, прежде чем считать сам.
+BUSY_WAIT: Final = 30.0
 
 
 #: Кто считает круг, кто греет справку пакетом и кто уносит работу в фон; боевых
@@ -76,7 +78,15 @@ class WarmCache:
     _cond: threading.Condition = field(default_factory=threading.Condition, repr=False)
 
     def take(self, query: str) -> list[Plan]:
-        """Круг живому запросу: согретый - сразу, иначе считается тут же, вперёд фона."""
+        """Круг живому запросу: согретый - сразу, иначе считается тут же, вперёд фона.
+
+        Круг, который прямо сейчас считает фон, живой не считает второй раз, а дожидается:
+        второй веер по тем же индексерам делил бы с первым пул и тянул оба (карточка с
+        главной открывалась 5.4 с при уже идущем прогреве той же плитки, стенд `.104`).
+        """
+        key = query.strip()
+        with self._cond:
+            self._cond.wait_for(lambda: key not in self._busy, timeout=BUSY_WAIT)
         if (ready := self.ready(query)) is not None:
             return ready
         with self._hold():
@@ -146,6 +156,7 @@ class WarmCache:
                 self._remember(query, plans)
                 with self._cond:
                     self._busy.discard(query)
+                    self._cond.notify_all()
         finally:
             with self._cond:
                 self._running -= 1

@@ -33,6 +33,10 @@ Offer = Callable[[list[JsonValue]], list[JsonValue]]
 Spawn = Callable[[Callable[[], None]], None]
 TIMEOUT = 8.0
 RETRY = 3600.0
+#: Сколько молчание источника держит имя от нового похода: ``None`` отдаёт и картина без
+#: статьи в Википедии, и без срока каждый тик долгого захода карточки шёл в сеть заново
+#: (стенд `.104`, 11-09-2026: четыре фильма полки из пяти, по пять ``GET`` на карточку).
+SILENT = 120.0
 #: Та же форма, что у плитки полок (:data:`web.shelves_cache._TILE_FIELDS`) - страница
 #: рисует обе плитки одним и тем же кодом, а не двумя похожими. ``shown`` - имя ДЛЯ
 #: ЧЕЛОВЕКА, ``title`` остаётся записанным ради розыска обложки и ``query``.
@@ -95,6 +99,7 @@ class RelatedLookup:
     clock: Callable[[], float] = time.monotonic
     _tiles: dict[tuple[str, bool], tuple[list[JsonValue], float]] = field(default_factory=dict)
     _pending: set[tuple[str, bool]] = field(default_factory=set)
+    _silent: dict[tuple[str, bool], float] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def of(self, title: str, series: bool) -> list[JsonValue] | None:
@@ -114,7 +119,7 @@ class RelatedLookup:
             cached = self._tiles.get(asked)
             if cached is not None and cached[1] > now:
                 return cached[0]
-            if asked in self._pending:
+            if asked in self._pending or now < self._silent.get(asked, 0.0):
                 return None
             self._pending.add(asked)
         self.spawn(lambda: self._build(title, series))
@@ -122,8 +127,13 @@ class RelatedLookup:
             cached = self._tiles.get(asked)
             return cached[0] if cached is not None else None
 
+    def waiting(self, title: str, series: bool) -> bool:
+        """Идёт ли поход за роднёй: ``None`` без похода - молчание, ждать его нечего."""
+        with self._lock:
+            return (title, series) in self._pending
+
     def _build(self, title: str, series: bool) -> None:
-        """Собрать плитки родни; молчание сети в кэш не ложится - переспросит следующий.
+        """Собрать плитки родни; молчание в кэш не ложится - переспросят после :data:`SILENT`.
 
         🔴 Пустая полка кэшируется только когда она ОТВЕЧЕНА (:meth:`FranchiseKin.of`
         отдал список). ``None`` - сеть промолчала, и записать его «родни нет» на час
@@ -133,6 +143,7 @@ class RelatedLookup:
         ``try/finally`` упавший фон держал имя в ``_pending`` вечно, и полка висела
         недоехавшей до перезапуска процесса.
         """
+        found: list[Kin] | None = None
         try:
             found = self.franchise(title, series, TIMEOUT)
             if found is None:
@@ -142,10 +153,12 @@ class RelatedLookup:
             with self._lock:
                 self._tiles[(title, series)] = (tiles, self.clock() + RETRY)
         except Exception:
-            return
+            found = None
         finally:
             with self._lock:
                 self._pending.discard((title, series))
+                if found is None:
+                    self._silent[(title, series)] = self.clock() + SILENT
 
     def _latin_of(self, name: str) -> str:
         """Латиница родни из паспорта - под русским языком показ на неё не смотрит.

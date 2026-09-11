@@ -159,6 +159,7 @@ MODULE_MIRRORS: Final = {
     "hass/http_routes.py": "tests/test_serve.py",
     "hass/resuming.py": "tests/test_bridge.py",
     "torrcast/usecases/discover/_plan_menu.py": "tests/usecases/discover/test_search_circle.py",
+    "web/card_seasons.py": "tests/test_card.py",
 }
 #: Файлы интеграции Home Assistant, форму которых задаёт не наша раскладка, а сам
 #: Home Assistant: он ищет их по имени и сам решает, что внутри. Снятое правило названо

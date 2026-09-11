@@ -69,10 +69,12 @@ const TCApi = {
   },
 
   // Карточка иногда приходит частями (заголовок ``X-Torrcast-Partial``): её самой
-  // читает card.js, который и решает, звать ли следующий заход через 2 с.
-  async card(key, query) {
+  // читает card.js и переспрашивает долгим заходом (``wait``): сервер держит ответ,
+  // пока тело не изменится, вместо того чтобы страница стучалась раз в две секунды.
+  async card(key, query, wait) {
     const params = query ? '?query=' + encodeURIComponent(query) : '';
-    const url = '/api/card/' + encodeURIComponent(key) + params;
+    const url = '/api/card/' + encodeURIComponent(key) + params
+      + (wait ? (params ? '&' : '?') + 'wait=1' : '');
     try {
       const said = await fetch(url);
       if (!said.ok) return { data: null, partial: false };
@@ -93,6 +95,12 @@ const TCApi = {
     if (said) TCRouter.go('/play');
     else TCPlayerBox.dropStale();
     return said;
+  },
+
+  // Показ на ТВ из карточки (`card.js`): тот же ``/api/play``, но без ``here`` - его берёт
+  // приёмник машины, и страница остаётся на карточке, а не уходит в плеер вкладки.
+  async cast(body) {
+    return TCApi._post('/api/play', body);
   },
 
   // Что человек видит на экране (`warm.js`). Ответ странице не нужен: эти плитки она

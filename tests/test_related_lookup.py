@@ -7,7 +7,7 @@ from collections.abc import Callable
 from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.json_value import JsonValue
-from web.related_lookup import RelatedLookup
+from web.related_lookup import SILENT, RelatedLookup
 
 _ONE = Kin("Q1", "Гарри Поттер и Тайная комната", 2002)
 _TWO = Kin("Q2", "Гарри Поттер и Кубок огня", 2005)
@@ -60,28 +60,51 @@ def test_an_empty_franchise_is_a_finished_answer_not_a_pending_one() -> None:
 
 def test_a_silent_network_is_not_cached_as_an_empty_shelf() -> None:
     """🔴 ``None`` от франшизы - сеть молчит: не ответ, а недоезд, и кэшировать его
-    «родни нет» на :data:`RETRY` нельзя - следующий вопрос заводит добор заново."""
+    «родни нет» на :data:`RETRY` нельзя - вопрос после :data:`SILENT` заводит добор заново."""
+    asked: list[str] = []
+    now = [0.0]
+
+    def _silent(title: str, _series: bool, _timeout: float) -> list[Kin] | None:
+        asked.append(title)
+        return None
+
+    lookup = RelatedLookup(franchise=_silent, offer=_passthrough, spawn=_sync, clock=lambda: now[0])
+    assert lookup.of("Чужой", False) is None
+    now[0] += SILENT + 1.0
+    assert lookup.of("Чужой", False) is None
+    assert asked == ["Чужой", "Чужой"], "вопрос после срока обязан спросить франшизу заново"
+
+
+def test_silence_is_not_asked_again_on_every_look_and_is_not_a_build_to_wait_for() -> None:
+    """🔴 ``None`` отдаёт и картина без статьи в Википедии. Без срока каждый тик долгого
+    захода карточки шёл в сеть заново, а карточка висела недоехавшей: стенд `.104`,
+    11-09-2026 - четыре фильма полки из пяти, по пять ``GET`` на карточку."""
     asked: list[str] = []
 
     def _silent(title: str, _series: bool, _timeout: float) -> list[Kin] | None:
         asked.append(title)
         return None
 
-    lookup = RelatedLookup(franchise=_silent, offer=_passthrough, spawn=_sync)
-    assert lookup.of("Чужой", False) is None
-    assert lookup.of("Чужой", False) is None
-    assert asked == ["Чужой", "Чужой"], "второй вопрос обязан спросить франшизу заново"
+    lookup = RelatedLookup(franchise=_silent, offer=_passthrough, spawn=_sync, clock=lambda: 0.0)
+    assert lookup.of("Maharaja Hostel", False) is None
+    assert lookup.of("Maharaja Hostel", False) is None
+    assert asked == ["Maharaja Hostel"]
+    assert not lookup.waiting("Maharaja Hostel", False)
 
 
 def test_a_healed_network_fills_the_shelf_that_silence_left_pending() -> None:
     """Сеть ожила - та же карточка достраивает полку без перезапуска и без часа ожидания."""
     answers: list[list[Kin] | None] = [None, [_ONE]]
+    now = [0.0]
 
     def _franchise(_title: str, _series: bool, _timeout: float) -> list[Kin] | None:
         return answers.pop(0)
 
-    lookup = RelatedLookup(franchise=_franchise, offer=_passthrough, spawn=_sync)
+    lookup = RelatedLookup(
+        franchise=_franchise, offer=_passthrough, spawn=_sync, clock=lambda: now[0]
+    )
     assert lookup.of("Чужой", False) is None
+    now[0] += SILENT + 1.0
     related = lookup.of("Чужой", False)
     assert related is not None and len(related) == 1
 
@@ -90,6 +113,7 @@ def test_a_failed_build_does_not_hold_the_title_pending_forever() -> None:
     """Упавший фон - не ответ и не вечное «ещё не готово»: имя отпускается, и следующий
     вопрос заводит новый добор, а не висит на погибшем."""
     spawned: list[str] = []
+    now = [0.0]
 
     def _broken(_title: str, _series: bool, _timeout: float) -> list[Kin] | None:
         raise OSError("network down")
@@ -98,9 +122,13 @@ def test_a_failed_build_does_not_hold_the_title_pending_forever() -> None:
         spawned.append("x")
         job()
 
-    lookup = RelatedLookup(franchise=_broken, offer=_passthrough, spawn=_counted)
+    lookup = RelatedLookup(
+        franchise=_broken, offer=_passthrough, spawn=_counted, clock=lambda: now[0]
+    )
 
     assert lookup.of("Чужой", False) is None
+    assert not lookup.waiting("Чужой", False)
+    now[0] += SILENT + 1.0
     assert lookup.of("Чужой", False) is None
     assert len(spawned) == 2, "погибший добор держит имя занятым - второй добор не завёлся"
 
