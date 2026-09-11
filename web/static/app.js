@@ -54,12 +54,12 @@ const TC = {
 
   // Шапка живёт только на главной; ``state`` - ответ ``/api/state`` (или ``null``,
   // пока он не приехал): плашка «сейчас идёт» появляется, только когда показ не в покое.
-  // ``loading`` - главная ещё собирает полки, и слот шапки говорит об этом вслух.
-  header(state, loading) {
+  // ``loading`` - главная ещё собирает полки, а ``box`` называет место показа.
+  header(state, loading, box) {
     const header = document.createElement('header');
     header.className = 'tc-header tc-safe';
     header.append(TC._marquee());
-    if (state && state.state && state.state !== 'idle') header.append(TC._chip(state));
+    if (state && state.state && state.state !== 'idle') header.append(TC._chip(state, !!(box && box.tv)));
     else if (loading) header.append(TC._loading());
     return header;
   },
@@ -107,10 +107,7 @@ const TC = {
     return brand;
   },
 
-  // Договора о «показ идёт на ТВ, а не в браузере» в ``/api/state`` сегодня нет
-  // (поле ``tv`` - имя настроенного телевизора, не флаг места показа): значок «На ТВ»
-  // тут намеренно не рисуется, это честный пробел контракта, а не забытая строка.
-  _chip(state) {
+  _chip(state, onTv) {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'tc-now';
@@ -126,7 +123,7 @@ const TC = {
     }
     const label = document.createElement('div');
     label.className = 'tc-now-label';
-    label.textContent = TC.say('web.header.now_playing');
+    label.textContent = TC.say(onTv ? 'web.header.on_tv' : 'web.header.now_playing');
     const title = document.createElement('div');
     title.className = 'tc-now-title';
     title.textContent = state.shown_as || state.title || '';

@@ -17,9 +17,10 @@ const TCHome = {
   // Номер живого круга опроса полок: вернувшись на главную, прежний круг гаснет,
   // иначе два таймера спрашивали бы сервер вдвоём.
   _shelfPoll: 0,
-  // Что шапка знает прямо сейчас: последний ответ о показе и идёт ли ещё сборка полок.
-  // Оба приходят порознь и в любом порядке, а шапка на экране одна.
+  // Что шапка знает прямо сейчас: последний ответ о показе, место показа и сборка полок.
+  // Они приходят порознь и в любом порядке, а шапка на экране одна.
   _state: null,
+  _box: null,
   _assembling: false,
 
   async mount(root) {
@@ -32,8 +33,9 @@ const TCHome = {
     scan.className = 'tc-scan';
 
     TCHome._state = null;
+    TCHome._box = null;
     TCHome._assembling = !asked;
-    const header = TC.header(TCHome._state, TCHome._assembling);
+    const header = TC.header(TCHome._state, TCHome._assembling, TCHome._box);
     const wrap = document.createElement('div');
     wrap.className = 'tc-shelf-safe';
     wrap.append(TCHome._search(), asked ? TCHome._askedBody(asked) : TCHome._loadingBody());
@@ -46,7 +48,7 @@ const TCHome = {
     // Снимок показа полки НЕ держит: с молчащим ресивером ``/api/state`` едет до 20 с
     // (громкость спрашивается у самого приёмника, `hass/volume.py`), а полки от того,
     // что играет телевизор, не зависят. Плашка «сейчас идёт» встанет на шапку сама,
-    // когда state доедет.
+    // когда state и ящик доедут.
     TCHome._stateLater(root);
     TCHome._shelfPoll += 1;
     const [history, shelves] = await Promise.all([TCApi.history(), TCApi.shelves()]);
@@ -72,9 +74,10 @@ const TCHome = {
   // Плашка «сейчас идёт» доезжает позже полок и пересобирает шапку сама: ждать снимок
   // ДО отрисовки значило бы запереть готовые полки за опросом телевизора.
   async _stateLater(root) {
-    const state = await TCApi.state();
+    const [state, box] = await Promise.all([TCApi.state(), TCApi.box()]);
     if (!document.body.contains(root) || location.pathname !== '/') return;
     TCHome._state = state;
+    TCHome._box = box;
     TCHome._wear();
   },
 
@@ -96,7 +99,7 @@ const TCHome = {
     if (loading !== undefined) TCHome._assembling = loading;
     const header = document.querySelector('.tc-header');
     if (!header) return;
-    header.replaceWith(TC.header(TCHome._state, TCHome._assembling));
+    header.replaceWith(TC.header(TCHome._state, TCHome._assembling, TCHome._box));
     if (TCHome._found && TCHome._found.query === TCHome._query) {
       TCHome._syncCount(TCHome._found.results.length);
     }
