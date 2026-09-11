@@ -1981,9 +1981,35 @@ _PC_LANDING_TOLERANCE: Final = 2.0
 _PC_REPORT_POLL: Final = 0.25
 
 #: Шаг опроса позиции ТВ - тот же, каким сам продукт держит `current_time` живым
-#: (``web.tv_session.POLL_SECONDS``): чаще спрашивать нечего, у приёмника ещё не
+#: (``web.live_receiver.POLL_SECONDS``): чаще спрашивать нечего, у приёмника ещё не
 #: появится новое число.
 _POSITION_POLL: Final = 2.0
+
+#: Потолок ожидания честного сдвига позиции. Живой приёмник отдаёт позицию рывками, а
+#: не плавно: независимый замер каденции (120 с опроса раз в секунду, 12 сдвигов) дал
+#: шаг ~10.4 с при худшем промежутке 10.5 с; отдельный более долгий замер (окно 40 с)
+#: поймал сдвиги через 3, затем через 10, затем через 24 с - худший из двух замеров.
+#: Окно взято 40 с - в 1.6 раза больше худшего наблюдённого промежутка (24.5 с), а не
+#: подогнано под то, что уже позеленело.
+_POSITION_GROWTH_WAIT: Final = 40.0
+
+
+def _await_position_growth(ctx: Ctx, before: float | None) -> tuple[bool, float | None]:
+    """Ждать до :data:`_POSITION_GROWTH_WAIT`, пока позиция честно обгонит ``before``.
+
+    Мера - «сдвинулась вперёд хотя бы раз за N секунд», а не одна пара до/после через
+    фиксированную паузу: у живого приёмника отдача рывками (см. константу выше), и пара
+    через 4 с из старой версии скрипта попадала на плато при работающем касте.
+    """
+    if before is None:
+        return False, None
+    began = time.monotonic()
+    while time.monotonic() - began < _POSITION_GROWTH_WAIT:
+        ctx.page.wait_for_timeout(int(_POSITION_POLL * 1000))
+        after = _position(ctx)
+        if after is not None and after > before:
+            return True, time.monotonic() - began
+    return False, None
 
 
 #: Каст на ТВ судится после 15 с на подъём: приёмник сперва буферизует (стенд `.104`
