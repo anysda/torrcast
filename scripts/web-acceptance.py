@@ -1511,6 +1511,8 @@ def check_22_shelf_cards_open(base: str) -> Result:
 
 def check_2_search(ctx: Ctx) -> Result:
     """Поиск: «Интерстеллар» → плитка с 2014 в первых трёх за ≤15 с."""
+    # Главную пункт открывает сам: под `--only 2` страница - `about:blank`, поля нет.
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
     placeholder = ctx.english.get("web.search.placeholder", "")
     field = ctx.page.get_by_placeholder(placeholder, exact=True) if placeholder else None
     if field is None or field.count() == 0:
@@ -2390,7 +2392,9 @@ def _focus_visible(ctx: Ctx) -> tuple[bool, str]:
         " const inView = r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0"
         "   && r.top < window.innerHeight && r.left < window.innerWidth;"
         " if (!inView) return {visible: false, why: 'фокус вне кадра'};"
-        " const alpha0 = /,\\s*0(?:\\.0+)?\\s*\\)$/;"
+        # Прозрачность - только четвёртый канал: кислотный `rgb(198, 255, 0)` тоже
+        # кончается на «, 0)», и без `rgba` его контур считался ненарисованным.
+        " const alpha0 = /^rgba\\(.*,\\s*0(?:\\.0+)?\\s*\\)$/;"
         " const painted = (s) => s.outlineStyle !== 'none'"
         "   && parseFloat(s.outlineWidth) > 0 && !alpha0.test(s.outlineColor);"
         " const cs = getComputedStyle(e);"
