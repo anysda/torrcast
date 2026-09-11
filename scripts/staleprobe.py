@@ -34,7 +34,6 @@ from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.domain.position import Position
-from torrcast.domain.profile import BROWSER
 
 
 def _wait_for(
@@ -58,17 +57,17 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp)
-        receiver = BrowserReceiver(out, profile=BROWSER)
+        receiver = BrowserReceiver(out)
         receiver.play("http://x/out.m3u8", title="проба молчания", at=0.0)
         key = read_web_box(out)["key"]
         write_web_position(out, key=key, pos=1.0, dur=600.0, phase="playing", wall=CLOCK.wall())
 
-        ceiling = BROWSER.gone_after + 15.0
+        ceiling = receiver.gone_after + 15.0
         started = time.monotonic()
         lost_at = _wait_for(receiver, started, lambda p: p.state == "lost", ceiling)
-        print(f"lost на {lost_at:.1f} с молчания (порог профиля {BROWSER.lost_after:.1f} с)")
+        print(f"lost на {lost_at:.1f} с молчания (порог вкладки {receiver.lost_after:.1f} с)")
         gone_at = _wait_for(receiver, started, lambda p: p.playing is False, ceiling)
-        print(f"gone на {gone_at:.1f} с молчания, playing=False (порог {BROWSER.gone_after:.1f} с)")
+        print(f"gone на {gone_at:.1f} с молчания, playing=False (порог {receiver.gone_after:.1f} с)")
 
     print(
         stamp(

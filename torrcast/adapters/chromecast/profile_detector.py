@@ -18,7 +18,7 @@ from torrcast.domain.by_key import by_key
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.for_passport import for_passport
-from torrcast.domain.profile import BROWSER, CAUTIOUS
+from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.health_config import HealthConfig
 
 if TYPE_CHECKING:
@@ -51,11 +51,6 @@ class ProfileDetector:
                     phrase("profile_detector.named_manually", profile_key=chosen.key),
                 )
             return Choice(CAUTIOUS, phrase("profile_detector.unknown_named_profile", name=named))
-        if config.receiver == "browser":
-            # У вкладки нет сокета опросить - паспорт ей взять неоткуда, а профиль
-            # известен заранее (:data:`torrcast.domain.profile.BROWSER`), тем же путём,
-            # каким ключ ``receiver_profile`` перебивает опрос выше.
-            return Choice(BROWSER, phrase("profile_detector.browser_receiver"))
         address = str(config.tv or "")
         if config.receiver != "chromecast" or not address:
             return Choice(CAUTIOUS, phrase("profile_detector.no_passport_receiver"))

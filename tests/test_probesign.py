@@ -16,7 +16,6 @@ SCRIPTS = ROOT / "scripts"
 PROFILES = (
     ROOT / "torrcast" / "domain" / "receiver_profile.py",
     ROOT / "torrcast" / "domain" / "android_tv_profile.py",
-    ROOT / "torrcast" / "domain" / "browser_profile.py",
 )
 
 
@@ -44,7 +43,6 @@ def test_каждое_число_приёмника_назвало_свой_пр
     ] == [
         "CAUTIOUS",
         "ANDROID_TV",
-        "BROWSER",
     ]
     assert not [fault for source in sources for fault in sign.unsigned(source)]
 

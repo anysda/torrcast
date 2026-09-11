@@ -20,6 +20,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Final
 
 from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.clear_web_position import clear_web_position
@@ -27,17 +28,41 @@ from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.domain.position import Position
-from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.clock import Clock
 
 #: Пока вкладка не прислала ни одной позиции сеанса - показ ждёт первого кадра, тем же
 #: словом, каким телевизор отвечает на LOAD до готовности (:data:`torrcast.domain.
 #: position.Position.state` пуст до :data:`torrcast.usecases.revive_playback._screen`).
 _WAITING = "BUFFERING"
-#: Молчание вкладки дольше :attr:`torrcast.domain.receiver_profile.ReceiverProfile.lost_after`
-#: и меньше :attr:`~torrcast.domain.receiver_profile.ReceiverProfile.gone_after` - самой
-#: непроверенной позиции для сравнения нет, есть только её отсутствие.
+#: Молчание вкладки дольше :attr:`BrowserReceiver.lost_after` и меньше
+#: :attr:`BrowserReceiver.gone_after` - самой непроверенной позиции для сравнения нет,
+#: есть только её отсутствие.
 _LOST = "lost"
+
+# Сроки молчания - про саму вкладку, а не про упаковку: поток ей режется тем же профилем,
+# что и телевизору (:func:`torrcast.usecases.worker._cmd_worker`), а своего профиля у неё нет.
+#
+# Обе границы молчания - слово карточки (ТЗ §7.4: 15 с - «lost», не поднимаем сами;
+# 60 с - штатное закрытие тем же путём, каким закрывают потерянный телевизор), а не
+# числа, подобранные наблюдением за настоящим декодером: у браузера нет своего
+# физического предела терпения, который стоило бы открывать замером. Прогнано живьём
+# (``scripts/staleprobe.py``) ровно на то, что код держит эти же секунды, а не другие:
+# сеанс встаёт «lost» на 15.0 с молчания и переходит в ``playing=False`` на 60.0 с -
+# без единого «почти».
+# снято: staleprobe · не при чём · TC-1108
+LOST_AFTER: Final = 15.0  # снято: staleprobe · не при чём · TC-1108
+GONE_AFTER: Final = 60.0  # снято: staleprobe · не при чём · TC-1108
+# Молчание вкладки ловится числом выше, а закрытая вкладка говорит об этом сама
+# (``pagehide``/уход с ``/play``, ``player.js``): смысла ждать все 60 с молчания у
+# неё нет. 5 с покрывает саму перезагрузку страницы с запасом - живой замер headless
+# Chromium на CT502 (``scripts/leftprobe.py``, три перезагрузки ``/play`` подряд): от
+# ``pagehide`` до первого свежего доклада ПОСЛЕ ``F5`` неизменно 2.05 с - это цикл
+# доклада позиции (``POSITION_MS`` в ``player.js``, 2 с), а не сеть: страница успевает
+# переприцепиться к тому же ключу ящика задолго до первого доклада. Переключение
+# вкладки слова не шлёт вовсе - для него порог ни при чём. 5 с даёт этому замеру
+# больше чем двукратный запас, не подгоняясь под него впритык.
+# снято: leftprobe · не при чём · TC-1124
+LEFT_AFTER: Final = 5.0  # снято: leftprobe · не при чём · TC-1124
 
 
 @dataclass(slots=True)
@@ -51,8 +76,25 @@ class BrowserReceiver:
     """
 
     out: Path
-    profile: Profile = CAUTIOUS
     clock: Clock = CLOCK
+    #: Сколько секунд вкладка вправе молчать позицией, прежде чем показ пометит её
+    #: непроверенной (``state="lost"``) и продолжит ждать - без права поднимать сам:
+    #: приёмник без вкладки поднимать нечем (:class:`torrcast.usecases.choice._ctl._Revivable`
+    #: у него не реализован намеренно). ``0.0`` - смертью вкладки не мерить.
+    lost_after: float = LOST_AFTER
+    #: Сколько секунд вкладка вправе молчать позицией, прежде чем сеанс закроют штатным
+    #: :func:`torrcast.usecases.playback._show_end._close_show` - тем же путём, каким
+    #: кончается потерянный телевизор. ``0.0`` - смертью вкладки не мерить.
+    gone_after: float = GONE_AFTER
+    #: Столько секунд ждём ПОСЛЕ явного слова страницы «я ухожу» (``phase="left"``,
+    #: :mod:`web.position`), прежде чем поверить ему и закрыть сеанс тем же путём, что и
+    #: :attr:`gone_after`. Слово это - не молчание, а сигнал ухода со страницы
+    #: (закрытие вкладки, переход на другой сайт, уход с ``/play`` внутри приложения), и
+    #: ждать его молчанием ``gone_after`` целиком незачем (TC-1124). Перезагрузка и
+    #: переключение вкладки под этот срок не подгоняются: обновление переоткрывает ту же
+    #: сессию свежим отчётом раньше, чем срок выйдет, а переключение вкладки слова вовсе
+    #: не шлёт. ``0.0`` - таким словом не мерить.
+    left_after: float = LEFT_AFTER
     _key: str = field(default="", init=False)
     _held: float = field(default=0.0, init=False)
     _dur: float = field(default=0.0, init=False)
@@ -102,14 +144,14 @@ class BrowserReceiver:
             # Страница сама сказала «ухожу» (закрытие вкладки, уход с ``/play``,
             # ``player.js``) - ждать молчания незачем, но и верить слову раньше срока
             # нельзя: обновление страницы (``F5``) шлёт то же слово и тут же переприцепляется
-            # свежим отчётом (:attr:`ReceiverProfile.left_after`), а от настоящего ухода
+            # свежим отчётом (:attr:`left_after`), а от настоящего ухода
             # новый отчёт не приходит никогда.
-            if self.profile.left_after > 0.0 and since >= self.profile.left_after:
+            if self.left_after > 0.0 and since >= self.left_after:
                 return Position(self._held, dur, False, _LOST, stale=True)
             return Position(self._held, dur, True, _WAITING)
-        if self.profile.gone_after > 0.0 and since >= self.profile.gone_after:
+        if self.gone_after > 0.0 and since >= self.gone_after:
             return Position(self._held, dur, False, _LOST, stale=True)
-        if self.profile.lost_after > 0.0 and since >= self.profile.lost_after:
+        if self.lost_after > 0.0 and since >= self.lost_after:
             return Position(self._held, dur, True, _LOST, stale=True)
         if phase == "paused":
             return Position(pos, dur, False, "PAUSED")

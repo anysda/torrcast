@@ -255,7 +255,8 @@ def _weigh(args: argparse.Namespace) -> int:
 
     Мера тут не «доиграл ли», а «за сколько настенных секунд прошло столько-то плёнки»:
     декодер, который не тянет, отстаёт по темпу, не роняя ни кадра (это уже ловилось на
-    ступени 60 Мбит/с, см. :data:`torrcast.domain.browser_profile.BROWSER`).
+    ступени 60 Мбит/с: headless Chromium на CT502 за 60 с настенных дошёл до 39.7 с из
+    40.87, а 10-50 Мбит/с доиграли в реальном темпе).
     """
     try:
         from playwright.sync_api import sync_playwright

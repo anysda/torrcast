@@ -3,7 +3,6 @@
 from typing import Final
 
 from torrcast.domain.android_tv_profile import ANDROID_TV
-from torrcast.domain.browser_profile import BROWSER
 from torrcast.domain.receiver_profile import (
     CAUTIOUS,
     COPY,
@@ -15,7 +14,6 @@ from torrcast.domain.receiver_profile import (
 
 __all__ = [
     "ANDROID_TV",
-    "BROWSER",
     "CAUTIOUS",
     "COPY",
     "PROFILES",
@@ -26,4 +24,4 @@ __all__ = [
 ]
 
 Profile = ReceiverProfile
-PROFILES: Final = {profile.key: profile for profile in (CAUTIOUS, ANDROID_TV, BROWSER)}
+PROFILES: Final = {profile.key: profile for profile in (CAUTIOUS, ANDROID_TV)}

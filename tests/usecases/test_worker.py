@@ -166,3 +166,24 @@ def test_the_next_run_without_that_word_goes_back_to_the_tv(
     assert _cmd_worker(KEY, play=_play_seeing(seen)) == 0
 
     assert seen == ["browser", "chromecast"], "вкладка не переписала настройку машины"
+
+
+def test_the_tab_is_packed_by_the_profile_of_the_tv_not_a_profile_of_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 «На ТВ» отдаёт приставке поток вкладки как есть - он обязан быть ей по силам сразу.
+
+    Пока ``here`` ставил ``browser`` ДО опроса, вкладка получала свою упаковку (куски до
+    110 с и 80 МБ, 21 Мбит/с без перекода), и приставка её не тянула.
+    """
+    asked: list[str] = []
+
+    def detect(config: Any) -> Choice:
+        asked.append(config.receiver)
+        return Choice(ANDROID_TV, "спрошен приёмник")
+
+    composition.use_profile(monkeypatch, detect)
+
+    assert _cmd_worker(KEY, here=True, play=_play_seeing([])) == 0
+
+    assert asked == ["chromecast"], "профиль вкладки спрошен у ТВ из настройки машины"

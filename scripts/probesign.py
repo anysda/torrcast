@@ -44,7 +44,6 @@ ROOT: Final = Path(__file__).resolve().parent.parent
 PROFILES: Final = (
     "torrcast/domain/receiver_profile.py",
     "torrcast/domain/android_tv_profile.py",
-    "torrcast/domain/browser_profile.py",
 )
 #: Поля профиля, которые ничего не меряют: имя ключа и подпись для человека.
 NOT_MEASURED: Final = frozenset({"key", "title_key"})

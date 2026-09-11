@@ -99,15 +99,17 @@ def _cmd_worker(key: str, here: bool = False, *, play: Callable[..., int] = _pla
     """
     journal().mark("процесс показа")
     config = _worker_configs()
+    # Профиль приёмника юнит выбирает себе сам, а не получает от CLI: юнит переживает
+    # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
+    # 🔴 Спрашивается он ДО ``here``, по настройке машины: вкладка играет тот же поток, что
+    # и ТВ, и «На ТВ» отдаёт приставке упаковку, сделанную под неё (ТЗ §7.5).
+    chosen = _worker_detect(config)
+    config = tune(config, chosen.profile)
     if here:
         # Запрос играет у себя - вкладка становится приёмником ЭТОГО запуска, а
         # настройка машины остаётся прежней (``chromecast``): следующий ``cast`` без
         # ``--here`` снова пойдёт на ТВ, как будто вкладки не бывало.
         config = replace(config, receiver="browser")
-    # Профиль приёмника юнит выбирает себе сам, а не получает от CLI: юнит переживает
-    # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
-    chosen = _worker_detect(config)
-    config = tune(config, chosen.profile)
     print(phrase("worker.receiver_profile", title=chosen.profile.title, how=chosen.how), flush=True)
     # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
     signal.signal(signal.SIGTERM, _on_term)

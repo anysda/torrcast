@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 from tests.fakes.clock import FakeClock
-from torrcast.adapters.browser.browser_receiver import BrowserReceiver
+from torrcast.adapters.browser.browser_receiver import (
+    GONE_AFTER,
+    LEFT_AFTER,
+    LOST_AFTER,
+    BrowserReceiver,
+)
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.domain.position import Position
-from torrcast.domain.profile import CAUTIOUS
 
-#: Профиль с обеими границами молчания, взятыми короткими числами - тесту не важна
-#: боевая величина, важно только то, что 60 больше 15 и обе больше нуля.
-_STALE_PROFILE = dataclasses.replace(CAUTIOUS, key="test-browser", lost_after=15.0, gone_after=60.0)
 
-#: Профиль со словом «ухожу» (TC-1124): числа короткие и разные от _STALE_PROFILE -
-#: тесту важно только то, что left_after меньше lost_after/gone_after, а не боевая величина.
-_LEFT_PROFILE = dataclasses.replace(
-    CAUTIOUS, key="test-browser-left", lost_after=15.0, gone_after=60.0, left_after=5.0
-)
+def test_the_tab_keeps_its_silence_limits_without_a_profile_of_its_own() -> None:
+    """Сроки молчания - свойство вкладки: профиля, который бы их нёс, у неё больше нет."""
+    receiver = BrowserReceiver(Path("/nonexistent"))
+
+    assert (receiver.lost_after, receiver.gone_after, receiver.left_after) == (15.0, 60.0, 5.0)
+    assert LEFT_AFTER < LOST_AFTER < GONE_AFTER
 
 
 def test_play_writes_a_fresh_mailbox_and_forgets_the_last_session(tmp_path: Path) -> None:
@@ -102,12 +103,12 @@ def test_an_ended_report_is_read_as_idle_not_playing(tmp_path: Path) -> None:
 
 def test_silence_short_of_lost_after_is_not_yet_declared_lost(tmp_path: Path) -> None:
     clock = FakeClock()
-    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_STALE_PROFILE)
+    receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="playing", wall=clock.wall())
 
-    clock.now += _STALE_PROFILE.lost_after - 1.0
+    clock.now += LOST_AFTER - 1.0
 
     assert receiver.position() == Position(30.0, 120.0, True, "PLAYING")
 
@@ -117,12 +118,12 @@ def test_silence_past_lost_after_but_short_of_gone_after_holds_the_session_alive
 ) -> None:
     """15 с молчания - «lost», но показ ещё жив: _hold не должен пытаться его поднять."""
     clock = FakeClock()
-    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_STALE_PROFILE)
+    receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="playing", wall=clock.wall())
 
-    clock.now += _STALE_PROFILE.lost_after
+    clock.now += LOST_AFTER
 
     position = receiver.position()
     assert position == Position(30.0, 120.0, True, "lost", stale=True)
@@ -134,12 +135,12 @@ def test_silence_past_gone_after_closes_the_session_by_reporting_not_playing(
 ) -> None:
     """60 с молчания - «gone»: держатель показа встречает playing=False и закрывает сеанс."""
     clock = FakeClock()
-    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_STALE_PROFILE)
+    receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="playing", wall=clock.wall())
 
-    clock.now += _STALE_PROFILE.gone_after
+    clock.now += GONE_AFTER
 
     position = receiver.position()
     assert position == Position(30.0, 120.0, False, "lost", stale=True)
@@ -149,7 +150,7 @@ def test_silence_past_gone_after_closes_the_session_by_reporting_not_playing(
 def test_a_fresh_left_report_still_waits_out_the_grace_period(tmp_path: Path) -> None:
     """Словом «ухожу» страница не закрывает показ сама - решает только срок (TC-1124)."""
     clock = FakeClock()
-    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_LEFT_PROFILE)
+    receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="left", wall=clock.wall())
@@ -162,12 +163,12 @@ def test_a_fresh_left_report_still_waits_out_the_grace_period(tmp_path: Path) ->
 def test_left_within_the_grace_period_still_waits(tmp_path: Path) -> None:
     """Обновление страницы (F5) шлёт то же слово - закрывать сеанс до срока нельзя."""
     clock = FakeClock()
-    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_LEFT_PROFILE)
+    receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="left", wall=clock.wall())
 
-    clock.now += _LEFT_PROFILE.left_after - 1.0
+    clock.now += LEFT_AFTER - 1.0
 
     position = receiver.position()
     assert position == Position(30.0, 120.0, True, "BUFFERING")
@@ -179,12 +180,12 @@ def test_left_past_the_grace_period_closes_the_session_by_reporting_not_playing(
 ) -> None:
     """Срок вышел, свежего отчёта не пришло - настоящий уход, показ закрывается (TC-1124)."""
     clock = FakeClock()
-    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_LEFT_PROFILE)
+    receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="left", wall=clock.wall())
 
-    clock.now += _LEFT_PROFILE.left_after
+    clock.now += LEFT_AFTER
 
     position = receiver.position()
     assert position == Position(30.0, 120.0, False, "lost", stale=True)
@@ -196,13 +197,13 @@ def test_left_past_the_grace_period_is_overridden_by_a_fresh_refresh_report(
 ) -> None:
     """Свежий отчёт после ``left`` (F5 успела переприцепиться) отменяет уход."""
     clock = FakeClock()
-    receiver = BrowserReceiver(tmp_path, clock=clock, profile=_LEFT_PROFILE)
+    receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="left", wall=clock.wall())
 
     clock.now += 1.0
     write_web_position(tmp_path, key=key, pos=31.0, dur=120.0, phase="playing", wall=clock.wall())
-    clock.now += _LEFT_PROFILE.left_after - 0.5
+    clock.now += LEFT_AFTER - 0.5
 
     assert receiver.position() == Position(31.0, 120.0, True, "PLAYING")

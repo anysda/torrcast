@@ -26,9 +26,10 @@ def make_receiver(
     сегментов показа (:func:`torrcast.usecases.worker._worker_receivers`,
     :func:`torrcast.usecases.playback.hls_root.hls_root`): у вкладки нет сетевого
     адреса, и слот довода занят тем же способом, каким ``mock`` уже не смотрит на него.
+    Профиль вкладке не передаётся: он решает упаковку, а она у вкладки та же, что у ТВ.
     """
     if kind == "mock":
         return cast(Receiver, MockReceiver(trust_anchor(ca) if ca else "", profile=profile))
     if kind == "browser":
-        return cast(Receiver, BrowserReceiver(Path(address), profile=profile))
+        return cast(Receiver, BrowserReceiver(Path(address)))
     return ChromecastReceiver(address, profile=profile)

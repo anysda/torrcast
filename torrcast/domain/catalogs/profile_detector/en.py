@@ -13,7 +13,6 @@ def en() -> dict[str, str]:
         "profile_detector.no_passport_receiver": (
             "no receiver with a passport - falling back to cautious"
         ),
-        "profile_detector.browser_receiver": "browser tab receiver",
         "profile_detector.no_response": "receiver did not respond - falling back to cautious",
         "profile_detector.no_introduction": (
             "receiver did not introduce itself - falling back to cautious"
