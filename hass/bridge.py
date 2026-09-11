@@ -44,6 +44,7 @@ from torrcast.ports.playback_session import PlaybackSession
 from torrcast.ports.refusal_record import refusal_record
 from torrcast.runtime.playback_session import playback_session
 from torrcast.usecases.start_progress import START
+from torrcast.usecases.warm.warm_root import warm_root
 
 VOLUME = "volume"
 
@@ -89,7 +90,7 @@ class Bridge:
             tv=config.tv or "",
             state=word,
             volume=self._volume_of(config).level(),
-            disk_free=MachineProbe.disk_free(config.warm_dir),
+            disk_free=MachineProbe.disk_free(str(warm_root(config.warm_dir))),
             last_error=self._orders.last_error,
             refusal=refusal_record().read(),
             picture=self._posters.picture(shown if active else None, self._session.stream_address),

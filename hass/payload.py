@@ -55,8 +55,9 @@ def payload(
         "image": picture[0] or None,
         "image_hash": picture[1] or None,
         "volume": volume,
-        # Ноль тут не «диска нет», а отказ statvfs: каталог сегментов на живой машине
-        # существует всегда (:meth:`torrcast.adapters.health.machine_probe.MachineProbe.disk_free`).
+        # Ноль тут не «диска нет», а отказ statvfs: каталог прогрева
+        # (:func:`torrcast.usecases.warm.warm_root.warm_root`) на живой машине существует
+        # всегда (:meth:`torrcast.adapters.health.machine_probe.MachineProbe.disk_free`).
         "disk_free": disk_free or None,
         "last_error": last_error or None,
         # Слово-причина отказа подъёма тем договором, каким её пишет юнит

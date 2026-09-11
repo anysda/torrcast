@@ -28,6 +28,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.start_refusal import RECEIVER_DID_NOT_ANSWER
+from torrcast.domain.warm_settings import WARM_DIR
 from torrcast.ports.abandon import slot as abandon_slot
 from torrcast.ports.refusal_record import RefusalRecord
 from torrcast.ports.refusal_record import install as install_refusal
@@ -564,6 +565,40 @@ def test_free_space_is_measured_where_warming_can_refuse(monkeypatch: pytest.Mon
 
     assert bridge.state()["disk_free"] == 123
     assert asked == ["/var/warm"]
+
+
+@pytest.mark.parametrize(
+    ("warm_dir", "env", "expected"),
+    [
+        (WARM_DIR, None, WARM_DIR),
+        ("", None, WARM_DIR),
+        ("/var/warm", "/mnt/reassigned", "/mnt/reassigned"),
+    ],
+)
+def test_free_space_is_measured_where_warm_root_actually_warms(
+    warm_dir: str,
+    env: str | None,
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Мост меряет ровно тот раздел, куда пишет :func:`warm_root`, а не свою копию правила."""
+    if env is None:
+        monkeypatch.delenv("TORRCAST_WARM", raising=False)
+    else:
+        monkeypatch.setenv("TORRCAST_WARM", env)
+    asked: list[str] = []
+
+    def free(path: str) -> int:
+        asked.append(path)
+        return 123
+
+    monkeypatch.setattr("hass.bridge.MachineProbe.disk_free", free)
+    bridge = _bridge(
+        FakePlaybackSession(), settings=lambda: Config(tv="10.0.1.7", warm_dir=warm_dir)
+    )
+
+    assert bridge.state()["disk_free"] == 123
+    assert asked == [expected]
 
 
 def test_the_reason_word_of_the_refusal_is_carried_by_the_state_body(

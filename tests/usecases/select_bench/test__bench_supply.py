@@ -68,6 +68,33 @@ def test_the_stick_does_not_condemn_a_swarm_before_its_measured_settle_time() ->
     )
 
 
+def test_the_fallback_supply_note_reports_the_measured_numbers(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Запасной ход «беру лучший из негодных» (:mod:`bench.py`, строка с ``weak``) печатает
+    ИЗМЕРЕННЫЕ рой, скорость и порог того кандидата, а не любые другие цифры - перепутанные
+    местами ``got``/``need`` или константный ``ratio`` тут пройти обязаны красным.
+    """
+    thin = rel("thin-swarm")
+    media = Media(RUNTIME, (), "h264", height=1080, width=1920)
+    bench = Bench(Torrents(), prober=probes([thin], media), profile=CAUTIOUS)
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        "torrcast.usecases.select_bench.bench._bench_supply",
+        lambda profile, prep: (0.42, 111.0, 222.0),
+    )
+    try:
+        chosen = bench.resolve(plan([thin]), Args(query=["кино"]), Said())
+    finally:
+        monkeypatch.undo()
+
+    assert chosen.number == 1
+    said = capsys.readouterr().out.splitlines()
+    assert said[-1] == phrase(
+        "select_bench.supply_note", number=1, got="111.00", need="222.00", ratio="0.42"
+    )
+
+
 def test_supply_note_reports_the_measured_numbers(capsys: pytest.CaptureFixture[str]) -> None:
     """Строка снабжения печатает ИЗМЕРЕННЫЕ рой, скорость и порог - подмени печать любой другой
     цифрой, зритель ничего не заметит: сверить сказанное с тем, что рой правда отдал, некому.
