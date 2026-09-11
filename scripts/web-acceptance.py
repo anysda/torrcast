@@ -3494,57 +3494,9 @@ def check_36_place_survives(ctx: Ctx) -> Result:
     return Result(36, "Место цело", ok, None, detail)
 
 
-#: Бот без Telegram, теми же вызовами: первая команда занимает исполнитель долгим подъёмом,
-#: вторая - ``cast stop``. Подъём поддельный и слушает отказ на своих поворотах, как
-#: настоящий (:func:`torrcast.usecases.playback.refuse_called_off.refuse_called_off`);
-#: ``stop_command`` подменён, чтобы прибор не гасил ничей настоящий показ.
-_BOT_STOP_PROBE: Final = r"""
-import json, threading, time
-from tgbot.bot import Bot
-from tgbot.config import Config
-from tgbot.i18n import i18n
-from tgbot.transport import _TelegramResult
-from torrcast.ports.abandon import slot as abandon_slot
-stopped = threading.Event()
-try:
-    import tgbot.stop_now as stop_now
-except ImportError:
-    stop_now = None
-else:
-    stop_now.stop_command = stopped.set
-class Api:
-    def __init__(self): self.sent = []
-    def send(self, _chat, text, _buttons=None, reply_to_message_id=None):
-        self.sent.append(text); return 1
-    def post(self, _chat, text, _buttons=None, reply_to_message_id=None):
-        self.sent.append(text); return _TelegramResult(200, "", {"message_id": 1})
-    def delete(self, _chat, _message_id): return object()
-    def answer(self, _callback_id, _text=""): return object()
-    def edit(self, _chat, _message_id, _text, _buttons=None): return object()
-    def updates(self, _offset): return []
-raised, ended = threading.Event(), []
-def launch(argv):
-    raised.set()
-    began = time.monotonic()
-    while time.monotonic() - began < 20.0:
-        if abandon_slot.abandoned():
-            ended.append(time.monotonic()); return 130
-        time.sleep(0.05)
-    return 0
-api = Api()
-bot = Bot(Config("token", "-100"), api=api, command=launch, assemble=lambda: None, title=lambda: "")
-worker = threading.Thread(target=bot.run_one, daemon=True)
-worker.start()
-bot.dispatch({"message": {"chat": {"id": -100}, "message_id": 5, "text": "cast интерстеллар"}})
-raised.wait(5.0)
-time.sleep(0.5)
-asked = time.monotonic()
-bot.dispatch({"message": {"chat": {"id": -100}, "message_id": 6, "text": "cast stop"}})
-stopped.wait(5.0)
-worker.join(25.0)
-print(json.dumps({"busy": i18n("busy") in api.sent, "stop": stopped.is_set(),
-                  "ended": round(ended[0] - asked, 2) if ended else None}))
-"""
+#: Щуп бота без Telegram (:mod:`botstop_probe`): лежит рядом с приёмкой, а меряет дерево,
+#: которое ему назвали, - так пункт краснеет на старом коммите, где щупа ещё не было.
+_BOT_STOP_PROBE: Final = Path(__file__).resolve().parent / "botstop_probe.py"
 
 
 def check_37_bot_stop(repo: Path) -> Result:
@@ -3559,7 +3511,7 @@ def check_37_bot_stop(repo: Path) -> Result:
     if not python.exists():
         return Result(37, "Стоп в боте", False, f"нет {python}", "боту негде подняться")
     proc = subprocess.run(
-        [str(python), "-c", _BOT_STOP_PROBE],
+        [str(python), str(_BOT_STOP_PROBE), str(repo)],
         cwd=str(repo),
         capture_output=True,
         text=True,
@@ -3577,7 +3529,8 @@ def check_37_bot_stop(repo: Path) -> Result:
     detail = (
         f"«cast stop» посреди подъёма: «занято» {'было' if said.get('busy') else 'не было'}, "
         f"остановка {'позвана' if said.get('stop') else 'не позвана'}, подъём "
-        f"{f'кончился через {ended} с' if ended is not None else 'шёл дальше 20 с'}"
+        f"{f'кончился через {ended} с' if ended is not None else 'шёл дальше 20 с'}; "
+        f"дерево {said.get('tree')}"
     )
     return Result(37, "Стоп в боте", ok, None, detail)
 
