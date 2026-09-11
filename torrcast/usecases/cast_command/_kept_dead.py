@@ -24,13 +24,20 @@ def _kept_dead(state: WatchState, key: str, args: Args) -> Entry | None:
     новый релиз может начинаться с другой серии, и тогда сохранённая секунда указывала бы
     внутрь чужой серии. Серию в запрос ставит :func:`_kept_place` - тем же приёмом, что и
     при названном руками релизе (TC-807), - и место оттуда приезжает вместе с ней. Здесь
-    остаётся фильм: у него одно место на всю картину, и переносить его безопасно.
+    остаётся фильм: у него одно место на всю картину, и переносить его безопасно, - и
+    сериал, чей запрос называет ровно серию закладки: её туда ставит продолжение после
+    меню (:func:`torrcast.usecases.cast_command._picked_serial._picked_serial`), и секунда
+    указывает внутрь той же серии. Серия другая или не названа - места не переносим.
 
     Спрашивается запись по ключу КАРТИНЫ, а не по тексту запроса: закладка, ответившая
     после меню (:func:`_continue_picked`), до найденной по запросу записи не доходит
     вовсе, а место терять нельзя и там.
     """
     buried = state.get(key)
-    if buried is None or buried.serial or not args.buried(buried.magnet):
+    if buried is None or not args.buried(buried.magnet):
         return None
+    if buried.serial:
+        named = args.episode
+        if named is None or (named.season, named.episode) != (buried.season, buried.episode):
+            return None
     return buried

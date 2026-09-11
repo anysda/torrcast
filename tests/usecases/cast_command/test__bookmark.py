@@ -116,34 +116,39 @@ def test_a_series_is_left_to_the_usual_way() -> None:
     assert code is None
 
 
-def test_a_menu_picked_started_series_says_it_drops_the_saved_place(
-    capsys: pytest.CaptureFixture[str],
+@pytest.mark.parametrize("door", [{"menu": True}, {"pick": 2}], ids=["menu", "pick"])
+def test_a_menu_picked_started_series_continues_from_its_place(
+    capsys: pytest.CaptureFixture[str], door: dict[str, object]
 ) -> None:
-    """Из меню взяли тот же начатый сериал: показ с нуля снесёт сохранённое место.
+    """🔴 TC-1203. Из меню взяли тот же начатый сериал - играет серия и секунда закладки.
 
-    Причиной названа та дверь, которой вошли: релиз тут руками не называли. Хвост о потере
-    общий с ``--release N`` - потеря одна, а молчать значило бы снести место без строки.
+    Этой дверью входит «Играть» веба (``--pick N``). Прежде она уводила сериал обычным
+    путём с первой серии, и стартовая запись показа стирала сохранённое место под тем же
+    ключом: после веба и бот играл s1e1 с нуля (прод 11-09-2026).
     """
     saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)])
+    bench = Bench()
 
     code = _continue_picked(
         Config(),
         _state_with(saved),
         cast(Any, plan()),
-        Bench(),  # type: ignore[arg-type]
-        args=Args(query=["кино"], menu=True),
+        bench,  # type: ignore[arg-type]
+        args=Args(query=["кино"], dry=True, **door),  # type: ignore[arg-type]
         clock=_Clock(),
     )
 
-    assert code is None, "сериал уходит обычным путём - показ с нуля"
-    said = phrase("bookmark.picked_in_menu", title="Кино", pos="1:00:00")
-    assert said in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert code == 0, "закладка сериала отвечает показом сама, а не отдаёт его поиску"
+    assert "s1e2" in out and "1:00:00" in out, out
+    assert "picked_in_menu" not in out and "не поднимаю" not in out, out
+    assert bench.dropped == 1, "записанная раздача известна - прогретое под меню не нужно"
 
 
-def test_a_flag_picked_started_series_says_it_drops_the_saved_place(
+def test_a_menu_picked_series_at_another_named_episode_says_it_drops_the_place(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """``--pick N`` - та же дверь меню: та же строка о потере места обязана быть и там."""
+    """Меню и названная ДРУГАЯ серия: место закладки правда не поднимается - строка есть."""
     saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)])
 
     code = _continue_picked(
@@ -151,7 +156,7 @@ def test_a_flag_picked_started_series_says_it_drops_the_saved_place(
         _state_with(saved),
         cast(Any, plan()),
         Bench(),  # type: ignore[arg-type]
-        args=Args(query=["кино"], pick=2),
+        args=Args(query=["кино", "s1e1"], menu=True),
         clock=_Clock(),
     )
 
@@ -177,10 +182,10 @@ def test_a_menu_picked_picture_without_a_bookmark_stays_silent(
     assert capsys.readouterr().out == ""
 
 
-def test_a_menu_picked_series_without_progress_stays_silent(
+def test_a_menu_picked_series_at_the_start_of_an_episode_keeps_that_episode(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Места у записи нет - терять нечего, и строка молчит, как у ``--release N``."""
+    """Серия закладки начата с нуля - место это СЕРИЯ, и играет она, а не первая."""
     saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)], pos=0.0)
 
     code = _continue_picked(
@@ -188,12 +193,13 @@ def test_a_menu_picked_series_without_progress_stays_silent(
         _state_with(saved),
         cast(Any, plan()),
         Bench(),  # type: ignore[arg-type]
-        args=Args(query=["кино"], menu=True),
+        args=Args(query=["кино"], menu=True, dry=True),
         clock=_Clock(),
     )
 
-    assert code is None
-    assert capsys.readouterr().out == ""
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "s1e2" in out and "s1e1" not in out, out
 
 
 def test_a_started_series_without_the_menu_door_stays_silent(
@@ -230,6 +236,20 @@ def test_a_series_bookmark_does_not_answer_for_the_warm() -> None:
     saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)])
 
     assert _plays_recorded(_state_with(saved), plan().picture.key, Args(query=["кино"])) is False
+
+
+def test_a_menu_picked_series_bookmark_answers_for_the_warm() -> None:
+    """Дверь меню у начатого сериала играет записанную раздачу - прогрев снесётся.
+
+    Условие обязано совпадать с :func:`_continue_picked` знак в знак: иначе прогрев
+    держал бы полосу раздачи, которую показ закладки не возьмёт.
+    """
+    saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)])
+    key = plan().picture.key
+
+    assert _plays_recorded(_state_with(saved), key, Args(query=["кино"], menu=True)) is True
+    named = Args(query=["кино", "s1e1"], menu=True)
+    assert _plays_recorded(_state_with(saved), key, named) is False
 
 
 def test_a_finished_bookmark_does_not_answer_for_the_warm() -> None:

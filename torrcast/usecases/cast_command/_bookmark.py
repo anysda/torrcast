@@ -14,6 +14,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._account_watched import _account_watched
+from torrcast.usecases.cast_command._picked_serial import _picked_serial
 from torrcast.usecases.choice._named import _title
 from torrcast.usecases.playback._launch import _launch
 from torrcast.usecases.rank._hms import _hms
@@ -100,11 +101,12 @@ def _continue_picked(
     картину, и ручной релиз играет его с начала) и сериал, которому человек сам назвал
     ДРУГУЮ серию, - тогда место закладки не поднимается, и строка обязана это сказать.
 
-    Дверь меню (``--menu``, ``--pick N``) в том же исходе молчала: начатый сериал, взятый
-    из меню, уходит обычным путём с нуля (его ветка здесь не отвечает), и стартовая запись
-    сносит сохранённое место под тем же ключом. Строка там своя: причиной названа та дверь,
-    которой вошли («картина выбрана в меню»), а хвост о потере общий - потеря-то одна.
-    Начатый фильм из меню продолжается, как и без ручек: терять там нечего.
+    Дверь меню (``--menu``, ``--pick N``) у начатого сериала без названной серии отвечает
+    местом закладки (:func:`_picked_serial`), как и запрос без ручек: этой дверью входит
+    кнопка «Играть» веба, и прежний путь с первой серии стирал сохранённое место под тем же
+    ключом (TC-1203). Строка о потере осталась меню с названной серией - там место правда
+    не поднимается: причиной названа та дверь, которой вошли («картина выбрана в меню»), а
+    хвост о потере общий. Начатый фильм из меню продолжается, как и без ручек.
     """
     started = state.get(plan.picture.key)
     if started is None:
@@ -128,6 +130,14 @@ def _continue_picked(
     if args.from_start:
         bench.drop_all()
         return _from_start(config, plan.picture.key, started, args=args, clock=clock)
+    if (
+        started.serial
+        and args.from_menu
+        and args.episode is None
+        and not args.buried(started.magnet)
+    ):
+        key = plan.picture.key
+        return _picked_serial(config, state, key, started.title, bench, args=args, clock=clock)
     if started.serial or not started.resumable or args.buried(started.magnet):
         if args.from_menu and started.resumable:
             # Голова строки называет ту дверь, которой вошли: картину выбрали в меню, её
@@ -157,7 +167,9 @@ def _plays_recorded(state: WatchState, key: str, args: Args) -> bool:
     started = state.get(key)
     if started is None or args.pinned or args.buried(started.magnet):
         return False
-    return args.from_start or (args.episode is None and not started.serial and started.resumable)
+    return args.from_start or (
+        args.episode is None and (args.from_menu if started.serial else started.resumable)
+    )
 
 
 def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _Clock) -> int | None:
