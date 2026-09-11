@@ -3505,6 +3505,8 @@ _SLOW_BYTES_S: Final = 150_000
 #: Сколько секунд снимков держать экран буферизации на узкой полосе. Дальше полоса
 #: снимается: 1080p через 150 КБ/с кадра за 90 с не соберёт, а нужен и сам кадр.
 _SLOW_HOLD: Final = 3.0
+#: Полоса без сужения. Снимать надо той же сессией CDP: сужение живёт в своей сессии.
+_WIDE: Final = {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1}
 #: Снимок экрана до первого кадра: какой экран, какие кнопки видны, был ли уже кадр.
 _BEFORE_FRAME_JS: Final = """() => {
   const v = document.querySelector('video');
@@ -3560,14 +3562,11 @@ def check_38_bare_until_frame(ctx: Ctx) -> Result:
             if snap["screen"] == "buffering-screen" and held_since is None:
                 held_since = time.monotonic()
             if held_since is not None and time.monotonic() - held_since >= _SLOW_HOLD:
-                _narrow(ctx, -1).detach()
+                cdp.send("Network.emulateNetworkConditions", _WIDE)
                 held_since = float("inf")
             ctx.page.wait_for_timeout(300)
     finally:
-        cdp.send(
-            "Network.emulateNetworkConditions",
-            {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1},
-        )
+        cdp.send("Network.emulateNetworkConditions", _WIDE)
         cdp.detach()
     _stop_show(ctx)
     extra = {
@@ -3577,16 +3576,44 @@ def check_38_bare_until_frame(ctx: Ctx) -> Result:
     shown = {screen: sorted(found) for screen, found in seen.items()}
     waited = "кадра не было" if frame_at is None else f"кадр за {frame_at:.1f} с"
     buffering = seen.get("buffering-screen")
-    ok = frame_at is not None and buffering is not None
-    ok = ok and back.casefold() in {b.casefold() for b in buffering}
+    backed = buffering is not None and back.casefold() in {b.casefold() for b in buffering}
+    ok = frame_at is not None and backed
     ok = ok and not any(extra.values())
     return Result(38, "До кадра", ok, None, f"{waited}; до кадра видно {shown}; лишние {extra}")
 
 
 #: Сколько секунд после «Назад» экземпляр вправе ещё поднимать брошенный показ.
-_CALL_OFF_WAIT: Final = 10.0
+_CALL_OFF_WAIT: Final = 5.0
 #: Сколько после этого смотреть, что брошенный показ не поднялся позже.
 _CALL_OFF_WATCH: Final = 30.0
+#: «Назад» экрана буферизации жмётся в той же выборке, где экран найден: иначе кадр
+#: успевает прийти между поиском и нажатием. Отвечает текстом экрана, пусто - экрана нет.
+_BACK_FROM_BUFFERING_JS: Final = """() => {
+  const screen = document.querySelector('.tc-buffering-screen');
+  const button = screen && screen.querySelector('button');
+  if (!button) return '';
+  const text = screen.innerText.replace(/\\s+/g, ' ').trim();
+  button.click();
+  return text || '?';
+}"""
+
+
+def _watch_after_back(ctx: Ctx) -> tuple[float | None, list[str], set[str]]:
+    """``/api/state`` после «Назад»: когда настал покой, что ожило после, что было до."""
+    pressed = time.monotonic()
+    idle_at: float | None = None
+    woke: list[str] = []
+    before: set[str] = set()
+    while time.monotonic() - pressed < _CALL_OFF_WAIT + _CALL_OFF_WATCH:
+        word = str(_state(ctx).get("state"))
+        if word == "idle" and idle_at is None:
+            idle_at = time.monotonic() - pressed
+        elif word != "idle" and idle_at is not None:
+            woke.append(f"{word} на {time.monotonic() - pressed:.0f} с")
+        elif idle_at is None:
+            before.add(word)
+        time.sleep(0.5)
+    return idle_at, woke, before
 
 
 def check_39_back_calls_off(ctx: Ctx) -> Result:
@@ -3613,22 +3640,56 @@ def check_39_back_calls_off(ctx: Ctx) -> Result:
         _stop_show(ctx)
         return Result(39, "Назад с подготовки", False, None, f"«Назад» нет; на экране {screen!r}")
     button.first.click()
-    pressed = time.monotonic()
-    idle_at: float | None = None
-    woke: list[str] = []
-    while time.monotonic() - pressed < _CALL_OFF_WAIT + _CALL_OFF_WATCH:
-        word = str(_state(ctx).get("state"))
-        if word == "idle" and idle_at is None:
-            idle_at = time.monotonic() - pressed
-        elif word != "idle" and idle_at is not None:
-            woke.append(f"{word} на {time.monotonic() - pressed:.0f} с")
-        time.sleep(0.5)
+    idle_at, woke, _ = _watch_after_back(ctx)
     path = ctx.page.evaluate("location.pathname")
     _stop_show(ctx)
     ok = idle_at is not None and idle_at <= _CALL_OFF_WAIT and not woke and path != "/play"
     said = "покоя не было" if idle_at is None else f"покой через {idle_at:.1f} с"
     detail = f"«{screen[:60]}» -> {path}; {said}; ожил: {woke or 'нет'}"
     return Result(39, "Назад с подготовки", ok, None, detail)
+
+
+def check_40_back_from_buffering(ctx: Ctx) -> Result:
+    """«Назад» с экрана буферизации до первого кадра снимает показ, заказанный вкладкой.
+
+    Ящик пришёл, кадра нет: полоса вкладки сужена, как у медленного роя, и экран
+    буферизации стоит. «Играть» карточки, «Назад» на этом экране. Годен уход, после
+    которого ``/api/state`` стал ``idle`` за ``_CALL_OFF_WAIT`` с, не пройдя через
+    ``playing``, и не ожил до конца наблюдения. На bcc8cbe9 ящик снимал метку заказа:
+    показ доходил до ``playing`` для никого, а покой наставал через 9,4 с.
+    """
+    name = "Назад с буферизации"
+    guard = _playback_guard(40, name, ctx, True, "")
+    if guard:
+        return guard
+    refusal = _open_card_by_page(ctx, _LATIN_KNOWN_TITLE)
+    if refusal is not None:
+        return Result(40, name, False, None, refusal)
+    cdp = _narrow(ctx, _SLOW_BYTES_S)
+    screen = ""
+    at_press = ""
+    began = time.monotonic()
+    try:
+        ctx.page.locator("[data-tc-play]").first.click()
+        while not screen and time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
+            screen = ctx.page.evaluate(_BACK_FROM_BUFFERING_JS)
+            ctx.page.wait_for_timeout(200)
+        at_press = str(_state(ctx).get("state"))
+    finally:
+        cdp.send("Network.emulateNetworkConditions", _WIDE)
+        cdp.detach()
+    if not screen:
+        _stop_show(ctx)
+        return Result(40, name, False, None, "экрана буферизации с «Назад» не было")
+    idle_at, woke, before = _watch_after_back(ctx)
+    path = ctx.page.evaluate("location.pathname")
+    _stop_show(ctx)
+    rose = at_press != "playing" and "playing" in before
+    ok = idle_at is not None and idle_at <= _CALL_OFF_WAIT and not rose and not woke
+    ok = ok and path != "/play"
+    said = "покоя не было" if idle_at is None else f"покой через {idle_at:.1f} с"
+    detail = f"«{screen[:40]}» при {at_press} -> {path}; {said}; до покоя {sorted(before)}"
+    return Result(40, name, ok, None, f"{detail}; ожил: {woke or 'нет'}")
 
 
 def check_37_bot_stop(repo: Path) -> Result:
@@ -3782,6 +3843,7 @@ def main() -> int:
         pick(36, "Место цело", lambda: check_36_place_survives(ctx))
         pick(38, "До кадра", lambda: check_38_bare_until_frame(ctx))
         pick(39, "Назад с подготовки", lambda: check_39_back_calls_off(ctx))
+        pick(40, "Назад с буферизации", lambda: check_40_back_from_buffering(ctx))
         browser.close()
 
     pick(15, "Обложки", lambda: check_15_posters(args.base))
