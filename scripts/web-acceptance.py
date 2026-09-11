@@ -3455,32 +3455,135 @@ def check_34_halt_exit(ctx: Ctx) -> Result:
     return Result(34, "Выход", refused_ok and lost_ok, None, f"отказ: {refused}; потеря: {lost}")
 
 
+#: Секунда передачи встаёт в самый длинный кусок впереди вкладки, не дальше этого окна:
+#: на прежней, своей упаковке вкладки куски шли 9.2-110 с, и длинный находился рядом, а
+#: дальше заглядывать - заставлять вкладку догонять перемотку в неупакованное.
+_DEEP_AHEAD: Final = 600.0
+#: Кусок начинается не ближе этого к кадру вкладки: кусок под ногами уже мог скачаться.
+_DEEP_NEAR: Final = 5.0
+#: Доля куска, на которую приходится нажатие «На ТВ»: ТВ до первого кадра качает весь
+#: кусок, а до приставки стенда `.104` доходит 12.0 Мбит/с.
+_DEEP_INTO: Final = 0.8
+#: Сколько вкладке идти после перемотки до «На ТВ»: секунду передачи продукт берёт из её
+#: доклада, а он идёт раз в 2 с (``TCPlayer.POSITION_MS``). 🔴 ``/api/state`` вкладку
+#: слышит рывками до 11 с, и ожидание его проскочило кусок 54.8 с на 0.3 с (стенд `.104`).
+_DEEP_REPORT: Final = 3.0
+#: Насколько перемотка встаёт раньше нажатия: доклад плюс панель и клик пункта 9.
+_DEEP_LEAD: Final = 5.0
+
+
+@dataclass(frozen=True)
+class _Piece:
+    """Кусок потока из плейлиста: где начинается, сколько длится, откуда его брать."""
+
+    start: float
+    span: float
+    url: str
+
+
+def _pieces(ctx: Ctx) -> tuple[list[_Piece], str]:
+    """Куски потока, который играет вкладка: ящик -> мастер -> плейлист кусков.
+
+    Плейлист полносеточный, с ``MEDIA-SEQUENCE:0`` (:mod:`torrcast.adapters.stream_pack.
+    hls_manifest`), поэтому сумма ``#EXTINF`` от нуля - та же лента, что у ``currentTime``.
+    """
+    code, body = _get(ctx.base + "/api/web/box")
+    try:
+        box = json.loads(body) if code == 200 else {}
+    except json.JSONDecodeError:
+        box = {}
+    url = str(box.get("url", "")) if isinstance(box, dict) else ""
+    if not url:
+        return [], f"GET /api/web/box -> {code}, url пуст"
+    code, body = _get(url)
+    text = body.decode("utf-8", "replace")
+    if code == 200 and "#EXT-X-STREAM-INF" in text:
+        inner = next((line for line in text.splitlines() if line and line[0] != "#"), "")
+        url = urllib.parse.urljoin(url, inner)
+        code, body = _get(url)
+        text = body.decode("utf-8", "replace")
+    if code != 200:
+        return [], f"GET {url} -> {code}"
+    pieces: list[_Piece] = []
+    start, span = 0.0, None
+    for line in text.splitlines():
+        if line.startswith("#EXTINF:"):
+            span = float(line[len("#EXTINF:") :].split(",")[0])
+        elif line and line[0] != "#" and span is not None:
+            pieces.append(_Piece(start, span, urllib.parse.urljoin(url, line)))
+            start += span
+            span = None
+    return pieces, "" if pieces else f"в {url} нет ни одного #EXTINF"
+
+
+def _seek_deep(ctx: Ctx, target: float) -> float | None:
+    """Перемотать вкладку на ``target`` и дать ей доложить новое место; её секунда после.
+
+    «На ТВ» берёт секунду из доклада вкладки (:func:`web.to_tv.to_tv`): нажми раньше, чем
+    доклад ушёл, - ТВ встанет на прежнее место, а не в выбранный кусок.
+    """
+    ctx.page.eval_on_selector("video", f"v => {{ v.currentTime = {target}; }}")
+    with contextlib.suppress(Exception):
+        ctx.page.wait_for_function(
+            "() => { const v = document.querySelector('video'); return !!v && !v.seeking"
+            f" && v.readyState >= 3 && v.currentTime >= {target + _DEEP_REPORT}; }}",
+            timeout=_PLAY_START_WAIT,
+        )
+    at = _video(ctx, "v => v.currentTime")
+    return float(at) if isinstance(at, int | float) else None
+
+
 def check_35_same_on_tv(ctx: Ctx) -> Result:
     """Одна картина и во вкладке, и на ТВ: серия из карточки идёт во вкладке, потом «На ТВ».
 
     Приёмник судит пункт 9 (тот же url у обоих концов, ход позиции на ТВ, громкость), но с
-    чистого показа из карточки, а не хвостом цепочки 4-10. 🔴 Картина - сохранённая s1e2
-    сериала: ТВ получает упаковку вкладки как есть, а эта раздача тяжелее того, что доходит
-    до ТВ (стенд `.104`: контейнер 21.2 Мбит/с, до ТВ 12.0). Лёгкий фильм (12.6 против 13.2)
-    проходил на любой сборке, тяжёлая раздача 40 с стояла на секунде нажатия.
+    чистого показа из карточки, а не хвостом цепочки 4-10. 🔴 Секунда передачи ставится
+    нарочно глубоко в самый длинный кусок впереди вкладки: ТВ до кадра качает почти весь
+    кусок. На своей упаковке вкладки (s1e2 сериала, стенд `.104`: без перекода, куски
+    9.2-110 с до 80 МБ, 21.2 Мбит/с против 12.0, доходящих до ТВ) ТВ стоял на секунде
+    нажатия, а лёгкий фильм и передача у края куска проходили на любой сборке. Упаковка
+    вкладки теперь та же, что у ТВ, и самый длинный её кусок приставке по силам.
     """
-    guard = _playback_guard(35, "Та же картина на ТВ", ctx, True, "")
+    name = "Та же картина на ТВ"
+    guard = _playback_guard(35, name, ctx, True, "")
     if guard:
         return guard
     refusal = _open_card_by_page(ctx, _SERIES_TITLE)
     if refusal is not None:
-        return Result(35, "Та же картина на ТВ", False, None, refusal)
+        return Result(35, name, False, None, refusal)
     ctx.page.locator("[data-tc-play]").first.click()
     if not _await_playback(ctx):
         screen = _overlay_text(ctx)
         _stop_show(ctx)
-        return Result(35, "Та же картина на ТВ", False, None, f"во вкладке кадра нет: {screen!r}")
+        return Result(35, name, False, None, f"во вкладке кадра нет: {screen!r}")
     tab = _video_times(ctx, 2)
+    pieces, why = _pieces(ctx)
+    near, far = tab[-1] + _DEEP_NEAR, tab[-1] + _DEEP_AHEAD
+    ahead = [piece for piece in pieces if near <= piece.start <= far]
+    if not ahead:
+        _stop_show(ctx)
+        said = why or f"кусков {len(pieces)}"
+        return Result(35, name, False, None, f"впереди вкладки ({tab[-1]:.1f}) нет куска: {said}")
+    piece = max(ahead, key=lambda each: each.span)
+    end = piece.start + piece.span
+    target = piece.start + max(_DEEP_INTO * piece.span - _DEEP_LEAD, 0.0)
+    at = _seek_deep(ctx, target)
+    # Нажатие идёт через ~2 с после этой секунды: мимо куска - пункт ничего не мерил.
+    inside = at is not None and piece.start <= at <= end - (_DEEP_LEAD - _DEEP_REPORT)
+    heard = f"вкладка перед «На ТВ» на {at!r} с - {'внутри куска' if inside else 'МИМО куска'}"
     tv = check_9_on_tv(ctx, True)
+    code, body = _get(piece.url, timeout=180.0)
     _stop_show(ctx)
+    megabytes = len(body) / 1e6
+    weight = f"{megabytes:.1f} МБ, {megabytes * 8 / piece.span:.1f} Мбит/с"
+    weight = weight if code == 200 else f"GET куска -> {code}"
     shown = " -> ".join(f"{t:.1f}" for t in tab)
-    ok = _growing(tab) and tv.ok
-    return Result(35, "Та же картина на ТВ", ok, None, f"вкладка {shown}; ТВ: {tv.detail}")
+    detail = (
+        f"вкладка {shown}; передача около {_DEEP_INTO:.0%} куска "
+        f"{piece.start:.1f}+{piece.span:.1f} с ({weight}), самого длинного из {len(ahead)} "
+        f"впереди; {heard}; ТВ: {tv.detail}"
+    )
+    return Result(35, name, _growing(tab) and inside and tv.ok, None, detail)
 
 
 def check_36_place_survives(ctx: Ctx) -> Result:
