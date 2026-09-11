@@ -3141,6 +3141,447 @@ def check_31_home_card(ctx: Ctx) -> Result:
     return Result(31, "Главная → карточка", ok, None, detail)
 
 
+#: Серия и секунда, на которых пункты 33 и 36 сами ставят место сериала. Вторая серия, а
+#: не первая: место на s1e1 не отличить от «сериал начали с начала», и пункт зеленел бы
+#: на том самом дефекте, который сторожит.
+_PLACE_EPISODE: Final = "s1e2"
+_PLACE_AT: Final = 300.0
+#: Допуск «с того же места», секунды: показ садится на опорный кадр не позже закладки
+#: (:func:`torrcast.usecases.feed_pack.feed_restart._begin`), сторож пишет место раз в 10 с.
+_PLACE_SLACK: Final = 30.0
+#: Запрос, которому заведомо нечего найти: отказ без юнита и без упаковки (пункт 34).
+_REFUSED_QUERY: Final = "зщхъэжд нет такой картины 1234"
+#: Кнопки, видимые человеку, и накрыто ли каждую чем-то сверху: накрытая кнопка видна,
+#: а нажатие уходит в то, что лежит поверх, - то есть не делает ничего (пункт 34).
+_BUTTONS_JS: Final = """() => [...document.querySelectorAll('button, [role=button], a[href]')]
+  .filter((b) => b.offsetParent !== null && getComputedStyle(b).visibility !== 'hidden')
+  .map((b) => { const r = b.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {text: (b.innerText || b.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim(),
+            open: hit === b || b.contains(hit)}; })"""
+#: Что пункт 34 рвёт, чтобы вкладка потеряла поток: плейлисты, сегменты, заголовок.
+_STREAM_ROUTES: Final = ("**/*.m3u8", "**/*.m4s", "**/*.ts", "**/init*.mp4")
+
+
+def _card_key(ctx: Ctx) -> str:
+    """Ключ картины открытой карточки - из её адреса ``/card/<ключ>``."""
+    tail = ctx.page.url.split("/card/", 1)[-1].split("?", 1)[0]
+    return urllib.parse.unquote(tail)
+
+
+def _place_of(ctx: Ctx, key: str) -> tuple[str | None, float | None]:
+    """Место картины из ``GET /api/history``: подпись серии и секунда; записи нет - ``None``."""
+    code, body = _get(ctx.base + "/api/history")
+    if code != 200:
+        return None, None
+    with contextlib.suppress(json.JSONDecodeError, AttributeError):
+        for item in json.loads(body).get("items", []):
+            if isinstance(item, dict) and item.get("key") == key:
+                pos = item.get("pos")
+                return item.get("label"), float(pos) if isinstance(pos, int | float) else None
+    return None, None
+
+
+def _stop_show(ctx: Ctx) -> None:
+    """Погасить свой показ и дождаться, пока экземпляр это подтвердит (до 20 с)."""
+    _post(ctx.base + "/api/control", {"cmd": "stop"})
+    began = time.monotonic()
+    while time.monotonic() - began < 20.0:
+        if _state(ctx).get("state") not in ("playing", "starting", "paused", "buffering"):
+            return
+        time.sleep(0.5)
+
+
+def _video_times(ctx: Ctx, count: int = 3, gap: float = 2.0) -> list[float]:
+    """Несколько замеров ``currentTime`` подряд - «растёт» судится по ним, а не по одному."""
+    times: list[float] = []
+    for index in range(count):
+        if index:
+            ctx.page.wait_for_timeout(int(gap * 1000))
+        at = _video(ctx, "v => v.currentTime")
+        times.append(float(at) if isinstance(at, int | float) else -1.0)
+    return times
+
+
+def _growing(times: list[float]) -> bool:
+    return len(times) > 1 and all(later > earlier for earlier, later in itertools.pairwise(times))
+
+
+def _overlay_text(ctx: Ctx) -> str:
+    return str(
+        ctx.page.evaluate(
+            "() => [...document.querySelectorAll('.tc-refused, .tc-lost, .tc-preparing')]"
+            ".map((n) => n.innerText.replace(/\\s+/g, ' ').trim()).join(' | ')"
+        )
+    )
+
+
+def check_32_film_frame(ctx: Ctx) -> Result:
+    """Фильм до кадра во вкладке: «Играть» у «Матрицы» → кадр и два растущих замера подряд.
+
+    ⚠️ На живом рое пункт зелёный и на 9a6f7307 (там кадр был за 13,6 с): прод не дошёл до
+    кадра из-за записанной раздачи без пиров (60 с приговора, ``_dead_release``) и роя
+    медленнее потока (0,19x), а мёртвый рой прибор заказать не может. Пункт - сторож
+    результата, а не отрицательная проба; граница названа в карточке.
+    """
+    guard = _playback_guard(32, "Кадр", ctx, True, "")
+    if guard:
+        return guard
+    refusal = _open_card_by_page(ctx, _LATIN_KNOWN_TITLE)
+    if refusal is not None:
+        return Result(32, "Кадр", False, None, refusal)
+    began = time.monotonic()
+    ctx.page.locator("[data-tc-play]").first.click()
+    if not _await_playback(ctx):
+        screen = _overlay_text(ctx)
+        _stop_show(ctx)
+        why = f"кадра нет за {_PLAY_START_WAIT / 1000:.0f} с; на экране: {screen!r}"
+        return Result(32, "Кадр", False, None, why)
+    took = time.monotonic() - began
+    times = _video_times(ctx)
+    _stop_show(ctx)
+    shown = " -> ".join(f"{t:.1f}" for t in times)
+    return Result(32, "Кадр", _growing(times), None, f"кадр за {took:.1f} с, ход {shown}")
+
+
+def _plant_place(ctx: Ctx) -> tuple[str | None, float | None, str]:
+    """Поставить место сериала ТАК ЖЕ, как человек: серия s1e2, перемотка, стоп.
+
+    Возвращает ключ картины и секунду легшего места, либо причину, почему место не легло.
+    """
+    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    if refusal is not None:
+        return None, None, refusal
+    key = _card_key(ctx)
+    target = ctx.page.locator(f'[data-tc-episode="{_PLACE_EPISODE}"]')
+    with contextlib.suppress(Exception):
+        target.first.wait_for(state="visible", timeout=30000)
+    if target.count() == 0:
+        return None, None, f"серии {_PLACE_EPISODE} нет в карточке {_SERIES_TITLE!r}"
+    target.first.click()
+    pair, why = _await_shown(ctx)
+    if pair != _PLACE_EPISODE:
+        _stop_show(ctx)
+        return None, None, why or f"играет {pair!r}, а не {_PLACE_EPISODE}"
+    ctx.page.eval_on_selector("video", f"v => {{ v.currentTime = {_PLACE_AT}; }}")
+    label, pos = None, None
+    began = time.monotonic()
+    while time.monotonic() - began < 2 * _PLAY_START_WAIT / 1000.0:
+        label, pos = _place_of(ctx, key)
+        if label == _PLACE_EPISODE and pos is not None and abs(pos - _PLACE_AT) <= _PLACE_SLACK:
+            break
+        time.sleep(1.0)
+    _stop_show(ctx)
+    label, pos = _place_of(ctx, key)
+    if label != _PLACE_EPISODE or pos is None or abs(pos - _PLACE_AT) > _PLACE_SLACK:
+        return None, None, f"место не легло: {label!r} на {pos!r}"
+    return key, pos, ""
+
+
+#: Сколько ждать, пока продукт САМ назовёт показ идущим: его бюджет подъёма
+#: (:data:`torrcast.domain.start_settings.START_BUDGET`, 350 с) и запас. Перебор раздач
+#: на стенде идёт минутами (живой прогон 11-09: восемь раздач s1e2 до упаковки).
+_SHOW_UP_WAIT: Final = 360.0
+
+
+def _await_shown(ctx: Ctx) -> tuple[str | None, str]:
+    """Дождаться показа, который продукт сам зовёт идущим; вернуть его серию (``s1e2``).
+
+    ``readyState >= 3`` вкладки тут мало: первые секунды упаковки дают кадр и тогда, когда
+    рой отдаёт 0,00x и подъём ещё ждёт картинку (живой прогон 11-09: место, поставленное
+    на таком кадре, откатилось вместе с не поднявшимся показом, и это верно). Годен показ,
+    у которого ``/api/state`` - ``playing`` и ``currentTime`` вкладки идёт. У фильма серии
+    нет - вернётся пустая строка.
+    """
+    began = time.monotonic()
+    state: dict[str, Any] = {}
+    while time.monotonic() - began < _SHOW_UP_WAIT:
+        state = _state(ctx)
+        if state.get("state") == "playing" and _growing(_video_times(ctx, 2, 1.0)):
+            season, episode = state.get("season"), state.get("episode")
+            return (
+                f"s{season}e{episode}" if season is not None and episode is not None else ""
+            ), ""
+        ctx.page.wait_for_timeout(2000)
+    why = state.get("refusal") or state.get("last_error") or f"state={state.get('state')!r}"
+    return None, f"продукт не назвал показ идущим за {time.monotonic() - began:.0f} с: {why}"
+
+
+def check_33_series_place(ctx: Ctx) -> Result:
+    """Сериал с места: «Играть» у начатого сериала продолжает серию и секунду закладки.
+
+    Место прибор ставит сам (:func:`_plant_place`), и серия вторая: на 9a6f7307 «Играть»
+    уходило дверью меню (``--pick``) обычным путём, играло s1e1 с нуля и стирало место.
+    """
+    guard = _playback_guard(33, "Сериал с места", ctx, True, "")
+    if guard:
+        return guard
+    key, planted, why = _plant_place(ctx)
+    if key is None or planted is None:
+        blocked = f"стенд не дал показа {_PLACE_EPISODE}: {why}"
+        return Result(33, "Сериал с места", False, blocked, "место не поставлено")
+    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    if refusal is not None:
+        return Result(33, "Сериал с места", False, None, refusal)
+    began = time.monotonic()
+    ctx.page.locator("[data-tc-play]").first.click()
+    pair, why = _await_shown(ctx)
+    if pair is None:
+        screen = _overlay_text(ctx)
+        _stop_show(ctx)
+        label, pos = _place_of(ctx, key)
+        why = f"{why}; на экране {screen!r}; место теперь {label!r} на {pos!r}"
+        return Result(33, "Сериал с места", False, None, why)
+    took = time.monotonic() - began
+    times = _video_times(ctx)
+    _stop_show(ctx)
+    ok = pair == _PLACE_EPISODE and abs(times[0] - planted) <= _PLACE_SLACK and _growing(times)
+    shown = " -> ".join(f"{t:.1f}" for t in times)
+    detail = (
+        f"место {_PLACE_EPISODE} на {planted:.1f} с; «Играть» за {took:.1f} с -> {pair}, "
+        f"ход {shown}"
+    )
+    return Result(33, "Сериал с места", ok, None, detail)
+
+
+def _halt_screen(ctx: Ctx, screen: str, allowed: tuple[str, ...]) -> tuple[bool, str]:
+    """Экран без плёнки: что на нём видно, что из этого не нажимается, и выводит ли «Назад».
+
+    Годен экран, где каждая видимая кнопка открыта и названа в ``allowed``, «Назад» среди
+    них есть и уводит с ``/play``. Накрытая кнопка - мёртвая: её видно, а нажатие уходит в
+    экран поверх неё (на 9a6f7307 так лежала вся панель плеера, шесть кнопок).
+    """
+    _wake_panel(ctx)
+    buttons = ctx.page.evaluate(_BUTTONS_JS)
+    title = ctx.page.inner_text(screen).replace("\n", " ").strip()
+    dead = [b["text"] for b in buttons if not b["open"]]
+    known = {word.casefold() for word in allowed}
+    strange = [b["text"] for b in buttons if b["open"] and b["text"].casefold() not in known]
+    back = ctx.english.get("web.player.back", "")
+    exit_button = ctx.page.locator(f"{screen} button", has_text=back) if back else None
+    where = "«Назад» нет"
+    if exit_button is not None and exit_button.count() > 0:
+        exit_button.first.click()
+        ctx.page.wait_for_timeout(3000)
+        path = ctx.page.evaluate("location.pathname")
+        where = f"«Назад» -> {path}"
+    left = where.startswith("«Назад» -> ") and not where.endswith("/play")
+    ok = left and not dead and not strange
+    shown = [b["text"] for b in buttons if b["open"]]
+    detail = f"«{title[:80]}»; открытые {shown}, мёртвые {dead}, лишние {strange}, {where}"
+    return ok, detail
+
+
+def check_34_halt_exit(ctx: Ctx) -> Result:
+    """Выход с экрана без плёнки: у отказа и у потери потока рабочий «Назад», мёртвых кнопок нет.
+
+    Отказ зовётся тем же запросом, что шлёт «Играть» карточки (``TCApi.play`` с ``here``),
+    по картине, которой нет: юнит не поднимается, но идущий показ ЭТОГО экземпляра заказ
+    снимет, поэтому только по ``--play``. Потеря - настоящий показ, у которого прибор рвёт
+    поток в самой вкладке. Надпись отказа печатается, но не судится: причину «ничего не
+    нашлось» каталог вкладки не называет, и новая строка - решение владельца.
+    """
+    guard = _playback_guard(34, "Выход", ctx, True, "")
+    if guard:
+        return guard
+    back = ctx.english.get("web.player.back", "")
+    retry = ctx.english.get("web.player.retry", "")
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    ctx.page.wait_for_function("() => window.TCApi && TCApi.play", timeout=15000)
+    ctx.page.evaluate("(q) => TCApi.play({query: q, here: true})", _REFUSED_QUERY)
+    ctx.page.wait_for_selector(".tc-refused", timeout=_PLAY_START_WAIT)
+    refused_ok, refused = _halt_screen(ctx, ".tc-refused", (back,))
+    refusal = _open_card_by_page(ctx, _MOVIE_TITLE)
+    if refusal is not None:
+        return Result(34, "Выход", False, None, f"отказ: {refused}; потеря: {refusal}")
+    ctx.page.locator("[data-tc-play]").first.click()
+    if not _await_playback(ctx):
+        _stop_show(ctx)
+        return Result(34, "Выход", False, None, f"отказ: {refused}; потеря: кадра не было")
+    for pattern in _STREAM_ROUTES:
+        ctx.page.route(pattern, lambda route: route.abort())
+    try:
+        ctx.page.wait_for_selector(".tc-lost", timeout=_PLAY_START_WAIT)
+    finally:
+        for pattern in _STREAM_ROUTES:
+            ctx.page.unroute(pattern)
+    lost_ok, lost = _halt_screen(ctx, ".tc-lost", (back, retry))
+    _stop_show(ctx)
+    return Result(34, "Выход", refused_ok and lost_ok, None, f"отказ: {refused}; потеря: {lost}")
+
+
+def check_35_same_on_tv(ctx: Ctx) -> Result:
+    """Одна картина и во вкладке, и на ТВ: фильм из карточки идёт во вкладке, потом «На ТВ».
+
+    Приёмник судит пункт 9 (тот же url у обоих концов, ход позиции на ТВ, громкость), но с
+    чистого показа из карточки, а не хвостом цепочки 4-10. ⚠️ Зелёный и на 9a6f7307: одна
+    и та же упаковка отдаётся обоим концам, и прод это подтверждал (бот на ТВ играл).
+    Разница в проде была не в концах, а в том, что показ вкладки снимался чужим подъёмом с
+    тем же именем юнита; её сторожит не этот пункт, а замер чередования в карточке.
+    """
+    guard = _playback_guard(35, "Та же картина на ТВ", ctx, True, "")
+    if guard:
+        return guard
+    refusal = _open_card_by_page(ctx, _MOVIE_TITLE)
+    if refusal is not None:
+        return Result(35, "Та же картина на ТВ", False, None, refusal)
+    ctx.page.locator("[data-tc-play]").first.click()
+    if not _await_playback(ctx):
+        screen = _overlay_text(ctx)
+        _stop_show(ctx)
+        return Result(35, "Та же картина на ТВ", False, None, f"во вкладке кадра нет: {screen!r}")
+    tab = _video_times(ctx, 2)
+    tv = check_9_on_tv(ctx, True)
+    _stop_show(ctx)
+    shown = " -> ".join(f"{t:.1f}" for t in tab)
+    ok = _growing(tab) and tv.ok
+    return Result(35, "Та же картина на ТВ", ok, None, f"вкладка {shown}; ТВ: {tv.detail}")
+
+
+def check_36_place_survives(ctx: Ctx) -> Result:
+    """Место цело: отменённый подъём другой серии из веба не трогает сохранённое место.
+
+    Стартовая запись показа ложится под ключ картины ДО юнита, и на 9a6f7307 переживала
+    любой исход: подъём s1e1, снятый остановкой, оставлял место s1e1 с нуля, и дальше
+    бот играл с него. Остановка идёт в тот миг, когда стартовая запись уже легла, - раньше
+    менять было бы нечего, позже показ успел бы подняться и место стало бы честным.
+    """
+    guard = _playback_guard(36, "Место цело", ctx, True, "")
+    if guard:
+        return guard
+    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    if refusal is not None:
+        return Result(36, "Место цело", False, None, refusal)
+    key = _card_key(ctx)
+    label, pos = _place_of(ctx, key)
+    if label != _PLACE_EPISODE or pos is None:
+        planted_key, _, why = _plant_place(ctx)
+        if planted_key is None:
+            blocked = f"стенд не дал показа {_PLACE_EPISODE}: {why}"
+            return Result(36, "Место цело", False, blocked, "место не поставлено")
+        refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+        if refusal is not None:
+            return Result(36, "Место цело", False, None, refusal)
+        label, pos = _place_of(ctx, key)
+    other = ctx.page.locator('[data-tc-episode="s1e1"]')
+    with contextlib.suppress(Exception):
+        other.first.wait_for(state="visible", timeout=30000)
+    if other.count() == 0 or pos is None:
+        return Result(36, "Место цело", False, None, f"нет s1e1 или места ({label!r}, {pos!r})")
+    other.first.click()
+    began = time.monotonic()
+    written = None
+    while time.monotonic() - began < _SHOW_UP_WAIT:
+        now = _place_of(ctx, key)
+        if now != (label, pos):
+            written = now
+            break
+        time.sleep(0.2)
+    if written is None:
+        _stop_show(ctx)
+        why = f"стартовая запись s1e1 не легла за {_PLAY_START_WAIT / 1000:.0f} с"
+        return Result(36, "Место цело", False, None, why)
+    at_stop = _state(ctx).get("state")
+    _stop_show(ctx)
+    time.sleep(2.0)
+    after_label, after_pos = _place_of(ctx, key)
+    ok = after_label == label and after_pos is not None and abs(after_pos - pos) <= 3.0
+    detail = (
+        f"место {label} на {pos:.1f}; s1e1 -> стартовая запись {written[0]} на {written[1]!r} "
+        f"через {time.monotonic() - began:.1f} с, стоп при state={at_stop!r}; "
+        f"место после: {after_label!r} на {after_pos!r}"
+    )
+    return Result(36, "Место цело", ok, None, detail)
+
+
+#: Бот без Telegram, теми же вызовами: первая команда занимает исполнитель долгим подъёмом,
+#: вторая - ``cast stop``. Подъём поддельный и слушает отказ на своих поворотах, как
+#: настоящий (:func:`torrcast.usecases.playback.refuse_called_off.refuse_called_off`);
+#: ``stop_command`` подменён, чтобы прибор не гасил ничей настоящий показ.
+_BOT_STOP_PROBE: Final = r"""
+import json, threading, time
+from tgbot.bot import Bot
+from tgbot.config import Config
+from tgbot.i18n import i18n
+from tgbot.transport import _TelegramResult
+from torrcast.ports.abandon import slot as abandon_slot
+stopped = threading.Event()
+try:
+    import tgbot.stop_now as stop_now
+except ImportError:
+    stop_now = None
+else:
+    stop_now.stop_command = stopped.set
+class Api:
+    def __init__(self): self.sent = []
+    def send(self, _chat, text, _buttons=None, reply_to_message_id=None):
+        self.sent.append(text); return 1
+    def post(self, _chat, text, _buttons=None, reply_to_message_id=None):
+        self.sent.append(text); return _TelegramResult(200, "", {"message_id": 1})
+    def delete(self, _chat, _message_id): return object()
+    def answer(self, _callback_id, _text=""): return object()
+    def edit(self, _chat, _message_id, _text, _buttons=None): return object()
+    def updates(self, _offset): return []
+raised, ended = threading.Event(), []
+def launch(argv):
+    raised.set()
+    began = time.monotonic()
+    while time.monotonic() - began < 20.0:
+        if abandon_slot.abandoned():
+            ended.append(time.monotonic()); return 130
+        time.sleep(0.05)
+    return 0
+api = Api()
+bot = Bot(Config("token", "-100"), api=api, command=launch, assemble=lambda: None, title=lambda: "")
+worker = threading.Thread(target=bot.run_one, daemon=True)
+worker.start()
+bot.dispatch({"message": {"chat": {"id": -100}, "message_id": 5, "text": "cast интерстеллар"}})
+raised.wait(5.0)
+time.sleep(0.5)
+asked = time.monotonic()
+bot.dispatch({"message": {"chat": {"id": -100}, "message_id": 6, "text": "cast stop"}})
+stopped.wait(5.0)
+worker.join(25.0)
+print(json.dumps({"busy": i18n("busy") in api.sent, "stop": stopped.is_set(),
+                  "ended": round(ended[0] - asked, 2) if ended else None}))
+"""
+
+
+def check_37_bot_stop(repo: Path) -> Result:
+    """``cast stop`` в боте проходит, пока исполнитель занят чужим долгим подъёмом.
+
+    Мерится там, где лежит дерево (``--repo``), теми же вызовами, что делает бот на
+    сообщение из чата (:meth:`tgbot.bot.Bot.dispatch`), но без сети Telegram. На 9a6f7307
+    остановка вставала в ту же очередь, что и показ, и получала «Предыдущий запрос cast
+    ещё выполняется», а подъём шёл дальше.
+    """
+    python = repo / ".venv" / "bin" / "python"
+    if not python.exists():
+        return Result(37, "Стоп в боте", False, f"нет {python}", "боту негде подняться")
+    proc = subprocess.run(
+        [str(python), "-c", _BOT_STOP_PROBE],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=90,
+    )
+    lines = proc.stdout.strip().splitlines()
+    try:
+        said = json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError):
+        tail = "\n".join((proc.stdout + proc.stderr).splitlines()[-8:])
+        return Result(37, "Стоп в боте", False, None, f"rc={proc.returncode}: {tail}")
+    ended = said.get("ended")
+    ok = not said.get("busy") and bool(said.get("stop")) and isinstance(ended, float) and ended < 5
+    detail = (
+        f"«cast stop» посреди подъёма: «занято» {'было' if said.get('busy') else 'не было'}, "
+        f"остановка {'позвана' if said.get('stop') else 'не позвана'}, подъём "
+        f"{f'кончился через {ended} с' if ended is not None else 'шёл дальше 20 с'}"
+    )
+    return Result(37, "Стоп в боте", ok, None, detail)
+
+
 def _print(results: list[Result]) -> int:
     for result in sorted(results, key=lambda r: r.number):
         state = "OK" if result.ok else ("BLOCKED" if result.blocked else "FAIL")
@@ -3181,7 +3622,7 @@ def main() -> int:
     parser.add_argument(
         "--play",
         action="store_true",
-        help="разрешить настоящий показ (пп. 4,6-11,20) - отнимает полосу упаковки у соседа",
+        help="разрешить настоящий показ (пп. 4,6-11,20,32-36) - отнимает полосу упаковки у соседа",
     )
     parser.add_argument("--shots", type=Path, default=Path("/tmp/web-acceptance-shots"))
     parser.add_argument(
@@ -3248,6 +3689,12 @@ def main() -> int:
         ok10 = pick(10, "На комп", lambda: check_10_on_pc(ctx, ok9))
         pick(20, "Уход", lambda: check_20_leave_tears_down(ctx, ok10))
         pick(11, "Стрелки", lambda: check_11_arrows(ctx))
+        # Пункты 32-36 - по одному показу на пункт, каждый гасит свой показ сам.
+        pick(32, "Кадр", lambda: check_32_film_frame(ctx))
+        pick(33, "Сериал с места", lambda: check_33_series_place(ctx))
+        pick(34, "Выход", lambda: check_34_halt_exit(ctx))
+        pick(35, "Та же картина на ТВ", lambda: check_35_same_on_tv(ctx))
+        pick(36, "Место цело", lambda: check_36_place_survives(ctx))
         browser.close()
 
     pick(15, "Обложки", lambda: check_15_posters(args.base))
@@ -3256,6 +3703,7 @@ def main() -> int:
     pick(12, "Франшиза", lambda: check_12_franchise(args.base))
     pick(13, "Тексты", lambda: check_13_texts(args.base))
     pick(14, "Гейт", lambda: check_14_gate(args.repo))
+    pick(37, "Стоп в боте", lambda: check_37_bot_stop(args.repo))
     return _print(results)
 
 
