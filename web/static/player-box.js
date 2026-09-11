@@ -44,6 +44,8 @@ const TCPlayerBox = {
     TCPlayerBox._tv(player, !!box.tv);
     if (!box.url || !box.key || box.key === player._key) return false;
     if (box.key === sessionStorage.getItem(TCPlayerBox.STALE)) return false;
+    // Ящик по заказу ЭТОЙ вкладки: уход до его первого кадра снимает показ (`_callOff`).
+    player._ordered = sessionStorage.getItem(TCPlayerBox.STALE) !== null;
     TCPlayerBox.dropStale();
     player._key = box.key;
     player._url = box.url;

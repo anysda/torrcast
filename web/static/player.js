@@ -36,6 +36,7 @@ const TCPlayer = {
     TCPlayer._leftSent = false;
     TCPlayer._halted = false;
     TCPlayer._framed = false;
+    TCPlayer._ordered = false;
 
     const wrap = document.createElement('div');
     wrap.className = 'tc-player';
@@ -51,7 +52,11 @@ const TCPlayer = {
     video.playsInline = true;
     TCPlayer._nodes.frame.prepend(video);
     TCPlayer._video = video;
-    video.addEventListener('playing', () => { TCPlayer._framed = true; TCPlayer._clearOverlay(); });
+    video.addEventListener('playing', () => {
+      TCPlayer._framed = true;
+      TCPlayer._ordered = false;
+      TCPlayer._clearOverlay();
+    });
     video.addEventListener('waiting', () => { if (!TCPlayer._advanced) TCPlayer._screenBuffering(); });
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
     video.addEventListener('ended', () => TCPlayer._startNext());
@@ -361,10 +366,15 @@ const TCPlayer = {
     else TCRouter.go('/');
   },
 
-  //: Уход с экрана подготовки снимает подъём, который заказала ЭТА вкладка (метка заказа -
-  //: `TCPlayerBox.STALE`): иначе показ поднимался для никого и тянул рой впустую (стенд
+  //: Уход до первого кадра снимает подъём, который заказала ЭТА вкладка (до ящика метка
+  //: `TCPlayerBox.STALE`, после - `_ordered`): иначе показ поднимался для никого (стенд
   //: `.104` 11-09: после «Назад» 60 с `starting`). `pagehide` не снимает: `F5` - не уход.
   _callOff() {
+    if (TCPlayer._ordered) {
+      TCPlayer._ordered = false;
+      TCApi.control('stop');
+      return;
+    }
     if (TCPlayer._url || sessionStorage.getItem(TCPlayerBox.STALE) === null) return;
     const preparing = !!(TCPlayer._overlay && TCPlayer._overlay.querySelector('.tc-preparing'));
     TCPlayerBox.dropStale();
