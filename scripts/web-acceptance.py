@@ -3499,6 +3499,125 @@ def check_36_place_survives(ctx: Ctx) -> Result:
 _BOT_STOP_PROBE: Final = Path(__file__).resolve().parent / "botstop_probe.py"
 
 
+#: Полоса вкладки в пункте 38, байт/с: медленный рой. Первый кусок едет секунды, и экран
+#: до первого кадра стоит дольше шага замера, а не мелькает между снимками.
+_SLOW_BYTES_S: Final = 150_000
+#: Снимок экрана до первого кадра: какой экран, какие кнопки видны, был ли уже кадр.
+_BEFORE_FRAME_JS: Final = """() => {
+  const v = document.querySelector('video');
+  const screen = ['preparing', 'buffering-screen', 'refused', 'lost']
+    .find((n) => document.querySelector('.tc-' + n)) || '';
+  const buttons = [...document.querySelectorAll('button, [role=button]')]
+    .filter((b) => b.offsetParent !== null && getComputedStyle(b).visibility !== 'hidden')
+    .map((b) => (b.innerText || b.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim());
+  return {framed: !!v && v.readyState >= 3 && !v.paused && !screen, screen, buttons};
+}"""
+
+
+def _narrow(ctx: Ctx, bytes_s: int) -> Any:
+    """Сузить полосу вкладки (CDP) до ``bytes_s``; ``-1`` снимает сужение."""
+    cdp = ctx.page.context.new_cdp_session(ctx.page)
+    cdp.send("Network.enable")
+    conditions = {"offline": False, "latency": 0, "uploadThroughput": -1}
+    cdp.send("Network.emulateNetworkConditions", {**conditions, "downloadThroughput": bytes_s})
+    return cdp
+
+
+def check_38_bare_until_frame(ctx: Ctx) -> Result:
+    """До первого кадра видно только то, что работает: «Назад», без панели показа.
+
+    Прод 11-09: «вижу буферинг и куча кнопок, которые не работают». Холодный пуск фильма
+    «Играть» карточки при полосе медленного роя; до кадра прибор каждые 0,3 с будит панель
+    мышью, как зритель, и снимает видимые кнопки. Годен пуск, где экран буферизации в
+    снимках был, «Назад» на нём есть, а кроме «Назад» нет ни одной кнопки. На 9a6f7307
+    буферизация лежала поверх панели: «−10 S», «+10 S», «PLAY ON TV», «⤢», «✕».
+    """
+    guard = _playback_guard(38, "До кадра", ctx, True, "")
+    if guard:
+        return guard
+    back = ctx.english.get("web.player.back", "")
+    refusal = _open_card_by_page(ctx, _LATIN_KNOWN_TITLE)
+    if refusal is not None:
+        return Result(38, "До кадра", False, None, refusal)
+    seen: dict[str, set[str]] = {}
+    frame_at: float | None = None
+    cdp = _narrow(ctx, _SLOW_BYTES_S)
+    began = time.monotonic()
+    try:
+        ctx.page.locator("[data-tc-play]").first.click()
+        while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
+            ctx.page.mouse.move(200 + len(seen) * 3 + (int(time.monotonic() * 10) % 7), 300)
+            snap = ctx.page.evaluate(_BEFORE_FRAME_JS)
+            if snap["framed"]:
+                frame_at = time.monotonic() - began
+                break
+            if snap["screen"]:
+                seen.setdefault(snap["screen"], set()).update(t for t in snap["buttons"] if t)
+            ctx.page.wait_for_timeout(300)
+    finally:
+        cdp.send(
+            "Network.emulateNetworkConditions",
+            {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1},
+        )
+        cdp.detach()
+    _stop_show(ctx)
+    extra = {screen: sorted(b for b in found if b != back) for screen, found in seen.items()}
+    shown = {screen: sorted(found) for screen, found in seen.items()}
+    waited = "кадра не было" if frame_at is None else f"кадр за {frame_at:.1f} с"
+    buffering = seen.get("buffering-screen")
+    ok = frame_at is not None and buffering is not None and back in buffering
+    ok = ok and not any(extra.values())
+    return Result(38, "До кадра", ok, None, f"{waited}; до кадра видно {shown}; лишние {extra}")
+
+
+#: Сколько секунд после «Назад» экземпляр вправе ещё поднимать брошенный показ.
+_CALL_OFF_WAIT: Final = 10.0
+#: Сколько после этого смотреть, что брошенный показ не поднялся позже.
+_CALL_OFF_WATCH: Final = 30.0
+
+
+def check_39_back_calls_off(ctx: Ctx) -> Result:
+    """«Назад» с экрана подготовки снимает подъём: экземпляр в покое за считанные секунды.
+
+    Заказ - тем же ``TCApi.play`` с ``here``, что шлёт «Играть» карточки; «Назад» жмётся
+    через 3 с подготовки, пока продукт ищет раздачу. Годен уход, после которого
+    ``/api/state`` стал ``idle`` за ``_CALL_OFF_WAIT`` с и не ожил до конца наблюдения.
+    На 9a6f7307 после «Назад» экземпляр 60 с держал ``starting``, а ящик получил картину:
+    показ поднимался для никого и тянул рой, а следующее «Играть» с ним сталкивалось.
+    """
+    guard = _playback_guard(39, "Назад с подготовки", ctx, True, "")
+    if guard:
+        return guard
+    back = ctx.english.get("web.player.back", "")
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    ctx.page.wait_for_function("() => window.TCApi && TCApi.play", timeout=15000)
+    ctx.page.evaluate("(q) => TCApi.play({query: q, here: true})", _LATIN_KNOWN_TITLE)
+    ctx.page.wait_for_selector(".tc-preparing", timeout=20000)
+    ctx.page.wait_for_timeout(3000)
+    screen = _overlay_text(ctx)
+    button = ctx.page.locator(".tc-preparing button", has_text=back)
+    if not back or button.count() == 0:
+        _stop_show(ctx)
+        return Result(39, "Назад с подготовки", False, None, f"«Назад» нет; на экране {screen!r}")
+    button.first.click()
+    pressed = time.monotonic()
+    idle_at: float | None = None
+    woke: list[str] = []
+    while time.monotonic() - pressed < _CALL_OFF_WAIT + _CALL_OFF_WATCH:
+        word = str(_state(ctx).get("state"))
+        if word == "idle" and idle_at is None:
+            idle_at = time.monotonic() - pressed
+        elif word != "idle" and idle_at is not None:
+            woke.append(f"{word} на {time.monotonic() - pressed:.0f} с")
+        time.sleep(0.5)
+    path = ctx.page.evaluate("location.pathname")
+    _stop_show(ctx)
+    ok = idle_at is not None and idle_at <= _CALL_OFF_WAIT and not woke and path != "/play"
+    said = "покоя не было" if idle_at is None else f"покой через {idle_at:.1f} с"
+    detail = f"«{screen[:60]}» -> {path}; {said}; ожил: {woke or 'нет'}"
+    return Result(39, "Назад с подготовки", ok, None, detail)
+
+
 def check_37_bot_stop(repo: Path) -> Result:
     """``cast stop`` в боте проходит, пока исполнитель занят чужим долгим подъёмом.
 
@@ -3648,6 +3767,8 @@ def main() -> int:
         pick(34, "Выход", lambda: check_34_halt_exit(ctx))
         pick(35, "Та же картина на ТВ", lambda: check_35_same_on_tv(ctx))
         pick(36, "Место цело", lambda: check_36_place_survives(ctx))
+        pick(38, "До кадра", lambda: check_38_bare_until_frame(ctx))
+        pick(39, "Назад с подготовки", lambda: check_39_back_calls_off(ctx))
         browser.close()
 
     pick(15, "Обложки", lambda: check_15_posters(args.base))
