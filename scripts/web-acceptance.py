@@ -1449,7 +1449,7 @@ _CARD_OPEN_WINDOW: Final = 12
 #: Отпущенное время одного открытия карточки в пункте 22. По живому замеру на том же
 #: стенде (10-09-2026) холодный отклик `/api/card` - опрос пула индексеров - доходит
 #: до 11.7 с, и умолчание `_get` в 10 с резало штатный, пусть и медленный, ответ.
-#: Потолок 20 с даёт запас ~1.7x над худшим замеренным, как `_POSITION_GROWTH_WAIT`
+#: Потолок 20 с даёт запас ~1.7x над худшим замеренным, как `_TV_STEADY` (40 с)
 #: над худшим промежутком позиции. Молчание дольше этого - уже дефект продукта, и
 #: пункт обязан показать его красным, а не переждать.
 _CARD_GET_WAIT: Final = 20.0
@@ -1916,21 +1916,19 @@ def check_9_on_tv(ctx: Ctx, play_ok: bool) -> Result:
     # живому замеру). Ждём, пока продукт НАЗОВЁТ приёмник, и только тогда меряем ход.
     took = _await_tv(ctx)
     tv_running = False
-    grew_in = None
+    steady = "каст не поднялся"
     volume_ok = False
     volume_detail = "каст не поднялся"
     url_ok = False
     url_detail = "каст не поднялся"
     if took is not None:
-        before = _position(ctx)
-        tv_running, grew_in = _await_position_growth(ctx, before)
+        tv_running, steady = _steady_growth(ctx)
         volume_ok, volume_detail = _volume_follows_page(ctx)
         url_ok, url_detail = _cast_url_matches(ctx)
     ok = muted and tv_running and volume_ok and url_ok
     waited = "не поднялся" if took is None else f"{took:.0f} с"
-    grown = "не сдвинулась" if grew_in is None else f"за {grew_in:.1f} с"
     detail = (
-        f"muted={muted}, каст поднялся за {waited}, позиция ТВ выросла {grown}; "
+        f"muted={muted}, каст поднялся за {waited}, {steady}; "
         f"url: {url_detail}; громкость: {volume_detail}"
     )
     return Result(9, "На ТВ", ok, None, detail)
@@ -1987,31 +1985,52 @@ _PC_REPORT_POLL: Final = 0.25
 #: появится новое число.
 _POSITION_POLL: Final = 2.0
 
-#: Потолок ожидания честного сдвига позиции. Живой приёмник отдаёт позицию рывками, а
-#: не плавно: независимый замер каденции (120 с опроса раз в секунду, 12 сдвигов) дал
-#: шаг ~10.4 с при худшем промежутке 10.5 с; отдельный более долгий замер (окно 40 с)
-#: поймал сдвиги через 3, затем через 10, затем через 24 с - худший из двух замеров.
-#: Окно взято 40 с - в 1.6 раза больше худшего наблюдённого промежутка (24.5 с), а не
-#: подогнано под то, что уже позеленело.
-_POSITION_GROWTH_WAIT: Final = 40.0
+
+#: Каст на ТВ судится после 15 с на подъём: приёмник сперва буферизует (стенд `.104`
+#: 11-09: 8 с BUFFERING на 201.3, дальше ровно x1.00), а снимок продукта один раз
+#: отступает к секунде нажатия - с неё ТВ и начинает (на четырёх прогонах 12.4-14.5 с).
+_TV_SETTLE: Final = 15.0
+#: Сколько смотреть ход. Позиция в снимке идёт рывками, а не плавно: замер каденции
+#: (120 с опроса раз в секунду, 12 сдвигов) дал шаг ~10.4 с при худшем промежутке 10.5 с,
+#: отдельный замер поймал сдвиги через 3, 10 и 24 с. В 40 с при худшем промежутке 24.5 с
+#: попадают хотя бы две смены значения, а скорость меряется между ними.
+_TV_STEADY: Final = 40.0
+#: Коридор скорости от часов. Низ меряется от первого снимка окна (стоящее начало не
+#: выпадает), верх - между первой и последней сменой: первый снимок бывает старым на
+#: целый промежуток (до 24.5 с), и от него здоровый каст выходил бы вдвое быстрее часов.
+_TV_SPEED: Final = (0.8, 1.25)
 
 
-def _await_position_growth(ctx: Ctx, before: float | None) -> tuple[bool, float | None]:
-    """Ждать до :data:`_POSITION_GROWTH_WAIT`, пока позиция честно обгонит ``before``.
+def _steady_growth(ctx: Ctx) -> tuple[bool, str]:
+    """Позиция каста идёт со скоростью часов, а не стоит и не ползёт.
 
-    Мера - «сдвинулась вперёд хотя бы раз за N секунд», а не одна пара до/после через
-    фиксированную паузу: у живого приёмника отдача рывками (см. константу выше), и пара
-    через 4 с из старой версии скрипта попадала на плато при работающем касте.
+    Прежняя мера «хотя бы раз выросла за 40 с» зеленела на стоящем касте с дрожью: ряд
+    300.3 -> 310.3 -> 302.3 -> 303.6 (стенд, экземпляр 18627, 11-09) проходил её первым
+    же шагом. Скорость меряется от первого снимка, а не от первой смены: иначе 40 с
+    буферизации тяжёлой раздачи (327.8 до +51 с) выпадали из счёта. Откат к секунде
+    нажатия законен, поэтому счёт идёт от последнего отката.
     """
-    if before is None:
-        return False, None
+    ctx.page.wait_for_timeout(int(_TV_SETTLE * 1000))
+    marks: list[tuple[float, float]] = []
     began = time.monotonic()
-    while time.monotonic() - began < _POSITION_GROWTH_WAIT:
+    while time.monotonic() - began < _TV_STEADY + _POSITION_POLL / 2:
+        at = _position(ctx)
+        if at is not None:
+            marks.append((time.monotonic() - began, at))
         ctx.page.wait_for_timeout(int(_POSITION_POLL * 1000))
-        after = _position(ctx)
-        if after is not None and after > before:
-            return True, time.monotonic() - began
-    return False, None
+    moved = [k for k in range(1, len(marks)) if marks[k][1] != marks[k - 1][1]]
+    backs = [k for k in moved if marks[k][1] < marks[k - 1][1]]
+    back = f"{marks[backs[-1] - 1][1]:.1f}->{marks[backs[-1]][1]:.1f}" if backs else "нет"
+    seen = " -> ".join(f"{marks[k][1]:.1f}" for k in [0, *moved]) if marks else ""
+    since = backs[-1] if backs else 0
+    steps = [k for k in moved if k > since]
+    if len(steps) < 2:
+        return False, f"ход ТВ стоит: {seen or 'позиции нет'} за {_TV_STEADY:.0f} с"
+    (t0, p0), (ta, pa), (t1, p1) = marks[since], marks[steps[0]], marks[steps[-1]]
+    speed, pace = (p1 - p0) / (t1 - t0), (p1 - pa) / (t1 - ta)
+    low, high = _TV_SPEED
+    ok = speed >= low and pace <= high
+    return ok, f"ход ТВ {seen} (x{speed:.2f} от часов, x{pace:.2f} между сменами); откат {back}"
 
 
 def _state(ctx: Ctx) -> dict[str, Any]:
@@ -3411,18 +3430,18 @@ def check_34_halt_exit(ctx: Ctx) -> Result:
 
 
 def check_35_same_on_tv(ctx: Ctx) -> Result:
-    """Одна картина и во вкладке, и на ТВ: фильм из карточки идёт во вкладке, потом «На ТВ».
+    """Одна картина и во вкладке, и на ТВ: серия из карточки идёт во вкладке, потом «На ТВ».
 
     Приёмник судит пункт 9 (тот же url у обоих концов, ход позиции на ТВ, громкость), но с
-    чистого показа из карточки, а не хвостом цепочки 4-10. ⚠️ Зелёный и на 9a6f7307: одна
-    и та же упаковка отдаётся обоим концам, и прод это подтверждал (бот на ТВ играл).
-    Разница в проде была не в концах, а в том, что показ вкладки снимался чужим подъёмом с
-    тем же именем юнита; её сторожит не этот пункт, а замер чередования в карточке.
+    чистого показа из карточки, а не хвостом цепочки 4-10. 🔴 Картина - сохранённая s1e2
+    сериала: ТВ получает упаковку вкладки как есть, а эта раздача тяжелее того, что доходит
+    до ТВ (стенд `.104`: контейнер 21.2 Мбит/с, до ТВ 12.0). Лёгкий фильм (12.6 против 13.2)
+    проходил на любой сборке, тяжёлая раздача 40 с стояла на секунде нажатия.
     """
     guard = _playback_guard(35, "Та же картина на ТВ", ctx, True, "")
     if guard:
         return guard
-    refusal = _open_card_by_page(ctx, _MOVIE_TITLE)
+    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
     if refusal is not None:
         return Result(35, "Та же картина на ТВ", False, None, refusal)
     ctx.page.locator("[data-tc-play]").first.click()
