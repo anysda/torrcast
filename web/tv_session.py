@@ -16,19 +16,18 @@ from dataclasses import dataclass, field
 
 from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.segment_container import SegmentContainer
 from torrcast.ports.receiver import Receiver
 from web.live_receiver import POLL_SECONDS, live_receiver
+from web.tv_load import tv_load
 
 
 @dataclass
 class TvSession:
     """Держит приёмник ТВ между запросом «на ТВ» и запросом «на комп».
 
-    Профиль - нарочно всегда :data:`torrcast.domain.profile.CAUTIOUS`: паспорт устройства
-    спрашивать здесь неоткуда без опроса сети (настройка ``receiver`` у страницы навсегда
-    ``browser``, и штатный :class:`torrcast.adapters.chromecast.profile_detector.
-    ProfileDetector` на ней и не пробует спрашивать паспорт). Осторожный профиль - тот же
-    компромисс, что и с порогом перекода (ТЗ §7.5, решение 3): назван, а не спрятан.
+    Профиль и контейнер кусков LOAD - те же, что у прямого показа на ТВ: :mod:`web.to_tv`
+    берёт их из ящика показа, а :attr:`profile` - только умолчание для ящика без них.
     """
 
     #: Ключ показа, отданного на ТВ. Каст принадлежит ЯЩИКУ, из которого он поднят: пока
@@ -84,8 +83,10 @@ class TvSession:
         echo: Callable[[Position], None] | None = None,
         key: str = "",
         alive: Callable[[], bool] | None = None,
+        profile: Profile | None = None,
+        container: SegmentContainer | None = None,
     ) -> None:
-        """Позвать приёмник ТВ тем же ``play``, каким продукт стартует консольный показ.
+        """Позвать приёмник ТВ тем же LOAD, что и прямой показ на ТВ (:func:`web.tv_load.tv_load`).
 
         Старую связь, если она была, отпускаем первой: иначе повторное нажатие «На ТВ»
         оставляло бы прежнее соединение висеть незакрытым и опрашиваемым.
@@ -97,8 +98,8 @@ class TvSession:
         ``alive`` спрашивается перед каждым опросом: сказал «нет» - каст снимается (:meth:`_pump`).
         """
         self._release()
-        receiver = self.factory(address, self.profile)
-        receiver.play(url, title, at=at)
+        receiver = self.factory(address, profile or self.profile)
+        tv_load(receiver, url, title, at, container)
         self._receiver = receiver
         self._heard = None
         self._alive = alive

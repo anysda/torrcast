@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from torrcast.adapters.browser.browser_receiver import BrowserReceiver
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
 from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
 from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.profile import ANDROID_TV, CAUTIOUS, Profile
 
 
 def test_the_live_receiver_is_built_by_name_and_keeps_its_profile() -> None:
@@ -41,3 +44,11 @@ def test_the_default_profile_is_the_cautious_one() -> None:
 
     assert isinstance(made, ChromecastReceiver)
     assert made.profile is CAUTIOUS
+
+
+def test_the_tab_carries_the_profile_of_the_tv_its_show_is_packed_for(tmp_path: Path) -> None:
+    """Вкладка несёт профиль ТВ: им упакован её поток, и «На ТВ» зовёт ТВ с ним же."""
+    made = make_receiver("browser", address=str(tmp_path), profile=ANDROID_TV)
+
+    assert isinstance(made, BrowserReceiver)
+    assert made.profile is ANDROID_TV

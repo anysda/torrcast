@@ -15,6 +15,8 @@ from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.domain.position import Position
+from torrcast.domain.profile import ANDROID_TV
+from torrcast.domain.segment_container import FMP4
 
 
 def test_the_tab_keeps_its_silence_limits_without_a_profile_of_its_own() -> None:
@@ -37,6 +39,19 @@ def test_play_writes_a_fresh_mailbox_and_forgets_the_last_session(tmp_path: Path
     assert box["at"] == 42.0
     assert box["key"]
     assert read_web_position(tmp_path) is None
+
+
+def test_the_box_names_the_profile_and_container_the_show_was_packed_with(
+    tmp_path: Path,
+) -> None:
+    """«На ТВ» зовёт ТВ тем же LOAD, что и прямой показ, - и берёт его из ящика."""
+    receiver = BrowserReceiver(tmp_path, profile=ANDROID_TV)
+    receiver.segment_container = FMP4
+
+    receiver.play("http://x/index.m3u8", title="Breaking Bad", at=0.0)
+
+    box = read_web_box(tmp_path)
+    assert (box["profile"], box["container"]) == (ANDROID_TV.key, FMP4)
 
 
 def test_stop_clears_both_the_mailbox_and_the_position(tmp_path: Path) -> None:

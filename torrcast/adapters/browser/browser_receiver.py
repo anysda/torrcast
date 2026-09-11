@@ -28,6 +28,8 @@ from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.domain.position import Position
+from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.clock import Clock
 
 #: Пока вкладка не прислала ни одной позиции сеанса - показ ждёт первого кадра, тем же
@@ -95,6 +97,11 @@ class BrowserReceiver:
     #: сессию свежим отчётом раньше, чем срок выйдет, а переключение вкладки слова вовсе
     #: не шлёт. ``0.0`` - таким словом не мерить.
     left_after: float = LEFT_AFTER
+    #: Профиль приёмника, которым упакован показ, и контейнер его кусков (ставит
+    #: :mod:`torrcast.usecases.playback._tract`, как и приёмнику ТВ): оба уходят в ящик, и
+    #: «На ТВ» зовёт ТВ с ними, а не с осторожными умолчаниями (:mod:`web.to_tv`).
+    profile: Profile = CAUTIOUS
+    segment_container: SegmentContainer = MPEGTS
     _key: str = field(default="", init=False)
     _held: float = field(default=0.0, init=False)
     _dur: float = field(default=0.0, init=False)
@@ -109,7 +116,15 @@ class BrowserReceiver:
         self._key = uuid.uuid4().hex
         self._held, self._dur = at, 0.0
         clear_web_position(self.out)
-        write_web_box(self.out, url=url, title=title, at=at, key=self._key)
+        write_web_box(
+            self.out,
+            url=url,
+            title=title,
+            at=at,
+            key=self._key,
+            profile=self.profile.key,
+            container=self.segment_container,
+        )
 
     def stop(self, quit_app: bool = False) -> None:
         """Снять задание и позицию: вкладке больше нечего играть и некому отвечать.

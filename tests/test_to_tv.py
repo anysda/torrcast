@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -16,10 +17,19 @@ from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.domain.config import Config
 from torrcast.domain.position import Position
+from torrcast.domain.profile import ANDROID_TV, CAUTIOUS, Profile
+from torrcast.domain.segment_container import FMP4, MPEGTS
 from torrcast.ports.receiver import Receiver
 from web.request import Request
 from web.to_tv import _echo, to_tv
 from web.tv_session import SESSION, TvSession
+
+
+@dataclass
+class _Packed(FakeReceiver):
+    """Приёмник с контейнером кусков, как у живого Chromecast."""
+
+    segment_container: str = MPEGTS
 
 
 def _post() -> Request:
@@ -75,6 +85,39 @@ def test_the_running_show_is_cast_without_restarting_the_pack(
 
     assert answer.code == 202
     assert receiver.plays == [("http://x/out.m3u8", "Interstellar", 88.0)]
+
+
+@pytest.mark.parametrize(
+    ("profile", "container", "called", "loaded"),
+    [(ANDROID_TV.key, FMP4, ANDROID_TV, FMP4), ("", "", CAUTIOUS, MPEGTS)],
+)
+def test_the_tv_is_called_with_the_profile_and_container_the_show_was_packed_with(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    profile: str,
+    container: str,
+    called: Profile,
+    loaded: str,
+) -> None:
+    """ТВ зовётся тем же LOAD, что и прямой показ на него: профиль и контейнер - из ящика.
+
+    Ящик без них (показ прежней сборки) оставляет осторожное умолчание держателя.
+    """
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    _wired(monkeypatch)
+    receiver = _Packed(Position(0.0, 0.0))
+    given: list[Profile] = []
+
+    def made(address: str, chosen: Profile) -> FakeReceiver:
+        given.append(chosen)
+        return receiver
+
+    monkeypatch.setattr(SESSION, "factory", made)
+    write_web_box(tmp_path, "http://x/index.m3u8", "Breaking Bad", 12.0, "k1", profile, container)
+
+    assert to_tv(_post()).code == 202
+    assert given == [called]
+    assert receiver.segment_container == loaded
 
 
 def test_a_stale_mailbox_position_is_ignored_for_a_fresh_box(

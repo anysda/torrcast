@@ -9,6 +9,7 @@ import pytest
 
 from tests.fakes.receiver import FakeReceiver
 from torrcast.domain.position import Position
+from torrcast.domain.profile import ANDROID_TV, CAUTIOUS, Profile
 from web.tv_session import TvSession
 
 
@@ -30,6 +31,22 @@ def test_start_calls_play_with_the_given_url_title_and_position() -> None:
     assert session.active()
 
     session.stop()
+
+
+def test_start_calls_the_tv_with_the_given_profile_and_the_cautious_one_without() -> None:
+    """Профиль LOAD - тот, которым упакован показ; без него - осторожное умолчание."""
+    given: list[Profile] = []
+
+    def made(address: str, profile: Profile) -> FakeReceiver:
+        given.append(profile)
+        return FakeReceiver(Position(0.0, 0.0))
+
+    session = TvSession(factory=made, poll_seconds=0.01)
+    session.start("192.168.1.90", "t", "u", 0.0, profile=ANDROID_TV)
+    session.start("192.168.1.90", "t", "u", 0.0)
+    session.stop()
+
+    assert given == [ANDROID_TV, CAUTIOUS]
 
 
 def test_stop_reads_the_position_before_stopping_and_forgets_the_receiver() -> None:

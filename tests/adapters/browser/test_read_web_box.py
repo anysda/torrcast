@@ -20,4 +20,6 @@ def test_a_written_task_reads_back_whole(tmp_path: Path) -> None:
         "title": "Interstellar",
         "at": 12.0,
         "key": "k1",
+        "profile": "",
+        "container": "",
     }

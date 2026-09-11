@@ -8,7 +8,15 @@ from torrcast.adapters.browser.write_web_box import write_web_box
 
 
 def test_the_task_lands_readable_on_disk(tmp_path: Path) -> None:
-    write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=120.0, key="k1")
+    write_web_box(
+        tmp_path,
+        url="http://x/out.m3u8",
+        title="Interstellar",
+        at=120.0,
+        key="k1",
+        profile="androidtv",
+        container="fmp4",
+    )
 
     written = json.loads(web_box_path(tmp_path).read_text(encoding="utf-8"))
     assert written == {
@@ -16,6 +24,8 @@ def test_the_task_lands_readable_on_disk(tmp_path: Path) -> None:
         "title": "Interstellar",
         "at": 120.0,
         "key": "k1",
+        "profile": "androidtv",
+        "container": "fmp4",
     }
 
 

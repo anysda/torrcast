@@ -43,6 +43,8 @@ def test_a_pending_task_is_handed_to_the_tab(
         "title": "Interstellar",
         "at": 12.0,
         "key": "k1",
+        "profile": "",
+        "container": "",
         "tv": False,
     }
 

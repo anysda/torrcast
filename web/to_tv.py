@@ -2,25 +2,32 @@
 
 Поток, упаковка и перекод не трогаются: приёмнику ТВ достаётся тот же ``url``, что уже
 лежит в ящике вкладки (:mod:`web.box`), и та же секунда, на которой стоит показ - нового
-показа тут не поднимается.
+показа тут не поднимается. Профиль приёмника и контейнер кусков - тоже из ящика: ТВ
+зовётся тем же LOAD, что и прямой показ на него.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Final
 
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.system_clock import CLOCK
+from torrcast.domain.by_key import by_key
 from torrcast.domain.position import Position
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.usecases.playback.hls_root import hls_root
 from web.answer import Answer
 from web.refusal import refusal
 from web.request import Request
 from web.tv_session import SESSION
+
+#: Контейнеры, которые ящик может назвать; чужое слово - «не известен», а не mpegts.
+_CONTAINERS: Final[dict[str, SegmentContainer]] = {FMP4: FMP4, MPEGTS: MPEGTS}
 
 
 def to_tv(request: Request) -> Answer:
@@ -45,7 +52,12 @@ def to_tv(request: Request) -> Answer:
     # Каст живёт, пока ящик держит ЭТОТ показ: стоп чистит ящик, и ТВ закрывается сам.
     alive = lambda: str(read_web_box(out).get("key", "")) == key  # noqa: E731
     title = str(box.get("title", ""))
-    SESSION.start(address, title, url, at, echo=_echo(out, key), key=key, alive=alive)
+    # 🔴 Профиль и контейнер - те, которыми показ упакован: с осторожными умолчаниями LOAD
+    # «На ТВ» расходился с прямым показом на ТВ (подсказки mpegts на куски fmp4).
+    profile = by_key(str(box.get("profile", "")))
+    container = _CONTAINERS.get(str(box.get("container", "")))
+    echo = _echo(out, key)
+    SESSION.start(address, title, url, at, echo, key, alive, profile=profile, container=container)
     return Answer(202, b"")
 
 
