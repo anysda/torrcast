@@ -3502,6 +3502,9 @@ _BOT_STOP_PROBE: Final = Path(__file__).resolve().parent / "botstop_probe.py"
 #: Полоса вкладки в пункте 38, байт/с: медленный рой. Первый кусок едет секунды, и экран
 #: до первого кадра стоит дольше шага замера, а не мелькает между снимками.
 _SLOW_BYTES_S: Final = 150_000
+#: Сколько секунд снимков держать экран буферизации на узкой полосе. Дальше полоса
+#: снимается: 1080p через 150 КБ/с кадра за 90 с не соберёт, а нужен и сам кадр.
+_SLOW_HOLD: Final = 3.0
 #: Снимок экрана до первого кадра: какой экран, какие кнопки видны, был ли уже кадр.
 _BEFORE_FRAME_JS: Final = """() => {
   const v = document.querySelector('video');
@@ -3541,6 +3544,7 @@ def check_38_bare_until_frame(ctx: Ctx) -> Result:
         return Result(38, "До кадра", False, None, refusal)
     seen: dict[str, set[str]] = {}
     frame_at: float | None = None
+    held_since: float | None = None
     cdp = _narrow(ctx, _SLOW_BYTES_S)
     began = time.monotonic()
     try:
@@ -3553,6 +3557,11 @@ def check_38_bare_until_frame(ctx: Ctx) -> Result:
                 break
             if snap["screen"]:
                 seen.setdefault(snap["screen"], set()).update(t for t in snap["buttons"] if t)
+            if snap["screen"] == "buffering-screen" and held_since is None:
+                held_since = time.monotonic()
+            if held_since is not None and time.monotonic() - held_since >= _SLOW_HOLD:
+                _narrow(ctx, -1).detach()
+                held_since = float("inf")
             ctx.page.wait_for_timeout(300)
     finally:
         cdp.send(
@@ -3561,11 +3570,15 @@ def check_38_bare_until_frame(ctx: Ctx) -> Result:
         )
         cdp.detach()
     _stop_show(ctx)
-    extra = {screen: sorted(b for b in found if b != back) for screen, found in seen.items()}
+    extra = {
+        screen: sorted(b for b in found if b.casefold() != back.casefold())
+        for screen, found in seen.items()
+    }
     shown = {screen: sorted(found) for screen, found in seen.items()}
     waited = "кадра не было" if frame_at is None else f"кадр за {frame_at:.1f} с"
     buffering = seen.get("buffering-screen")
-    ok = frame_at is not None and buffering is not None and back in buffering
+    ok = frame_at is not None and buffering is not None
+    ok = ok and back.casefold() in {b.casefold() for b in buffering}
     ok = ok and not any(extra.values())
     return Result(38, "До кадра", ok, None, f"{waited}; до кадра видно {shown}; лишние {extra}")
 
