@@ -52,6 +52,13 @@
 }
 .tc-refused-title { font-size: 1.375rem; font-weight: 700; text-align: center;
   padding: 0 2.5rem; }
+/* Экран без плёнки (подготовка, отказ, потеря потока) прячет панель: под ним её кнопки
+   не нажимались и только обещали. Выход с такого экрана - его кнопка «Назад» и Esc. */
+.tc-player-frame.is-halted .tc-player-top,
+.tc-player-frame.is-halted .tc-player-bottom { display: none; }
+/* Буферизация идёт на живой плёнке: экран не ловит нажатий, и панель под ним отвечает. */
+.tc-buffering-screen { pointer-events: none; }
+.tc-halt-actions { display: flex; align-items: center; gap: 1.375rem; }
 .tc-next { z-index: 5; }
 .tc-preparing-body { position: relative; padding: 3.75rem 5.625rem; }
 .tc-preparing-bar.is-indeterminate > i { width: 30%; animation: tcprepindet 1.4s ease-in-out infinite; }

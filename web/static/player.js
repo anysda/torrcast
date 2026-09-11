@@ -34,6 +34,7 @@ const TCPlayer = {
     TCPlayer._tvMark = null;
     TCPlayer._idleTimer = null;
     TCPlayer._leftSent = false;
+    TCPlayer._halted = false;
 
     const wrap = document.createElement('div');
     wrap.className = 'tc-player';
@@ -159,7 +160,7 @@ const TCPlayer = {
     if (TCPlayer._advanced) return;
     TCPlayer._advanced = true;
     if (!TCPlayer._hasNext) {
-      history.back();
+      TCPlayer._leave();
       return;
     }
     // 🔴 Кончившаяся серия называется серверу поимённо и СЕЙЧАС, до отсчёта: за его
@@ -308,25 +309,48 @@ const TCPlayer = {
   //: Три состояния оверлея рисует `player-screens.js` - тут только зовём его нужным
   //: экраном, разметка и текст лежат там.
   _clearOverlay() {
+    TCPlayer._halt(false);
     TCPlayerScreens.clear(TCPlayer._overlay);
   },
 
   //: Срок и источник экран берёт из последнего ответа продукта, а не считает сам:
   //: поле ``start`` кладёт туда :mod:`torrcast.usecases.start_progress`.
   _screenPreparing(state) {
-    TCPlayerScreens.preparing(TCPlayer._overlay, (state || TCPlayer._last || {}).start);
+    TCPlayer._halt(true);
+    TCPlayerScreens.preparing(
+      TCPlayer._overlay, (state || TCPlayer._last || {}).start, TCPlayer._leave,
+    );
   },
 
   _screenRefused(reason) {
-    TCPlayerScreens.refused(TCPlayer._overlay, reason);
+    TCPlayer._halt(true);
+    TCPlayerScreens.refused(TCPlayer._overlay, reason, TCPlayer._leave);
   },
 
   _screenBuffering() {
+    TCPlayer._halt(false);
     TCPlayerScreens.buffering(TCPlayer._overlay);
   },
 
   _screenLost(code) {
-    TCPlayerScreens.lost(TCPlayer._overlay, code, TCPlayer._retry);
+    TCPlayer._halt(true);
+    TCPlayerScreens.lost(TCPlayer._overlay, code, TCPlayer._retry, TCPlayer._leave);
+  },
+
+  //: Плёнки нет (подготовка, отказ, потеря потока) - панель прячется целиком: экран
+  //: лежал поверх неё, и её кнопки были видны, но не нажимались ни одна (стенд `.104`,
+  //: 11-09-2026: шесть кнопок отказа, каждая «не нажимается»). Выход - кнопка экрана.
+  _halt(on) {
+    TCPlayer._halted = on;
+    if (TCPlayer._nodes) TCPlayer._nodes.frame.classList.toggle('is-halted', on);
+  },
+
+  //: Уйти с показа туда, откуда пришли. Вкладка, открытая прямо на ``/play``, своего
+  //: «назад» не имеет (``history.state`` пуст - его кладёт только ``TCRouter.go``), и
+  //: шаг назад увёл бы на чужой сайт из истории вкладки: тогда - главная.
+  _leave() {
+    if (history.state !== null && history.length > 1) history.back();
+    else TCRouter.go('/');
   },
 
   // ------------------------------------------------------------------ фокус и клавиши
@@ -415,7 +439,7 @@ const TCPlayer = {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         else TCPlayer._nodes.frame.requestFullscreen().catch(() => {});
       },
-      onClose() { history.back(); },
+      onClose() { TCPlayer._leave(); },
     };
   },
 };
@@ -426,6 +450,18 @@ const TCPlayer = {
 document.addEventListener('keydown', (event) => {
   if (location.pathname !== '/play' || !TCPlayer._video || !TCPlayer._handlers) return;
   const handlers = TCPlayer._handlers;
+  // Плёнки нет - перематывать и ставить на паузу нечего: стрелки уходят D-pad'у между
+  // кнопками экрана («Ещё раз», «Назад»), Enter жмёт ту, что под фокусом. Плеер - Esc.
+  if (TCPlayer._halted) {
+    if (event.key === 'Escape') handlers.onClose();
+    return;
+  }
+  // Enter на кнопке под фокусом - нажатие ЭТОЙ кнопки: «−10 с» и «На ТВ» с пульта
+  // иначе ставили на паузу, и ни одна кнопка панели не делала с клавиши своего.
+  const here = document.activeElement;
+  if (event.key === 'Enter' && here && here.tagName === 'BUTTON' && here !== TCPlayer._nodes.playpause) {
+    return;
+  }
   if (event.key === ' ' || event.key === 'Spacebar' || event.key === 'Enter') {
     event.preventDefault(); event.stopImmediatePropagation();
     handlers.onToggle();

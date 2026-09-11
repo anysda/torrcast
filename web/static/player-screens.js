@@ -14,7 +14,10 @@ const TCPlayerScreens = {
   //: хвост по нему ищется в том же каталоге. Причины нет - строка остаётся короткой,
   //: без выдуманного двоеточия. Пересобирается экран один раз: ответы идут раз в две
   //: секунды, и рождённый заново текст мигал бы под руками.
-  refused(overlay, reason) {
+  //:
+  //: Выход с отказа - кнопка «Назад» самого экрана (``onBack``): панель под ним спрятана,
+  //: её кнопкам без плёнки делать нечего, и раньше у отказа не было ни одной рабочей.
+  refused(overlay, reason, onBack) {
     if (!overlay) return;
     if (overlay.querySelector('.tc-refused')) return;
     const screen = document.createElement('div');
@@ -25,8 +28,30 @@ const TCPlayerScreens = {
     const why = TC.phrases['web.player.refused_' + (reason || '')];
     if (why !== undefined) line += ': ' + why;
     title.textContent = line;
-    screen.appendChild(title);
+    const back = TCPlayerScreens._back(onBack);
+    screen.append(title, TCPlayerScreens._actions(back));
     overlay.replaceChildren(screen);
+    back.focus();
+  },
+
+  //: «Назад» экрана без плёнки: та же дверь, что у ✕ панели и Esc, и та же надпись.
+  _back(onBack) {
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'tc-btn tc-btn--secondary';
+    back.textContent = TC.say('web.player.back');
+    back.tabIndex = 0;
+    back.dataset.tcFocusable = '1';
+    back.dataset.tcGroup = 'halt';
+    back.addEventListener('click', onBack);
+    return back;
+  },
+
+  _actions(...buttons) {
+    const actions = document.createElement('div');
+    actions.className = 'tc-halt-actions';
+    actions.append(...buttons);
+    return actions;
   },
 
   //: Ящик ещё пуст, и человек ждёт. Кроме слова тут идут срок и имя источника из поля
@@ -34,17 +59,19 @@ const TCPlayerScreens = {
   //: ИЗМЕРЕННЫЙ по прошлым подъёмам этой машины. Продукт срока не дал - строки нет
   //: вовсе и полоса бежит, как раньше: число, посчитанное тут «примерно», было бы
   //: ложью с точностью до секунды, а она хуже молчания.
-  preparing(overlay, start) {
+  //: Подготовка тоже бывает долгой (прод: «Матрица», четыре минуты), и уйти с неё можно
+  //: не только клавишей: «Назад» (``onBack``) стоит под полосой.
+  preparing(overlay, start, onBack) {
     if (!overlay) return;
     let screen = overlay.querySelector('.tc-preparing');
     if (!screen) {
-      screen = TCPlayerScreens._prepare();
+      screen = TCPlayerScreens._prepare(onBack);
       overlay.replaceChildren(screen);
     }
     TCPlayerScreens._prepared(screen, start || null);
   },
 
-  _prepare() {
+  _prepare(onBack) {
     const screen = document.createElement('div');
     screen.className = 'tc-preparing';
     for (const corner of ['tl', 'tr', 'bl', 'br']) {
@@ -65,7 +92,7 @@ const TCPlayerScreens = {
     const note = document.createElement('div');
     note.className = 'tc-preparing-note';
     body.append(title, when, bar, note);
-    screen.appendChild(body);
+    screen.append(body, TCPlayerScreens._actions(TCPlayerScreens._back(onBack)));
     return screen;
   },
 
@@ -104,7 +131,9 @@ const TCPlayerScreens = {
   },
 
   //: После трёх неудач - экран ошибки с «Повторить» (§4.5); ``onRetry`` кладёт плеер.
-  lost(overlay, code, onRetry) {
+  //: Рядом «Назад» (``onBack``): поток, не вернувшийся и после повтора, иначе держал
+  //: человека на экране, где единственная кнопка ведёт обратно в ту же буферизацию.
+  lost(overlay, code, onRetry, onBack) {
     const screen = document.createElement('div');
     screen.className = 'tc-lost';
     const title = document.createElement('div');
@@ -129,7 +158,7 @@ const TCPlayerScreens = {
     retry.dataset.tcFocusable = '1';
     retry.dataset.tcGroup = 'lost';
     retry.addEventListener('click', onRetry);
-    actions.appendChild(retry);
+    actions.append(retry, TCPlayerScreens._back(onBack));
     screen.append(title, note, actions);
     overlay.replaceChildren(screen);
     retry.focus();
