@@ -67,7 +67,8 @@ def main() -> int:
         lost_at = _wait_for(receiver, started, lambda p: p.state == "lost", ceiling)
         print(f"lost на {lost_at:.1f} с молчания (порог вкладки {receiver.lost_after:.1f} с)")
         gone_at = _wait_for(receiver, started, lambda p: p.playing is False, ceiling)
-        print(f"gone на {gone_at:.1f} с молчания, playing=False (порог {receiver.gone_after:.1f} с)")
+        gone_after = receiver.gone_after
+        print(f"gone на {gone_at:.1f} с молчания, playing=False (порог {gone_after:.1f} с)")
 
     print(
         stamp(
