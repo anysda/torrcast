@@ -3470,6 +3470,10 @@ _DEEP_INTO: Final = 0.8
 _DEEP_REPORT: Final = 3.0
 #: Насколько перемотка встаёт раньше нажатия: доклад плюс панель и клик пункта 9.
 _DEEP_LEAD: Final = 5.0
+#: Кусок кончается не ближе этого к концу серии: после нажатия пункт 9 смотрит ТВ 55 с
+#: (15 с на подъём и 40 с хода), а доигравшая серия уходит в следующую (стенд `.104`
+#: 11-09: передача за 4 с до конца s1e2 застала уже s1e3, и каст снялся вместе с ящиком).
+_DEEP_TAIL: Final = 90.0
 
 
 @dataclass(frozen=True)
@@ -3551,7 +3555,13 @@ def check_35_same_on_tv(ctx: Ctx) -> Result:
     refusal = _open_card_by_page(ctx, _SERIES_TITLE)
     if refusal is not None:
         return Result(35, name, False, None, refusal)
-    ctx.page.locator("[data-tc-play]").first.click()
+    # Серия - всегда s1e2: закладка сериала после прогона уезжает (передача, досмотр до конца).
+    episode = ctx.page.locator(f'[data-tc-episode="{_PLACE_EPISODE}"]')
+    with contextlib.suppress(Exception):
+        episode.first.wait_for(state="visible", timeout=30000)
+    if episode.count() == 0:
+        return Result(35, name, False, None, f"серии {_PLACE_EPISODE} нет в карточке")
+    episode.first.click()
     if not _await_playback(ctx):
         screen = _overlay_text(ctx)
         _stop_show(ctx)
@@ -3559,7 +3569,8 @@ def check_35_same_on_tv(ctx: Ctx) -> Result:
     tab = _video_times(ctx, 2)
     pieces, why = _pieces(ctx)
     near, far = tab[-1] + _DEEP_NEAR, tab[-1] + _DEEP_AHEAD
-    ahead = [piece for piece in pieces if near <= piece.start <= far]
+    tail = pieces[-1].start + pieces[-1].span - _DEEP_TAIL if pieces else 0.0
+    ahead = [p for p in pieces if near <= p.start <= far and p.start + p.span <= tail]
     if not ahead:
         _stop_show(ctx)
         said = why or f"кусков {len(pieces)}"
