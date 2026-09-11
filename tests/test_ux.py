@@ -80,7 +80,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     )
     composition.use_start_unit(monkeypatch, lambda key, here=False: None)
     composition.use_await_playing(
-        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0, owner=None: None
     )
 
 

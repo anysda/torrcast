@@ -7,12 +7,12 @@ from __future__ import annotations
 import contextlib
 
 import torrcast.usecases.playback._show_state as _state
+from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.not_found_error import NotFoundError
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
@@ -20,7 +20,10 @@ from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.ports.show_unit.show_unit import ShowUnit
 from torrcast.ports.show_unit.slot import unit as show_unit
 from torrcast.ports.state_store.slot import store
+from torrcast.usecases.playback._refuse_hopeless import _refuse_hopeless
 from torrcast.usecases.playback.hls_root import hls_root
+from torrcast.usecases.playback.launch_owner import LaunchOwner
+from torrcast.usecases.playback.place_kept import place_kept
 from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.start_budget import START_BUDGET
@@ -60,10 +63,13 @@ def _launch(
         return EXIT_OK
     refuse_called_off()
     _refuse_hopeless(config, entry)
+    out = hls_root(config.hls_dir)
+    owner = LaunchOwner.claim(out)  # до погашения прошлого: его ожидание узнает, что снято
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
     # SIGTERM дописывает СВОЮ позицию, и записанный раньше прыжок на s1e5 он бы затёр.
     show_unit().stop()
     state = store().load()
+    before = state.get(key)  # место, которое не поднявшийся показ обязан вернуть (place_kept)
     # Темнота прошлого показа новому не наследуется. Снимает отметку тот же сторож, что
     # её ставит (:attr:`torrcast.domain.entry.Entry.dark`), но у убитого по SIGKILL юнита сторожа
     # не было вовсе, а у нового она снимается только с первого опроса приёмника - и до
@@ -77,46 +83,14 @@ def _launch(
     entry.paused = ""
     state.put(key, entry)
     store().save(state)
-    _state.forget_playing(hls_root(config.hls_dir))  # флажок прошлого показа нам не доказательство
-    _state.start_play_unit(key, here)
-    journal().mark("юнит")
-    with progress_bar() as progress:
-        _await_playing(config, progress, start=entry.pos)
+    _state.forget_playing(out)  # флажок прошлого показа нам не доказательство
+    with place_kept(key, before, owner.taken_over):
+        _state.start_play_unit(key, here)
+        journal().mark("юнит")
+        with progress_bar() as progress:
+            _await_playing(config, progress, start=entry.pos, owner=owner)
     print(phrase("playback.now_playing", about=about, secs=f"{clock.total:.0f}"))
     return EXIT_OK
-
-
-def _refuse_hopeless(config: Config, entry: Entry) -> None:
-    """Отказать ДО юнита, если этой записи на этом приёмнике картинки не видать.
-
-    🔴 Случай ровно один, и он живой (TC-157): кадр 4К приёмник не берёт вовсе - ни в чужом кодеке,
-    ни в своём. Замер 09-08-2026 на Q70D: пять заходов LOAD, каждый — ``IDLE/ERROR`` сразу после
-    первого сегмента, картинки нет ни разу (:attr:`torrcast.domain.profile.Profile.recode_frame`).
-
-    ⚠️ TC-222 сузил проверку до одного условия, и это не ослабление. Ужать кадр вниз умеет сплошной
-    перекод - значит отказывать надо не «большому кадру», а большому кадру БЕЗ перекода: ``recode:
-    false`` в настройках. С включённым перекодированием ровно та же запись теперь играется - 2160p
-    уезжает на приёмник как 1080p.
-
-    Отбор такие релизы отбраковывает сам (:meth:`Bench._trouble`), но мимо отбора ведут две двери:
-    ``--release N`` / ``--file N`` (там человек выбрал сам, и подмен не бывает) и продолжение
-    записи, попавшей в состояние через них же. Без этой проверки обе кончались одинаково: 86 с «жду
-    телевизор», код 2 и ни слова о причине. Теперь причина печатается за доли секунды, а ffmpeg и
-    раздача не поднимаются вовсе.
-
-    Молчим там, где не знаем: кадр ноль — это записи прежних версий, они играются как раньше."""
-    profile = _state.detect_profile(config).profile
-    if not entry.frame or entry.frame <= profile.recode_frame:
-        return
-    if config.recode:
-        return
-    raise NotFoundError(
-        phrase(
-            "playback.frame_too_big",
-            quality=entry.quality or f"{entry.frame}p",
-            limit=profile.recode_frame,
-        )
-    )
 
 
 def _await_playing(
@@ -126,6 +100,7 @@ def _await_playing(
     clock: Clock | None = None,
     unit: ShowUnit | None = None,
     start: float = 0.0,
+    owner: LaunchOwner | None = None,
 ) -> None:
     """Дождаться **картинки на экране**, а не «упаковка пошла».
 
@@ -157,7 +132,14 @@ def _await_playing(
     берёт ближайший опорный кадр не позже неё, а отвод назад на неудачном заходе отступает
     ещё дальше). Указатель приёмника тогда честно меньше закладки, но БОЛЬШЕ настоящей
     посадки - и гасить показ, который зритель уже смотрит, было бы не за что. Файла нет -
-    значит спрашивать нечего, и в дело идёт сама закладка, как и до TC-1002."""
+    значит спрашивать нечего, и в дело идёт сама закладка, как и до TC-1002.
+
+    🔴 ``owner`` - метка ЭТОГО подъёма (:mod:`torrcast.usecases.playback.launch_owner`). Имя
+    юнита одно на машину, и чужой запуск (мост веба, бот, консоль) гасит наш юнит и ставит
+    свой под тем же именем: ожидание, не сверявшее метку, кончалось чужой картинкой или
+    звало своим отказом смерть погашенного юнита («показ не запустился», TC-1203). Метка
+    сверяется раньше флажка - флажок мог поставить уже чужой показ, - и чужой юнит при
+    этом не гасится: он не наш."""
     unit = unit if unit is not None else show_unit()
     clock = clock if clock is not None else _state.CLOCK
     # 🔴 Строка берётся и ДО ожидания. Имя юнита переживает показы, и в журнале за ним
@@ -171,6 +153,7 @@ def _await_playing(
     deadline = clock.monotonic() + timeout
     packed = False
     while clock.monotonic() < deadline:
+        _yield_to_other(owner, progress)
         refuse_called_off(progress, unit)
         if flag.exists():
             journal().mark("картинка")
@@ -183,9 +166,11 @@ def _await_playing(
                 journal().mark("первый сегмент")
         progress.phase(phrase("playback.waiting_tv") if packed else phrase("playback.packing"))
         if not unit.active():
+            _yield_to_other(owner, progress)
             progress.phase("")
             raise InfraError(phrase("playback.did_not_start", why=unit.why()))
         clock.sleep(0.2)
+    _yield_to_other(owner, progress)
     progress.phase("")
     said = unit.why()
     landed = _state.read_landed(out, start)
@@ -198,3 +183,10 @@ def _await_playing(
         return
     unit.stop()
     raise InfraError(phrase("playback.did_not_start_timeout", secs=f"{timeout:.0f}", said=said))
+
+
+def _yield_to_other(owner: LaunchOwner | None, progress: Progress) -> None:
+    """Подъём снят чужим запуском - кончить ожидание отменой, не трогая чужой юнит."""
+    if owner is not None and owner.taken_over():
+        progress.phase("")
+        raise CancelledError(phrase("playback.abandoned"))

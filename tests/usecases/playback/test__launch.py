@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -20,13 +21,14 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import PLAYING_FLAG
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.abandon import slot as abandon_slot
 from torrcast.ports.show_unit.show_unit import ShowUnit
 from torrcast.ports.state_store.slot import store
 from torrcast.usecases.playback import _show_state
-from torrcast.usecases.playback._launch import _await_playing, _launch, _refuse_hopeless
+from torrcast.usecases.playback._launch import _await_playing, _launch
+from torrcast.usecases.playback.hls_root import hls_root
+from torrcast.usecases.playback.launch_owner import LaunchOwner
 from torrcast.usecases.screen_line import screen_line
 from torrcast.usecases.start_clock import _Clock
 
@@ -37,35 +39,6 @@ def _timeout_prefix(secs: float) -> str:
     return phrase("playback.did_not_start_timeout", secs=f"{secs:.0f}", said=marker).split(marker)[
         0
     ]
-
-
-def test_a_frame_the_receiver_never_takes_is_refused_before_the_unit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """4К без перекода приёмник не берёт вовсе - отказ печатается до всякого ffmpeg."""
-    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
-    config = Config(recode=False)
-    entry = Entry(title="Кино", magnet="magnet:?xt=1", frame=2160, quality="2160p")
-
-    want = phrase("playback.frame_too_big", quality="2160p", limit=CAUTIOUS.recode_frame)
-    with pytest.raises(NotFoundError, match=re.escape(want)):
-        _refuse_hopeless(config, entry)
-
-
-def test_the_same_record_plays_when_the_whole_recode_is_on(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ужать кадр умеет сплошной перекод - значит отказывать тут нечему."""
-    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
-
-    _refuse_hopeless(Config(recode=True), Entry(title="Кино", magnet="magnet:?xt=1", frame=2160))
-
-
-def test_a_record_of_an_older_version_plays_as_it_did(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Кадр ноль - запись прежней версии: молчим там, где не знаем."""
-    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
-
-    _refuse_hopeless(Config(recode=False), Entry(title="Кино", magnet="magnet:?xt=1"))
 
 
 def test_the_flag_of_the_picture_ends_the_waiting(
@@ -333,3 +306,108 @@ def test_a_show_called_off_while_it_waited_for_the_picture_is_put_out_at_once(
         )
 
     assert unit.stopped == 1, "показ, от которого отказались, остался жить"
+
+
+def test_a_wait_whose_launch_was_taken_over_leaves_the_new_show_alone(tmp_path: Path) -> None:
+    """🔴 TC-1203. Юнит под нашим именем уже чужой: его флажок - не наша картинка.
+
+    Прежде бот, чей подъём снял показ из веба, дожидался чужого кадра и звал его своим -
+    или чужого отказа и звал своим отказом. Чужой показ при этом не гасится: он не наш.
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    mine = LaunchOwner.claim(out)
+    LaunchOwner.claim(out)  # чужой запуск поставил свою метку поверх
+    (out / PLAYING_FLAG).write_text("")  # и его показ уже дал кадр
+    unit = FakeShow()
+
+    with pytest.raises(CancelledError, match=re.escape(phrase("playback.abandoned"))):
+        _await_playing(
+            Config(hls_dir=str(out)),
+            FakeProgress(),
+            3.0,
+            clock=FakeClock(now=100.0),
+            unit=cast(ShowUnit, unit),
+            owner=mine,
+        )
+
+    assert unit.stopped == 0, "чужой показ погашен ожиданием, которое его не поднимало"
+
+
+def test_a_unit_put_out_by_another_launch_is_not_called_our_refusal(tmp_path: Path) -> None:
+    """Чужой запуск погасил наш юнит - это отмена, а не «показ не запустился: <его строка>»."""
+    out = tmp_path / "hls"
+    touch_segment(out)
+    mine = LaunchOwner.claim(out)
+    LaunchOwner.claim(out)
+    unit = FakeShow(alive=False, reason="прогрето 0:04:51 из 2:16:42 - грею дальше")
+
+    with pytest.raises(CancelledError, match=re.escape(phrase("playback.abandoned"))):
+        _await_playing(
+            Config(hls_dir=str(out)),
+            FakeProgress(),
+            3.0,
+            clock=FakeClock(now=100.0),
+            unit=cast(ShowUnit, unit),
+            owner=mine,
+        )
+
+
+def test_a_show_that_did_not_come_up_gives_the_saved_place_back(
+    monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
+) -> None:
+    """🔴 TC-1203. Отказ показа не стоит зрителю места (прод 11-09-2026, s3e14 → s1e1).
+
+    Стартовая запись показа ложится под ключ картины до юнита. Показ не поднялся - и под
+    ключом обязана остаться прежняя запись, а не стартовая: иначе и бот дальше играет
+    s1e1 с нуля.
+    """
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
+    monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: None)
+
+    def refused(*args: object, **kwargs: object) -> None:
+        raise InfraError(phrase("playback.did_not_start", why="юнит выпал"))
+
+    composition.use_await_playing(monkeypatch, refused)
+    key = "tv:сериал"
+    place = Entry(title="Сериал", magnet="magnet:?xt=1", kind="tv", season=3, episode=14, pos=546.0)
+    state = store().load()
+    state.put(key, place)
+    store().save(state)
+
+    with pytest.raises(InfraError):
+        _launch(Config(), key, replace(place, episode=1, season=1, pos=0.0), "«Сериал»", _Clock())
+
+    saved = store().load().get(key)
+    assert saved is not None
+    assert (saved.season, saved.episode, saved.pos) == (3, 14, 546.0)
+
+
+def test_a_launch_hands_its_own_claim_to_the_wait(
+    monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
+) -> None:
+    """Ожидание картинки знает, чей это подъём, и узнаёт, что его снял следующий запуск.
+
+    Сверка метки в самом ожидании ничего не стоит, если запуск её туда не передал: бот,
+    чей подъём снял показ из веба, снова ждал бы чужого кадра и звал бы его своим.
+    """
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
+    monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: None)
+    handed: list[LaunchOwner | None] = []
+
+    def waited(*args: object, owner: LaunchOwner | None = None, **kwargs: object) -> None:
+        handed.append(owner)
+
+    composition.use_await_playing(monkeypatch, waited)
+    config = Config()
+
+    _launch(config, "movie:кино", Entry(title="Кино", magnet="magnet:?xt=1"), "«Кино»", _Clock())
+    mine = handed[0] if handed else None
+    assert mine is not None, "ожидание не знает, чей подъём оно ждёт"
+    assert mine.taken_over() is False, "свой же подъём звать снятым нельзя"
+
+    LaunchOwner.claim(hls_root(config.hls_dir))  # следующий запуск, веб или бот
+
+    assert mine.taken_over() is True, "снятый подъём не узнал, что показ уже чужой"

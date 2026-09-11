@@ -292,7 +292,7 @@ def test_a_series_recognised_by_the_files_of_the_release_reaches_the_bookmark(
     started: list[str] = []
     composition.use_start_unit(monkeypatch, lambda key, here=False: started.append(key))
     composition.use_await_playing(
-        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0, owner=None: None
     )
     pack = release("Врата Штейна / Steins;Gate WEB-DL 1080p")
     one = Plan(
