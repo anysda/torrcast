@@ -29,7 +29,8 @@
 
 Контракт DOM (``data-tc-*``) - страница вешает ``data-tc-tile``, ``data-tc-card``,
 ``data-tc-card-description``, ``data-tc-card-rating``, ``data-tc-play`` и
-``data-tc-episode``, плеер - ``data-tc-audio-option`` и ``data-tc-next-episode``.
+``data-tc-episode``, кнопки над полкой - ``data-tc-shelf-step`` (``1`` и ``-1``), плеер -
+``data-tc-audio-option`` и ``data-tc-next-episode``.
 Заголовки полок и кнопки проверка ищет по ТЕКСТУ из ``/api/phrases`` - это переживёт
 смену разметки, а не переживёт смену каталога.
 
@@ -429,85 +430,559 @@ def check_1_home(ctx: Ctx) -> Result:
     return Result(1, "Главная", ok, None, detail)
 
 
-def check_17_wheel(ctx: Ctx) -> Result:
-    """Колесо мыши: вертикальный скролл над полкой едет вбок, мимо полки - листает страницу.
-
-    Пункт сперва ищет полку, которой правда есть куда ехать (`scrollWidth > clientWidth`):
-    без такой полки испытывать нечего, и это говорится словом, а не тонет в зелёном OK.
-    Отрицательная проба - тем же прогоном: то же самое колесо ВНЕ полки обязано листать
-    страницу и не трогать `scrollLeft` полки, которую только что сдвинуло.
-    """
-    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
-    ctx.page.wait_for_timeout(300)
-    row = ctx.page.evaluate(
-        """
-        () => {
-            // Граница - свойство CSS, а не имя класса: `overflow-x: auto` в
-            // style.css определяет прокручиваемый узел, и переименование класса
-            // не должно превратить живую полку в вечный BLOCKED.
-            const rows = Array.from(document.querySelectorAll('*')).filter((node) => {
-                const overflow = getComputedStyle(node).overflowX;
-                return (overflow === 'auto' || overflow === 'scroll')
-                    && node.scrollWidth > node.clientWidth;
-            });
-            const row = rows[0];
-            if (!row) return null;
-            row.dataset.tcAcceptanceScroll = '1';
-            row.scrollIntoView({ block: 'center' });
-            const rect = row.getBoundingClientRect();
-            return {
-                x: rect.x + rect.width / 2,
-                y: rect.y + rect.height / 2,
-                scrollLeft: row.scrollLeft,
-            };
+#: Щупы полок для пунктов 17 и 23-27, ставятся на страницу ПОСЛЕ загрузки
+#: (`_open_shelves`). Строка - родитель живой плитки, место - «полка:плитка» по порядку
+#: в DOM: имя класса строки пунктам не нужно.
+_SHELF_JS: Final = """
+() => {
+  const LIVE = '[data-tc-tile][data-tc-focusable]';
+  const box = (el) => el.getBoundingClientRect();
+  const mid = (el) => { const b = box(el); return b.left + b.width / 2; };
+  const lit = () => document.querySelector('.is-lit');
+  const S = {
+    rows: () => [...new Set([...document.querySelectorAll(LIVE)].map((t) => t.parentElement))]
+      .filter((r) => r.offsetParent !== null),
+    show(r) { S.rows()[r].scrollIntoView({ block: 'center', behavior: 'instant' }); },
+    where(el) {
+      if (!el || el === document.body) return '-';
+      const r = S.rows().indexOf(el.parentElement);
+      if (r < 0 || !el.matches(LIVE)) return el.tagName.toLowerCase();
+      return r + ':' + [...el.parentElement.children].indexOf(el);
+    },
+    now: () => ({ focus: S.where(document.activeElement), lit: S.where(lit()) }),
+    lift(r, top) { window.scrollBy({ top: box(S.rows()[r]).top - top, behavior: 'instant' }); },
+    park(r) {
+      const most = document.documentElement.scrollHeight - innerHeight;
+      const want = Math.min(scrollY + box(S.rows()[r]).top - 120, most - 80);
+      window.scrollTo({ top: Math.max(0, want), behavior: 'instant' });
+      return most - scrollY;
+    },
+    point(r, i) {
+      const b = box(S.rows()[r].children[i]);
+      return { x: b.left + b.width / 2, y: b.top + b.height / 3 };
+    },
+    under(x, y) {
+      const e = document.elementFromPoint(x, y);
+      return S.where(e && e.closest(LIVE));
+    },
+    pose: () => [scrollY, ...S.rows().map((r) => r.scrollLeft),
+      ...[...document.querySelectorAll(LIVE)].slice(0, 60).map((t) => box(t).left)].join(','),
+    boxes: () => [...[...document.querySelectorAll(LIVE)].slice(0, 60), ...S.rows()]
+      .map((el) => { const b = box(el); return [b.left, b.top, b.width, b.height]; }),
+    ring() {
+      const f = lit() && lit().querySelector('.tc-tile-frame');
+      if (!f) return false;
+      const s = getComputedStyle(f);
+      return s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0;
+    },
+    expect(way) {
+      const from = lit() || document.activeElement;
+      const rows = S.rows();
+      const r = from ? rows.indexOf(from.parentElement) : -1;
+      if (r < 0) return { from: S.where(from), place: '?' };
+      const kids = [...rows[r].children];
+      const i = kids.indexOf(from);
+      const here = r + ':' + i;
+      if (way === 'left' || way === 'right') {
+        const j = Math.min(kids.length - 1, Math.max(0, i + (way === 'left' ? -1 : 1)));
+        return { from: here, place: r + ':' + j };
+      }
+      const t = r + (way === 'down' ? 1 : -1);
+      // Под нижней полкой идти некуда - стрелка стоит; над верхней - ближайшее помеченное
+      // выше неё (поле поиска), а нет его - тоже стоит.
+      if (t >= rows.length) return { from: here, place: here };
+      if (t < 0) {
+        const top = box(from).top;
+        const above = [...document.querySelectorAll('[data-tc-focusable]')]
+          .filter((el) => !el.matches(LIVE) && el.offsetParent !== null
+            && box(el).bottom <= top + 1)
+          .sort((a, b) => box(b).bottom - box(a).bottom);
+        return { from: here, place: above.length ? S.where(above[0]) : here };
+      }
+      const x = mid(from);
+      const next = [...rows[t].children];
+      let j = 0;
+      next.forEach((k, n) => { if (Math.abs(mid(k) - x) < Math.abs(mid(next[j]) - x)) j = n; });
+      return { from: r + ':' + i, place: t + ':' + j };
+    },
+    overflow: () => S.rows().findIndex((r) => r.scrollWidth > r.clientWidth + 1),
+    step(r, way) {
+      const row = S.rows()[r];
+      const kids = [...row.children];
+      const b = box(row);
+      const end = way > 0 ? box(kids[kids.length - 1]).right <= b.right + 0.5
+        : box(kids[0]).left >= b.left - 0.5;
+      const btn = row.parentElement.querySelector('[data-tc-shelf-step="' + way + '"]');
+      if (!btn) return { end, x: null, y: null, off: true };
+      const k = box(btn);
+      return { end, x: k.left + k.width / 2, y: k.top + k.height / 2, off: btn.disabled };
+    },
+    bars() {
+      const on = lit();
+      return S.rows().map((row) => {
+        const out = { sh: row.scrollHeight, ch: row.clientHeight,
+          vbar: row.offsetWidth - row.clientWidth, hbar: row.offsetHeight - row.clientHeight,
+          lit: false, fits: true, capbar: 0, lines: 0 };
+        if (!on || on.parentElement !== row) return out;
+        const frame = on.querySelector('.tc-tile-frame');
+        const cap = on.querySelector('.tc-tile-cap');
+        const text = cap && cap.querySelector('.tc-caption');
+        const ring = frame ? parseFloat(getComputedStyle(frame).outlineWidth) || 0 : 0;
+        const top = box(row).top + row.clientTop;
+        out.lit = true;
+        out.fits = box(frame || on).top - ring >= top - 0.5
+          && box(on).bottom <= top + row.clientHeight + 0.5;
+        if (cap) {
+          out.capbar = Math.max(cap.offsetWidth - cap.clientWidth,
+            cap.offsetHeight - cap.clientHeight);
         }
-        """
-    )
-    if row is None:
-        detail = (
-            "ни одна полка не переполнена по ширине "
-            "(scrollWidth <= clientWidth) - колесу негде ехать вбок"
+        if (text) {
+          out.lines = Math.round(box(text).height / parseFloat(getComputedStyle(text).lineHeight));
+        }
+        return out;
+      });
+    },
+  };
+  window.__tcShelf = S;
+}
+"""
+#: Стрелка → (сторона для щупа, значок для печати пути).
+_ARROWS: Final = {
+    "ArrowUp": ("up", "↑"),
+    "ArrowDown": ("down", "↓"),
+    "ArrowLeft": ("left", "←"),
+    "ArrowRight": ("right", "→"),
+}
+
+
+def _open_shelves(page: Any, base: str) -> int:
+    """Главная с доехавшими полками и поставленными щупами: сколько полок в 6+ плиток."""
+    page.goto(base + "/", wait_until="load", timeout=15000)
+    page.evaluate(_SHELF_JS)
+    full = 0
+    for _ in range(60):
+        full = int(
+            page.evaluate("() => __tcShelf.rows().filter((r) => r.children.length >= 6).length")
         )
-        return Result(17, "Колесо", False, "нет переполненной полки", detail)
+        if full >= 2:
+            break
+        page.wait_for_timeout(500)
+    page.wait_for_timeout(300)
+    return full
 
-    before = int(row["scrollLeft"])
-    ctx.page.mouse.move(row["x"], row["y"])
-    ctx.page.mouse.wheel(0, 240)
-    ctx.page.wait_for_timeout(100)
-    over_row = int(
-        ctx.page.evaluate("() => document.querySelector('[data-tc-acceptance-scroll]').scrollLeft")
-    )
 
-    # Отрицательная проба: то же колесо, но указатель НЕ над полкой.
-    ctx.page.evaluate("() => window.scrollTo(0, 0)")
-    page_before = int(ctx.page.evaluate("() => window.scrollY"))
-    outside = ctx.page.evaluate(
-        """
-        () => {
-            const el = document.querySelector('.tc-search') || document.body;
-            const rect = el.getBoundingClientRect();
-            return { x: rect.x + 10, y: Math.max(5, rect.y + 5) };
-        }
-        """
-    )
-    ctx.page.mouse.move(outside["x"], outside["y"])
-    ctx.page.mouse.wheel(0, 300)
-    ctx.page.wait_for_timeout(100)
-    page_after = int(ctx.page.evaluate("() => window.scrollY"))
-    row_after_outside = int(
-        ctx.page.evaluate("() => document.querySelector('[data-tc-acceptance-scroll]').scrollLeft")
-    )
+def _settle(page: Any) -> None:
+    """Дождаться, пока страница и полки встанут: плавная прокрутка едет сотни миллисекунд."""
+    last = None
+    for _ in range(40):
+        page.wait_for_timeout(50)
+        pose = page.evaluate("() => __tcShelf.pose()")
+        if pose == last:
+            return
+        last = pose
 
-    row_moved = over_row > before
-    page_moved = page_after > page_before
-    row_untouched = row_after_outside == over_row
-    ok = row_moved and page_moved and row_untouched
+
+def _hover(page: Any, row: int, index: int) -> None:
+    """Навести указатель на плитку ОДНИМ движением из инертного угла, после того как всё встало."""
+    page.mouse.move(5, 5)
+    _settle(page)
+    spot = page.evaluate("([r, i]) => __tcShelf.point(r, i)", [row, index])
+    page.mouse.move(spot["x"], spot["y"])
+    page.wait_for_timeout(300)
+
+
+def _step_through(page: Any, row: int) -> tuple[bool, list[str]]:
+    """Кнопками над строкой до последней плитки и обратно к первой; на краю кнопка гаснет."""
+    page.evaluate("(r) => __tcShelf.show(r)", row)
+    page.mouse.move(5, 5)
+    _settle(page)
+    notes: list[str] = []
+    ok = True
+    for way, mark, edge in ((1, "›", "последняя"), (-1, "‹", "первая")):
+        clicks = 0
+        state = page.evaluate("([r, w]) => __tcShelf.step(r, w)", [row, way])
+        while not state["end"] and state["x"] is not None and not state["off"] and clicks < 40:
+            page.mouse.click(state["x"], state["y"])
+            clicks += 1
+            _settle(page)
+            state = page.evaluate("([r, w]) => __tcShelf.step(r, w)", [row, way])
+        if state["x"] is None:
+            notes.append(f"кнопки data-tc-shelf-step={way} НЕТ")
+            ok = False
+            continue
+        ok = ok and bool(state["end"]) and bool(state["off"])
+        shown = "целиком в строке" if state["end"] else "НЕ показана"
+        notes.append(
+            f"«{mark}» x{clicks}: {edge} плитка {shown}, "
+            f"кнопка на краю {'погасла' if state['off'] else 'ГОРИТ'}"
+        )
+    return ok, notes
+
+
+def check_17_wheel(ctx: Ctx) -> Result:
+    """Мышь добирается до плиток за краем строки, хотя полосы прокрутки у строки нет.
+
+    Путей у мыши три. Кнопки ``data-tc-shelf-step`` над строкой (``1`` - дальше, ``-1`` -
+    назад) доводят до последней плитки и обратно к первой и на краю гаснут: на полке
+    главной и в ряду «Ещё из этой серии» карточки (окно 1920, семь плиток франшизы там не
+    влезают). Боковое колесо и Shift+колесо над полкой везут её вбок, не листая страницу.
+    Вертикальное колесо над полкой - пункт 25: оно листает страницу.
+    """
+    page = ctx.page
+    if _open_shelves(page, ctx.base) < 1:
+        return Result(17, "Вбок", False, "полки не доехали", "на главной нет полки с плитками")
+    row = int(page.evaluate("() => __tcShelf.overflow()"))
+    if row < 0:
+        detail = "ни одна полка не шире окна (scrollWidth <= clientWidth) - ехать вбок некуда"
+        return Result(17, "Вбок", False, "нет переполненной полки", detail)
+    ok, notes = _step_through(page, row)
+    card = ctx.page.context.browser.new_page(viewport={"width": 1920, "height": 900})
+    try:
+        kin = _open_card(card) if _open_search(ctx, card, _FULL_SEARCH) > 0 else 0
+        at = int(card.evaluate("() => __tcShelf.overflow()")) if kin else -1
+        if at < 0:
+            notes.append(f"карточка 1920: ряд серии ({kin} плиток) не переполнен, листать нечего")
+            ok = False
+        else:
+            good, said = _step_through(card, at)
+            ok = ok and good
+            notes.append("карточка 1920, ряд серии: " + ", ".join(said))
+    finally:
+        card.close()
+    for label, shift, dx, dy in (("боковое колесо", False, 300, 0), ("Shift+колесо", True, 0, 300)):
+        page.evaluate(
+            "(r) => { const row = __tcShelf.rows()[r]; row.style.scrollBehavior = 'auto';"
+            " row.scrollLeft = 0; row.style.scrollBehavior = ''; }",
+            row,
+        )
+        _hover(page, row, 1)
+        before = page.evaluate("(r) => [scrollY, __tcShelf.rows()[r].scrollLeft]", row)
+        if shift:
+            page.keyboard.down("Shift")
+        page.mouse.wheel(dx, dy)
+        if shift:
+            page.keyboard.up("Shift")
+        _settle(page)
+        after = page.evaluate("(r) => [scrollY, __tcShelf.rows()[r].scrollLeft]", row)
+        ok = ok and after[1] > before[1] and after[0] == before[0]
+        notes.append(
+            f"{label}: scrollLeft {before[1]:.0f} -> {after[1]:.0f}, "
+            f"scrollY {before[0]:.0f} -> {after[0]:.0f}"
+        )
+    return Result(17, "Вбок", ok, None, f"полка {row}: " + "; ".join(notes))
+
+
+def check_23_hover(ctx: Ctx) -> Result:
+    """Наведение не двигает ничего: ни одна плитка и ни одна полка не меняют размер и место.
+
+    Выделение - обводка рамки плитки. Рост плитки и всей полки под указателем толкал
+    соседей и полки ниже (замер 11-09-2026 на 1280: до 1121 px), и под неподвижной
+    мышью оказывалась уже другая плитка.
+    """
+    page = ctx.page
+    if _open_shelves(page, ctx.base) < 1:
+        return Result(23, "Наведение", False, "полки не доехали", "на главной нет полки с плитками")
+    page.evaluate("() => __tcShelf.lift(0, 200)")
+    page.mouse.move(5, 5)
+    _settle(page)
+    before = page.evaluate("() => __tcShelf.boxes()")
+    spot = page.evaluate("() => __tcShelf.point(0, 1)")
+    page.mouse.move(spot["x"], spot["y"])
+    page.wait_for_timeout(400)
+    after = page.evaluate("() => __tcShelf.boxes()")
+    now = page.evaluate("() => __tcShelf.now()")
+    ring = bool(page.evaluate("() => __tcShelf.ring()"))
+    if len(before) != len(after):
+        detail = f"после наведения коробок {len(after)}, а до него {len(before)}"
+        return Result(23, "Наведение", False, None, detail)
+    shifts = [
+        max(abs(a - b) for a, b in zip(old, new, strict=True))
+        for old, new in zip(before, after, strict=True)
+    ]
+    moved = sum(1 for shift in shifts if shift > 0.5)
+    worst = max(shifts, default=0.0)
+    ok = moved == 0 and len(before) == len(after) and now["lit"] == "0:1" and ring
     detail = (
-        f"над узлом с overflow-x: auto: scrollLeft {before} -> {over_row}; "
-        f"мимо полки: window.scrollY {page_before} -> {page_after}, "
-        f"scrollLeft полки не тронут ({over_row} -> {row_after_outside})"
+        f"наведение на плитку 0:1: сдвинулось {moved} из {len(shifts)} коробок (плитки и "
+        f"полки), наибольший сдвиг {worst:.1f} px; горит {now['lit']}, "
+        f"обводка рамки {'нарисована' if ring else 'НЕ нарисована'}"
     )
-    return Result(17, "Колесо", ok, None, detail)
+    return Result(23, "Наведение", ok, None, detail)
+
+
+def _walk(page: Any, keys: list[str]) -> tuple[str, list[str]]:
+    """Стрелки по одной; куда встать, щуп считает по раскладке ДО нажатия."""
+    path: list[str] = []
+    wrong: list[str] = []
+    for number, key in enumerate(keys, 1):
+        way, mark = _ARROWS[key]
+        want = page.evaluate("(w) => __tcShelf.expect(w)", way)
+        page.keyboard.press(key)
+        _settle(page)
+        got = page.evaluate("() => __tcShelf.now()")
+        path.append(f"{mark}{got['focus']}")
+        if got["focus"] != want["place"] or got["lit"] != want["place"]:
+            wrong.append(
+                f"шаг {number} {mark} от {want['from']}: ждали {want['place']}, "
+                f"фокус {got['focus']}, горит {got['lit']}"
+            )
+    return " ".join(path), wrong
+
+
+def check_24_arrows(ctx: Ctx) -> Result:
+    """Стрелки: ←→ по плиткам своей полки, ↑↓ на соседнюю полку в ту же колонку экрана.
+
+    Каждое нажатие - ровно один шаг, на краю полки стрелка стоит. Путь проходится дважды:
+    от плитки, на которую указала мышь (фокус при этом ещё в поле поиска), и только
+    клавишами от первой плитки. Где встать, пункт считает по раскладке до нажатия.
+    """
+    page = ctx.page
+    if _open_shelves(page, ctx.base) < 2:
+        return Result(24, "Стрелки", False, "меньше двух полок", "на главной меньше двух полок")
+    page.evaluate("() => __tcShelf.lift(0, 150)")
+    _hover(page, 0, 1)
+    start = page.evaluate("() => __tcShelf.now()")
+    mouse_keys = [
+        "ArrowDown",
+        *["ArrowRight"] * 3,
+        "ArrowUp",
+        *["ArrowLeft"] * 5,
+        "ArrowDown",
+        "ArrowUp",
+    ]
+    mouse_path, mouse_wrong = _walk(page, mouse_keys)
+    page.mouse.move(5, 5)
+    _open_shelves(page, ctx.base)
+    page.evaluate("() => __tcShelf.lift(0, 150)")
+    page.evaluate("() => __tcShelf.rows()[0].children[0].focus()")
+    key_keys = ["ArrowLeft", *["ArrowRight"] * 9, "ArrowDown", "ArrowUp"]
+    key_path, key_wrong = _walk(page, key_keys)
+    wrong = mouse_wrong + key_wrong
+    verdict = (
+        f"неверных шагов {len(wrong)}: {'; '.join(wrong[:4])}"
+        if wrong
+        else f"все {len(mouse_keys) + len(key_keys)} шагов ровно на одну плитку или полку"
+    )
+    detail = (
+        f"от мыши (горит {start['lit']}, фокус {start['focus']}): {mouse_path}; "
+        f"только клавиши от 0:0: {key_path}; {verdict}"
+    )
+    return Result(24, "Стрелки", not wrong, None, detail)
+
+
+def check_25_page_wheel(ctx: Ctx) -> Result:
+    """Вертикальное колесо над любой полкой листает страницу и не трогает саму полку.
+
+    Указатель стоит на плитке полки (она горит), колесо крутится вниз: ``scrollY``
+    обязан вырасти, ``scrollLeft`` полки - остаться прежним. Полка ставится так, чтобы
+    странице было куда ехать вниз, иначе пункт мерил бы край документа.
+    """
+    page = ctx.page
+    if _open_shelves(page, ctx.base) < 1:
+        return Result(25, "Колесо", False, "полки не доехали", "на главной нет полки с плитками")
+    notes: list[str] = []
+    ok = True
+    for row in range(int(page.evaluate("() => __tcShelf.rows().length"))):
+        room = float(page.evaluate("(r) => __tcShelf.park(r)", row))
+        if room < 40:
+            notes.append(f"полка {row}: странице некуда ехать вниз ({room:.0f} px)")
+            ok = False
+            continue
+        _hover(page, row, 0)
+        before = page.evaluate("(r) => [scrollY, __tcShelf.rows()[r].scrollLeft]", row)
+        page.mouse.wheel(0, 300)
+        _settle(page)
+        after = page.evaluate("(r) => [scrollY, __tcShelf.rows()[r].scrollLeft]", row)
+        ok = ok and after[0] > before[0] and after[1] == before[1]
+        notes.append(
+            f"полка {row}: scrollY {before[0]:.0f} -> {after[0]:.0f}, "
+            f"scrollLeft {before[1]:.0f} -> {after[1]:.0f}"
+        )
+    return Result(25, "Колесо", ok, None, "; ".join(notes))
+
+
+def _bars_sweep(page: Any, label: str, hovers: int) -> tuple[str, bool]:
+    """Своя прокрутка и полосы каждой строки: в покое и под наведением на первые плитки."""
+    page.mouse.move(5, 5)
+    _settle(page)
+    rest = page.evaluate("() => __tcShelf.bars()")
+    lit: list[Any] = []
+    sizes = page.evaluate("() => __tcShelf.rows().map((r) => r.children.length)")
+    for row, size in enumerate(sizes):
+        page.evaluate("(r) => __tcShelf.show(r)", row)
+        for index in range(min(hovers, size)):
+            _hover(page, row, index)
+            lit.append(page.evaluate("() => __tcShelf.bars()")[row])
+    everyone = [*rest, *lit]
+    shown = [sample for sample in lit if sample["lit"]]
+    rest_gap = max(sample["sh"] - sample["ch"] for sample in rest)
+    lit_gap = max((sample["sh"] - sample["ch"] for sample in lit), default=0)
+    vbar = max(sample["vbar"] for sample in everyone)
+    hbar = max(sample["hbar"] for sample in everyone)
+    capbar = max((sample["capbar"] for sample in shown), default=0)
+    fits = sum(1 for sample in shown if sample["fits"])
+    lines = sorted({sample["lines"] for sample in shown})
+    pairs = " ".join(f"{sample['sh']}/{sample['ch']}" for sample in rest)
+    ok = rest_gap == 0 and lit_gap == 0 and vbar == 0 and hbar == 0 and capbar == 0
+    ok = ok and bool(shown) and fits == len(shown)
+    note = (
+        f"{label}: sh/ch покой {pairs}, sh-ch наведение до {lit_gap} ({len(shown)} наведений, "
+        f"строк подписи {lines}), vbar {vbar}, hbar {hbar}, у подписи {capbar}, "
+        f"плитка с обводкой вмещается {fits}/{len(shown)}"
+    )
+    return note, ok
+
+
+#: Франшиза, у которой на стенде обе строки выдачи (12 находок) и ряд серии в 7 плиток.
+_FULL_SEARCH: Final = "Гарри Поттер"
+_HITS: Final = "[data-tc-group='search-results'][data-tc-focusable]"
+#: Выдача, переставшая перерисовываться: та же первая находка и то же их число, что
+#: и в прошлый опрос (иначе 0). Выдача доезжает частями и строится заново целиком, и
+#: плитки, на которую навели до последней перестройки, в DOM уже нет.
+_CALM_HITS_JS: Final = """
+() => {
+  const all = document.querySelectorAll("[data-tc-group='search-results'][data-tc-focusable]");
+  const first = all[0];
+  if (!first) return 0;
+  const same = first.__tcSeen === true && window.__tcHits === all.length;
+  first.__tcSeen = true;
+  window.__tcHits = all.length;
+  return same ? all.length : 0;
+}
+"""
+_KIN_JS: Final = (
+    "() => { const r = document.querySelector('.tc-detail-series-block .tc-row');"
+    " return r ? r.children.length : 0; }"
+)
+
+
+def _open_search(ctx: Ctx, page: Any, title: str) -> int:
+    """Выдача поиска, доехавшая и 3 с не менявшаяся; ответ - число находок (0 - не дождались)."""
+    page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    placeholder = ctx.english.get("web.search.placeholder", "")
+    field = page.get_by_placeholder(placeholder, exact=True) if placeholder else None
+    if field is None or field.count() == 0:
+        return 0
+    field.first.fill(title)
+    field.first.press("Enter")
+    page.evaluate(_SHELF_JS)
+    calm = 0
+    found = 0
+    for _ in range(120):
+        page.wait_for_timeout(500)
+        found = int(page.evaluate(_CALM_HITS_JS))
+        calm = calm + 1 if found > 0 else 0
+        if calm >= 6:
+            return found
+    return 0
+
+
+def _open_card(page: Any) -> int:
+    """С выдачи - в карточку первой находки; ответ - плиток в ряду серии (0 - ряда нет)."""
+    page.locator(_HITS).first.click()
+    kin = 0
+    for _ in range(90):
+        page.wait_for_timeout(500)
+        kin = int(page.evaluate(_KIN_JS))
+        if kin:
+            break
+    page.wait_for_timeout(800)
+    return kin
+
+
+def _search_sweep(ctx: Ctx, page: Any, width: int) -> list[tuple[str, bool]]:
+    """Обе строки выдачи поиска и ряд серии карточки: они той же породы, что полки."""
+    found = _open_search(ctx, page, _FULL_SEARCH)
+    if found <= 0:
+        return [(f"поиск {width}: выдача не доехала или не успокоилась за 60 с", False)]
+    swept = [_bars_sweep(page, f"поиск {width}x1 ({found} находок)", 4)]
+    kin = _open_card(page)
+    if not kin:
+        return [*swept, (f"карточка {width}: ряда серии не дождались", False)]
+    return [*swept, _bars_sweep(page, f"карточка {width}x1 (ряд серии, {kin} плиток)", 4)]
+
+
+def check_26_bars(ctx: Ctx) -> Result:
+    """Своей прокрутки у строки плиток нет: ``scrollHeight == clientHeight``, полос нет нигде.
+
+    Каждая строка (полки главной, обе строки выдачи поиска, ряд серии карточки) в покое и
+    под наведением на каждую из первых плиток: ни вертикальной полосы, ни видимой
+    горизонтальной, у подписи горящей плитки тоже, плитка с обводкой рамки и подписью
+    вмещается в строку целиком. Полки - в окнах 1280, 1440 и 1920 по ширине при масштабе
+    1 и 1.5, поиск и карточка - в 1280 и 1920. 🔴 Полосы видны только потому, что ``main``
+    снимает с Chromium флаг ``--hide-scrollbars``: с ним ширина полосы всегда 0.
+    """
+    browser = ctx.page.context.browser
+    notes: list[str] = []
+    ok = True
+    for width in (1280, 1440, 1920):
+        for scale in (1.0, 1.5):
+            page = browser.new_page(
+                viewport={"width": width, "height": 900}, device_scale_factor=scale
+            )
+            try:
+                if _open_shelves(page, ctx.base) < 2:
+                    note, good = f"{width}x{scale:g}: полки не доехали", False
+                else:
+                    note, good = _bars_sweep(page, f"{width}x{scale:g}", 6)
+            finally:
+                page.close()
+            notes.append(note)
+            ok = ok and good
+    for width in (1280, 1920):
+        page = browser.new_page(viewport={"width": width, "height": 900})
+        try:
+            swept = _search_sweep(ctx, page, width)
+        finally:
+            page.close()
+        notes += [note for note, _ in swept]
+        ok = ok and all(good for _, good in swept)
+    return Result(26, "Полосы", ok, None, "; ".join(notes))
+
+
+def check_27_under_pointer(ctx: Ctx) -> Result:
+    """После прокрутки под неподвижной мышью горит плитка, которая теперь под указателем.
+
+    Прокрутка событий мыши не рождает: полка, уехавшая вбок (боковое колесо, кнопка над
+    полкой), или страница, пролистанная колесом, оставляли гореть плитку, которой под
+    указателем уже нет, пока человек не шевельнёт мышью.
+    """
+    page = ctx.page
+    if _open_shelves(page, ctx.base) < 1:
+        return Result(27, "Под мышью", False, "полки не доехали", "на главной нет полки с плитками")
+    row = int(page.evaluate("() => __tcShelf.overflow()"))
+    if row < 0:
+        detail = "ни одна полка не шире окна - уехать из-под указателя плитке некуда"
+        return Result(27, "Под мышью", False, "нет переполненной полки", detail)
+    page.evaluate("(r) => __tcShelf.lift(r, 150)", row)
+    _hover(page, row, 1)
+    spot = page.evaluate("([r, i]) => __tcShelf.point(r, i)", [row, 1])
+    moves: list[tuple[str, Callable[[], object]]] = [
+        ("боковое колесо", lambda: page.mouse.wheel(470, 0)),
+        (
+            "scrollBy полки",
+            lambda: page.evaluate(
+                "(r) => __tcShelf.rows()[r].scrollBy({ left: 470, behavior: 'instant' })", row
+            ),
+        ),
+        ("колесо страницы", lambda: page.mouse.wheel(0, 200)),
+    ]
+    notes: list[str] = []
+    ok = True
+    for label, move in moves:
+        pose = page.evaluate("() => __tcShelf.pose()")
+        move()
+        _settle(page)
+        moved = page.evaluate("() => __tcShelf.pose()") != pose
+        under = page.evaluate("([x, y]) => __tcShelf.under(x, y)", [spot["x"], spot["y"]])
+        lit = page.evaluate("() => __tcShelf.now()")["lit"]
+        ok = ok and moved and lit == under
+        notes.append(
+            f"{label}: {'поехало' if moved else 'НЕ поехало'}, под указателем {under}, горит {lit}"
+        )
+    return Result(
+        27, "Под мышью", ok, None, f"полка {row}, указатель на плитке 1: " + "; ".join(notes)
+    )
 
 
 def check_18_caption_scroll(ctx: Ctx) -> Result:
@@ -527,10 +1002,8 @@ def check_18_caption_scroll(ctx: Ctx) -> Result:
             break
         ctx.page.wait_for_timeout(500)
     ctx.page.wait_for_timeout(300)
-    # Наведение теперь раздувает полку («Size hierarchy»: ряд под фокусом 268px), и
-    # подпись, не влезавшая в 210px, в раздутой плитке может поместиться - тогда ехать
-    # ей нечего и незачем. Переполнение меряется при том же раскладе, что создаёт само
-    # наведение: `is-lit` на плитке и `tc-row--focused` на её ряду.
+    # Переполнение меряется при том же раскладе, что создаёт само наведение: `is-lit`
+    # разворачивает подпись в несколько строк внутри короба той же высоты.
     candidate = ctx.page.evaluate(
         """
         () => {
@@ -539,12 +1012,9 @@ def check_18_caption_scroll(ctx: Ctx) -> Result:
                 const tile = tiles[i];
                 const box = tile.querySelector('.tc-tile-cap');
                 if (!box) continue;
-                const row = tile.closest('.tc-row');
                 tile.classList.add('is-lit');
-                if (row) row.classList.add('tc-row--focused');
                 const overflow = box.scrollHeight - box.clientHeight;
                 tile.classList.remove('is-lit');
-                if (row) row.classList.remove('tc-row--focused');
                 box.scrollTop = 0;
                 if (overflow > 4) {
                     const title = tile.querySelector('.tc-caption');
@@ -2231,43 +2701,64 @@ def main() -> int:
         help="разрешить настоящий показ (пп. 4,6-11,20) - отнимает полосу упаковки у соседа",
     )
     parser.add_argument("--shots", type=Path, default=Path("/tmp/web-acceptance-shots"))
+    parser.add_argument(
+        "--only",
+        default="",
+        help="номера пунктов через запятую; пункт без своего предшественника заблокирован",
+    )
     args = parser.parse_args()
+    only = {int(number) for number in args.only.split(",") if number.strip()}
 
     en_code, en_body = _get(args.base + "/api/phrases")
     english = json.loads(en_body) if en_code == 200 else {}
 
     results: list[Result] = []
+
+    def pick(number: int, name: str, run: Callable[[], Result]) -> bool:
+        """Прогнать пункт, если он выбран; ответ - зелёный ли он (для зависимых)."""
+        if only and number not in only:
+            return False
+        result = _guarded(number, name, run)
+        results.append(result)
+        return result.ok
+
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as driver:
-        browser = driver.chromium.launch(headless=True)
+        # Chromium без окна по умолчанию прячет полосы прокрутки (`--hide-scrollbars`):
+        # с этим флагом ширина любой полосы 0, и пункт 26 зеленел бы на любой вёрстке.
+        browser = driver.chromium.launch(headless=True, ignore_default_args=["--hide-scrollbars"])
         page = browser.new_page()
         ctx = Ctx(args.base, page, args.play, args.shots, english)
-        r1 = _guarded(1, "Главная", lambda: check_1_home(ctx))
-        r17 = _guarded(17, "Колесо", lambda: check_17_wheel(ctx))
-        r18 = _guarded(18, "Подпись", lambda: check_18_caption_scroll(ctx))
-        r19 = _guarded(19, "Латиница", lambda: check_19_latin_titles(ctx))
-        r21 = _guarded(21, "Слияние", lambda: check_21_merge_hits(ctx))
-        r2 = _guarded(2, "Поиск", lambda: check_2_search(ctx))
-        r3 = _guarded(3, "Карточка", lambda: check_3_card(ctx, r2.ok))
-        r4 = _guarded(4, "Показ", lambda: check_4_playback(ctx, r3.ok))
-        r5 = _guarded(5, "Закладка", lambda: check_5_bookmark(ctx, r4.ok))
-        r6 = _guarded(6, "Сначала", lambda: check_6_restart(ctx, r5.ok))
-        r7 = _guarded(7, "Сериал", lambda: check_7_series(ctx, r3.ok))
-        r8 = _guarded(8, "Автопереход", lambda: check_8_autoplay(ctx, r7.ok))
-        r9 = _guarded(9, "На ТВ", lambda: check_9_on_tv(ctx, r4.ok or r7.ok))
-        r10 = _guarded(10, "На комп", lambda: check_10_on_pc(ctx, r9.ok))
-        r20 = _guarded(20, "Уход", lambda: check_20_leave_tears_down(ctx, r10.ok))
-        r11 = _guarded(11, "Стрелки", lambda: check_11_arrows(ctx))
-        results += [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r20, r11, r17, r18, r19, r21]
+        pick(1, "Главная", lambda: check_1_home(ctx))
+        pick(17, "Вбок", lambda: check_17_wheel(ctx))
+        pick(18, "Подпись", lambda: check_18_caption_scroll(ctx))
+        pick(19, "Латиница", lambda: check_19_latin_titles(ctx))
+        pick(21, "Слияние", lambda: check_21_merge_hits(ctx))
+        pick(23, "Наведение", lambda: check_23_hover(ctx))
+        pick(24, "Стрелки", lambda: check_24_arrows(ctx))
+        pick(25, "Колесо", lambda: check_25_page_wheel(ctx))
+        pick(26, "Полосы", lambda: check_26_bars(ctx))
+        pick(27, "Под мышью", lambda: check_27_under_pointer(ctx))
+        ok2 = pick(2, "Поиск", lambda: check_2_search(ctx))
+        ok3 = pick(3, "Карточка", lambda: check_3_card(ctx, ok2))
+        ok4 = pick(4, "Показ", lambda: check_4_playback(ctx, ok3))
+        ok5 = pick(5, "Закладка", lambda: check_5_bookmark(ctx, ok4))
+        pick(6, "Сначала", lambda: check_6_restart(ctx, ok5))
+        ok7 = pick(7, "Сериал", lambda: check_7_series(ctx, ok3))
+        pick(8, "Автопереход", lambda: check_8_autoplay(ctx, ok7))
+        ok9 = pick(9, "На ТВ", lambda: check_9_on_tv(ctx, ok4 or ok7))
+        ok10 = pick(10, "На комп", lambda: check_10_on_pc(ctx, ok9))
+        pick(20, "Уход", lambda: check_20_leave_tears_down(ctx, ok10))
+        pick(11, "Стрелки", lambda: check_11_arrows(ctx))
         browser.close()
 
-    results.append(_guarded(15, "Обложки", lambda: check_15_posters(args.base)))
-    results.append(_guarded(16, "Мусор", lambda: check_16_junk(args.base)))
-    results.append(_guarded(22, "Полка → карточка", lambda: check_22_shelf_cards_open(args.base)))
-    results.append(_guarded(12, "Франшиза", lambda: check_12_franchise(args.base)))
-    results.append(_guarded(13, "Тексты", lambda: check_13_texts(args.base)))
-    results.append(_guarded(14, "Гейт", lambda: check_14_gate(args.repo)))
+    pick(15, "Обложки", lambda: check_15_posters(args.base))
+    pick(16, "Мусор", lambda: check_16_junk(args.base))
+    pick(22, "Полка → карточка", lambda: check_22_shelf_cards_open(args.base))
+    pick(12, "Франшиза", lambda: check_12_franchise(args.base))
+    pick(13, "Тексты", lambda: check_13_texts(args.base))
+    pick(14, "Гейт", lambda: check_14_gate(args.repo))
     return _print(results)
 
 
