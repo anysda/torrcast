@@ -1564,12 +1564,13 @@ def _position(ctx: Ctx) -> float | None:
 def _box_at(ctx: Ctx) -> tuple[float | None, bool | None, str]:
     """Секунда и признак каста из ящика вкладки, либо названная причина отказа.
 
-    ``at`` после ``POST /api/to-web`` пишет :mod:`web.to_web` из результата
-    ``TvSession.stop()`: это последний услышанный ОТ ПРИЁМНИКА доклад. В отличие от
-    ``TCPlayer._last.position`` плеер не берёт ``at`` целью при возврате: ключ ящика
-    остаётся тем же, ``TCPlayerBox.rebox`` не зовёт ``_attach``, а player.js:365 ставит
-    ``video.currentTime`` из ``_last``. Поэтому ``at`` остаётся независимым судьёй
-    свежести и посадки вкладки, а не числом, которое продукт только что сам присвоил.
+    🔴 ``at`` тут НЕ живой доклад приёмника: :func:`write_web_box` во всём дереве зовут
+    ровно два места - старт сеанса (``BrowserReceiver.play``) и сам возврат «На комп»
+    (:mod:`web.to_web`, из ``TvSession.stop()``). Между ними ``at`` не обновляется вовсе,
+    поэтому опрос этого поля на смену значения раньше давал мнимую «смену» в момент
+    первого снимка, а не настоящий возраст доклада (см. :func:`_receiver_report`).
+    Признак ``tv`` живой - его на каждый запрос заново считает
+    :meth:`web.tv_session.TvSession.settle` - и годен для проверки «сейчас идёт каст».
     """
     code, body = _get(ctx.base + "/api/web/box")
     if code != 200:
@@ -1586,32 +1587,55 @@ def _box_at(ctx: Ctx) -> tuple[float | None, bool | None, str]:
     return float(at), bool(box.get("tv")), ""
 
 
-def _await_stale_receiver_report(ctx: Ctx) -> tuple[float | None, float | None, str]:
-    """Дождаться известного прибору возраста последнего доклада приёмника.
+def _receiver_report(ctx: Ctx) -> tuple[float | None, str | None, str]:
+    """Секунда и слово состояния из ``/api/state`` - тот же снимок, что живьём опрашивает
+    ``TCPlayer._pollState`` (``web/static/player.js``) и что калибровала каденция TC-1177.
 
-    Нужна именно увиденная СМЕНА ``at``: первый снимок мог лежать в ящике уже
+    В отличие от ``/api/web/box``.at (см. :func:`_box_at`), это поле приёмник обновляет
+    рывками во время каста - тем же опросом, что держит :func:`hass.bridge.Bridge.state`
+    живым. Это и есть независимый от вкладки источник для меры «доклад состарился».
+    """
+    snapshot = _state(ctx)
+    if not snapshot:
+        return None, None, "GET /api/state пуст или не ответил"
+    at = snapshot.get("position")
+    word = snapshot.get("state")
+    word = word if isinstance(word, str) else None
+    if not isinstance(at, int | float):
+        return None, word, f"position не число: {at!r}"
+    return float(at), word, ""
+
+
+def _await_stale_receiver_report(ctx: Ctx) -> tuple[float | None, float | None, str | None, str]:
+    """Дождаться известного прибору возраста последнего доклада ``/api/state``.
+
+    Нужна именно увиденная СМЕНА ``position``: первый снимок мог лежать в приёмнике уже
     неизвестно сколько. После смены прибор меряет возраст своим ``monotonic()``, не
-    ``TCPlayer._tvMark``. Если ТВ буферизуется, а его ``state`` ещё ``playing``, ``at``
-    не меняется и этот путь честно ожидает посадку на возраст-доведённой секунде. Это
-    проверка контракта живого ``playing``, а не недоступного прибору пикселя на ТВ.
+    ``TCPlayer._tvMark``. Если ТВ буферизуется, а его ``state`` ещё ``playing``,
+    ``position`` не меняется и этот путь честно ожидает посадку на возраст-доведённой
+    секунде - слово состояния уходит наружу, чтобы вызывающий решил, экстраполировать
+    ли ход (граница TC-1185: буферизация при живом ``playing``).
     """
     began = time.monotonic()
     previous: float | None = None
     changed_at: float | None = None
+    word: str | None = None
     while time.monotonic() - began < _PC_STALE_WAIT:
-        report, on_tv, problem = _box_at(ctx)
+        _, on_tv, tv_problem = _box_at(ctx)
+        if on_tv is not True:
+            return None, None, None, tv_problem or f"box.tv={on_tv!r} до «На комп»"
+        report, word, problem = _receiver_report(ctx)
         now = time.monotonic()
         if report is None:
-            return None, None, problem
-        if on_tv is not True:
-            return None, None, f"box.tv={on_tv!r} до «На комп»"
+            return None, None, None, problem
         if report != previous:
             previous = report
             changed_at = now
         elif changed_at is not None and now - changed_at >= _PC_STALE_AGE:
-            return report, changed_at, ""
+            return report, changed_at, word, ""
         ctx.page.wait_for_timeout(int(_PC_REPORT_POLL * 1000))
     return (
+        None,
         None,
         None,
         f"доклад приёмника не прожил {_PC_STALE_AGE:.0f} с за {_PC_STALE_WAIT:.0f} с",
@@ -1755,15 +1779,18 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
     if button is None or button.count() == 0:
         return Result(10, "На комп", False, None, f"кнопка {label!r} не найдена")
     # Второй pychromecast к одному приёмнику способен перебить чужой каст. Поэтому
-    # прибор сам засекает возраст сменившегося доклада ``/api/web/box`` и нажимает на
+    # прибор сам засекает возраст сменившегося доклада ``/api/state`` и нажимает на
     # известной его старости. Это не часы TCPlayer и не проверка продукта его же числом.
-    receiver_at, changed_at, report_problem = _await_stale_receiver_report(ctx)
+    receiver_at, changed_at, word, report_problem = _await_stale_receiver_report(ctx)
     if receiver_at is None or changed_at is None:
         return Result(10, "На комп", False, None, report_problem)
     _watch_landing(ctx, button.first)
     _wake_panel(ctx)
     report_age = time.monotonic() - changed_at
-    expected = receiver_at + report_age
+    # TCPlayer._tvPosition (web/static/player.js) экстраполирует ход только пока
+    # `state.state === 'playing'` - на паузе/буферизации отдаёт доклад как есть.
+    playing = word == "playing"
+    expected = receiver_at + report_age if playing else receiver_at
     button.first.click()
     ctx.page.wait_for_timeout(int(_PC_RETURN_SETTLE * 1000))
     shown = _video(ctx, "v => v.muted")
@@ -1781,8 +1808,9 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
         and landing_gap <= _PC_LANDING_TOLERANCE
     )
     detail = (
-        f"muted={muted}, box.tv={still_on_tv}; доклад приёмника={receiver_at}, "
-        f"возраст по часам прибора={report_age:.2f} с; ожидаемая посадка={expected:.2f}, "
+        f"muted={muted}, box.tv={still_on_tv}; доклад приёмника={receiver_at} "
+        f"(state={word!r}), возраст по часам прибора={report_age:.2f} с; "
+        f"ожидаемая посадка={expected:.2f}, "
         f"посадка вкладки={landed}, промах={landing_gap}; допуск ±{_PC_LANDING_TOLERANCE:.1f} с "
         f"(доклад состарен минимум на {_PC_STALE_AGE:.0f} с, потолок ожидания "
         f"{_PC_STALE_WAIT:.0f} с); "
