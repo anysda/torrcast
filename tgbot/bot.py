@@ -14,6 +14,7 @@ from tgbot.i18n import _failure_detail, i18n
 from tgbot.playback_observer import PlaybackObserver
 from tgbot.playing_title import playing_title
 from tgbot.restore_flag_dashes import restore_flag_dashes
+from tgbot.stop_now import StopNow
 from tgbot.telegram_api import TelegramApi
 from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
 from tgbot.telegram_control import TelegramControl
@@ -38,6 +39,7 @@ class Bot:
         command: _Command = run_cast,
         assemble: Callable[[], None] = wire,
         title: Callable[[], str] = playing_title,
+        stop: Callable[[], object] | None = None,
     ) -> None:
         self._config = config
         injected_api = api is not None
@@ -55,6 +57,7 @@ class Bot:
         self._commands: Queue[list[str]] = Queue()
         self._busy = False
         self._busy_lock = threading.Lock()
+        self._halt = StopNow(self._enqueue, self._choice, self._control, stop)
 
     def run(self) -> None:
         """Оставить CLI главный поток, а получение callback вынести в рабочий."""
@@ -111,10 +114,10 @@ class Bot:
             return
         message_id = message.get("message_id")
         command_id = int(message_id) if isinstance(message_id, int) else 0
-        begin_choice = args != ["stop"]
-        if not self._enqueue(args, begin_choice=begin_choice, command_id=command_id):
+        if args == ["stop"]:
+            self._halt()
+        elif not self._enqueue(args, begin_choice=True, command_id=command_id):
             self._api.send(self._config.chat_id, i18n("busy"))
-            return
 
     def _callback(self, callback: dict[str, Any]) -> None:
         message = callback.get("message")
@@ -129,7 +132,7 @@ class Bot:
         controlled = self._control.command(data)
         if controlled is not None:
             if controlled == "stop":
-                self._enqueue(["stop"])
+                self._halt()
             self._api.answer(callback_id, i18n("control_done"))
             return
         message_id = int(message.get("message_id", 0))
@@ -184,6 +187,7 @@ class Bot:
                 return False
             self._busy = True
             if begin_choice:
+                self._halt.forget()
                 self._choice.begin(command_id)
                 self._progress.begin()
         self._commands.put(args)

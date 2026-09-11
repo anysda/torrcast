@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import threading
 from typing import cast
 
 from tgbot.bot import Bot
 from tgbot.config import Config
+from tgbot.i18n import i18n
 from tgbot.telegram_api import TelegramApi
 from tgbot.transport import _TelegramResult
+from torrcast.ports.abandon import slot as abandon_slot
 from torrcast.usecases.choice.configure import _environment_port, configure
 
 
@@ -305,3 +308,33 @@ def test_the_ended_show_leaves_neither_remote_nor_command_in_the_chat() -> None:
 
     assert commands == [["мумия"]]
     assert set(api.deleted) == {1, 9}, "сняты и пульт, и сообщение команды"
+
+
+def test_stop_passes_while_another_cast_is_still_raising_its_show() -> None:
+    """🔴 Прод 11-09-2026: ``cast stop`` посреди долгого подъёма получал «занято».
+
+    Исполнитель занят первой командой (``run_one`` её ещё не отпустил), и остановка обязана
+    пройти мимо очереди: показ гаснет, подъём узнаёт об отказе, «занято» в чат не летит.
+    """
+    api = _Api()
+    stopped = threading.Event()
+    previous = _environment_port()
+    saved_abandon = abandon_slot.asking()
+    try:
+        bot = Bot(
+            Config("token", "-100"),
+            api=cast(TelegramApi, api),
+            command=lambda argv: 0,
+            assemble=lambda: None,
+            title=lambda: "",
+            stop=stopped.set,
+        )
+        bot.dispatch({"message": {"chat": {"id": -100}, "message_id": 5, "text": "cast мумия"}})
+        bot.dispatch({"message": {"chat": {"id": -100}, "message_id": 6, "text": "cast stop"}})
+        assert stopped.wait(2.0), "идущий показ не погашен"
+        assert abandon_slot.abandoned() is True, "подъём первой команды об отказе не узнал"
+    finally:
+        configure(previous)
+        abandon_slot.install(saved_abandon)
+
+    assert i18n("busy") not in api.sent, api.sent

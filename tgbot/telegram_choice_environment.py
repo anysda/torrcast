@@ -149,6 +149,12 @@ class TelegramChoiceEnvironment(_SystemChoiceEnvironment):
             self._condition.notify_all()
         return True
 
+    def drop(self) -> None:
+        """Снять вопрос без кнопки карточки: ``cast stop`` пришёл посреди выбора."""
+        with self._condition:
+            self._cancelled = True
+            self._condition.notify_all()
+
     def accept(self, data: str, message_id: int) -> bool:
         """Принять ответ лишь от нынешней карточки и разбудить выбор."""
         prefix = f"pick:{self._session}:"
