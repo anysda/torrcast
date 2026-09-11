@@ -8,6 +8,7 @@ from __future__ import annotations
 import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
+from torrcast.domain.playing_where import playing_where
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.why import why
@@ -173,6 +174,7 @@ def _play(
                     tag=session_tag,
                     about=about,
                     secs=f"{clock.total:.0f}",
+                    where=playing_where(config.receiver == "browser"),
                 ),
                 flush=True,
             ),

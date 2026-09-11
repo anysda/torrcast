@@ -8,8 +8,9 @@ def ru() -> dict[str, str]:
     return {
         "playback.session_tag": "[сеанс {id}]",
         "playback.dry_run_no_cast": "(--dry) {about} - каста нет",
-        "playback.now_playing": "играю {about} - на ТВ   (старт {secs} с)",
-        "playback.now_playing_tagged": "{tag} играю {about} - на ТВ   (старт {secs} с)",
+        "playback.now_playing": "играю {about} - {where}   (старт {secs} с)",
+        "playback.now_playing_tagged": "{tag} играю {about} - {where}   (старт {secs} с)",
+        "playback.where_tv": "на ТВ",
         "playback.frame_too_big": (
             "{quality} - такой кадр приёмник берёт только ужатым, а перекодирование "
             "выключено: нужен релиз {limit}p или ниже"

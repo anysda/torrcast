@@ -13,6 +13,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.playing_where import playing_where
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
@@ -89,7 +90,8 @@ def _launch(
         journal().mark("юнит")
         with progress_bar() as progress:
             _await_playing(config, progress, start=entry.pos, owner=owner)
-    print(phrase("playback.now_playing", about=about, secs=f"{clock.total:.0f}"))
+    where = playing_where(here)
+    print(phrase("playback.now_playing", about=about, secs=f"{clock.total:.0f}", where=where))
     return EXIT_OK
 
 

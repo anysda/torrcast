@@ -13,8 +13,9 @@ def en() -> dict[str, str]:
     return {
         "playback.session_tag": "[session {id}]",
         "playback.dry_run_no_cast": "(--dry) {about} - not casting",
-        "playback.now_playing": "playing {about} - on TV   (start {secs} s)",
-        "playback.now_playing_tagged": "{tag} playing {about} - on TV   (start {secs} s)",
+        "playback.now_playing": "playing {about} - {where}   (start {secs} s)",
+        "playback.now_playing_tagged": "{tag} playing {about} - {where}   (start {secs} s)",
+        "playback.where_tv": "on TV",
         "playback.frame_too_big": (
             "{quality} - the receiver only takes this frame size recoded, and recoding "
             "is off: needs a release at {limit}p or below"

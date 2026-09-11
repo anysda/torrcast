@@ -114,7 +114,7 @@ def test_the_show_loads_the_manifest_and_ends_by_itself(
     assert code == EXIT_OK
     assert receiver.loaded and receiver.loaded[0][0].endswith("/index.m3u8")
     assert receiver.quit, "показ кончился - приложение приёмника закрывается"
-    formatted = phrase("playback.now_playing_tagged", tag="", about="«Кино»", secs=0.0)
+    formatted = phrase("playback.now_playing_tagged", tag="", about="«Кино»", secs=0.0, where="")
     verb = formatted.partition("«Кино»")[0].strip()
     assert f"{verb} «Кино»" in capsys.readouterr().out
 
