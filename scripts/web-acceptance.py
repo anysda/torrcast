@@ -300,22 +300,77 @@ def _card_of(base: str, title: str) -> dict[str, Any]:
         time.sleep(1.0)
 
 
-#: Сколько пункт 1 ждёт настоящих плиток главной, прежде чем судить её состав.
-_HOME_SETTLE_WAIT: Final = 30000.0
+#: Главная должна быстро показать, что выдача ещё собирается: скелеты и слово
+#: ``Loading_`` не требуют ни сети источников, ни готовой полки. 10 с - потолок
+#: интерфейса, снятый на холодном стенде: там оба были видны к 6-й секунде.
+_HOME_LOADING_WAIT: Final = 10.0
+#: На том же холодном стенде настоящие 60 плиток приехали на 42-й секунде. 60 с
+#: оставляет запас на холодный источник, но не превращает отсутствие выдачи в ожидание
+#: без конца. Это отдельная мера от обещания «загружаем» выше.
+_HOME_TILES_WAIT: Final = 60.0
+
+
+def _home_loading(ctx: Ctx) -> bool:
+    """Одновременно ли видны обещанные на время сборки скелет и слово загрузки."""
+    loading = ctx.english.get("web.shelf.loading", "")
+    return bool(
+        loading
+        and ctx.page.locator(".tc-tile-skeleton").count() > 0
+        and ctx.page.locator(".tc-tile-skeleton").first.is_visible()
+        and ctx.page.get_by_text(loading, exact=True).count() > 0
+        and ctx.page.get_by_text(loading, exact=True).first.is_visible()
+    )
 
 
 def check_1_home(ctx: Ctx) -> Result:
     """Главная сверяет «Продолжить» с историей, а две полки выдачи - с API."""
     code, _ = _get(ctx.base + "/")
-    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
-    # 🔴 Судить надо УСТОЯВШУЮСЯ главную, а не кадр через 300 мс после `goto`: там полка
-    # «Продолжить» ещё лежит скелетами (6 пустых плиток при пустой истории), и пункт
-    # краснел на здоровом продукте. Мера пункта - СОСТАВ полок, а не скорость их
-    # приезда, поэтому ждём первой живой плитки (тем же приёмом, что и пункт 18),
-    # а не опускаем планку. Не доехала ни одна - состав ниже покрасит сам.
-    with contextlib.suppress(Exception):
-        ctx.page.locator(_LIVE_TILE).first.wait_for(state="visible", timeout=_HOME_SETTLE_WAIT)
-    ctx.page.wait_for_timeout(300)
+    began = time.monotonic()
+    # `load` может наступить уже ПОСЛЕ быстрого ответа полок и стереть короткую,
+    # но честно показанную заглушку из наблюдения. Начинаем с первого байта страницы:
+    # оба потолка всё равно отмеряются ниже своими ожиданиями.
+    ctx.page.goto(ctx.base + "/", wait_until="commit", timeout=15000)
+    # Первое обещание человеку - не готовая выдача, а честная заглушка. Полки могут
+    # собираться десятки секунд, но скелет и ``Loading_`` обязаны появиться к отдельному
+    # названному потолку, иначе пустой экран маскируется более долгим ожиданием плиток.
+    # Второе обещание - настоящая выдача. Ждём её состава, а не единственной живой
+    # плитки: один случайный ответ не делает обе полки пригодными человеку. Обе меры
+    # идут одновременно: на тёплой выдаче, успевшей до первого кадра, ожидания нет и
+    # заглушку зрителю показывать незачем; на долгой - к 10 с уже обязана быть заглушка.
+    loading_at: float | None = None
+    counts: dict[str, int] = {}
+    shelves_code = 0
+    shelves_detail = "GET /api/shelves не спросили"
+    tiles_at: float | None = None
+    next_shelves = began
+    while time.monotonic() - began < _HOME_TILES_WAIT:
+        now = time.monotonic()
+        if loading_at is None and now - began < _HOME_LOADING_WAIT and _home_loading(ctx):
+            loading_at = now - began
+        if now >= next_shelves:
+            shelves_code, shelves_body = _get(ctx.base + "/api/shelves")
+            shelves_detail = f"GET /api/shelves -> {shelves_code}"
+            counts = {}
+            if shelves_code == 200:
+                try:
+                    payload = json.loads(shelves_body)
+                except json.JSONDecodeError as exc:
+                    shelves_detail += f", тело не JSON: {exc}"
+                else:
+                    counts = _shelf_tile_counts(payload)
+                    shelves_detail += f", полок {len(counts)}, плиток {counts}"
+                    if set(counts) == {"fresh", "popular"} and all(
+                        count >= 20 for count in counts.values()
+                    ):
+                        tiles_at = time.monotonic() - began
+                        break
+            next_shelves = now + 1.0
+        ctx.page.wait_for_timeout(100)
+    # Ответ API и замена скелетного тела происходят разными задачами браузера. После
+    # готового снимка даём странице один короткий кадр дорисовать именно его, не
+    # расширяя ни один из названных потолков ожидания выдачи.
+    if tiles_at is not None:
+        ctx.page.wait_for_timeout(300)
     found: list[tuple[str, int]] = []
     for key in _SHELF_KEYS[1:]:
         text = ctx.english.get(key, "")
@@ -342,27 +397,32 @@ def check_1_home(ctx: Ctx) -> Result:
                 history_detail += f", записей {history_count}"
             else:
                 history_detail += ", items не список"
-    shelves_code, shelves_body = _get(ctx.base + "/api/shelves")
-    tiles_ok = False
-    shelves_detail = f"GET /api/shelves -> {shelves_code}"
-    if shelves_code == 200:
-        try:
-            payload = json.loads(shelves_body)
-        except json.JSONDecodeError as exc:
-            shelves_detail += f", тело не JSON: {exc}"
-        else:
-            counts = _shelf_tile_counts(payload)
-            shelves_detail += f", полок {len(counts)}, плиток {counts}"
-            tiles_ok = set(counts) == {"fresh", "popular"} and all(n >= 20 for n in counts.values())
+    tiles_ok = tiles_at is not None
+    loading_ok = loading_at is not None or (tiles_at is not None and tiles_at <= _HOME_LOADING_WAIT)
     history_ok = history_count is not None and (
         (history_count == 0 and continue_seen == 0)
         or (history_count > 0 and continue_seen == 1 and continue_tiles == history_count)
     )
     basics_seen = sum(1 for _, count in found if count > 0)
-    ok = code == 200 and basics_seen == 2 and history_ok and tiles_ok
+    ok = code == 200 and loading_ok and basics_seen == 2 and history_ok and tiles_ok
     by_key = ", ".join(f"{k.rsplit('.', 1)[-1]}={c}" for k, c in found)
+    loading_detail = (
+        f"скелет и Loading_ за {loading_at:.1f} с (потолок {_HOME_LOADING_WAIT:.0f} с)"
+        if loading_at is not None
+        else (
+            f"готовая выдача за {tiles_at:.1f} с, заглушка не успела понадобиться"
+            if tiles_at is not None and tiles_at <= _HOME_LOADING_WAIT
+            else f"скелет и Loading_ не видны за {_HOME_LOADING_WAIT:.0f} с"
+        )
+    )
+    tiles_detail = (
+        f"настоящие плитки за {tiles_at:.1f} с (потолок {_HOME_TILES_WAIT:.0f} с)"
+        if tiles_at is not None
+        else f"настоящие плитки не собрались за {_HOME_TILES_WAIT:.0f} с"
+    )
     detail = (
-        f"GET / -> {code}; полки выдачи в DOM по тексту {basics_seen}/2 ({by_key}); "
+        f"GET / -> {code}; {loading_detail}; {tiles_detail}; "
+        f"полки выдачи в DOM по тексту {basics_seen}/2 ({by_key}); "
         f"continue_watching={continue_seen}, плиток {continue_tiles}; {history_detail}; "
         f"{shelves_detail}"
     )
@@ -382,13 +442,20 @@ def check_17_wheel(ctx: Ctx) -> Result:
     row = ctx.page.evaluate(
         """
         () => {
-            const rows = Array.from(document.querySelectorAll('.tc-row'));
-            const row = rows.find(r => r.scrollWidth > r.clientWidth);
+            // Граница - свойство CSS, а не имя класса: `overflow-x: auto` в
+            // style.css определяет прокручиваемый узел, и переименование класса
+            // не должно превратить живую полку в вечный BLOCKED.
+            const rows = Array.from(document.querySelectorAll('*')).filter((node) => {
+                const overflow = getComputedStyle(node).overflowX;
+                return (overflow === 'auto' || overflow === 'scroll')
+                    && node.scrollWidth > node.clientWidth;
+            });
+            const row = rows[0];
             if (!row) return null;
+            row.dataset.tcAcceptanceScroll = '1';
             row.scrollIntoView({ block: 'center' });
             const rect = row.getBoundingClientRect();
             return {
-                index: rows.indexOf(row),
                 x: rect.x + rect.width / 2,
                 y: rect.y + rect.height / 2,
                 scrollLeft: row.scrollLeft,
@@ -408,7 +475,7 @@ def check_17_wheel(ctx: Ctx) -> Result:
     ctx.page.mouse.wheel(0, 240)
     ctx.page.wait_for_timeout(100)
     over_row = int(
-        ctx.page.evaluate("(i) => document.querySelectorAll('.tc-row')[i].scrollLeft", row["index"])
+        ctx.page.evaluate("() => document.querySelector('[data-tc-acceptance-scroll]').scrollLeft")
     )
 
     # Отрицательная проба: то же колесо, но указатель НЕ над полкой.
@@ -428,7 +495,7 @@ def check_17_wheel(ctx: Ctx) -> Result:
     ctx.page.wait_for_timeout(100)
     page_after = int(ctx.page.evaluate("() => window.scrollY"))
     row_after_outside = int(
-        ctx.page.evaluate("(i) => document.querySelectorAll('.tc-row')[i].scrollLeft", row["index"])
+        ctx.page.evaluate("() => document.querySelector('[data-tc-acceptance-scroll]').scrollLeft")
     )
 
     row_moved = over_row > before
@@ -436,7 +503,7 @@ def check_17_wheel(ctx: Ctx) -> Result:
     row_untouched = row_after_outside == over_row
     ok = row_moved and page_moved and row_untouched
     detail = (
-        f"над полкой[{row['index']}]: scrollLeft {before} -> {over_row}; "
+        f"над узлом с overflow-x: auto: scrollLeft {before} -> {over_row}; "
         f"мимо полки: window.scrollY {page_before} -> {page_after}, "
         f"scrollLeft полки не тронут ({over_row} -> {row_after_outside})"
     )
@@ -1425,10 +1492,18 @@ _TV_WAIT: Final = 60.0
 #: Берём максимум, а не среднее: именно следующий, ещё не приехавший доклад определяет,
 #: сколько старая, но законная секунда может прожить в ящике при возврате на вкладку.
 _RECEIVER_REPORT_CADENCE: Final = 20.0
-#: `[10]` снимает кадр через эти две секунды после клика. Допуск ниже составлен, а не
-#: подобран до зелени: 20.0 с худшей измеренной каденции приёмника + 2.0 с до кадра.
+#: После клика ждём один короткий кадр браузера: посадку снимает перехват сеттера в
+#: самом клике, а это ожидание нужно только для проверки, что вкладка уже не на ТВ.
 _PC_RETURN_SETTLE: Final = 2.0
-_PC_RESUME_LIMIT: Final = _RECEIVER_REPORT_CADENCE + _PC_RETURN_SETTLE
+#: Прибор ждёт, пока один доклад приёмника проживёт не меньше пяти секунд. На таком
+#: возрасте сырая посадка в сам доклад промахивается заметно, а не прячется в шуме
+#: доставки HTTP. 30 с = худшая каденция 20 с + требуемые 5 с + 5 с запаса на снимок.
+_PC_STALE_AGE: Final = 5.0
+_PC_STALE_WAIT: Final = _RECEIVER_REPORT_CADENCE + _PC_STALE_AGE + 5.0
+#: Часы прибора узнают смену доклада с точностью этого опроса. Двух секунд достаточно
+#: для этой погрешности и браузерного кадра, но не маскируют откат на пять секунд.
+_PC_LANDING_TOLERANCE: Final = 2.0
+_PC_REPORT_POLL: Final = 0.25
 
 #: Шаг опроса позиции ТВ - тот же, каким сам продукт держит `current_time` живым
 #: (``web.tv_session.POLL_SECONDS``): чаще спрашивать нечего, у приёмника ещё не
@@ -1511,6 +1586,90 @@ def _box_at(ctx: Ctx) -> tuple[float | None, bool | None, str]:
     return float(at), bool(box.get("tv")), ""
 
 
+def _await_stale_receiver_report(ctx: Ctx) -> tuple[float | None, float | None, str]:
+    """Дождаться известного прибору возраста последнего доклада приёмника.
+
+    Нужна именно увиденная СМЕНА ``at``: первый снимок мог лежать в ящике уже
+    неизвестно сколько. После смены прибор меряет возраст своим ``monotonic()``, не
+    ``TCPlayer._tvMark``. Если ТВ буферизуется, а его ``state`` ещё ``playing``, ``at``
+    не меняется и этот путь честно ожидает посадку на возраст-доведённой секунде. Это
+    проверка контракта живого ``playing``, а не недоступного прибору пикселя на ТВ.
+    """
+    began = time.monotonic()
+    previous: float | None = None
+    changed_at: float | None = None
+    while time.monotonic() - began < _PC_STALE_WAIT:
+        report, on_tv, problem = _box_at(ctx)
+        now = time.monotonic()
+        if report is None:
+            return None, None, problem
+        if on_tv is not True:
+            return None, None, f"box.tv={on_tv!r} до «На комп»"
+        if report != previous:
+            previous = report
+            changed_at = now
+        elif changed_at is not None and now - changed_at >= _PC_STALE_AGE:
+            return report, changed_at, ""
+        ctx.page.wait_for_timeout(int(_PC_REPORT_POLL * 1000))
+    return (
+        None,
+        None,
+        f"доклад приёмника не прожил {_PC_STALE_AGE:.0f} с за {_PC_STALE_WAIT:.0f} с",
+    )
+
+
+def _watch_landing(ctx: Ctx, button: Any) -> None:
+    """Запомнить первую секунду, присвоенную плёнке после клика «На комп».
+
+    Снимок через две секунды после клика уже содержит ход самой плёнки. Перехват
+    сеттера оставляет именно момент посадки, не подменяя его следующим кадром. Флаг
+    взводит фаза capture того же клика, поэтому прежние доводки плёнки во время каста
+    в пробу не попадают.
+    """
+    button.evaluate(
+        """
+        (button) => {
+            const video = document.querySelector('video');
+            if (!video) return;
+            const descriptor = Object.getOwnPropertyDescriptor(
+                HTMLMediaElement.prototype, 'currentTime');
+            if (!descriptor || !descriptor.get || !descriptor.set) return;
+            const state = { armed: false, landed: null, listener: null, video };
+            state.listener = (event) => {
+                if (button.contains(event.target)) state.armed = true;
+            };
+            document.addEventListener('click', state.listener, true);
+            Object.defineProperty(video, 'currentTime', {
+                configurable: true,
+                get() { return descriptor.get.call(video); },
+                set(value) {
+                    if (state.armed && state.landed === null) state.landed = Number(value);
+                    return descriptor.set.call(video, value);
+                },
+            });
+            window.__tcAcceptanceLanding = state;
+        }
+        """
+    )
+
+
+def _landing(ctx: Ctx) -> float | None:
+    """Снять и убрать временный наблюдатель посадки из вкладки."""
+    landed = ctx.page.evaluate(
+        """
+        () => {
+            const state = window.__tcAcceptanceLanding;
+            if (!state) return null;
+            document.removeEventListener('click', state.listener, true);
+            delete state.video.currentTime;
+            delete window.__tcAcceptanceLanding;
+            return state.landed;
+        }
+        """
+    )
+    return float(landed) if isinstance(landed, int | float) else None
+
+
 def _await_tv(ctx: Ctx) -> float | None:
     """Дождаться, пока каст поднимется; не поднялся за :data:`_TV_WAIT` - ``None``.
 
@@ -1588,49 +1747,46 @@ def _volume_follows_page(ctx: Ctx) -> tuple[bool, str]:
 
 
 def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
-    """На комп: вкладка села по независимому докладу ТВ, не по собственной цели."""
+    """На комп: приборными часами сверить посадку с состаренным докладом ТВ."""
     if not on_tv_ok:
         return Result(10, "На комп", False, "пункт 9 (на ТВ не снят)", "возвращать не от чего")
     label = ctx.english.get("web.player.back_to_browser", "")
     button = ctx.page.get_by_text(label, exact=True) if label else None
     if button is None or button.count() == 0:
         return Result(10, "На комп", False, None, f"кнопка {label!r} не найдена")
+    # Второй pychromecast к одному приёмнику способен перебить чужой каст. Поэтому
+    # прибор сам засекает возраст сменившегося доклада ``/api/web/box`` и нажимает на
+    # известной его старости. Это не часы TCPlayer и не проверка продукта его же числом.
+    receiver_at, changed_at, report_problem = _await_stale_receiver_report(ctx)
+    if receiver_at is None or changed_at is None:
+        return Result(10, "На комп", False, None, report_problem)
+    _watch_landing(ctx, button.first)
     _wake_panel(ctx)
+    report_age = time.monotonic() - changed_at
+    expected = receiver_at + report_age
     button.first.click()
-    # 🔴 Раньше судья был `TCPlayer._last.position`: player.js:365 присваивает это же
-    # число `video.currentTime`, поэтому разрыв через две секунды был просто двумя
-    # секундами проигрывания и пункт зеленел по построению. Теперь обе величины судятся
-    # против `box.at` - последнего независимого доклада ТВ. Отдельная свежесть `_last`
-    # нужна не для дублирования посадки: протухшая на минуту `_last` могла бы посадить
-    # вкладку мимо зрителя, даже если сама плёнка после присваивания честно идёт.
     ctx.page.wait_for_timeout(int(_PC_RETURN_SETTLE * 1000))
     shown = _video(ctx, "v => v.muted")
     if shown is None:
         return Result(10, "На комп", False, None, "после «На комп» на странице нет `<video>`")
     muted = bool(shown)
-    current = float(_video(ctx, "v => v.currentTime") or 0.0)
-    last = ctx.page.evaluate("() => (window.TCPlayer._last || {}).position")
-    receiver_at, still_on_tv, box_problem = _box_at(ctx)
-    landed_gap = abs(current - receiver_at) if receiver_at is not None else None
-    fresh_gap = (
-        abs(float(last) - receiver_at)
-        if isinstance(last, int | float) and receiver_at is not None
-        else None
-    )
+    landed = _landing(ctx)
+    _, still_on_tv, box_problem = _box_at(ctx)
+    landing_gap = abs(landed - expected) if landed is not None else None
     ok = (
         not muted
         and still_on_tv is False
-        and landed_gap is not None
-        and fresh_gap is not None
-        and landed_gap <= _PC_RESUME_LIMIT
-        and fresh_gap <= _PC_RESUME_LIMIT
+        and landed is not None
+        and landing_gap is not None
+        and landing_gap <= _PC_LANDING_TOLERANCE
     )
     detail = (
-        f"muted={muted}, box.tv={still_on_tv}; at приёмника={receiver_at}, "
-        f"currentTime={current:.1f}, _last.position={last!r}; "
-        f"разрыв посадки={landed_gap}, свежести _last={fresh_gap}, "
-        f"допуск {_PC_RESUME_LIMIT:.1f} с (каденция {_RECEIVER_REPORT_CADENCE:.1f} + "
-        f"кадр {_PC_RETURN_SETTLE:.1f}); {box_problem or 'ящик прочитан'}"
+        f"muted={muted}, box.tv={still_on_tv}; доклад приёмника={receiver_at}, "
+        f"возраст по часам прибора={report_age:.2f} с; ожидаемая посадка={expected:.2f}, "
+        f"посадка вкладки={landed}, промах={landing_gap}; допуск ±{_PC_LANDING_TOLERANCE:.1f} с "
+        f"(доклад состарен минимум на {_PC_STALE_AGE:.0f} с, потолок ожидания "
+        f"{_PC_STALE_WAIT:.0f} с); "
+        f"{box_problem or 'ящик прочитан'}"
     )
     return Result(10, "На комп", ok, None, detail)
 
