@@ -34,9 +34,6 @@ def en() -> dict[str, str]:
         ),
         "select_bench.tail_take": " - taking {following}",
         "select_bench.voiceless_head": "release {number} has no English voice ({lang})",
-        "select_bench.no_swarm_capacity": (
-            "no checked swarm can keep up - taking the best, release {number} ({ratio}x)"
-        ),
         "select_bench.too_heavy_for_receiver": "too heavy for the receiver",
         "select_bench.recode_beyond_machine": "recoding this frame is beyond this machine",
         "select_bench.heavy_reason": "{reason}, ~{peak} Mbit/s",

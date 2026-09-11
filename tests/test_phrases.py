@@ -70,10 +70,6 @@ def test_numbered_words_hold_the_forms_people_read() -> None:
             ("{n} release", "{n} releases"),
             ("{n} раздача", "{n} раздачи", "{n} раздач"),
         ),
-        "web.detail.source": (
-            ("{n} source", "{n} sources"),
-            ("{n} источник", "{n} источника", "{n} источников"),
-        ),
         "web.detail.source_from": (
             ("{n} source", "{n} sources"),
             ("{n} источника", "{n} источников", "{n} источников"),

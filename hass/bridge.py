@@ -77,7 +77,7 @@ class Bridge:
     # ------------------------------------------------------------------ снимок
 
     def state(self) -> dict[str, JsonValue]:
-        """Тело ``GET /api/state``: снимок показа, громкость и место под сегменты."""
+        """Тело ``GET /api/state``: снимок показа, громкость и место под прогрев."""
         config = self._settings()
         active = self._session.active()
         shown = self._session.snapshot(self._session.key() if active else "")
@@ -89,7 +89,7 @@ class Bridge:
             tv=config.tv or "",
             state=word,
             volume=self._volume_of(config).level(),
-            disk_free=MachineProbe.disk_free(config.hls_dir),
+            disk_free=MachineProbe.disk_free(config.warm_dir),
             last_error=self._orders.last_error,
             refusal=refusal_record().read(),
             picture=self._posters.picture(shown if active else None, self._session.stream_address),

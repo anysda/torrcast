@@ -17,7 +17,7 @@ from torrcast.usecases.select_bench._bench_front import _bench_front
 from torrcast.usecases.select_bench._bench_prewarm import _BenchPrewarm
 from torrcast.usecases.select_bench._bench_queue import _bench_asking, _bench_queue
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
-from torrcast.usecases.select_bench._bench_supply import _bench_supply
+from torrcast.usecases.select_bench._bench_supply import _bench_supply, _supply_note
 from torrcast.usecases.select_bench._bench_tally import _Tally
 from torrcast.usecases.select_bench._retried_verdict import _retried_verdict
 
@@ -77,7 +77,7 @@ class Bench(_BenchPrewarm):
         for number in _bench_front(queue, 1):
             self.start(plan, number)
         tally = _Tally(self.voice_budget)
-        weak: tuple[float, _Prep] | None = None
+        weak: tuple[float, float, float, _Prep] | None = None
         exhausted = False
         reached = 0
         deadline = self.clock() + self.pick_budget
@@ -92,7 +92,7 @@ class Bench(_BenchPrewarm):
             keep = (
                 *front,
                 tally.mute.number if tally.mute is not None else None,
-                weak[1].number if weak is not None else None,
+                weak[3].number if weak is not None else None,
             )
             self.needed = {(plan.picture.key, n) for n in keep if n is not None}
             prep = self.start(plan, number)
@@ -144,12 +144,12 @@ class Bench(_BenchPrewarm):
                 trouble = phrase("select_bench.reason_thin_swarm", got=g, need=n, ratio=r2)
                 if weak is None or ratio > weak[0]:
                     if weak is not None:
-                        self._forget(weak[1])
-                    weak = ratio, prep
+                        self._forget(weak[3])
+                    weak = ratio, got, need, prep
             no_voice = phrase("select_bench.reason_no_voice")
             why = _waiting_note(prep, trouble) if trouble else no_voice
             tally.note(number, prep, why, entered, self.clock)
-            if weak is None or prep is not weak[1]:
+            if weak is None or prep is not weak[3]:
                 tally.hold(prep, voiceless, self._forget)
             progress.phase("")
             # Три приговора - пол, дальше секунды; а поиск дорожки на языке зрителя
@@ -175,10 +175,9 @@ class Bench(_BenchPrewarm):
         # 🔴 TC-968. Исключение одно - потолок ПОИСКА ДОРОЖКИ: тот обход спрашивал хвост
         # об одном, ответ получал один и тот же, и встал не от беды, а по цене.
         if weak is not None:
-            ratio, prep = weak
+            ratio, got, need, prep = weak
             tally.judged.pop(prep.number, None)
-            r = f"{ratio:.2f}"
-            print(phrase("select_bench.no_swarm_capacity", number=prep.number, ratio=r))
+            print(_supply_note(prep, got, need, ratio))
             self._announce(plan, prep, queue, tally.judged, reached)
             return prep
         if tally.mute is not None and (exhausted or tally.hunted >= self.voice_budget):

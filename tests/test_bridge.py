@@ -550,6 +550,22 @@ def test_a_refused_show_leaves_a_spoken_reason_and_the_next_one_clears_it() -> N
     assert bridge.state()["last_error"] is None
 
 
+def test_free_space_is_measured_where_warming_can_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[str] = []
+
+    def free(path: str) -> int:
+        asked.append(path)
+        return 123
+
+    monkeypatch.setattr("hass.bridge.MachineProbe.disk_free", free)
+    bridge = _bridge(
+        FakePlaybackSession(), settings=lambda: Config(tv="10.0.1.7", warm_dir="/var/warm")
+    )
+
+    assert bridge.state()["disk_free"] == 123
+    assert asked == ["/var/warm"]
+
+
 def test_the_reason_word_of_the_refusal_is_carried_by_the_state_body(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

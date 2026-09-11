@@ -51,7 +51,8 @@ def test_best_is_kept_when_every_swarm_is_short(capsys: object) -> None:
 
     assert chosen.number == 1
     said = capsys.readouterr().out  # type: ignore[attr-defined]
-    assert "ни один проверенный рой не тянет - беру лучший" in said
+    assert "рой релиза 1 везёт" in said
+    assert "ни один проверенный рой не тянет" not in said
 
 
 def test_the_stick_does_not_condemn_a_swarm_before_its_measured_settle_time() -> None:

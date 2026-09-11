@@ -21,13 +21,16 @@ def _bench_supply(profile: Profile, prep: _Prep) -> tuple[float, float, float]:
         return -1.0, 0.0, need
     elif measured[0] >= profile.supply_ratio:
         ratio, got, need = measured
-        print(
-            phrase(
-                "select_bench.supply_note",
-                number=prep.number,
-                got=f"{got:.2f}",
-                need=f"{need:.2f}",
-                ratio=f"{ratio:.2f}",
-            )
-        )
+        print(_supply_note(prep, got, need, ratio))
     return measured
+
+
+def _supply_note(prep: _Prep, got: float, need: float, ratio: float) -> str:
+    """Назвать выбранный рой его измеренными скоростью, нуждой и отношением."""
+    return phrase(
+        "select_bench.supply_note",
+        number=prep.number,
+        got=f"{got:.2f}",
+        need=f"{need:.2f}",
+        ratio=f"{ratio:.2f}",
+    )

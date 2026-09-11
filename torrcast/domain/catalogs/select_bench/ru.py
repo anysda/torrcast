@@ -28,9 +28,6 @@ def ru() -> dict[str, str]:
         "select_bench.reason_thin_swarm": ("рой везёт {got} из нужных {need} Мбит/с ({ratio}x)"),
         "select_bench.tail_take": " - беру {following}",
         "select_bench.voiceless_head": "релиз {number} без русской озвучки ({lang})",
-        "select_bench.no_swarm_capacity": (
-            "ни один проверенный рой не тянет - беру лучший, релиз {number} ({ratio}x)"
-        ),
         "select_bench.too_heavy_for_receiver": "слишком тяжёлый для приёмника",
         "select_bench.recode_beyond_machine": "перекод такого кадра этой машине не по силам",
         "select_bench.heavy_reason": "{reason}, ~{peak} Мбит/с",
