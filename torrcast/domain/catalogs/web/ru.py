@@ -39,6 +39,8 @@ def ru() -> dict[str, str]:
         "web.shelf.popular": "Популярное",
         "web.shelf.empty": "Здесь пока пусто",
         "web.shelf.loading": "Грузим_",
+        "web.shelf.prev": "Листать полку влево",
+        "web.shelf.next": "Листать полку вправо",
         "web.tile.no_art": "Без обложки_",
         "web.detail.back": "‹ Назад",
         "web.detail.more": "Ещё_",

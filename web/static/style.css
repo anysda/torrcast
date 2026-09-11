@@ -45,7 +45,6 @@
   --tc-safe-y: 3.375rem;   /* 54px */
   --tc-safe-x: 6rem;       /* 96px */
   --tc-gap: 1.5rem;        /* 24px */
-  --tc-tile-focus: 16.75rem; /* 268px, полка под фокусом */
   --tc-tile-rest: 13.125rem; /* 210px, остальные полки */
   --tc-tile-search: 10.5rem; /* 168px, вторая строка выдачи поиска */
 
@@ -171,24 +170,27 @@ body {
 .tc-shelf { margin-top: 3rem; }
 .tc-shelf-head { display: flex; align-items: baseline; justify-content: space-between;
                  margin-bottom: var(--tc-gap); }
-.tc-shelf-arrows { font-weight: 900; font-size: 2.125rem; letter-spacing: .3em;
-                   color: var(--tc-muted-dim); }
-/* Полка едет вбок сама: тонкая полоса прокрутки - единственное, чем мышь вообще
-   способна добраться до плиток, не влезших в окно. Стрелки пульта её не замечают:
-   `scrollIntoView` двигает ту же полку тем же способом. */
-.tc-row { display: flex; gap: var(--tc-gap); overflow-x: auto; scroll-behavior: smooth;
-          scrollbar-width: thin; scrollbar-color: var(--tc-hair) transparent; }
-.tc-row::-webkit-scrollbar { height: .5rem; }
-.tc-row::-webkit-scrollbar-track { background: transparent; }
-.tc-row::-webkit-scrollbar-thumb { background: var(--tc-hair); }
+/* Кнопки листают полку для мыши (`home.js`); пульт их не видит, у него стрелки. */
+.tc-shelf-arrows { display: flex; gap: .75rem; }
+.tc-shelf-step { padding: 0 .5rem; border: 0; background: none; font: inherit;
+                 font-weight: 900; font-size: 2.125rem; line-height: 1;
+                 color: var(--tc-muted-dim); cursor: pointer; }
+.tc-shelf-step:hover:not(:disabled) { color: var(--tc-acid); }
+.tc-shelf-step:disabled { opacity: .3; cursor: default; }
+/* Полка едет вбок, но полосы у неё нет: мышь везут кнопки над полкой, боковое колесо и
+   Shift+колесо, вертикальное колесо отдано странице. Своей вертикали у полки нет; поле
+   сверху и по бокам - место под обводку горящей плитки, иначе край обводки срезан. */
+.tc-row { display: flex; gap: var(--tc-gap); overflow-x: auto; overflow-y: hidden;
+          scroll-behavior: smooth; scrollbar-width: none;
+          padding: var(--tc-focus-ring) var(--tc-focus-ring) 0;
+          margin: calc(-1 * var(--tc-focus-ring)) calc(-1 * var(--tc-focus-ring)) 0;
+          scroll-padding-inline: var(--tc-focus-ring); }
+.tc-row::-webkit-scrollbar { display: none; }
 .tc-row > * { flex: 0 0 var(--tc-tile-rest); width: var(--tc-tile-rest); }
 .tc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--tc-gap); }
 /* Вторая строка выдачи поиска (§4.2): та же полка, но мельче - 168px. Одного `width`
    мало: `flex-basis` базового `.tc-row` перебивает ширину, поэтому `flex` целиком. */
 .tc-grid--second > * { flex: 0 0 var(--tc-tile-search); width: var(--tc-tile-search); }
-/* Полка под фокусом крупнее остальных (268px, «Size hierarchy» хендофа) - правило всех
-   экранов с несколькими рядами, поэтому стоит последним: перебивает и `--second`. */
-.tc-row--focused > * { flex-basis: var(--tc-tile-focus); width: var(--tc-tile-focus); }
 .tc-shelf-empty { display: flex; align-items: center; justify-content: center; height: 17.5rem;
                   border: var(--tc-border) solid var(--tc-ghost-line);
                   background: repeating-linear-gradient(135deg, #121210 0 2px, #0B0B0B 2px 18px);
@@ -198,8 +200,7 @@ body {
               text-transform: uppercase; color: var(--tc-body-dim); }
 
 /* --- Плитка (Tile.dc.html) ----------------------------------------------- */
-.tc-tile { position: relative; container-type: inline-size; z-index: 1;
-           transition: transform .12s ease-out; }
+.tc-tile { position: relative; container-type: inline-size; z-index: 1; }
 .tc-tile-frame { position: relative; width: 100%; aspect-ratio: 2 / 3; overflow: hidden;
                  background: var(--tc-ghost); }
 /* Обложка рисуется градиентом по тону названия: своей картинки у плитки может не быть
@@ -255,20 +256,18 @@ body {
    сетки, и человек читал бы одну плитку, пока под ней уезжают остальные. Текст, не
    влезший в две строки, прокручивается ВНУТРИ отведённого места. */
 .tc-tile-cap { height: var(--tc-cap-height); padding: .625rem .875rem; margin-top: .125rem;
-               overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
-               transform-origin: top center; }
+               overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 .tc-tile-cap::-webkit-scrollbar { width: 0; height: 0; }
 .tc-tile-cap .tc-caption { color: var(--tc-text); white-space: nowrap; overflow: hidden;
                            text-overflow: ellipsis; }
 .tc-tile-cap .tc-cap2 { color: var(--tc-muted); line-height: 1.1; }
 
-/* Выделение = ровно одно место на кадре, и какое именно - решает последнее действие
-   человека: мышь гасит выделение от клавиатуры, клавиша гасит выделение от мыши.
-   Оба состояния сведены в один класс, который ставит навигация (`nav.js`), поэтому
-   двух подсвеченных плиток разом здесь нечем нарисовать. */
-.tc-tile.is-lit { transform: scale(1.06); z-index: 2; }
+/* Выделение = ровно одно место на кадре, и какое - решает последнее действие человека
+   (класс ставит `nav.js`). Рисует его только обводка: плитка не растёт и не сдвигается,
+   иначе толкала бы соседей и полку ниже, и под неподвижной мышью вставала бы другая. */
+.tc-tile.is-lit { z-index: 2; }
 .tc-tile.is-lit .tc-tile-frame { outline: var(--tc-focus-ring) solid var(--tc-acid); }
-.tc-tile.is-lit .tc-tile-cap { background: var(--tc-acid); transform: scale(1.06); }
+.tc-tile.is-lit .tc-tile-cap { background: var(--tc-acid); }
 .tc-tile.is-lit .tc-tile-cap .tc-caption { color: var(--tc-bg); white-space: normal;
   /* Слово без пробелов длиннее самой плитки: `normal` ему ломаться не даёт, и без
      `break-word` оно стоит обрезанным под указателем - ехать вертикально нечему. */
@@ -358,7 +357,8 @@ body {
 .tc-orig { font-weight: 700; font-size: 1.75rem; color: var(--tc-muted); }
 .tc-more { font-weight: 900; text-transform: uppercase; color: var(--tc-acid); }
 .tc-buttons { display: flex; align-items: center; gap: 1rem; margin-top: 2.25rem; }
-.tc-series-head { font-weight: 900; font-size: 1.875rem; text-transform: uppercase; }
+.tc-series-head { display: flex; align-items: baseline; justify-content: space-between;
+                  font-weight: 900; font-size: 1.875rem; text-transform: uppercase; }
 .tc-releases { font-weight: 700; font-size: 1.375rem; letter-spacing: .16em;
                text-transform: uppercase; color: var(--tc-muted-dim); }
 .tc-norel { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.375rem;

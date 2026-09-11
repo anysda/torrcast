@@ -4,14 +4,16 @@
 'use strict';
 
 const TCNav = {
-  // Полка помнит, на какой своей плитке стояли в последний раз: Map «имя полки» → элемент.
-  remembered: new Map(),
   // Чем человек трогал страницу последним: 'key' или 'mouse'. Начинается с клавиш -
   // так страницу открывает всякий, кто пришёл с пультом и мыши не касался.
   input: 'key',
-  // Единственное горящее место на кадре (или ``null``) и ряд, раздуваемый под ним.
+  // Единственное горящее место на кадре или ``null``, если не горит ничего.
   lit: null,
-  _sizedRow: null,
+  // Где стоит указатель (координаты окна) или ``null``, если он ушёл со страницы.
+  // Прокрутка под неподвижной мышью событий мыши не рождает, и `_onScroll` ищет
+  // плитку под этой точкой сам.
+  _pointer: null,
+  _relight: 0,
   // Бегущая анимация подписи под горящей плиткой: `<div class="tc-tile-cap">` → сама
   // функция кадра. Пока элемент - ключ карты, его цикл продолжается; исчез из карты -
   // прошлый `requestAnimationFrame` увидит чужой шаг и остановится сам, без отмены по id.
@@ -22,11 +24,12 @@ const TCNav = {
     document.addEventListener('focusin', TCNav._onFocusIn);
     document.addEventListener('pointermove', TCNav._onPointer, { passive: true });
     document.addEventListener('pointerdown', TCNav._onPointer, { passive: true });
-    // Колесо мыши крутит полку вбок. Работает только над полкой, которой правда есть
-    // куда ехать (`scrollWidth > clientWidth`): пустая полка и весь остальной документ
-    // вертикальное колесо не замечают и листаются как обычно. Боковое движение колеса
-    // или трекпада (`deltaX`) сюда не попадает вовсе - у него уже есть родная прокрутка
-    // через `overflow-x: auto`, и отбирать её незачем.
+    document.addEventListener('pointerout', TCNav._onPointerOut, { passive: true });
+    // Прокрутка не всплывает: и полку, и страницу слышно только на погружении.
+    document.addEventListener('scroll', TCNav._onScroll, { capture: true, passive: true });
+    // Вертикальное колесо листает СТРАНИЦУ, над полкой тоже, и сюда не попадает. Вбок
+    // полку везут боковое колесо и трекпад (родная прокрутка), кнопки над полкой и
+    // Shift+колесо - последнее ловится здесь.
     document.addEventListener('wheel', TCNav._onWheel, { passive: false });
   },
 
@@ -39,27 +42,17 @@ const TCNav = {
       TCNav._stopCapScroll(TCNav.lit);
     }
     TCNav.lit = place;
-    // Ряд под горящей плиткой крупный (268px), иные мелкие; растёт ДО зажигания - бегущая подпись меряет конечную ширину.
-    const row = place && place.closest ? place.closest('.tc-row') : null;
-    if (TCNav._sizedRow !== row) {
-      if (TCNav._sizedRow) TCNav._sizedRow.classList.remove('tc-row--focused');
-      TCNav._sizedRow = row;
-      if (row) row.classList.add('tc-row--focused');
-    }
     if (place) {
       place.classList.add('is-lit');
       TCNav._startCapScroll(place);
     }
   },
 
-  // Полка едет разом на весь дельта колеса, без плавного разгона: `.tc-row` держит
-  // `scroll-behavior: smooth` ради стрелок (`scrollIntoView`), а тот же переход у
-  // `scrollLeft` только ЗАПИСЫВАЕТ движение в очередь браузера и не меняет свойство
-  // немедленно - следующий тик колеса складывался бы с недоехавшим прошлым. Инлайновый
-  // `auto` на миг перебивает класс ровно на один прыжок и тут же снимается, стрелкам
-  // достаётся прежний плавный ход.
+  // Shift+колесо везёт полку вбок там, где браузер сам не превращает его в боковое
+  // движение. Полка едет разом на весь шаг: инлайновый `auto` на миг перебивает
+  // `scroll-behavior: smooth`, иначе тики колеса копились бы в очереди плавного хода.
   _onWheel(event) {
-    if (event.deltaX !== 0 || event.deltaY === 0) return;
+    if (!event.shiftKey || event.deltaX !== 0 || event.deltaY === 0) return;
     const row = event.target.closest && event.target.closest('.tc-row');
     if (!row || row.scrollWidth <= row.clientWidth) return;
     event.preventDefault();
@@ -106,13 +99,32 @@ const TCNav = {
   // Мышь гасит только ПОКАЗ клавиатурного выделения, а не сам фокус.
   _onPointer(event) {
     TCNav.input = 'mouse';
+    TCNav._pointer = { x: event.clientX, y: event.clientY };
     const under = event.target.closest && event.target.closest('[data-tc-focusable]');
     TCNav.light(under || null);
   },
 
-  _onFocusIn(event) {
-    const holder = event.target.closest && event.target.closest('[data-tc-group]');
-    if (holder) TCNav.remembered.set(holder.dataset.tcGroup, holder);
+  _onPointerOut(event) {
+    if (!event.relatedTarget) TCNav._pointer = null;
+  },
+
+  // Полка или страница проехала под неподвижной мышью: гореть должно то, что теперь под
+  // указателем, а не то, что было под ним до прокрутки. Раз в кадр, а не на каждый тик;
+  // бегущая подпись крутит свой `scrollTop` сама и в счёт не идёт.
+  _onScroll(event) {
+    const moved = event.target;
+    if (moved && moved.classList && moved.classList.contains('tc-tile-cap')) return;
+    if (TCNav.input !== 'mouse' || !TCNav._pointer || TCNav._relight) return;
+    TCNav._relight = requestAnimationFrame(() => {
+      TCNav._relight = 0;
+      const spot = TCNav._pointer;
+      if (TCNav.input !== 'mouse' || !spot) return;
+      const at = document.elementFromPoint(spot.x, spot.y);
+      TCNav.light((at && at.closest('[data-tc-focusable]')) || null);
+    });
+  },
+
+  _onFocusIn() {
     if (TCNav.input === 'key') TCNav.light(TCNav._focused());
   },
 
@@ -121,17 +133,33 @@ const TCNav = {
     return here && here.matches && here.matches('[data-tc-focusable]') ? here : null;
   },
 
+  _typing() {
+    const here = document.activeElement;
+    return !!here && (here.tagName === 'INPUT' || here.tagName === 'TEXTAREA');
+  },
+
   _onKey(event) {
-    TCNav.input = 'key';
-    TCNav.light(TCNav._focused());
     const way = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[event.key];
+    // Мышь последней указала место: стрелка идёт от него, а не от фокуса, оставшегося там,
+    // где человек был до мыши. Каретку поля ввода влево и вправо у него не отнимаем.
+    const pointed = TCNav.input === 'mouse' ? TCNav.lit : null;
+    TCNav.input = 'key';
+    const caret = TCNav._typing() && (way === 'left' || way === 'right');
+    if (way && pointed && pointed.isConnected && pointed !== document.activeElement && !caret) {
+      pointed.focus({ preventScroll: true });
+    }
+    TCNav.light(TCNav._focused());
     if (!way) return;
     const here = document.activeElement;
     if (!here || !here.matches || !here.matches('[data-tc-focusable]')) return TCNav._wake(event);
     const there = TCNav.nearest(here, way);
-    if (!there) return;
+    if (!there) {
+      // На краю полки стрелка стоит, но и странице не достаётся: та увезла бы полку вбок.
+      if (here.closest('.tc-row')) event.preventDefault();
+      return;
+    }
     event.preventDefault();
-    there.focus();
+    there.focus({ preventScroll: true });
     there.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   },
 
@@ -155,32 +183,61 @@ const TCNav = {
       .filter((el) => el.offsetParent !== null);
   },
 
+  // С плитки полки: влево и вправо - только по своей полке, вверх и вниз - на соседнюю
+  // линию. Всё прочее (поле поиска, кнопки карточки, плеер) судит общий счёт.
   nearest(from, way) {
+    if (!from.closest('.tc-row')) return TCNav._geometric(from, way);
+    return way === 'left' || way === 'right' ? TCNav._along(from, way) : TCNav._across(from, way);
+  },
+
+  // Соседняя плитка той же полки; на краю - ``null``: в чужую полку вбок не прыгаем.
+  _along(from, way) {
+    let next = from;
+    do next = way === 'left' ? next.previousElementSibling : next.nextElementSibling;
+    while (next && !next.matches('[data-tc-focusable]'));
+    return next;
+  },
+
+  // Ближайшая линия в нажатую сторону (соседняя полка, поле поиска), а в ней - то, что
+  // ближе всех по колонке экрана. Линию меряют КРАЯ, а не центры: плитка своей полки не
+  // «ниже» соседки, как бы ни разошлись их высоты.
+  _across(from, way) {
+    const start = from.getBoundingClientRect();
+    const mid = start.left + start.width / 2;
+    const found = [];
+    for (const el of TCNav._candidates()) {
+      if (el.parentElement === from.parentElement) continue;
+      const rect = el.getBoundingClientRect();
+      const gap = way === 'down' ? rect.top - start.bottom : start.top - rect.bottom;
+      if (gap >= -1) found.push({ el, gap, cross: Math.abs(rect.left + rect.width / 2 - mid) });
+    }
+    if (!found.length) return null;
+    const line = Math.min(...found.map((c) => c.gap)) + start.height / 2;
+    let best = null;
+    for (const c of found) {
+      if (c.gap <= line && (!best || c.cross < best.cross)) best = c;
+    }
+    return best.el;
+  },
+
+  // Общий счёт: ближе в нажатую сторону, крест весит вдвое - ровно поперёк оси лучший
+  // кандидат, наискось хуже.
+  _geometric(from, way) {
     const start = from.getBoundingClientRect();
     const startMid = { x: start.left + start.width / 2, y: start.top + start.height / 2 };
     let best = null;
     let bestScore = Infinity;
-    let bestGroup = null;
     for (const el of TCNav._candidates()) {
       if (el === from) continue;
       const rect = el.getBoundingClientRect();
       const mid = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
       const primary = TCNav._primary(startMid, mid, way);
       if (primary <= 0) continue;
-      const cross = TCNav._cross(startMid, mid, way);
-      // Крест весит вдвое: ровно поперёк оси - лучший кандидат, наискось - хуже.
-      const score = primary + Math.abs(cross) * 2;
+      const score = primary + Math.abs(TCNav._cross(startMid, mid, way)) * 2;
       if (score < bestScore) {
         bestScore = score;
         best = el;
-        bestGroup = el.dataset.tcGroup;
       }
-    }
-    if (!best) return null;
-    const fromGroup = from.dataset.tcGroup;
-    if (bestGroup && bestGroup !== fromGroup) {
-      const kept = TCNav.remembered.get(bestGroup);
-      if (kept && kept !== best && kept.offsetParent !== null) return kept;
     }
     return best;
   },

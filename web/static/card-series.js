@@ -94,6 +94,7 @@ const TCCardSeries = {
         onActivate: (key, query) => TCRouter.card(key, query),
       }));
     }
+    head.appendChild(TCTile.steps(row));
     wrap.append(head, row);
     return wrap;
   },

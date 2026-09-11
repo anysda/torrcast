@@ -470,6 +470,7 @@ const TCHome = {
       row.appendChild(TCTile.build(tile));
     }
     shelf.appendChild(row);
+    head.appendChild(TCTile.steps(row));
     return shelf;
   },
 

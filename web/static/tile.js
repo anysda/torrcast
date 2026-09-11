@@ -64,6 +64,47 @@ const TCTile = {
     return tile;
   },
 
+  // Кнопки ‹ › листают строку плиток для мыши: полосы прокрутки у строки нет, а колесо
+  // отдано странице. Пульт их не видит (нет `data-tc-focusable`), у него стрелки; фокус
+  // кнопки не забирают, иначе следующая стрелка начиналась бы с кнопки, а не с плитки.
+  steps(row) {
+    const steps = document.createElement('div');
+    steps.className = 'tc-shelf-arrows';
+    const make = (way, key, mark) => {
+      const step = document.createElement('button');
+      step.type = 'button';
+      step.className = 'tc-shelf-step';
+      step.tabIndex = -1;
+      step.dataset.tcShelfStep = String(way);
+      step.setAttribute('aria-label', TC.say(key));
+      step.textContent = mark;
+      step.addEventListener('mousedown', (event) => event.preventDefault());
+      step.addEventListener('click', () => TCTile._step(row, way));
+      steps.appendChild(step);
+      return step;
+    };
+    const back = make(-1, 'web.shelf.prev', '‹');
+    const on = make(1, 'web.shelf.next', '›');
+    const sync = () => {
+      const room = row.scrollWidth - row.clientWidth;
+      steps.style.visibility = room > 1 ? '' : 'hidden';
+      back.disabled = row.scrollLeft <= 1;
+      on.disabled = row.scrollLeft >= room - 1;
+    };
+    row.addEventListener('scroll', sync, { passive: true });
+    new ResizeObserver(sync).observe(row);
+    return steps;
+  },
+
+  // Шаг кнопки - все целиком видные плитки без одной: крайняя остаётся на экране опорой,
+  // и глаз не теряет, откуда строка приехала.
+  _step(row, way) {
+    const [first, second] = row.children;
+    const pitch = second ? second.offsetLeft - first.offsetLeft : row.clientWidth;
+    const count = Math.max(1, Math.floor(row.clientWidth / pitch) - 1);
+    row.scrollBy({ left: way * count * pitch, behavior: 'smooth' });
+  },
+
   // Выдача и полки отдают ИМЯ картинки, а не адрес: байты лежат за существующим
   // маршрутом `/api/poster/{name}` (`hass/serve.py`). Ставить имя в `src` как есть
   // значит просить его от текущей папки: с `/card/{key}` это `/card/{name}`, что

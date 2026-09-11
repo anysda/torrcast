@@ -39,6 +39,8 @@ def en() -> dict[str, str]:
         "web.shelf.popular": "Popular",
         "web.shelf.empty": "Nothing here yet",
         "web.shelf.loading": "Loading_",
+        "web.shelf.prev": "Scroll shelf left",
+        "web.shelf.next": "Scroll shelf right",
         "web.tile.no_art": "No art_",
         "web.detail.back": "‹ Back",
         "web.detail.more": "More_",
