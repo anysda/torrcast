@@ -17,22 +17,7 @@ from dataclasses import dataclass, field
 from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.receiver import Receiver
-
-#: Как часто держатель спрашивает приёмник, пока каст на ТВ идёт. Тот же шаг, что и у
-#: обычного показа (:mod:`torrcast.adapters.chromecast.cast.position`, «раз в две
-#: секунды»), и не для красоты: без опроса ``current_time`` у pychromecast застревает на
-#: значении первой картинки и не сдвигается сам - замерено на живом стенде ``.104``
-#: (``ChromecastReceiver.position()`` через 19.5 с показа отдал 0.2 с вместо ожидаемых
-#: ~15 с). «На комп» без опроса вернул бы зрителя почти в начало вместо настоящего места.
-POLL_SECONDS = 2.0
-
-
-def _live_receiver(address: str, profile: Profile) -> Receiver:
-    """Настоящий Chromecast; импорт внутри функции - чтобы страница не тянула pychromecast,
-    пока никто не нажал «На ТВ» (тем же приёмом, что и в :mod:`hass.volume`)."""
-    from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
-
-    return ChromecastReceiver(address, profile=profile)
+from web.live_receiver import POLL_SECONDS, live_receiver
 
 
 @dataclass
@@ -51,11 +36,12 @@ class TvSession:
     #: показ, и молчать про НЕГО уже нельзя, иначе новая картина не двинет закладку ни
     #: разу и навсегда останется в ``starting``.
     key: str = ""
-    factory: Callable[[str, Profile], Receiver] = _live_receiver
+    factory: Callable[[str, Profile], Receiver] = live_receiver
     profile: Profile = CAUTIOUS
     poll_seconds: float = POLL_SECONDS
     _receiver: Receiver | None = field(default=None, init=False, repr=False)
     _heard: Position | None = field(default=None, init=False, repr=False)
+    _alive: Callable[[], bool] | None = field(default=None, init=False, repr=False)
     _stop_poll: threading.Event | None = field(default=None, init=False, repr=False)
     _poll: threading.Thread | None = field(default=None, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
@@ -97,6 +83,7 @@ class TvSession:
         at: float,
         echo: Callable[[Position], None] | None = None,
         key: str = "",
+        alive: Callable[[], bool] | None = None,
     ) -> None:
         """Позвать приёмник ТВ тем же ``play``, каким продукт стартует консольный показ.
 
@@ -106,12 +93,15 @@ class TvSession:
         ``echo`` слышит каждый опрос приёмника: пока каст идёт, место показа знает ТВ, а
         не вкладка (ТЗ §7.5.3), и опрос из повода «держать ``current_time`` свежим»
         становится ещё и единственным источником секунды.
+
+        ``alive`` спрашивается перед каждым опросом: сказал «нет» - каст снимается (:meth:`_pump`).
         """
         self._release()
         receiver = self.factory(address, self.profile)
         receiver.play(url, title, at=at)
         self._receiver = receiver
         self._heard = None
+        self._alive = alive
         self.key = key
         self._arm(receiver, echo)
 
@@ -157,7 +147,8 @@ class TvSession:
         """Остановить опрос и дождаться его конца перед тем, как трогать приёмник."""
         if self._stop_poll is not None:
             self._stop_poll.set()
-        if self._poll is not None:
+        # Опрос, снимающий каст сам (:meth:`_pump`), себя не ждёт: join самого себя - ошибка.
+        if self._poll is not None and self._poll is not threading.current_thread():
             self._poll.join(timeout=self.poll_seconds)
         self._stop_poll = self._poll = None
 
@@ -171,8 +162,16 @@ class TvSession:
 
         Слушателю место передаётся ВНЕ замка: он пишет на диск, и держать на этом время
         замок значило бы заставлять ``stop`` ждать файловой записи.
+
+        🔴 Показ, из которого поднят каст, снят - каст снимается тут же: чтение места у ТВ
+        с погасшим потоком поднимало LOAD заново («retrying LOAD», «reloading»; стенд
+        `.104` 11-09-2026, ``/api/control stop`` при касте на `.90`).
         """
         while not stop_poll.wait(self.poll_seconds):
+            if self._alive is not None and not self._alive():
+                if self._receiver is receiver:
+                    self._release()
+                return
             with self._lock:
                 if self._receiver is not receiver:
                     return

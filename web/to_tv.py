@@ -42,7 +42,10 @@ def to_tv(request: Request) -> Answer:
     if record is not None and record.get("key") == box.get("key"):
         at = float(record.get("pos", at))
     key = str(box.get("key", ""))
-    SESSION.start(address, str(box.get("title", "")), url, at, echo=_echo(out, key), key=key)
+    # Каст живёт, пока ящик держит ЭТОТ показ: стоп чистит ящик, и ТВ закрывается сам.
+    alive = lambda: str(read_web_box(out).get("key", "")) == key  # noqa: E731
+    title = str(box.get("title", ""))
+    SESSION.start(address, title, url, at, echo=_echo(out, key), key=key, alive=alive)
     return Answer(202, b"")
 
 

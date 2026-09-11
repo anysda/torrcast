@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
 from tests.fakes.receiver import FakeReceiver
+from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.browser.write_web_position import write_web_position
@@ -125,6 +127,25 @@ def test_the_tv_position_becomes_the_one_the_product_remembers(
     assert record["key"] == "k1", "место ТВ уехало под чужим ключом и не читается"
     assert record["pos"] == 742.0
     assert record["phase"] == "playing"
+
+
+@pytest.mark.machine
+def test_stopping_the_show_takes_the_tv_down_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Стоп показа чистит ящик - и каст на ТВ снимается сам, а не перезапускается."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    receiver = _wired(monkeypatch)
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
+    assert to_tv(_post()).code == 202
+
+    clear_web_box(tmp_path)
+    began = time.monotonic()
+    while time.monotonic() - began < 2.0 and not receiver.stops:
+        time.sleep(0.01)
+
+    assert receiver.stops == [True], "показ снят, а ТВ так и держит каст"
+    assert not SESSION.active()
 
 
 def test_the_listener_goes_quiet_once_the_mailbox_moves_to_another_show(

@@ -118,7 +118,7 @@ def test_starting_again_releases_the_previous_connection_first() -> None:
 @pytest.mark.machine
 def test_the_live_cast_is_polled_periodically_so_the_position_stays_fresh() -> None:
     """Без опроса ``current_time`` у pychromecast застревает на месте первой картинки
-    (замерено на стенде ``.104``, см. докстроку :data:`web.tv_session.POLL_SECONDS`)."""
+    (замерено на стенде ``.104``, см. докстроку :data:`web.live_receiver.POLL_SECONDS`)."""
     receiver = FakeReceiver(Position(0.0, 120.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
     heard: list[Position] = []
@@ -135,6 +135,26 @@ def test_the_live_cast_is_polled_periodically_so_the_position_stays_fresh() -> N
     assert heard, "опрос был, а слушатель места о нём не узнал"
 
     session.stop()
+
+
+@pytest.mark.machine
+def test_the_cast_is_taken_down_once_its_show_is_gone_and_is_not_asked_again() -> None:
+    """Опрос места у ТВ с погасшим потоком поднимал LOAD заново («retrying LOAD»,
+    «reloading»; стенд `.104` 11-09-2026): показ снят - каст снимается, ТВ не спрашивается."""
+    receiver = FakeReceiver(Position(10.0, 120.0))
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    alive = [True]
+    session.start("192.168.1.90", "t", "u", 0.0, key="k1", alive=lambda: alive[0])
+    _until(lambda: bool(receiver.fronts))
+
+    alive[0] = False
+    _until(lambda: receiver.stops == [True])
+    asked = len(receiver.fronts)
+    time.sleep(0.1)
+
+    assert not session.active()
+    assert len(receiver.fronts) == asked, "снятый каст всё ещё опрашивается"
+    assert session.stop() == 0.0
 
 
 @pytest.mark.machine
