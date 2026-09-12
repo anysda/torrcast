@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import Final
 
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
@@ -40,7 +40,16 @@ class _Rod:
     def slot_at(self, seconds: float) -> int:
         return int(seconds // 10.0)
 
-    def manifest(self, container: SegmentContainer = MPEGTS) -> str:
+    def manifest(
+        self,
+        container: SegmentContainer = MPEGTS,
+        # Дыры в отпечаток формы ключа не входят и входить не должны: они свойство ПОКАЗА, а
+        # ключ - свойство фильма и правил сборки. Параметр стоит здесь затем, чтобы мерная
+        # сетка осталась сеткой по договору (:class:`torrcast.ports.feed_grid.FeedGrid`): это
+        # тот же довод, которым pyproject снимает ARG с подделок портов в tests/ и scripts/.
+        # Отпечаток от этого не двинулся - замер: f9bb91967b66a5e4 до правки и после.
+        gaps: Collection[int] = (),  # noqa: ARG002
+    ) -> str:
         return str(container)
 
 
