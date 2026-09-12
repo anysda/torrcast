@@ -77,11 +77,11 @@ const TCApi = {
       + (wait ? (params ? '&' : '?') + 'wait=1' : '');
     try {
       const said = await fetch(url);
-      if (!said.ok) return { data: null, partial: false };
+      if (!said.ok) return { data: null, partial: false, missing: said.status === 404 };
       const data = await said.json();
-      return { data, partial: said.headers.get('X-Torrcast-Partial') === '1' };
+      return { data, partial: said.headers.get('X-Torrcast-Partial') === '1', missing: false };
     } catch (error) {
-      return { data: null, partial: false };
+      return { data: null, partial: false, missing: false };
     }
   },
 

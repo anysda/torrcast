@@ -37,6 +37,7 @@ const TCCard = {
       const said = await TCApi.card(key, query, turn > 0);
       if (!TCCard._here(root, key)) return;
       if (said.data) data = said.data;
+      if (said.missing) data = { error: 'not_found' };
       const last = !said.partial || turn === TCCard._TURNS;
       if (data && !TCCard._patient) {
         TCCard._patient = Date.now() + TCCard._PATIENCE;
@@ -209,6 +210,7 @@ const TCCard = {
   },
 
   _body(data, key, query, settled) {
+    if (data.error === 'not_found') return TCCard._notFound(key, query);
     const isShow = Array.isArray(data.seasons) && data.seasons.length > 0;
     const body = document.createElement('div');
     body.id = 'tc-card-body';
@@ -236,6 +238,37 @@ const TCCard = {
       info.appendChild(TCCardSeries.related(data));
     }
     info.appendChild(TCCard._releases(data));
+    body.appendChild(info);
+    return body;
+  },
+
+  _notFound(key, query) {
+    const body = document.createElement('div');
+    body.id = 'tc-card-body';
+    body.className = 'tc-detail-body';
+    const hint = TCCard._hint(key);
+    body.appendChild(TCCard._posterBlock([hint.poster], false, false, hint.title));
+    const info = document.createElement('div');
+    info.className = 'tc-detail-info';
+    const title = document.createElement('div');
+    title.className = 'tc-title-detail';
+    title.textContent = hint.title || '';
+    const said = document.createElement('div');
+    said.className = 'tc-detail-desc tc-body';
+    said.textContent = TC.say('web.detail.not_found');
+    const retry = document.createElement('div');
+    retry.className = 'tc-secondary';
+    retry.textContent = TC.say('web.detail.retry');
+    retry.tabIndex = 0;
+    retry.dataset.tcFocusable = '1';
+    retry.dataset.tcGroup = 'card-refusal';
+    retry.setAttribute('role', 'button');
+    const again = () => TCCard._load(document.getElementById('tc-root'), key, query);
+    retry.addEventListener('click', again);
+    retry.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); again(); }
+    });
+    info.append(title, said, retry);
     body.appendChild(info);
     return body;
   },

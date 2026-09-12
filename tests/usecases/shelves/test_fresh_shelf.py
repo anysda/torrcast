@@ -26,13 +26,25 @@ def test_a_raid_older_than_fourteen_days_is_excluded() -> None:
 def test_the_most_recently_raided_picture_comes_first() -> None:
     """Свежую раздачу (1 день назад) показываем раньше более старой (10 дней назад)."""
     rows = [
-        _row("Старый Фильм 2020 1080p", "a" * 40, days_ago=10),
+        _row("Старый Фильм 2026 1080p", "a" * 40, days_ago=10),
         _row("Новый Фильм 2026 1080p", "b" * 40, days_ago=1),
     ]
 
     shelf = fresh_shelf(rows, torrent_catalogue, now=NOW)
 
     assert [p.title for p in shelf] == ["Новый Фильм", "Старый Фильм"]
+
+
+def test_a_recent_reissue_of_an_old_picture_is_not_new() -> None:
+    """Новизна полки - год картины сейчас, а не дата её очередной раздачи."""
+    rows = [
+        _row("Старый Фильм 2020 1080p", "a" * 40, days_ago=1),
+        _row("Новый Фильм 2026 1080p", "b" * 40, days_ago=2),
+    ]
+
+    shelf = fresh_shelf(rows, torrent_catalogue, now=NOW)
+
+    assert [picture.year for picture in shelf] == [NOW.year]
 
 
 def test_the_limit_caps_the_shelf() -> None:

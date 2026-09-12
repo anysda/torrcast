@@ -424,7 +424,7 @@ const TCHome = {
         caption2: item.label || '',
         progress: item.dur ? item.pos / item.dur : 0,
         group: 'shelf-continue',
-        query: item.title,
+        query: item.query || item.title,
         onActivate: TCHome._openCard,
       })));
   },

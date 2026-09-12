@@ -45,6 +45,8 @@ def en() -> dict[str, str]:
         "web.detail.back": "‹ Back",
         "web.detail.more": "More_",
         "web.detail.no_description": "No description is available",
+        "web.detail.not_found": "This picture could not be found",
+        "web.detail.retry": "Try again",
         "web.detail.play": "▶ Play",
         "web.detail.start_over": "Start over",
         "web.detail.play_on_tv": "Play on TV",

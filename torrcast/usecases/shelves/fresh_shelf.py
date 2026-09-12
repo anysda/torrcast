@@ -31,6 +31,7 @@ def fresh_shelf(
     """
     moment = now or datetime.now(UTC)
     pictures, dates = _windowed_pictures(rows, catalogue, days=DAYS, now=moment)
+    pictures = [picture for picture in pictures if picture.year == moment.year]
 
     def _first_raid(picture: Picture) -> datetime:
         found = _dates_of(picture, dates)

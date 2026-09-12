@@ -65,7 +65,7 @@ def _covered(records: list[JsonValue], limit: int) -> list[JsonValue]:
     covered: list[JsonValue] = [
         record for record in records if isinstance(record, dict) and record.get("poster")
     ]
-    return covered[:limit] if covered else records[:limit]
+    return covered[:limit]
 
 
 def _project(record: JsonValue, passport: PassportOf) -> JsonValue:

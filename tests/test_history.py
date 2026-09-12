@@ -62,6 +62,7 @@ def test_an_item_carries_the_fields_the_tile_needs() -> None:
         year=2022,
         season=1,
         episode=2,
+        query="show season two",
     )
     fake.save(state)
     state_slot.install(fake)
@@ -69,6 +70,7 @@ def test_an_item_carries_the_fields_the_tile_needs() -> None:
     item = _asked()["items"][0]
     assert item["key"] == "tv:show:2022"
     assert item["title"] == "Show"
+    assert item["query"] == "show season two"
     assert item["kind"] == "tv"
     assert item["year"] == 2022
     assert item["label"] == ""

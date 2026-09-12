@@ -31,6 +31,7 @@ PassportOf = Callable[[str, bool, float], Origin]
 #: Тот же ``HitPosters.offer``: те же записи, с обложкой у тех, кому она нашлась.
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
 Spawn = Callable[[Callable[[], None]], None]
+Warm = Callable[[list[str]], object]
 TIMEOUT = 8.0
 RETRY = 3600.0
 #: Сколько молчание источника держит имя от нового похода: ``None`` отдаёт и картина без
@@ -61,7 +62,12 @@ def _no_passport(_title: str, _series: bool, _timeout: float) -> Origin:
     return Origin()
 
 
-def _seed(kin: Kin, original: str) -> dict[str, JsonValue]:
+def _no_warm(_queries: list[str]) -> None:
+    """Пустая проводка: тестовый добор родни не трогает очередь поиска."""
+    return None
+
+
+def _seed(kin: Kin, original: str, query: str) -> dict[str, JsonValue]:
     """Плитка родни до обложки: ``original`` в ней только на розыск обложки, не на показ.
 
     Wikidata не называет род родни - франшизы приёмки (§8) все до одной кино, и это
@@ -76,7 +82,7 @@ def _seed(kin: Kin, original: str) -> dict[str, JsonValue]:
         "year": kin.year,
         "kind": "movie",
         "quality": None,
-        "query": kin.name,
+        "query": query,
         "original": original,
     }
 
@@ -95,6 +101,7 @@ class RelatedLookup:
     franchise: Franchise
     offer: Offer = hits.offer
     passport: PassportOf = _no_passport
+    warm: Warm = _no_warm
     spawn: Spawn = _daemon
     clock: Callable[[], float] = time.monotonic
     _tiles: dict[tuple[str, bool], tuple[list[JsonValue], float]] = field(default_factory=dict)
@@ -148,8 +155,9 @@ class RelatedLookup:
             found = self.franchise(title, series, TIMEOUT)
             if found is None:
                 return
-            seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
+            seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name), title) for kin in found]
             tiles = [_project(record) for record in self.offer(seeds)]
+            self.warm([title])
             with self._lock:
                 self._tiles[(title, series)] = (tiles, self.clock() + RETRY)
         except Exception:
@@ -170,4 +178,4 @@ class RelatedLookup:
         return self.passport(name, False, TIMEOUT).title if tongue() == EN else ""
 
 
-__all__ = ["Franchise", "PassportOf", "RelatedLookup", "Spawn"]
+__all__ = ["Franchise", "PassportOf", "RelatedLookup", "Spawn", "Warm"]

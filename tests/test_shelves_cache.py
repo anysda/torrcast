@@ -22,7 +22,7 @@ _MOMENT = datetime(2026, 9, 6, tzinfo=UTC)
 def _rows() -> list[FeedRow]:
     return [
         FeedRow(
-            RawResult("Матрица 1999 1080p", "a" * 40, 1000, 5, "rutor"),
+            RawResult("Матрица 2026 1080p", "a" * 40, 1000, 5, "rutor"),
             datetime(2026, 9, 5, tzinfo=UTC),
         )
     ]
@@ -32,10 +32,17 @@ def _many_rows(count: int) -> list[FeedRow]:
     """Лента из count разных картин одной раздачей на каждую - полные и пустые полки."""
     return [
         FeedRow(
-            RawResult(f"Картина {index:02d} 2001 1080p", f"{index:040x}", 1000, 5, "rutor"),
+            RawResult(f"Картина {index:02d} 2026 1080p", f"{index:040x}", 1000, 5, "rutor"),
             datetime(2026, 9, 5, tzinfo=UTC),
         )
         for index in range(count)
+    ]
+
+
+def _all_posters(records: list[JsonValue]) -> list[JsonValue]:
+    """Обычный ответ приговора: у каждой тестовой картины есть обложка."""
+    return [
+        {**record, "poster": "abc"} if isinstance(record, dict) else record for record in records
     ]
 
 
@@ -56,7 +63,7 @@ def _cache(
     return ShelvesCache(
         feed=feed or (lambda limit: _rows()),
         catalogue=torrent_catalogue,
-        offer=offer or (lambda records: records),
+        offer=offer or _all_posters,
         path=tmp_path / "shelves.json",
         attempts=attempts,
         sleep=sleep,
@@ -104,7 +111,7 @@ def _offer_with_original(records: list[JsonValue]) -> list[JsonValue]:
     decorated: list[JsonValue] = []
     for record in records:
         assert isinstance(record, dict)
-        decorated.append({**record, "original": "The Matrix"})
+        decorated.append({**record, "original": "The Matrix", "poster": "abc"})
     return decorated
 
 
@@ -190,7 +197,10 @@ def test_rebuild_persists_the_cache_and_a_fresh_instance_reads_it_back(tmp_path:
     built = ShelvesCache(
         feed=lambda limit: _rows(),
         catalogue=torrent_catalogue,
-        offer=lambda records: records,
+        offer=lambda records: [
+            {**record, "poster": "abc"} if isinstance(record, dict) else record
+            for record in records
+        ],
         path=path,
         spawn=lambda job: None,
         clock=lambda: _MOMENT,
@@ -207,6 +217,22 @@ def test_rebuild_persists_the_cache_and_a_fresh_instance_reads_it_back(tmp_path:
     )
 
     assert _tile(reread.get()["fresh"], 0)["title"] == "Матрица"
+
+
+def test_a_cache_written_before_cover_verdicts_drops_blank_tiles(tmp_path: Path) -> None:
+    """Старый shelves.json не возвращает на главную плитки без обложек после обновления."""
+    path = tmp_path / "shelves.json"
+    path.write_text(
+        '{"fresh":[{"title":"без","poster":null},{"title":"с","poster":"abc"}],'
+        '"popular":[],"built_at":"2026-09-12T00:00:00+00:00"}',
+        encoding="utf-8",
+    )
+    cache = _cache(tmp_path)
+    cache.path = path
+
+    body = cache.get()
+
+    assert [_tile(body["fresh"], 0)["title"]] == ["с"]
 
 
 def test_offer_is_the_only_place_a_poster_field_can_come_from(tmp_path: Path) -> None:

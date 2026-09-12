@@ -58,7 +58,7 @@ _TICK: Final = 0.25
 #: (см. :class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
 #: Родня картины по Wikidata (§8) - тот же приём фонового кэша, что и у серий.
-_related = RelatedLookup(franchise=FACTS.franchise.of, passport=FACTS.passport.of)
+_related = RelatedLookup(franchise=FACTS.franchise.of, passport=FACTS.passport.of, warm=WARM.ask)
 #: Приговор обложки - тот же, что у выдачи поиска и полки (:mod:`web.card_poster`).
 _poster = CardPoster(offer=hits.offer)
 #: Сколько долгий заход досиживает после первой перемены, пока доезжает остальное: части

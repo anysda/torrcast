@@ -45,6 +45,8 @@ def ru() -> dict[str, str]:
         "web.detail.back": "‹ Назад",
         "web.detail.more": "Ещё_",
         "web.detail.no_description": "Описание недоступно",
+        "web.detail.not_found": "Эта картина не найдена",
+        "web.detail.retry": "Попробовать ещё раз",
         "web.detail.play": "▶ Смотреть",
         "web.detail.start_over": "Сначала",
         "web.detail.play_on_tv": "Показать на ТВ",

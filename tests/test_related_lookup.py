@@ -47,6 +47,7 @@ def test_a_synchronous_build_answers_the_very_same_call_with_tiles_shaped_like_s
     assert first["shown"] == "Гарри Поттер и Тайная комната"
     assert first["kind"] == "movie"
     assert first["key"] == "movie:гарри-поттер-и-тайная-комната:2002"
+    assert first["query"] == "Гарри Поттер и философский камень"
 
 
 def test_an_empty_franchise_is_a_finished_answer_not_a_pending_one() -> None:
@@ -197,6 +198,18 @@ def test_the_poster_offer_decorates_tiles_the_same_way_as_the_shelves() -> None:
     assert isinstance(tile, dict)
     assert tile["poster"] == "abc123"
     assert "original" not in tile
+
+
+def test_the_related_titles_are_warmed_before_the_tiles_are_drawn() -> None:
+    """Соседняя серия берёт уже согретый круг, не ждёт обхода плиток в браузере."""
+    warmed: list[list[str]] = []
+    lookup = RelatedLookup(
+        franchise=lambda *_a: [_ONE, _TWO], offer=_passthrough, warm=warmed.append, spawn=_sync
+    )
+
+    lookup.of("Гарри Поттер и философский камень", False)
+
+    assert warmed == [["Гарри Поттер и философский камень"]]
 
 
 def _passport(_title: str, _series: bool, _timeout: float) -> Origin:
