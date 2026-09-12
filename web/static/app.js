@@ -123,7 +123,14 @@ const TC = {
     }
     const label = document.createElement('div');
     label.className = 'tc-now-label';
-    label.textContent = TC.say(onTv ? 'web.header.on_tv' : 'web.header.now_playing');
+    // TC-1219. Ящик несёт ``tv:true`` секундами позже заказа (упаковка идёт ещё 25-39 с
+    // на замере стенда `.104` 12-09-2026) - плашка, вставшая «На ТВ» в ту же секунду,
+    // называла телевизор играющим раньше, чем на нём вообще есть кадр. Слово «идёт» ждёт
+    // ``state.state === 'playing'`` - до него плашка честно говорит «Готовим…», как и
+    // экран самого плеера тем же ключом каталога.
+    label.textContent = TC.say(
+      state.state !== 'playing' ? 'web.player.preparing' : onTv ? 'web.header.on_tv' : 'web.header.now_playing'
+    );
     const title = document.createElement('div');
     title.className = 'tc-now-title';
     title.textContent = state.shown_as || state.title || '';
