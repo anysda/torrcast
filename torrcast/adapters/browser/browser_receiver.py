@@ -105,6 +105,7 @@ class BrowserReceiver:
     _key: str = field(default="", init=False)
     _held: float = field(default=0.0, init=False)
     _dur: float = field(default=0.0, init=False)
+    _left_pos: float = field(default=-1.0, init=False)
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         """Положить в ящик новое задание со свежим ключом сеанса.
@@ -115,6 +116,7 @@ class BrowserReceiver:
         """
         self._key = uuid.uuid4().hex
         self._held, self._dur = at, 0.0
+        self._left_pos = -1.0
         clear_web_position(self.out)
         write_web_box(
             self.out,
@@ -152,8 +154,6 @@ class BrowserReceiver:
         pos, dur = float(record.get("pos", 0.0)), float(record.get("dur", 0.0))
         phase = str(record.get("phase", ""))
         self._dur = dur
-        if pos > 0.0:
-            self._held = pos
         since = self.clock.wall() - float(record.get("wall", 0.0))
         if phase == "left":
             # Страница сама сказала «ухожу» (закрытие вкладки, уход с ``/play``,
@@ -161,9 +161,23 @@ class BrowserReceiver:
             # нельзя: обновление страницы (``F5``) шлёт то же слово и тут же переприцепляется
             # свежим отчётом (:attr:`left_after`), а от настоящего ухода
             # новый отчёт не приходит никогда.
+            # Последний отчёт может быть ровно словом «ухожу»: позиция идёт раз в 2 с,
+            # и человек успевает увидеть кадр и уйти между двумя обычными отчётами. Не
+            # видеть движение, которое страница положила в ``left``, значило назвать
+            # увиденный показ несостоявшимся. Отдаём сначала место, с которого вошли в
+            # уход, а следующим опросом само новое: так общий свидетель первого кадра
+            # (`_first_frame`) видит именно сдвиг, а не одно недоказуемое слово PLAYING.
+            moved = pos > self._held
+            if moved and self._left_pos != pos:
+                before, self._held, self._left_pos = self._held, pos, pos
+                return Position(before, dur, True, "PLAYING")
             if self.left_after > 0.0 and since >= self.left_after:
                 return Position(self._held, dur, False, _LOST, stale=True)
-            return Position(self._held, dur, True, _WAITING)
+            return Position(
+                self._held, dur, True, "PLAYING" if moved or self._left_pos == pos else _WAITING
+            )
+        if pos > 0.0:
+            self._held = pos
         if self.gone_after > 0.0 and since >= self.gone_after:
             return Position(self._held, dur, False, _LOST, stale=True)
         if self.lost_after > 0.0 and since >= self.lost_after:

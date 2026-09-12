@@ -28,6 +28,7 @@ const TCPlayer = {
     TCPlayer._key = '';
     TCPlayer._onTv = false;
     TCPlayer._retries = 0;
+    TCPlayer._retryTimer = null;
     TCPlayer._advanced = false;
     TCPlayer._hasNext = false;
     TCPlayer._last = null;
@@ -58,10 +59,16 @@ const TCPlayer = {
       TCPlayer._framed = true;
       TCPlayer._ordered = false;
       TCPlayer._clearOverlay();
+      TCPlayer._sendPosition();
     });
     video.addEventListener('waiting', () => { if (!TCPlayer._advanced) TCPlayer._screenBuffering(); });
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
     video.addEventListener('ended', () => TCPlayer._startNext());
+    // hls.js recovers most short gaps itself, but a broken MediaSource can finish as the
+    // native `error` event only. Without this listener Chromium pauses a healthy-looking
+    // video (`readyState === 4`) forever after the error, with no fatal HLS event to wake
+    // `_onStreamError` (CT502, Gladiator at 2:09).
+    video.addEventListener('error', () => TCPlayer._onStreamError());
 
     wrap.addEventListener('mousemove', TCPlayer._wake);
     wrap.addEventListener('click', TCPlayer._wake);
@@ -119,23 +126,29 @@ const TCPlayer = {
   //: что решил читатель, - второго писателя закладки заводить нельзя.
   async _reportPosition() {
     while (TCPlayer._mounted()) {
-      const video = TCPlayer._video;
-      if (video && TCPlayer._key) {
-        const phase = video.ended ? 'ended' : video.paused ? 'paused'
-          : video.readyState < 3 ? 'buffering' : 'playing';
-        const code = await TCApi.position({
-          key: TCPlayer._key, phase, pos: video.currentTime || 0, dur: video.duration || 0,
-        });
-        //: 409 - ящик уже подменён другим показом, и это единственный сигнал о смене,
-        //: который вкладка получает даром (`player-box.js`).
-        if (code === 409) await TCPlayerBox.rebox(TCPlayer);
-      }
+      await TCPlayer._sendPosition();
       await TCPlayer._sleep(TCPlayer.POSITION_MS);
     }
     // Ушли с ``/play`` изнутри приложения (не закрытие вкладки - на него отвечает
     // `pagehide` ниже): цикл это увидел первым, и сказать «ухожу» тут естественно.
     TCPlayer._callOff();
     TCPlayer._left();
+  },
+
+  //: Первый кадр не ждёт очереди отчёта в две секунды: человек может уйти со страницы
+  // сразу после него, и оставленный вместо этой позиции ``left`` сервер читает как
+  // ожидание, а не как доказанный показ (`browser_receiver.py`).
+  async _sendPosition() {
+    const video = TCPlayer._video;
+    if (!video || !TCPlayer._key) return;
+    const phase = video.ended ? 'ended' : video.paused ? 'paused'
+      : video.readyState < 3 ? 'buffering' : 'playing';
+    const code = await TCApi.position({
+      key: TCPlayer._key, phase, pos: video.currentTime || 0, dur: video.duration || 0,
+    });
+    //: 409 - ящик уже подменён другим показом, и это единственный сигнал о смене,
+    //: который вкладка получает даром (`player-box.js`).
+    if (code === 409) await TCPlayerBox.rebox(TCPlayer);
   },
 
   //: Сказать «ухожу» ровно один раз (TC-1124): страницу закрыли или увели с ``/play``,
@@ -222,12 +235,19 @@ const TCPlayer = {
 
   //: После трёх неудач - экран ошибки с «Повторить» (§4.5); до тех пор - тихий перезапуск.
   _onStreamError() {
+    // A fatal hls.js error can also surface as the native event above. One broken source
+    // gets one retry: counting both spent two of the three attempts before a new manifest
+    // had even had a chance to load.
+    if (TCPlayer._retryTimer) return;
     TCPlayer._retries += 1;
     if (TCPlayer._retries > TCPlayer.MAX_RETRIES) {
       TCPlayer._screenLost(TCPlayer._retries);
       return;
     }
-    window.setTimeout(() => TCPlayer._attach(TCPlayer._url, TCPlayer._video.currentTime || 0), 1000);
+    TCPlayer._retryTimer = window.setTimeout(() => {
+      TCPlayer._retryTimer = null;
+      TCPlayer._attach(TCPlayer._url, TCPlayer._video.currentTime || 0);
+    }, 1000);
   },
 
   _retry() {

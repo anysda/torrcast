@@ -162,17 +162,16 @@ def test_silence_past_gone_after_closes_the_session_by_reporting_not_playing(
     assert position.playing is False
 
 
-def test_a_fresh_left_report_still_waits_out_the_grace_period(tmp_path: Path) -> None:
-    """Словом «ухожу» страница не закрывает показ сама - решает только срок (TC-1124)."""
+def test_a_fresh_left_report_keeps_the_last_shown_motion(tmp_path: Path) -> None:
+    """Уход сразу после кадра доносит его сдвиг, а не превращает увиденное в ожидание."""
     clock = FakeClock()
     receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="left", wall=clock.wall())
 
-    position = receiver.position()
-    assert position == Position(30.0, 120.0, True, "BUFFERING")
-    assert position.playing is True
+    assert receiver.position() == Position(0.0, 120.0, True, "PLAYING")
+    assert receiver.position() == Position(30.0, 120.0, True, "PLAYING")
 
 
 def test_left_within_the_grace_period_still_waits(tmp_path: Path) -> None:
@@ -182,11 +181,12 @@ def test_left_within_the_grace_period_still_waits(tmp_path: Path) -> None:
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="left", wall=clock.wall())
+    receiver.position()  # первый опрос отдаёт место до движения, второй - увиденный кадр
 
     clock.now += LEFT_AFTER - 1.0
 
     position = receiver.position()
-    assert position == Position(30.0, 120.0, True, "BUFFERING")
+    assert position == Position(30.0, 120.0, True, "PLAYING")
     assert position.playing is True
 
 
@@ -199,6 +199,7 @@ def test_left_past_the_grace_period_closes_the_session_by_reporting_not_playing(
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=30.0, dur=120.0, phase="left", wall=clock.wall())
+    receiver.position()  # отмечаем сдвиг до истечения срока настоящего ухода
 
     clock.now += LEFT_AFTER
 

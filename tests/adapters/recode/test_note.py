@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from tests.adapters.recode.grids import grid, keys
 from torrcast.adapters.recode.note import _note
 from torrcast.adapters.recode.recoder_state import _State
 from torrcast.adapters.recode.weights import Weights
+from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.segment_container import FMP4
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install
@@ -111,8 +115,20 @@ def test_a_failed_merge_is_said_out_loud_even_without_the_trace(tmp_path: Path) 
 
     _note(state, 4, "recode")
 
-    assert any("склейка v4 не вышла" in line for line in said)
+    assert phrase("recode.splice_failed", slot=4) in said
     assert state.late == 0, "перекод опозданием не считается"
+
+
+def test_trace_names_a_published_piece_in_the_product_tongue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """След сегмента тоже доходит до ``last_error``, поэтому не может быть русским в --en."""
+    monkeypatch.setenv(TRACE_ENV, "1")
+    said: list[str] = []
+
+    _note(_state(tmp_path, said), 4, "shrink")
+
+    assert said[0].startswith("published v4: shrink"), "след следует языку продукта"
 
 
 def test_the_weight_that_went_out_is_read_from_the_name_the_container_gives(

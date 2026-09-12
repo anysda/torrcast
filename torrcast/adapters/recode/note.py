@@ -74,12 +74,18 @@ def _note(state: _State, slot: int, how: str) -> None:
     )
     if _tracing():
         state._say(
-            f"выложен v{slot}: {shown} {went:.1f} Мбит/с (профиль {state.weights.at(slot):.1f})"
+            phrase(
+                "recode.published_piece",
+                slot=slot,
+                how=shown,
+                mbit=went,
+                profile=state.weights.at(slot),
+            )
         )
     # Отказ склейки - это вернувшийся разрыв на голове захода, и молчать о
     # нём нельзя даже без TRACE: он редкий, поэтому дешёвый, и он объясняет подвис.
     if how == "recode":
-        state._say(f"склейка v{slot} не вышла - перекод ушёл как есть, стык под вопросом")
+        state._say(phrase("recode.splice_failed", slot=slot))
     if recoded:
         return
     if size:
