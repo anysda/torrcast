@@ -150,7 +150,7 @@ class ShelvesCache:
             raw: Any = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return _empty()
-        return _covered_cache(raw) if isinstance(raw, dict) else _empty()
+        return raw if isinstance(raw, dict) else _empty()
 
     def _save(self, body: dict[str, JsonValue]) -> None:
         # диск лёг - полки просто не переживут рестарт, показу до этого дела нет
@@ -161,16 +161,6 @@ class ShelvesCache:
 def _empty() -> dict[str, JsonValue]:
     """Полки до первой сборки: пустой список, а не выдуманная картина."""
     return {"fresh": [], "popular": [], "built_at": None}
-
-
-def _covered_cache(raw: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    """Старый кэш не вправе пережить правило «плитка только с обложкой»."""
-    body = dict(raw)
-    for shelf in ("fresh", "popular"):
-        tiles = body.get(shelf)
-        if isinstance(tiles, list):
-            body[shelf] = [tile for tile in tiles if isinstance(tile, dict) and tile.get("poster")]
-    return body
 
 
 __all__ = ["Feed", "Offer", "PassportOf", "ShelvesCache", "Spawn"]

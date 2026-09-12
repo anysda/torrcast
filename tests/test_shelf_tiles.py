@@ -72,8 +72,8 @@ def test_a_dropped_tile_is_never_projected() -> None:
     assert asked == ["Картина 1", "Картина 3"], f"до проекции дошли выброшенные: {asked}"
 
 
-def test_a_fully_silent_poster_source_leaves_no_blank_tiles() -> None:
-    """Молчащий источник не даёт повода показывать плитку без настоящей обложки."""
+def test_a_fully_silent_poster_source_leaves_the_shelf_untouched() -> None:
+    """Граница отбора: имени нет НИ У КОГО - приговора не было, полка остаётся как собрана."""
     tiles = shelf_tiles(
         _pictures(5),
         offer=lambda records: records,
@@ -81,4 +81,5 @@ def test_a_fully_silent_poster_source_leaves_no_blank_tiles() -> None:
         limit=3,
     )
 
-    assert tiles == []
+    assert len(tiles) == 3
+    assert all(isinstance(t, dict) and not t.get("poster") for t in tiles)

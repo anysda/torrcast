@@ -219,22 +219,6 @@ def test_rebuild_persists_the_cache_and_a_fresh_instance_reads_it_back(tmp_path:
     assert _tile(reread.get()["fresh"], 0)["title"] == "Матрица"
 
 
-def test_a_cache_written_before_cover_verdicts_drops_blank_tiles(tmp_path: Path) -> None:
-    """Старый shelves.json не возвращает на главную плитки без обложек после обновления."""
-    path = tmp_path / "shelves.json"
-    path.write_text(
-        '{"fresh":[{"title":"без","poster":null},{"title":"с","poster":"abc"}],'
-        '"popular":[],"built_at":"2026-09-12T00:00:00+00:00"}',
-        encoding="utf-8",
-    )
-    cache = _cache(tmp_path)
-    cache.path = path
-
-    body = cache.get()
-
-    assert [_tile(body["fresh"], 0)["title"]] == ["с"]
-
-
 def test_offer_is_the_only_place_a_poster_field_can_come_from(tmp_path: Path) -> None:
     """Обложку дописывает переданный ``offer``, как у выдачи поиска - своего пути тут нет."""
     seen: list[list[JsonValue]] = []
