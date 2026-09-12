@@ -22,9 +22,7 @@ def en() -> dict[str, str]:
         "recode.packing_stuck": "packing got stuck on v{slot}",
         "recode.show_over": "show is over",
         "recode.run_over": "run is over",
-        "recode.published_piece": (
-            "published v{slot}: {how} {mbit:.1f} Mbit/s (profile {profile:.1f})"
-        ),
+        "recode.published_piece": ("published v{slot}: {how} {mbit} Mbit/s (profile {profile})"),
         "recode.splice_failed": (
             "splicing v{slot} failed - recoded piece went as-is, seam is in doubt"
         ),

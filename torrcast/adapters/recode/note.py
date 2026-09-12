@@ -78,8 +78,8 @@ def _note(state: _State, slot: int, how: str) -> None:
                 "recode.published_piece",
                 slot=slot,
                 how=shown,
-                mbit=went,
-                profile=state.weights.at(slot),
+                mbit=f"{went:.1f}",
+                profile=f"{state.weights.at(slot):.1f}",
             )
         )
     # Отказ склейки - это вернувшийся разрыв на голове захода, и молчать о

@@ -22,9 +22,7 @@ def ru() -> dict[str, str]:
         "recode.packing_stuck": "упаковка встала на v{slot}",
         "recode.show_over": "показ окончен",
         "recode.run_over": "заход окончен",
-        "recode.published_piece": (
-            "выложен v{slot}: {how} {mbit:.1f} Мбит/с (профиль {profile:.1f})"
-        ),
+        "recode.published_piece": ("выложен v{slot}: {how} {mbit} Мбит/с (профиль {profile})"),
         "recode.splice_failed": (
             "склейка v{slot} не вышла - перекод ушёл как есть, стык под вопросом"
         ),
