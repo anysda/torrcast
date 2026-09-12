@@ -98,9 +98,14 @@ const TCNav = {
   // Фокус НЕ снимается вместе с показом: он нужен и навигации, и чтению с экрана.
   // Мышь гасит только ПОКАЗ клавиатурного выделения, а не сам фокус.
   _onPointer(event) {
+    const under = event.target.closest && event.target.closest('[data-tc-focusable]');
+    // Указатель вне интерактивного места не отменяет последнее действие с клавиатуры:
+    // иначе один уход мыши в угол гасит фокус ещё до scroll, хотя прокручивать можно
+    // колесом в любой части страницы. Над плиткой остаётся мышиный режим, чтобы
+    // неподвижный указатель после прокрутки сразу зажигал новую плитку под собой.
+    if (!under && TCNav.input === 'key') return;
     TCNav.input = 'mouse';
     TCNav._pointer = { x: event.clientX, y: event.clientY };
-    const under = event.target.closest && event.target.closest('[data-tc-focusable]');
     TCNav.light(under || null);
   },
 
