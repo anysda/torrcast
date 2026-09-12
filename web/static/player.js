@@ -302,25 +302,33 @@ const TCPlayer = {
     // TC-1218. Назад плёнку не тянем НАРОЧНО (комментарий выше, TC-1147) - но это писалось
     // про секунды хода, которые плёнка сама набежала во время рукопожатия каста. Перемотка
     // НАЗАД панелью через ``onTv`` - та же самая просьба, отправленная приёмнику этим же
-    // нажатием (`_makeHandlers.onSeekBy`/`onSeekTo`), и ждать её тем же способом, каким
-    // ждут случайный обгон, значит ждать доклада приёмника, который никогда не придёт
-    // раньше локальной секунды - плёнка идёт вперёд от места нажатия и не возвращается
-    // (замер на стенде `.104` 12-09-2026: перемотка на 60 с при показе на 1884-й, секунда
-    // тянулась дальше вперёд, TCPlayer._onTv=true). Пока флаг подан этим нажатием, тянем
-    // ОБЕ стороны - и снимаем его, как только доклад подтвердил место.
-    if (diff < -TCPlayer.DRIFT_S || (TCPlayer._seeking && Math.abs(diff) > TCPlayer.DRIFT_S)) {
+    // нажатием (`_makeHandlers.onSeekBy`/`onSeekTo`).
+    //
+    // 🔴 Первый заход сверял ``diff`` (плёнка минус ``pos``) - и снимал флаг НА ПЕРВОМ ЖЕ
+    // кадре после нажатия: доклад приёмника ещё не пришёл, ``pos`` всё ещё старое место,
+    // плёнка стоит рядом с ним, разница около нуля - «доехали» читается раньше, чем доклад
+    // вообще пришёл. Замер на стенде `.104` 12-09-2026: `_seeking` гас уже на чтении +1.2 с
+    // после нажатия (`seek2-run.log`), хотя сам доклад назвал новое место лишь на +4.4 с.
+    // Сверять поэтому надо не плёнку с ``pos``, а САМ ``pos`` с целью нажатия
+    // (:attr:`_seekTarget`, ставится тем же нажатием) - только доклад о нужном месте
+    // считается приездом, а не случайная близость к тому, что ``pos`` показывал ДО ответа.
+    if (TCPlayer._seeking) {
+      video.currentTime = pos;
+      if (Math.abs(pos - TCPlayer._seekTarget) <= TCPlayer.DRIFT_S) TCPlayer._clearSeeking();
+    } else if (diff < -TCPlayer.DRIFT_S) {
       video.currentTime = pos;
     }
-    if (TCPlayer._seeking && Math.abs(diff) <= TCPlayer.DRIFT_S) TCPlayer._clearSeeking();
     video.playbackRate = diff > TCPlayer.DRIFT_S ? TCPlayer.TRIM_RATE : 1;
     if (video.paused) video.play().catch(() => {});
   },
 
-  //: Нажатие панели попросило приёмник и ждёт его доклада (:meth:`_follow`); срок на
-  //: случай, если доклад так и не подтвердит место (плёнка тогда просто ждёт следующего
+  //: Нажатие панели попросило приёмник и ждёт его доклада (:meth:`_follow`); ``target`` -
+  //: абсолютная секунда, куда целились (:meth:`_makeHandlers.onSeekBy`/`onSeekTo`). Срок -
+  //: на случай, если доклад так и не подтвердит место (плёнка тогда просто ждёт следующего
   //: обгона, как раньше, а не висит помеченной вечно).
-  _markSeeking() {
+  _markSeeking(target) {
     TCPlayer._seeking = true;
+    TCPlayer._seekTarget = target;
     if (TCPlayer._seekTimer) clearTimeout(TCPlayer._seekTimer);
     TCPlayer._seekTimer = setTimeout(TCPlayer._clearSeeking, 15000);
   },
@@ -451,8 +459,9 @@ const TCPlayer = {
       },
       onSeekBy(delta) {
         if (TCPlayer._onTv) {
+          const pos = TCPlayer._last ? TCPlayer._tvPosition(TCPlayer._last) : 0;
           TCApi.control('seekby', delta).then(TCPlayer._noteIfRefused);
-          TCPlayer._markSeeking();
+          TCPlayer._markSeeking(Math.max(0, pos + delta));
           return;
         }
         TCPlayer._video.currentTime = Math.max(0, (TCPlayer._video.currentTime || 0) + delta);
@@ -462,8 +471,9 @@ const TCPlayer = {
           const dur = (TCPlayer._last && TCPlayer._last.duration) || 0;
           const pos = TCPlayer._last ? TCPlayer._tvPosition(TCPlayer._last) : 0;
           if (dur > 0) {
-            TCApi.control('seekby', frac * dur - pos).then(TCPlayer._noteIfRefused);
-            TCPlayer._markSeeking();
+            const target = frac * dur;
+            TCApi.control('seekby', target - pos).then(TCPlayer._noteIfRefused);
+            TCPlayer._markSeeking(target);
           }
           return;
         }
