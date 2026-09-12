@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.read_web_position import read_web_position
@@ -47,7 +47,7 @@ def to_tv(request: Request) -> Answer:
     record = read_web_position(out)
     at = float(box.get("at", 0.0))
     if record is not None and record.get("key") == box.get("key"):
-        at = float(record.get("pos", at))
+        at = _extrapolated(record)
     key = str(box.get("key", ""))
     # Каст живёт, пока ящик держит ЭТОТ показ: стоп чистит ящик, и ТВ закрывается сам.
     alive = lambda: str(read_web_box(out).get("key", "")) == key  # noqa: E731
@@ -59,6 +59,28 @@ def to_tv(request: Request) -> Answer:
     echo = _echo(out, key)
     SESSION.start(address, title, url, at, echo, key, alive, profile=profile, container=container)
     return Answer(202, b"")
+
+
+def _extrapolated(record: dict[str, Any]) -> float:
+    """Секунда вкладки на СЕЙЧАС, а не на момент её последнего доклада (ТЗ §7.5.3, TC-1224).
+
+    Вкладка не ставит плёнку на паузу, пока каст поднимается (``player.js``,
+    ``onToggleTv`` только глушит звук) - она играет весь подъём каста, а доклад места
+    приходит раз в ``POSITION_MS`` (2 с, ``player.js``). Взятое как есть число вело LOAD
+    на секунду СТАРШЕ нажатия, и ТВ садилось позади того места, откуда зритель нажал.
+
+    🔴 Разрыв растёт не только на цикл доклада: замер на стенде `.104` 12-09-2026 (три
+    подряд идущих подъёма каста без свежего доклада вкладки между ними) поймал заявку с
+    отметкой ``wall`` четвертью минуты старше самого запроса - LOAD отправил бы приёмник
+    на 16.4 с назад от места, где показ РЕАЛЬНО стоит. Секунда паузы, наоборот, дальше не
+    идёт сама - досчитывать вперёд стоит только идущий показ, тем же приёмом, что уже
+    ведёт плёнку вкладки следом за ТВ (``player.js``, ``_tvPosition``).
+    """
+    pos = float(record.get("pos", 0.0))
+    if str(record.get("phase", "")) != "playing":
+        return pos
+    since = max(0.0, CLOCK.wall() - float(record.get("wall", 0.0)))
+    return pos + since
 
 
 def _echo(out: Path, key: str) -> Callable[[Position], None]:

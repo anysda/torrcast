@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fakes.clock import FakeClock
 from tests.fakes.receiver import FakeReceiver
 from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.read_web_position import read_web_position
@@ -36,8 +37,14 @@ def _post() -> Request:
     return Request("POST", "/api/to-tv", {}, {})
 
 
-def _wired(monkeypatch: pytest.MonkeyPatch, tv: str = "192.168.1.104") -> FakeReceiver:
+def _wired(
+    monkeypatch: pytest.MonkeyPatch, tv: str = "192.168.1.104", clock: FakeClock | None = None
+) -> FakeReceiver:
     monkeypatch.setattr("web.to_tv.load_config", lambda: Config(tv=tv))
+    # Часы держим на нуле умолчанием: записи места в этом файле пишут ``wall=0.0`` не
+    # заботясь об отметке, и без общей подделки она читалась бы как отметка из 1970-го -
+    # десятилетия «давности» вместо честного нуля (:func:`web.to_tv._extrapolated`).
+    monkeypatch.setattr("web.to_tv.CLOCK", clock or FakeClock(wall_origin=0.0))
     receiver = FakeReceiver(Position(0.0, 0.0))
     monkeypatch.setattr(SESSION, "factory", lambda address, profile: receiver)
     monkeypatch.setattr(SESSION, "poll_seconds", 0.01)
@@ -134,6 +141,38 @@ def test_a_stale_mailbox_position_is_ignored_for_a_fresh_box(
 
     assert answer.code == 202
     assert receiver.plays == [("http://x/out.m3u8", "Interstellar", 5.0)]
+
+
+def test_a_playing_record_is_carried_forward_to_the_click_not_frozen_at_its_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TC-1224: вкладка не встаёт на паузу, пока каст поднимается - секунда LOAD обязана
+    догнать нажатие, а не отставать от него на цикл доклада (замер стенда `.104` 12-09-2026,
+    докстрока :func:`web.to_tv._extrapolated`)."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    clock = FakeClock(now=9.0, wall_origin=0.0)  # запрос пришёл на 9-й секунде часов
+    receiver = _wired(monkeypatch, clock=clock)
+    write_web_position(tmp_path, key="k1", pos=100.0, dur=8000.0, phase="playing", wall=7.0)
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=90.0, key="k1")
+
+    assert to_tv(_post()).code == 202
+
+    assert receiver.plays == [("http://x/out.m3u8", "Interstellar", 102.0)]
+
+
+def test_a_paused_record_is_not_carried_forward(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """На паузе секунда сама не идёт - досчитывать вперёд нечего."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    clock = FakeClock(now=9.0, wall_origin=0.0)
+    receiver = _wired(monkeypatch, clock=clock)
+    write_web_position(tmp_path, key="k1", pos=100.0, dur=8000.0, phase="paused", wall=7.0)
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=90.0, key="k1")
+
+    assert to_tv(_post()).code == 202
+
+    assert receiver.plays == [("http://x/out.m3u8", "Interstellar", 100.0)]
 
 
 def test_the_tv_position_becomes_the_one_the_product_remembers(
