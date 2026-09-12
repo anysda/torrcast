@@ -306,6 +306,21 @@ def test_a_place_left_behind_is_kept_silent_instead_of_repacking_the_show(
     assert show.skipped == set(), "место, на которое зритель ещё вернётся, не приговаривают"
 
 
+def test_an_unmeasured_tab_has_no_viewer_to_leave_a_piece_behind(
+    tmp_path: Path, tape: Tape
+) -> None:
+    """До первого доклада вкладки сохранённое место держит окно, но не судит запросы."""
+    show, clock = _seek_stand(tmp_path)
+    show.prune(900.0)
+    show.packer = None
+    show.measured = False
+    clock.now += 3.0
+
+    assert show._steer(5) is True
+    assert tape.named("место позади зрителя") == []
+    assert [told["слот"] for told in tape.named("заход упаковки")] == [5]
+
+
 def test_a_real_seek_back_still_repacks_once_the_show_clock_has_caught_up(
     tmp_path: Path, tape: Tape
 ) -> None:

@@ -230,6 +230,22 @@ def test_a_busy_decision_is_waited_out_by_the_file_and_not_by_the_queue(tmp_path
     assert asked == [] and fake.slept == [0.2] * 5
 
 
+def test_a_promised_piece_stops_at_its_clock_when_the_packer_does_not_deliver_it(
+    tmp_path: Path,
+) -> None:
+    """Обещанный манифестом кусок ждёт ровно свой срок, если упаковка его не отдаёт."""
+    fake = tract()
+    asked: list[int] = []
+    show = feed(tmp_path, wait=1.0)
+
+    def wait_for_the_piece(slot: int) -> bool:
+        asked.append(slot)
+        return True
+
+    assert _segment(show, 1, wait_for_the_piece, _quiet) is None
+    assert len(asked) == 6 and fake.slept == [0.2] * 5
+
+
 def test_a_piece_is_ours_whether_it_lies_in_the_window_or_on_the_disk(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -69,7 +69,7 @@ def test_an_unreported_tab_keeps_packing_at_its_resumed_start(tmp_path: Path) ->
             if self.script:
                 self.script.pop()
                 return Position(0.0, 7200.0, True, "BUFFERING", known=False)
-            return Position(0.0, 7200.0, False, "IDLE")
+            return Position(0.0, 7200.0, False, "IDLE", known=False)
 
     class _Recoder:
         played = 0.0
@@ -79,7 +79,7 @@ def test_an_unreported_tab_keeps_packing_at_its_resumed_start(tmp_path: Path) ->
     show.recoder = recoder
     _hold(cast(Receiver, _WaitingTab([(0.0, "BUFFERING")])), show, start=1800.0)
 
-    assert (recoder.played, show.played) == (1800.0, 1800.0)
+    assert (recoder.played, show.played, show.measured) == (1800.0, 1800.0, False)
 
 
 def test_the_switch_to_the_warmed_disk_is_announced_out_loud(

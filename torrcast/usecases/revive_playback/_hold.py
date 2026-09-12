@@ -114,6 +114,7 @@ def _hold(
             clock.sleep(2.0)
             continue
         feed_at = screen.last = position.pos if position.known else screen.held or start
+        feed.measured = position.known
         if position.pos > 0 and position.state not in {"BUFFERING", "IDLE"}:
             screen.held = position.pos
         _first_frame(screen, feed, position, session_tag, say_started)
@@ -122,9 +123,8 @@ def _hold(
         if show_trace:
             _trace_line(session_tag, feed, position)
         if warmer is not None:
-            # Приоритет живого окна держится ровно здесь: прогрев видит тот же запас, что
-            # и сторож приёмника, и на просевшем замирает
-            # (:meth:`torrcast.usecases.warm.warmer.Warmer._throttle`).
+            # Прогрев видит тот же запас, что сторож приёмника, и на просевшем
+            # замирает (:meth:`torrcast.usecases.warm.warmer.Warmer._throttle`).
             warmer.feed(feed.front(feed_at) - feed_at)
             if warmer.done and feed.rest():
                 print(phrase("revive.fully_warm_switch_disk"), flush=True)

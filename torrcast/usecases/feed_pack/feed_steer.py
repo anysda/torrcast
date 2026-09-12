@@ -81,7 +81,7 @@ def _behind(state: _State, slot: int) -> bool:
     файла, а не очереди) перепакует поток обычным ходом. Цена честной перемотки назад -
     один круг опроса, а не показ.
     """
-    if state.played - state.keep <= 0:
+    if not state.measured or state.played - state.keep <= 0:
         return False  # показ ещё не отошёл от начала фильма: позади зрителя нет ничего
     return slot < state.grid.slot_at(state.played - state.keep)
 
