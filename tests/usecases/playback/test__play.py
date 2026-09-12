@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
+from torrcast.adapters.browser.web_box_path import web_box_path
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
@@ -157,3 +159,40 @@ def test_the_grid_is_named_to_the_receiver(tmp_path: Path) -> None:
     _play(_config(tmp_path), "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=receiver)
 
     assert receiver.next_cut is not None
+
+
+def test_a_show_raised_on_a_non_browser_receiver_tells_the_tab(tmp_path: Path) -> None:
+    """TC-1224: показ, поднятый на ТВ, кладёт ящик вкладке сам - ждать нечего.
+
+    До правки ящик клала только сама вкладка (:class:`BrowserReceiver`); показ на любом
+    другом приёмнике (тут - ``_Screening``, зеркало ТВ) не оставлял вкладке ни `url`, ни
+    ключа сеанса, и «Подключиться» из карточки играющей картины было нечем.
+    """
+    config = _config(tmp_path)
+    receiver = _Screening()
+
+    _play(config, "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=receiver)
+
+    out = Path(config.hls_dir)
+    written = json.loads(web_box_path(out).read_text(encoding="utf-8"))
+    assert written["tv"] is True
+    assert written["url"].endswith("/index.m3u8")
+    assert written["key"]
+
+
+def test_a_show_raised_on_the_browser_leaves_the_box_to_the_receiver_itself(
+    tmp_path: Path,
+) -> None:
+    """Браузер как приёмник кладёт свой ящик сам - второй записи поверх него тут нет.
+
+    ``_Screening`` не пишет ящик вовсе: если бы показ клал его за ЛЮБОЙ приёмник без
+    разбора, файл появился бы и тут же, доказывая, что защита от двойной записи снята.
+    """
+    config = _config(tmp_path)
+    config.receiver = "browser"
+    receiver = _Screening()
+
+    _play(config, "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=receiver)
+
+    out = Path(config.hls_dir)
+    assert not web_box_path(out).exists()

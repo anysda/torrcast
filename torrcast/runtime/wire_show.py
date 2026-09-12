@@ -4,6 +4,7 @@
 
 from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.clear_web_position import clear_web_position
+from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
@@ -101,5 +102,6 @@ def wire_show() -> None:
             whole=whole_encode,
             maxrate_gain=MAXRATE_GAIN,
             recode_dir=RECODE_DIR,
+            publish_box=write_web_box,
         )
     )

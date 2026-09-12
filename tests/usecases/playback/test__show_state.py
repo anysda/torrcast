@@ -63,6 +63,7 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
                 whole=_state.whole_encode,
                 maxrate_gain=_state.MAXRATE_GAIN,
                 recode_dir=_state.RECODE_DIR,
+                publish_box=_state.publish_box,
             )
         )
         _state.start_play_unit("кино", True)

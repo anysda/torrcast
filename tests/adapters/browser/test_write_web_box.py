@@ -26,7 +26,22 @@ def test_the_task_lands_readable_on_disk(tmp_path: Path) -> None:
         "key": "k1",
         "profile": "androidtv",
         "container": "fmp4",
+        "tv": False,
     }
+
+
+def test_a_show_raised_straight_on_the_tv_marks_the_box_accordingly(tmp_path: Path) -> None:
+    write_web_box(
+        tmp_path,
+        url="http://x/out.m3u8",
+        title="Interstellar",
+        at=0.0,
+        key="k2",
+        tv=True,
+    )
+
+    written = json.loads(web_box_path(tmp_path).read_text(encoding="utf-8"))
+    assert written["tv"] is True
 
 
 def test_a_missing_directory_is_made_and_does_not_kill_the_show(tmp_path: Path) -> None:

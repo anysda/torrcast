@@ -68,6 +68,10 @@ whole_encode: WholeEncodings
 #: кусков (:data:`torrcast.adapters.recode.recode_dir.RECODE_DIR`).
 MAXRATE_GAIN: float
 RECODE_DIR: str
+#: Кладёт вкладке задание сразу для любого приёмника
+#: (:func:`torrcast.adapters.browser.write_web_box.write_web_box`), не только когда
+#: приёмник - сама вкладка (TC-1224).
+publish_box: Callable[[Path, str, str, float, str, str, str, bool], None]
 
 
 def _configure_playback(environment: ShowEnvironment) -> None:
@@ -79,7 +83,7 @@ def _configure_playback(environment: ShowEnvironment) -> None:
     global CLOCK, make_receiver, probe, detect_profile, pick_video_file, hls_dir, hls_base
     global playing_flag, forget_playing, mark_landed, read_landed, start_play_unit, grid_for
     global HlsServer, Encode, Recoder, weights_of, flat_weights, whole_encode
-    global MAXRATE_GAIN, RECODE_DIR, forget_browser_box, forget_browser_position
+    global MAXRATE_GAIN, RECODE_DIR, forget_browser_box, forget_browser_position, publish_box
     CLOCK = environment.clock
     make_receiver = environment.receivers
     probe = environment.prober
@@ -103,3 +107,4 @@ def _configure_playback(environment: ShowEnvironment) -> None:
     whole_encode = environment.whole
     MAXRATE_GAIN = environment.maxrate_gain
     RECODE_DIR = environment.recode_dir
+    publish_box = environment.publish_box

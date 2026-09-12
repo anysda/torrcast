@@ -15,6 +15,7 @@ from torrcast.domain.why import why
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
+from torrcast.usecases.playback._publish_box import _publish_box
 from torrcast.usecases.playback._show_end import _close_show, _report_end, _say_whole
 from torrcast.usecases.playback._tract import _tract
 from torrcast.usecases.playback.following import Following
@@ -133,6 +134,8 @@ def _play(
         # ним, а спросить показ иначе, чем файлом на общем диске, CLI не может.
         _state.mark_landed(out, start)
         journal().mark("упаковка пошла")
+        # 🔴 TC-1224 (детали - :func:`torrcast.usecases.playback._publish_box._publish_box`).
+        _publish_box(config, receiver, out, url, about, start, profile)
         raised = True
         try:
             receiver.play(url, about, at=start)

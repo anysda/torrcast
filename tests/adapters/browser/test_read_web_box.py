@@ -22,4 +22,5 @@ def test_a_written_task_reads_back_whole(tmp_path: Path) -> None:
         "key": "k1",
         "profile": "",
         "container": "",
+        "tv": False,
     }

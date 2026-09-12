@@ -69,3 +69,8 @@ class ShowEnvironment:
     #: Мгновенный потолок кодера сверх цели и имя каталога перекодированных кусков.
     maxrate_gain: float
     recode_dir: str
+    #: Кладёт вкладке задание сразу для ЛЮБОГО приёмника, а не только когда приёмник -
+    #: сама вкладка: без этого зова вкладка не узнавала про показ, поднятый прямо на ТВ
+    #: (:mod:`torrcast.usecases.playback._play`, TC-1224). Договор - подпись
+    #: :func:`torrcast.adapters.browser.write_web_box.write_web_box`.
+    publish_box: Callable[[Path, str, str, float, str, str, str, bool], None]
