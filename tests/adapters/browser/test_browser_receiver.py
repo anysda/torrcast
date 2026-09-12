@@ -174,6 +174,19 @@ def test_a_fresh_left_report_keeps_the_last_shown_motion(tmp_path: Path) -> None
     assert receiver.position() == Position(30.0, 120.0, True, "PLAYING")
 
 
+def test_a_left_report_behind_the_last_shown_place_moves_the_place_back(tmp_path: Path) -> None:
+    """Перемотал назад и сразу ушёл: место показа - куда перемотал, а не где был."""
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=100.0, dur=120.0, phase="playing", wall=clock.wall())
+    receiver.position()
+    write_web_position(tmp_path, key=key, pos=40.0, dur=120.0, phase="left", wall=clock.wall())
+
+    assert receiver.position() == Position(40.0, 120.0, True, "BUFFERING")
+
+
 def test_left_within_the_grace_period_still_waits(tmp_path: Path) -> None:
     """Обновление страницы (F5) шлёт то же слово - закрывать сеанс до срока нельзя."""
     clock = FakeClock()

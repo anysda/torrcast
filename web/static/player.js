@@ -29,6 +29,7 @@ const TCPlayer = {
     TCPlayer._onTv = false;
     TCPlayer._retries = 0;
     TCPlayer._retryTimer = null;
+    TCPlayer._retryFrom = 0;
     TCPlayer._advanced = false;
     TCPlayer._hasNext = false;
     TCPlayer._last = null;
@@ -171,6 +172,9 @@ const TCPlayer = {
   _onTimeUpdate() {
     TCPlayer._render(TCPlayer._last || {});
     const video = TCPlayer._video;
+    // Three failures across a whole film are not a dead stream: half a minute of real
+    // playback after a retry gives the attempts back.
+    if (TCPlayer._retries && video.currentTime - TCPlayer._retryFrom > 30) TCPlayer._retries = 0;
     if (!TCPlayer._advanced && video.duration > 0 && video.duration - video.currentTime <= 1) {
       TCPlayer._startNext();
     }
@@ -240,6 +244,7 @@ const TCPlayer = {
     // had even had a chance to load.
     if (TCPlayer._retryTimer) return;
     TCPlayer._retries += 1;
+    TCPlayer._retryFrom = TCPlayer._video.currentTime || 0;
     if (TCPlayer._retries > TCPlayer.MAX_RETRIES) {
       TCPlayer._screenLost(TCPlayer._retries);
       return;

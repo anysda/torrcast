@@ -171,6 +171,8 @@ class BrowserReceiver:
             if moved and self._left_pos != pos:
                 before, self._held, self._left_pos = self._held, pos, pos
                 return Position(before, dur, True, "PLAYING")
+            if 0.0 < pos < self._held:  # перемотка назад перед самым уходом - место там
+                self._held = pos
             if self.left_after > 0.0 and since >= self.left_after:
                 return Position(self._held, dur, False, _LOST, stale=True)
             return Position(
