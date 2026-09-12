@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import signal
 import time
 from typing import TYPE_CHECKING, Any, cast
@@ -17,6 +18,7 @@ from hass.volume import Volume
 from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.state_store import FakeStateStore
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
+from torrcast.adapters.browser.web_box_path import web_box_path
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.choice_environment import _SystemChoiceEnvironment
 from torrcast.adapters.filesystem.state.file_refusal_record import FileRefusalRecord
@@ -745,6 +747,33 @@ def test_a_tab_show_refuses_toggle_instead_of_a_false_pause_latch(
 
     assert refusal.value.word == NO_REMOTE
     assert bridge.state()["state"] == "playing", "защёлка команды не должна была сработать"
+
+
+def test_a_show_started_right_on_the_tv_still_takes_the_remote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Стык с web-tv (TC-1224). Показ прямо на ТВ тоже заводит ящик - карточке
+    подключившейся вкладки есть что открыть, - и его ``tv: true`` не должен читаться
+    как «показ во вкладке»: спутать их значило бы отказывать боевому пульту Home
+    Assistant на КАЖДОМ показе прямо на ТВ, не только во вкладке."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    path = web_box_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"url": "http://x/out.m3u8", "title": "Муха", "at": 0.0, "tv": True}),
+        encoding="utf-8",
+    )
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=60.0, moved=True),
+    )
+    bridge = _bridge(session, settings=lambda: Config(tv="10.0.1.7"))
+
+    bridge.control(SEEKBY, 90.0)
+
+    assert _SystemChoiceEnvironment().read_command() == "seekby 90"
 
 
 def test_a_refused_remote_moves_the_slider_nowhere() -> None:
