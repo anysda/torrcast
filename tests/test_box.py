@@ -8,8 +8,11 @@ from pathlib import Path
 import pytest
 
 from tests.fakes.receiver import FakeReceiver
+from tests.fakes.state_store import FakeStateStore
 from torrcast.adapters.browser.write_web_box import write_web_box
+from torrcast.domain.entry import Entry
 from torrcast.domain.position import Position
+from torrcast.ports.state_store import slot as state_slot
 from web.box import box
 from web.request import Request
 from web.tv_session import SESSION
@@ -64,6 +67,35 @@ def test_a_live_cast_is_told_to_the_tab_so_it_does_not_play_aloud_too(
         assert json.loads(box(_get()).body)["tv"] is True
     finally:
         SESSION.stop()
+
+
+def test_a_show_started_straight_on_tv_and_ended_without_finish_stops_being_told(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Показ, поднятый сразу на ТВ, снят «cast stop» или сам кончился: ``tv`` в ящике не
+    самолечится, как каст от ``SESSION`` (стенд `.104` 13-09-2026) - раз нигде ничего не
+    идёт (:meth:`torrcast.domain.watch_state.WatchState.showing`), слову ящика веры нет."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Matrix", at=340.7, key="k1", tv=True)
+
+    assert json.loads(box(_get()).body)["tv"] is False
+
+
+def test_a_show_started_straight_on_tv_and_still_running_is_told(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Тот же ящик, но показ и правда идёт: слову ``tv`` есть на что опереться."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Matrix", at=340.7, key="k1", tv=True)
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries["movie:matrix:1999"] = Entry(
+        "Matrix", "magnet:matrix", kind="movie", pos=340.7, dur=8175.0, torrent="abc"
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    assert json.loads(box(_get()).body)["tv"] is True
 
 
 def test_a_cast_of_another_show_is_no_cast_for_this_tab_and_is_taken_down(

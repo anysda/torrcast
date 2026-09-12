@@ -244,6 +244,16 @@ const TCPlayer = {
   _render(state) {
     if (!TCPlayer._nodes) return;
     const video = TCPlayer._video;
+    // 🔴 «На ТВ» умеет сняться только нажатием «Вернуть на компьютер» - а показ гаснет и
+    // без него: «Завершить», «cast stop» с пульта, конец картины. Ящик про это молчит
+    // (`web/box.py`), но продукт - нет: ``idle`` не бывает у идущего показа НИГДЕ, и
+    // вкладка, доверяющая ``onTv`` дальше этой секунды, стояла бы немой и замороженной
+    // перед погасшим телевизором навсегда (стенд `.104` 13-09-2026: «Матрица» снята
+    // «cast stop», панель так и звала её «На ТВ»).
+    if (TCPlayer._onTv && state.state === 'idle') {
+      TCPlayer._onTv = false;
+      if (video) video.muted = false;
+    }
     const onTv = TCPlayer._onTv;
     const title = state.shown_as || state.title || '';
     const episode = state.season && state.episode ? `s${state.season}e${state.episode}` : '';
