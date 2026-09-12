@@ -339,6 +339,16 @@ const TCPlayer = {
     TCPlayer._seekTimer = null;
   },
 
+  //: Перемотка ТВ панелью. Подтяжку (:meth:`_markSeeking`) взводит только взятая команда:
+  //: на отказе пульта (``no_remote``) или обрыве сети ТВ никуда не поедет, и тянуть
+  //: вкладку к цели, которой доклад не назовёт, значит дёргать её 15 с впустую.
+  _seekTv(delta, target) {
+    TCApi.control('seekby', delta).then((said) => {
+      TCPlayer._noteIfRefused(said);
+      if (said && said.ok) TCPlayer._markSeeking(target);
+    });
+  },
+
   _packagedPct(video, dur) {
     if (!dur) return null;
     const ranges = video.buffered;
@@ -460,8 +470,7 @@ const TCPlayer = {
       onSeekBy(delta) {
         if (TCPlayer._onTv) {
           const pos = TCPlayer._last ? TCPlayer._tvPosition(TCPlayer._last) : 0;
-          TCApi.control('seekby', delta).then(TCPlayer._noteIfRefused);
-          TCPlayer._markSeeking(Math.max(0, pos + delta));
+          TCPlayer._seekTv(delta, Math.max(0, pos + delta));
           return;
         }
         TCPlayer._video.currentTime = Math.max(0, (TCPlayer._video.currentTime || 0) + delta);
@@ -472,8 +481,7 @@ const TCPlayer = {
           const pos = TCPlayer._last ? TCPlayer._tvPosition(TCPlayer._last) : 0;
           if (dur > 0) {
             const target = frac * dur;
-            TCApi.control('seekby', target - pos).then(TCPlayer._noteIfRefused);
-            TCPlayer._markSeeking(target);
+            TCPlayer._seekTv(target - pos, target);
           }
           return;
         }
