@@ -29,6 +29,7 @@ from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import SOURCE_TRIES
 from torrcast.domain.start_settings import FIRST_FRAME_POLL
 from torrcast.ports.receiver import Receiver
+from torrcast.ports.recode.feed_recoder import FeedRecoder
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.ports.stream_source import StreamSource
 from torrcast.runtime.wire_feed import wire_feed
@@ -57,6 +58,28 @@ def test_a_show_that_cannot_be_raised_ends_by_itself(tmp_path: Path) -> None:
     )
 
     assert ended is False, "лестница не поднимала - это обычный конец показа"
+
+
+def test_an_unreported_tab_keeps_packing_at_its_resumed_start(tmp_path: Path) -> None:
+    """Нулевой снимок вкладки не сдвигает упаковку с места, куда её завели."""
+
+    class _WaitingTab(PlainReceiver):
+        def position(self, front: float = 0.0) -> Position:
+            del front
+            if self.script:
+                self.script.pop()
+                return Position(0.0, 7200.0, True, "BUFFERING", known=False)
+            return Position(0.0, 7200.0, False, "IDLE")
+
+    class _Recoder:
+        played = 0.0
+
+    show = feed_with_segments(tmp_path)
+    recoder = cast(FeedRecoder, _Recoder())
+    show.recoder = recoder
+    _hold(cast(Receiver, _WaitingTab([(0.0, "BUFFERING")])), show, start=1800.0)
+
+    assert (recoder.played, show.played) == (1800.0, 1800.0)
 
 
 def test_the_switch_to_the_warmed_disk_is_announced_out_loud(

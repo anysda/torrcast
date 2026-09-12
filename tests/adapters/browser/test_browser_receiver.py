@@ -73,7 +73,7 @@ def test_before_the_page_has_reported_anything_it_reads_as_buffering_and_alive(
     receiver = BrowserReceiver(tmp_path)
     receiver.play("http://x/out.m3u8", title="t", at=12.0)
 
-    assert receiver.position() == Position(12.0, 0.0, True, "BUFFERING")
+    assert receiver.position() == Position(0.0, 0.0, True, "BUFFERING", known=False)
 
 
 def test_a_stale_key_from_a_past_session_reads_the_same_as_no_report_yet(tmp_path: Path) -> None:
@@ -83,7 +83,7 @@ def test_a_stale_key_from_a_past_session_reads_the_same_as_no_report_yet(tmp_pat
         tmp_path, key="not-the-current-key", pos=90.0, dur=100.0, phase="playing", wall=0.0
     )
 
-    assert receiver.position() == Position(5.0, 0.0, True, "BUFFERING")
+    assert receiver.position() == Position(0.0, 0.0, True, "BUFFERING", known=False)
 
 
 def test_a_fresh_report_of_playing_is_read_through(tmp_path: Path) -> None:

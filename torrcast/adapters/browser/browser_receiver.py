@@ -148,7 +148,7 @@ class BrowserReceiver:
         del front
         record = read_web_position(self.out)
         if record is None or record.get("key") != self._key:
-            return Position(self._held, self._dur, True, _WAITING)
+            return Position(0.0, self._dur, True, _WAITING, known=False)
         pos, dur = float(record.get("pos", 0.0)), float(record.get("dur", 0.0))
         phase = str(record.get("phase", ""))
         self._dur = dur

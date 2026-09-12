@@ -113,7 +113,7 @@ def _hold(
         except InfraError:  # приёмник позицию не отдаёт - показу остаётся только ждать
             clock.sleep(2.0)
             continue
-        screen.last = position.pos
+        feed_at = screen.last = position.pos if position.known else screen.held or start
         if position.pos > 0 and position.state not in {"BUFFERING", "IDLE"}:
             screen.held = position.pos
         _first_frame(screen, feed, position, session_tag, say_started)
@@ -125,7 +125,7 @@ def _hold(
             # Приоритет живого окна держится ровно здесь: прогрев видит тот же запас, что
             # и сторож приёмника, и на просевшем замирает
             # (:meth:`torrcast.usecases.warm.warmer.Warmer._throttle`).
-            warmer.feed(feed.front(position.pos) - position.pos)
+            warmer.feed(feed.front(feed_at) - feed_at)
             if warmer.done and feed.rest():
                 print(phrase("revive.fully_warm_switch_disk"), flush=True)
         if clock.monotonic() - screen.said >= SAY_SECONDS:
@@ -187,8 +187,8 @@ def _hold(
             revival.alive(position.state == "PLAYING")
             screen.paused = 0.0
             if feed.recoder is not None:
-                feed.recoder.played = position.pos
-            feed.prune(position.pos)
+                feed.recoder.played = feed_at
+            feed.prune(feed_at)
         # Между словом ``PLAYING`` и доказанным кадром приёмник спрашивается чаще: при шаге
         # 2 с строка «старт NN с» запаздывала за кадром на 1.9-3.8 с (:data:`FIRST_FRAME_POLL`).
         # До слова ``PLAYING`` кадру взяться неоткуда, на паузе и в темноте указатель не
