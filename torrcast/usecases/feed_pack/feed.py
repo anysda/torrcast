@@ -51,7 +51,23 @@ class Feed(_State):
     def manifest(self, name: str = "index.m3u8") -> bytes:
         if self.container == FMP4 and name == "index.m3u8":
             return master_manifest(self.video_codec).encode("utf-8")
-        return self.grid.manifest(self.container).encode("utf-8")
+        return self.grid.manifest(self.container, self._gaps()).encode("utf-8")
+
+    def _gaps(self) -> frozenset[int]:
+        """Места ниже двери, которых на диске нет: их не будет, и обещать их нельзя.
+
+        🔴 TC-1203. Продолжение с середины пакует только вперёд, а манифест обещал весь
+        фильм - и приёмник шёл за головой: LOAD с ``current_time`` забирает первый кусок
+        ПЕРЕД тем, в который целится (замер на стенде: ``v0.m4s`` 11.131 МБ вперёд ``v335``).
+        На холодном складе этого куска нет и не будет, запрос висит выдержку и кончается
+        404, после которого ресивер не берёт LOAD минутами.
+
+        Ниже двери обещается ровно то, что уже лежит на диске (:meth:`have`): прогретое
+        место остаётся честной перемоткой назад, а не дырой. Поэтому список собирается на
+        каждый запрос манифеста, а не один раз: упаковка идёт, и обещанного становится
+        больше.
+        """
+        return frozenset(slot for slot in range(self.door) if not self.have(slot))
 
     def init(self) -> Path | None:
         """Опубликовать и вернуть CMAF init, дождавшись упаковки или взяв его у прогретого.

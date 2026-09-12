@@ -70,6 +70,31 @@ def test_the_encoder_learns_about_the_new_place_before_the_pilot_run(
     assert started and started[0][3] == 5
 
 
+def test_every_pack_start_records_the_door_below_which_nothing_is_promised(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Дверь показа - слот, с которого поднята упаковка: ниже неё живого куска не будет.
+
+    Пишется она ЗДЕСЬ, в единственном заходе упаковки, а не в начале показа: заходов много
+    (старт с закладки, перемотка, возврат после обрыва), и забытый означал бы плейлист,
+    снова обещающий приёмнику голову, которую никто не пакует.
+
+    Назад дверь опускается вместе с упаковкой: перемотка в голову пакует оттуда же, и
+    обещать эти места после неё снова можно.
+    """
+    _tract([])
+    show = feed(tmp_path, grid=grid(60.0, 10.0))
+    assert show.door == 0, "показ с нуля дверь не двигает"
+
+    _restart(show, 3, lambda slot, size: False)
+
+    assert show.door == 3
+
+    _restart(show, 1, lambda slot, size: False)
+
+    assert show.door == 1, "перемотка назад пакует оттуда же - дверь опускается"
+
+
 def test_a_whole_film_recode_never_asks_the_pilot_and_stands_where_the_grid_says(
     tmp_path: Path, journal: Path
 ) -> None:

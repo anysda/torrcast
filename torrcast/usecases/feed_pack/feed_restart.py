@@ -81,6 +81,10 @@ def _restart(
         container=state.container,
         video_tag="hvc1" if state.video_codec.startswith("hvc1") else "",
     )
+    # 🔴 TC-1203. Дверь показа: ниже этого места живого куска не будет, и плейлист обязан
+    # перестать его обещать (:attr:`_State.door`). Пишется здесь, потому что заход один на
+    # все поводы паковать - старт с закладки, перемотка, возврат после обрыва.
+    state.door = slot
     state.restarted = _state.clock_port.monotonic()
     state.packer = _state.Packer.start(
         command,

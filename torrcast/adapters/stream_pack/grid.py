@@ -17,7 +17,7 @@ from torrcast.domain.hls_settings import (
 from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Collection, Sequence
 
     from torrcast.domain.film_keys import FilmKeys
 
@@ -190,11 +190,11 @@ class Grid:
         """``EXT-X-TARGETDURATION``: округлённая вверх длина самого длинного сегмента."""
         return max(1, math.ceil(max(self.span(k) for k in range(self.count))))
 
-    def manifest(self, container: SegmentContainer = MPEGTS) -> str:
+    def manifest(self, container: SegmentContainer = MPEGTS, gaps: Collection[int] = ()) -> str:
         """Манифест VOD на **весь фильм** (:func:`hls_manifest`): сетка целиком и ``ENDLIST``.
 
         Длины кусков берутся из самой сетки, поэтому манифест и нарезка - одно и то же.
+        ``gaps`` - места показа, которых не будет; называет их лента (:meth:`Feed._gaps`).
         """
-        return hls_manifest(
-            [self.span(k) for k in range(self.count)], self.target(), self.on_keys, container
-        )
+        spans = [self.span(k) for k in range(self.count)]
+        return hls_manifest(spans, self.target(), self.on_keys, container, gaps=gaps)
