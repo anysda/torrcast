@@ -100,6 +100,35 @@ def test_a_still_running_job_answers_with_a_preview_before_the_circle_returns() 
         gate.set()
 
 
+def test_a_still_running_preview_carries_the_poster_verdict() -> None:
+    wire_catalogue()
+    gate = threading.Event()
+    client = _PreviewClient(answers={"тачки": _CARS}, raw=_CARS)
+    search = _blocking_search(client, gate)
+
+    def offer(results: list[JsonValue]) -> list[JsonValue]:
+        return [
+            {**hit, "poster": "p-" + str(hit["key"])} if isinstance(hit, dict) else hit
+            for hit in results
+        ]
+
+    try:
+        results, partial = search_progress(
+            _CONFIG, "тачки", _detect, _remember, search=search, offer=offer
+        )
+        deadline = time.monotonic() + 1.0
+        while not results and time.monotonic() < deadline:
+            results, partial = search_progress(
+                _CONFIG, "тачки", _detect, _remember, search=search, offer=offer
+            )
+
+        assert partial is True
+        hits = [hit for hit in results if isinstance(hit, dict)]
+        assert [hit.get("poster") for hit in hits] == ["p-" + str(hit.get("key")) for hit in hits]
+    finally:
+        gate.set()
+
+
 def test_the_final_poll_carries_the_real_default_and_partial_false() -> None:
     wire_catalogue()
     gate = threading.Event()

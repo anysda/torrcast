@@ -132,7 +132,9 @@ def _run(
     job.finished_at = time.monotonic()
 
 
-def _preview(query: str, client: IndexerClient | None) -> list[JsonValue]:
+def _preview(
+    query: str, client: IndexerClient | None, offer: Offer | None = None
+) -> list[JsonValue]:
     """Превью прямо сейчас: тем же разбором, что и полный круг, но по неполному пулу.
 
     Ступеней добора (второй язык, добор сезона и озвучки) тут нет нарочно: они сами
@@ -146,7 +148,11 @@ def _preview(query: str, client: IndexerClient | None) -> list[JsonValue]:
     if not raw:
         return []
     found = menu_order(pick_franchise(query, cluster(to_releases(raw))))
-    return [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
+    hits = [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
+    try:
+        return (searching.OFFER if offer is None else offer)(hits)
+    except (TorrcastError, OSError):
+        return hits
 
 
 def search_progress(
@@ -183,7 +189,7 @@ def search_progress(
                 name="search-progress",
             ).start()
     if not job.done:
-        return _preview(query, job.client), True
+        return _preview(query, job.client, offer), True
     if job.error is not None:
         raise RefusedError(job.error)
     return job.results, False
