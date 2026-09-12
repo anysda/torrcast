@@ -2,6 +2,8 @@
 
 Зовёт её композиционный корень (:func:`torrcast.runtime.wire.wire`), и только он."""
 
+from torrcast.adapters.browser.clear_web_box import clear_web_box
+from torrcast.adapters.browser.clear_web_position import clear_web_position
 from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
@@ -85,6 +87,8 @@ def wire_show() -> None:
             base_url=hls_base,
             flag=playing_flag,
             forget_flag=forget_playing,
+            forget_browser_box=clear_web_box,
+            forget_browser_position=clear_web_position,
             mark_landed=mark_landed,
             read_landed=read_landed,
             start_unit=start_play_unit,

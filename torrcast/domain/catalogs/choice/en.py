@@ -15,6 +15,9 @@ def en() -> dict[str, str]:
         "choice.series_mark": ", series",
         "choice.russian_title_only": " - Russian title only",
         "choice.remote_command": "remote: {command}",
+        "choice.remote_cannot_steer": (
+            "remote: {command} refused - a tab show cannot be steered this way"
+        ),
         "choice.pick_out_of_range": "matching pictures: {total}, no number {pick} there",
         "choice.pick_moved": (
             "number {pick} in the “{asked}” table stood for “{was}”, and now it stands "

@@ -38,6 +38,8 @@ hls_dir: Callable[[str], Path]
 hls_base: Callable[[Config], str]
 playing_flag: Callable[[Path], Path]
 forget_playing: Callable[[Path], None]
+forget_browser_box: Callable[[Path], None]
+forget_browser_position: Callable[[Path], None]
 #: Настоящее место старта (TC-1010): закладка после TC-1002 может законно разойтись с
 #: местом, откуда показ реально пошёл (:func:`torrcast.usecases.feed_pack.feed_restart._begin`
 #: вправе сесть НИЖЕ неё). Показ кладёт число файлом, CLI его тем же файлом читает - другого
@@ -77,7 +79,7 @@ def _configure_playback(environment: ShowEnvironment) -> None:
     global CLOCK, make_receiver, probe, detect_profile, pick_video_file, hls_dir, hls_base
     global playing_flag, forget_playing, mark_landed, read_landed, start_play_unit, grid_for
     global HlsServer, Encode, Recoder, weights_of, flat_weights, whole_encode
-    global MAXRATE_GAIN, RECODE_DIR
+    global MAXRATE_GAIN, RECODE_DIR, forget_browser_box, forget_browser_position
     CLOCK = environment.clock
     make_receiver = environment.receivers
     probe = environment.prober
@@ -87,6 +89,8 @@ def _configure_playback(environment: ShowEnvironment) -> None:
     hls_base = environment.base_url
     playing_flag = environment.flag
     forget_playing = environment.forget_flag
+    forget_browser_box = environment.forget_browser_box
+    forget_browser_position = environment.forget_browser_position
     mark_landed = environment.mark_landed
     read_landed = environment.read_landed
     start_play_unit = environment.start_unit

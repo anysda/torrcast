@@ -85,6 +85,11 @@ def _launch(
     state.put(key, entry)
     store().save(state)
     _state.forget_playing(out)  # флажок прошлого показа нам не доказательство
+    # 🔴 TC-1210. Ящик вкладки снимается перед КАЖДЫМ показом, не только в её ``play()``:
+    # убитая не по-людски вкладка (SIGKILL) оставляла его висеть, и следующий показ - хоть
+    # на ТВ - мост (:mod:`hass.bridge`) читал бы как «управляется вкладкой».
+    _state.forget_browser_box(out)
+    _state.forget_browser_position(out)
     with place_kept(key, before, owner.taken_over):
         _state.start_play_unit(key, here)
         journal().mark("юнит")

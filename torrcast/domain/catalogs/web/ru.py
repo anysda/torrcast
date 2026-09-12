@@ -106,4 +106,5 @@ def ru() -> dict[str, str]:
         "web.player.refused_receiver_did_not_answer": "приёмник не ответил",
         "web.player.refused_source_did_not_answer": "источник не ответил",
         "web.player.refused_source_could_not_be_read": "источник не читается",
+        "web.player.no_remote": "Перемотка и пауза этого показа работают только в этой вкладке",
     }

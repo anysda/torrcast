@@ -43,7 +43,14 @@ const TCPlayerPanel = {
     mutedNote.className = 'tc-ontv-note';
     mutedNote.textContent = TC.say('web.player.muted');
     mutedNote.hidden = true;
-    top.append(left, mutedNote, badge);
+    // 🔴 TC-1210. Показ во вкладке пульту не по силам - сервер отказал словом
+    // (``no_remote``), а нажатие не вправе остаться немым: короткая надпись говорит,
+    // почему перемотка/пауза не взялись, и гасится сама (:func:`flashRefused`).
+    const remoteNote = document.createElement('div');
+    remoteNote.className = 'tc-ontv-note';
+    remoteNote.textContent = TC.say('web.player.no_remote');
+    remoteNote.hidden = true;
+    top.append(left, mutedNote, remoteNote, badge);
 
     const keys = document.createElement('div');
     keys.className = 'tc-keys';
@@ -152,6 +159,7 @@ const TCPlayerPanel = {
       ep,
       badge,
       mutedNote,
+      remoteNote,
       time,
       timeTotal,
       playpause,
@@ -164,6 +172,15 @@ const TCPlayerPanel = {
       next,
       tv,
     };
+  },
+
+  // 🔴 TC-1210. Отказ пульта показывается на пару секунд и гасится сам - живёт короче
+  // надёжной надписи «на ТВ» (:attr:`mutedNote`), потому что относится к ОДНОМУ нажатию,
+  // а не к состоянию показа.
+  flashRefused(nodes) {
+    clearTimeout(TCPlayerPanel._refusedTimer);
+    nodes.remoteNote.hidden = false;
+    TCPlayerPanel._refusedTimer = setTimeout(() => { nodes.remoteNote.hidden = true; }, 3000);
   },
 
   _btn(key, kind, handler, text) {

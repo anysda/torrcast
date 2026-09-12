@@ -6,6 +6,7 @@ import contextlib
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.ports.journal.slot import journal
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
@@ -60,11 +61,22 @@ def _ctl(receiver: Receiver) -> None:
 
     Файл съедается до исполнения: команда одноразовая, и повторить её на следующем опросе
     нельзя даже при осечке приёмника — иначе одна опечатка мотала бы фильм вечно.
+
+    🔴 TC-1210. Приёмник-вкладка (:class:`torrcast.adapters.browser.browser_receiver.
+    BrowserReceiver`) намеренно не реализует :class:`_Steerable` - поднять её пультом
+    нечем. Прежде команда тут просто терялась: файл съеден, а пульту (боту, мосту) не
+    сказано ни слова, и в ленте не оставалось следа. Раз показ управляться так не умеет -
+    об этом молчать нельзя: слово из каталога идёт тому же читателю, что и обычное эхо
+    команды, а событие - в ленту, тем же именем, каким его находит `cast log`.
     """
     line = _environment_port().read_command()
-    if line is None or not isinstance(receiver, _Steerable):
+    if line is None:
         return
     if not line:
+        return
+    if not isinstance(receiver, _Steerable):
+        journal().emit("choice", "remote_refused", command=line, why="not_steerable")
+        _environment_port().write(phrase("choice.remote_cannot_steer", command=line))
         return
     word, _, rest = line.partition(" ")
     _environment_port().write(phrase("choice.remote_command", command=line))

@@ -9,6 +9,8 @@ import torrcast.usecases.revive_playback._revive_state as _revive_state
 import torrcast.usecases.voices_command as _voices_command
 import torrcast.usecases.worker as _worker
 import torrcast.usecases.worker_loop as _worker_loop
+from torrcast.adapters.browser.clear_web_box import clear_web_box
+from torrcast.adapters.browser.clear_web_position import clear_web_position
 from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
@@ -73,6 +75,8 @@ def test_the_show_gets_the_real_media_pipeline_and_the_real_receiver() -> None:
     assert _show_state.hls_base is hls_base
     assert _show_state.playing_flag is playing_flag
     assert _show_state.forget_playing is forget_playing
+    assert _show_state.forget_browser_box is clear_web_box
+    assert _show_state.forget_browser_position is clear_web_position
     assert _show_state.mark_landed is mark_landed
     assert _show_state.read_landed is read_landed
     assert _show_state.start_play_unit is start_play_unit

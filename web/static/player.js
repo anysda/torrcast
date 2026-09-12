@@ -401,6 +401,14 @@ const TCPlayer = {
     }
   },
 
+  // 🔴 TC-1210. Показ во вкладке пульту не по силам - сервер отвечает словом отказа
+  // (``no_remote``), а не молчанием, и нажатие не вправе остаться немым.
+  _noteIfRefused(said) {
+    if (said && !said.ok && said.error === 'no_remote' && TCPlayer._nodes) {
+      TCPlayerPanel.flashRefused(TCPlayer._nodes);
+    }
+  },
+
   // ------------------------------------------------------------------ нажатия панели
 
   //: Пока «на ТВ» - пульт зовёт мост (``control``), сама плёнка страницы идёт без
@@ -408,19 +416,19 @@ const TCPlayer = {
   _makeHandlers() {
     return {
       onToggle() {
-        if (TCPlayer._onTv) { TCApi.control('toggle'); return; }
+        if (TCPlayer._onTv) { TCApi.control('toggle').then(TCPlayer._noteIfRefused); return; }
         const video = TCPlayer._video;
         if (video.paused) video.play().catch(() => {}); else video.pause();
       },
       onSeekBy(delta) {
-        if (TCPlayer._onTv) { TCApi.control('seekby', delta); return; }
+        if (TCPlayer._onTv) { TCApi.control('seekby', delta).then(TCPlayer._noteIfRefused); return; }
         TCPlayer._video.currentTime = Math.max(0, (TCPlayer._video.currentTime || 0) + delta);
       },
       onSeekTo(frac) {
         if (TCPlayer._onTv) {
           const dur = (TCPlayer._last && TCPlayer._last.duration) || 0;
           const pos = TCPlayer._last ? TCPlayer._tvPosition(TCPlayer._last) : 0;
-          if (dur > 0) TCApi.control('seekby', frac * dur - pos);
+          if (dur > 0) TCApi.control('seekby', frac * dur - pos).then(TCPlayer._noteIfRefused);
           return;
         }
         const dur = TCPlayer._video.duration || 0;

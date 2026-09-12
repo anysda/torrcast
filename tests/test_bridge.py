@@ -10,13 +10,14 @@ import pytest
 
 from hass.bridge import VOLUME, Bridge
 from hass.posters import Posters
-from hass.refused_error import NO_NEXT, NO_VOLUME, NOTHING_PLAYING, RefusedError
+from hass.refused_error import NO_NEXT, NO_REMOTE, NO_VOLUME, NOTHING_PLAYING, RefusedError
 from hass.say import SEEKBY, TOGGLE
 from hass.stopping import STOP
 from hass.volume import Volume
 from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.state_store import FakeStateStore
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
+from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.choice_environment import _SystemChoiceEnvironment
 from torrcast.adapters.filesystem.state.file_refusal_record import FileRefusalRecord
 from torrcast.domain.args import Args
@@ -697,6 +698,53 @@ def test_the_card_is_told_the_new_place_the_second_the_bridge_says_seekby(
     bridge.control(SEEKBY, 900.0)
 
     assert bridge.state()["position"] == 960.0
+
+
+def test_a_tab_show_refuses_seekby_instead_of_losing_it_in_the_channel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 TC-1210. Показ во вкладке пульту не по силам - мост отказывает, не пишет команду.
+
+    Прежде команда всё равно уезжала в файл (:func:`hass.say.say`) и там же молча
+    терялась: приёмник-вкладка не умеет :class:`_Steerable`. Мост узнаёт вкладку по её
+    же ящику (:func:`torrcast.adapters.browser.write_web_box.write_web_box`) и отказывает
+    ДО записи - канал остаётся пуст."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Муха", at=0.0, key="k1")
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=60.0, moved=True),
+    )
+    bridge = _bridge(session, settings=lambda: Config(tv="10.0.1.7"))
+
+    with pytest.raises(RefusedError) as refusal:
+        bridge.control(SEEKBY, 90.0)
+
+    assert refusal.value.word == NO_REMOTE
+    assert _SystemChoiceEnvironment().read_command() is None
+
+
+def test_a_tab_show_refuses_toggle_instead_of_a_false_pause_latch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Тот же отказ у ``toggle`` - и защёлка (:meth:`hass.motion.Motion.commanded`) не трогается."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Муха", at=0.0, key="k1")
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=60.0, moved=True),
+    )
+    bridge = _bridge(session, settings=lambda: Config(tv="10.0.1.7"))
+
+    with pytest.raises(RefusedError) as refusal:
+        bridge.control(TOGGLE, 0.0)
+
+    assert refusal.value.word == NO_REMOTE
+    assert bridge.state()["state"] == "playing", "защёлка команды не должна была сработать"
 
 
 def test_a_refused_remote_moves_the_slider_nowhere() -> None:

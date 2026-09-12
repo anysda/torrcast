@@ -4,6 +4,11 @@ from __future__ import annotations
 
 #: Слова отказа пульта и показа: часть того же договора, что и тип, перевода им нет.
 BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
+#: Показ идёт во вкладке (TC-1210): пультом (перемотка, пауза) она не управляется -
+#: приёмник-вкладка нарочно не умеет ``seek``/``pause``/``resume``
+#: (:class:`torrcast.adapters.browser.browser_receiver.BrowserReceiver`), и мост отказывает,
+#: не посылая команду, которую всё равно некому взять.
+NO_REMOTE = "no_remote"
 
 
 class RefusedError(Exception):

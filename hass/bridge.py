@@ -26,7 +26,8 @@ from hass.orders import Command, Orders
 from hass.payload import payload
 from hass.play_argv import play_argv
 from hass.posters import Posters
-from hass.refused_error import BUSY, NO_VOLUME, NOTHING_PLAYING, RefusedError
+from hass.refused_error import BUSY, NO_REMOTE, NO_VOLUME, NOTHING_PLAYING, RefusedError
+from hass.remote_refused import remote_refused
 from hass.resuming import _resume
 from hass.say import SEEKBY, TOGGLE, say
 from hass.search_progress import search_progress
@@ -136,9 +137,9 @@ class Bridge:
     def control(self, command: str, arg: float) -> None:
         """``POST /api/control``: пульт идущего показа, а остановка - дверь наружу.
 
-        Остановка стоит ВЫШЕ отказов и ни про показ, ни про подъём не спрашивает
-        (:func:`hass.stopping.stopping`). Остальному пульту без идущего показа делать
-        нечего: громкость и ``toggle`` уезжают приёмнику, который ничего не играет.
+        Остановка стоит ВЫШЕ отказов (:func:`hass.stopping.stopping`). Без идущего
+        показа пульту делать нечего. 🔴 TC-1210: показ во вкладке перемотку и
+        переключатель не берёт - словом и почему ведает :mod:`hass.remote_refusal`.
         """
         if command == STOP:
             stopping(self._orders, self._session)
@@ -149,6 +150,8 @@ class Bridge:
             if not self._volume_of(self._settings()).set(arg):
                 raise RefusedError(NO_VOLUME)
             return
+        if command in (SEEKBY, TOGGLE) and remote_refused(self._settings(), command):
+            raise RefusedError(NO_REMOTE)
         say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
         self._motion.commanded(command, arg)
 

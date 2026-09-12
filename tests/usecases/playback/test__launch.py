@@ -13,6 +13,10 @@ from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.fakes.show_unit import FakeShowUnit
 from tests.usecases.playback.world import FakeProgress, FakeShow, touch_segment
+from torrcast.adapters.browser.read_web_box import read_web_box
+from torrcast.adapters.browser.read_web_position import read_web_position
+from torrcast.adapters.browser.write_web_box import write_web_box
+from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.adapters.stream_pack.mark_landed import mark_landed
 from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.catalogs.phrase import phrase
@@ -227,6 +231,37 @@ def test_a_line_left_by_a_previous_show_does_not_save_a_dead_one(tmp_path: Path)
         )
 
     assert unit.stopped == 1, "строка не сдвинулась за весь бюджет - показа за ней нет"
+
+
+def test_a_new_launch_clears_a_dead_tab_sessions_leftover_box(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 TC-1210. Ящик мёртвой вкладки не переживает следующий показ - хоть бы и на ТВ.
+
+    Приёмник-вкладка, убитый не по-людски (SIGKILL, авария), не зовёт свой ``stop()`` и
+    оставляет :func:`torrcast.adapters.browser.write_web_box.write_web_box`/
+    :func:`~torrcast.adapters.browser.write_web_position.write_web_position` висеть. Без
+    сброса здесь следующий показ - даже настоящий каст на ТВ - мост
+    (:mod:`hass.bridge`) читал бы как «управляется вкладкой» и молча глотал бы её пульт.
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    write_web_box(out, url="http://x/dead.m3u8", title="Мёртвая вкладка", at=12.0, key="dead")
+    write_web_position(out, "dead", 12.0, 900.0, "PLAYING", 0.0)
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: None)
+    composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
+
+    _launch(
+        Config(hls_dir=str(out)),
+        "movie:кино",
+        Entry(title="Кино", magnet="magnet:?xt=1"),
+        "«Кино»",
+        _Clock(),
+    )
+
+    assert read_web_box(out) == {}
+    assert read_web_position(out) is None
 
 
 def test_a_relaunch_does_not_carry_a_past_sessions_frame_into_the_new_one(

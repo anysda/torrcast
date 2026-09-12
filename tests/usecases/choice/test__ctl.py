@@ -89,15 +89,18 @@ def test_the_file_is_eaten_before_the_command_is_carried_out() -> None:
     assert receiver.done == [], "приёмник отказал, и повторять за него никто не стал"
 
 
-def test_a_receiver_without_a_pult_is_left_alone_and_the_command_is_still_eaten() -> None:
-    """Управлять нечем - молчим; но файл прочитан, и висеть до следующего показа он не будет."""
+def test_a_receiver_without_a_pult_refuses_out_loud_and_the_command_is_still_eaten() -> None:
+    """🔴 TC-1210. Управлять нечем - молчать об этом нельзя: диагност должен узнать почему.
+
+    Прежде команда терялась беззвучно - файл съеден, а пульту ни слова. Раз показ так не
+    управляется, об этом говорит тот же каталог, каким `_ctl` отвечает на любую команду."""
     world = Outside(command="seek 930")
 
     with outside(world):
         _ctl(Plain())
 
     assert world.reads == 1 and world.command is None
-    assert world.said == [], "исполнять было нечего - и говорить не о чем"
+    assert world.said == [phrase("choice.remote_cannot_steer", command="seek 930")]
 
 
 def test_an_empty_file_is_not_a_command_and_says_nothing() -> None:

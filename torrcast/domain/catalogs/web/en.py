@@ -106,4 +106,5 @@ def en() -> dict[str, str]:
         "web.player.refused_receiver_did_not_answer": "the receiver did not answer",
         "web.player.refused_source_did_not_answer": "the source did not answer",
         "web.player.refused_source_could_not_be_read": "the source could not be read",
+        "web.player.no_remote": "Seek and pause for this show only work in this tab",
     }

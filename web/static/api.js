@@ -121,8 +121,11 @@ const TCApi = {
     return TCApi._get('/api/web/box', {});
   },
 
+  // 🔴 TC-1210. Показ во вкладке пульту не по силам, и сервер отвечает не молчанием, а
+  // словом отказа (409 ``{"error": "no_remote"}``). Общий `_post` роняет тело нестрогого
+  // ответа на пол - тут оно и есть весь смысл, поэтому у `control` свой разбор.
   async control(cmd, arg) {
-    return TCApi._post('/api/control', arg === undefined ? { cmd } : { cmd, arg });
+    return TCApi._postReasoned('/api/control', arg === undefined ? { cmd } : { cmd, arg });
   },
 
   // Тело - серия, которую вкладка ДОИГРАЛА: ею сервер отличает запоздавший зов
@@ -164,6 +167,24 @@ const TCApi = {
       body: payload,
       keepalive: true,
     }).catch(() => {});
+  },
+
+  // Тело читается и на отказе: ``ok`` называет исход, ``error`` - слово из тела 409
+  // (пусто, если сеть подвела раньше ответа). Общий `_post` тут не годится - его
+  // `!said.ok -> null` для этой ручки как раз и терял слово отказа (TC-1210).
+  async _postReasoned(url, body) {
+    try {
+      const said = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const text = await said.text();
+      const parsed = text ? JSON.parse(text) : {};
+      return said.ok ? { ok: true } : { ok: false, error: parsed.error || '' };
+    } catch (error) {
+      return { ok: false, error: '' };
+    }
   },
 
   async _get(url, fallback) {

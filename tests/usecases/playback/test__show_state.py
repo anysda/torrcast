@@ -49,6 +49,8 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
                 base_url=_state.hls_base,
                 flag=_state.playing_flag,
                 forget_flag=_state.forget_playing,
+                forget_browser_box=_state.forget_browser_box,
+                forget_browser_position=_state.forget_browser_position,
                 mark_landed=_state.mark_landed,
                 read_landed=_state.read_landed,
                 start_unit=lambda key, here: second.append((key, here)),

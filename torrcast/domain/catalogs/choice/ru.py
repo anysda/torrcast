@@ -17,6 +17,9 @@ def ru() -> dict[str, str]:
         "choice.series_mark": ", сериал",
         "choice.russian_title_only": " - название только по-русски",
         "choice.remote_command": "пульт: {command}",
+        "choice.remote_cannot_steer": (
+            "пульт: {command} не пройдёт - показ во вкладке так не управляется"
+        ),
         "choice.pick_out_of_range": "подходит картин: {total}, номера {pick} нет",
         "choice.pick_moved": (
             "под номером {pick} в таблице «{asked}» была «{was}», а сейчас под ним "

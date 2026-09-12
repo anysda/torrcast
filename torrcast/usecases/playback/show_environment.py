@@ -46,6 +46,11 @@ class ShowEnvironment:
     #: Отметка «идёт показ»: где лежит и как её снять.
     flag: Callable[[Path], Path]
     forget_flag: Callable[[Path], None]
+    #: Задание и позиция вкладки прошлого показа (TC-1210): снимаются перед КАЖДЫМ новым
+    #: показом, а не только приёмником-вкладкой, - иначе чужой, брошенный при аварийном
+    #: конце ящик лгал бы новому сеансу на ТВ, будто им управляет вкладка.
+    forget_browser_box: Callable[[Path], None]
+    forget_browser_position: Callable[[Path], None]
     #: Настоящее место старта (TC-1010): куда показ сел на самом деле, и как это узнать.
     mark_landed: Callable[[Path, float], None]
     read_landed: Callable[[Path, float], float]
