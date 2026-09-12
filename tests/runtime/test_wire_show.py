@@ -11,6 +11,7 @@ import torrcast.usecases.worker as _worker
 import torrcast.usecases.worker_loop as _worker_loop
 from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.clear_web_position import clear_web_position
+from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
@@ -89,6 +90,7 @@ def test_the_show_gets_the_real_media_pipeline_and_the_real_receiver() -> None:
     assert _show_state.whole_encode is whole_encode
     assert _show_state.MAXRATE_GAIN is MAXRATE_GAIN
     assert _show_state.RECODE_DIR is RECODE_DIR
+    assert _show_state.publish_box is write_web_box
 
     # Юнит показа и его цикл.
     assert _worker._worker_engines is TorrServer
