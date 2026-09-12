@@ -190,6 +190,45 @@ def test_a_movie_card_names_its_voices_by_studio_not_by_a_bare_bool(
     assert voices["LostFilm"]["default"] is True
     assert voices["AlexFilm"]["default"] is False
     assert body["releases_count"] == 2
+    assert body["playing"] is False
+
+
+def test_a_picture_showing_on_the_receiver_right_now_marks_the_card_playing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TC-1225: карточка играющей картины помнит об этом - кнопки решают по этому полю."""
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries[_MOVIE.key] = Entry(
+        "Interstellar", "magnet:interstellar", kind="movie", pos=120.0, dur=8520.0, torrent="abc"
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert code == 200
+    assert body["playing"] is True
+
+
+def test_a_bookmark_without_a_live_receiver_does_not_claim_the_card_is_playing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Закладка сама по себе не значит «играет» - показ мог давно кончиться (TC-1225)."""
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries[_MOVIE.key] = Entry(
+        "Interstellar", "magnet:interstellar", kind="movie", pos=120.0, dur=8520.0
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert code == 200
+    assert body["playing"] is False
 
 
 def test_the_rating_leaves_as_a_number_because_the_page_says_the_source_itself(

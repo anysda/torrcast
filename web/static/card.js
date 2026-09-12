@@ -391,6 +391,15 @@ const TCCard = {
   _buttons(data, key, query, isShow) {
     const row = document.createElement('div');
     row.className = 'tc-buttons';
+    // TC-1225. Картина, которая идёт на приёмнике прямо сейчас (`data.playing`, от
+    // `WatchState.showing()`), не держит рядом с собой «PLAY ON TV»: карточка не звала бы
+    // повторный показ, а звала бы взять уже идущий или закончить его - и НИ ОДНОЙ из этих
+    // кнопок тут не стояло, дефект владельца 12-09-2026. «Играть»/«Сначала»/«PLAY ON TV»
+    // остаются как были, когда картина не играет: второй набор кнопок им тут не мешает.
+    if (data.playing) {
+      row.append(TCCard._connect(), TCCard._finish());
+      return row;
+    }
     const noReleases = (data.releases_count || 0) === 0;
 
     const voices = Array.isArray(data.voices) ? data.voices : [];
@@ -463,6 +472,35 @@ const TCCard = {
       }
     }
     return row;
+  },
+
+  // TC-1225. Показ уже идёт - вкладка подключается к нему тем же путём, что и шапка
+  // «сейчас играет» (`TCPlayer.open`): ящик вкладки уже несёт `url`/`key`/`at` этого
+  // показа (TC-1224), и заказывать его заново нечем и незачем.
+  _connect() {
+    const connect = document.createElement('button');
+    connect.type = 'button';
+    connect.className = 'tc-btn tc-btn--primary';
+    connect.textContent = TC.say('web.detail.connect');
+    connect.tabIndex = 0;
+    connect.dataset.tcFocusable = '1';
+    connect.dataset.tcGroup = 'buttons';
+    connect.addEventListener('click', () => TCPlayer.open());
+    return connect;
+  },
+
+  // Завершить - та же дверь, что и «Назад» из плеера идущего показа
+  // (:mod:`hass.stopping`): гасит юнит целиком, а не просто уводит эту вкладку.
+  _finish() {
+    const finish = document.createElement('button');
+    finish.type = 'button';
+    finish.className = 'tc-btn tc-btn--secondary';
+    finish.textContent = TC.say('web.detail.finish');
+    finish.tabIndex = 0;
+    finish.dataset.tcFocusable = '1';
+    finish.dataset.tcGroup = 'buttons';
+    finish.addEventListener('click', () => TCApi.control('stop'));
+    return finish;
   },
 
   // «На ТВ» всегда новый каст с закладки: поток вкладки, ушедшей с `/play`, сносится через

@@ -50,6 +50,8 @@ def ru() -> dict[str, str]:
         "web.detail.play": "▶ Смотреть",
         "web.detail.start_over": "Сначала",
         "web.detail.play_on_tv": "Показать на ТВ",
+        "web.detail.connect": "Подключиться",
+        "web.detail.finish": "Завершить",
         "web.detail.audio": "Звук ▾",
         "web.detail.series": "Ещё из этой серии",
         "web.detail.release.one": "{n} раздача",

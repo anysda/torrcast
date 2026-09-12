@@ -50,6 +50,8 @@ def en() -> dict[str, str]:
         "web.detail.play": "▶ Play",
         "web.detail.start_over": "Start over",
         "web.detail.play_on_tv": "Play on TV",
+        "web.detail.connect": "Connect",
+        "web.detail.finish": "Finish",
         "web.detail.audio": "Audio ▾",
         "web.detail.series": "More from this series",
         "web.detail.release.one": "{n} release",

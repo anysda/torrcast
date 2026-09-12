@@ -89,15 +89,18 @@ def card(request: Request) -> Answer:
 def _answer(plan: Plan, config: Config, pick: int, wait: float = 0.0) -> Answer:
     """Тело ответа плюс заголовок недоехавшей части: справка, обложка, родня, серии."""
     picture = plan.picture
-    entry = store().load().get(picture.key)
+    watch = store().load()
+    entry = watch.get(picture.key)
+    showing = watch.showing()
+    playing = showing is not None and showing[0] == picture.key
     facts = MenuFacts([(picture.title, picture.year, picture.kind)], budget=0.0)
     facts.start()
     until = time.monotonic() + wait
-    first, partial = _body(plan, config, pick, entry, facts)
+    first, partial = _body(plan, config, pick, entry, facts, playing)
     body = first
     while partial and time.monotonic() < until:
         time.sleep(_TICK)
-        body, partial = _body(plan, config, pick, entry, facts)
+        body, partial = _body(plan, config, pick, entry, facts, playing)
         if body != first:
             until = min(until, time.monotonic() + _SETTLE)
     extra = ((_PARTIAL, "1"),) if partial else ()
@@ -105,7 +108,7 @@ def _answer(plan: Plan, config: Config, pick: int, wait: float = 0.0) -> Answer:
 
 
 def _body(
-    plan: Plan, config: Config, pick: int, entry: Entry | None, facts: MenuFacts
+    plan: Plan, config: Config, pick: int, entry: Entry | None, facts: MenuFacts, playing: bool
 ) -> tuple[dict[str, JsonValue], bool]:
     """Тело как оно есть сейчас и «что-то ещё в пути»; пустая справка - готовый ответ."""
     picture = plan.picture
@@ -135,6 +138,11 @@ def _body(
         "voices": _voices(plan),
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
+        # TC-1225: картина, которая идёт на приёмнике прямо сейчас
+        # (:meth:`torrcast.domain.watch_state.WatchState.showing`) - карточка меняет свои
+        # кнопки на «Подключиться»/«Завершить», а не держит «PLAY ON TV» рядом с уже идущим
+        # показом (:mod:`web.static.card.js`).
+        "playing": playing,
         "seasons": seasons,
         "related": related,
         "releases_count": len(picture.releases),
