@@ -37,6 +37,8 @@ const TCPlayer = {
     TCPlayer._halted = false;
     TCPlayer._framed = false;
     TCPlayer._ordered = false;
+    TCPlayer._seeking = false;
+    TCPlayer._seekTimer = null;
 
     const wrap = document.createElement('div');
     wrap.className = 'tc-player';
@@ -297,9 +299,36 @@ const TCPlayer = {
       return;
     }
     const diff = (video.currentTime || 0) - pos;
-    if (diff < -TCPlayer.DRIFT_S) video.currentTime = pos;
+    // TC-1218. Назад плёнку не тянем НАРОЧНО (комментарий выше, TC-1147) - но это писалось
+    // про секунды хода, которые плёнка сама набежала во время рукопожатия каста. Перемотка
+    // НАЗАД панелью через ``onTv`` - та же самая просьба, отправленная приёмнику этим же
+    // нажатием (`_makeHandlers.onSeekBy`/`onSeekTo`), и ждать её тем же способом, каким
+    // ждут случайный обгон, значит ждать доклада приёмника, который никогда не придёт
+    // раньше локальной секунды - плёнка идёт вперёд от места нажатия и не возвращается
+    // (замер на стенде `.104` 12-09-2026: перемотка на 60 с при показе на 1884-й, секунда
+    // тянулась дальше вперёд, TCPlayer._onTv=true). Пока флаг подан этим нажатием, тянем
+    // ОБЕ стороны - и снимаем его, как только доклад подтвердил место.
+    if (diff < -TCPlayer.DRIFT_S || (TCPlayer._seeking && Math.abs(diff) > TCPlayer.DRIFT_S)) {
+      video.currentTime = pos;
+    }
+    if (TCPlayer._seeking && Math.abs(diff) <= TCPlayer.DRIFT_S) TCPlayer._clearSeeking();
     video.playbackRate = diff > TCPlayer.DRIFT_S ? TCPlayer.TRIM_RATE : 1;
     if (video.paused) video.play().catch(() => {});
+  },
+
+  //: Нажатие панели попросило приёмник и ждёт его доклада (:meth:`_follow`); срок на
+  //: случай, если доклад так и не подтвердит место (плёнка тогда просто ждёт следующего
+  //: обгона, как раньше, а не висит помеченной вечно).
+  _markSeeking() {
+    TCPlayer._seeking = true;
+    if (TCPlayer._seekTimer) clearTimeout(TCPlayer._seekTimer);
+    TCPlayer._seekTimer = setTimeout(TCPlayer._clearSeeking, 15000);
+  },
+
+  _clearSeeking() {
+    TCPlayer._seeking = false;
+    if (TCPlayer._seekTimer) clearTimeout(TCPlayer._seekTimer);
+    TCPlayer._seekTimer = null;
   },
 
   _packagedPct(video, dur) {
@@ -421,14 +450,21 @@ const TCPlayer = {
         if (video.paused) video.play().catch(() => {}); else video.pause();
       },
       onSeekBy(delta) {
-        if (TCPlayer._onTv) { TCApi.control('seekby', delta).then(TCPlayer._noteIfRefused); return; }
+        if (TCPlayer._onTv) {
+          TCApi.control('seekby', delta).then(TCPlayer._noteIfRefused);
+          TCPlayer._markSeeking();
+          return;
+        }
         TCPlayer._video.currentTime = Math.max(0, (TCPlayer._video.currentTime || 0) + delta);
       },
       onSeekTo(frac) {
         if (TCPlayer._onTv) {
           const dur = (TCPlayer._last && TCPlayer._last.duration) || 0;
           const pos = TCPlayer._last ? TCPlayer._tvPosition(TCPlayer._last) : 0;
-          if (dur > 0) TCApi.control('seekby', frac * dur - pos).then(TCPlayer._noteIfRefused);
+          if (dur > 0) {
+            TCApi.control('seekby', frac * dur - pos).then(TCPlayer._noteIfRefused);
+            TCPlayer._markSeeking();
+          }
           return;
         }
         const dur = TCPlayer._video.duration || 0;
