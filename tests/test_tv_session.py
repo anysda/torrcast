@@ -74,10 +74,11 @@ def test_stop_answers_with_the_last_polled_position_not_a_stale_reread() -> None
             break
         time.sleep(0.01)
     receiver.current = Position(14.0, 120.0)  # очередной доклад опроса
-    for _ in range(200):
-        if len(receiver.fronts) >= 2:
-            break
-        time.sleep(0.01)
+    # Число вызовов ``position()`` - не то же самое, что доклад со значением 14: опрос
+    # мог прочесть ещё старое 0.0 до этой строки и тем не менее засчитать второй вызов
+    # (флап на живом дереве, без соседней нагрузки - `session._heard` называет то,
+    # что опрос РЕАЛЬНО услышал, а счётчик вызовов - только что он звонил).
+    _until(lambda: session._heard is not None and session._heard.pos == 14.0)
     receiver.current = Position(4.8, 120.0)  # чтение на излёте отвечает старьём
 
     at = session.stop()

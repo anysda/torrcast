@@ -113,14 +113,20 @@ class TvSession:
         чтение на излёте вернуло место ДЕСЯТИСЕКУНДНОЙ давности, старше последнего
         доклада (замер на стенде `.104` 10-09-2026: показ стоял на ~14-й секунде,
         ``position()`` в ``stop`` ответил 4.8, и «На комп» отматывал зрителя назад).
+
+        ``_heard`` читается ПОД замком: опрос пишет его тоже под замком, и чтение
+        снаружи ловило иногда недописанный доклад - `_disarm` не гарантирует, что
+        опрос успел дойти до записи до истечения своего короткого join (флап на
+        `test_stop_answers_with_the_last_polled_position_not_a_stale_reread`, ~1/30
+        и без соседних процессов).
         """
         receiver, self._receiver = self._receiver, None
         self.key = ""
         if receiver is None:
             return 0.0
         self._disarm()
-        heard, self._heard = self._heard, None
         with self._lock:
+            heard, self._heard = self._heard, None
             at = heard.pos if heard is not None else receiver.position().pos
             receiver.stop(quit_app=True)
         return at
