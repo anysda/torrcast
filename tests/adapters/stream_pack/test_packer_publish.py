@@ -135,6 +135,34 @@ def test_a_failed_merge_sends_the_copy_of_its_own_run_while_it_fits(tmp_path: Pa
     assert (run.out / "v0.ts").stat().st_size == 100, "наружу ушла не копия своего прогона"
 
 
+def test_a_keyless_copy_on_a_flat_grid_is_shrunk_before_it_reaches_a_recode_seam(
+    tmp_path: Path,
+) -> None:
+    """Копия после x264 не знает его PPS, поэтому её начало обязано стать своим GOP."""
+    told: list[tuple[int, str]] = []
+    spare = tmp_path / "recode"
+    spare.mkdir()
+    run = packer(tmp_path, spare=spare, told=lambda slot, how: told.append((slot, how)))
+    lay(run.run, 0, size=100)
+
+    def mend(slot: int, size: int) -> bool:
+        lay(spare, slot, size=50)
+        return True
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"safe")
+        return True
+
+    run.shrink = mend
+    _lay_out(
+        run, _always, merge=merge, keyless=lambda piece: piece == run.run / "v0.ts",
+        shift_of=lambda *a: 0.0, starts_of=_on_place,
+    )
+
+    assert told == [(0, "shrink")]
+    assert (run.out / "v0.ts").read_bytes() == b"safe"
+
+
 def test_a_piece_over_the_ceiling_is_shrunk_and_a_hopeless_one_is_honestly_skipped(
     tmp_path: Path,
 ) -> None:
