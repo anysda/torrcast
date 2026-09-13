@@ -136,7 +136,7 @@ def _lay_out(
             state.shrink is not None
             and source is path
             and not state.outward
-            and (state.grid is None or not state.grid.on_keys)
+            and not bool(getattr(state.grid, "on_keys", False))
             and keyless(path)
         )
         oversized = over_cap(source, state.cap)
@@ -149,8 +149,8 @@ def _lay_out(
             if safe_recode:
                 source, how = better, "recode"
                 oversized = False
-        needs_shrink = (oversized or unsafe) and state.shrink is not None
-        shrunk = state.shrink(slot, size) if needs_shrink else False
+        shrink = state.shrink
+        shrunk = shrink(slot, size) if (oversized or unsafe) and shrink is not None else False
         if shrunk is None and better is not None:
             source, how, oversized = better, "recode", False
         elif shrunk and better is not None:
