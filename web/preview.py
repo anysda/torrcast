@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from typing import Final, Protocol
 
 from torrcast.domain.json_value import JsonValue
@@ -19,6 +21,9 @@ _PARTIAL = "X-Torrcast-Partial"
 #: не ждёт вовсе: имя, обложка и скелет должны появиться до Wikipedia/Wikidata.
 PATIENCE: Final = 1.0
 _TICK: Final = 0.05
+#: Фоновый добор справки сам живёт до трёх секунд. Пока он идёт, новый long-poll обязан
+#: присоединиться к нему, а не открыть ещё одну волну Wikipedia.
+_FACT_FLIGHT: Final = 4.0
 _sleep: Callable[[float], None] = time.sleep
 
 
@@ -38,6 +43,30 @@ class _Warm(Protocol):
     def ask(self, screen: Sequence[str]) -> int: ...
 
 
+@dataclass
+class _FactFlights:
+    """Один незаконченный добор справки на плитку для всех её long-poll запросов."""
+
+    pending: dict[tuple[str, int, str], tuple[MenuFacts, float]] = field(default_factory=dict)
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def of(self, title: str, year: int, kind: str) -> MenuFacts:
+        """Взять текущий добор или начать ровно один вместо волны клонов."""
+        key = title, year, kind
+        now = time.monotonic()
+        with self.lock:
+            active = self.pending.get(key)
+            if active is not None and now - active[1] < _FACT_FLIGHT:
+                return active[0]
+            facts = MenuFacts([key], budget=PATIENCE)
+            facts.start()
+            self.pending[key] = facts, now
+            return facts
+
+
+_facts = _FactFlights()
+
+
 def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answer | None:
     """Ответить сведениями плитки, не ожидая поиска раздач.
 
@@ -54,8 +83,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         return None
     warm.ask([request.query["query"]])
     series = kind == "tv"
-    facts = MenuFacts([(title, year, kind)], budget=PATIENCE)
-    facts.start()
+    facts = _facts.of(title, year, kind)
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
     kin = related.of(title, series)

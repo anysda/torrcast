@@ -57,6 +57,12 @@ class _PendingRelated(_Related):
         return True
 
 
+@pytest.fixture(autouse=True)
+def _fresh_fact_flights(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Подмена источника в одной пробе не должна стать общим добором следующей."""
+    monkeypatch.setattr(web.preview, "_facts", web.preview._FactFlights())
+
+
 def test_a_preview_year_rejects_a_route_without_a_real_year() -> None:
     """Без точного года ключ не даёт права назвать факты картины."""
     assert _year("2014") == 2014
@@ -135,3 +141,30 @@ def test_a_waiting_preview_does_not_fall_through_to_the_release_circle(
     answer = preview(request, "movie:luca:2021", _Warm(), _Related())
 
     assert answer is not None
+
+
+def test_waiting_previews_share_one_unfinished_fact_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Каждый partial-опрос раньше открывал свою волну Wikipedia."""
+    made = 0
+
+    class _CountedFacts(_Facts):
+        def __init__(self, pictures: object, budget: float) -> None:
+            nonlocal made
+            made += 1
+            super().__init__(pictures, budget)
+
+    monkeypatch.setattr(web.preview, "MenuFacts", _CountedFacts)
+    monkeypatch.setattr(web.preview, "PATIENCE", 0.0)
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie", "wait": "1"},
+        body={},
+    )
+
+    preview(request, "movie:luca:2021", _Warm(), _Related())
+    preview(request, "movie:luca:2021", _Warm(), _Related())
+
+    assert made == 1
