@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-import web.card as card_page
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
+import web.card as card_page
 from tests.fakes.state_store import FakeStateStore
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
