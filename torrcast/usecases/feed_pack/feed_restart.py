@@ -95,6 +95,7 @@ def _restart(
         told=None if state.recoder is None else state.recoder.note,
         hold=None if state.recoder is None else state.recoder.holding,
         shrink=shrink,
+        after_recode=None if state.recoder is None else state.recoder.after_recode,
         at=at,
         rate=state.readrate,
         burst=state.burst,

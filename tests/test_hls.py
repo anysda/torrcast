@@ -1031,6 +1031,9 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
 
         def note(self, slot: int, how: str) -> None: ...
 
+        def after_recode(self, slot: int) -> bool:
+            return False
+
         def holding(self, slot: int, size: int = 0) -> bool:
             return False
 

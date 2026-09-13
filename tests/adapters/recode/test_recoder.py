@@ -75,6 +75,16 @@ def test_a_new_run_rewinds_the_edge_and_marks_the_head(tmp_path: Path) -> None:
     assert recoder.head_at > 0.0
 
 
+def test_the_recoder_remembers_when_the_left_piece_changed_its_picture(tmp_path: Path) -> None:
+    recoder = _recoder(tmp_path)
+
+    recoder.note(4, "shrink")
+    recoder.note(6, "copy")
+
+    assert recoder.after_recode(5)
+    assert not recoder.after_recode(7)
+
+
 def test_stopping_wakes_a_paused_process_before_killing_it(tmp_path: Path) -> None:
     """Замерший процесс SIGTERM не обрабатывает вовсе, и снятие стоило бы пяти секунд показа."""
     import signal

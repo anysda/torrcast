@@ -15,6 +15,8 @@ type PackTold = Callable[[int, str], None]
 type PackAsked = Callable[[int, int], bool]
 #: Решение тяжёлого места: ужато, готовый перекод доехал сам или пропуск.
 type PackShrink = Callable[[int, int], bool | None]
+#: Левый опубликованный сосед сменил производителя картинки.
+type PackAfterRecode = Callable[[int], bool]
 
 
 class PackFactory(Protocol):
@@ -36,6 +38,7 @@ class PackFactory(Protocol):
         told: PackTold | None = None,
         hold: PackAsked | None = None,
         shrink: PackShrink | None = None,
+        after_recode: PackAfterRecode | None = None,
         last: int = -1,
         at: float = 0.0,
         rate: float = 0.0,

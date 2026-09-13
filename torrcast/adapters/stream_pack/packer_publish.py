@@ -40,6 +40,7 @@ def _lay_out(
     merge: Callable[..., bool] = merge_tracks,
     shift_of: Callable[[Path, Path], float | None] = timeline_shift,
     keyless: Callable[[Path], bool] = key_missing,
+    after_recode: Callable[[int], bool] | None = None,
     starts_of: Callable[[str | Path], tuple[float, float]] = track_starts,
 ) -> None:
     """Выложить наружу куски, которые ffmpeg уже дописал.
@@ -129,15 +130,19 @@ def _lay_out(
         # Тогда голое видео перекода безопаснее; если не влезло и оно, наружу не
         # выходит ничего. Так же здесь остаётся тяжёлая копия, которую предохранитель
         # ожидания отпустил после срыва кодировщика.
-        # Ровная сетка режет копию посреди GOP. После перекода слева такой кусок не
-        # декодируется: его PPS остался у исходника, а у соседа уже x264. На сетке по
-        # опорным кадрам проба не нужна и не стоит ни одного ffprobe.
+        # Ровная сетка режет копию посреди GOP. После перекода или ужатия СЛЕВА такой
+        # кусок не декодируется: его PPS остался у исходника, а у соседа уже x264.
+        # Две копии подряд образуют один поток и безопасны. На сетке по опорным кадрам
+        # проба не нужна и не стоит ни одного ffprobe.
+        seam = after_recode if after_recode is not None else state.after_recode
         unsafe = (
             state.shrink is not None
             and source is path
             and not state.outward
             and not bool(getattr(state.grid, "on_keys", False))
             and keyless(path)
+            and seam is not None
+            and seam(slot)
         )
         oversized = over_cap(source, state.cap)
         if oversized and how == "splice" and better is not None:
@@ -149,6 +154,20 @@ def _lay_out(
             if safe_recode:
                 source, how = better, "recode"
                 oversized = False
+        # Наружу такой кусок отдавать нельзя, но и вставать на нём навсегда нельзя: он
+        # детерминирован, и встреча с ним повторялась бы каждый прогон. Поэтому сначала
+        # одна попытка ужать кусок прямо сейчас (:attr:`shrink`) - перекод под потолок
+        # ложится в spare, и наружу идёт его картинка со звуком копии
+        # (:func:`_shrunk_out`): ужатие - это второй прогон ffmpeg над тем же местом, и
+        # звук он приносит свой, на своей сетке AAC.
+        #
+        # ⚠️ Зовётся этот исход «ужатие», а не «перекод», и это не синоним. «Перекод» -
+        # это готовый кусок кодировщика, у которого склейка со звуком копии НЕ ВЫШЛА, то
+        # есть заявка на разбор стыка (:func:`torrcast.adapters.recode.note._note`). У ужатия
+        # своя запись в журнале, потому что и склеивает оно своё: не голову захода
+        # кодировщика, а единственное место, которое сам же и пересобрал. Пока оба звались
+        # одним словом, каждый ужатый кусок печатал «склейка не вышла, стык под вопросом»:
+        # на ровной сетке это 818 ложных заявок на разбор за фильм (TC-693).
         shrink = state.shrink
         shrunk = shrink(slot, size) if (oversized or unsafe) and shrink is not None else False
         if shrunk is None and better is not None:

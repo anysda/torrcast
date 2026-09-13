@@ -95,6 +95,10 @@ class Recoder(_State):
         """Сегмент ушёл наружу: уточнить профиль и посчитать опоздания (:func:`_note`)."""
         _note(self, slot, how)
 
+    def after_recode(self, slot: int) -> bool:
+        """Слева у ``slot`` уже ушла не копия, а своя картинка кодировщика."""
+        return self.outcomes.get(slot - 1) not in (None, "copy")
+
     def report(self) -> str:
         """Одна строка итога: сколько успели, сколько тяжёлых ушло как есть."""
         if not self.targets:
