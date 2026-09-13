@@ -77,7 +77,10 @@ const TCCard = {
       const said = await TCApi.card(key, query, turn > 0, facts);
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       if (said.data) data = said.data;
-      if (said.missing) data = { error: 'not_found' };
+      // Preview уже честно назвал карточку по фактам плитки. Полный круг иногда не
+      // находит его ключ (раздачи успели смениться), и пустой `{ error }` не должен
+      // стирать это тело вместе с заголовком, как было у «Вперёд» на 14.8 с.
+      if (said.missing && !data) data = TCCard._fallback(key);
       const last = !said.partial || turn === TCCard._TURNS;
       // Карточка идущего показа опрашивает дальше и после целого ответа: поток вкладки,
       // ушедшей с ``/play``, сносится через секунды, и тело должно услышать смерть
