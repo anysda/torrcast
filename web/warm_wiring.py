@@ -51,7 +51,7 @@ def _blurbs(pictures: list[FactPicture]) -> None:
 
 def _kin(picture: FactPicture) -> None:
     """Завести родню плитки после её круга, не задерживая прогрев."""
-    RELATED.of(picture[0], picture[2] == "tv")
+    RELATED.of(picture[0], len(picture) == 3 and picture[2] == "tv")
 
 
 def _prime(pictures: list[FactPicture]) -> None:

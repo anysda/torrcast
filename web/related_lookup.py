@@ -20,6 +20,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
 from torrcast.domain.spoken_title import spoken_title
+from torrcast.usecases.facts import FactPicture
 
 #: Тот же ``FranchiseKin.of``: имя, серия ли картина, срок сети - родня; ``None`` -
 #: сеть промолчала, и это НЕ законченный ответ: в кэш ему нельзя, следующий вопрос
@@ -144,13 +145,14 @@ class RelatedLookup:
         with self._lock:
             return (title, series) in self._pending
 
-    def finish(self, pictures: list[tuple[str, int | None, str]]) -> None:
+    def finish(self, pictures: list[FactPicture]) -> None:
         """Дождаться родни видимой полки, но не дольше одного сетевого срока."""
-        for title, _year, kind in pictures:
-            self.of(title, kind == "tv")
+        asked = [(picture[0], len(picture) == 3 and picture[2] == "tv") for picture in pictures]
+        for title, series in asked:
+            self.of(title, series)
         until = time.monotonic() + TIMEOUT
         while time.monotonic() < until:
-            if not any(self.waiting(title, kind == "tv") for title, _year, kind in pictures):
+            if not any(self.waiting(title, series) for title, series in asked):
                 return
             time.sleep(0.05)
 
