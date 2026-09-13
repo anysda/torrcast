@@ -16,8 +16,10 @@ from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.tune import tune
 from torrcast.ports.progress.slot import progress
+from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
+from web.related_lookup import RelatedLookup
 from web.warm_cache import WarmCache
 
 if TYPE_CHECKING:
@@ -49,4 +51,16 @@ def _blurbs(pictures: list[FactPicture]) -> None:
 #: Один прогрев на процесс: его греет ``POST /api/seen``, из него берёт круг карточка.
 WARM: Final = WarmCache(circle=_search, blurbs=_blurbs, spawn=_daemon)
 
-__all__ = ["WARM"]
+
+def _kin(picture: FactPicture) -> None:
+    """Завести родню плитки после её круга, не задерживая прогрев."""
+    RELATED.of(picture[0], len(picture) == 3 and picture[2] == "tv")
+
+
+#: Общая карточке и прогреву родня: первый клик читает уже идущий или готовый кэш.
+RELATED: Final = RelatedLookup(
+    franchise=FACTS.franchise.of, passport=FACTS.passport.of, warm=WARM.ask
+)
+WARM.kin = _kin
+
+__all__ = ["RELATED", "WARM"]

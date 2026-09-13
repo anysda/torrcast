@@ -13,6 +13,7 @@ from torrcast.runtime.facts_wiring import FACTS
 from web.answer import Answer
 from web.request import Request
 from web.shelves_cache import ShelvesCache
+from web.warm_wiring import WARM
 
 
 def _feed(limit: int) -> list[FeedRow]:
@@ -30,7 +31,11 @@ def _feed(limit: int) -> list[FeedRow]:
 #: Кэш полок процесса - один на весь юнит показа; фон встаёт при первом же запросе,
 #: а не при импорте (см. :func:`_feed`).
 _cache = ShelvesCache(
-    feed=_feed, catalogue=torrent_catalogue, offer=hits.offer, passport=FACTS.passport.of
+    feed=_feed,
+    catalogue=torrent_catalogue,
+    offer=hits.offer,
+    passport=FACTS.passport.of,
+    warm=WARM.prepare,
 )
 
 

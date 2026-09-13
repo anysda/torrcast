@@ -15,6 +15,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from web.shelves_cache import Feed, Offer, PassportOf, ShelvesCache, Spawn
+from web.warm_cache import WarmTarget
 
 _MOMENT = datetime(2026, 9, 6, tzinfo=UTC)
 
@@ -104,6 +105,22 @@ def test_rebuild_fills_both_shelves_with_projected_tiles(tmp_path: Path) -> None
     assert set(tile) == {"key", "title", "shown", "year", "kind", "quality", "poster", "query"}
     assert tile["title"] == "Матрица"
     assert tile["shown"] == "Матрица"
+
+
+def test_rebuild_warms_the_first_eight_tiles_of_each_shelf(tmp_path: Path) -> None:
+    """Первый клик на видимой полке не становится первым заходом к индексерам."""
+    warmed: list[list[WarmTarget]] = []
+    cache = _cache(tmp_path, feed=lambda _limit: _many_rows(20))
+    cache.warm = warmed.append
+
+    cache._rebuild()
+
+    assert len(warmed) == 1
+    assert len(warmed[0]) == 16
+    assert len(warmed[0][:8]) == len(warmed[0][8:]) == 8
+    assert all(
+        query.startswith("Картина ") and key.startswith("movie:") for query, key in warmed[0]
+    )
 
 
 def _offer_with_original(records: list[JsonValue]) -> list[JsonValue]:

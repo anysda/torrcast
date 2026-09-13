@@ -192,6 +192,36 @@ def test_the_blurb_is_warmed_by_the_name_the_card_will_ask_by() -> None:
     assert batches == [[("Побег из Шоушенка", 1994, "movie")]]
 
 
+def test_the_first_picture_of_a_warmed_circle_starts_its_related_shelf() -> None:
+    """Карточка плитки получает родню до клика, а не первым долгим опросом."""
+    related: list[FactPicture] = []
+    cache = WarmCache(
+        circle=_Circle(answer=[_SHOWN]),
+        blurbs=lambda _pictures: None,
+        spawn=_sync,
+        kin=related.append,
+    )
+
+    cache.ask(["The Shawshank Redemption"])
+
+    assert related == [("Побег из Шоушенка", 1994, "movie")]
+
+
+def test_a_shelf_target_starts_the_related_shelf_of_its_own_picture() -> None:
+    """Круг поиска может поставить плитку не первой, но родня остаётся её."""
+    related: list[FactPicture] = []
+    cache = WarmCache(
+        circle=_Circle(answer=[_PLAN, _SHOWN]),
+        blurbs=lambda _pictures: None,
+        spawn=_sync,
+        kin=related.append,
+    )
+
+    cache.prepare([("The Shawshank Redemption", _SHAWSHANK.key)])
+
+    assert related == [("Побег из Шоушенка", 1994, "movie")]
+
+
 def test_a_refused_circle_does_not_stop_the_queue_behind_it() -> None:
     """Один отказ - не конец прогрева: следующая плитка экрана греется как ни в чём."""
     asked: list[str] = []

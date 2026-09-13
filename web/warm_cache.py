@@ -1,18 +1,4 @@
-"""Прогрев видимого: круг поиска и справка для плиток, которые человек уже видел.
-
-Карточка спрашивает пул раздач заново тем же кругом, что и поиск (:mod:`web.card`), и
-весь её ответ упирается в этот круг: холодная полка на стенде отвечала 2.3-12.1 с, а
-повтор того же ключа стоил столько же - кэша у круга не было вовсе. Здесь он заводится,
-и рядом с ним тот, кто дёргает круг ЗАРАНЕЕ, по плиткам, которые страница видит на
-экране (``POST /api/seen``, :mod:`web.seen`). Правил три, и все про меру:
-греется ЗАПРОС, а не плитка (у выдачи поиска он один на весь экран), живое идёт
-вперёд очереди (:meth:`WarmCache.take`), а новый экран заменяет очередь прошлого.
-Справка греется по картинам СОГРЕТОГО КРУГА, а не по надписи на плитке: карточка
-спрашивает её по имени картины, а имя это у полки другое - на стенде плитка звалась
-``The Shawshank Redemption``, а карточка искала ``Побег из Шоушенка``, и согретое по
-плитке не доставалось никому. Пакетом же потому, что источник отвечает пакетом, и
-двенадцать картин стоят там столько же, сколько одна (:class:`torrcast.usecases.facts.Facts`).
-"""
+"""Кэш кругов, справки и родни видимых плиток."""
 
 from __future__ import annotations
 
@@ -30,17 +16,8 @@ if TYPE_CHECKING:
     from torrcast.usecases.facts import FactPicture
     from torrcast.usecases.select.plan import Plan
 
-#: Сколько живёт согретый круг: экран греется за полминуты, и срок короче протухал бы
-#: до клика, а час полки (:mod:`web.shelves_cache`) велик - по этим раздачам жмут «Играть».
 TTL: Final = 300.0
-#: Сколько кругов идёт фоном разом. Круг - веер по всему пулу индексеров, и пул у фона
-#: тот же, что у живого поиска: два фоновых круга растянули живой поиск на стенде с 8.3 с
-#: до 22.5 с (медианы трёх пар, свежие запросы), один - с 8.0 с до 8.8 с. Экран из
-#: шестнадцати плиток одна рука греет около полутора минут, и это дешевле, чем втрое
-#: медленнее отвечающая строка поиска.
 WORKERS: Final = 1
-#: Потолок экрана: сорока плиток человек за раз не видит, а очередь длиннее грела бы то,
-#: до чего он ещё не долистал.
 LIMIT: Final = 40
 #: Сколько фоновый рабочий ждёт живого, прежде чем оглядеться заново.
 PATIENCE: Final = 5.0
@@ -48,11 +25,15 @@ PATIENCE: Final = 5.0
 BUSY_WAIT: Final = 30.0
 
 
-#: Кто считает круг, кто греет справку пакетом и кто уносит работу в фон; боевых
-#: троих собирает :mod:`web.warm_wiring`.
 Circle = Callable[[str], "list[Plan]"]
 Blurbs = Callable[["list[FactPicture]"], None]
 Spawn = Callable[[Callable[[], None]], None]
+Kin = Callable[["FactPicture"], None]
+WarmTarget = tuple[str, str]
+
+
+def _no_kin(_picture: FactPicture) -> None:
+    """Без проводки круг греет только справку."""
 
 
 @dataclass
@@ -69,7 +50,9 @@ class WarmCache:
     clock: Callable[[], float] = time.monotonic
     ttl: float = TTL
     workers: int = WORKERS
+    kin: Kin = _no_kin
     _plans: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
+    _targets: dict[str, str] = field(default_factory=dict, repr=False)
     _queue: list[str] = field(default_factory=list, repr=False)
     _busy: set[str] = field(default_factory=set, repr=False)
     _told: set[tuple[str, int | None]] = field(default_factory=set, repr=False)
@@ -121,6 +104,12 @@ class WarmCache:
         for _ in range(hands):
             self.spawn(self._pump)
         return waiting
+
+    def prepare(self, targets: Sequence[WarmTarget]) -> int:
+        """Назвать плитку круга: родня берётся именно у неё, а не у первой находки."""
+        with self._cond:
+            self._targets.update(dict(targets))
+        return self.ask([query for query, _key in targets])
 
     def _unasked(self, plans: list[Plan]) -> list[FactPicture]:
         """Картины круга, о которых справку ещё не спрашивали в этой жизни процесса."""
@@ -176,6 +165,11 @@ class WarmCache:
         wanted = self._unasked(plans)
         if wanted:
             self.spawn(lambda: self._warm_blurbs(wanted))
+        key = self._targets.pop(query.strip(), "")
+        picture = next(
+            (plan.picture for plan in plans if plan.picture.key == key), plans[0].picture
+        )
+        self.kin((picture.title, picture.year, picture.kind))
 
     @contextmanager
     def _hold(self) -> Iterator[None]:
@@ -190,4 +184,15 @@ class WarmCache:
                 self._cond.notify_all()
 
 
-__all__ = ["LIMIT", "PATIENCE", "TTL", "WORKERS", "Blurbs", "Circle", "Spawn", "WarmCache"]
+__all__ = [
+    "LIMIT",
+    "PATIENCE",
+    "TTL",
+    "WORKERS",
+    "Blurbs",
+    "Circle",
+    "Kin",
+    "Spawn",
+    "WarmCache",
+    "WarmTarget",
+]

@@ -30,7 +30,6 @@ from torrcast.domain.release import Release
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.state_store.slot import store
-from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
@@ -40,12 +39,13 @@ from web.card_seasons import card_seasons
 from web.episode_lookup import GRACE, EpisodeLookup
 from web.rating_score import rating_score
 from web.refusal import refusal
-from web.related_lookup import RelatedLookup
 from web.request import Request
-from web.warm_wiring import WARM
+from web.warm_wiring import RELATED, WARM
 
 #: Префикс, под которым живёт вся карточка; ключ картины - хвост пути после него.
 _PREFIX = "/api/card/"
+#: Родня общая с прогревом полок; имя остаётся подменяемым швом карточечных проб.
+_related = RELATED
 #: Заголовок, которым карточка метит недоехавшее описание, рейтинг, родню или серии.
 _PARTIAL = "X-Torrcast-Partial"
 #: Потолок долгого переспроса: переживает первый контакт разбора серий с роем, который
@@ -57,8 +57,6 @@ _TICK: Final = 0.25
 #: Разбор серий той раздачи, которую играл бы показ - один кэш на весь процесс
 #: (см. :class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
-#: Родня картины по Wikidata (§8) - тот же приём фонового кэша, что и у серий.
-_related = RelatedLookup(franchise=FACTS.franchise.of, passport=FACTS.passport.of, warm=WARM.ask)
 #: Приговор обложки - тот же, что у выдачи поиска и полки (:mod:`web.card_poster`).
 _poster = CardPoster(offer=hits.offer)
 #: Сколько долгий заход досиживает после первой перемены, пока доезжает остальное: части

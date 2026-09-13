@@ -30,20 +30,27 @@ from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
 from torrcast.usecases.shelves.popular_shelf import popular_shelf
 from web.min_tiles import FLOOR, min_tiles
 from web.shelf_tiles import Offer, PassportOf, _no_passport, shelf_tiles
+from web.warm_cache import WarmTarget
 
 #: Кто приносит ленту последних раздач; в бою - :meth:`Prowlarr.feed`.
 Feed = Callable[[int], list[FeedRow]]
 #: Кто запускает фоновую сборку; в бою - настоящий поток-демон.
 Spawn = Callable[[Callable[[], None]], None]
+Warm = Callable[[list[WarmTarget]], object]
 #: Сколько кандидатов собирается на полку сверх видимых плиток: картины без обложки
 #: на полку не попадают, а их места добираются следующими картинами с обложкой
 #: (:func:`web.shelf_tiles._covered`), и запас кандидатов - это из чего добирать.
 _CANDIDATES: Final = SHELF_LIMIT * 3
+_VISIBLE: Final = 8
 
 
 def _daemon(job: Callable[[], None]) -> None:
     """Боевой запуск фона: отдельный поток-демон, который никого не держит при выходе."""
     threading.Thread(target=job, daemon=True, name="shelves-cache").start()
+
+
+def _no_warm(_targets: list[WarmTarget]) -> None:
+    """Без проводки сборка не трогает очередь кругов."""
 
 
 @dataclass
@@ -66,6 +73,7 @@ class ShelvesCache:
     attempts: int = 3
     retry_pause: float = 10.0
     passport: PassportOf = _no_passport
+    warm: Warm = _no_warm
     spawn: Spawn = _daemon
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
@@ -131,6 +139,7 @@ class ShelvesCache:
                 return
             self._body = best
         self._save(best)
+        self.warm(_targets(best))
 
     def _build(self, rows: list[FeedRow]) -> dict[str, JsonValue]:
         """Тело ответа из строк ленты: обе полки и отметка времени сборки."""
@@ -158,9 +167,24 @@ class ShelvesCache:
             _write_atomic(self.path, body)
 
 
+def _targets(body: dict[str, JsonValue]) -> list[WarmTarget]:
+    """Прогреть только первые видимые плитки обеих полок."""
+    targets: list[WarmTarget] = []
+    for shelf in ("fresh", "popular"):
+        rows = body.get(shelf)
+        if not isinstance(rows, list):
+            continue
+        targets.extend(
+            (str(tile.get("query", "")), str(tile.get("key", "")))
+            for tile in rows[:_VISIBLE]
+            if isinstance(tile, dict)
+        )
+    return targets
+
+
 def _empty() -> dict[str, JsonValue]:
     """Полки до первой сборки: пустой список, а не выдуманная картина."""
     return {"fresh": [], "popular": [], "built_at": None}
 
 
-__all__ = ["Feed", "Offer", "PassportOf", "ShelvesCache", "Spawn"]
+__all__ = ["Feed", "Offer", "PassportOf", "ShelvesCache", "Spawn", "Warm"]
