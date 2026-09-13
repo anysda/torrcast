@@ -2,7 +2,6 @@
 
 Зовёт её :meth:`torrcast.adapters.stream_pack.packer.Packer.publish`, и только он.
 """
-
 from __future__ import annotations
 
 import contextlib
@@ -22,6 +21,7 @@ from torrcast.adapters.stream_pack.run_tape import run_tape
 from torrcast.adapters.stream_pack.slot_place import slot_place
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
 from torrcast.adapters.stream_pack.track_starts import track_starts
+from torrcast.adapters.stream_pack.unsafe_copy import unsafe_copy
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.ports.journal.slot import journal
@@ -31,8 +31,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from torrcast.adapters.stream_pack.packer_state import _State
-
-
 def _lay_out(
     state: _State,
     finished: Callable[[], bool],
@@ -82,7 +80,6 @@ def _lay_out(
         # Кусок сейчас перекодируют - подождём его (:attr:`hold`). Дальше по списку не
         # идём: выложить следующий, оставив дыру, значит увести край за неё, и запрос
         # придержанного места выглядел бы для :meth:`Feed._steer` перемоткой назад.
-        #
         # Спрашивающему отдаётся вес готовой копии: предсказание бывает неточным.
         size = 0
         with contextlib.suppress(OSError):
@@ -130,20 +127,7 @@ def _lay_out(
         # Тогда голое видео перекода безопаснее; если не влезло и оно, наружу не
         # выходит ничего. Так же здесь остаётся тяжёлая копия, которую предохранитель
         # ожидания отпустил после срыва кодировщика.
-        # Ровная сетка режет копию посреди GOP. После перекода или ужатия СЛЕВА такой
-        # кусок не декодируется: его PPS остался у исходника, а у соседа уже x264.
-        # Две копии подряд образуют один поток и безопасны. На сетке по опорным кадрам
-        # проба не нужна и не стоит ни одного ffprobe.
-        seam = after_recode if after_recode is not None else state.after_recode
-        unsafe = (
-            state.shrink is not None
-            and source is path
-            and not state.outward
-            and not bool(getattr(state.grid, "on_keys", False))
-            and keyless(path)
-            and seam is not None
-            and seam(slot)
-        )
+        unsafe = unsafe_copy(state, path, source, slot, keyless, after_recode)
         oversized = over_cap(source, state.cap)
         if oversized and how == "splice" and better is not None:
             source.unlink(missing_ok=True)
@@ -202,8 +186,7 @@ def _lay_out(
         moved = False
         with contextlib.suppress(OSError):
             os.replace(source, state.out / segment_name(slot, state.container))
-            # Край двигает только состоявшееся переименование: «выложил» - это факт
-            # этой строки, а не наличие файла в каталоге (:attr:`edge`).
+            # Край двигает состоявшееся переименование, а не файл в каталоге (:attr:`edge`).
             state.edge = max(state.edge, slot)
             moved = True
         # Остальные копии места больше не нужны: лишний файл в каталоге перекода выглядел бы для
