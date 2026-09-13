@@ -174,6 +174,8 @@ class RelatedLookup:
                 return
             seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
             tiles = [_project(record) for record in self.offer(seeds)]
+            # Родня - хвост к уже видимому экрану, не новый экран. ``ask`` заменяет
+            # очередь целиком, и здесь стирала бы плитки, которые зритель ещё читает.
             self.warm([kin.name for kin in found])
             with self._lock:
                 self._tiles[(title, series)] = (tiles, self.clock() + RETRY)

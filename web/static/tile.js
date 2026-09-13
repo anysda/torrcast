@@ -16,6 +16,10 @@ const TCTile = {
     // другого источника у неё нет, и разойтись им негде. Стоит на самой плитке, потому
     // что видно на экране именно её, а не строку списка.
     if (shape.query) tile.dataset.tcWarm = shape.query;
+    if (shape.facts && shape.key && shape.query) {
+      tile.dataset.tcWarmFacts = JSON.stringify({ query: shape.query, key: shape.key,
+        title: shape.facts.title, year: shape.facts.year, kind: shape.facts.kind });
+    }
     if (!shape.loading) {
       tile.tabIndex = 0;
       tile.dataset.tcFocusable = '1';

@@ -41,12 +41,15 @@ const TCWarm = {
       const inside = box.top < window.innerHeight && box.bottom > 0
         && box.left < window.innerWidth && box.right > 0;
       if (!inside || !box.width) continue;
-      tiles.push(node.dataset.tcWarm);
+      let tile = node.dataset.tcWarm;
+      try { tile = JSON.parse(node.dataset.tcWarmFacts || 'null') || tile; } catch (_) { /* legacy tile */ }
+      tiles.push(tile);
     }
     // Первой - горящая плитка (`nav.js`), а не последняя под курсором: ряд под горящей
     // растёт, она уезжает из-под мыши, и курсор «наводится» на соседа, а жмут по горящей.
     const lit = window.TCNav && TCNav.lit && TCNav.lit.dataset ? TCNav.lit.dataset.tcWarm : '';
-    const at = tiles.indexOf(lit || TCWarm._first);
+    const at = tiles.findIndex((tile) => (typeof tile === 'string' ? tile : tile.query)
+      === (lit || TCWarm._first));
     if (at > 0) tiles.unshift(tiles.splice(at, 1)[0]);
     return tiles;
   },

@@ -21,6 +21,7 @@ from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
 from web.related_lookup import RelatedLookup
 from web.warm_cache import WarmCache
+from web.warm_offer import offer
 from web.warm_targets import WarmTargets
 
 if TYPE_CHECKING:
@@ -61,13 +62,15 @@ def _prime(pictures: list[FactPicture]) -> None:
 
 
 #: Заказ плиток полки: круг идёт через него, чтобы родня была своей картины.
-TARGETS: Final = WarmTargets(circle=_search, prime=_prime, kin=_kin)
+TARGETS: Final = WarmTargets(circle=_search, prime=_prime, kin=_kin, spawn=_daemon)
 #: Один прогрев на процесс: его греет ``POST /api/seen``, из него берёт круг карточка.
 WARM: Final = WarmCache(circle=TARGETS.search, blurbs=_blurbs, spawn=_daemon)
 TARGETS.ask = WARM.ask
 #: Общая карточке и прогреву родня: первый клик читает уже идущий или готовый кэш.
 RELATED: Final = RelatedLookup(
-    franchise=FACTS.franchise.of, passport=FACTS.passport.of, warm=WARM.ask
+    franchise=FACTS.franchise.of,
+    passport=FACTS.passport.of,
+    warm=lambda queries: offer(WARM, queries),
 )
 
 __all__ = ["RELATED", "TARGETS", "WARM"]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
@@ -76,3 +76,23 @@ def test_a_shelf_primes_facts_before_it_queues_its_indexer_circle() -> None:
         targets.prepare([("Interstellar", _OTHER.picture.key, "Interstellar", 2014, "movie")]) == 1
     )
     assert order == ["prime [('Interstellar', 2014, 'movie')]", "ask ['Interstellar']"]
+
+
+def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
+    """`seen` не держит браузер за Wikipedia, но начинает её до клика."""
+    order: list[str] = []
+    jobs: list[Callable[[], None]] = []
+
+    def ask(queries: Sequence[str]) -> int:
+        order.append(f"ask {list(queries)}")
+        return 1
+
+    targets = WarmTargets(
+        circle=lambda _query: [], prime=lambda pictures: order.append(f"prime {pictures}"),
+        kin=lambda _picture: None, ask=ask, spawn=jobs.append,
+    )
+
+    assert targets.observe([("Luca", "movie:luca:2021", "Лука", 2021, "movie")]) == 1
+    assert order == ["ask ['Luca']"]
+    jobs.pop()()
+    assert order == ["ask ['Luca']", "prime [('Лука', 2021, 'movie')]"]

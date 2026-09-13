@@ -20,14 +20,14 @@ class _Heard:
     def __init__(self) -> None:
         self.screens: list[list[str]] = []
 
-    def ask(self, screen: list[str]) -> int:
-        self.screens.append(list(screen))
+    def observe(self, screen: list[object]) -> int:
+        self.screens.append([row[0] for row in screen if isinstance(row, tuple)])
         return len(screen)
 
 
 def _post(body: dict[str, JsonValue], monkeypatch: pytest.MonkeyPatch) -> tuple[_Heard, Answer]:
     heard = _Heard()
-    monkeypatch.setattr(web.seen, "WARM", heard)
+    monkeypatch.setattr(web.seen, "TARGETS", heard)
     return heard, seen(Request(method="POST", path="/api/seen", query={}, body=body))
 
 
@@ -56,12 +56,12 @@ def test_a_body_without_a_screen_is_refused_and_nothing_is_warmed(
 def test_rows_that_are_not_queries_are_left_at_the_door(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Строка запроса - всё, что прогрев понимает; прочее не доезжает до круга."""
+    """Строка запроса без фактов всё ещё доезжает до круга, остальное остаётся снаружи."""
     rows: JsonValue = ["kin", 12, {"query": "kin"}, None]
 
     heard, _answer = _post({"tiles": rows}, monkeypatch)
 
-    assert heard.screens == [["kin"]]
+    assert heard.screens == [["kin", "kin"]]
 
 
 def test_an_empty_screen_is_a_lawful_word_and_clears_the_queue(
@@ -79,9 +79,24 @@ def test_the_answer_speaks_the_number_the_warmer_named(
 ) -> None:
     """Число в ответе - от прогрева, а не от длины тела: у выдачи круг один на экран."""
     cache = WarmCache(circle=lambda _q: [], blurbs=lambda _p: None, spawn=lambda job: job())
-    monkeypatch.setattr(web.seen, "WARM", cache)
+
+    class _Targets:
+        def observe(self, targets: list[object]) -> int:
+            return cache.ask([row[0] for row in targets if isinstance(row, tuple)])
+
+    monkeypatch.setattr(web.seen, "TARGETS", _Targets())
     rows: JsonValue = ["kin" for _ in range(5)]
 
     answer = seen(Request(method="POST", path="/api/seen", query={}, body={"tiles": rows}))
 
     assert json.loads(answer.body) == {"queued": 1}
+
+
+def test_tile_facts_reach_the_warmer_with_its_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Видимая плитка передаёт ровно факты будущего preview, не подпись обложки."""
+    rows: JsonValue = [{"query": "Luca", "key": "movie:luca:2021", "title": "Лука",
+                        "year": 2021, "kind": "movie"}]
+
+    heard, _answer = _post({"tiles": rows}, monkeypatch)
+
+    assert heard.screens == [["Luca"]]

@@ -72,7 +72,7 @@ def card(request: Request) -> Answer:
     if not query.strip():
         return refusal(400, "no_query")
     key = request.path[len(_PREFIX) :]
-    if early := preview(request, key, WARM, _related.of):
+    if early := preview(request, key, WARM, _related):
         return early
     config = load_config()
     try:
