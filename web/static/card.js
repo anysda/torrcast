@@ -91,7 +91,10 @@ const TCCard = {
           TCCard._patient = Date.now() + TCCard._PATIENCE;
           setTimeout(() => TCCard._settle(root, key), TCCard._PATIENCE);
         }
-        TCCard._show(root, key, query, data || TCCard._fallback(key), last || TCCard._settled());
+        const shown = data || TCCard._fallback(key);
+        if (!TCCard._same(key, query, shown)) {
+          TCCard._show(root, key, query, shown, last || TCCard._settled());
+        }
         if (last && !busy) return;
       }
       // У полного ответа `wait=1` возвращается сразу. Пауза нужна только живому
