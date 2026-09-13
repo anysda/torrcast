@@ -20,6 +20,7 @@ from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
 from web.preview import _facts
+from web.prime import prime
 from web.related_lookup import RelatedLookup
 from web.warm_cache import WarmCache
 from web.warm_targets import WarmTargets
@@ -69,9 +70,26 @@ def _prime(pictures: list[FactPicture]) -> None:
             _facts.of(title, year, kind)
 
 
+def _prime_screen(pictures: list[FactPicture]) -> None:
+    """Fill the persisted home screen in one source batch before its first visit."""
+    facts = MenuFacts(pictures)
+
+    def finish() -> None:
+        facts.start()
+        facts.finish()
+        prime(RELATED, pictures)
+
+    _daemon(finish)
+
+
 #: Заказ плиток полки: круг идёт через него, чтобы родня была своей картины.
 TARGETS: Final = WarmTargets(
-    circle=_search, prime=_prime, kin=_kin, background_kin=_background_kin, spawn=_daemon
+    circle=_search,
+    prime=_prime,
+    kin=_kin,
+    prime_screen=_prime_screen,
+    background_kin=_background_kin,
+    spawn=_daemon,
 )
 #: Один прогрев на процесс: его греет ``POST /api/seen``, из него берёт круг карточка.
 WARM: Final = WarmCache(circle=TARGETS.search, blurbs=_blurbs, spawn=_daemon)

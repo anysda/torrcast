@@ -78,6 +78,25 @@ def test_a_shelf_primes_facts_before_it_queues_its_indexer_circle() -> None:
     assert order == ["prime [('Interstellar', 2014, 'movie')]", "ask ['Interstellar']"]
 
 
+def test_a_shelf_primes_every_visible_tile_in_one_screen_batch() -> None:
+    """The saved home screen must not leave fifteen first clicks cold."""
+    primed: list[list[FactPicture]] = []
+    targets = WarmTargets(
+        circle=lambda _query: [],
+        prime=lambda _pictures: None,
+        prime_screen=primed.append,
+        kin=lambda _picture: None,
+    )
+    screen = [
+        ("Up", "movie:up:2009", "Вверх", 2009, "movie"),
+        ("Luca", "movie:luca:2021", "Лука", 2021, "movie"),
+    ]
+
+    targets.prepare(screen)
+
+    assert primed == [[("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]]
+
+
 def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
     """`seen` не держит браузер за Wikipedia, но начинает её до клика."""
     order: list[str] = []

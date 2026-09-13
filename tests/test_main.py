@@ -64,6 +64,15 @@ def test_the_offline_map_warms_before_the_bridge_starts_serving() -> None:
     assert "from hass.warm_facts import warm_facts" in MAIN_SOURCE
 
 
+def test_saved_home_shelves_warm_before_the_bridge_starts_serving() -> None:
+    """The cold-start grace belongs to home cards, not only to the offline map."""
+    warm_at = MAIN_SOURCE.index("warm_saved()")
+    bridge_at = MAIN_SOURCE.index("bridge = Bridge()")
+
+    assert warm_at < bridge_at
+    assert "from web.warm_saved import warm_saved" in MAIN_SOURCE
+
+
 def test_the_package_is_named_in_every_list_that_ships_it() -> None:
     assert PYPROJECT["project"]["scripts"]["torrcast-ha"] == "hass.main:main"
     assert "hass" in PYPROJECT["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"]

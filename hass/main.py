@@ -28,6 +28,7 @@ from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain.version import __version__
 from torrcast.ports.abandon.slot import install as install_abandon
 from torrcast.runtime.wire import wire
+from web.warm_saved import warm_saved
 
 #: ``TORRCAST_HA_PORT=<порт>`` - слушать не 8479. Того же рода переопределение, что и
 #: ``TORRCAST_STATE``: щуп на занятой машине не имеет права занять боевой порт.
@@ -54,6 +55,9 @@ def main() -> int:
     # Долгий процесс платит ленивый разбор офлайн-карты один раз, на старте, а не на
     # первом же поиске, которому она понадобится (:func:`warm_facts`, TC-1126).
     warm_facts()
+    # The saved home shelves are visible immediately after a cold restart.  Their
+    # descriptions and franchise shelves must use the same idle startup window.
+    warm_saved()
     bridge = Bridge()
     # Про отказ человека знает только мост: у консоли отказываться некому. Назначается
     # это здесь, в композиционном корне, а не самим мостом.

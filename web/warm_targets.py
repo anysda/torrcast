@@ -46,6 +46,7 @@ class WarmTargets:
     circle: Circle
     prime: Pictures
     kin: Kin
+    prime_screen: Pictures | None = None
     background_kin: Kin | None = None
     ask: Ask = _no_ask
     spawn: Spawn = _daemon
@@ -74,7 +75,7 @@ class WarmTargets:
         pictures: list[FactPicture] = [
             (title, year, kind) for _query, _key, title, year, kind in targets
         ]
-        self.prime(pictures[:RELATED_LIMIT])
+        (self.prime_screen or self.prime)(pictures)
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
         return self.ask([query for query, *_rest in targets])

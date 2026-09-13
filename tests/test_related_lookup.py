@@ -7,6 +7,7 @@ from collections.abc import Callable
 from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.json_value import JsonValue
+from web.prime import prime
 from web.related_lookup import SILENT, RelatedLookup
 
 _ONE = Kin("Q1", "Гарри Поттер и Тайная комната", 2002)
@@ -192,6 +193,16 @@ def test_a_pending_build_is_not_started_twice_for_the_same_title() -> None:
     lookup.of("Гарри Поттер и философский камень", False)
 
     assert len(spawned) == 1
+
+
+def test_a_saved_screen_starts_each_related_shelf_without_waiting() -> None:
+    """Startup primes all visible cards rather than picking only the first one."""
+    spawned: list[Callable[[], None]] = []
+    lookup = RelatedLookup(franchise=lambda *_a: [], offer=_passthrough, spawn=spawned.append)
+
+    prime(lookup, [("Вверх", 2009, "movie"), ("Лука", 2021, "movie")])
+
+    assert len(spawned) == 2
 
 
 def test_the_poster_offer_decorates_tiles_the_same_way_as_the_shelves() -> None:
