@@ -77,6 +77,22 @@ def test_a_row_judged_by_previous_rules_is_judged_again() -> None:
     assert _cached_facts(unmarked, [("Дюна", 2021)], now) == {}
 
 
+def test_a_former_negative_row_with_a_rating_is_retried() -> None:
+    """TC-1245: a former HTTP failure must not keep a card empty after restart."""
+    now = time.time()
+    poisoned: dict[str, Any] = {
+        "Одиссея|2026": {
+            "about": "",
+            "rating": "IMDb 8.4",
+            "runtime": "",
+            "empty": now,
+            "rules": 6,
+        }
+    }
+
+    assert _cached_facts(poisoned, [("Одиссея", 2026)], now) == {}
+
+
 def test_a_row_judged_by_current_rules_is_taken_without_a_walk() -> None:
     """Ряд нынешнего номера лежит как лежал: пересуд без смены правил стоил бы сети."""
     now = time.time()

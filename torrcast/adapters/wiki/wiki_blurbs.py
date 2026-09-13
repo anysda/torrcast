@@ -94,7 +94,9 @@ class WikiBlurbs:
         for host in dict.fromkeys([WIKI_HOST, wiki_host(tongue())]):
             self.client.warm(host)
         try:
-            candidates, payload, answered = wiki_extracts(self.client, wanted, timeout, kinds)
+            candidates, payload, answered, missing = wiki_extracts(
+                self.client, wanted, timeout, kinds
+            )
         except OSError:
             # Википедия и локальная оценка друг от друга не зависят. Сетевой отказ не
             # вправе выбрасывать уже найденные по точным имени, году и типу IMDb-id.
@@ -115,6 +117,11 @@ class WikiBlurbs:
         scores, local_ids = in_time
         about, entities, linked = _read_pages(payload, candidates, set(local_ids), kinds)
         about, answered = spoken_blurbs(self.client, about, linked, answered, timeout)
+        # A response that merely failed our article gates is not Wikipedia saying there
+        # is no article.  Only an explicit ``missing`` reply for every candidate may
+        # finish a card empty or persist an ``empty`` row.
+        missing &= answered
+        settled = set(about) | missing
         if ready is not None:
             # Первым шагом едет ВСЁ, что уже на руках, а не только картины со статьёй:
             # оценка лежит в офлайн-карте и приехала, пока шла первая волна. Придержи её
@@ -126,7 +133,7 @@ class WikiBlurbs:
                     rating=(
                         f"IMDb {scores[local_ids[key]]}" if local_ids.get(key) in scores else ""
                     ),
-                    missing=key in answered and not about.get(key),
+                    missing=key in missing,
                 )
                 for key in wanted
             }
@@ -146,11 +153,11 @@ class WikiBlurbs:
                     else ""
                 ),
                 runtime=hms(minutes),
-                missing=key in answered and not about.get(key),
+                missing=key in missing,
             )
             if fact:
                 out[key] = fact
-        return out, answered
+        return out, settled
 
     def ids(self, items: list[str], timeout: float) -> dict[str, tuple[str, int]]:
         """Q-идентификаторы → (идентификатор IMDb, минуты). Один запрос на все картины.

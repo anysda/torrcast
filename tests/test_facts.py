@@ -57,7 +57,7 @@ def test_an_answered_emptiness_is_told_apart_from_a_reference_that_never_came() 
     facts = Facts([blank], budget=0.0)
     facts.start()
 
-    assert facts.ready(*blank) == Fact(), "статьи нет - справка пуста"
+    assert facts.ready(*blank) == Fact(missing=True), "статьи нет - справка пуста"
     assert facts.answered(*blank), "источник ответил: статьи нет, и переспрашивать нечего"
     assert not facts.answered("Моана", 2016), "про неё не спрашивали - ответа нет"
 

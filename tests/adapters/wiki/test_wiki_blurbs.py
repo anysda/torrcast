@@ -39,7 +39,7 @@ def _extracts(
     dict[tuple[str, int | None], str],
     set[tuple[str, int | None]],
 ]:
-    candidates, payload, answered = wiki_extracts(client, wanted, timeout)
+    candidates, payload, answered, _missing = wiki_extracts(client, wanted, timeout)
     about, entities, _ = _read_pages(payload, candidates)
     return about, entities, answered
 
@@ -392,7 +392,11 @@ def test_a_rating_without_an_article_rides_the_first_step_too(_russian_product: 
     def answer(host: str, path: str, params: dict[str, str]) -> Any:
         if host == WIKIDATA_HOST:
             raise OSError("Wikidata молчит")
-        return {"query": {"pages": [{"title": key[0], "missing": True}]}}
+        return {
+            "query": {
+                "pages": [{"title": name, "missing": True} for name in params["titles"].split("|")]
+            }
+        }
 
     class Catalogue:
         @staticmethod
@@ -409,3 +413,62 @@ def test_a_rating_without_an_article_rides_the_first_step_too(_russian_product: 
     ).fetch([key], ready=ready.append, kinds={key: "movie"})
 
     assert ready == [{key: Fact(rating="IMDb 7.0", missing=True)}]
+
+
+def test_an_api_error_never_becomes_a_cached_missing_article(_russian_product: None) -> None:
+    """A JSON error body is a failed source request, not a negative Wikipedia fact."""
+    key = ("Одиссея", 2026)
+
+    class Catalogue:
+        @staticmethod
+        def ids(
+            pictures: list[tuple[str, int | None, str]],
+        ) -> dict[tuple[str, int | None], str]:
+            assert pictures == [(key[0], key[1], "movie")]
+            return {key: "tt15239678"}
+
+    ready: list[dict[tuple[str, int | None], Fact]] = []
+    found, answered = WikiBlurbs(
+        FakeJsonClient(lambda _host, _path, _params: {"error": {"code": "maxlag"}}),
+        FakeRatingDump(lambda: {"tt15239678": "8.4"}),
+        Catalogue(),
+    ).fetch([key], ready=ready.append, kinds={key: "movie"})
+
+    assert ready == []
+    assert found == {key: Fact(rating="IMDb 8.4")}
+    assert answered == set()
+
+
+def test_an_existing_unfit_article_is_not_a_negative_source_reply(_russian_product: None) -> None:
+    """Wikipedia knowing another work under the name still leaves the picture retryable."""
+    key = ("Одиссея", 2026)
+
+    def answer(_host: str, _path: str, params: dict[str, str]) -> Any:
+        return {
+            "query": {
+                "pages": [
+                    (
+                        {"title": name, "extract": "«Одиссея» — древнегреческая поэма."}
+                        if name == key[0]
+                        else {"title": name, "missing": True}
+                    )
+                    for name in params["titles"].split("|")
+                ]
+            }
+        }
+
+    class Catalogue:
+        @staticmethod
+        def ids(
+            _pictures: list[tuple[str, int | None, str]],
+        ) -> dict[tuple[str, int | None], str]:
+            return {key: "tt15239678"}
+
+    ready: list[dict[tuple[str, int | None], Fact]] = []
+    found, answered = WikiBlurbs(
+        FakeJsonClient(answer), FakeRatingDump(lambda: {"tt15239678": "8.4"}), Catalogue()
+    ).fetch([key], ready=ready.append, kinds={key: "movie"})
+
+    assert ready == [{key: Fact(rating="IMDb 8.4")}]
+    assert found == {key: Fact(rating="IMDb 8.4")}
+    assert answered == set()
