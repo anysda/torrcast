@@ -124,9 +124,24 @@ const TCCard = {
     // до и после подмены.
     const stood = document.activeElement;
     const held = body.contains(stood) ? stood.className : '';
-    body.replaceWith(TCCard._body(data, key, query, settled));
+    const next = TCCard._body(data, key, query, settled);
+    TCCard._keepPoster(body, next);
+    body.replaceWith(next);
     TCCard._shown = { key, query, data };
     if (held) TCCard._standAgain(root, held);
+  },
+
+  // Добор меняет кнопки и метку просмотра, но та же обложка не должна мигать и
+  // повторно ходить в сеть. Переносим ЕЁ узел только при том же адресе: новая
+  // картинка всё же обязана встать новой.
+  _keepPoster(body, next) {
+    const was = body.querySelector('.tc-detail-poster');
+    const becomes = next.querySelector('.tc-detail-poster');
+    const oldImg = was && was.querySelector('img');
+    const newImg = becomes && becomes.querySelector('img');
+    if (was && becomes && oldImg && newImg && oldImg.currentSrc === newImg.src) {
+      becomes.replaceWith(was);
+    }
   },
 
   // Вернуть фокус туда же, где он стоял до подмены тела; такой кнопки в новом теле нет -
