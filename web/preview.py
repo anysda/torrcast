@@ -81,7 +81,8 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     year = _year(request.query.get("year", ""))
     if not title or kind not in {"movie", "tv"} or year is None:
         return None
-    warm.ask([request.query["query"]])
+    hint = getattr(warm, "hint", warm.ask)
+    hint(request.query["query"])
     series = kind == "tv"
     facts = _facts.of(title, year, kind)
     fact = facts.ready(title, year)

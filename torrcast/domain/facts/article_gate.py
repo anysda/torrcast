@@ -12,7 +12,6 @@ from torrcast.domain.facts.patterns import (
     _TITLED_RE,
 )
 from torrcast.domain.facts.sentence import sentence
-from torrcast.domain.facts.unhatted import unhatted
 
 
 def _about_cinema(heading: str, extract: str) -> bool:

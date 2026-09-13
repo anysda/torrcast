@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -25,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.torrcast_error import TorrcastError
+from web.warm_priority import _hint, _warm_blurbs
 
 if TYPE_CHECKING:
     from torrcast.usecases.facts import FactPicture
@@ -71,6 +71,7 @@ class WarmCache:
     workers: int = WORKERS
     _plans: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
     _queue: list[str] = field(default_factory=list, repr=False)
+    _urgent: list[str] = field(default_factory=list, repr=False)
     _busy: set[str] = field(default_factory=set, repr=False)
     _told: set[tuple[str, int | None]] = field(default_factory=set, repr=False)
     _running: int = field(default=0, repr=False)
@@ -86,7 +87,9 @@ class WarmCache:
         """
         key = query.strip()
         with self._cond:
-            self._cond.wait_for(lambda: key not in self._busy, timeout=BUSY_WAIT)
+            self._cond.wait_for(
+                lambda: key not in self._busy and key not in self._urgent, timeout=BUSY_WAIT
+            )
         if (ready := self.ready(query)) is not None:
             return ready
         with self._hold():
@@ -114,13 +117,18 @@ class WarmCache:
             if query and query not in queries and self.ready(query) is None:
                 queries.append(query)
         with self._cond:
-            self._queue = [query for query in queries if query not in self._busy]
+            self._queue = [
+                query for query in queries if query not in self._busy and query not in self._urgent
+            ]
             waiting = len(self._queue)
             hands = max(0, min(self.workers - self._running, waiting))
             self._running += hands
         for _ in range(hands):
             self.spawn(self._pump)
         return waiting
+
+    def hint(self, query: str) -> int:
+        return _hint(self, query)
 
     def _unasked(self, plans: list[Plan]) -> list[FactPicture]:
         """Картины круга, о которых справку ещё не спрашивали в этой жизни процесса."""
@@ -134,20 +142,15 @@ class WarmCache:
                 wanted.append((picture.title, picture.year, picture.kind))
         return wanted
 
-    def _warm_blurbs(self, wanted: list[FactPicture]) -> None:
-        """Отказ источника справки не роняет прогрев: экран остаётся без описаний."""
-        with contextlib.suppress(TorrcastError, OSError):
-            self.blurbs(wanted)
-
     def _pump(self) -> None:
         """Брать из очереди, пока она не кончится, уступая дорогу живому запросу."""
         try:
             while True:
                 self._quiet()
                 with self._cond:
-                    if not self._queue:
+                    if not self._urgent and not self._queue:
                         return
-                    query = self._queue.pop(0)
+                    query = self._urgent.pop(0) if self._urgent else self._queue.pop(0)
                     self._busy.add(query)
                 try:
                     plans = self.circle(query)
@@ -175,7 +178,7 @@ class WarmCache:
             self._plans[query.strip()] = (plans, self.clock() + self.ttl)
         wanted = self._unasked(plans)
         if wanted:
-            self.spawn(lambda: self._warm_blurbs(wanted))
+            self.spawn(lambda: _warm_blurbs(self, wanted))
 
     @contextmanager
     def _hold(self) -> Iterator[None]:

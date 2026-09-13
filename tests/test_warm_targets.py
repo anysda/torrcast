@@ -106,7 +106,7 @@ def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
 
 
 def test_an_observed_screen_limits_related_lookups_to_its_visible_row() -> None:
-    """Descriptions batch together, while independent Wikidata walks have a firm ceiling."""
+    """Only the hovered tile takes background source capacity from an open card."""
     kin: list[FactPicture] = []
     jobs: list[Callable[[], None]] = []
     targets = WarmTargets(
@@ -119,4 +119,4 @@ def test_an_observed_screen_limits_related_lookups_to_its_visible_row() -> None:
 
     targets.observe(screen * 5)
 
-    assert kin == [(row[2], row[3], row[4]) for row in (screen * 5)[:8]]
+    assert kin == [(screen[0][2], screen[0][3], screen[0][4])]

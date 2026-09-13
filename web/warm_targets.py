@@ -24,9 +24,9 @@ Pictures = Callable[["list[FactPicture]"], None]
 Kin = Callable[["FactPicture"], None]
 Ask = Callable[[Sequence[str]], int]
 Spawn = Callable[[Callable[[], None]], None]
-#: Восемь видимых плиток платят паспорт и Wikidata до клика. ``warm.js`` поднимает
-#: плитку под курсором первой; открытую карточку лимит не касается (:mod:`web.card`).
-RELATED_LIMIT: Final = 8
+#: One hovered tile may use the background sources. A wider fan-out left the opened
+#: card competing with eight passports and two overlapping Wikipedia batches.
+RELATED_LIMIT: Final = 1
 
 
 def _no_ask(_screen: Sequence[str]) -> int:
@@ -66,8 +66,11 @@ class WarmTargets:
         return plans
 
     def prepare(self, targets: Sequence[WarmTarget]) -> int:
-        """Наполнить сведения плиток, потом поставить их круги в очередь."""
-        self.prime([(title, year, kind) for _query, _key, title, year, kind in targets])
+        """Start facts for the first tile, then queue its indexer circles."""
+        pictures: list[FactPicture] = [
+            (title, year, kind) for _query, _key, title, year, kind in targets
+        ]
+        self.prime(pictures[:RELATED_LIMIT])
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
         return self.ask([query for query, *_rest in targets])
@@ -85,12 +88,11 @@ class WarmTargets:
             if title and year is not None and kind in {"movie", "tv"}
         ]
         if pictures:
-            # Описания приходят одним пакетом, паспорта - нет. Берём видимый ряд, не
-            # больше восьми: ``warm.js`` ставит плитку под курсором первой, так что
-            # повторный экран догревает её, не превращая полку из двадцати в шторм.
+            # `warm.js` moves the hovered tile first. Leave source capacity for the
+            # facts and related shelf of the card which is about to open.
             for picture in pictures[:RELATED_LIMIT]:
                 self.kin(picture)
-            self.spawn(lambda: self.prime(pictures))
+            self.spawn(lambda: self.prime(pictures[:RELATED_LIMIT]))
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
         return self.ask([query for query, *_rest in targets])

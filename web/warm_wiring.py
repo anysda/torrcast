@@ -19,6 +19,7 @@ from torrcast.ports.progress.slot import progress
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
+from web.preview import _facts
 from web.related_lookup import RelatedLookup
 from web.warm_cache import WarmCache
 from web.warm_targets import WarmTargets
@@ -55,8 +56,12 @@ def _kin(picture: FactPicture) -> None:
 
 
 def _prime(pictures: list[FactPicture]) -> None:
-    """Досидеть пакет справки видимой полки, не задерживая её публикацию."""
-    _blurbs(pictures)
+    """Start the hovered tile's facts shared with the card that opens it."""
+    for picture in pictures:
+        title, year = picture[:2]
+        kind = picture[2] if len(picture) == 3 else "movie"
+        if year is not None:
+            _facts.of(title, year, kind)
 
 
 #: Заказ плиток полки: круг идёт через него, чтобы родня была своей картины.
