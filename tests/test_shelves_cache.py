@@ -119,8 +119,11 @@ def test_rebuild_warms_the_first_eight_tiles_of_each_shelf(tmp_path: Path) -> No
     assert len(warmed[0]) == 16
     assert len(warmed[0][:8]) == len(warmed[0][8:]) == 8
     assert all(
-        query.startswith("Картина ") and key.startswith("movie:") and title.startswith("Картина ")
-        and year == 2026 and kind == "movie"
+        query.startswith("Картина ")
+        and key.startswith("movie:")
+        and title.startswith("Картина ")
+        and year == 2026
+        and kind == "movie"
         for query, key, title, year, kind in warmed[0]
     )
 
