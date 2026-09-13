@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
@@ -58,8 +59,6 @@ class WarmTargets:
     ask: Ask = _no_ask
     spawn: Spawn = _daemon
     _keys: dict[str, str] = field(default_factory=dict, repr=False)
-    _passports: list[FactPicture] = field(default_factory=list, repr=False)
-    _passport_running: bool = field(default=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def search(self, query: str) -> list[Plan]:
@@ -98,44 +97,18 @@ class WarmTargets:
             for _query, _key, title, year, kind in targets
             if title and year is not None and kind in {"movie", "tv"}
         ]
-        self._queue_passports(pictures)
         if pictures and source:
             # `warm.js` moves the hovered tile first. Leave source capacity for the
             # facts and related shelf of the card which is about to open.
             for picture in pictures[:RELATED_LIMIT]:
                 self.kin(picture)
             self.spawn(lambda: self.prime(pictures[:RELATED_LIMIT]))
+        elif pictures:
+            for picture in pictures[:PASSPORT_LIMIT]:
+                self.spawn(partial(self.passport, picture))
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
         return self.ask([query for query, *_rest in targets])
-
-    def _queue_passports(self, pictures: list[FactPicture]) -> None:
-        """Согреть паспорта экрана по одному, начиная с наведённой плитки.
-
-        У каждого паспорта свой поход в Wikipedia. Восемь потоков сразу выбивали
-        источник в молчание; последовательность сохраняет Q-id видимого экрана и
-        оставляет единственную сетевую руку открытой карточке.
-        """
-        wanted = list(dict.fromkeys(pictures[:PASSPORT_LIMIT]))
-        with self._lock:
-            self._passports = wanted
-            if self._passport_running:
-                return
-            self._passport_running = True
-        self.spawn(self._pump_passports)
-
-    def _pump_passports(self) -> None:
-        """Снять текущий экран паспортов, уступая новому экрану до следующего похода."""
-        while True:
-            with self._lock:
-                if not self._passports:
-                    self._passport_running = False
-                    return
-                picture = self._passports.pop(0)
-            try:
-                self.passport(picture)
-            except Exception:
-                continue
 
 
 __all__ = ["WarmTarget", "WarmTargets"]
