@@ -43,11 +43,6 @@ const TCTile = {
     if (shape.progress !== undefined && shape.progress !== null) {
       frame.appendChild(TCTile._progress(shape.progress));
     }
-    for (const corner of ['tl', 'tr', 'bl', 'br']) {
-      const mark = document.createElement('div');
-      mark.className = 'tc-tile-corner tc-tile-corner--' + corner;
-      frame.appendChild(mark);
-    }
 
     tile.appendChild(TCTile._caption(shape));
 
