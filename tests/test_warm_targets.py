@@ -97,7 +97,7 @@ def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
 
     assert targets.observe([("Luca", "movie:luca:2021", "Лука", 2021, "movie")]) == 1
     assert order == ["kin ('Лука', 2021, 'movie')", "ask ['Luca']"]
-    jobs.pop(0)()
+    jobs.pop()()
     assert order == [
         "kin ('Лука', 2021, 'movie')",
         "ask ['Luca']",
@@ -122,8 +122,8 @@ def test_an_observed_screen_limits_related_lookups_to_its_visible_row() -> None:
     assert kin == [(screen[0][2], screen[0][3], screen[0][4])]
 
 
-def test_the_first_visible_tile_primes_facts_before_its_franchise_lane() -> None:
-    """The likeliest first click starts its blurb without taking a whole screen's sources."""
+def test_a_visible_but_unhovered_screen_queues_related_after_its_response() -> None:
+    """Visibility returns before its own franchise lane touches the fact sources."""
     order: list[str] = []
     jobs: list[Callable[[], None]] = []
 
@@ -142,10 +142,8 @@ def test_the_first_visible_tile_primes_facts_before_its_franchise_lane() -> None
     targets.observe([("Luca", "movie:luca:2021", "Лука", 2021, "movie")], source=False)
 
     assert order == ["ask"]
-    jobs.pop(0)()
-    assert order == ["ask", "prime"]
     jobs.pop()()
-    assert order == ["ask", "prime", "kin"]
+    assert order == ["ask", "kin"]
 
 
 def test_a_visible_screen_finishes_one_franchise_at_a_time_before_a_hover() -> None:
