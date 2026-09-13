@@ -48,13 +48,29 @@ const TCPlayerBox = {
     player._ordered = sessionStorage.getItem(TCPlayerBox.STALE) !== null;
     TCPlayerBox.dropStale();
     player._key = box.key;
-    player._url = box.url;
+    player._url = TCPlayerBox.near(box.url);
     // Новая серия имеет право на свою плашку отсчёта: она уже не та, что доигралa.
     player._advanced = false;
     player._framed = false;  // кадра этого ящика ещё не было: панели нечего делать
     player._screenBuffering();
-    player._attach(box.url, box.at || 0);
+    player._attach(player._url, box.at || 0);
     return true;
+  },
+
+  // Адрес потока в ящике собран для ТВ: наш адрес В СТОРОНУ ТЕЛЕВИЗОРА
+  // (`hls_base.py`). У машины с ТВ в отдельной сети это адрес той сети, и вкладка из
+  // домашней его не достаёт (прод `.60` 13-09-2026: `192.168.100.60:8080` - таймаут,
+  // тот же поток по `192.168.1.60:8080` - 200 за 8 мс). Раздача слушает все адреса, так
+  // что вкладка берёт поток с того узла, откуда открыла страницу. Имя в адресе -
+  // заданный руками ``hls_base_url``, его не трогаем.
+  near(url) {
+    try {
+      const u = new URL(url, location.href);
+      if (/^[\d.]+$/.test(u.hostname) && location.hostname) u.hostname = location.hostname;
+      return u.href;
+    } catch (e) {
+      return url;
+    }
   },
 
   // Режим «на ТВ» держит ПРОДУКТ, а не память вкладки: до сих пор он жил только в ней и
