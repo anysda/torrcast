@@ -184,6 +184,9 @@ const TCRouter = {
 
   render() {
     const root = document.getElementById('tc-root');
+    // Прежний экран уходит в память страницы ДО смены (`kept.js`): возврат на него
+    // встанет готовыми узлами, а не сборкой заново.
+    TCKept.stash(root);
     const path = location.pathname;
     if (path.startsWith('/card/')) {
       const key = decodeURIComponent(path.slice('/card/'.length));
