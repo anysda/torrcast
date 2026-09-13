@@ -54,8 +54,10 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     while True:
         told = facts.answered(title, year)
         kin = related.of(title, series)
-        coming = kin is None and related.waiting(title, series)
-        if (told and not coming) or time.monotonic() >= until:
+        # Справка и родня приходят разными походами. Полученная справка не должна
+        # стоять за медленной роднёй: ``related=None`` оставляет полку частичной и
+        # следующий долгий ответ дорисует её отдельно.
+        if told or time.monotonic() >= until:
             break
         time.sleep(_TICK)
     fact = facts.ready(title, year)
