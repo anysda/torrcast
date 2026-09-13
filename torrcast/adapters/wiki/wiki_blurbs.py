@@ -126,6 +126,7 @@ class WikiBlurbs:
                     rating=(
                         f"IMDb {scores[local_ids[key]]}" if local_ids.get(key) in scores else ""
                     ),
+                    missing=key in answered and not about.get(key),
                 )
                 for key in wanted
             }
@@ -145,6 +146,7 @@ class WikiBlurbs:
                     else ""
                 ),
                 runtime=hms(minutes),
+                missing=key in answered and not about.get(key),
             )
             if fact:
                 out[key] = fact

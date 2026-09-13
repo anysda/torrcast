@@ -408,4 +408,4 @@ def test_a_rating_without_an_article_rides_the_first_step_too(_russian_product: 
         Catalogue(),
     ).fetch([key], ready=ready.append, kinds={key: "movie"})
 
-    assert ready == [{key: Fact(rating="IMDb 7.0")}]
+    assert ready == [{key: Fact(rating="IMDb 7.0", missing=True)}]

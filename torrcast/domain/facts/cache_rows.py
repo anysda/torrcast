@@ -149,6 +149,7 @@ def _fact_rows(
             "about": fact.about,
             "rating": fact.rating,
             "runtime": fact.runtime,
+            **({"empty": now} if fact.missing else {}),
             "rules": FACTS_RULES,
         }
     for key in misses:

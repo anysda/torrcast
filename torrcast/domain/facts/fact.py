@@ -19,4 +19,4 @@ class Fact:
     missing: bool = False
 
     def __bool__(self) -> bool:
-        return bool(self.about or self.rating or self.runtime)
+        return bool(self.about or self.rating or self.runtime or self.missing)
