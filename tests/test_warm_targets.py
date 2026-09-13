@@ -90,12 +90,16 @@ def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
     targets = WarmTargets(
         circle=lambda _query: [],
         prime=lambda pictures: order.append(f"prime {pictures}"),
-        kin=lambda _picture: None,
+        kin=lambda picture: order.append(f"kin {picture}"),
         ask=ask,
         spawn=jobs.append,
     )
 
     assert targets.observe([("Luca", "movie:luca:2021", "Лука", 2021, "movie")]) == 1
-    assert order == ["ask ['Luca']"]
+    assert order == ["kin ('Лука', 2021, 'movie')", "ask ['Luca']"]
     jobs.pop()()
-    assert order == ["ask ['Luca']", "prime [('Лука', 2021, 'movie')]"]
+    assert order == [
+        "kin ('Лука', 2021, 'movie')",
+        "ask ['Luca']",
+        "prime [('Лука', 2021, 'movie')]",
+    ]

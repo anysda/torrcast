@@ -82,6 +82,10 @@ class WarmTargets:
             if title and year is not None and kind in {"movie", "tv"}
         ]
         if pictures:
+            # Родня не зависит ни от пакета описаний, ни от круга раздач. Начать её
+            # сейчас - значит оплатить Wikidata, пока человек рассматривает полку.
+            for picture in pictures:
+                self.kin(picture)
             self.spawn(lambda: self.prime(pictures))
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})

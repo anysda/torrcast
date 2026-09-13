@@ -26,8 +26,7 @@ from torrcast.usecases.facts import FactPicture
 #: сеть промолчала, и это НЕ законченный ответ: в кэш ему нельзя, следующий вопрос
 #: заводит новый добор (:meth:`RelatedLookup._build`).
 Franchise = Callable[[str, bool, float], list[Kin] | None]
-#: Тот же ``Passport.of``: паспорт родни латиницей - Wikidata своего не называет
-#: (:func:`_seed`).
+#: Тот же ``Passport.of``: паспорт родни латиницей, которого Wikidata не называет (:func:`_seed`).
 PassportOf = Callable[[str, bool, float], Origin]
 #: Тот же ``HitPosters.offer``: те же записи, с обложкой у тех, кому она нашлась.
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
@@ -173,10 +172,13 @@ class RelatedLookup:
             if found is None:
                 return
             seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
-            tiles = [_project(record) for record in self.offer(seeds)]
-            self.warm(found)
+            # Названия и годы уже пришли от Wikidata. Приговор постеров - отдельная сеть,
+            # и держать правильную полку до его ответа значило бы платить её при клике.
+            tiles = [_project(record) for record in seeds]
             with self._lock:
                 self._tiles[(title, series)] = (tiles, self.clock() + RETRY)
+            self.warm(found)
+            tiles[:] = [_project(record) for record in self.offer(seeds)]
         except Exception:
             found = None
         finally:

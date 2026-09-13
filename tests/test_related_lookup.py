@@ -200,6 +200,25 @@ def test_the_poster_offer_decorates_tiles_the_same_way_as_the_shelves() -> None:
     assert "original" not in tile
 
 
+def test_correct_related_titles_arrive_before_a_slow_poster_offer() -> None:
+    """Постеры украшают готовую полку, но не держат её названия у клика."""
+    offered: list[list[JsonValue]] = []
+
+    def _slow_offer(records: list[JsonValue]) -> list[JsonValue]:
+        offered.append(records)
+        raise OSError("poster source is still slow")
+
+    lookup = RelatedLookup(franchise=lambda *_args: [_ONE], offer=_slow_offer, spawn=_sync)
+
+    related = lookup.of("Гарри Поттер и философский камень", False)
+
+    assert related is not None
+    tile = related[0]
+    assert isinstance(tile, dict)
+    assert tile["poster"] is None
+    assert len(offered) == 1
+
+
 def test_the_related_titles_are_warmed_before_the_tiles_are_drawn() -> None:
     """Соседняя серия берёт уже согретый круг, не ждёт обхода плиток в браузере."""
     warmed: list[list[Kin]] = []
