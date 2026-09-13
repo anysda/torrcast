@@ -12,7 +12,9 @@ from web.warm_cache import TTL, WORKERS, WarmCache
 def test_the_process_gets_one_assembled_warmer() -> None:
     """Единственное место, где прогрев видит свои службы, - эта проводка."""
     assert isinstance(wiring.WARM, WarmCache)
-    assert wiring.WARM.circle is wiring._search
+    assert wiring.WARM.circle == wiring.TARGETS.search
+    assert wiring.TARGETS.circle is wiring._search
+    assert wiring.TARGETS.ask == wiring.WARM.ask
     assert wiring.WARM.blurbs is wiring._blurbs
     assert wiring.WARM.spawn is wiring._daemon
 
