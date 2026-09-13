@@ -18,6 +18,9 @@ const TCCard = {
   _tvSaid: null,
   // Сколько ждать, пока каст поднимется: холодный рой - это десятки секунд.
   _CAST_WAIT: 150000,
+  // Идущий показ меняет карточку и после первых доборов: не крутить пустой круг
+  // запросов, но и не оставить «Завершить» после того, как вкладка ушла.
+  _PLAY_POLL: 1000,
   // Номер живого захода на экран: возврат на карточку гасит опросы прошлого визита,
   // иначе их добор подменял бы тело у экрана, который человек видит сейчас.
   _visit: 0,
@@ -63,7 +66,7 @@ const TCCard = {
     const mine = TCCard._visit;
     TCCard._patient = quiet ? Date.now() : 0;
     let data = null;
-    for (let turn = 0; turn <= TCCard._TURNS; turn += 1) {
+    for (let turn = 0; ; turn += 1) {
       if (mine !== TCCard._visit || !TCCard._here(root, key)) return;
       const said = await TCApi.card(key, query, turn > 0);
       if (mine !== TCCard._visit || !TCCard._here(root, key)) return;
@@ -82,14 +85,17 @@ const TCCard = {
           TCCard._show(root, key, query, data, true);
         }
         if (last && !busy) return;
-        continue;
+      } else {
+        if (data && !TCCard._patient) {
+          TCCard._patient = Date.now() + TCCard._PATIENCE;
+          setTimeout(() => TCCard._settle(root, key), TCCard._PATIENCE);
+        }
+        TCCard._show(root, key, query, data || TCCard._fallback(key), last || TCCard._settled());
+        if (last && !busy) return;
       }
-      if (data && !TCCard._patient) {
-        TCCard._patient = Date.now() + TCCard._PATIENCE;
-        setTimeout(() => TCCard._settle(root, key), TCCard._PATIENCE);
-      }
-      TCCard._show(root, key, query, data || TCCard._fallback(key), last || TCCard._settled());
-      if (last && !busy) return;
+      // У полного ответа `wait=1` возвращается сразу. Пауза нужна только живому
+      // показу, иначе пять таких ответов исчерпывали счётчик за один миг.
+      if (busy) await new Promise((done) => setTimeout(done, TCCard._PLAY_POLL));
     }
   },
 
