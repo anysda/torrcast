@@ -6,14 +6,6 @@
 
 const TCCard = {
   _voiceKey: 'tc-voice',
-  // Сколько долгих переспросов (`wait=1`) карточка делает после первого ответа. Прежний
-  // опрос раз в 2 с сдавался после пятого захода, и скелет описания оставался навсегда;
-  // долгий заход возвращается только с изменившимся телом.
-  _TURNS: 4,
-  // Сколько после первого тела описание стоит скелетом: дальше честное «нет описания»,
-  // а доехавшее позже встаёт на его место со следующим ответом.
-  _PATIENCE: 6000,
-  _patient: 0,
   // Ход запуска на ТВ из этой карточки: переживает подмену тела доборами.
   _tvSaid: null,
   // Сколько ждать, пока каст поднимется: холодный рой - это десятки секунд.
@@ -70,7 +62,6 @@ const TCCard = {
   async _load(root, key, query, quiet, facts) {
     const mine = TCCard._visit;
     const load = ++TCCard._loadId;
-    TCCard._patient = quiet ? Date.now() : 0;
     let data = null;
     for (let turn = 0; ; turn += 1) {
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
@@ -81,7 +72,7 @@ const TCCard = {
       // находит его ключ (раздачи успели смениться), и пустой `{ error }` не должен
       // стирать это тело вместе с заголовком, как было у «Вперёд» на 14.8 с.
       if (said.missing && !data) data = TCCard._fallback(key);
-      const last = !said.partial || turn === TCCard._TURNS;
+      const last = !said.partial;
       // Карточка идущего показа опрашивает дальше и после целого ответа: поток вкладки,
       // ушедшей с ``/play``, сносится через секунды, и тело должно услышать смерть
       // показа само. Без этого «Завершить» и возврат из плеера оставляли бы кнопки
@@ -99,15 +90,9 @@ const TCCard = {
         }
         if (last && !busy && !waiting) return;
       } else {
-        if (data && !TCCard._patient) {
-          TCCard._patient = Date.now() + TCCard._PATIENCE;
-          setTimeout(() => TCCard._settle(root, key), TCCard._PATIENCE);
-        }
         const shown = data || TCCard._fallback(key);
-        const settled = last || TCCard._settled();
-        const skel = root.querySelector('.tc-detail-skel[data-tc-card-description]');
-        if (!TCCard._same(key, query, shown) || (settled && skel)) {
-          TCCard._show(root, key, query, shown, settled);
+        if (!TCCard._same(key, query, shown)) {
+          TCCard._show(root, key, query, shown);
         }
         if (last && !busy && !waiting) return;
       }
@@ -128,10 +113,6 @@ const TCCard = {
     return document.body.contains(root) && location.pathname === '/card/' + encodeURIComponent(key);
   },
 
-  _settled() {
-    return TCCard._patient > 0 && Date.now() >= TCCard._patient;
-  },
-
   _facts() {
     const values = new URLSearchParams(location.search);
     const title = values.get('title');
@@ -140,14 +121,7 @@ const TCCard = {
     return title && year && kind ? { title, shown: values.get('shown') || '', year, kind } : null;
   },
 
-  // Описание ждёт скелетом не дольше `_PATIENCE` после первого тела; дальше - слова.
-  _settle(root, key) {
-    if (!TCCard._here(root, key)) return;
-    const skel = root.querySelector('.tc-detail-skel[data-tc-card-description]');
-    if (skel) skel.replaceWith(TCCard._descBlock({ blurb: '' }, true));
-  },
-
-  _show(root, key, query, data, settled) {
+  _show(root, key, query, data) {
     const body = root.querySelector('#tc-card-body');
     if (!body) return;
     // Тело карточки подменяется целиком на каждом доборе, и вместе с ним уезжает элемент,
@@ -156,7 +130,7 @@ const TCCard = {
     // до и после подмены.
     const stood = document.activeElement;
     const held = body.contains(stood) ? stood.className : '';
-    const next = TCCard._body(data, key, query, settled);
+    const next = TCCard._body(data, key, query);
     TCCard._keepPoster(body, next);
     body.replaceWith(next);
     TCCard._shown = { key, query, data };
@@ -200,7 +174,7 @@ const TCCard = {
   _fallback(key) {
     const hint = TCCard._hint(key);
     return {
-      title: hint.title || '', year: hint.year || null, poster: null, blurb: '',
+      title: hint.title || '', year: hint.year || null, poster: null, blurb: null,
       voices: [], seasons: [], related: [], releases_count: 0,
     };
   },
@@ -309,7 +283,7 @@ const TCCard = {
     return img;
   },
 
-  _body(data, key, query, settled) {
+  _body(data, key, query) {
     if (data.error === 'not_found') return TCCard._notFound(key, query);
     const isShow = Array.isArray(data.seasons) && data.seasons.length > 0;
     const body = document.createElement('div');
@@ -322,7 +296,7 @@ const TCCard = {
     const info = document.createElement('div');
     info.className = 'tc-detail-info';
     info.append(...TCCard._titleBlock(data, isShow));
-    info.appendChild(TCCard._descBlock(data, settled));
+    info.appendChild(TCCard._descBlock(data));
     info.appendChild(TCCard._buttons(data, key, query, isShow));
     if (isShow) {
       // Вкладка после подмены тела остаётся ТОЙ ЖЕ, что выбрал зритель: без этого
@@ -447,10 +421,10 @@ const TCCard = {
     return bits;
   },
 
-  // ``settled`` - ждать справку дальше незачем: недоехавшее описание называется словами,
-  // а не остаётся скелетом (замер 11-09: скелет стоял после пятого добора навсегда).
-  _descBlock(data, settled) {
-    if ((data.blurb === null || data.blurb === undefined) && !settled) {
+  // ``null`` значит, что источник ещё не ответил. Только подтверждённая пустая строка
+  // вправе стать словами об отсутствии статьи.
+  _descBlock(data) {
+    if (data.blurb === null || data.blurb === undefined) {
       const skel = document.createElement('div');
       skel.className = 'tc-detail-skel';
       skel.dataset.tcCardDescription = '1';

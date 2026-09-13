@@ -53,7 +53,7 @@ def _about_cinema(heading: str, extract: str) -> bool:
     чужой статьи. Тихая подмена картины ровно того рода, против которого гейт и стоит
     (TC-912).
     """
-    text = f"{heading} {unhatted(extract)}"
+    text = f"{heading} {sentence(extract)}"
     if _CINEMA_RE.search(text):
         return True
     if _SCREEN_RE.search(text) and _GENRE_RE.search(text):

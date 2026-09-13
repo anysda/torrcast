@@ -114,3 +114,19 @@ def test_an_exact_name_still_restores_a_picture_that_never_names_its_year() -> N
     about, _, _ = _read_pages(reply, {key: [key[0]]}, {key}, {key: "movie"})
 
     assert about[key] == REVOLUTIONS
+
+
+def test_an_exact_name_does_not_turn_a_character_into_its_film() -> None:
+    """The title and a later mention of the film do not identify the character as the work."""
+    key = ("Базз Лайтер", 2022)
+    character = (
+        "Базз Ла́йтер (также известен как Базз Све́тик) — вымышленный персонаж франшизы "
+        "Disney и Pixar «История игрушек». Базз — экшен-фигурка внутривселенской франшизы."
+    )
+    reply: dict[str, Any] = {
+        "query": {"pages": [{"title": key[0], "extract": character, "pageprops": {}}]}
+    }
+
+    about, _, _ = _read_pages(reply, {key: [key[0]]}, {key}, {key: "movie"})
+
+    assert about == {}
