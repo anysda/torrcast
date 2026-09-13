@@ -157,4 +157,4 @@ def _others(key: str, related: list[JsonValue] | None) -> list[JsonValue] | None
     return [tile for tile in related if not isinstance(tile, dict) or tile.get("key") != key]
 
 
-__all__ = ["preview"]
+__all__ = ["preview", "time"]
