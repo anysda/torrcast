@@ -212,8 +212,6 @@ def test_the_related_titles_are_warmed_before_the_tiles_are_drawn() -> None:
     assert warmed == [[_ONE, _TWO]]
 
 
-
-
 def _passport(_title: str, _series: bool, _timeout: float) -> Origin:
     return Origin(title="Harry Potter and the Chamber of Secrets")
 
