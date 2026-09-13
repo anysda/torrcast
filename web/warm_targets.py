@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from torrcast.usecases.facts import FactPicture
@@ -24,6 +24,9 @@ Pictures = Callable[["list[FactPicture]"], None]
 Kin = Callable[["FactPicture"], None]
 Ask = Callable[[Sequence[str]], int]
 Spawn = Callable[[Callable[[], None]], None]
+#: Сколько одновременно видимых плиток платят за независимый паспорт и Wikidata. Больше
+#: восьми человек не видит в ряду, а полный экран из двадцати раньше душил источник.
+RELATED_LIMIT: Final = 8
 
 
 def _no_ask(_screen: Sequence[str]) -> int:
@@ -82,11 +85,11 @@ class WarmTargets:
             if title and year is not None and kind in {"movie", "tv"}
         ]
         if pictures:
-            # Паспорт и Wikidata не делят пакет, в отличие от описаний: один экран из
-            # восьми плиток прежде заводил восемь тяжёлых походов сразу и задерживал
-            # каждую из них. ``warm.js`` ставит плитку под курсором первой и шлёт новый
-            # экран, поэтому греем один актуальный выбор, а не весь ряд наперегонки.
-            self.kin(pictures[0])
+            # Описания приходят одним пакетом, паспорта - нет. Берём только видимый
+            # ряд, не больше восьми: ``warm.js`` ставит плитку под курсором первой, так
+            # что повторный экран догревает её, не превращая полку из двадцати в шторм.
+            for picture in pictures[:RELATED_LIMIT]:
+                self.kin(picture)
             self.spawn(lambda: self.prime(pictures))
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})

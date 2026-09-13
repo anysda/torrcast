@@ -105,8 +105,8 @@ def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
     ]
 
 
-def test_an_observed_screen_starts_only_its_currently_prioritized_related_shelf() -> None:
-    """Descriptions are batched, but independent Wikidata walks must not stampede."""
+def test_an_observed_screen_limits_independent_related_lookups_to_its_visible_row() -> None:
+    """Descriptions batch together, while independent Wikidata walks have a firm ceiling."""
     kin: list[FactPicture] = []
     jobs: list[Callable[[], None]] = []
     targets = WarmTargets(
@@ -117,7 +117,6 @@ def test_an_observed_screen_starts_only_its_currently_prioritized_related_shelf(
         ("Luca", "movie:luca:2021", "Лука", 2021, "movie"),
     ]
 
-    targets.observe(screen)
-    targets.observe(list(reversed(screen)))
+    targets.observe(screen * 5)
 
-    assert kin == [("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]
+    assert kin == [(row[2], row[3], row[4]) for row in (screen * 5)[:8]]
