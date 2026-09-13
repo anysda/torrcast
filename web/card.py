@@ -37,7 +37,7 @@ from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.episode_lookup import GRACE, EpisodeLookup
-from web.preview import preview
+from web.preview import _facts, preview
 from web.rating_score import rating_score
 from web.refusal import refusal
 from web.request import Request
@@ -119,8 +119,11 @@ def _answer(
     picture = plan.picture
     watch = store().load()
     entry = watch.get(picture.key)
-    facts = MenuFacts([hint or (picture.title, picture.year, picture.kind)], budget=0.0)
-    facts.start()
+    if hint:
+        facts = _facts.of(*hint)
+    else:
+        facts = MenuFacts([(picture.title, picture.year, picture.kind)], budget=0.0)
+        facts.start()
     until = time.monotonic() + wait
     first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint)
     body = first

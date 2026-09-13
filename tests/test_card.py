@@ -213,6 +213,9 @@ def test_a_full_card_keeps_the_tile_identity_for_its_related_shelf(
     _wired(monkeypatch, [_MOVIE_PLAN])
     monkeypatch.setattr("web.card._related", related)
     monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    monkeypatch.setattr(
+        "web.card._facts", type("_Facts", (), {"of": lambda *_args: _ReadyFacts()})()
+    )
     monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
     state_slot.install(FakeStateStore())
 
