@@ -22,13 +22,40 @@ const TCHome = {
   _state: null,
   _box: null,
   _assembling: false,
+  // Какое тело стоит на экране главной (сериализованные история и полки): тихий
+  // добор сравнивает с ним ответ и не пересобирает то, что не менялось.
+  _shownHome: '',
+  // Какая выдача поиска стоит на экране: один и тот же список находок не
+  // пересобирается на каждом шаге опроса - перерисовка перезаказывала бы обложки.
+  _shownHits: '',
 
   async mount(root) {
     // Что искали, написано в АДРЕСЕ (`/?query=…`), а не только в памяти страницы:
     // иначе «назад» из картины возвращает на чистую главную, хотя уходили с выдачи.
     const asked = TCHome._asked();
     TCHome._query = asked;
+    TCHome._shelfPoll += 1;
     root.replaceChildren();
+    // Выдача берётся из памяти только вместе со СВОИМ запросом: адрес мог уйти вперёд
+    // набранного текста, и чужие находки под новым адресом - не честный экран.
+    const mine = !asked || (TCHome._found && TCHome._found.query === asked)
+      ? TCKept.take(location.pathname + location.search) : null;
+    if (mine) {
+      TCKept.resume(root, mine);
+      TCHome._assembling = false;
+      const input = root.querySelector('.tc-search-input');
+      input.value = asked;
+      input.focus();
+      TCHome._askSources();
+      TCHome._stateLater(root);
+      if (asked) {
+        TCHome._runSearch(asked);
+      } else {
+        TCHome._freshen(root);
+      }
+      TCHome._markNow();
+      return;
+    }
     const scan = document.createElement('div');
     scan.className = 'tc-scan';
 
@@ -43,6 +70,7 @@ const TCHome = {
     const input = wrap.querySelector('.tc-search-input');
     input.value = asked;
     input.focus();
+    TCHome._markNow();
 
     TCHome._askSources();
     // Снимок показа полки НЕ держит: с молчащим ресивером ``/api/state`` едет до 20 с
@@ -50,7 +78,6 @@ const TCHome = {
     // что играет телевизор, не зависят. Плашка «сейчас идёт» встанет на шапку сама,
     // когда state и ящик доедут.
     TCHome._stateLater(root);
-    TCHome._shelfPoll += 1;
     const [history, shelves] = await Promise.all([TCApi.history(), TCApi.shelves()]);
     if (!document.body.contains(root) || location.pathname !== '/') return;
     TCHome._lastHistory = history;
@@ -69,6 +96,38 @@ const TCHome = {
       }
     }
     if (shelves.partial) TCHome._waitShelves(root, TCHome._shelfPoll);
+  },
+
+  // Цел ли экран для памяти (`kept.js`): тело есть и ни один скелет не стоит - ни
+  // плиточный, ни строка.
+  ready(root) {
+    const body = root.querySelector('#tc-body');
+    return !!body && !root.querySelector('.tc-tile-skeleton, .tc-skel-line');
+  },
+
+  // Тихий добор главной после возврата: полки уже стоят, и тело меняется только
+  // целиком и только когда ответ правда другой. «Продолжить» подъезжает своей полкой
+  // даже пока полки сервер ещё собирает.
+  async _freshen(root) {
+    const mine = TCHome._shelfPoll;
+    const [history, shelves] = await Promise.all([TCApi.history(), TCApi.shelves()]);
+    if (mine !== TCHome._shelfPoll || !document.body.contains(root) || location.pathname !== '/') {
+      return;
+    }
+    if (shelves.partial) {
+      if (JSON.stringify(history) !== JSON.stringify(TCHome._lastHistory)) {
+        TCHome._lastHistory = history;
+        TCHome._wornContinue(history);
+      }
+      TCHome._waitShelves(root, mine);
+      return;
+    }
+    TCHome._lastHistory = history;
+    TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
+    if (JSON.stringify([history, TCHome._lastShelves]) !== TCHome._shownHome) {
+      const body = document.getElementById('tc-body');
+      if (body) body.replaceWith(TCHome._body(history, TCHome._lastShelves));
+    }
   },
 
   // Плашка «сейчас идёт» доезжает позже полок и пересобирает шапку сама: ждать снимок
@@ -126,10 +185,14 @@ const TCHome = {
     // скелеты значит написать «пока пусто» над лентой, которая едет (замер на стенде
     // `.104`: полки приехали на 15.3 с, а надпись встала бы на 5.2 с).
     // Тело меняется только на чистой главной: в выдаче поиска свои плитки, и доехавшие
-    // полки просто запоминаются - встанут при возврате на неё.
+    // полки просто запоминаются - встанут при возврате на неё. Равное показанному
+    // тело не подменяется: у плиток на экране нет причины уезжать и собираться заново.
     if (!TCHome._query) {
       const body = document.getElementById('tc-body');
-      if (body) body.replaceWith(TCHome._body(TCHome._lastHistory, TCHome._lastShelves));
+      const fresh = [TCHome._lastHistory, TCHome._lastShelves];
+      if (body && JSON.stringify(fresh) !== TCHome._shownHome) {
+        body.replaceWith(TCHome._body(...fresh));
+      }
     }
     TCHome._wear(false);
   },
@@ -207,9 +270,11 @@ const TCHome = {
     const body = document.getElementById('tc-body');
     if (text.length < 2) {
       body.replaceWith(TCHome._body(TCHome._lastHistory, TCHome._lastShelves));
+      TCHome._markNow();
       return;
     }
     body.replaceWith(TCHome._searchLoading());
+    TCHome._markNow();
     TCHome._timer = setTimeout(() => TCHome._runSearch(text), 400);
   },
 
@@ -218,6 +283,14 @@ const TCHome = {
   _remember(text) {
     const want = text.length < 2 ? '/' : '/?query=' + encodeURIComponent(text);
     if (location.pathname + location.search !== want) history.replaceState({}, '', want);
+  },
+
+  // Метка памяти называет адрес НАРИСОВАННОГО тела: при наборе текста адрес меняется
+  // раньше тела, и метка по новому адресу назвала бы чужие находки своими. Потому она
+  // ставится в момент отрисовки: на монтировании экрана и на смене тела набором.
+  _markNow() {
+    const root = document.getElementById('tc-root');
+    if (root) TCKept.mark(root, location.pathname + location.search);
   },
 
   // Показ по мере прихода (TC-1126): первая находка первого ответившего источника
@@ -237,7 +310,11 @@ const TCHome = {
       const next = TCHome._mergeHits(known, results, partial);
       known = next;
       TCHome._found = { query: text, results: known };
-      TCHome._swapBody(TCHome._searchResults(known, partial));
+      // Один и тот же список не пересобирается: у стоящих на экране обложек нет
+      // причины уезжать и заказываться заново.
+      if (JSON.stringify(known) !== TCHome._shownHits) {
+        TCHome._swapBody(TCHome._searchResults(known, partial));
+      }
       if (!partial) return;
       await new Promise((done) => setTimeout(done, 400));
     }
@@ -298,6 +375,8 @@ const TCHome = {
 
   _searchLoading() {
     TCHome._syncCount(null);
+    // Тело - не выдача, и сравнение списков его не касается.
+    TCHome._shownHits = ' ';
     const body = document.createElement('div');
     body.id = 'tc-body';
     body.appendChild(TCHome._searchingLine());
@@ -348,6 +427,9 @@ const TCHome = {
     }
     if (partial) body.appendChild(TCHome._searchingLine());
     TCHome._syncCount(results.length);
+    // Отрисованный список запоминается СТРОКОЙ: следующий равный ответ не повод
+    // пересобирать экран.
+    TCHome._shownHits = JSON.stringify(results);
     // Выдача - два РЯДА, а не сетка (§4.2): первые семь крупные (210px, у самой первой
     // плашка «Best match»), остальные второй строкой мельче (168px, `tc-grid--second`).
     // Пока круг идёт, плашки нет ни у кого: назвать лучшее совпадение можно только по
@@ -405,6 +487,9 @@ const TCHome = {
     TCHome._lastHistory = history;
     TCHome._lastShelves = shelves;
     TCHome._syncCount(null);
+    // Собранное тело запоминается СТРОКОЙ: тихий добор сравнивает с ней ответ и не
+    // трогает экран, пока данные те же.
+    TCHome._shownHome = JSON.stringify([history, shelves]);
     const body = document.createElement('div');
     body.id = 'tc-body';
     if (history.length > 0) body.appendChild(TCHome._continue(history));
