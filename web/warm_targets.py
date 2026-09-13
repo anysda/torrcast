@@ -98,6 +98,10 @@ class WarmTargets:
                 self.kin(picture)
             self.spawn(lambda: self.prime(pictures[:RELATED_LIMIT]))
         elif pictures:
+            # Первый видимый предмет не ждёт наведения: именно он обычно оказывается
+            # первым кликом по только открытой полке. Один такой добор оставляет четыре
+            # из пяти HTTP-полос свободными для карточки под курсором и её родни.
+            self.spawn(lambda: self.prime(pictures[:RELATED_LIMIT]))
             self._queue_kin(pictures)
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
