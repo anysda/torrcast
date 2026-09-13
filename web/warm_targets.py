@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
@@ -27,11 +28,19 @@ Spawn = Callable[[Callable[[], None]], None]
 #: One hovered tile may use the background sources. A wider fan-out left the opened
 #: card competing with eight passports and two overlapping Wikipedia batches.
 RELATED_LIMIT: Final = 1
+#: Паспорта видимой полки - один Wikipedia-поход до наведения. Восемь плиток уже
+#: приходят в один экран; их Q-id позволяет полке открытой карточки идти сразу в Wikidata.
+PASSPORT_LIMIT: Final = 8
 
 
 def _no_ask(_screen: Sequence[str]) -> int:
     """Без проводки заказ плиток кругов не ставит."""
     return 0
+
+
+def _no_kin(_picture: FactPicture) -> None:
+    """Тестовый прогрев может не иметь проводки паспортов."""
+    return None
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -46,6 +55,7 @@ class WarmTargets:
     circle: Circle
     prime: Pictures
     kin: Kin
+    passport: Kin = _no_kin
     ask: Ask = _no_ask
     spawn: Spawn = _daemon
     _keys: dict[str, str] = field(default_factory=dict, repr=False)
@@ -93,6 +103,9 @@ class WarmTargets:
             for picture in pictures[:RELATED_LIMIT]:
                 self.kin(picture)
             self.spawn(lambda: self.prime(pictures[:RELATED_LIMIT]))
+        elif pictures:
+            for picture in pictures[:PASSPORT_LIMIT]:
+                self.spawn(partial(self.passport, picture))
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
         return self.ask([query for query, *_rest in targets])

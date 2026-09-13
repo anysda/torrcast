@@ -140,3 +140,27 @@ def test_a_visible_but_unhovered_screen_reserves_fact_sources_for_a_card() -> No
     targets.observe([("Luca", "movie:luca:2021", "Лука", 2021, "movie")], source=False)
 
     assert order == ["ask"]
+
+
+def test_a_visible_screen_warms_passports_before_a_hover_needs_related() -> None:
+    """A later related lookup receives the visible tile's Q-id from the passport cache."""
+    passports: list[FactPicture] = []
+    jobs: list[Callable[[], None]] = []
+    targets = WarmTargets(
+        circle=lambda _query: [],
+        prime=lambda _pictures: None,
+        kin=lambda _picture: None,
+        passport=passports.append,
+        ask=lambda _queries: 0,
+        spawn=jobs.append,
+    )
+    screen = [
+        ("Up", "movie:up:2009", "Вверх", 2009, "movie"),
+        ("Luca", "movie:luca:2021", "Лука", 2021, "movie"),
+    ]
+
+    targets.observe(screen, source=False)
+    for job in jobs:
+        job()
+
+    assert passports == [("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]
