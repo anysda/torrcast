@@ -19,9 +19,9 @@ from torrcast.ports.progress.slot import progress
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
+from web.offer import offer
 from web.related_lookup import RelatedLookup
 from web.warm_cache import WarmCache
-from web.warm_offer import offer
 from web.warm_targets import WarmTargets
 
 if TYPE_CHECKING:

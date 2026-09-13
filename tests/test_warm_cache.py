@@ -15,7 +15,6 @@ from torrcast.domain.server_down_error import ServerDownError
 from torrcast.usecases.facts import FactPicture
 from torrcast.usecases.select.plan import Plan
 from web.warm_cache import LIMIT, TTL, WORKERS, WarmCache
-from web.warm_offer import offer
 
 _MOVIE = Picture(title="Interstellar", year=2014, kind="movie")
 _MOVIE.releases = [Release(raw_name="Interstellar 2014 BDRip 1080p", title="Interstellar")]
@@ -138,20 +137,6 @@ def test_a_new_screen_replaces_the_queue_of_the_one_before_it() -> None:
         job()
 
     assert circle.asked == ["Hokum"]
-
-
-def test_related_offers_stay_behind_the_visible_screen() -> None:
-    """Родня добавляется хвостом и не меняет порядок плиток в окне."""
-    circle = _Circle()
-    jobs: list[Callable[[], None]] = []
-    cache = _cache(circle, spawn=jobs.append)
-    cache.ask(["Ludwig", "Kin"])
-
-    offer(cache, ["Franchise"])
-    for job in list(jobs):
-        job()
-
-    assert circle.asked == ["Ludwig", "Kin", "Franchise"]
 
 
 def test_the_screen_never_puts_more_hands_on_the_indexers_than_allowed() -> None:

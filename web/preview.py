@@ -21,7 +21,7 @@ PATIENCE: Final = 1.0
 _TICK: Final = 0.05
 
 
-class Related(Protocol):
+class _Related(Protocol):
     """Кэш родни, способный назвать готовность фонового добора."""
 
     def of(self, title: str, series: bool) -> list[JsonValue] | None: ...
@@ -29,7 +29,7 @@ class Related(Protocol):
     def waiting(self, title: str, series: bool) -> bool: ...
 
 
-class Warm(Protocol):
+class _Warm(Protocol):
     """Круги раздач, которые preview только проверяет и ставит в очередь."""
 
     def ready(self, query: str) -> object | None: ...
@@ -37,7 +37,7 @@ class Warm(Protocol):
     def ask(self, screen: Sequence[str]) -> int: ...
 
 
-def preview(request: Request, key: str, warm: Warm, related: Related) -> Answer | None:
+def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answer | None:
     """Ответить сведениями плитки, не ожидая поиска раздач."""
     if warm.ready(request.query.get("query", "")) is not None or request.query.get("wait") == "1":
         return None
