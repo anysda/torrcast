@@ -24,6 +24,9 @@ _TICK: Final = 0.05
 #: Сеть может держать источник дольше штатного добора. Пока идёт этот срок, любой
 #: partial- или полный ответ присоединяется к одному запросу, а не открывает волну.
 _FACT_FLIGHT: Final = 15.0
+#: Неудачный добор до долгого наведения не тянем до всего срока полёта, но быстрый
+#: клик не открывает второй поход рядом с ещё догоняющим источником.
+_FAILED_RETRY: Final = 3.0
 _sleep: Callable[[float], None] = time.sleep
 
 
@@ -59,7 +62,12 @@ class _FactFlights:
             if active is not None and now - active[1] < _FACT_FLIGHT:
                 facts = active[0]
                 done = getattr(facts, "_done", None)
-                if done is None or not done.is_set() or facts.answered(title, year):
+                if (
+                    done is None
+                    or not done.is_set()
+                    or facts.answered(title, year)
+                    or now - active[1] < _FAILED_RETRY
+                ):
                     return facts
             facts = MenuFacts([key], budget=PATIENCE)
             facts.start()

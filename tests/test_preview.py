@@ -211,6 +211,8 @@ def test_a_finished_silent_fact_lookup_is_retried_without_its_old_flight(
             self._done.set()
 
     monkeypatch.setattr(web.preview, "MenuFacts", _SilentFacts)
+    now = iter([0.0, 3.0])
+    monkeypatch.setattr(web.preview.time, "monotonic", lambda: next(now))
     request = Request(
         method="GET",
         path="/api/card/movie:luca:2021",
