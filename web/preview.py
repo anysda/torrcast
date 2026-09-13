@@ -121,10 +121,10 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         "runtime": 0.0,
         "runtime_estimated": False,
         "rating": rating_score(fact.rating),
-        # Плитка может назвать картину не тем именем, которое круг уточнит потом.
-        # Поэтому preview не говорит «нет описания» даже после пустого ответа: только
-        # полный ответ по картине вправе подтвердить его отсутствие.
-        "blurb": fact.about or None,
+        # Пустой ответ кэша уже означает, что источник подтвердил отсутствие статьи.
+        # Оставлять его скелетом до круга раздач делало законное отсутствие похожим на
+        # зависший добор и задерживало карточку на весь поиск.
+        "blurb": fact.about or ("" if told else None),
         "poster": None,
         "voices": [],
         "resumable": False,

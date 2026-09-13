@@ -113,6 +113,24 @@ def test_an_answered_description_does_not_wait_for_the_related_shelf(
     assert answer is not None
 
 
+def test_an_answered_empty_description_is_not_left_as_a_skeleton(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A trusted cache absence is useful before the release circle completes."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _AnsweredFacts)
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie"},
+        body={},
+    )
+
+    answer = preview(request, "movie:luca:2021", _Warm(), _Related())
+
+    assert answer is not None
+    assert json.loads(answer.body)["blurb"] == ""
+
+
 def test_a_ready_description_is_published_before_later_fact_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
