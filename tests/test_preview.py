@@ -47,6 +47,16 @@ class _Related:
         return False
 
 
+class _AnsweredFacts(_Facts):
+    def answered(self, _title: str, _year: int) -> bool:
+        return True
+
+
+class _PendingRelated(_Related):
+    def waiting(self, _title: str, _series: bool) -> bool:
+        return True
+
+
 def test_a_preview_year_rejects_a_route_without_a_real_year() -> None:
     """Без точного года ключ не даёт права назвать факты картины."""
     assert _year("2014") == 2014
@@ -71,3 +81,21 @@ def test_an_unanswered_fact_stays_a_skeleton_not_a_false_absence(
 
     assert answer is not None
     assert json.loads(answer.body)["blurb"] is None
+
+
+def test_an_answered_description_does_not_wait_for_the_related_shelf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Родня дорисуется добором, но не держит уже готовое описание."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _AnsweredFacts)
+    monkeypatch.setattr(web.preview.time, "sleep", lambda _seconds: pytest.fail("waited"))
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie"},
+        body={},
+    )
+
+    answer = preview(request, "movie:luca:2021", _Warm(), _PendingRelated())
+
+    assert answer is not None
