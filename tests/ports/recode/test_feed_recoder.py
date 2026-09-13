@@ -32,7 +32,8 @@ class _Recoder:
     def stop(self) -> None: ...
     def opening(self, slot: int) -> None: ...
     def note(self, slot: int, how: str) -> None: ...
-    def after_recode(self, slot: int) -> bool: return False
+    def after_recode(self, slot: int) -> bool:
+        return False
 
     def holding(self, slot: int, size: int = 0) -> bool:
         return False
