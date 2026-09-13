@@ -2,7 +2,7 @@
 
 from tests.articles import wiki_reply
 from tests.fakes.json_client import FakeJsonClient
-from torrcast.adapters.wiki.wiki_extracts import wiki_extracts
+from torrcast.adapters.wiki.wiki_extracts import _LANES, wiki_extracts
 
 
 def test_the_wave_names_the_picture_whose_whole_request_answered() -> None:
@@ -48,3 +48,4 @@ def test_every_candidate_reaches_the_last_home_tile() -> None:
     asked = {name for _host, _path, params in client.calls for name in params["titles"].split("|")}
     assert "Одиссея (фильм, 2026)" in asked
     assert "одиссея" in asked
+    assert len(client.calls) > _LANES, "home needs a second five-lane source interval"

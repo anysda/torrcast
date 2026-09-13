@@ -18,6 +18,8 @@ from torrcast.domain.facts.wiki_reply import _merged
 from torrcast.domain.json_map import json_map
 from torrcast.ports.json_client import JsonClient
 
+_LANES = 5
+
 
 def wiki_extracts(
     client: JsonClient,
@@ -63,7 +65,11 @@ def wiki_extracts(
                     answers.append((part, payload))
 
     parts = [names[at : at + _EXLIMIT] for at in range(0, len(names), _EXLIMIT)]
-    deadline = time.monotonic() + timeout
+    # The shared client gives Wikimedia five request lanes.  A full home screen needs
+    # seven batches, so its two queued batches need a second source interval rather
+    # than being called an incomplete response and forcing every click to retry.
+    rounds = (len(parts) + _LANES - 1) // _LANES
+    deadline = time.monotonic() + timeout * rounds
     wave = [threading.Thread(target=ask, args=(part,), daemon=True) for part in parts]
     for thread in wave:
         thread.start()
