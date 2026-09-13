@@ -70,13 +70,18 @@ const TCCard = {
       if (said.data) data = said.data;
       if (said.missing) data = { error: 'not_found' };
       const last = !said.partial || turn === TCCard._TURNS;
+      // Карточка идущего показа опрашивает дальше и после целого ответа: поток вкладки,
+      // ушедшей с ``/play``, сносится через секунды, и тело должно услышать смерть
+      // показа само. Без этого «Завершить» и возврат из плеера оставляли бы кнопки
+      // застывшими до перезагрузки (замер на стенде `.107`, TC-1240).
+      const busy = !!(data && data.playing);
       if (quiet) {
         // Тихий добор не сносит стоящее тело ничем: ни отказом, ни кусочным ответом -
         // только ЦЕЛИКОМ изменившийся ответ, и никогда скелетом.
         if (data && !said.partial && !TCCard._same(key, query, data)) {
           TCCard._show(root, key, query, data, true);
         }
-        if (last) return;
+        if (last && !busy) return;
         continue;
       }
       if (data && !TCCard._patient) {
@@ -84,7 +89,7 @@ const TCCard = {
         setTimeout(() => TCCard._settle(root, key), TCCard._PATIENCE);
       }
       TCCard._show(root, key, query, data || TCCard._fallback(key), last || TCCard._settled());
-      if (last) return;
+      if (last && !busy) return;
     }
   },
 
