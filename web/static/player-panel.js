@@ -10,7 +10,6 @@ const TCPlayerPanel = {
     ['SPACE', 'web.keys.pause'],
     ['← →', 'web.keys.seek'],
     ['↑ ↓', 'web.keys.volume'],
-    ['F', 'web.keys.fullscreen'],
     ['ESC', 'web.keys.back'],
   ],
 
@@ -98,8 +97,8 @@ const TCPlayerPanel = {
     playpause.dataset.tcGroup = 'player';
     playpause.addEventListener('click', on.onToggle);
 
-    const back10 = TCPlayerPanel._btn('web.player.back_ten', 'secondary', () => on.onSeekBy(-10));
-    const fwd10 = TCPlayerPanel._btn('web.player.forward_ten', 'secondary', () => on.onSeekBy(10));
+    const back = TCPlayerPanel._btn('web.player.back_minute', 'secondary', () => on.onSeekBy(-60));
+    const fwd = TCPlayerPanel._btn('web.player.forward_minute', 'secondary', () => on.onSeekBy(60));
 
     const time = document.createElement('div');
     time.className = 'tc-time';
@@ -122,23 +121,17 @@ const TCPlayerPanel = {
     vol.appendChild(volFill);
     volWrap.append(volLabel, vol);
 
-    controlsLeft.append(playpause, back10, fwd10, time, volWrap);
+    controlsLeft.append(playpause, back, fwd, time, volWrap);
 
     const actions = document.createElement('div');
     actions.className = 'tc-player-actions';
-    const audio = document.createElement('div');
-    audio.className = 'tc-btn tc-btn--secondary';
-    audio.dataset.tcAudioOption = '1';
-    audio.textContent = sessionStorage.getItem('tc-voice') || TC.say('web.player.audio');
     const next = TCPlayerPanel._btn('web.player.next_episode', 'secondary', on.onNext);
     next.hidden = true;
     const tv = TCPlayerPanel._btn('web.player.play_on_tv', 'primary', on.onToggleTv);
-    const full = TCPlayerPanel._btn(null, 'secondary', on.onFullscreen, '⤢');
-    full.classList.add('tc-btn--square');
     const close = TCPlayerPanel._btn(null, 'secondary', on.onClose, '✕');
     close.classList.add('tc-btn--square');
     close.setAttribute('aria-label', TC.say('web.player.back'));
-    actions.append(audio, next, tv, full, close);
+    actions.append(next, tv, close);
 
     controls.append(controlsLeft, actions);
 

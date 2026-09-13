@@ -560,16 +560,12 @@ const TCPlayer = {
           });
         }
       },
-      onFullscreen() {
-        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-        else TCPlayer._nodes.frame.requestFullscreen().catch(() => {});
-      },
       onClose() { TCPlayer._leave(); },
     };
   },
 };
 
-//: Стрелки/пробел/F/Esc принадлежат плееру целиком (§4.5), а не D-pad'у (`nav.js`):
+//: Стрелки/пробел/Esc принадлежат плееру целиком (§4.5), а не D-pad'у (`nav.js`):
 //: слушатель ставится в фазе перехвата, чтобы `stopImmediatePropagation` погасил
 //: геометрический D-pad раньше, чем тот переставит фокус по тем же стрелкам.
 document.addEventListener('keydown', (event) => {
@@ -581,7 +577,7 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') handlers.onClose();
     return;
   }
-  // Enter на кнопке под фокусом - нажатие ЭТОЙ кнопки: «−10 с» и «На ТВ» с пульта
+  // Enter на кнопке под фокусом - нажатие ЭТОЙ кнопки: «−60 с» и «На ТВ» с пульта
   // иначе ставили на паузу, и ни одна кнопка панели не делала с клавиши своего.
   const here = document.activeElement;
   if (event.key === 'Enter' && here && here.tagName === 'BUTTON' && here !== TCPlayer._nodes.playpause) {
@@ -592,18 +588,16 @@ document.addEventListener('keydown', (event) => {
     handlers.onToggle();
   } else if (event.key === 'ArrowLeft') {
     event.preventDefault(); event.stopImmediatePropagation();
-    handlers.onSeekBy(-10);
+    handlers.onSeekBy(-60);
   } else if (event.key === 'ArrowRight') {
     event.preventDefault(); event.stopImmediatePropagation();
-    handlers.onSeekBy(10);
+    handlers.onSeekBy(60);
   } else if (event.key === 'ArrowUp') {
     event.preventDefault(); event.stopImmediatePropagation();
     TCPlayer._volumeBy(0.05);
   } else if (event.key === 'ArrowDown') {
     event.preventDefault(); event.stopImmediatePropagation();
     TCPlayer._volumeBy(-0.05);
-  } else if (event.key === 'f' || event.key === 'F') {
-    handlers.onFullscreen();
   } else if (event.key === 'Escape') {
     handlers.onClose();
   } else {
