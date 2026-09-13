@@ -212,21 +212,6 @@ def test_the_related_titles_are_warmed_before_the_tiles_are_drawn() -> None:
     assert warmed == [[_ONE, _TWO]]
 
 
-def test_a_related_tile_inherits_its_already_known_family() -> None:
-    """Клик по родне читает готовую полку, не повторяя Wikidata по её имени."""
-    asked: list[str] = []
-
-    def franchise(title: str, _series: bool, _timeout: float) -> list[Kin]:
-        asked.append(title)
-        return [_ONE, _TWO]
-
-    lookup = RelatedLookup(franchise=franchise, offer=_passthrough, spawn=_sync)
-    lookup.of("Гарри Поттер и философский камень", False)
-
-    related = lookup.of(_ONE.name, False)
-
-    assert related is not None and len(related) == 2
-    assert asked == ["Гарри Поттер и философский камень"]
 
 
 def _passport(_title: str, _series: bool, _timeout: float) -> Origin:

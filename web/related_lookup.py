@@ -176,9 +176,7 @@ class RelatedLookup:
             tiles = [_project(record) for record in self.offer(seeds)]
             self.warm(found)
             with self._lock:
-                until = self.clock() + RETRY
-                self._tiles.update({(kin.name, False): (tiles, until) for kin in found})
-                self._tiles[(title, series)] = (tiles, until)
+                self._tiles[(title, series)] = (tiles, self.clock() + RETRY)
         except Exception:
             found = None
         finally:
