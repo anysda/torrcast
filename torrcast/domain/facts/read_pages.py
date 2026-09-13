@@ -64,10 +64,11 @@ def _read_pages(
                 _asked_series((kinds or {}).get(key, "")), str(page.get("title") or ""), extract
             ):
                 continue
-            # Некоторые точные статьи не называют год в первых 500 символах. Тогда
-            # пару имени, года и типа вправе подтвердить офлайн-карта IMDb. Послабление
-            # действует только для полного имени: отрезанное до двоеточия имя легко
-            # оказалось бы другой частью той же франшизы.
+            # Некоторые статьи не называют год в первых 500 символах. Тогда пару имени,
+            # года и типа вправе подтвердить офлайн-карта IMDb. Подходит полное имя и
+            # его уточнённая статья: «Базз Лайтер (мультфильм)» не называет 2022 в
+            # отрывке, хотя карта уже подтвердила именно эту картину. Отрезанное до
+            # двоеточия имя легко оказалось бы другой частью той же франшизы.
             #
             # 🔴 От сверки ГОДА карта освобождает, а от вопроса «произведение ли это» -
             # нет (:func:`_declares_work`). Карта доказывает, что картина с таким именем
@@ -75,12 +76,13 @@ def _read_pages(
             # «Титаник» - пароход, «Дюна» - песчаный холм, и обе уходили зрителю как
             # справка о фильме (TC-957). Год у них не подтверждался - ровно ту защиту
             # послабление и снимало.
-            exact = (
-                key in confirmed
-                and name.casefold() == key[0].strip().casefold()
-                and _declares_work(str(page.get("title") or ""), extract)
+            named = name.casefold() == key[0].strip().casefold() or str(
+                page.get("title") or ""
+            ).casefold().startswith(key[0].strip().casefold() + " (")
+            confirmed_work = (
+                key in confirmed and named and _declares_work(str(page.get("title") or ""), extract)
             )
-            if not confirms(extract, key[1]) and not exact:
+            if not confirms(extract, key[1]) and not confirmed_work:
                 continue
             about[key] = extract
             if linked_here := linked_title(page):

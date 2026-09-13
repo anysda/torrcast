@@ -24,9 +24,9 @@ Pictures = Callable[["list[FactPicture]"], None]
 Kin = Callable[["FactPicture"], None]
 Ask = Callable[[Sequence[str]], int]
 Spawn = Callable[[Callable[[], None]], None]
-#: Один приоритетный паспорт и Wikidata на экран. ``warm.js`` поднимает плитку под
-#: курсором первой; остальные не должны отнимать у неё и у пакетной справки Wikipedia.
-RELATED_LIMIT: Final = 1
+#: Восемь видимых плиток платят паспорт и Wikidata до клика. ``warm.js`` поднимает
+#: плитку под курсором первой; открытую карточку лимит не касается (:mod:`web.card`).
+RELATED_LIMIT: Final = 8
 
 
 def _no_ask(_screen: Sequence[str]) -> int:
@@ -85,9 +85,9 @@ class WarmTargets:
             if title and year is not None and kind in {"movie", "tv"}
         ]
         if pictures:
-            # Описания приходят одним пакетом, паспорта - нет. ``warm.js`` ставит плитку
-            # под курсором первой, поэтому один её поход не превращает полку в шторм и
-            # оставляет соединение пакетной справке.
+            # Описания приходят одним пакетом, паспорта - нет. Берём видимый ряд, не
+            # больше восьми: ``warm.js`` ставит плитку под курсором первой, так что
+            # повторный экран догревает её, не превращая полку из двадцати в шторм.
             for picture in pictures[:RELATED_LIMIT]:
                 self.kin(picture)
             self.spawn(lambda: self.prime(pictures))

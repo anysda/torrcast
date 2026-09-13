@@ -137,7 +137,7 @@ def test_a_qualified_lightyear_cartoon_beats_its_character_page() -> None:
     key = ("Базз Лайтер", 2022)
     cartoon = (
         "«Базз Лайтер» — американский компьютерно-анимационный научно-фантастический фильм, "
-        "созданный киностудиями Pixar и Walt Disney Pictures. Премьера состоялась в 2022 году."
+        "созданный киностудиями Pixar и Walt Disney Pictures."
     )
     reply: dict[str, Any] = {
         "query": {

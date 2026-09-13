@@ -105,8 +105,8 @@ def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
     ]
 
 
-def test_an_observed_screen_starts_only_its_priority_related_lookup() -> None:
-    """Descriptions batch together, while one Wikidata walk leaves room for them."""
+def test_an_observed_screen_limits_related_lookups_to_its_visible_row() -> None:
+    """Descriptions batch together, while independent Wikidata walks have a firm ceiling."""
     kin: list[FactPicture] = []
     jobs: list[Callable[[], None]] = []
     targets = WarmTargets(
@@ -119,4 +119,4 @@ def test_an_observed_screen_starts_only_its_priority_related_lookup() -> None:
 
     targets.observe(screen * 5)
 
-    assert kin == [(screen[0][2], screen[0][3], screen[0][4])]
+    assert kin == [(row[2], row[3], row[4]) for row in (screen * 5)[:8]]
