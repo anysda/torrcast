@@ -659,7 +659,7 @@ const TCCard = {
       // его своим, пересобираем её: иначе на самой карточке оставалась «На ТВ», хотя
       // состояние уже требовало «Подключиться»/«Завершить».
       const mine = began || (!stale && names.includes(state && state.title));
-      if ((now === 'starting' || (now === 'playing' && mine)) && !changed) {
+      if ((now === 'starting' && !changed) || (now === 'playing' && mine)) {
         const root = document.getElementById('tc-root');
         if (root && TCCard._here(root, key)) TCCard._load(root, key, query, false);
         changed = true;
