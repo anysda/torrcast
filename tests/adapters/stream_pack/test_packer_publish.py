@@ -155,8 +155,12 @@ def test_a_keyless_copy_on_a_flat_grid_is_shrunk_before_it_reaches_a_recode_seam
 
     run.shrink = mend
     _lay_out(
-        run, _always, merge=merge, keyless=lambda piece: piece == run.run / "v0.ts",
-        shift_of=lambda *a: 0.0, starts_of=_on_place,
+        run,
+        _always,
+        merge=merge,
+        keyless=lambda piece: piece == run.run / "v0.ts",
+        shift_of=lambda *a: 0.0,
+        starts_of=_on_place,
     )
 
     assert told == [(0, "shrink")]
