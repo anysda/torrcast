@@ -94,8 +94,9 @@ def test_the_answer_speaks_the_number_the_warmer_named(
 
 def test_tile_facts_reach_the_warmer_with_its_query(monkeypatch: pytest.MonkeyPatch) -> None:
     """Видимая плитка передаёт ровно факты будущего preview, не подпись обложки."""
-    rows: JsonValue = [{"query": "Luca", "key": "movie:luca:2021", "title": "Лука",
-                        "year": 2021, "kind": "movie"}]
+    rows: JsonValue = [
+        {"query": "Luca", "key": "movie:luca:2021", "title": "Лука", "year": 2021, "kind": "movie"}
+    ]
 
     heard, _answer = _post({"tiles": rows}, monkeypatch)
 

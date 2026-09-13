@@ -61,8 +61,10 @@ def test_an_unanswered_fact_stays_a_skeleton_not_a_false_absence(
     monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
     monkeypatch.setattr(web.preview, "PATIENCE", 0.0)
     request = Request(
-        method="GET", path="/api/card/movie:luca:2021",
-        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie"}, body={}
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie"},
+        body={},
     )
 
     answer = preview(request, "movie:luca:2021", _Warm(), _Related())
