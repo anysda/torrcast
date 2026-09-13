@@ -21,6 +21,7 @@ from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
 from web.related_lookup import RelatedLookup
 from web.warm_cache import WarmCache
+from web.warm_targets import WarmTargets
 
 if TYPE_CHECKING:
     from torrcast.usecases.facts import FactPicture
@@ -48,13 +49,9 @@ def _blurbs(pictures: list[FactPicture]) -> None:
     facts.finish()
 
 
-#: Один прогрев на процесс: его греет ``POST /api/seen``, из него берёт круг карточка.
-WARM: Final = WarmCache(circle=_search, blurbs=_blurbs, spawn=_daemon)
-
-
 def _kin(picture: FactPicture) -> None:
     """Завести родню плитки после её круга, не задерживая прогрев."""
-    RELATED.of(picture[0], len(picture) == 3 and picture[2] == "tv")
+    RELATED.of(picture[0], picture[2] == "tv")
 
 
 def _prime(pictures: list[FactPicture]) -> None:
@@ -63,11 +60,14 @@ def _prime(pictures: list[FactPicture]) -> None:
     RELATED.finish(pictures)
 
 
+#: Заказ плиток полки: круг идёт через него, чтобы родня была своей картины.
+TARGETS: Final = WarmTargets(circle=_search, prime=_prime, kin=_kin)
+#: Один прогрев на процесс: его греет ``POST /api/seen``, из него берёт круг карточка.
+WARM: Final = WarmCache(circle=TARGETS.search, blurbs=_blurbs, spawn=_daemon)
+TARGETS.ask = WARM.ask
 #: Общая карточке и прогреву родня: первый клик читает уже идущий или готовый кэш.
 RELATED: Final = RelatedLookup(
     franchise=FACTS.franchise.of, passport=FACTS.passport.of, warm=WARM.ask
 )
-WARM.kin = _kin
-WARM.prime = _prime
 
-__all__ = ["RELATED", "WARM"]
+__all__ = ["RELATED", "TARGETS", "WARM"]

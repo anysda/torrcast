@@ -124,7 +124,10 @@ def _wired(
 
 
 def _asked(
-    key: str, query: str = "interstellar", wait: bool = False, extra_query: dict[str, str] | None = None
+    key: str,
+    query: str = "interstellar",
+    wait: bool = False,
+    extra_query: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, Any], tuple[str, ...]]:
     asked = {"query": query, "wait": "1"} if wait else {"query": query}
     if extra_query:
@@ -160,7 +163,12 @@ def test_a_shelf_card_answers_its_ready_facts_without_waiting_for_the_circle(
 
     code, body, extra = _asked(
         _MOVIE.key,
-        extra_query={"title": "Interstellar", "shown": "Interstellar", "year": "2014", "kind": "movie"},
+        extra_query={
+            "title": "Interstellar",
+            "shown": "Interstellar",
+            "year": "2014",
+            "kind": "movie",
+        },
     )
 
     assert code == 200

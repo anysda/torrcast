@@ -30,7 +30,7 @@ from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
 from torrcast.usecases.shelves.popular_shelf import popular_shelf
 from web.min_tiles import FLOOR, min_tiles
 from web.shelf_tiles import Offer, PassportOf, _no_passport, shelf_tiles
-from web.warm_cache import WarmTarget
+from web.warm_targets import WarmTarget
 
 #: Кто приносит ленту последних раздач; в бою - :meth:`Prowlarr.feed`.
 Feed = Callable[[int], list[FeedRow]]
@@ -182,7 +182,9 @@ def _targets(body: dict[str, JsonValue]) -> list[WarmTarget]:
             title, year, kind = tile.get("title"), tile.get("year"), tile.get("kind")
             if not isinstance(title, str) or not isinstance(year, int) or not isinstance(kind, str):
                 continue
-            targets.append((str(tile.get("query", "")), str(tile.get("key", "")), title, year, kind))
+            targets.append(
+                (str(tile.get("query", "")), str(tile.get("key", "")), title, year, kind)
+            )
     return targets
 
 

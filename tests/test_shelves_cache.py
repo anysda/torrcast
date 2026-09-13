@@ -15,7 +15,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from web.shelves_cache import Feed, Offer, PassportOf, ShelvesCache, Spawn
-from web.warm_cache import WarmTarget
+from web.warm_targets import WarmTarget
 
 _MOMENT = datetime(2026, 9, 6, tzinfo=UTC)
 

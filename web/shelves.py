@@ -13,7 +13,7 @@ from torrcast.runtime.facts_wiring import FACTS
 from web.answer import Answer
 from web.request import Request
 from web.shelves_cache import ShelvesCache
-from web.warm_wiring import WARM
+from web.warm_wiring import TARGETS
 
 
 def _feed(limit: int) -> list[FeedRow]:
@@ -35,7 +35,7 @@ _cache = ShelvesCache(
     catalogue=torrent_catalogue,
     offer=hits.offer,
     passport=FACTS.passport.of,
-    warm=WARM.prepare,
+    warm=TARGETS.prepare,
 )
 
 

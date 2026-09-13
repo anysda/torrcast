@@ -17,9 +17,7 @@ Related = Callable[[str, bool], list[JsonValue] | None]
 _PARTIAL = "X-Torrcast-Partial"
 
 
-def preview(
-    request: Request, key: str, warm: WarmCache, related_of: Related
-) -> Answer | None:
+def preview(request: Request, key: str, warm: WarmCache, related_of: Related) -> Answer | None:
     """Ответить сведениями плитки, не ожидая поиска раздач."""
     if warm.ready(request.query.get("query", "")) is not None or request.query.get("wait") == "1":
         return None
@@ -58,7 +56,9 @@ def preview(
         "sources_count": 0,
         "searching": True,
     }
-    return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=((_PARTIAL, "1"),))
+    return Answer(
+        200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=((_PARTIAL, "1"),)
+    )
 
 
 def _year(value: str) -> int | None:
