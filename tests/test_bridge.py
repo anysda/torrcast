@@ -16,6 +16,7 @@ from hass.say import SEEKBY, TOGGLE
 from hass.stopping import STOP
 from hass.volume import Volume
 from tests.fakes.playback_session import FakePlaybackSession
+from tests.fakes.receiver import FakeReceiver
 from tests.fakes.state_store import FakeStateStore
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.adapters.browser.web_box_path import web_box_path
@@ -29,6 +30,7 @@ from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
+from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.start_refusal import RECEIVER_DID_NOT_ANSWER
 from torrcast.domain.warm_settings import WARM_DIR
@@ -40,6 +42,7 @@ from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.start_progress import START
+from web.tv_session import SESSION
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -747,6 +750,49 @@ def test_a_tab_show_refuses_toggle_instead_of_a_false_pause_latch(
 
     assert refusal.value.word == NO_REMOTE
     assert bridge.state()["state"] == "playing", "защёлка команды не должна была сработать"
+
+
+def test_a_tab_show_sent_to_the_tv_takes_seekby_and_toggle_on_the_tv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Показ во вкладке, отданный «На ТВ»: браузер остаётся пультом. Сторож TC-1210
+    узнавал вкладку по ящику, а «На ТВ» ящика не меняет - и пауза с перемоткой отвечали
+    ``no_remote``, хотя картину уже играл ТВ. Команда идёт приёмнику каста, в канал юнита
+    показа (его приёмник - вкладка) не пишется ничего."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Муха", at=0.0, key="k1")
+    said: list[str] = []
+
+    class _Tv(FakeReceiver):
+        def seek(self, pos: float) -> None:
+            said.append(f"seek {pos:g}")
+
+        def pause(self) -> None:
+            said.append("pause")
+
+        def resume(self) -> None:
+            said.append("resume")
+
+    monkeypatch.setattr(SESSION, "factory", lambda a, p: _Tv(Position(600.0, 7200.0, True)))
+    monkeypatch.setattr(SESSION, "poll_seconds", 3600.0)
+    monkeypatch.setattr(SESSION, "_receiver", None)
+    SESSION.start("10.0.1.7", "Муха", "http://x/out.m3u8", 600.0, key="k1")
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=600.0, moved=True),
+    )
+    bridge = _bridge(session, settings=lambda: Config(tv="10.0.1.7"))
+
+    try:
+        bridge.control(SEEKBY, -60.0)
+        bridge.control(TOGGLE, 0.0)
+    finally:
+        SESSION.stop()
+
+    assert said == ["seek 540", "pause"]
+    assert _SystemChoiceEnvironment().read_command() is None
 
 
 def test_a_show_started_right_on_the_tv_still_takes_the_remote(

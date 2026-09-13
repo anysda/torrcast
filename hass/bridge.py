@@ -3,11 +3,10 @@
 Своих правил тут нет. Показ поднимается той же :func:`torrcast.cli.main.main`, что и в
 консоли, под тем же перехватом вывода бота (:func:`tgbot.command_result.command_result`)
 - оттуда же берётся словесная причина отказа. Пульт пишет слово в тот же файл, что кнопки
-бота. Переход называет следующую серию тем же :meth:`torrcast.domain.entry.Entry.advance`
-и играет её тем же запросом «имя s1e4», каким её назвал бы человек. Поиск
-(:meth:`Bridge.search`) отдаёт ровно то, что нашёл бы `search_circle` на том же приёмнике,
-и запоминает показанный порядок (:mod:`hass.searching`); номер пункта в его ответе - тот
-же ``--pick N``, которым CLI понимает выбор.
+бота. Переход называет следующую серию :meth:`torrcast.domain.entry.Entry.advance` и играет
+её запросом «имя s1e4», каким её назвал бы человек. Поиск (:meth:`Bridge.search`) отдаёт
+то, что нашёл бы `search_circle` на том же приёмнике, и запоминает показанный порядок
+(:mod:`hass.searching`); номер пункта в ответе - тот же ``--pick N``, что понимает CLI.
 
 🔴 Команда показа идёт в ГЛАВНОМ потоке, как и у бота: поручения моста живут отдельно
 (:mod:`hass.orders`), и там же названо, почему. Поиск в эту очередь не встаёт: он ничего
@@ -34,6 +33,7 @@ from hass.search_progress import search_progress
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
 from hass.starting import starting
 from hass.stopping import STOP, _abandoned, stopping
+from hass.tab_cast import tab_cast
 from hass.volume import Volume
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.health.machine_probe import MachineProbe
@@ -137,9 +137,8 @@ class Bridge:
     def control(self, command: str, arg: float) -> None:
         """``POST /api/control``: пульт идущего показа, а остановка - дверь наружу.
 
-        Остановка стоит ВЫШЕ отказов (:func:`hass.stopping.stopping`). Без идущего
-        показа пульту делать нечего. 🔴 TC-1210: показ во вкладке перемотку и
-        переключатель не берёт - словом и почему ведает :mod:`hass.remote_refusal`.
+        Остановка ВЫШЕ отказов (:func:`hass.stopping.stopping`), без показа пульту нечего делать.
+        🔴 Вкладка пульта не берёт (TC-1210), а её каст «На ТВ» берёт (:mod:`hass.tab_cast`).
         """
         if command == STOP:
             stopping(self._orders, self._session)
@@ -150,9 +149,10 @@ class Bridge:
             if not self._volume_of(self._settings()).set(arg):
                 raise RefusedError(NO_VOLUME)
             return
-        if command in (SEEKBY, TOGGLE) and remote_refused(self._settings(), command):
-            raise RefusedError(NO_REMOTE)
-        say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
+        if not tab_cast(self._settings(), command, arg):
+            if remote_refused(self._settings(), command):
+                raise RefusedError(NO_REMOTE)
+            say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
         self._motion.commanded(command, arg)
 
     def next(self, body: dict[str, JsonValue] | None = None) -> None:
