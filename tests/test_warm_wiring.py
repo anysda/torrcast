@@ -70,4 +70,4 @@ def test_home_related_warmup_waits_for_its_fact_batch(monkeypatch: pytest.Monkey
 
     wiring._prime_screen([("Одиссея", 2026, "movie")])
 
-    assert order == ["start", "finish", "settled", "related"]
+    assert order == ["start", "finish", "settled", "start", "finish", "settled", "related"]

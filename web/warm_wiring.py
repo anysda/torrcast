@@ -72,15 +72,16 @@ def _prime(pictures: list[FactPicture]) -> None:
 
 def _prime_screen(pictures: list[FactPicture]) -> None:
     """Fill the persisted home screen in one source batch before its first visit."""
-    facts = MenuFacts(pictures)
 
     def finish() -> None:
-        facts.start()
-        facts.finish()
-        # The seven article packets may still be closing after the cache's bounded
-        # top-up.  Starting sixteen passports here would take their HTTP lanes and
-        # make the visible cards repeat the very lookup startup was meant to pay.
-        facts._done.wait()
+        for _ in range(2):
+            facts = MenuFacts(pictures)
+            facts.start()
+            facts.finish()
+            # The seven article packets may still be closing after the cache's bounded
+            # top-up.  Starting sixteen passports here would take their HTTP lanes and
+            # make the visible cards repeat the very lookup startup was meant to pay.
+            facts._done.wait()
         prime(RELATED, pictures)
 
     _daemon(finish)
