@@ -103,3 +103,21 @@ def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
         "ask ['Luca']",
         "prime [('Лука', 2021, 'movie')]",
     ]
+
+
+def test_an_observed_screen_starts_only_its_currently_prioritized_related_shelf() -> None:
+    """Descriptions are batched, but independent Wikidata walks must not stampede."""
+    kin: list[FactPicture] = []
+    jobs: list[Callable[[], None]] = []
+    targets = WarmTargets(
+        circle=lambda _query: [], prime=lambda _pictures: None, kin=kin.append, spawn=jobs.append
+    )
+    screen = [
+        ("Up", "movie:up:2009", "Вверх", 2009, "movie"),
+        ("Luca", "movie:luca:2021", "Лука", 2021, "movie"),
+    ]
+
+    targets.observe(screen)
+    targets.observe(list(reversed(screen)))
+
+    assert kin == [("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]

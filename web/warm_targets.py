@@ -82,10 +82,11 @@ class WarmTargets:
             if title and year is not None and kind in {"movie", "tv"}
         ]
         if pictures:
-            # Родня не зависит ни от пакета описаний, ни от круга раздач. Начать её
-            # сейчас - значит оплатить Wikidata, пока человек рассматривает полку.
-            for picture in pictures:
-                self.kin(picture)
+            # Паспорт и Wikidata не делят пакет, в отличие от описаний: один экран из
+            # восьми плиток прежде заводил восемь тяжёлых походов сразу и задерживал
+            # каждую из них. ``warm.js`` ставит плитку под курсором первой и шлёт новый
+            # экран, поэтому греем один актуальный выбор, а не весь ряд наперегонки.
+            self.kin(pictures[0])
             self.spawn(lambda: self.prime(pictures))
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
