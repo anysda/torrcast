@@ -29,6 +29,9 @@ class _Recoder:
 
     def note(self, slot: int, how: str) -> None: ...
 
+    def after_recode(self, slot: int) -> bool:
+        return False
+
     def holding(self, slot: int, size: int) -> bool:
         return False
 
