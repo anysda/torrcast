@@ -144,6 +144,16 @@ class RelatedLookup:
         with self._lock:
             return (title, series) in self._pending
 
+    def finish(self, pictures: list[tuple[str, int | None, str]]) -> None:
+        """Дождаться родни видимой полки, но не дольше одного сетевого срока."""
+        for title, _year, kind in pictures:
+            self.of(title, kind == "tv")
+        until = time.monotonic() + TIMEOUT
+        while time.monotonic() < until:
+            if not any(self.waiting(title, kind == "tv") for title, _year, kind in pictures):
+                return
+            time.sleep(0.05)
+
     def _build(self, title: str, series: bool) -> None:
         """Собрать плитки родни; молчание в кэш не ложится - переспросят после :data:`SILENT`.
 

@@ -93,7 +93,8 @@ const TCCardSeries = {
       row.appendChild(TCTile.build({
         key: tile.key, title: tile.shown || tile.title, poster: tile.poster,
         year: tile.year, group: 'related', query: tile.query || tile.title,
-        onActivate: (key, query) => TCRouter.card(key, query),
+        facts: { title: tile.title, shown: tile.shown || tile.title, year: tile.year, kind: tile.kind },
+        onActivate: (key, query, facts) => TCRouter.card(key, query, facts),
       }));
     }
     head.appendChild(TCTile.steps(row));

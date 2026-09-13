@@ -38,6 +38,7 @@ const TCCard = {
     TCCard._visit += 1;
     root.replaceChildren();
     const query = new URLSearchParams(location.search).get('query') || '';
+    const facts = TCCard._facts();
     TCKept.mark(root, location.pathname + location.search);
     if (TCCard._tvSaid && TCCard._tvSaid.done) TCCard._tvSaid = null;
     // Карточка уже видена - её узлы возвращаются на экран целиком, без скелетов и
@@ -48,13 +49,13 @@ const TCCard = {
       TCKept.resume(root, kept);
       TCCard._armConnect(root, TCCard._visit);
       root.querySelector('.tc-back').focus();
-      TCCard._load(root, key, query, true);
+      TCCard._load(root, key, query, true, facts);
       return;
     }
     const shell = TCCard._shell(key);
     root.appendChild(shell);
     shell.querySelector('.tc-back').focus();
-    TCCard._load(root, key, query, false);
+    TCCard._load(root, key, query, false, facts);
   },
 
   // Цел ли экран для памяти (`kept.js`): тело собралось - есть раздачи и описание
@@ -66,14 +67,14 @@ const TCCard = {
     return !!body.querySelector('.tc-releases') && !!(said && said.textContent.trim());
   },
 
-  async _load(root, key, query, quiet) {
+  async _load(root, key, query, quiet, facts) {
     const mine = TCCard._visit;
     const load = ++TCCard._loadId;
     TCCard._patient = quiet ? Date.now() : 0;
     let data = null;
     for (let turn = 0; ; turn += 1) {
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
-      const said = await TCApi.card(key, query, turn > 0);
+      const said = await TCApi.card(key, query, turn > 0, facts);
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       if (said.data) data = said.data;
       if (said.missing) data = { error: 'not_found' };
@@ -126,6 +127,14 @@ const TCCard = {
 
   _settled() {
     return TCCard._patient > 0 && Date.now() >= TCCard._patient;
+  },
+
+  _facts() {
+    const values = new URLSearchParams(location.search);
+    const title = values.get('title');
+    const year = values.get('year');
+    const kind = values.get('kind');
+    return title && year && kind ? { title, shown: values.get('shown') || '', year, kind } : null;
   },
 
   // Описание ждёт скелетом не дольше `_PATIENCE` после первого тела; дальше - слова.
@@ -492,7 +501,7 @@ const TCCard = {
       row.append(TCCard._connect(), TCCard._finish());
       return row;
     }
-    const noReleases = (data.releases_count || 0) === 0;
+    const noReleases = data.searching || (data.releases_count || 0) === 0;
 
     const voices = Array.isArray(data.voices) ? data.voices : [];
     const chosen = TCCard._chosenVoice(voices);
@@ -802,6 +811,10 @@ const TCCard = {
   _releases(data) {
     const line = document.createElement('div');
     line.className = 'tc-releases';
+    if (data.searching) {
+      line.textContent = TC.say('web.detail.searching_releases');
+      return line;
+    }
     const releases = TC.count('web.detail.release', data.releases_count || 0);
     line.textContent = data.sources_count
       ? releases + ' ' + TC.say('web.detail.from') + ' '

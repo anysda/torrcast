@@ -71,10 +71,15 @@ const TCApi = {
   // Карточка иногда приходит частями (заголовок ``X-Torrcast-Partial``): её самой
   // читает card.js и переспрашивает долгим заходом (``wait``): сервер держит ответ,
   // пока тело не изменится, вместо того чтобы страница стучалась раз в две секунды.
-  async card(key, query, wait) {
-    const params = query ? '?query=' + encodeURIComponent(query) : '';
-    const url = '/api/card/' + encodeURIComponent(key) + params
-      + (wait ? (params ? '&' : '?') + 'wait=1' : '');
+  async card(key, query, wait, facts) {
+    const values = new URLSearchParams();
+    if (query) values.set('query', query);
+    if (facts) for (const name of ['title', 'shown', 'year', 'kind']) {
+      if (facts[name] !== undefined && facts[name] !== null) values.set(name, facts[name]);
+    }
+    if (wait) values.set('wait', '1');
+    const tail = values.toString();
+    const url = '/api/card/' + encodeURIComponent(key) + (tail ? '?' + tail : '');
     try {
       const said = await fetch(url);
       if (!said.ok) return { data: null, partial: false, missing: said.status === 404 };

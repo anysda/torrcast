@@ -35,6 +35,7 @@ from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
 from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
+from web.preview import preview
 from web.card_seasons import card_seasons
 from web.episode_lookup import GRACE, EpisodeLookup
 from web.rating_score import rating_score
@@ -71,6 +72,8 @@ def card(request: Request) -> Answer:
     if not query.strip():
         return refusal(400, "no_query")
     key = request.path[len(_PREFIX) :]
+    if early := preview(request, key, WARM, _related.of):
+        return early
     config = load_config()
     try:
         # Согретый круг отдаётся сразу (:mod:`web.warm_cache`), несогретый считается

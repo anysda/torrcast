@@ -53,7 +53,7 @@ const TCTile = {
           sessionStorage.setItem('tc-art:' + shape.key, JSON.stringify({
             poster: shape.poster || null, title: shape.title || '', year: shape.year || null }));
         } catch (_) { /* хранилище закрыто - карточка просто дождётся ответа */ }
-        shape.onActivate(shape.key, shape.query);
+        shape.onActivate(shape.key, shape.query, shape.facts);
       };
       tile.addEventListener('click', go);
       tile.addEventListener('keydown', (event) => {

@@ -124,9 +124,11 @@ def _wired(
 
 
 def _asked(
-    key: str, query: str = "interstellar", wait: bool = False
+    key: str, query: str = "interstellar", wait: bool = False, extra_query: dict[str, str] | None = None
 ) -> tuple[int, dict[str, Any], tuple[str, ...]]:
     asked = {"query": query, "wait": "1"} if wait else {"query": query}
+    if extra_query:
+        asked.update(extra_query)
     answer = card(Request("GET", f"/api/card/{key}", asked, {}))
     assert answer.kind == JSON
     body: dict[str, Any] = json.loads(answer.body)
@@ -144,6 +146,29 @@ def test_no_query_is_refused_before_any_search_runs(monkeypatch: pytest.MonkeyPa
 
     assert answer.code == 400
     assert json.loads(answer.body) == {"error": "no_query"}
+
+
+def test_a_shelf_card_answers_its_ready_facts_without_waiting_for_the_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Клик видимой полки не стоит за одним рабочим поиска раздач."""
+    cache = _warm(_plans([_MOVIE_PLAN]))
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    monkeypatch.setattr("web.card.WARM", cache)
+    monkeypatch.setattr("web.preview.MenuFacts", lambda *a, **k: _ReadyFacts())
+    state_slot.install(FakeStateStore())
+
+    code, body, extra = _asked(
+        _MOVIE.key,
+        extra_query={"title": "Interstellar", "shown": "Interstellar", "year": "2014", "kind": "movie"},
+    )
+
+    assert code == 200
+    assert body["blurb"] == "Сюжет"
+    assert body["related"] == []
+    assert body["searching"] is True
+    assert "X-Torrcast-Partial" in extra
+    assert cache.ready("interstellar") is None
 
 
 def test_an_unknown_key_is_a_404_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:

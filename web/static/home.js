@@ -450,6 +450,7 @@ const TCHome = {
         title: hit.shown || hit.title,
         poster: hit.poster,
         year: hit.year,
+        facts: { title: hit.title, shown: hit.shown || hit.title, year: hit.year, kind: hit.kind },
         best: firstBest && index === 0,
         group: 'search-results',
         query: TCHome._query,
@@ -510,6 +511,8 @@ const TCHome = {
         progress: item.dur ? item.pos / item.dur : 0,
         group: 'shelf-continue',
         query: item.query || item.title,
+        facts: item.year && item.kind
+          ? { title: item.title, shown: item.shown || item.title, year: item.year, kind: item.kind } : null,
         onActivate: TCHome._openCard,
       })));
   },
@@ -522,6 +525,7 @@ const TCHome = {
       title: hit.shown || hit.title,
       poster: hit.poster,
       year: hit.year,
+      facts: { title: hit.title, shown: hit.shown || hit.title, year: hit.year, kind: hit.kind },
       query: hit.query || hit.title,
       // Греется по ЗАПИСАННОМУ имени: им же карточка ищет круг и им же зовётся справка,
       // а `title` плитки - это имя для человека, и в кэше справки его нет.
@@ -559,8 +563,8 @@ const TCHome = {
     return shelf;
   },
 
-  _openCard(key, query) {
-    TCRouter.card(key, query);
+  _openCard(key, query, facts) {
+    TCRouter.card(key, query, facts);
   },
 };
 

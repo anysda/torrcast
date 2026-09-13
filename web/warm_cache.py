@@ -19,9 +19,7 @@ if TYPE_CHECKING:
 TTL: Final = 300.0
 WORKERS: Final = 1
 LIMIT: Final = 40
-#: Сколько фоновый рабочий ждёт живого, прежде чем оглядеться заново.
 PATIENCE: Final = 5.0
-#: Сколько живой запрос ждёт круг, который уже считает фон, прежде чем считать сам.
 BUSY_WAIT: Final = 30.0
 
 
@@ -29,20 +27,21 @@ Circle = Callable[[str], "list[Plan]"]
 Blurbs = Callable[["list[FactPicture]"], None]
 Spawn = Callable[[Callable[[], None]], None]
 Kin = Callable[["FactPicture"], None]
-WarmTarget = tuple[str, str]
+WarmTarget = tuple[str, str, str, int | None, str]
+Prime = Callable[["list[FactPicture]"], None]
 
 
 def _no_kin(_picture: FactPicture) -> None:
     """Без проводки круг греет только справку."""
 
 
+def _no_prime(_pictures: list[FactPicture]) -> None:
+    pass
+
+
 @dataclass
 class WarmCache:
-    """Согретые круги в памяти и очередь на прогрев видимого.
-
-    Фон и часы - подставные ради тестов (:mod:`tests.thread_guard`): подделка зовёт
-    ``spawn`` синхронно, ни разу не открывая настоящий сокет.
-    """
+    """Согретые круги в памяти и очередь на прогрев видимого."""
 
     circle: Circle
     blurbs: Blurbs
@@ -51,6 +50,7 @@ class WarmCache:
     ttl: float = TTL
     workers: int = WORKERS
     kin: Kin = _no_kin
+    prime: Prime = _no_prime
     _plans: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
     _targets: dict[str, str] = field(default_factory=dict, repr=False)
     _queue: list[str] = field(default_factory=list, repr=False)
@@ -106,10 +106,11 @@ class WarmCache:
         return waiting
 
     def prepare(self, targets: Sequence[WarmTarget]) -> int:
-        """Назвать плитку круга: родня берётся именно у неё, а не у первой находки."""
+        """Наполнить сведения плиток, потом поставить круги в очередь."""
+        self.prime([(title, year, kind) for _query, _key, title, year, kind in targets])
         with self._cond:
-            self._targets.update(dict(targets))
-        return self.ask([query for query, _key in targets])
+            self._targets.update({query: key for query, key, *_rest in targets})
+        return self.ask([query for query, *_rest in targets])
 
     def _unasked(self, plans: list[Plan]) -> list[FactPicture]:
         """Картины круга, о которых справку ещё не спрашивали в этой жизни процесса."""
@@ -192,6 +193,7 @@ __all__ = [
     "Blurbs",
     "Circle",
     "Kin",
+    "Prime",
     "Spawn",
     "WarmCache",
     "WarmTarget",

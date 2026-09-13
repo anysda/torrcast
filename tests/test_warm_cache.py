@@ -217,9 +217,25 @@ def test_a_shelf_target_starts_the_related_shelf_of_its_own_picture() -> None:
         kin=related.append,
     )
 
-    cache.prepare([("The Shawshank Redemption", _SHAWSHANK.key)])
+    cache.prepare(
+        [("The Shawshank Redemption", _SHAWSHANK.key, "Побег из Шоушенка", 1994, "movie")]
+    )
 
     assert related == [("Побег из Шоушенка", 1994, "movie")]
+
+
+def test_a_shelf_primes_facts_before_it_queues_its_indexer_circle() -> None:
+    """Сведения плитки готовы, хотя круг раздач ещё даже не запущен."""
+    primed: list[list[FactPicture]] = []
+    jobs: list[Callable[[], None]] = []
+    cache = WarmCache(
+        circle=_Circle(), blurbs=lambda _pictures: None, spawn=jobs.append, prime=primed.append
+    )
+
+    cache.prepare([("Interstellar", _MOVIE.key, "Interstellar", 2014, "movie")])
+
+    assert primed == [[("Interstellar", 2014, "movie")]]
+    assert jobs, "круг стоит только в очереди фонового рабочего"
 
 
 def test_a_refused_circle_does_not_stop_the_queue_behind_it() -> None:

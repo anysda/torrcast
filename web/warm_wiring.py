@@ -57,10 +57,17 @@ def _kin(picture: FactPicture) -> None:
     RELATED.of(picture[0], len(picture) == 3 and picture[2] == "tv")
 
 
+def _prime(pictures: list[FactPicture]) -> None:
+    """Досидеть справку полки и родню до её публикации, без похода к индексерам."""
+    _blurbs(pictures)
+    RELATED.finish(pictures)
+
+
 #: Общая карточке и прогреву родня: первый клик читает уже идущий или готовый кэш.
 RELATED: Final = RelatedLookup(
     franchise=FACTS.franchise.of, passport=FACTS.passport.of, warm=WARM.ask
 )
 WARM.kin = _kin
+WARM.prime = _prime
 
 __all__ = ["RELATED", "WARM"]

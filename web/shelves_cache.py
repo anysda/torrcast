@@ -133,13 +133,15 @@ class ShelvesCache:
                 break
         if best is None:
             return
+        # Сначала факты плиток, затем публикация: клик по уже видимой полке не ждёт
+        # единственного рабочего поиска раздач.
+        self.warm(_targets(best))
         with self._lock:
             current = self._body
             if current is not None and min_tiles(current) >= FLOOR > min_tiles(best):
                 return
             self._body = best
         self._save(best)
-        self.warm(_targets(best))
 
     def _build(self, rows: list[FeedRow]) -> dict[str, JsonValue]:
         """Тело ответа из строк ленты: обе полки и отметка времени сборки."""
@@ -174,11 +176,13 @@ def _targets(body: dict[str, JsonValue]) -> list[WarmTarget]:
         rows = body.get(shelf)
         if not isinstance(rows, list):
             continue
-        targets.extend(
-            (str(tile.get("query", "")), str(tile.get("key", "")))
-            for tile in rows[:_VISIBLE]
-            if isinstance(tile, dict)
-        )
+        for tile in rows[:_VISIBLE]:
+            if not isinstance(tile, dict):
+                continue
+            title, year, kind = tile.get("title"), tile.get("year"), tile.get("kind")
+            if not isinstance(title, str) or not isinstance(year, int) or not isinstance(kind, str):
+                continue
+            targets.append((str(tile.get("query", "")), str(tile.get("key", "")), title, year, kind))
     return targets
 
 
