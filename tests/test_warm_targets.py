@@ -122,9 +122,10 @@ def test_an_observed_screen_limits_related_lookups_to_its_visible_row() -> None:
     assert kin == [(screen[0][2], screen[0][3], screen[0][4])]
 
 
-def test_a_visible_but_unhovered_screen_reserves_fact_sources_for_a_card() -> None:
-    """Visibility queues indexers but does not compete for the card's fact sources."""
+def test_a_visible_but_unhovered_screen_queues_related_after_its_response() -> None:
+    """Visibility returns before its own franchise lane touches the fact sources."""
     order: list[str] = []
+    jobs: list[Callable[[], None]] = []
 
     def ask(_queries: Sequence[str]) -> int:
         order.append("ask")
@@ -135,22 +136,25 @@ def test_a_visible_but_unhovered_screen_reserves_fact_sources_for_a_card() -> No
         prime=lambda _pictures: order.append("prime"),
         kin=lambda _picture: order.append("kin"),
         ask=ask,
+        spawn=jobs.append,
     )
 
     targets.observe([("Luca", "movie:luca:2021", "Лука", 2021, "movie")], source=False)
 
     assert order == ["ask"]
+    jobs.pop()()
+    assert order == ["ask", "kin"]
 
 
-def test_a_visible_screen_warms_passports_before_a_hover_needs_related() -> None:
-    """A later related lookup receives the visible tile's Q-id from the passport cache."""
-    passports: list[FactPicture] = []
+def test_a_visible_screen_finishes_one_franchise_at_a_time_before_a_hover() -> None:
+    """Visible franchise work has one lane, leaving the hover room at the source."""
+    related: list[FactPicture] = []
     jobs: list[Callable[[], None]] = []
     targets = WarmTargets(
         circle=lambda _query: [],
         prime=lambda _pictures: None,
         kin=lambda _picture: None,
-        passport=passports.append,
+        background_kin=related.append,
         ask=lambda _queries: 0,
         spawn=jobs.append,
     )
@@ -163,4 +167,4 @@ def test_a_visible_screen_warms_passports_before_a_hover_needs_related() -> None
     for job in jobs:
         job()
 
-    assert passports == [("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]
+    assert related == [("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]

@@ -11,7 +11,6 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from functools import partial
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
@@ -28,19 +27,11 @@ Spawn = Callable[[Callable[[], None]], None]
 #: One hovered tile may use the background sources. A wider fan-out left the opened
 #: card competing with eight passports and two overlapping Wikipedia batches.
 RELATED_LIMIT: Final = 1
-#: Паспорта видимой полки - один Wikipedia-поход до наведения. Восемь плиток уже
-#: приходят в один экран; их Q-id позволяет полке открытой карточки идти сразу в Wikidata.
-PASSPORT_LIMIT: Final = 8
 
 
 def _no_ask(_screen: Sequence[str]) -> int:
     """Без проводки заказ плиток кругов не ставит."""
     return 0
-
-
-def _no_kin(_picture: FactPicture) -> None:
-    """Тестовый прогрев может не иметь проводки паспортов."""
-    return None
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -55,11 +46,14 @@ class WarmTargets:
     circle: Circle
     prime: Pictures
     kin: Kin
-    passport: Kin = _no_kin
+    background_kin: Kin | None = None
     ask: Ask = _no_ask
     spawn: Spawn = _daemon
     _keys: dict[str, str] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _kin_queue: list[FactPicture] = field(default_factory=list, repr=False)
+    _kin_active: FactPicture | None = field(default=None, repr=False)
+    _kin_running: bool = field(default=False, repr=False)
 
     def search(self, query: str) -> list[Plan]:
         """Круг как есть, и вслед родня картины, ради которой его заказали."""
@@ -104,11 +98,43 @@ class WarmTargets:
                 self.kin(picture)
             self.spawn(lambda: self.prime(pictures[:RELATED_LIMIT]))
         elif pictures:
-            for picture in pictures[:PASSPORT_LIMIT]:
-                self.spawn(partial(self.passport, picture))
+            self._queue_kin(pictures)
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
         return self.ask([query for query, *_rest in targets])
+
+    def _queue_kin(self, pictures: Sequence[FactPicture]) -> None:
+        """Keep visible franchise work in one lane, replacing an old off-screen tail.
+
+        A visible shelf has eight tiles. Its passport can make two parallel Wikipedia
+        calls; a hovered card's blurb makes three. Six concurrent calls receive 429
+        from Wikipedia on CT501, so the visible lane has exactly one active item.
+        """
+        wanted: list[FactPicture] = []
+        for picture in pictures[:8]:
+            if picture not in wanted and picture != self._kin_active:
+                wanted.append(picture)
+        with self._lock:
+            self._kin_queue = wanted
+            if self._kin_running or not wanted:
+                return
+            self._kin_running = True
+        self.spawn(self._pump_kin)
+
+    def _pump_kin(self) -> None:
+        """Run one visible passport/franchise build at a time outside the HTTP handler."""
+        while True:
+            with self._lock:
+                if not self._kin_queue:
+                    self._kin_running = False
+                    return
+                picture = self._kin_queue.pop(0)
+                self._kin_active = picture
+            try:
+                (self.background_kin or self.kin)(picture)
+            finally:
+                with self._lock:
+                    self._kin_active = None
 
 
 __all__ = ["WarmTarget", "WarmTargets"]

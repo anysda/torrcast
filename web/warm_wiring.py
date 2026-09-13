@@ -55,9 +55,9 @@ def _kin(picture: FactPicture) -> None:
     RELATED.of(picture[0], len(picture) == 3 and picture[2] == "tv")
 
 
-def _passport(picture: FactPicture) -> None:
-    """Снять Q-id видимой плитки до наведения, не спрашивая её полку целиком."""
-    FACTS.passport.of(picture[0], len(picture) == 3 and picture[2] == "tv")
+def _background_kin(picture: FactPicture) -> None:
+    """Finish one visible franchise in its own lane before taking the next tile."""
+    RELATED.finish([picture])
 
 
 def _prime(pictures: list[FactPicture]) -> None:
@@ -71,7 +71,7 @@ def _prime(pictures: list[FactPicture]) -> None:
 
 #: Заказ плиток полки: круг идёт через него, чтобы родня была своей картины.
 TARGETS: Final = WarmTargets(
-    circle=_search, prime=_prime, kin=_kin, passport=_passport, spawn=_daemon
+    circle=_search, prime=_prime, kin=_kin, background_kin=_background_kin, spawn=_daemon
 )
 #: Один прогрев на процесс: его греет ``POST /api/seen``, из него берёт круг карточка.
 WARM: Final = WarmCache(circle=TARGETS.search, blurbs=_blurbs, spawn=_daemon)
