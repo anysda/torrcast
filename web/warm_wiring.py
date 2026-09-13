@@ -25,6 +25,7 @@ from web.warm_cache import WarmCache
 from web.warm_targets import WarmTargets
 
 if TYPE_CHECKING:
+    from torrcast.domain.facts.kin import Kin
     from torrcast.usecases.facts import FactPicture
     from torrcast.usecases.select.plan import Plan
 
@@ -61,6 +62,12 @@ def _prime(pictures: list[FactPicture]) -> None:
     RELATED.finish(pictures)
 
 
+def _warm_kin(kin: list[Kin]) -> None:
+    """Догреть круги и пакет справки всей родни до того, как она станет плитками."""
+    offer(WARM, [member.name for member in kin])
+    _daemon(lambda: _blurbs([(member.name, member.year, "movie") for member in kin]))
+
+
 #: Заказ плиток полки: круг идёт через него, чтобы родня была своей картины.
 TARGETS: Final = WarmTargets(circle=_search, prime=_prime, kin=_kin, spawn=_daemon)
 #: Один прогрев на процесс: его греет ``POST /api/seen``, из него берёт круг карточка.
@@ -70,7 +77,7 @@ TARGETS.ask = WARM.ask
 RELATED: Final = RelatedLookup(
     franchise=FACTS.franchise.of,
     passport=FACTS.passport.of,
-    warm=lambda queries: offer(WARM, queries),
+    warm=_warm_kin,
 )
 
 __all__ = ["RELATED", "TARGETS", "WARM"]

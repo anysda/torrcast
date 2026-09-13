@@ -32,7 +32,7 @@ PassportOf = Callable[[str, bool, float], Origin]
 #: Тот же ``HitPosters.offer``: те же записи, с обложкой у тех, кому она нашлась.
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
 Spawn = Callable[[Callable[[], None]], None]
-Warm = Callable[[list[str]], object]
+Warm = Callable[[list[Kin]], object]
 TIMEOUT = 8.0
 RETRY = 3600.0
 #: Сколько молчание источника держит имя от нового похода: ``None`` отдаёт и картина без
@@ -63,7 +63,7 @@ def _no_passport(_title: str, _series: bool, _timeout: float) -> Origin:
     return Origin()
 
 
-def _no_warm(_queries: list[str]) -> None:
+def _no_warm(_kin: list[Kin]) -> None:
     """Пустая проводка: тестовый добор родни не трогает очередь поиска."""
     return None
 
@@ -174,11 +174,11 @@ class RelatedLookup:
                 return
             seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
             tiles = [_project(record) for record in self.offer(seeds)]
-            # Родня - хвост к уже видимому экрану, не новый экран. ``ask`` заменяет
-            # очередь целиком, и здесь стирала бы плитки, которые зритель ещё читает.
-            self.warm([kin.name for kin in found])
+            self.warm(found)
             with self._lock:
-                self._tiles[(title, series)] = (tiles, self.clock() + RETRY)
+                until = self.clock() + RETRY
+                self._tiles.update({(kin.name, False): (tiles, until) for kin in found})
+                self._tiles[(title, series)] = (tiles, until)
         except Exception:
             found = None
         finally:

@@ -69,8 +69,10 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         "runtime": 0.0,
         "runtime_estimated": False,
         "rating": rating_score(fact.rating),
-        # ``None`` - справка ещё в дороге. Пустой текст означает только её ответ.
-        "blurb": fact.about if told else None,
+        # Плитка может назвать картину не тем именем, которое круг уточнит потом.
+        # Поэтому preview не говорит «нет описания» даже после пустого ответа: только
+        # полный ответ по картине вправе подтвердить его отсутствие.
+        "blurb": fact.about if told and fact.about else None,
         "poster": None,
         "voices": [],
         "resumable": False,
