@@ -302,7 +302,7 @@ const TCPlayer = {
     }
     TCPlayerPanel.update(TCPlayer._nodes, {
       title, episode, pos, dur, paused, volume, packagedPct, hasNext: TCPlayer._hasNext, onTv,
-      toTv: !!TCPlayer._toTv,
+      toTv: !!TCPlayer._toTv, hasTv: !!(TCPlayer._last && TCPlayer._last.tv),
     });
   },
 

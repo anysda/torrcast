@@ -523,7 +523,7 @@ const TCCard = {
       row.appendChild(again);
     }
 
-    if (!noReleases) {
+    if (!noReleases && data.tv) {
       const onTv = document.createElement('button');
       onTv.type = 'button';
       onTv.className = 'tc-btn tc-btn--secondary';

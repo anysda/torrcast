@@ -128,6 +128,8 @@ const TCPlayerPanel = {
     const next = TCPlayerPanel._btn('web.player.next_episode', 'secondary', on.onNext);
     next.hidden = true;
     const tv = TCPlayerPanel._btn('web.player.play_on_tv', 'primary', on.onToggleTv);
+    // Есть ли у машины ТВ, скажет первый ответ состояния; до него кнопку не показываем.
+    tv.hidden = true;
     const close = TCPlayerPanel._btn(null, 'secondary', on.onClose, '✕');
     close.classList.add('tc-btn--square');
     close.setAttribute('aria-label', TC.say('web.player.back'));
@@ -221,6 +223,7 @@ const TCPlayerPanel = {
     nodes.mutedNote.hidden = !snap.onTv && !snap.toTv;
     // Переход на ТВ идёт секундами (рукопожатие и подъём показа на приёмнике), и всё
     // это время кнопка говорит «Готовим…», а не зовёт нажать себя второй раз.
+    nodes.tv.hidden = !snap.hasTv;
     nodes.tv.textContent = snap.toTv ? TC.say('web.player.preparing')
       : TC.say(snap.onTv ? 'web.player.back_to_browser' : 'web.player.play_on_tv');
     nodes.tv.classList.toggle('tc-btn--primary', !snap.onTv);

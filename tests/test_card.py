@@ -213,6 +213,21 @@ def test_a_picture_showing_on_the_receiver_right_now_marks_the_card_playing(
     assert body["playing"] is True
 
 
+@pytest.mark.parametrize(("tv", "offered"), [("", False), ("192.168.1.90", True)])
+def test_the_card_offers_the_tv_only_on_a_machine_that_has_one(
+    monkeypatch: pytest.MonkeyPatch, tv: str, offered: bool
+) -> None:
+    """Без ТВ в настройке карточка не зовёт «На ТВ»: кнопку по этому полю не рисуют."""
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    monkeypatch.setattr("web.card.load_config", lambda: Config(tv=tv))
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert code == 200
+    assert body["tv"] is offered
+
+
 def test_a_bookmark_without_a_live_receiver_does_not_claim_the_card_is_playing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

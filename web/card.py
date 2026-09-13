@@ -147,6 +147,8 @@ def _body(
         # кнопки на «Подключиться»/«Завершить», а не держит «PLAY ON TV» рядом с уже идущим
         # показом (:mod:`web.static.card.js`).
         "playing": playing,
+        # Машина без ТВ (``config.tv`` пуст) не предлагает показ на ТВ вовсе.
+        "tv": bool(config.tv),
         "seasons": seasons,
         "related": related,
         "releases_count": len(picture.releases),
