@@ -158,7 +158,11 @@ def _body(
     told = facts.answered(title, year)
     seasons, seasons_partial = card_seasons(plan, entry, config.torrserver_url, _episodes)
     series = kind == "tv"
-    related = CardDetails.others(picture.key, _related.of(title, series))
+    related = (
+        []
+        if getattr(fact, "missing", False)
+        else CardDetails.others(picture.key, _related.of(title, series))
+    )
     # Родня без идущего похода - молчание источника, а не недоезд: ждать её этой карточке
     # нечего, и страница переспрашивала её до исчерпания заходов.
     coming = related is None and _related.waiting(title, series)

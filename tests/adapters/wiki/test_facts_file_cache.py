@@ -49,7 +49,7 @@ def test_an_empty_answer_is_remembered_with_an_expiry() -> None:
 
     assert cache.blurbs([("Тачки", 2006), ("Моана", 2016)]) == {
         ("Тачки", 2006): Fact(rating="IMDb 7.2"),
-        ("Моана", 2016): Fact(),
+        ("Моана", 2016): Fact(missing=True),
     }
 
     stale = FactsFileCache(store, lambda: now + EMPTY_TTL + 1)

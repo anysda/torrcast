@@ -344,7 +344,7 @@ def test_the_rating_leaves_as_a_number_because_the_page_says_the_source_itself(
     assert body["rating"] == 8.5
 
 
-def test_the_partial_header_stands_while_the_source_has_not_answered_yet(
+def test_a_cached_missing_article_finishes_the_related_shelf_without_a_circle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _wired(monkeypatch, [_MOVIE_PLAN])
@@ -355,7 +355,7 @@ def test_the_partial_header_stands_while_the_source_has_not_answered_yet(
 
     assert body["blurb"] == ""
     assert body["rating"] is None
-    assert "X-Torrcast-Partial" in extra
+    assert "X-Torrcast-Partial" not in extra
 
 
 def test_a_picture_the_source_answered_nothing_about_is_not_marked_partial(

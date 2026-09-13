@@ -14,6 +14,9 @@ class Fact:
     rating: str = ""
     #: Готовая строка «1 ч 47 мин» - не минуты: считать их в уме человек не обязан.
     runtime: str = ""
+    #: Wikipedia answered this exact picture and found no article.  This differs from
+    #: an unfinished lookup: a card may finish its related shelf as empty immediately.
+    missing: bool = False
 
     def __bool__(self) -> bool:
         return bool(self.about or self.rating or self.runtime)

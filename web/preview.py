@@ -98,7 +98,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     facts = _facts.of(title, year, kind)
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
-    kin = related.of(title, series)
+    kin = [] if getattr(fact, "missing", False) else related.of(title, series)
     if request.query.get("wait") == "1":
         before = (fact, told, kin)
         until = time.monotonic() + PATIENCE
@@ -106,7 +106,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
             _sleep(_TICK)
             fact = facts.ready(title, year)
             told = facts.answered(title, year)
-            kin = related.of(title, series)
+            kin = [] if getattr(fact, "missing", False) else related.of(title, series)
             # Справка и родня приходят разными походами. Перемена одной не должна
             # стоять за другой: ``related=None`` оставляет полку частичной.
             if (fact, told, kin) != before:

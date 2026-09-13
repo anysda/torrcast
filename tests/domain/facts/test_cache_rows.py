@@ -92,7 +92,7 @@ def test_a_row_judged_by_current_rules_is_taken_without_a_walk() -> None:
     }
     assert _cached_facts(raw, [("Моана", 2016), ("Тачки", 2006)], now) == {
         ("Моана", 2016): Fact(about="о дочери вождя", rating="IMDb 7.6"),
-        ("Тачки", 2006): Fact(),
+        ("Тачки", 2006): Fact(missing=True),
     }
 
 
@@ -102,7 +102,7 @@ def test_a_stale_empty_answer_is_as_good_as_absent() -> None:
     fresh: dict[str, Any] = {
         "Моана|2016": {"about": "", "rating": "", "runtime": "", "empty": now, "rules": FACTS_RULES}
     }
-    assert _cached_facts(fresh, [("Моана", 2016)], now) == {("Моана", 2016): Fact()}
+    assert _cached_facts(fresh, [("Моана", 2016)], now) == {("Моана", 2016): Fact(missing=True)}
     stale: dict[str, Any] = {
         "Моана|2016": {
             "about": "",

@@ -16,6 +16,7 @@ from web.request import Request
 class _Fact:
     rating: str = ""
     about: str = ""
+    missing: bool = False
 
 
 class _Facts:
@@ -51,6 +52,11 @@ class _Related:
 class _AnsweredFacts(_Facts):
     def answered(self, _title: str, _year: int) -> bool:
         return True
+
+
+class _MissingFacts(_AnsweredFacts):
+    def ready(self, _title: str, _year: int) -> _Fact:
+        return _Fact(missing=True)
 
 
 class _EarlyAboutFacts(_Facts):
@@ -117,7 +123,7 @@ def test_an_answered_empty_description_is_not_left_as_a_skeleton(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A trusted cache absence is useful before the release circle completes."""
-    monkeypatch.setattr(web.preview, "MenuFacts", _AnsweredFacts)
+    monkeypatch.setattr(web.preview, "MenuFacts", _MissingFacts)
     request = Request(
         method="GET",
         path="/api/card/movie:luca:2021",
@@ -129,6 +135,7 @@ def test_an_answered_empty_description_is_not_left_as_a_skeleton(
 
     assert answer is not None
     assert json.loads(answer.body)["blurb"] == ""
+    assert json.loads(answer.body)["related"] == []
 
 
 def test_a_ready_description_is_published_before_later_fact_details(

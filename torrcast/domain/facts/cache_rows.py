@@ -118,6 +118,7 @@ def _cached_facts(
             about=str(row.get("about", "")),
             rating=str(row.get("rating", "")),
             runtime="" if minutes_of(runtime) > RUNTIME_CAP_MINUTES else runtime,
+            missing=isinstance(blank, int | float),
         )
         if not fact and not isinstance(blank, int | float):
             continue
