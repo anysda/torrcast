@@ -26,13 +26,13 @@ from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.release import Release
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.state_store.slot import store
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
+from web.card_details import CardDetails
 from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
@@ -72,7 +72,7 @@ def card(request: Request) -> Answer:
     if not query.strip():
         return refusal(400, "no_query")
     key = request.path[len(_PREFIX) :]
-    _start_related(request)
+    hint = _start_related(request)
     if early := preview(request, key, WARM, _related):
         return early
     config = load_config()
@@ -85,10 +85,10 @@ def card(request: Request) -> Answer:
     plan, pick = card_lookup(plans, key)
     if plan is None:
         return refusal(404, "not_found")
-    return _answer(plan, config, pick, WAIT if request.query.get("wait") == "1" else 0.0)
+    return _answer(plan, config, pick, WAIT if request.query.get("wait") == "1" else 0.0, hint)
 
 
-def _start_related(request: Request) -> None:
+def _start_related(request: Request) -> tuple[str, int, str] | None:
     """Начать полку открытой плитки до любого лимита фонового прогрева.
 
     ``seen`` вправе греть только одну плитку экрана: иначе восемь паспортов забивают
@@ -101,24 +101,32 @@ def _start_related(request: Request) -> None:
     try:
         year = int(request.query.get("year", ""))
     except ValueError:
-        return
+        return None
     if title and kind in {"movie", "tv"} and 1800 <= year <= 3000:
         _related.of(title, kind == "tv")
+        return title, year, kind
+    return None
 
 
-def _answer(plan: Plan, config: Config, pick: int, wait: float = 0.0) -> Answer:
+def _answer(
+    plan: Plan,
+    config: Config,
+    pick: int,
+    wait: float = 0.0,
+    hint: tuple[str, int, str] | None = None,
+) -> Answer:
     """Тело ответа плюс заголовок недоехавшей части: справка, обложка, родня, серии."""
     picture = plan.picture
     watch = store().load()
     entry = watch.get(picture.key)
-    facts = MenuFacts([(picture.title, picture.year, picture.kind)], budget=0.0)
+    facts = MenuFacts([hint or (picture.title, picture.year, picture.kind)], budget=0.0)
     facts.start()
     until = time.monotonic() + wait
-    first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key))
+    first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint)
     body = first
     while partial and time.monotonic() < until:
         time.sleep(_TICK)
-        body, partial = _body(plan, config, pick, entry, facts, _playing(picture.key))
+        body, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint)
         if body != first:
             until = min(until, time.monotonic() + _SETTLE)
     extra = ((_PARTIAL, "1"),) if partial else ()
@@ -132,18 +140,25 @@ def _playing(key: str) -> bool:
 
 
 def _body(
-    plan: Plan, config: Config, pick: int, entry: Entry | None, facts: MenuFacts, playing: bool
+    plan: Plan,
+    config: Config,
+    pick: int,
+    entry: Entry | None,
+    facts: MenuFacts,
+    playing: bool,
+    hint: tuple[str, int, str] | None = None,
 ) -> tuple[dict[str, JsonValue], bool]:
     """Тело как оно есть сейчас и «что-то ещё в пути»; пустая справка - готовый ответ."""
     picture = plan.picture
-    fact = facts.ready(picture.title, picture.year)
-    told = facts.answered(picture.title, picture.year)
+    title, year, kind = hint or (picture.title, picture.year, picture.kind)
+    fact = facts.ready(title, year)
+    told = facts.answered(title, year)
     seasons, seasons_partial = card_seasons(plan, entry, config.torrserver_url, _episodes)
-    series = picture.kind == "tv"
-    related = _others(picture.key, _related.of(picture.title, series))
+    series = kind == "tv"
+    related = CardDetails.others(picture.key, _related.of(title, series))
     # Родня без идущего похода - молчание источника, а не недоезд: ждать её этой карточке
     # нечего, и страница переспрашивала её до исчерпания заходов.
-    coming = related is None and _related.waiting(picture.title, series)
+    coming = related is None and _related.waiting(title, series)
     poster, judging = _poster.of(picture)
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
@@ -159,7 +174,7 @@ def _body(
         "rating": rating_score(fact.rating),
         "blurb": fact.about if told else None,
         "poster": poster,
-        "voices": _voices(plan),
+        "voices": CardDetails.voices(plan),
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
         # TC-1225: картина, которая идёт на приёмнике прямо сейчас
@@ -172,47 +187,6 @@ def _body(
         "seasons": seasons,
         "related": related,
         "releases_count": len(picture.releases),
-        "sources_count": _sources_count(picture.releases),
+        "sources_count": CardDetails.sources_count(picture.releases),
     }
     return body, not told or seasons_partial or coming or judging
-
-
-def _others(key: str, related: list[JsonValue] | None) -> list[JsonValue] | None:
-    """Полка родни - ДРУГИЕ части франшизы (ТЗ §8): сама картина себе не родня.
-
-    Wikidata запрошенное отсеивает сама (:func:`torrcast.domain.facts.kin_query`), но
-    голое имя серии паспорт намеренно отдаёт статьёй ФРАНШИЗЫ, и тогда первая картина
-    приезжает в родню к себе же: замер 10-09-2026 на стенде `.104` - под карточкой
-    `movie:джон-уик:2014` пятой плиткой стоял «Джон Уик» 2014 года, ведущий на неё же.
-    """
-    if related is None:
-        return None
-    return [tile for tile in related if not isinstance(tile, dict) or tile.get("key") != key]
-
-
-def _voices(plan: Plan) -> list[JsonValue]:
-    """Дорожки как их называют раздачи: студия, лучшее её качество и сумма сидов.
-
-    ТЗ называет источником ``Release.dubbed`` - это булево, имени в нём нет. Дорожку
-    видно только по :attr:`Release.studios`, и группировка идёт по ней.
-    """
-    lead = {studio.name for studio in plan.ranked[0].studios} if plan.ranked else set()
-    groups: dict[str, list[Release]] = {}
-    for release in plan.picture.releases:
-        for studio in release.studios:
-            groups.setdefault(studio.name, []).append(release)
-    return [
-        {
-            "name": name,
-            "quality": max(items, key=lambda r: r.height).quality or "",
-            "seeders": sum(r.seeders for r in items),
-            "default": name in lead,
-        }
-        for name, items in groups.items()
-    ]
-
-
-def _sources_count(releases: list[Release]) -> int:
-    names = {release.indexer for release in releases if release.indexer}
-    names.update(name for release in releases for name in release.indexers)
-    return len(names)

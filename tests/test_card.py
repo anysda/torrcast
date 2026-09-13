@@ -205,6 +205,25 @@ def test_an_open_card_starts_its_related_shelf_outside_the_seen_limit(
     assert related.asked[0] == ("Interstellar", False)
 
 
+def test_a_full_card_keeps_the_tile_identity_for_its_related_shelf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Нормализация названия кругом не вправе сменить уже показанную полку франшизы."""
+    related = _RememberingRelated([])
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    monkeypatch.setattr("web.card._related", related)
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
+    state_slot.install(FakeStateStore())
+
+    _asked(
+        _MOVIE.key,
+        extra_query={"title": "Tile name", "year": "2000", "kind": "movie"},
+    )
+
+    assert related.asked == [("Tile name", False), ("Tile name", False)]
+
+
 def test_an_unknown_key_is_a_404_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     _wired(monkeypatch, [_MOVIE_PLAN])
     state_slot.install(FakeStateStore())

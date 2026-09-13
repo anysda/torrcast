@@ -15,8 +15,8 @@ from web.rating_score import rating_score
 from web.request import Request
 
 _PARTIAL = "X-Torrcast-Partial"
-#: Неподогретая плитка получает один короткий шанс источникам. Обычно ``seen`` уже
-#: оплатил его при появлении плитки, но при моментальном клике скелет честнее лжи.
+#: Долгий переспрос ждёт независимые от круга источники не дольше секунды. Первый ответ
+#: не ждёт вовсе: имя, обложка и скелет должны появиться до Wikipedia/Wikidata.
 PATIENCE: Final = 1.0
 _TICK: Final = 0.05
 _sleep: Callable[[float], None] = time.sleep
@@ -39,8 +39,13 @@ class _Warm(Protocol):
 
 
 def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answer | None:
-    """Ответить сведениями плитки, не ожидая поиска раздач."""
-    if warm.ready(request.query.get("query", "")) is not None or request.query.get("wait") == "1":
+    """Ответить сведениями плитки, не ожидая поиска раздач.
+
+    ``wait=1`` остаётся в preview, пока круг занят фоном. Иначе второй GET попадал в
+    :meth:`WarmCache.take` и стоял за раздачами, хотя Wikipedia и Wikidata уже ехали
+    отдельно. Как только круг готов, следующий GET соберёт полную карточку.
+    """
+    if warm.ready(request.query.get("query", "")) is not None:
         return None
     title = request.query.get("title", "").strip()
     kind = request.query.get("kind", "")
@@ -51,17 +56,21 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     series = kind == "tv"
     facts = MenuFacts([(title, year, kind)], budget=PATIENCE)
     facts.start()
-    until = time.monotonic() + PATIENCE
-    while True:
-        told = facts.answered(title, year)
-        kin = related.of(title, series)
-        # Справка и родня приходят разными походами. Полученная справка не должна
-        # стоять за медленной роднёй: ``related=None`` оставляет полку частичной и
-        # следующий долгий ответ дорисует её отдельно.
-        if told or time.monotonic() >= until:
-            break
-        _sleep(_TICK)
     fact = facts.ready(title, year)
+    told = facts.answered(title, year)
+    kin = related.of(title, series)
+    if request.query.get("wait") == "1":
+        before = (fact, told, kin)
+        until = time.monotonic() + PATIENCE
+        while time.monotonic() < until:
+            _sleep(_TICK)
+            fact = facts.ready(title, year)
+            told = facts.answered(title, year)
+            kin = related.of(title, series)
+            # Справка и родня приходят разными походами. Перемена одной не должна
+            # стоять за другой: ``related=None`` оставляет полку частичной.
+            if (fact, told, kin) != before:
+                break
     body: dict[str, JsonValue] = {
         "pick": 0,
         "title": title,

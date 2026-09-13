@@ -99,3 +99,39 @@ def test_an_answered_description_does_not_wait_for_the_related_shelf(
     answer = preview(request, "movie:luca:2021", _Warm(), _PendingRelated())
 
     assert answer is not None
+
+
+def test_the_first_preview_never_spends_its_source_patience(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Клик обязан поставить скелет до того, как успеет ответить любой источник."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
+    monkeypatch.setattr(web.preview, "_sleep", lambda _seconds: pytest.fail("waited"))
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie"},
+        body={},
+    )
+
+    answer = preview(request, "movie:luca:2021", _Warm(), _Related())
+
+    assert answer is not None
+
+
+def test_a_waiting_preview_does_not_fall_through_to_the_release_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Второй GET ждёт только факты и родню, пока круг раздач ещё занят."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
+    monkeypatch.setattr(web.preview, "PATIENCE", 0.0)
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie", "wait": "1"},
+        body={},
+    )
+
+    answer = preview(request, "movie:luca:2021", _Warm(), _Related())
+
+    assert answer is not None
