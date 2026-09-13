@@ -47,7 +47,7 @@ def test_a_synchronous_build_answers_the_very_same_call_with_tiles_shaped_like_s
     assert first["shown"] == "Гарри Поттер и Тайная комната"
     assert first["kind"] == "movie"
     assert first["key"] == "movie:гарри-поттер-и-тайная-комната:2002"
-    assert first["query"] == "Гарри Поттер и философский камень"
+    assert first["query"] == "Гарри Поттер и Тайная комната"
 
 
 def test_an_empty_franchise_is_a_finished_answer_not_a_pending_one() -> None:
@@ -209,7 +209,7 @@ def test_the_related_titles_are_warmed_before_the_tiles_are_drawn() -> None:
 
     lookup.of("Гарри Поттер и философский камень", False)
 
-    assert warmed == [["Гарри Поттер и философский камень"]]
+    assert warmed == [["Гарри Поттер и Тайная комната", "Гарри Поттер и Кубок огня"]]
 
 
 def _passport(_title: str, _series: bool, _timeout: float) -> Origin:

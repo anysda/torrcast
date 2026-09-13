@@ -67,13 +67,18 @@ def _no_warm(_queries: list[str]) -> None:
     return None
 
 
-def _seed(kin: Kin, original: str, query: str) -> dict[str, JsonValue]:
+def _seed(kin: Kin, original: str) -> dict[str, JsonValue]:
     """Плитка родни до обложки: ``original`` в ней только на розыск обложки, не на показ.
 
     Wikidata не называет род родни - франшизы приёмки (§8) все до одной кино, и это
     умолчание, а не подпорка под конкретное название. Латиница - паспорт того же имени
     (:func:`torrcast.usecases.passport.Passport.of`), каким гейт добора проверяет саму
     картину; нет статьи на другом языке - латиницы у родни тоже нет, и это честно.
+
+    🔴 ``query`` - имя САМОЙ родни: карточка ищет ключ в круге этого запроса
+    (:func:`web.card_lookup.card_lookup`). Запрос родительской картины находил соседей только
+    у коротких названий («Терминатор»); у «Гарри Поттер и философский камень» и «Властелин
+    колец: Братство кольца» 12 соседей из 12 отвечали 404 (стенд `.136` 13-09-2026).
     """
     return {
         "key": f"movie:{slugify(kin.name)}:{kin.year or 0}",
@@ -82,7 +87,7 @@ def _seed(kin: Kin, original: str, query: str) -> dict[str, JsonValue]:
         "year": kin.year,
         "kind": "movie",
         "quality": None,
-        "query": query,
+        "query": kin.name,
         "original": original,
     }
 
@@ -155,9 +160,9 @@ class RelatedLookup:
             found = self.franchise(title, series, TIMEOUT)
             if found is None:
                 return
-            seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name), title) for kin in found]
+            seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
             tiles = [_project(record) for record in self.offer(seeds)]
-            self.warm([title])
+            self.warm([kin.name for kin in found])
             with self._lock:
                 self._tiles[(title, series)] = (tiles, self.clock() + RETRY)
         except Exception:
