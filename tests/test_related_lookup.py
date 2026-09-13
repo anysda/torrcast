@@ -110,6 +110,20 @@ def test_a_healed_network_fills_the_shelf_that_silence_left_pending() -> None:
     assert related is not None and len(related) == 1
 
 
+def test_an_open_card_retries_a_silent_background_shelf_at_once() -> None:
+    """The visible card has priority over the quiet lease left by a failed hover."""
+    answers: list[list[Kin] | None] = [None, [_ONE]]
+
+    def _franchise(_title: str, _series: bool, _timeout: float) -> list[Kin] | None:
+        return answers.pop(0)
+
+    lookup = RelatedLookup(franchise=_franchise, offer=_passthrough, spawn=_sync)
+    assert lookup.of("Чужой", False) is None
+    related = lookup.retry("Чужой", False)
+
+    assert related is not None and len(related) == 1
+
+
 def test_a_failed_build_does_not_hold_the_title_pending_forever() -> None:
     """Упавший фон - не ответ и не вечное «ещё не готово»: имя отпускается, и следующий
     вопрос заводит новый добор, а не висит на погибшем."""

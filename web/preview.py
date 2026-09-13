@@ -57,7 +57,10 @@ class _FactFlights:
         with self.lock:
             active = self.pending.get(key)
             if active is not None and now - active[1] < _FACT_FLIGHT:
-                return active[0]
+                facts = active[0]
+                done = getattr(facts, "_done", None)
+                if done is None or not done.is_set() or facts.answered(title, year):
+                    return facts
             facts = MenuFacts([key], budget=PATIENCE)
             facts.start()
             self.pending[key] = facts, now

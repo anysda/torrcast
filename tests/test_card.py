@@ -90,6 +90,9 @@ class _StubRelated:
     def of(self, _title: str, _series: bool) -> list[Any] | None:
         return self.result
 
+    def retry(self, title: str, series: bool) -> list[Any] | None:
+        return self.of(title, series)
+
     def waiting(self, _title: str, _series: bool) -> bool:
         return self.result is None and self.pending
 

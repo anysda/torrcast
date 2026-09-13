@@ -1,6 +1,7 @@
 """Быстрый ответ карточки до готовности круга раздач."""
 
 import json
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -191,3 +192,33 @@ def test_waiting_previews_share_one_unfinished_fact_lookup(
     preview(request, "movie:luca:2021", _Warm(), _Related())
 
     assert made == 1
+
+
+def test_a_finished_silent_fact_lookup_is_retried_without_its_old_flight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed source must not keep the card blank until the flight lease expires."""
+    made = 0
+
+    class _SilentFacts(_Facts):
+        def __init__(self, pictures: object, budget: float) -> None:
+            nonlocal made
+            made += 1
+            super().__init__(pictures, budget)
+            self._done = threading.Event()
+
+        def start(self) -> None:
+            self._done.set()
+
+    monkeypatch.setattr(web.preview, "MenuFacts", _SilentFacts)
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie"},
+        body={},
+    )
+
+    preview(request, "movie:luca:2021", _Warm(), _Related())
+    preview(request, "movie:luca:2021", _Warm(), _Related())
+
+    assert made == 2

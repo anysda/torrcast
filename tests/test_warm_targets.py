@@ -164,3 +164,25 @@ def test_a_visible_screen_warms_passports_before_a_hover_needs_related() -> None
         job()
 
     assert passports == [("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]
+
+
+def test_a_hot_tile_replaces_the_passport_queue_before_its_first_source_trip() -> None:
+    """The hover does not wait behind passports the person is no longer looking at."""
+    passports: list[FactPicture] = []
+    jobs: list[Callable[[], None]] = []
+    targets = WarmTargets(
+        circle=lambda _query: [],
+        prime=lambda _pictures: None,
+        kin=lambda _picture: None,
+        passport=passports.append,
+        ask=lambda _queries: 0,
+        spawn=jobs.append,
+    )
+    up = ("Up", "movie:up:2009", "Вверх", 2009, "movie")
+    luca = ("Luca", "movie:luca:2021", "Лука", 2021, "movie")
+
+    targets.observe([up, luca], source=False)
+    targets.observe([luca, up])
+    jobs[0]()
+
+    assert passports == [("Лука", 2021, "movie"), ("Вверх", 2009, "movie")]

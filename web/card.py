@@ -103,7 +103,7 @@ def _start_related(request: Request) -> tuple[str, int, str] | None:
     except ValueError:
         return None
     if title and kind in {"movie", "tv"} and 1800 <= year <= 3000:
-        _related.of(title, kind == "tv")
+        _related.retry(title, kind == "tv")
         return title, year, kind
     return None
 

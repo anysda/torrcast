@@ -41,16 +41,7 @@ SILENT = 120.0
 #: Та же форма, что у плитки полок (:data:`web.shelves_cache._TILE_FIELDS`) - страница
 #: рисует обе плитки одним и тем же кодом, а не двумя похожими. ``shown`` - имя ДЛЯ
 #: ЧЕЛОВЕКА, ``title`` остаётся записанным ради розыска обложки и ``query``.
-_TILE_FIELDS: tuple[str, ...] = (
-    "key",
-    "title",
-    "shown",
-    "year",
-    "kind",
-    "quality",
-    "poster",
-    "query",
-)
+_TILE_FIELDS = ("key", "title", "shown", "year", "kind", "quality", "poster", "query")
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -143,6 +134,12 @@ class RelatedLookup:
         """Идёт ли поход за роднёй: ``None`` без похода - молчание, ждать его нечего."""
         with self._lock:
             return (title, series) in self._pending
+
+    def retry(self, title: str, series: bool) -> list[JsonValue] | None:
+        """Повторить именно открытой карточкой после неуспеха фонового похода."""
+        with self._lock:
+            self._silent.pop((title, series), None)
+        return self.of(title, series)
 
     def finish(self, pictures: list[FactPicture]) -> None:
         """Дождаться родни видимой полки, но не дольше одного сетевого срока."""
