@@ -91,20 +91,24 @@ def _answer(plan: Plan, config: Config, pick: int, wait: float = 0.0) -> Answer:
     picture = plan.picture
     watch = store().load()
     entry = watch.get(picture.key)
-    showing = watch.showing()
-    playing = showing is not None and showing[0] == picture.key
     facts = MenuFacts([(picture.title, picture.year, picture.kind)], budget=0.0)
     facts.start()
     until = time.monotonic() + wait
-    first, partial = _body(plan, config, pick, entry, facts, playing)
+    first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key))
     body = first
     while partial and time.monotonic() < until:
         time.sleep(_TICK)
-        body, partial = _body(plan, config, pick, entry, facts, playing)
+        body, partial = _body(plan, config, pick, entry, facts, _playing(picture.key))
         if body != first:
             until = min(until, time.monotonic() + _SETTLE)
     extra = ((_PARTIAL, "1"),) if partial else ()
     return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
+
+
+def _playing(key: str) -> bool:
+    """Взять свежий признак показа для каждого взгляда долгого ответа."""
+    showing = store().load().showing()
+    return showing is not None and showing[0] == key
 
 
 def _body(

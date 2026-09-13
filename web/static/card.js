@@ -24,6 +24,9 @@ const TCCard = {
   // Номер живого захода на экран: возврат на карточку гасит опросы прошлого визита,
   // иначе их добор подменял бы тело у экрана, который человек видит сейчас.
   _visit: 0,
+  // Номер единственного добора этого визита: новый повод освежить карточку отменяет
+  // предыдущий долгий ответ, чтобы один показ не умножал опросы `/api/card`.
+  _loadId: 0,
   // Тело, стоящее на экране: тихий добор сравнивает с ним ответ и не трогает DOM,
   // пока данные те же.
   _shown: null,
@@ -65,12 +68,13 @@ const TCCard = {
 
   async _load(root, key, query, quiet) {
     const mine = TCCard._visit;
+    const load = ++TCCard._loadId;
     TCCard._patient = quiet ? Date.now() : 0;
     let data = null;
     for (let turn = 0; ; turn += 1) {
-      if (mine !== TCCard._visit || !TCCard._here(root, key)) return;
+      if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       const said = await TCApi.card(key, query, turn > 0);
-      if (mine !== TCCard._visit || !TCCard._here(root, key)) return;
+      if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       if (said.data) data = said.data;
       if (said.missing) data = { error: 'not_found' };
       const last = !said.partial || turn === TCCard._TURNS;
@@ -92,8 +96,10 @@ const TCCard = {
           setTimeout(() => TCCard._settle(root, key), TCCard._PATIENCE);
         }
         const shown = data || TCCard._fallback(key);
-        if (!TCCard._same(key, query, shown)) {
-          TCCard._show(root, key, query, shown, last || TCCard._settled());
+        const settled = last || TCCard._settled();
+        const skel = root.querySelector('.tc-detail-skel[data-tc-card-description]');
+        if (!TCCard._same(key, query, shown) || (settled && skel)) {
+          TCCard._show(root, key, query, shown, settled);
         }
         if (last && !busy) return;
       }

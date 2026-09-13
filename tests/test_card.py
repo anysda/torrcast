@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import web.card as card_page
 from dataclasses import dataclass
 from typing import Any
 
@@ -633,6 +634,41 @@ def test_a_waiting_ask_holds_the_answer_until_the_blurb_arrives(
     assert body["blurb"] == "Сюжет"
     assert "X-Torrcast-Partial" not in extra
     assert late.looks == 3
+
+
+def test_a_waiting_ask_sees_the_show_that_began_after_its_first_look(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Показ стартует между взглядами: долгий ответ обязан назвать его сразу."""
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries[_MOVIE.key] = Entry("Interstellar", "magnet:interstellar", kind="movie")
+    fake.save(state)
+    state_slot.install(fake)
+    late = _LateFacts(after=3)
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: late)
+    original = card_page._body
+    looks = 0
+
+    def _body(*args: Any, **kwargs: Any) -> tuple[dict[str, Any], bool]:
+        nonlocal looks
+        body = original(*args, **kwargs)
+        looks += 1
+        if looks == 1:
+            started = fake.load()
+            started.entries[_MOVIE.key] = Entry(
+                "Interstellar", "magnet:interstellar", kind="movie", torrent="abc"
+            )
+            fake.save(started)
+        return body
+
+    monkeypatch.setattr("web.card._body", _body)
+    monkeypatch.setattr("web.card._TICK", 0.0)
+
+    _code, body, _extra = _asked(_MOVIE.key, wait=True)
+
+    assert body["playing"] is True
 
 
 def test_a_waiting_ask_gives_up_at_its_ceiling_and_still_says_partial(
