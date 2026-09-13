@@ -83,13 +83,17 @@ const TCCard = {
       // показа само. Без этого «Завершить» и возврат из плеера оставляли бы кнопки
       // застывшими до перезагрузки (замер на стенде `.107`, TC-1240).
       const busy = !!(data && data.playing);
+      // Заказ с этой карточки уже назван мостом `starting`, но отметка показа ещё
+      // может прийти только следующим ответом карточки. Держим один добор до неё,
+      // иначе полный ответ до старта обрывал опрос и кнопки отставали до кадра.
+      const waiting = !!(TCCard._tvSaid && TCCard._tvSaid.key === key && !TCCard._tvSaid.done);
       if (quiet) {
         // Тихий добор не сносит стоящее тело ничем: ни отказом, ни кусочным ответом -
         // только ЦЕЛИКОМ изменившийся ответ, и никогда скелетом.
         if (data && !said.partial && !TCCard._same(key, query, data)) {
           TCCard._show(root, key, query, data, true);
         }
-        if (last && !busy) return;
+        if (last && !busy && !waiting) return;
       } else {
         if (data && !TCCard._patient) {
           TCCard._patient = Date.now() + TCCard._PATIENCE;
@@ -101,11 +105,11 @@ const TCCard = {
         if (!TCCard._same(key, query, shown) || (settled && skel)) {
           TCCard._show(root, key, query, shown, settled);
         }
-        if (last && !busy) return;
+        if (last && !busy && !waiting) return;
       }
       // У полного ответа `wait=1` возвращается сразу. Пауза нужна только живому
       // показу, иначе пять таких ответов исчерпывали счётчик за один миг.
-      if (busy) await new Promise((done) => setTimeout(done, TCCard._PLAY_POLL));
+      if (busy || waiting) await new Promise((done) => setTimeout(done, TCCard._PLAY_POLL));
     }
   },
 
