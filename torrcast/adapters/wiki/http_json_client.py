@@ -15,6 +15,10 @@ from urllib.parse import urlencode, urlsplit
 from torrcast.domain.facts.settings import FACTS_BUDGET
 
 _RESOLVE_TTL: Final = 600.0
+#: Wikimedia accepts five simultaneous requests from CT501; the sixth returns 429.
+#: A passport branches into several article probes, so limiting callers is not enough:
+#: the shared HTTP client is the only place that sees the actual request count.
+_REQUEST_LANES: Final = 5
 #: Потолок скачанного файла, байт. Постер шириной 500 точек весит сотню килобайт;
 #: мегабайт тут - запас, а не мера, и стоит он ровно затем, чтобы чужой ответ не мог
 #: занять память серва целиком.
@@ -44,6 +48,7 @@ class HttpJsonClient:
         self._resolved: dict[str, tuple[float, str]] = {}
         self._looking: dict[str, threading.Thread] = {}
         self._lock = threading.Lock()
+        self._requests = threading.BoundedSemaphore(_REQUEST_LANES)
 
     def get(
         self,
@@ -54,8 +59,11 @@ class HttpJsonClient:
         timeout: float,
     ) -> Any:
         """Выполняет GET и разбирает JSON; неуспех оставляет исключением."""
-        connection = _IPv4Connection(host, timeout=timeout, resolver=self._resolve)
+        if not self._requests.acquire(timeout=timeout):
+            raise OSError(f"{host}: request lane unavailable after {timeout:.1f} s")
+        connection: _IPv4Connection | None = None
         try:
+            connection = _IPv4Connection(host, timeout=timeout, resolver=self._resolve)
             connection.request(
                 "GET",
                 f"{path}?{urlencode(params)}",
@@ -66,7 +74,9 @@ class HttpJsonClient:
                 raise OSError(f"{host} ответил {response.status}")
             return json.loads(response.read())
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
+            self._requests.release()
 
     def fetch(self, address: str, timeout: float) -> bytes:
         """Забрать файл по полному адресу тем же соединением, что и JSON.
