@@ -66,10 +66,10 @@ def wiki_extracts(
 
     parts = [names[at : at + _EXLIMIT] for at in range(0, len(names), _EXLIMIT)]
     # The shared client gives Wikimedia five request lanes.  A full home screen needs
-    # seven batches, so its two queued batches need a second source interval rather
-    # than being called an incomplete response and forcing every click to retry.
+    # seven batches, so its queued batches need a second source interval plus one
+    # closing interval rather than being called incomplete at the deadline boundary.
     rounds = (len(parts) + _LANES - 1) // _LANES
-    deadline = time.monotonic() + timeout * rounds
+    deadline = time.monotonic() + timeout * (rounds + 1)
     wave = [threading.Thread(target=ask, args=(part,), daemon=True) for part in parts]
     for thread in wave:
         thread.start()
