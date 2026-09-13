@@ -43,6 +43,7 @@ const TCCard = {
     const kept = TCKept.take(location.pathname + location.search);
     if (kept) {
       TCKept.resume(root, kept);
+      TCCard._armConnect(root, TCCard._visit);
       root.querySelector('.tc-back').focus();
       TCCard._load(root, key, query, true);
       return;
@@ -552,20 +553,51 @@ const TCCard = {
     return row;
   },
 
-  // TC-1225. Показ уже идёт - вкладка подключается к нему тем же путём, что и шапка
-  // «сейчас играет» (`TCPlayer.open`): ящик вкладки уже несёт `url`/`key`/`at` этого
-  // показа (TC-1224), и заказывать его заново нечем и незачем.
+  // Показ уже поднят - вкладка подключается к нему тем же путём, что и шапка
+  // «сейчас играет» (`TCPlayer.open`). Но WatchState ставит `data.playing` раньше
+  // первого кадра; готовность берём из `state === 'playing'`, тем же признаком, которым
+  // шапка не называет телевизор идущим преждевременно.
   _connect() {
     const connect = document.createElement('button');
     connect.type = 'button';
-    connect.className = 'tc-btn tc-btn--primary';
+    connect.className = 'tc-btn tc-btn--primary tc-btn--disabled';
     connect.textContent = TC.say('web.detail.connect');
-    connect.tabIndex = 0;
+    connect.disabled = true;
+    connect.setAttribute('aria-disabled', 'true');
+    connect.tabIndex = -1;
     connect.dataset.tcCardConnect = '1';
-    connect.dataset.tcFocusable = '1';
     connect.dataset.tcGroup = 'buttons';
     connect.addEventListener('click', () => TCPlayer.open());
+    const visit = TCCard._visit;
+    requestAnimationFrame(() => TCCard._waitConnect(connect, visit));
     return connect;
+  },
+
+  async _waitConnect(connect, visit) {
+    while (TCCard._visit === visit && connect.isConnected && connect.disabled) {
+      const state = await TCApi.state();
+      if (TCCard._visit !== visit || !connect.isConnected || !connect.disabled) return;
+      if (state && state.state === 'playing') {
+        connect.classList.remove('tc-btn--disabled');
+        connect.disabled = false;
+        connect.removeAttribute('aria-disabled');
+        connect.tabIndex = 0;
+        connect.dataset.tcFocusable = '1';
+        return;
+      }
+      await new Promise((done) => setTimeout(done, TCCard._PLAY_POLL));
+    }
+  },
+
+  _armConnect(root, visit) {
+    const connect = root.querySelector('[data-tc-card-connect]');
+    if (!connect) return;
+    connect.classList.add('tc-btn--disabled');
+    connect.disabled = true;
+    connect.setAttribute('aria-disabled', 'true');
+    connect.tabIndex = -1;
+    delete connect.dataset.tcFocusable;
+    requestAnimationFrame(() => TCCard._waitConnect(connect, visit));
   },
 
   // Завершить - та же дверь, что и «Назад» из плеера идущего показа
