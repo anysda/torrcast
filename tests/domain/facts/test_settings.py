@@ -30,7 +30,7 @@ def test_the_source_marks_are_short_words_joined_by_a_plus() -> None:
     assert settings.SOURCE_WIKIDATA == "wikidata"
 
 
-def test_the_batch_of_names_covers_five_candidates_for_home_tiles() -> None:
+def test_the_batch_of_names_covers_every_candidate_for_home_tiles() -> None:
     """В один запрос влезает двадцать имён, а у меню их под сотню."""
     assert settings._EXLIMIT == 20
-    assert settings._EXBATCHES == 4
+    assert settings._EXBATCHES == 7

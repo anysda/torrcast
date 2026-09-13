@@ -36,8 +36,8 @@ def test_the_cartoon_series_qualifier_reaches_wikipedia_from_a_crowded_menu() ->
     assert "Звёздные войны: Войны клонов (мультсериал, 2008)" in asked
 
 
-def test_a_fifth_movie_candidate_reaches_the_last_home_tile() -> None:
-    """The fourth batch keeps the exact dated film inside a fourteen-tile warmup."""
+def test_every_candidate_reaches_the_last_home_tile() -> None:
+    """The home warmup can confirm an absence rather than guessing after five names."""
     odyssey = ("Одиссея", 2026)
     wanted: list[tuple[str, int | None]] = [(f"Картина {n}", 2000 + n) for n in range(13)]
     wanted.append(odyssey)
@@ -47,3 +47,4 @@ def test_a_fifth_movie_candidate_reaches_the_last_home_tile() -> None:
 
     asked = {name for _host, _path, params in client.calls for name in params["titles"].split("|")}
     assert "Одиссея (фильм, 2026)" in asked
+    assert "одиссея" in asked
