@@ -649,12 +649,22 @@ const TCCard = {
     }
     const until = Date.now() + TCCard._CAST_WAIT;
     let began = false;
+    let changed = false;
     while (Date.now() < until) {
       await new Promise((done) => setTimeout(done, 1000));
       const state = await TCApi.state();
       const now = state && state.state;
       began = began || now === 'starting';
-      if (now === 'playing' && (began || (!stale && names.includes(state.title)))) {
+      // Новый заказ пришёл уже ПОСЛЕ последнего добора карточки. Как только мост назвал
+      // его своим, пересобираем её: иначе на самой карточке оставалась «На ТВ», хотя
+      // состояние уже требовало «Подключиться»/«Завершить».
+      const mine = began || (!stale && names.includes(state && state.title));
+      if ((now === 'starting' || (now === 'playing' && mine)) && !changed) {
+        const root = document.getElementById('tc-root');
+        if (root && TCCard._here(root, key)) TCCard._load(root, key, query, false);
+        changed = true;
+      }
+      if (now === 'playing' && mine) {
         TCCard._tvSay(key, 'web.player.on_tv', true);
         return;
       }
