@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
 import web.warm_wiring as wiring
 from web.warm_cache import TTL, WORKERS, WarmCache
 
@@ -39,3 +41,33 @@ def test_the_background_hand_holds_nobody_at_the_exit() -> None:
     for hand in seen:
         hand.join(5.0)
     assert all(hand.daemon for hand in seen)
+
+
+def test_home_related_warmup_waits_for_its_fact_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The startup facts own the HTTP lanes until their final batch has settled."""
+    order: list[str] = []
+
+    class _Done:
+        @staticmethod
+        def wait() -> None:
+            order.append("settled")
+
+    class _Facts:
+        _done = _Done()
+
+        def __init__(self, pictures: object) -> None:
+            assert pictures == [("Одиссея", 2026, "movie")]
+
+        def start(self) -> None:
+            order.append("start")
+
+        def finish(self) -> None:
+            order.append("finish")
+
+    monkeypatch.setattr(wiring, "MenuFacts", _Facts)
+    monkeypatch.setattr(wiring, "prime", lambda _related, _pictures: order.append("related"))
+    monkeypatch.setattr(wiring, "_daemon", lambda job: job())
+
+    wiring._prime_screen([("Одиссея", 2026, "movie")])
+
+    assert order == ["start", "finish", "settled", "related"]

@@ -77,6 +77,10 @@ def _prime_screen(pictures: list[FactPicture]) -> None:
     def finish() -> None:
         facts.start()
         facts.finish()
+        # The seven article packets may still be closing after the cache's bounded
+        # top-up.  Starting sixteen passports here would take their HTTP lanes and
+        # make the visible cards repeat the very lookup startup was meant to pay.
+        facts._done.wait()
         prime(RELATED, pictures)
 
     _daemon(finish)
