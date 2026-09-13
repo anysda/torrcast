@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -95,6 +95,15 @@ class _StubRelated:
 
 
 @dataclass
+class _RememberingRelated(_StubRelated):
+    asked: list[tuple[str, bool]] = field(default_factory=list)
+
+    def of(self, title: str, series: bool) -> list[Any] | None:
+        self.asked.append((title, series))
+        return self.result
+
+
+@dataclass
 class _StubPoster:
     """Подмена :class:`web.card_poster.CardPoster`: приговор уже вынесен, в сеть не ходим."""
 
@@ -177,6 +186,23 @@ def test_a_shelf_card_answers_its_ready_facts_without_waiting_for_the_circle(
     assert body["searching"] is True
     assert "X-Torrcast-Partial" in extra
     assert cache.ready("interstellar") is None
+
+
+def test_an_open_card_starts_its_related_shelf_outside_the_seen_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The opened tile must not depend on its position in the background screen."""
+    related = _RememberingRelated([])
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    monkeypatch.setattr("web.card._related", related)
+    state_slot.install(FakeStateStore())
+
+    _asked(
+        _MOVIE.key,
+        extra_query={"title": "Interstellar", "year": "2014", "kind": "movie"},
+    )
+
+    assert related.asked[0] == ("Interstellar", False)
 
 
 def test_an_unknown_key_is_a_404_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:

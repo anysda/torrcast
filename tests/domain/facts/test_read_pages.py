@@ -130,3 +130,35 @@ def test_an_exact_name_does_not_turn_a_character_into_its_film() -> None:
     about, _, _ = _read_pages(reply, {key: [key[0]]}, {key}, {key: "movie"})
 
     assert about == {}
+
+
+def test_a_qualified_lightyear_cartoon_beats_its_character_page() -> None:
+    """The 2022 picture has a Russian article even though its bare title is a character."""
+    key = ("Базз Лайтер", 2022)
+    cartoon = (
+        "«Базз Лайтер» — американский компьютерно-анимационный научно-фантастический фильм, "
+        "созданный киностудиями Pixar и Walt Disney Pictures. Премьера состоялась в 2022 году."
+    )
+    reply: dict[str, Any] = {
+        "query": {
+            "pages": [
+                {
+                    "title": key[0],
+                    "extract": "Базз Лайтер — вымышленный персонаж.",
+                    "pageprops": {},
+                },
+                {
+                    "title": "Базз Лайтер (мультфильм)",
+                    "extract": cartoon,
+                    "pageprops": {"wikibase_item": "Q100000"},
+                },
+            ]
+        }
+    }
+
+    about, entities, _ = _read_pages(
+        reply, {key: [key[0], "Базз Лайтер (мультфильм)"]}, {key}, {key: "movie"}
+    )
+
+    assert about == {key: cartoon}
+    assert entities == {key: "Q100000"}

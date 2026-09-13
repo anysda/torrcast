@@ -72,6 +72,7 @@ def card(request: Request) -> Answer:
     if not query.strip():
         return refusal(400, "no_query")
     key = request.path[len(_PREFIX) :]
+    _start_related(request)
     if early := preview(request, key, WARM, _related):
         return early
     config = load_config()
@@ -85,6 +86,24 @@ def card(request: Request) -> Answer:
     if plan is None:
         return refusal(404, "not_found")
     return _answer(plan, config, pick, WAIT if request.query.get("wait") == "1" else 0.0)
+
+
+def _start_related(request: Request) -> None:
+    """Начать полку открытой плитки до любого лимита фонового прогрева.
+
+    ``seen`` вправе греть только одну плитку экрана: иначе восемь паспортов забивают
+    Wikipedia и лишают человека описания. Открытая карточка не является фоновым экраном,
+    поэтому её родня заводится сама, даже если она не была первой видимой плиткой или
+    ``seen`` уже заменил свою очередь.
+    """
+    title = request.query.get("title", "").strip()
+    kind = request.query.get("kind", "")
+    try:
+        year = int(request.query.get("year", ""))
+    except ValueError:
+        return
+    if title and kind in {"movie", "tv"} and 1800 <= year <= 3000:
+        _related.of(title, kind == "tv")
 
 
 def _answer(plan: Plan, config: Config, pick: int, wait: float = 0.0) -> Answer:

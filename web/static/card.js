@@ -85,12 +85,13 @@ const TCCard = {
       if (quiet) {
         // Тихий добор не сносит стоящее тело ничем: ни отказом, ни кусочным ответом -
         // только ЦЕЛИКОМ изменившийся ответ, и никогда скелетом.
-        if (data && !said.partial && !TCCard._same(key, query, data)) {
-          TCCard._show(root, key, query, data, true);
+        const settled = TCCard._keepKnown(key, query, data);
+        if (settled && !said.partial && !TCCard._same(key, query, settled)) {
+          TCCard._show(root, key, query, settled, true);
         }
         if (last && !busy && !waiting) return;
       } else {
-        const shown = data || TCCard._fallback(key);
+        const shown = TCCard._keepKnown(key, query, data || TCCard._fallback(key));
         if (!TCCard._same(key, query, shown)) {
           TCCard._show(root, key, query, shown);
         }
@@ -107,6 +108,24 @@ const TCCard = {
     const was = TCCard._shown;
     return !!was && was.key === key && was.query === query
       && JSON.stringify(was.data) === JSON.stringify(data);
+  },
+
+  // Долгий ответ уточняет preview, но не вправе стереть уже увиденное, если источник
+  // опоздал или полный круг назвал картину иначе. Новые непустые данные по-прежнему
+  // побеждают, а пустота и недоезд остаются на скелете только до первого показа.
+  _keepKnown(key, query, next) {
+    const was = TCCard._shown;
+    if (!next || !was || was.key !== key || was.query !== query) return next;
+    const old = was.data || {};
+    const kept = { ...next };
+    if (String(old.blurb || '').trim() && !String(kept.blurb || '').trim()) {
+      kept.blurb = old.blurb;
+    }
+    if (Array.isArray(old.related) && old.related.length > 0
+      && (!Array.isArray(kept.related) || kept.related.length === 0)) {
+      kept.related = old.related;
+    }
+    return kept;
   },
 
   _here(root, key) {
