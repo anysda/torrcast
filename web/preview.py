@@ -44,7 +44,9 @@ def preview(
         "runtime": 0.0,
         "runtime_estimated": False,
         "rating": rating_score(fact.rating),
-        "blurb": fact.about if told else None,
+        # Полка дождалась пакета справки до публикации. Если в нём нет статьи,
+        # карточка сразу называет это штатным текстом вместо второго скелета.
+        "blurb": fact.about if told else "",
         "poster": None,
         "voices": [],
         "resumable": False,
