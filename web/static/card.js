@@ -624,7 +624,11 @@ const TCCard = {
     finish.dataset.tcCardFinish = '1';
     finish.dataset.tcFocusable = '1';
     finish.dataset.tcGroup = 'buttons';
-    finish.addEventListener('click', () => TCApi.control('stop'));
+    // Своя остановка не отказ: ожидание каста видит снятую надпись и молча уходит.
+    finish.addEventListener('click', () => {
+      TCCard._tvSaid = null;
+      TCApi.control('stop');
+    });
     return finish;
   },
 
@@ -645,6 +649,7 @@ const TCCard = {
     const kept = sessionStorage.getItem(TCCard._voiceKey);
     const picked = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
     TCCard._tvSay(key, 'web.player.preparing', false);
+    const asked = TCCard._tvSaid;
     const names = [data.shown, data.title, data.original].filter(Boolean);
     // Показ вкладки с тем же именем ещё секунды «играет» после ухода с `/play`: тогда
     // «На ТВ» только после `starting` нового показа, иначе кнопка врала ~30 с (стенд, 11-09).
@@ -677,10 +682,14 @@ const TCCard = {
         if (root && TCCard._here(root, key)) TCCard._load(root, key, query, false);
         changed = true;
       }
+      // Идущий показ кнопку «На ТВ» прячет, а после его конца она снова своя: старая
+      // надпись «▶ На ТВ» на ней уже врёт.
       if (now === 'playing' && mine) {
         TCCard._tvSay(key, 'web.player.on_tv', true);
+        TCCard._tvSaid = null;
         return;
       }
+      if (TCCard._tvSaid !== asked) return;
       if (began && now === 'idle') break;
     }
     TCCard._tvSay(key, 'web.player.refused', true);
