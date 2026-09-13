@@ -553,7 +553,7 @@ const TCCard = {
 
     if (voices.length > 0) row.appendChild(TCCard._audio(voices, chosen));
 
-    if (noReleases) {
+    if (noReleases && !data.searching) {
       const norel = document.createElement('div');
       norel.className = 'tc-norel';
       const mark = document.createElement('div');
