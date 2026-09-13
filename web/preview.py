@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Final, Protocol
 
 from torrcast.domain.json_value import JsonValue
@@ -19,6 +19,7 @@ _PARTIAL = "X-Torrcast-Partial"
 #: оплатил его при появлении плитки, но при моментальном клике скелет честнее лжи.
 PATIENCE: Final = 1.0
 _TICK: Final = 0.05
+_sleep: Callable[[float], None] = time.sleep
 
 
 class _Related(Protocol):
@@ -59,7 +60,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         # следующий долгий ответ дорисует её отдельно.
         if told or time.monotonic() >= until:
             break
-        time.sleep(_TICK)
+        _sleep(_TICK)
     fact = facts.ready(title, year)
     body: dict[str, JsonValue] = {
         "pick": 0,

@@ -88,7 +88,7 @@ def test_an_answered_description_does_not_wait_for_the_related_shelf(
 ) -> None:
     """Родня дорисуется добором, но не держит уже готовое описание."""
     monkeypatch.setattr(web.preview, "MenuFacts", _AnsweredFacts)
-    monkeypatch.setattr(web.preview.time, "sleep", lambda _seconds: pytest.fail("waited"))
+    monkeypatch.setattr(web.preview, "_sleep", lambda _seconds: pytest.fail("waited"))
     request = Request(
         method="GET",
         path="/api/card/movie:luca:2021",
