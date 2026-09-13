@@ -18,27 +18,67 @@ const TCCard = {
   _tvSaid: null,
   // Сколько ждать, пока каст поднимется: холодный рой - это десятки секунд.
   _CAST_WAIT: 150000,
+  // Номер живого захода на экран: возврат на карточку гасит опросы прошлого визита,
+  // иначе их добор подменял бы тело у экрана, который человек видит сейчас.
+  _visit: 0,
+  // Тело, стоящее на экране: тихий добор сравнивает с ним ответ и не трогает DOM,
+  // пока данные те же.
+  _shown: null,
+  // Сезон, выбранный ЗРИТЕЛЕМ на этой карточке: подмена тела добором больше не
+  // сбрасывает вкладку на первый сезон (дефект возврата TC-1240).
+  _picked: null,
 
   async mount(root, key) {
+    TCCard._visit += 1;
     root.replaceChildren();
     const query = new URLSearchParams(location.search).get('query') || '';
+    TCKept.mark(root, location.pathname + location.search);
+    if (TCCard._tvSaid && TCCard._tvSaid.done) TCCard._tvSaid = null;
+    // Карточка уже видена - её узлы возвращаются на экран целиком, без скелетов и
+    // без ожидания ответа: свежесть доедет тихим добором и подменит тело, если
+    // изменилось.
+    const kept = TCKept.take(location.pathname + location.search);
+    if (kept) {
+      TCKept.resume(root, kept);
+      root.querySelector('.tc-back').focus();
+      TCCard._load(root, key, query, true);
+      return;
+    }
     const shell = TCCard._shell(key);
     root.appendChild(shell);
     shell.querySelector('.tc-back').focus();
-    if (TCCard._tvSaid && TCCard._tvSaid.done) TCCard._tvSaid = null;
-    await TCCard._load(root, key, query);
+    TCCard._load(root, key, query, false);
   },
 
-  async _load(root, key, query) {
-    TCCard._patient = 0;
+  // Цел ли экран для памяти (`kept.js`): тело собралось - есть раздачи и описание
+  // (пусть и «нет описания» словами), и ни один скелет не стоит.
+  ready(root) {
+    const body = root.querySelector('#tc-card-body');
+    if (!body || root.querySelector('.tc-skel-line, .tc-tile-skeleton')) return false;
+    const said = body.querySelector('[data-tc-card-description]');
+    return !!body.querySelector('.tc-releases') && !!(said && said.textContent.trim());
+  },
+
+  async _load(root, key, query, quiet) {
+    const mine = TCCard._visit;
+    TCCard._patient = quiet ? Date.now() : 0;
     let data = null;
     for (let turn = 0; turn <= TCCard._TURNS; turn += 1) {
-      if (!TCCard._here(root, key)) return;
+      if (mine !== TCCard._visit || !TCCard._here(root, key)) return;
       const said = await TCApi.card(key, query, turn > 0);
-      if (!TCCard._here(root, key)) return;
+      if (mine !== TCCard._visit || !TCCard._here(root, key)) return;
       if (said.data) data = said.data;
       if (said.missing) data = { error: 'not_found' };
       const last = !said.partial || turn === TCCard._TURNS;
+      if (quiet) {
+        // Тихий добор не сносит стоящее тело ничем: ни отказом, ни кусочным ответом -
+        // только ЦЕЛИКОМ изменившийся ответ, и никогда скелетом.
+        if (data && !said.partial && !TCCard._same(key, query, data)) {
+          TCCard._show(root, key, query, data, true);
+        }
+        if (last) return;
+        continue;
+      }
       if (data && !TCCard._patient) {
         TCCard._patient = Date.now() + TCCard._PATIENCE;
         setTimeout(() => TCCard._settle(root, key), TCCard._PATIENCE);
@@ -46,6 +86,13 @@ const TCCard = {
       TCCard._show(root, key, query, data || TCCard._fallback(key), last || TCCard._settled());
       if (last) return;
     }
+  },
+
+  // Тот же ли ответ, из которого стоит текущее тело: DOM при равенстве не трогается.
+  _same(key, query, data) {
+    const was = TCCard._shown;
+    return !!was && was.key === key && was.query === query
+      && JSON.stringify(was.data) === JSON.stringify(data);
   },
 
   _here(root, key) {
@@ -73,6 +120,7 @@ const TCCard = {
     const stood = document.activeElement;
     const held = body.contains(stood) ? stood.className : '';
     body.replaceWith(TCCard._body(data, key, query, settled));
+    TCCard._shown = { key, query, data };
     if (held) TCCard._standAgain(root, held);
   },
 
@@ -225,8 +273,12 @@ const TCCard = {
     info.appendChild(TCCard._descBlock(data, settled));
     info.appendChild(TCCard._buttons(data, key, query, isShow));
     if (isShow) {
+      // Вкладка после подмены тела остаётся ТОЙ ЖЕ, что выбрал зритель: без этого
+      // каждый добор возвращал карточку к первому сезону посреди чтения.
+      const picked = TCCard._picked && TCCard._picked.key === key
+        ? data.seasons.findIndex((season) => season.n === TCCard._picked.n) : -1;
       const firstSeason = data.seasons.findIndex((season) => season.n === 1);
-      const selected = firstSeason < 0 ? 0 : firstSeason;
+      const selected = picked >= 0 ? picked : firstSeason < 0 ? 0 : firstSeason;
       info.append(TCCardSeries.tabs(data, key, query, selected),
         TCCardSeries.episodes(data, selected, key, query));
     }
@@ -263,7 +315,7 @@ const TCCard = {
     retry.dataset.tcFocusable = '1';
     retry.dataset.tcGroup = 'card-refusal';
     retry.setAttribute('role', 'button');
-    const again = () => TCCard._load(document.getElementById('tc-root'), key, query);
+    const again = () => TCCard._load(document.getElementById('tc-root'), key, query, false);
     retry.addEventListener('click', again);
     retry.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); again(); }

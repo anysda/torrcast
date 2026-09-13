@@ -18,6 +18,8 @@ const TCCardSeries = {
       tab.addEventListener('click', () => {
         tabs.querySelectorAll('.tc-tab').forEach((el) => el.classList.remove('is-active'));
         tab.classList.add('is-active');
+        // Выбор зрителя помнится на карточке: подмена тела добором не сбрасывает его.
+        TCCard._picked = { key, n: season.n };
         tabs.nextSibling.replaceWith(TCCardSeries.episodes(data, index, key, query));
       });
       tabs.appendChild(tab);
