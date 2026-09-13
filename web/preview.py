@@ -113,7 +113,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         # Плитка может назвать картину не тем именем, которое круг уточнит потом.
         # Поэтому preview не говорит «нет описания» даже после пустого ответа: только
         # полный ответ по картине вправе подтвердить его отсутствие.
-        "blurb": fact.about if told and fact.about else None,
+        "blurb": fact.about or None,
         "poster": None,
         "voices": [],
         "resumable": False,

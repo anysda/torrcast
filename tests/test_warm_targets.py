@@ -120,3 +120,23 @@ def test_an_observed_screen_limits_related_lookups_to_its_visible_row() -> None:
     targets.observe(screen * 5)
 
     assert kin == [(screen[0][2], screen[0][3], screen[0][4])]
+
+
+def test_a_visible_but_unhovered_screen_reserves_fact_sources_for_a_card() -> None:
+    """Visibility queues indexers but does not compete for the card's fact sources."""
+    order: list[str] = []
+
+    def ask(_queries: Sequence[str]) -> int:
+        order.append("ask")
+        return 1
+
+    targets = WarmTargets(
+        circle=lambda _query: [],
+        prime=lambda _pictures: order.append("prime"),
+        kin=lambda _picture: order.append("kin"),
+        ask=ask,
+    )
+
+    targets.observe([("Luca", "movie:luca:2021", "Лука", 2021, "movie")], source=False)
+
+    assert order == ["ask"]

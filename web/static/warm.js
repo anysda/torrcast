@@ -48,20 +48,20 @@ const TCWarm = {
     // Первой - горящая плитка (`nav.js`), а не последняя под курсором: ряд под горящей
     // растёт, она уезжает из-под мыши, и курсор «наводится» на соседа, а жмут по горящей.
     const lit = window.TCNav && TCNav.lit && TCNav.lit.dataset ? TCNav.lit.dataset.tcWarm : '';
-    const at = tiles.findIndex((tile) => (typeof tile === 'string' ? tile : tile.query)
-      === (lit || TCWarm._first));
+    const hot = lit || TCWarm._first;
+    const at = tiles.findIndex((tile) => (typeof tile === 'string' ? tile : tile.query) === hot);
     if (at > 0) tiles.unshift(tiles.splice(at, 1)[0]);
-    return tiles;
+    return { tiles, hot };
   },
 
   look() {
-    const tiles = TCWarm.seen();
-    const mark = JSON.stringify(tiles);
+    const seen = TCWarm.seen();
+    const mark = JSON.stringify(seen);
     // Пустой экран (человек ушёл в поиск, результатов ещё нет) сообщается ровно один
     // раз: он снимает очередь прошлого экрана, чтобы фон не мешал живому кругу.
     if (mark === TCWarm._last) return;
     TCWarm._last = mark;
-    TCApi.seen(tiles);
+    TCApi.seen(seen.tiles, seen.hot);
   },
 };
 

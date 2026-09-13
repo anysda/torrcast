@@ -75,7 +75,7 @@ class WarmTargets:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})
         return self.ask([query for query, *_rest in targets])
 
-    def observe(self, targets: Sequence[WarmTarget]) -> int:
+    def observe(self, targets: Sequence[WarmTarget], source: bool = True) -> int:
         """Начать справку и родню видимых плиток, не держа ответ ``seen``.
 
         Круги по их запросам всё ещё идут обычной очередью экрана. Факты и родня
@@ -87,7 +87,7 @@ class WarmTargets:
             for _query, _key, title, year, kind in targets
             if title and year is not None and kind in {"movie", "tv"}
         ]
-        if pictures:
+        if pictures and source:
             # `warm.js` moves the hovered tile first. Leave source capacity for the
             # facts and related shelf of the card which is about to open.
             for picture in pictures[:RELATED_LIMIT]:

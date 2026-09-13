@@ -27,11 +27,12 @@ def seen(request: Request) -> Answer:
     raw = request.body.get("tiles")
     if not isinstance(raw, list):
         return refusal(400, "bad_tiles")
-    queued = TARGETS.observe(_targets(raw))
+    hot = request.body.get("hot")
+    queued = TARGETS.observe(_targets(raw, hot if isinstance(hot, str) else ""), source=bool(hot))
     return Answer(200, json.dumps({"queued": queued}).encode("utf-8"))
 
 
-def _targets(rows: Sequence[JsonValue]) -> list[WarmTarget]:
+def _targets(rows: Sequence[JsonValue], hot: str = "") -> list[WarmTarget]:
     """Оставить только плитки, для которых адрес дал достаточно фактов."""
     targets: list[WarmTarget] = []
     for row in rows:
@@ -50,4 +51,6 @@ def _targets(rows: Sequence[JsonValue]) -> list[WarmTarget]:
             targets.append((query, key, title, year, kind))
         else:
             targets.append((query, "", "", None, ""))
+    if hot:
+        targets.sort(key=lambda target: target[0] != hot)
     return targets

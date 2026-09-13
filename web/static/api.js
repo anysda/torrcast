@@ -110,8 +110,8 @@ const TCApi = {
 
   // Что человек видит на экране (`warm.js`). Ответ странице не нужен: эти плитки она
   // уже нарисовала, а сколько кругов взял прогрев - его дело.
-  async seen(tiles) {
-    return TCApi._post('/api/seen', { tiles });
+  async seen(tiles, hot) {
+    return TCApi._post('/api/seen', { tiles, hot: hot || '' });
   },
 
   async toTv() {

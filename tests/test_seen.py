@@ -19,9 +19,11 @@ class _Heard:
 
     def __init__(self) -> None:
         self.screens: list[list[str]] = []
+        self.sources: list[bool] = []
 
-    def observe(self, screen: list[object]) -> int:
+    def observe(self, screen: list[object], *, source: bool) -> int:
         self.screens.append([row[0] for row in screen if isinstance(row, tuple)])
+        self.sources.append(source)
         return len(screen)
 
 
@@ -81,7 +83,7 @@ def test_the_answer_speaks_the_number_the_warmer_named(
     cache = WarmCache(circle=lambda _q: [], blurbs=lambda _p: None, spawn=lambda job: job())
 
     class _Targets:
-        def observe(self, targets: list[object]) -> int:
+        def observe(self, targets: list[object], *, source: bool) -> int:
             return cache.ask([row[0] for row in targets if isinstance(row, tuple)])
 
     monkeypatch.setattr(web.seen, "TARGETS", _Targets())
@@ -101,3 +103,17 @@ def test_tile_facts_reach_the_warmer_with_its_query(monkeypatch: pytest.MonkeyPa
     heard, _answer = _post({"tiles": rows}, monkeypatch)
 
     assert heard.screens == [["Luca"]]
+
+
+def test_only_the_hovered_tile_starts_the_background_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A visible screen still warms circles, but reserves Wikipedia for a hover."""
+    rows: JsonValue = ["one", "two"]
+
+    heard, _answer = _post({"tiles": rows}, monkeypatch)
+    hot, _answer = _post({"tiles": rows, "hot": "two"}, monkeypatch)
+
+    assert heard.sources == [False]
+    assert hot.screens == [["two", "one"]]
+    assert hot.sources == [True]
