@@ -25,6 +25,8 @@ function screen(p) {
     searching: p.doc.querySelectorAll('#tc-body .tc-searching').length,
     dim: p.doc.querySelectorAll('#tc-body .is-dim').length,
     waiting: p.doc.querySelectorAll('#tc-body .tc-cap2').length,
+    failed: p.doc.querySelectorAll('#tc-body .tc-search-retry').length,
+    text: p.doc.getElementById('tc-body').textContent,
     focus: here.dataset.tcTile ? picture(here) : here.tagName,
   };
 }
@@ -62,7 +64,7 @@ const scenarios = {
   async steps() {
     const p = search((n) => ({ partial: n < 6, results: n < 3 ? [] : TEN.slice(0, 2), finalBy: 12 }));
     await p.time.run(60000);
-    return { latency: LATENCY, polls: p.polls };
+    return { latency: LATENCY, polls: p.polls, timers: p.time.pending() };
   },
 
   // Финал слово в слово равен последнему превью: плашка встаёт, строка «ищем» уходит.
@@ -70,6 +72,36 @@ const scenarios = {
     const p = search((n) => ({ partial: n < 2, results: TEN.slice(0, 3), finalBy: 12 }));
     await p.time.run(60000);
     return { polls: p.polls.length, screen: screen(p) };
+  },
+
+  // Финал бывает без имён картинок: один дозапрос приносит готовую обложку, затем таймеров нет.
+  async posterAfterFinal() {
+    const p = search((n) => ({
+      partial: false,
+      results: [hit('cars', n ? { poster: 'cars.jpg' } : {})], finalBy: 2,
+    }));
+    await p.time.run(10000);
+    return { polls: p.polls, timers: p.time.pending(), screen: screen(p) };
+  },
+
+  async failedNetwork() {
+    const p = search(() => ({ reject: true }));
+    await p.time.run(1000);
+    return { polls: p.polls, queries: p.queries, screen: screen(p) };
+  },
+
+  async failedServer() {
+    const p = search(() => ({ status: 500 }));
+    await p.time.run(1000);
+    return { polls: p.polls, queries: p.queries, screen: screen(p) };
+  },
+
+  async retry() {
+    const p = search((n) => n ? { partial: false, results: [], finalBy: 0 } : { status: 500 });
+    await p.time.run(1000);
+    p.doc.querySelector('.tc-search-retry').dispatch('click');
+    await p.time.run(2000);
+    return { polls: p.polls, queries: p.queries, screen: screen(p) };
   },
 
   // Картина каталога ждёт раздач, а в финале гаснет: подпись «ищу раздачи» уходит, клика нет.

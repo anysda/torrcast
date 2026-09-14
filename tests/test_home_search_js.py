@@ -67,21 +67,48 @@ def test_a_final_late_within_the_server_deadline_is_drawn_with_best_match(
 
 
 @pytest.mark.machine
-def test_poll_steps_are_short_before_hits_long_after_and_none_after_the_final(
+def test_poll_steps_are_short_before_hits_long_after_and_one_after_the_final(
     facts: dict[str, Any],
 ) -> None:
     steps = _scenario(facts, "steps")
     polls, latency = steps["polls"], steps["latency"]
     gaps = [later - earlier for earlier, later in pairwise(polls)]
-    assert gaps == [latency + EMPTY_STEP_MS] * 3 + [latency + HITS_STEP_MS] * 3, gaps
+    expected = [latency + EMPTY_STEP_MS] * 3 + [latency + HITS_STEP_MS] * 3 + [12000 + latency]
+    assert gaps == expected, gaps
+    assert steps["timers"] == 0, "дозапрос обложек оставил живой таймер"
 
 
 @pytest.mark.machine
 def test_a_final_equal_to_the_last_preview_still_shows_best_match(facts: dict[str, Any]) -> None:
     equal = _scenario(facts, "equal")
-    assert equal["polls"] == 3
+    assert equal["polls"] == 4
     assert equal["screen"]["best"] == 1, "финал, равный превью, не перерисован: нет Best match"
     assert equal["screen"]["searching"] == 0, "строка «ищем» осталась над финалом"
+
+
+@pytest.mark.machine
+def test_a_poster_finished_after_the_final_reaches_its_tile_once(facts: dict[str, Any]) -> None:
+    after = _scenario(facts, "posterAfterFinal")
+    assert len(after["polls"]) == 2, "после финала разрешён ровно один дозапрос обложек"
+    assert after["screen"]["keys"] == ["cars"]
+    assert "web.tile.no_art" not in after["screen"]["text"], "готовая обложка не заменила заглушку"
+    assert after["timers"] == 0, "дозапрос обложек стал бесконечным опросом"
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize("name", ["failedNetwork", "failedServer"])
+def test_a_failed_search_never_draws_the_empty_result(facts: dict[str, Any], name: str) -> None:
+    failed = _scenario(facts, name)
+    assert failed["screen"]["failed"] == 1
+    assert "web.search.failed" in failed["screen"]["text"]
+    assert "web.search.empty" not in failed["screen"]["text"]
+
+
+@pytest.mark.machine
+def test_a_failed_search_retries_the_same_query(facts: dict[str, Any]) -> None:
+    retried = _scenario(facts, "retry")
+    assert retried["queries"] == ["тачки", "тачки"]
+    assert retried["screen"]["failed"] == 0
 
 
 @pytest.mark.machine

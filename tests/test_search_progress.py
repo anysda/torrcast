@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
+import hass.search_progress as module
 from hass.catalog_tiles import CatalogTiles
+from hass.hit_posters import HitPosters
+from hass.poster_shelf import PosterShelf
 from hass.refused_error import RefusedError
-from hass.search_progress import search_progress
+from hass.search_progress import JOB_TTL, search_progress
 from tests.usecases.discover.world import Indexer, row, wire_catalogue
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
@@ -280,6 +284,57 @@ def test_a_second_poll_of_the_same_query_does_not_start_a_second_search() -> Non
     _poll("тачки", search)
 
     assert len(calls) == 1, "тот же запрос второй раз индексеров не тревожит"
+
+
+def test_a_new_job_after_the_ttl_keeps_the_poster_verdict_already_known(tmp_path: Path) -> None:
+    """Повторный поиск берёт готовую обложку с полки, не судит её второй раз."""
+    wire_catalogue()
+    client = _PreviewClient(answers={"тачки": _CARS}, raw=_CARS)
+
+    class Posters:
+        def __init__(self) -> None:
+            self.judged: list[list[Any]] = []
+
+        def wanted(self, asks: Any, _timeout: float) -> dict[Any, list[str]]:
+            self.judged.append(list(asks))
+            return {ask: [ask.title] for ask in asks}
+
+        def bodies(self, wanted: Any, _timeout: float) -> dict[Any, bytes]:
+            return dict.fromkeys(wanted, b"poster")
+
+    source = Posters()
+    posters = HitPosters(source=source, shelf=PosterShelf(home=lambda: tmp_path))
+
+    def search(config: Config, args: Any, said: Any, profile: Any, on_indexer: Any) -> Any:
+        on_indexer(client)
+        return search_circle(
+            config,
+            args,
+            said,
+            profile,
+            indexer=lambda *_a, **_k: client,
+            passport=lambda *_a, **_k: Origin(),
+        )
+
+    def finish() -> list[Any]:
+        results, partial = search_progress(
+            _CONFIG, "тачки", _detect, _remember, search=search, offer=posters.offer
+        )
+        deadline = time.monotonic() + 2.0
+        while partial and time.monotonic() < deadline:
+            results, partial = search_progress(
+                _CONFIG, "тачки", _detect, _remember, search=search, offer=posters.offer
+            )
+        assert partial is False
+        return results
+
+    first = finish()
+    assert any(hit.get("poster") for hit in first)
+    assert len(source.judged) == 1
+    module._jobs["тачки"].finished_at -= JOB_TTL + 1.0
+    second = finish()
+    assert any(hit.get("poster") for hit in second)
+    assert len(source.judged) == 1, "повтор после TTL снова судил уже известные обложки"
 
 
 def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:

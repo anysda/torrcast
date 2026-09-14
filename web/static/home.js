@@ -311,8 +311,12 @@ const TCHome = {
     let until = began;
     let known = [];
     do {
-      const { results, partial, finalBy } = await TCApi.searchProgress(text);
+      const { results, partial, finalBy, failed } = await TCApi.searchProgress(text);
       if (mine !== TCHome._token || TCHome._query !== text) return;
+      if (failed) {
+        TCHome._swapBody(TCHome._searchFailed(text));
+        return;
+      }
       until = began + finalBy * 1000 + TCHome._FINAL_SLACK;
       known = TCHome._mergeHits(known, results, partial);
       TCHome._found = { query: text, results: known };
@@ -322,7 +326,22 @@ const TCHome = {
       if (TCHome._screenOf(known, partial) !== TCHome._shownHits) {
         TCHome._swapBody(TCHome._searchResults(known, partial));
       }
-      if (!partial) return;
+      if (!partial) {
+        // Финал ограничивает обычный опрос, но приговор обложек способен закончиться
+        // после него. Один запрос через тот же срок забирает готовые имена постеров;
+        // дальше страница молчит, поэтому ТВ-мост не получает бесконечный хвост.
+        if (finalBy > 0) {
+          await new Promise((done) => setTimeout(done, finalBy * 1000));
+          const refreshed = await TCApi.searchProgress(text);
+          if (mine !== TCHome._token || TCHome._query !== text || refreshed.failed) return;
+          const dressed = TCHome._mergeHits(known, refreshed.results, refreshed.partial);
+          TCHome._found = { query: text, results: dressed };
+          if (TCHome._screenOf(dressed, refreshed.partial) !== TCHome._shownHits) {
+            TCHome._swapBody(TCHome._searchResults(dressed, refreshed.partial));
+          }
+        }
+        return;
+      }
       await new Promise((done) => setTimeout(done, known.length ? 400 : 150));
     } while (Date.now() < until);
   },
@@ -409,6 +428,22 @@ const TCHome = {
       grid.appendChild(TCTile.build({ loading: true }));
     }
     body.appendChild(grid);
+    return body;
+  },
+
+  _searchFailed(text) {
+    TCHome._syncCount(null);
+    TCHome._shownHits = ' ';
+    const body = document.createElement('div');
+    body.id = 'tc-body';
+    const failed = document.createElement('div');
+    failed.className = 'tc-nothing';
+    failed.textContent = TC.say('web.search.failed');
+    const retry = document.createElement('button');
+    retry.className = 'tc-search-retry';
+    retry.textContent = TC.say('web.detail.retry');
+    retry.addEventListener('click', () => TCHome._runSearch(text));
+    body.append(failed, retry);
     return body;
   },
 

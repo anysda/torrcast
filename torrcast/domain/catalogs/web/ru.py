@@ -34,6 +34,7 @@ def ru() -> dict[str, str]:
         "web.search.best_match": "Лучшее совпадение",
         "web.search.empty": "Ничего для вас",
         "web.search.empty_hint": "Попробуйте другое название",
+        "web.search.failed": "Поиск не удался",
         "web.shelf.continue_watching": "Продолжить просмотр",
         "web.shelf.new": "Новинки",
         "web.shelf.popular": "Популярное",

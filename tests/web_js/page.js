@@ -166,6 +166,7 @@ function page(answer, { latency = 30 } = {}) {
   const time = clock();
   const opened = [];
   const polls = [];
+  const queries = [];
   const header = doc.createElement('div');
   header.className = 'tc-header';
   const body = doc.createElement('div');
@@ -185,17 +186,26 @@ function page(answer, { latency = 30 } = {}) {
     TC: { say: (key) => key, count: (key, n) => key + ':' + n, header: () => header },
     TCKept: { mark() {}, take: () => null },
     TCRouter: { card: (key) => opened.push(key) },
-    fetch: (url, init) => new Promise((done) => {
+    fetch: (url, init) => new Promise((done, fail) => {
       const began = time.now();
       const body = JSON.parse(init.body);
       polls.push(began);
+      queries.push(body.query);
       const said = answer(polls.length - 1, began, body.query);
-      time.setTimeout(() => done({
-        ok: true,
-        headers: { get: (name) => ({ 'X-Torrcast-Partial': said.partial ? '1' : '0',
-          'X-Torrcast-Final-By': String(said.finalBy ?? 12) })[name] ?? null },
-        json: async () => ({ results: said.results }),
-      }), latency);
+      time.setTimeout(() => {
+        if (said.reject) {
+          fail(new Error('network down'));
+          return;
+        }
+        const status = said.status || 200;
+        done({
+          ok: status >= 200 && status < 300,
+          status,
+          headers: { get: (name) => ({ 'X-Torrcast-Partial': said.partial ? '1' : '0',
+            'X-Torrcast-Final-By': String(said.finalBy ?? 12) })[name] ?? null },
+          json: async () => ({ results: said.results }),
+        });
+      }, latency);
     }),
   };
   ctx.window = ctx;
@@ -204,7 +214,7 @@ function page(answer, { latency = 30 } = {}) {
     vm.runInContext(fs.readFileSync(path.join(STATIC, name), 'utf8'), ctx, { filename: name });
   }
   ctx.TCApi.sources = async () => 0;
-  return { doc, time, ctx, opened, polls, home: ctx.TCHome };
+  return { doc, time, ctx, opened, polls, queries, home: ctx.TCHome };
 }
 
 module.exports = { page };
