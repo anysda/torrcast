@@ -77,7 +77,9 @@ def _worker_loop(
             # Поле правится и в своей копии записи: её кладёт на диск сторож позиции.
             entry.torrent = torrent_hash
             _own_torrent(key, torrent_hash)
+            journal().mark("раздача добавлена")
             torrserver.wait_files(torrent_hash, timeout=WORKER_META)
+            journal().mark("файлы раздачи")
             # Тот же магнит, но живёт он теперь и у сторожа: URL потока несёт только хэш,
             # и вернуть раздачу с трекерами после аварии источника может лишь он
             # (:class:`torrcast.ports.stream_source.StreamSource`). За магнитом в индексеры
@@ -85,7 +87,9 @@ def _worker_loop(
             supply.torrent_hash, supply.magnet, supply.lost = torrent_hash, magnet, ""
         source = torrserver.stream_url(torrent_hash, entry.file_idx)
         voice = voice_source(torrserver, torrent_hash, entry)
+        journal().mark("звук рядом")
         entry = _duration(key, entry, source)
+        journal().mark("длительность")
         supply.file_index, supply.duration = entry.file_idx, entry.dur
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.spoken, entry.label)))

@@ -104,6 +104,7 @@ def _cmd_worker(key: str, here: bool = False, *, play: Callable[..., int] = _pla
     # 🔴 Спрашивается он ДО ``here``, по настройке машины: вкладка играет тот же поток, что
     # и ТВ, и «На ТВ» отдаёт приставке упаковку, сделанную под неё (ТЗ §7.5).
     chosen = _worker_detect(config)
+    journal().mark("профиль приёмника", как=chosen.how)
     config = tune(config, chosen.profile)
     if here:
         # Запрос играет у себя - вкладка становится приёмником ЭТОГО запуска, а
@@ -125,6 +126,7 @@ def _cmd_worker(key: str, here: bool = False, *, play: Callable[..., int] = _pla
         profile=chosen.profile,
     )
     supply = _worker_sources(_worker_engines(config.torrserver_url, timeout=PROBE_TIMEOUT))
+    journal().mark("приёмник и источник созданы")
     #: Хэши, которые подняли МЫ, - по ним и только по ним пойдёт уборка на выходе.
     mine: list[str] = []
     try:

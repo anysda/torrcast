@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import subprocess
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -143,12 +144,14 @@ def pack_origin(
         ready = _ORIGIN.get(source_url)
     if ready is not None:
         return ready
+    began = time.monotonic()
     delay = slack_of(source_url, timeout)
+    spent = round(time.monotonic() - began, 3)
     # Вверх до миллисекунды: в команду сдвиг уезжает с тремя знаками, и округление вниз
     # оставило бы метки на доли миллисекунды ниже нуля - то есть вернуло бы муксеру повод
     # сдвинуть первый кусок самому.
     origin = math.ceil(((delay or 0.0) + AUDIO_PRIMING) * 1000.0) / 1000.0
     with _ORIGIN_LOCK:
         origin = _ORIGIN.setdefault(source_url, origin)
-    journal().mark("начало ленты", сдвиг=origin, померено=delay is not None)
+    journal().mark("начало ленты", сдвиг=origin, померено=delay is not None, секунд=spent)
     return origin
