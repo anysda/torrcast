@@ -439,8 +439,8 @@ def test_an_api_error_never_becomes_a_cached_missing_article(_russian_product: N
     assert answered == set()
 
 
-def test_an_existing_unfit_article_is_not_a_negative_source_reply(_russian_product: None) -> None:
-    """Wikipedia knowing another work under the name still leaves the picture retryable."""
+def test_an_existing_unfit_article_finishes_the_picture_empty(_russian_product: None) -> None:
+    """A complete wave of namesakes is a confirmed absence for this picture."""
     key = ("Одиссея", 2026)
 
     def answer(_host: str, _path: str, params: dict[str, str]) -> Any:
@@ -469,6 +469,6 @@ def test_an_existing_unfit_article_is_not_a_negative_source_reply(_russian_produ
         FakeJsonClient(answer), FakeRatingDump(lambda: {"tt15239678": "8.4"}), Catalogue()
     ).fetch([key], ready=ready.append, kinds={key: "movie"})
 
-    assert ready == [{key: Fact(rating="IMDb 8.4")}]
-    assert found == {key: Fact(rating="IMDb 8.4")}
-    assert answered == set()
+    assert ready == [{key: Fact(rating="IMDb 8.4", missing=True)}]
+    assert found == {key: Fact(rating="IMDb 8.4", missing=True)}
+    assert answered == {key}

@@ -13,7 +13,6 @@ from torrcast.adapters.wiki.endpoints import WIKI_HOST, WIKI_PATH
 from torrcast.domain.facts.extract_params import extract_params
 from torrcast.domain.facts.settings import _EXBATCHES, _EXLIMIT
 from torrcast.domain.facts.titles_for import titles_for
-from torrcast.domain.facts.wiki_pages import wiki_pages
 from torrcast.domain.facts.wiki_reply import _merged
 from torrcast.domain.json_map import json_map
 from torrcast.ports.json_client import JsonClient
@@ -32,7 +31,7 @@ def wiki_extracts(
     set[tuple[str, int | None]],
     set[tuple[str, int | None]],
 ]:
-    """Запросить кандидатов волной и назвать подтверждённые отсутствия.
+    """Запросить кандидатов волной и назвать полностью отвеченные картины.
 
     Тип картины правит ПОРЯДОК кандидатов (:func:`titles_for`), а не их набор: в волну
     влезает не всё, и уточнение чужого типа впереди своего стоит места настоящей статьи.
@@ -81,25 +80,5 @@ def wiki_extracts(
         key for key in wanted if scheduled[key] and all(name in heard for name in scheduled[key])
     }
     payload = _merged([reply for _part, reply in answers])
-    missing = {
-        key
-        for key in answered
-        if all(name in heard for name in candidates[key]) and _all_missing(candidates[key], payload)
-    }
-    return candidates, payload, answered, missing
-
-
-def _all_missing(names: list[str], payload: dict[str, Any]) -> bool:
-    """Whether Wikipedia explicitly called every asked candidate missing.
-
-    A disambiguation, a page about another work, or an unrecognised reply is not an
-    absence.  They must be retried rather than persisted as a negative fact.
-    """
-    hops, pages = wiki_pages(payload)
-    for name in names:
-        seen = name
-        for _ in range(3):
-            seen = hops.get(seen, seen)
-        if not bool(json_map(pages.get(seen)).get("missing")):
-            return False
-    return bool(names)
+    complete = {key for key in answered if all(name in heard for name in candidates[key])}
+    return candidates, payload, answered, complete

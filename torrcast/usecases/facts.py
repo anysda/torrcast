@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -12,6 +11,8 @@ from torrcast.domain.facts.facts_budget import facts_budget
 from torrcast.domain.facts.topup_limit import topup_limit
 from torrcast.ports.blurb_source import BlurbSource
 from torrcast.ports.blurb_store import BlurbStore
+from torrcast.usecases.settled import settled
+from torrcast.usecases.tell import tell
 
 type FactPicture = tuple[str, int | None] | tuple[str, int | None, str]
 
@@ -47,12 +48,12 @@ class Facts:
         self._started = time.monotonic()
         self._deadline = time.monotonic() + self.budget
         if not self.wanted:
-            self._settled()
+            settled(self._about, self._done)
             return
         self.found = self.store.blurbs(self.wanted)
         self._answered = set(self.found)
         if len(self.found) == len(self.wanted):  # всё уже лежит в кэше - сети не надо
-            self._settled()
+            settled(self._about, self._done)
             return
         self._thread = threading.Thread(target=self._work, daemon=True)
         self._thread.start()
@@ -145,7 +146,10 @@ class Facts:
                 if "unexpected keyword argument 'kinds'" not in str(error):
                     raise
                 fresh, answered = self.source.fetch(missing, ready=self._ready)
-            self.found = {**self.found, **fresh}
+            absent = [key for key in missing if key not in fresh and key in answered]
+            # A source's ``answered`` key is a confirmed absence too. Keep it in
+            # memory, so the first card agrees with the persisted missing row.
+            self.found = {**self.found, **fresh, **{key: Fact(missing=True) for key in absent}}
             self._answered.update(answered)
             # Пустой ответ тоже запоминаем - иначе поход за ним повторяется каждое меню.
             # Но только про то, о чём источник РЕАЛЬНО ответил: неполный ответ не говорит
@@ -153,13 +157,13 @@ class Facts:
             # кэша (🔴 TC-568).
             self.store.remember(
                 {key: fact for key, fact in fresh.items() if key in answered},
-                [key for key in missing if key not in fresh and key in answered],
+                absent,
             )
-            self._tell()
+            tell(self._seen)
         except Exception:
             pass
         finally:
-            self._settled()
+            settled(self._about, self._done)
 
     def _ready(self, part: dict[tuple[str, int | None], Fact]) -> None:
         """Описания - в меню, не дожидаясь украшений.
@@ -179,22 +183,4 @@ class Facts:
         """
         self.found = {**part, **self.found}
         self._about.set()
-        self._tell()
-
-    def _settled(self) -> None:
-        """Ждать больше нечего - ни описаний, ни украшений: обе меры отпускают меню.
-
-        Сюда сходятся все концы добора: спрашивать было некого, всё лежало в кэше, источник
-        ответил или отказал. Описания при этом могли и не приехать вовсе - но ждать их
-        после конца добора значит досиживать потолок ради пустоты.
-        """
-        self._about.set()
-        self._done.set()
-
-    def _tell(self) -> None:
-        """Сказать смотрящему, что справки прибавилось; его отказ не роняет добор."""
-        seen = self._seen
-        if seen is None:
-            return
-        with contextlib.suppress(Exception):
-            seen()
+        tell(self._seen)

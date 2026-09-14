@@ -94,7 +94,7 @@ class WikiBlurbs:
         for host in dict.fromkeys([WIKI_HOST, wiki_host(tongue())]):
             self.client.warm(host)
         try:
-            candidates, payload, answered, missing = wiki_extracts(
+            candidates, payload, answered, complete = wiki_extracts(
                 self.client, wanted, timeout, kinds
             )
         except OSError:
@@ -116,10 +116,14 @@ class WikiBlurbs:
         )
         scores, local_ids = in_time
         about, entities, linked = _read_pages(payload, candidates, set(local_ids), kinds)
+        # A complete, valid reply can prove that this *picture* has no article even
+        # when it contains pages. The pages may be a disambiguation or a work of a
+        # different year or type; retrying those forever leaves the card's skeleton
+        # up forever. A failed or partial wave never reaches ``complete``.
+        missing = complete - set(about)
         about, answered = spoken_blurbs(self.client, about, linked, answered, timeout)
-        # A response that merely failed our article gates is not Wikipedia saying there
-        # is no article.  Only an explicit ``missing`` reply for every candidate may
-        # finish a card empty or persist an ``empty`` row.
+        # Translation may fail independently of the Russian source. It must not turn
+        # an otherwise known article into a cached absence.
         missing &= answered
         settled = set(about) | missing
         if ready is not None:

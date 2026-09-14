@@ -136,9 +136,11 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         "sources_count": 0,
         "searching": True,
     }
-    return Answer(
-        200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=((_PARTIAL, "1"),)
-    )
+    # Confirmed absence finishes both facts and the related shelf.  The release circle
+    # may still be loading, but it cannot turn this particular card into a description
+    # or a franchise, so asking the page to poll again only creates an empty loop.
+    extra = () if getattr(fact, "missing", False) else ((_PARTIAL, "1"),)
+    return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
 
 
 def _year(value: str) -> int | None:

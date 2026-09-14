@@ -489,6 +489,7 @@ def test_a_franchise_picture_shows_the_related_tiles_wikidata_already_answered(
         "query": "Гарри Поттер и Тайная комната",
     }
     _wired(monkeypatch, [_MOVIE_PLAN], related=[tile])
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
     state_slot.install(FakeStateStore())
 
     code, body, _extra = _asked(_MOVIE.key)
@@ -502,6 +503,7 @@ def test_a_franchise_still_unanswered_by_wikidata_is_marked_partial(
 ) -> None:
     """Wikidata ещё не ответила - заголовок недоехавшей части, а не молчаливая пустота."""
     _wired(monkeypatch, [_MOVIE_PLAN], related=None)
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
     state_slot.install(FakeStateStore())
 
     _code, body, extra = _asked(_MOVIE.key)
@@ -522,6 +524,7 @@ def test_the_open_picture_is_never_a_tile_in_its_own_franchise_shelf(
     mine = {"key": _MOVIE.key, "title": "Interstellar", "year": 2014, "kind": "movie"}
     other = {"key": "movie:tenet:2020", "title": "Tenet", "year": 2020, "kind": "movie"}
     _wired(monkeypatch, [_MOVIE_PLAN], related=[mine, other])
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
     state_slot.install(FakeStateStore())
 
     _code, body, _extra = _asked(_MOVIE.key)
