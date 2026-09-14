@@ -8,6 +8,7 @@ import time
 import pytest
 
 import web.warm_wiring as wiring
+from torrcast.usecases.facts import FactPicture
 from web.warm_cache import TTL, WORKERS, WarmCache
 
 
@@ -71,3 +72,36 @@ def test_home_related_warmup_waits_for_its_fact_batch(monkeypatch: pytest.Monkey
     wiring._prime_screen([("Одиссея", 2026, "movie")])
 
     assert order == ["start", "finish", "settled", "start", "finish", "settled", "related"]
+
+
+def test_home_warmup_leaves_three_wikimedia_lanes_for_a_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A persisted screen starts no more than four facts in one source wave."""
+    batches: list[list[object]] = []
+
+    class _Done:
+        @staticmethod
+        def wait() -> None:
+            return None
+
+    class _Facts:
+        _done = _Done()
+
+        def __init__(self, pictures: list[object]) -> None:
+            batches.append(pictures)
+
+        def start(self) -> None:
+            return None
+
+        def finish(self) -> None:
+            return None
+
+    pictures: list[FactPicture] = [(f"Film {at}", 2020 + at, "movie") for at in range(5)]
+    monkeypatch.setattr(wiring, "MenuFacts", _Facts)
+    monkeypatch.setattr(wiring, "prime", lambda _related, _pictures: None)
+    monkeypatch.setattr(wiring, "_daemon", lambda job: job())
+
+    wiring._prime_screen(pictures)
+
+    assert batches == [pictures[:4], pictures[:4], pictures[4:], pictures[4:]]

@@ -74,14 +74,15 @@ def _prime_screen(pictures: list[FactPicture]) -> None:
     """Fill the persisted home screen in one source batch before its first visit."""
 
     def finish() -> None:
-        for _ in range(2):
-            facts = MenuFacts(pictures)
-            facts.start()
-            facts.finish()
-            # The seven article packets may still be closing after the cache's bounded
-            # top-up.  Starting sixteen passports here would take their HTTP lanes and
-            # make the visible cards repeat the very lookup startup was meant to pay.
-            facts._done.wait()
+        # Four pictures make at most two extract packets.  Startup therefore keeps
+        # three of Wikimedia's five lanes for a just-opened card; the former full
+        # screen wave took all five and made a 700 ms related-tile click wait behind it.
+        for at in range(0, len(pictures), 4):
+            for _ in range(2):
+                facts = MenuFacts(pictures[at : at + 4])
+                facts.start()
+                facts.finish()
+                facts._done.wait()
         prime(RELATED, pictures)
 
     _daemon(finish)
