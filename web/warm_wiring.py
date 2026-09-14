@@ -52,8 +52,22 @@ def _blurbs(pictures: list[FactPicture]) -> None:
 
 
 def _kin(picture: FactPicture) -> None:
-    """Завести родню плитки после её круга, не задерживая прогрев."""
-    RELATED.of(picture[0], len(picture) == 3 and picture[2] == "tv")
+    """Start a hovered shelf from the shared fact QID, not a second passport."""
+    title, year = picture[:2]
+    kind = picture[2] if len(picture) == 3 else "movie"
+    if year is None:
+        return
+    facts = _facts.of(title, year, kind)
+
+    def start() -> None:
+        entity = str(getattr(facts.ready(title, year), "entity", ""))
+        if entity:
+            RELATED.of(title, kind == "tv", entity)
+
+    # A cache hit has no worker to notify us.  A cold fact calls back at the
+    # first Wikipedia answer, before slower rating details and long-polling.
+    start()
+    facts.watch(start)
 
 
 def _background_kin(picture: FactPicture) -> None:
@@ -62,12 +76,9 @@ def _background_kin(picture: FactPicture) -> None:
 
 
 def _prime(pictures: list[FactPicture]) -> None:
-    """Start the hovered tile's facts shared with the card that opens it."""
+    """Start hovered facts and their shelf from the same proved identity."""
     for picture in pictures:
-        title, year = picture[:2]
-        kind = picture[2] if len(picture) == 3 else "movie"
-        if year is not None:
-            _facts.of(title, year, kind)
+        _kin(picture)
 
 
 def _prime_screen(pictures: list[FactPicture]) -> None:

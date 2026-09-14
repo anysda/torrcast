@@ -8,6 +8,7 @@ import time
 import pytest
 
 import web.warm_wiring as wiring
+from torrcast.domain.facts.fact import Fact
 from torrcast.usecases.facts import FactPicture
 from web.warm_cache import TTL, WORKERS, WarmCache
 
@@ -42,6 +43,37 @@ def test_the_background_hand_holds_nobody_at_the_exit() -> None:
     for hand in seen:
         hand.join(5.0)
     assert all(hand.daemon for hand in seen)
+
+
+def test_a_hovered_tile_starts_its_shelf_from_the_shared_fact_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hover never repeats Wikipedia just to turn an article into a QID."""
+    called: list[tuple[str, bool, str]] = []
+
+    class _Facts:
+        def ready(self, _title: str, _year: int) -> Fact:
+            return Fact(entity="Q8337")
+
+        def watch(self, callback: object) -> None:
+            assert callable(callback)
+
+    class _Flights:
+        @staticmethod
+        def of(_title: str, _year: int, _kind: str) -> _Facts:
+            return _Facts()
+
+    class _Related:
+        @staticmethod
+        def of(title: str, series: bool, entity: str) -> None:
+            called.append((title, series, entity))
+
+    monkeypatch.setattr(wiring, "_facts", _Flights())
+    monkeypatch.setattr(wiring, "RELATED", _Related())
+
+    wiring._kin(("Гарри Поттер", 2001, "movie"))
+
+    assert called == [("Гарри Поттер", False, "Q8337")]
 
 
 def test_home_related_warmup_waits_for_its_fact_batch(monkeypatch: pytest.MonkeyPatch) -> None:
