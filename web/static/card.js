@@ -810,14 +810,19 @@ const TCCard = {
   // остался бы прежним.
   _play(data, key, query, voices, fromStart, season, episode) {
     const kept = sessionStorage.getItem(TCCard._voiceKey);
-    const picked = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
+    const known = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
+    // Серию сезона показ отбирает сам, как отбирал её вкладке: раздача карточки взята без
+    // сезона, и её номер дорожки в чужой раздаче значит другое.
+    const picked = season && /^\d+$/.test(known || '') ? undefined : known;
+    const keys = TCCard._keys(data, key);
     TCApi.play({
       query: query || data.title || data.original || key,
       // 🔴 Картина обязана быть названа: без неё показ брал бы ту, которую круг
       // считает главной по запросу, а не ту, которую человек открыл. Карточка второй
       // находки запускала первую, и виднее всего это на полке - плитка «Bones and All»
       // зовётся запросом, у которого в круге две картины (замер `.104` 07-09-2026).
-      ...TCCard._keys(data, key),
+      picture: keys.picture,
+      release: season ? undefined : keys.release,
       voice: picked,
       from_start: fromStart,
       season,
