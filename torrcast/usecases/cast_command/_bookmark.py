@@ -14,6 +14,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._account_watched import _account_watched
+from torrcast.usecases.cast_command._gone_bookmark import _gone_bookmark
 from torrcast.usecases.cast_command._picked_serial import _picked_serial
 from torrcast.usecases.choice._named import _title
 from torrcast.usecases.playback._launch import _launch
@@ -130,6 +131,9 @@ def _continue_picked(
     if args.from_start:
         bench.drop_all()
         return _from_start(config, plan.picture.key, started, args=args, clock=clock)
+    if _gone_bookmark(plan, started, args):
+        bench.drop_all()
+        return _continue(config, plan.picture.key, started, args=args, clock=clock)
     if (
         started.serial
         and args.from_menu

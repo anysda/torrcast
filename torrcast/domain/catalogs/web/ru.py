@@ -65,7 +65,7 @@ def ru() -> dict[str, str]:
         "web.detail.source_from.other": "{n} источников",
         "web.detail.from": "из",
         "web.detail.no_releases": "Раздач не нашлось",
-        "web.detail.bookmark_gone": "Раздачи закладки нет в выдаче: сыграет другая",
+        "web.detail.bookmark_gone": "Раздачи закладки нет в выдаче: сперва она, молчит - другая",
         "web.detail.searching_releases": "Ищем раздачи…",
         "web.detail.resumes": "Продолжит {label} · {time}",
         "web.detail.season": "Сезон {n}",
