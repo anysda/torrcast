@@ -32,6 +32,7 @@ from torrcast.ports.state_store.slot import store
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
+from web.card_ask import NO_ASK, CardAsk
 from web.card_details import CardDetails
 from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
@@ -92,10 +93,7 @@ def card(request: Request) -> Answer:
     if plan is None:
         return refusal(404, "not_found")
     wait = WAIT if request.query.get("wait") == "1" else 0.0
-    season = _season(request.query.get("season"))
-    ask = (query, request.query.get("lang", ""))
-    voices = request.query.get("voices") == "1"
-    return _answer(plan, config, pick, wait, hint, season, ask, voices)
+    return _answer(plan, config, pick, wait, hint, CardAsk.of(request.query))
 
 
 def _answer(
@@ -104,9 +102,7 @@ def _answer(
     pick: int,
     wait: float = 0.0,
     hint: tuple[str, int, str] | None = None,
-    season: int | None = None,
-    ask: tuple[str, str] = ("", ""),
-    voices: bool = False,
+    ask: CardAsk = NO_ASK,
 ) -> Answer:
     """Тело ответа плюс заголовок недоехавшей части: справка, обложка, родня, серии.
 
@@ -123,15 +119,11 @@ def _answer(
         facts.foreground = True
         facts.start()
     until = time.monotonic() + wait
-    first, partial = _body(
-        plan, config, pick, entry, facts, _playing(picture.key), hint, season, ask
-    )
+    first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint, ask)
     body = first
-    while (partial or (voices and body.get("voices_pending"))) and time.monotonic() < until:
+    while (partial or (ask.voices and body.get("voices_pending"))) and time.monotonic() < until:
         time.sleep(_TICK)
-        body, partial = _body(
-            plan, config, pick, entry, facts, _playing(picture.key), hint, season, ask
-        )
+        body, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint, ask)
         if body != first:
             until = min(until, time.monotonic() + _SETTLE)
     extra = ((_PARTIAL, "1"),) if partial else ()
@@ -152,8 +144,7 @@ def _body(
     facts: MenuFacts,
     playing: bool,
     hint: tuple[str, int, str] | None = None,
-    season: int | None = None,
-    ask: tuple[str, str] = ("", ""),
+    ask: CardAsk = NO_ASK,
 ) -> tuple[dict[str, JsonValue], bool]:
     """Тело как оно есть сейчас и «что-то ещё в пути»; пустая справка - готовый ответ."""
     picture = plan.picture
@@ -161,7 +152,7 @@ def _body(
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
     seasons, seasons_partial = card_seasons(
-        plan, entry, config.torrserver_url, _episodes, season=season
+        plan, entry, config.torrserver_url, _episodes, season=ask.season
     )
     series = kind == "tv"
     related = CardDetails.others(
@@ -171,9 +162,7 @@ def _body(
     # нечего, и страница переспрашивала её до исчерпания заходов.
     coming = related is None and _related.waiting(title, series)
     poster, judging = _poster.of(picture)
-    heard, hearing = (None, False)
-    if plan.ranked:
-        heard, hearing = _voices.of(plan, ask[0], config)
+    heard, hearing = _voices.of(plan, ask.query, config) if plan.ranked else (None, False)
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
@@ -191,7 +180,7 @@ def _body(
         "rating": rating_score(fact.rating),
         "blurb": fact.about if told else None,
         "poster": poster,
-        "voices": card_voices(heard, ask[1]),
+        "voices": card_voices(heard, ask.lang),
         "voices_pending": hearing,
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
@@ -208,8 +197,3 @@ def _body(
         "sources_count": CardDetails.sources_count(picture.releases),
     }
     return body, not told or seasons_partial or coming or judging
-
-
-def _season(value: str | None) -> int | None:
-    """Принять номер вкладки, а мусор оставить выбору первой доступной."""
-    return int(value) if value is not None and value.isdigit() and 0 < int(value) <= 40 else None
