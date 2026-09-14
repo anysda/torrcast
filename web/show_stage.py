@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.usecases.cast_command.play_stage import PlayStage, _configure_play_stage
 from torrcast.usecases.discover.search_circle import search_circle
+from torrcast.usecases.reinforce.plan_for import plan_for
 from web.card_lookup import card_lookup
 from web.card_warm import CARD_WARM
 from web.warm_wiring import WARM
@@ -28,12 +29,36 @@ if TYPE_CHECKING:
 def _card_circle(config: Config, args: Args, progress: Progress, profile: Profile) -> list[Plan]:
     """Круг показа: у картины с карточки - круг карточки, у остальных - свой.
 
-    Серия, названная в запросе, меняет сам круг (добор сезона), и такой показ ищет сам.
+    Серия с карточки берёт тот же круг, переложенный под свой сезон
+    (:func:`_season_circle`); сезона в нём нет - добор сезона умеет только свой поиск.
     Копия, а не общий объект: отбор переставляет планы, а кэш карточки служит дальше.
     """
     if args.picture and args.episode is None:
         return [_detached(plan) for plan in WARM.take(args.title_query)]
+    if args.picture and (season := _season_circle(config, args, profile)):
+        return season
     return search_circle(config, args, progress, profile)
+
+
+def _season_circle(config: Config, args: Args, profile: Profile) -> list[Plan]:
+    """Согретый круг карточки под названную серию; пусто - искать своим кругом.
+
+    Строка серии жмётся на карточке, чей круг уже согрет: второй поиск стоил показу
+    5 с, а выдача та же, из которой вкладка сезона и собрала список. Пул и ступени
+    отбора те же, что у поиска (:func:`plan_for`), и прочитанные хронометраж и студия
+    не теряются. Картина карточки без раздач этого сезона - повод добора, и он за поиском.
+    """
+    plans = WARM.ready(args.title_query)
+    replanned: list[Plan] = []
+    for plan in plans or []:
+        runtime = 0.0 if plan.runtime_estimated else plan.runtime
+        own = plan_for(copy.copy(plan.picture), args, config, profile, runtime, plan.studio)
+        own.kin, own.late = list(plan.kin), plan.late
+        if own.picture.key == args.picture and not own.ranked:
+            return []
+        if own.ranked:
+            replanned.append(own)
+    return replanned
 
 
 def _detached(plan: Plan) -> Plan:

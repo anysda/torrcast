@@ -8,8 +8,14 @@ from typing import Any
 import pytest
 
 import web.show_stage as show_stage
-from tests.usecases.cast_command.world import plans
+from tests.usecases.cast_command.world import GB, plans
 from torrcast.domain.args import Args
+from torrcast.domain.config import Config
+from torrcast.domain.episode import Episode
+from torrcast.domain.picture import Picture
+from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.release import Release
+from torrcast.usecases.select.plan import Plan
 
 
 class _Warm:
@@ -19,6 +25,9 @@ class _Warm:
     def take(self, query: str) -> list[Any]:
         self.asked.append(query)
         return self.circle
+
+    def ready(self, query: str) -> list[Any] | None:
+        return None
 
 
 class _Late:
@@ -62,7 +71,7 @@ def test_the_card_circle_copies_plans_whose_late_answer_holds_a_lock(
 
 
 def test_a_show_without_the_card_key_searches_itself(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Консоль и Home Assistant карточки не называют; и серия меняет сам круг."""
+    """Консоль и Home Assistant карточки не называют; серия без согретого круга ищет сама."""
     warm, own = _Warm(plans(2)), plans(1)
     monkeypatch.setattr(show_stage, "WARM", warm)
     monkeypatch.setattr(show_stage, "search_circle", lambda *_rest: own)
@@ -97,3 +106,63 @@ def test_a_card_show_asks_the_card_warm_for_its_bench(monkeypatch: pytest.Monkey
     for asked in (Args(query=["тачки"]), Args(query=["шоу", "s1e2"], picture="k")):
         assert show_stage._card_bench(asked, "свой") == "свой"  # type: ignore[arg-type,comparison-overlap]
     assert warm.taken == [("k", "свой")]
+
+
+def _season(number: int, magnet: str) -> Release:
+    return Release(
+        raw_name=f"Шоу / Show / Сезон: {number} / Серии: 1-10 (2013) WEB-DL 1080p",
+        title="Шоу",
+        year=2013,
+        kind="tv",
+        season=number,
+        quality="1080p",
+        codec="H.264",
+        voices=("Дубляж",),
+        size=8 * GB,
+        seeders=100,
+        magnet=magnet,
+    )
+
+
+class _Ready(_Warm):
+    def ready(self, query: str) -> list[Any] | None:
+        self.asked.append(query)
+        return self.circle
+
+
+def _show_circle(*releases: Release) -> list[Plan]:
+    picture = Picture(title="Шоу", year=2013, kind="tv", releases=list(releases))
+    card = Plan(picture=picture, ranked=[releases[0]], runtime=1500.0, warn_mbit=16.0)
+    return [card]
+
+
+def test_an_episode_row_takes_the_warm_card_circle_ranked_for_its_season(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Строка серии не ищет второй раз: круг карточки перекладывается под сезон строки.
+
+    Живой замер «Рик и Морти» s2e1: свой поиск показа стоил 5 с, а выдача та же.
+    """
+    circle = _show_circle(_season(1, "magnet:one"), _season(2, "magnet:two"))
+    warm = _Ready(circle)
+    monkeypatch.setattr(show_stage, "WARM", warm)
+    monkeypatch.setattr(show_stage, "search_circle", _search)
+    asked = Args(query=["шоу", "s2e1"], picture=circle[0].picture.key)
+
+    got = show_stage._card_circle(Config(), asked, Any, CAUTIOUS)  # type: ignore[arg-type]
+
+    assert warm.asked == ["шоу"]
+    assert [r.magnet for r in got[0].ranked] == ["magnet:two"]
+    assert got[0].series is not None and got[0].series.want == Episode(2, 1)
+    assert [r.magnet for r in circle[0].ranked] == ["magnet:one"], "кэш карточки не тронут"
+
+
+def test_a_card_circle_without_the_asked_season_leaves_the_reinforce_to_the_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    own = plans(1)
+    monkeypatch.setattr(show_stage, "WARM", _Ready(_show_circle(_season(1, "magnet:one"))))
+    monkeypatch.setattr(show_stage, "search_circle", lambda *_rest: own)
+    asked = Args(query=["шоу", "s3e1"], picture="tv:шоу:2013")
+
+    assert show_stage._card_circle(Config(), asked, Any, CAUTIOUS) is own  # type: ignore[arg-type]
