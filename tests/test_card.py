@@ -86,7 +86,7 @@ class _StubVoices:
     coming: bool = False
     asked: list[str] = field(default_factory=list)
 
-    def of(self, _plan: Plan, query: str, _base_url: str) -> tuple[Heard | None, bool]:
+    def of(self, _plan: Plan, query: str, _config: object) -> tuple[Heard | None, bool]:
         self.asked.append(query)
         return self.heard, self.coming
 

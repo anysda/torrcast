@@ -173,7 +173,7 @@ def _body(
     poster, judging = _poster.of(picture)
     heard, hearing = (None, False)
     if plan.ranked:
-        heard, hearing = _voices.of(plan, ask[0], config.torrserver_url)
+        heard, hearing = _voices.of(plan, ask[0], config)
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).

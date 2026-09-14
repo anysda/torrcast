@@ -14,9 +14,12 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.cli.parse_args import parse_args
+from torrcast.domain.config import Config
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.pick_settings import PICK_BUDGET
+from torrcast.domain.profile import Profile
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.progress.slot import progress
 from torrcast.ports.torrent_engines import TorrentEngines
@@ -34,6 +37,11 @@ def _daemon(job: Callable[[], None]) -> None:
     threading.Thread(target=job, daemon=True, name="voice-lookup").start()
 
 
+def _show_profile(config: Config) -> Profile:
+    """Профиль, которым судит показ: карточка, судящая иначе, выбрала бы не ту раздачу."""
+    return detector.detect(config).profile
+
+
 @dataclass
 class VoiceLookup:
     """Кэш «картина -> дорожки её раздачи» на процесс; строит фон, читает каждый запрос."""
@@ -41,12 +49,13 @@ class VoiceLookup:
     engines: TorrentEngines
     spawn: Spawn = _daemon
     warms: CardWarm = field(default_factory=CardWarm)
+    profile_of: Callable[[Config], Profile] = _show_profile
     clock: Callable[[], float] = time.monotonic
     _heard: dict[str, tuple[Heard | None, float]] = field(default_factory=dict)
     _pending: set[str] = field(default_factory=set)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
-    def of(self, plan: Plan, query: str, base_url: str) -> tuple[Heard | None, bool]:
+    def of(self, plan: Plan, query: str, config: Config) -> tuple[Heard | None, bool]:
         """Дорожки, если уже прочитаны, и «ещё в пути»; иначе завести отбор фоном.
 
         Прочитанные дорожки не держат раздачу: карточка, открытая заново, греет её снова
@@ -63,7 +72,7 @@ class VoiceLookup:
             self._pending.add(key)
         if start:
             release = heard.release if heard is not None else ""
-            self.spawn(lambda: self._build(plan, query, base_url, release))
+            self.spawn(lambda: self._build(plan, query, config, release))
         if known:
             return heard, False
         with self._lock:
@@ -72,11 +81,13 @@ class VoiceLookup:
                 return None, True
             return cached[0], False
 
-    def _build(self, plan: Plan, query: str, base_url: str, release: str = "") -> None:
+    def _build(self, plan: Plan, query: str, config: Config, release: str = "") -> None:
         """Отобрать раздачу, прочитать её дорожки и оставить греться только выбранную."""
         heard: Heard | None = None
         args = parse_args([query, "--card-release", release] if release else [query])
-        make = lambda: Bench(self.engines(base_url), choose=file_picker(args))  # noqa: E731
+        profile = self.profile_of(config)
+        engines = self.engines(config.torrserver_url)
+        make = lambda: Bench(engines, choose=file_picker(args), profile=profile)  # noqa: E731
         warm, fresh = self.warms.open(plan.picture.key, make)
         prep = None
         left = False
