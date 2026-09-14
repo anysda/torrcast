@@ -62,7 +62,7 @@ def wiki_searches(
     wave = [threading.Thread(target=ask, args=(key,), daemon=True) for key in wanted]
     for thread in wave:
         thread.start()
-    # Five shared Wikimedia lanes serve this wave.  The next card has foreground
+    # Five Wikipedia host lanes serve this wave.  The next card has foreground
     # priority there, while this caller still closes its own threads afterwards.
     rounds = (len(wave) + 4) // 5
     replies = closed_wave(wave, time.monotonic() + timeout * rounds, lambda: list(replies))

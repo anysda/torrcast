@@ -45,7 +45,8 @@ class HttpJsonClient:
         self._resolved: dict[str, tuple[float, str]] = {}
         self._looking: dict[str, threading.Thread] = {}
         self._lock = threading.Lock()
-        self._requests = RequestLanes()
+        #: Полосы у каждого хоста свои: долгий SPARQL полки не держит выдержки Википедии.
+        self._requests: dict[str, RequestLanes] = {}
 
     def get(
         self,
@@ -57,7 +58,9 @@ class HttpJsonClient:
         foreground: bool = False,
     ) -> Any:
         """Выполняет GET и разбирает JSON; неуспех оставляет исключением."""
-        if not self._requests.acquire(timeout, foreground):
+        with self._lock:
+            lanes = self._requests.setdefault(host, RequestLanes())
+        if not lanes.acquire(timeout, foreground):
             raise OSError(f"{host}: request lane unavailable after {timeout:.1f} s")
         connection: _IPv4Connection | None = None
         try:
@@ -74,7 +77,7 @@ class HttpJsonClient:
         finally:
             if connection is not None:
                 connection.close()
-            self._requests.release()
+            lanes.release()
 
     def fetch(self, address: str, timeout: float) -> bytes:
         """Забрать файл по полному адресу тем же соединением, что и JSON.
