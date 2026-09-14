@@ -41,3 +41,11 @@ def test_a_year_that_argues_with_the_facts_is_not_taken() -> None:
 def test_a_silent_passport_names_nothing() -> None:
     """Справка промолчала - указывать некуда, и первый пул остаётся как был."""
     assert _passport_pick(_POOL, Origin(), franchise("lain", [_ZINE])) is None
+
+
+def test_a_yearless_word_neighbour_of_a_short_name_is_not_taken() -> None:
+    """``Up`` стоит внутри «Superman II»: года нет, спорить не о чем, но это не «Вверх»."""
+    about = Origin(title="Up", year=2009, name="Вверх")
+    pool = pictures([row("Superman II BDRip 1080p", "j", seeders=9)])
+
+    assert _passport_pick(pool, about, []) is None

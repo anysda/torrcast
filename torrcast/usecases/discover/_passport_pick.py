@@ -28,7 +28,7 @@ def _passport_pick(
     found_keys = {picture.key for picture in found}
     if len(passport_hits) == 1 and set(passport_hits) != found_keys:
         passport_found = list(passport_hits.values())
-        # Соседу по слову («Шары вверх» на ``Up``) год справки ± 1 не мешает не быть ею.
+        # Без года спорить не о чем, но ``Up`` внутри «Superman II» картину не называет.
         if _vouched(passport_found, about, proven=True):
             return _neighbours_only(passport_found, about.name, about) or None
     return None
