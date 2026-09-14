@@ -10,6 +10,7 @@ from typing import Any
 from torrcast.adapters.stream_pack.container_of import container_of
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.head_open import head_open
+from torrcast.adapters.stream_pack.pack_origin import pack_origin
 from torrcast.adapters.stream_pack.pull_head import pull_head
 from torrcast.adapters.stream_pack.warm_at import warm_at
 from torrcast.domain.film_keys import FilmKeys
@@ -24,6 +25,7 @@ def warm_file(
     *,
     keys_of: Callable[[str], FilmKeys] = film_keys,
     warm: Callable[[str, int, int, Any], int] = warm_at,
+    origin_of: Callable[[str], float] = pack_origin,
 ) -> None:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
 
@@ -42,6 +44,7 @@ def warm_file(
     параметром, а не именем модуля: обе ходят в рой, а меряется тут порядок трёх дел и
     размер головы по контейнеру. ``warm`` уезжает и в :func:`pull_head`: прогрев головы и
     прогрев места - одна и та же работа, и на стенде их видит один наблюдатель.
+    ``origin_of`` - замер начала ленты: живой ffprobe, стенду не нужный.
     """
 
     def work() -> None:
@@ -56,6 +59,11 @@ def warm_file(
         head = head_open((keys.kind if keys is not None else "") or container_of(name))
         with contextlib.suppress(Exception):
             pull_head(source_url, head if offset else HEAD_WARM, alive, warm=warm)
+        # Голова уже в рою, и ffprobe начала ленты стоит тут долей секунды; показ, отдельный
+        # процесс, возьмёт замер с полки (:func:`pack_origin`), а не станет в очередь за своим.
+        with contextlib.suppress(Exception):
+            if alive is None or alive():
+                origin_of(source_url)
         if not offset:
             return
         with contextlib.suppress(Exception):

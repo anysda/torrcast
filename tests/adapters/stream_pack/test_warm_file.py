@@ -12,6 +12,9 @@ from torrcast.adapters.stream_pack.warm_file import warm_file
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.warm_open import HEAD_OPEN, HEAD_WARM
 
+#: Замер начала ленты в ряду прогретых кусков: его место в порядке и есть договор.
+MEASURED = (-1, -1)
+
 
 @dataclass
 class Watch:
@@ -27,6 +30,10 @@ class Watch:
     def warm(self, url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
         self.asked.append((offset, upto))
         return 0
+
+    def origin_of(self, url: str) -> float:
+        self.asked.append(MEASURED)
+        return 0.0
 
     def keys_of(self, url: str) -> FilmKeys:
         if self.keys is None:
@@ -45,10 +52,12 @@ class Watch:
 def test_from_the_start_only_the_head_is_warmed() -> None:
     """С нуля греется начало, и только оно: место позиции и есть начало."""
     watch = Watch(FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "mp4"))
-    warm_file("http://торрент/поток", keys_of=watch.keys_of, warm=watch.warm)
-    watch.wait(1)
+    warm_file(
+        "http://торрент/поток", keys_of=watch.keys_of, warm=watch.warm, origin_of=watch.origin_of
+    )
+    watch.wait(2)
     time.sleep(0.1)
-    assert watch.asked == [(0, HEAD_WARM)]
+    assert watch.asked == [(0, HEAD_WARM), MEASURED]
 
 
 @pytest.mark.machine
@@ -59,16 +68,28 @@ def test_the_middle_warms_the_header_and_the_place_of_the_position() -> None:
     бы на четверть фильма.
     """
     watch = Watch(FilmKeys(600.0, [0.0, 100.0, 200.0], [0, 90 << 20, 500 << 20], "mp4"))
-    warm_file("http://торрент/поток", at=240.0, keys_of=watch.keys_of, warm=watch.warm)
-    watch.wait(2)
-    assert watch.asked == [(0, HEAD_OPEN["mp4"]), (500 << 20, HEAD_WARM)]
+    warm_file(
+        "http://торрент/поток",
+        at=240.0,
+        keys_of=watch.keys_of,
+        warm=watch.warm,
+        origin_of=watch.origin_of,
+    )
+    watch.wait(3)
+    assert watch.asked == [(0, HEAD_OPEN["mp4"]), MEASURED, (500 << 20, HEAD_WARM)]
 
 
 @pytest.mark.machine
 def test_the_head_is_sized_by_the_container_of_the_map() -> None:
     """У mkv головы мало, у mp4 там ``moov``: греть их поровну - отнимать полосу у показа."""
     watch = Watch(FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "mkv"))
-    warm_file("http://торрент/поток", at=240.0, keys_of=watch.keys_of, warm=watch.warm)
+    warm_file(
+        "http://торрент/поток",
+        at=240.0,
+        keys_of=watch.keys_of,
+        warm=watch.warm,
+        origin_of=watch.origin_of,
+    )
     watch.wait(2)
     assert watch.asked[0] == (0, HEAD_OPEN["mkv"])
 
@@ -83,6 +104,7 @@ def test_an_old_map_takes_the_container_from_the_name_of_the_file() -> None:
         name="Moana.2.2024.mkv",
         keys_of=watch.keys_of,
         warm=watch.warm,
+        origin_of=watch.origin_of,
     )
     watch.wait(2)
     assert watch.asked[0] == (0, HEAD_OPEN["mkv"])
@@ -92,10 +114,16 @@ def test_an_old_map_takes_the_container_from_the_name_of_the_file() -> None:
 def test_a_map_that_did_not_come_still_warms_the_head() -> None:
     """Не вышло с картой - не беда: показ сделает то же самое сам, просто на своём времени."""
     watch = Watch(None)
-    warm_file("http://торрент/поток", at=240.0, keys_of=watch.keys_of, warm=watch.warm)
+    warm_file(
+        "http://торрент/поток",
+        at=240.0,
+        keys_of=watch.keys_of,
+        warm=watch.warm,
+        origin_of=watch.origin_of,
+    )
     watch.wait(1)
     time.sleep(0.1)
-    assert watch.asked == [(0, HEAD_WARM)], "без карты греть место позиции нечем"
+    assert watch.asked == [(0, HEAD_WARM), MEASURED], "без карты греть место позиции нечем"
 
 
 @pytest.mark.machine
@@ -108,6 +136,7 @@ def test_a_release_the_show_gave_up_on_is_not_warmed_further() -> None:
         alive=lambda: False,
         keys_of=watch.keys_of,
         warm=watch.warm,
+        origin_of=watch.origin_of,
     )
     time.sleep(0.2)
     assert watch.asked == [], "прогрев пошёл по релизу, от которого показ уже отказался"
