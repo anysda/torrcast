@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from typing import Final
+
 from torrcast.domain.facts.patterns import (
     _CINEMA_RE,
     _FILM_WORD_RE,
@@ -12,6 +15,11 @@ from torrcast.domain.facts.patterns import (
     _TITLED_RE,
 )
 from torrcast.domain.facts.sentence import sentence
+
+#: Игра, названная своим типом. «Серия фильмов» в такой статье - первоисточник игры:
+#: «Avatar: Frontiers of Pandora» открывается словами «компьютерная игра ... основанная на
+#: серии фильмов», и карточка «Аватара» 2009 года читала о ней.
+_GAME_RE: Final = re.compile(r"(?<![\w-])(?:компьютерная|мобильная|видео|онлайн-)\s?игра\b")
 
 
 def _about_cinema(heading: str, extract: str) -> bool:
@@ -53,6 +61,8 @@ def _about_cinema(heading: str, extract: str) -> bool:
     (TC-912).
     """
     text = f"{heading} {sentence(extract)}"
+    if _GAME_RE.search(sentence(extract)):
+        return False
     if _CINEMA_RE.search(text):
         return True
     if _SCREEN_RE.search(text) and _GENRE_RE.search(text):

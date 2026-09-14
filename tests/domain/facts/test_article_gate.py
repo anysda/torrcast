@@ -85,3 +85,21 @@ def test_a_yearless_work_passes_where_a_ship_and_a_landform_do_not() -> None:
     assert not _declares_work("Титаник", LINER)
     assert not _declares_work("Дюна", LANDFORM)
     assert _declares_work("Тачки", CARS), "обычную статью о кино гейт пропускал и пропускает"
+
+
+def test_a_game_based_on_a_film_series_is_not_about_cinema() -> None:
+    """«Серия фильмов» в статье об игре называет первоисточник игры, а не её тип.
+
+    Поиск по ``Avatar фильм`` приносил игру, и карточка «Аватара» 2009 года читала о ней.
+    """
+    game = (
+        "Avatar: Frontiers of Pandora (с англ. \u2014 «Аватар: Рубежи Пандоры») \u2014 "
+        "компьютерная игра в жанре action-adventure с открытым миром, основанная на серии "
+        "фильмов Джеймса Кэмерона «Аватар», вышедшего в 2009 году."
+    )
+    assert not _about_cinema("Avatar: Frontiers of Pandora", game)
+    assert _about_cinema(
+        "Варкрафт (фильм)",
+        "«Варкрафт» (англ. Warcraft) \u2014 американский фильм 2016 года по мотивам "
+        "серии компьютерных игр Warcraft.",
+    )
