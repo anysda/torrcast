@@ -7,6 +7,7 @@ from typing import Protocol
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.release import Release
+from torrcast.domain.slugify import slugify
 from torrcast.usecases.select.plan import Plan
 
 
@@ -32,12 +33,13 @@ def card_seasons(
     picture = plan.picture
     if picture.kind != "tv":
         return [], False
-    numbers = {number for release in picture.releases for number in _named_seasons(release)}
+    releases = _picture_releases(plan)
+    numbers = {number for release in releases for number in _named_seasons(release)}
     saved = _seasons_from_entry(entry) if entry is not None and entry.episodes else {}
     numbers.update(saved)
     target = season if season in numbers else (1 if 1 in numbers else min(numbers, default=0))
     fallback = _joined_seasons(numbers, saved)
-    release = _release_for(plan, target)
+    release = _release_for(plan, releases, target)
     if release is None:
         return fallback, False
     table = episodes.table(release, base_url)
@@ -52,9 +54,21 @@ def _named_seasons(release: Release) -> tuple[int, ...]:
     return (release.season,) if release.season else ()
 
 
-def _release_for(plan: Plan, season: int) -> Release | None:
+def _picture_releases(plan: Plan) -> list[Release]:
+    """Не принять слившийся спин-офф за следующий сезон открытой картины."""
+    picture = plan.picture
+    names = {slugify(name) for name in (picture.title, picture.original or "") if name}
+    same_picture = [
+        release
+        for release in picture.releases
+        if names.intersection(slugify(name) for name in (release.title, release.original or ""))
+    ]
+    return same_picture or picture.releases
+
+
+def _release_for(plan: Plan, releases: list[Release], season: int) -> Release | None:
     """Взять раздачу, которая НАЗВАЛА сезон, и лишь затем молчащую о нём."""
-    choices = [*plan.ranked, *plan.picture.releases]
+    choices = [*(release for release in plan.ranked if release in releases), *releases]
     named = next((release for release in choices if season in _named_seasons(release)), None)
     return named or next((release for release in choices if release.covers(season)), None)
 

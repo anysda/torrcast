@@ -24,7 +24,7 @@ _RANGE: Final = re.compile(r"^(\d{1,2})\s*-\s*s?(\d{1,2})$", re.IGNORECASE)
 
 def _named_seasons(text: str) -> tuple[int, ...]:
     """Вернуть все сезоны, прямо названные одной сезонной пометкой."""
-    for pattern in (_S_SPAN, _NAMED, _TRAILING):
+    for pattern in (_S_SPAN, _TRAILING, _NAMED):
         match = pattern.search(text)
         if match and (numbers := _numbers(match.group("values"))):
             return numbers

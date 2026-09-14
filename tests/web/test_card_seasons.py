@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 from torrcast.domain.entry import Entry
@@ -76,3 +76,15 @@ def test_bookmark_keeps_every_pool_season_and_does_not_choose_its_release_for_an
     assert [row["n"] for row in rows[0]["episodes"]] == [1]
     assert [row["n"] for row in rows[1]["episodes"]] == [1, 2]
     assert episodes.asked == [first.magnet]
+
+
+def test_a_merged_spinoff_does_not_become_a_tab_of_the_opened_show() -> None:
+    plan, first, second = _plan()
+    short = replace(_release(5, "magnet:short"), title="Show Shorts")
+    plan.picture.releases.append(short)
+    episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1]]}, [])
+
+    seasons, partial = card_seasons(plan, None, "http://torrserver", episodes)
+
+    assert partial is False
+    assert [row["n"] for row in _rows(seasons)] == [1, 2]

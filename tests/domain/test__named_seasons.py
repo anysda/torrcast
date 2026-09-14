@@ -15,6 +15,7 @@ from torrcast.domain.parse_release_name import parse_release_name
         ("Series S01-S05 WEB-DL 1080p", 1, (1, 2, 3, 4, 5)),
         ("Сериал / Series / 1-4 сезон WEB-DL 1080p", 1, (1, 2, 3, 4)),
         ("Сериал / Series / Сезон: 1, 2 / Серии: 1-21 WEB-DL 1080p", 1, (1, 2)),
+        ("Сериал (1-2 сезоны: 1-40 серии из 40) WEB-DL 1080p", 1, (1, 2)),
     ),
 )
 def test_named_season_forms_are_series_and_cover_every_named_season(
