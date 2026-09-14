@@ -25,6 +25,7 @@ from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
+from web.warm_cache import WarmCache
 
 _CONFIG = Config(prowlarr_apikey="KEY", tv="10.0.1.7")
 #: Выдача, на которой верх списка и взятая картина РАСХОДЯТСЯ: у первой части рой мёртв
@@ -146,3 +147,21 @@ def test_every_record_carries_the_name_of_its_picture() -> None:
 
     assert [record.get("poster") for record in records] == ["картинка"] * len(records)
     assert [record["pick"] for record in records] == [1, 2, 3]
+
+
+def test_a_card_after_the_search_step_takes_its_circle_without_a_second_trip() -> None:
+    """🔴 ``/api/search`` и следом ``/api/card`` той же картины прошли индексеры дважды: +3.6 с."""
+    asked: list[str] = []
+
+    def counted(config: Config, args: Args, progress: Any, profile: Profile) -> list[Plan]:
+        asked.append(args.title_query)
+        return _search(config, args, progress, profile)
+
+    def _second(_query: str) -> list[Plan]:
+        raise AssertionError("карточка пошла по индексерам второй раз")
+
+    warm = WarmCache(circle=_second, blurbs=lambda _p: None, spawn=lambda _job: None)
+    searching(_CONFIG, "тачки", counted, _cautious, pins.remember_menu, _offer, warm=warm)
+
+    assert [plan.picture.title for plan in warm.take("тачки")][:1] == ["Тачки"]
+    assert asked == ["тачки"]

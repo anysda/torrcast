@@ -27,7 +27,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from hass.hit_posters import hits
 from hass.refused_error import RefusedError
@@ -60,6 +60,13 @@ Remember = Callable[[str, list[tuple[str, str]]], None]
 #: Кто называет картинку той находки, что прошла приговор: список этим держится до него.
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
 
+
+class _Warm(Protocol):
+    """Общий кэш кругов (:class:`web.warm_cache.WarmCache`): карточка следом круг не повторяет."""
+
+    def take(self, query: str, circle: Callable[[str], list[Plan]]) -> list[Plan]: ...
+
+
 #: Боевые исполнители шага - ровно те же, что у консоли. Кладёт их мост
 #: (:class:`hass.bridge.Bridge`), подделки называют щупы и зеркала.
 SEARCH: Search = search_circle
@@ -75,6 +82,7 @@ def searching(
     detect: Detect,
     remember: Remember,
     offer: Offer | None = None,
+    warm: _Warm | None = None,
 ) -> list[JsonValue]:
     """Круг картин запроса как тело ответа: номера под ``--pick N`` и взятый пункт.
 
@@ -88,13 +96,18 @@ def searching(
     сети, до возврата списка: пачка стоит на нём полдесятка запросов разом, а не по три на
     находку, и это осознанный размен - плитка не бывает битой ценой этого ожидания. Не
     названный зовущим, он берётся из :data:`OFFER` в момент вызова, а не в момент
-    объявления: подделка в зеркале ставится именно туда.
+    объявления: подделка в зеркале ставится именно туда. ``warm`` - общий кэш кругов: без
+    него карточка, открытая следом, проходила индексеры второй раз (TC-1264).
     """
     named = OFFER if offer is None else offer
     chosen = detect(config)
     args = parse_args([query])
+
+    def circle(_query: str) -> list[Plan]:
+        return search(tune(config, chosen.profile), args, progress(), chosen.profile)
+
     try:
-        plans = search(tune(config, chosen.profile), args, progress(), chosen.profile)
+        plans = circle(query) if warm is None else warm.take(query, circle)
     except TorrcastError as refusal:
         raise RefusedError(str(refusal)) from refusal
     remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])

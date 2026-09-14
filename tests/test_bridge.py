@@ -874,6 +874,8 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
     умолчании зеркало мерило бы английскую ветку, а говорило бы про обе.
     """
     monkeypatch.setattr("hass.searching.OFFER", lambda results: results)
+    warm = WarmCache(circle=lambda _q: [], blurbs=lambda _p: None, spawn=lambda _job: None)
+    monkeypatch.setattr("hass.bridge.WARM", warm)
     bridge = _bridge(
         FakePlaybackSession(),
         search=_real_search({"тачки": _CARS}),
@@ -898,6 +900,8 @@ def test_the_search_route_lists_the_products_own_plans_with_pick_numbers(
         }
         for number, plan in enumerate(plans, start=1)
     ]
+    # TC-1264: карточка следом берёт этот круг, а не проходит индексеры второй раз.
+    assert warm.ready("тачки") is not None, "круг выдачи не лёг в общий кэш карточки"
 
 
 def test_the_progressive_route_answers_with_the_finished_menu_once_the_circle_lands(
@@ -936,8 +940,12 @@ def test_the_progressive_route_answers_with_the_finished_menu_once_the_circle_la
     assert warm.ready("тачки") is not None, "карточка берёт круг выдачи, а не свой"
 
 
-def test_a_search_refusal_carries_the_products_own_words(_russian_product: None) -> None:
+def test_a_search_refusal_carries_the_products_own_words(
+    monkeypatch: pytest.MonkeyPatch, _russian_product: None
+) -> None:
     """409 у поиска не свой: слово - ровно то, что сказал бы отказ круга поиска."""
+    warm = WarmCache(circle=lambda _q: [], blurbs=lambda _p: None, spawn=lambda _job: None)
+    monkeypatch.setattr("hass.bridge.WARM", warm)
     bridge = _bridge(
         FakePlaybackSession(), search=_real_search({}), settings=lambda: _SEARCH_CONFIG
     )

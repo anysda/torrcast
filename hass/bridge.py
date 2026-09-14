@@ -113,7 +113,8 @@ class Bridge:
 
         Весь шаг - у :func:`hass.searching.searching`: профиль приёмника, круг поиска, память
         порядка под ``--pick N`` и ``default`` у записи, которую включил бы голый :meth:`play`."""
-        return searching(self._settings(), query, self._search, self._detect, self._remember)
+        said = self._settings(), query, self._search, self._detect, self._remember
+        return searching(*said, warm=WARM)
 
     def search_progress(self, query: str) -> tuple[list[JsonValue], bool]:
         """``POST /api/search`` с ``progressive: true``: каталог первым, круг (:data:`WARM`)."""
