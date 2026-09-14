@@ -46,7 +46,7 @@ def test_tabs_are_the_union_and_the_selected_season_uses_its_own_release() -> No
     plan, first, second = _plan()
     episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1], [2, 2]]}, [])
 
-    seasons, partial = card_seasons(plan, None, "http://torrserver", episodes, season=2)
+    seasons, partial, release = card_seasons(plan, None, "http://torrserver", episodes, season=2)
 
     assert partial is False
     rows = _rows(seasons)
@@ -54,6 +54,7 @@ def test_tabs_are_the_union_and_the_selected_season_uses_its_own_release() -> No
     assert rows[0]["episodes"] == []
     assert [row["n"] for row in rows[1]["episodes"]] == [1, 2]
     assert episodes.asked == [second.magnet]
+    assert release is second
 
 
 def test_bookmark_keeps_every_pool_season_and_does_not_choose_its_release_for_another_one() -> None:
@@ -68,7 +69,7 @@ def test_bookmark_keeps_every_pool_season_and_does_not_choose_its_release_for_an
     )
     episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1], [2, 2]]}, [])
 
-    seasons, partial = card_seasons(plan, entry, "http://torrserver", episodes, season=1)
+    seasons, partial, release = card_seasons(plan, entry, "http://torrserver", episodes, season=1)
 
     assert partial is False
     rows = _rows(seasons)
@@ -76,6 +77,7 @@ def test_bookmark_keeps_every_pool_season_and_does_not_choose_its_release_for_an
     assert [row["n"] for row in rows[0]["episodes"]] == [1]
     assert [row["n"] for row in rows[1]["episodes"]] == [1, 2]
     assert episodes.asked == [first.magnet]
+    assert release is first
 
 
 def test_without_a_chosen_tab_the_bookmark_season_gets_its_file_table() -> None:
@@ -83,11 +85,28 @@ def test_without_a_chosen_tab_the_bookmark_season_gets_its_file_table() -> None:
     entry = Entry("Show", second.magnet, kind="tv", season=2, episode=1, episodes=[[2, 1, 0, 0]])
     episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1], [2, 2]]}, [])
 
-    seasons, partial = card_seasons(plan, entry, "http://torrserver", episodes)
+    seasons, partial, release = card_seasons(plan, entry, "http://torrserver", episodes)
 
     assert partial is False
     assert episodes.asked == [second.magnet]
     assert [row["n"] for row in _rows(seasons)] == [1, 2]
+    assert release is second
+
+
+def test_the_bookmark_release_beats_a_ranked_pack_for_its_opened_season() -> None:
+    plan, first, second = _plan()
+    second = replace(second, magnet="magnet:?xt=urn:btih:" + "a" * 40)
+    plan.picture.releases[1] = second
+    pack = Release(raw_name="Show Complete", title="Show", kind="tv", magnet="magnet:pack")
+    plan.picture.releases.append(pack)
+    ranked = replace(plan, ranked=[pack, first])
+    entry = Entry("Show", second.magnet, kind="tv", season=2, episode=1, episodes=[[2, 1, 0, 0]])
+    episodes = _Episodes({second.magnet: [[2, 1]], pack.magnet: [[1, 1], [2, 1]]}, [])
+
+    _seasons, _partial, release = card_seasons(ranked, entry, "http://torrserver", episodes)
+
+    assert episodes.asked == [second.magnet]
+    assert release is second
 
 
 def test_a_merged_spinoff_does_not_become_a_tab_of_the_opened_show() -> None:
@@ -96,7 +115,7 @@ def test_a_merged_spinoff_does_not_become_a_tab_of_the_opened_show() -> None:
     plan.picture.releases.append(short)
     episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1]]}, [])
 
-    seasons, partial = card_seasons(plan, None, "http://torrserver", episodes)
+    seasons, partial, _selected = card_seasons(plan, None, "http://torrserver", episodes)
 
     assert partial is False
     assert [row["n"] for row in _rows(seasons)] == [1, 2]
@@ -115,14 +134,15 @@ def _single(release: Release) -> Plan:
 def test_a_full_pack_without_a_season_in_its_name_gets_tabs_from_its_files() -> None:
     pack = Release(raw_name="Show / Complete [2013-2023]", title="Show", kind="tv", magnet="m:p")
 
-    seasons, partial = card_seasons(_single(pack), None, "http://torrserver", _Files())
+    seasons, partial, release = card_seasons(_single(pack), None, "http://torrserver", _Files())
 
     assert partial is False
     assert [row["n"] for row in _rows(seasons)] == [1, 2, 3]
+    assert release is pack
 
 
 def test_files_of_a_named_season_add_the_seasons_they_hold() -> None:
-    seasons, _ = card_seasons(_single(_release(1, "m:one")), None, "http://torrserver", _Files())
+    seasons, _, _ = card_seasons(_single(_release(1, "m:one")), None, "http://torrserver", _Files())
 
     assert [row["n"] for row in _rows(seasons)] == [1, 2, 3]
 

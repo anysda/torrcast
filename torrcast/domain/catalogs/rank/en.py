@@ -14,6 +14,7 @@ def en() -> dict[str, str]:
         "rank.lang_german": "German",
         "rank.lang_spanish": "Spanish",
         "rank.lang_italian": "Italian",
+        "rank.lang_ukrainian": "Ukrainian",
         "rank.lang_russian": "Russian",
         "rank.lang_original": "original",
         "rank.stepdown_dead_swarm": "the swarm is dead",

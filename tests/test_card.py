@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pytest
@@ -554,6 +554,22 @@ def test_a_never_opened_series_shows_episodes_once_the_release_is_parsed(
     assert {episode["n"] for episode in seasons[1]["episodes"]} == {1, 2}
     assert {episode["n"] for episode in seasons[2]["episodes"]} == {1}
     assert all(episode["watched"] is False for episode in seasons[1]["episodes"])
+
+
+def test_a_series_names_the_release_whose_files_list_its_episodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Строка серии должна передать показу hash своей файловой таблицы, не дорожек."""
+    release = replace(_SHOW_RELEASE, magnet="magnet:?xt=urn:btih:" + "a" * 40)
+    picture = Picture(title="Show", year=2022, kind="tv", releases=[release])
+    plan = Plan(picture=picture, ranked=[release], runtime=1500.0, warn_mbit=12.0)
+    heard = Heard(media(tracks=(track(0, "rus", None),)), False, (), release="b" * 40)
+    _wired(monkeypatch, [plan], episodes=[[1, 1]], voices=_StubVoices(heard))
+    state_slot.install(FakeStateStore())
+
+    _code, body, _extra = _asked(picture.key, query="show")
+
+    assert body["release"] == "a" * 40
 
 
 def test_a_never_opened_series_is_marked_partial_while_the_release_still_parses(

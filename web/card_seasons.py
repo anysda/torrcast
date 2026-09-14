@@ -6,6 +6,7 @@ from typing import Protocol
 
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.magnet_hash import magnet_hash
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.usecases.select.plan import Plan
@@ -23,7 +24,7 @@ def card_seasons(
     base_url: str,
     episodes: _EpisodeTables,
     season: int | None = None,
-) -> tuple[list[JsonValue], bool]:
+) -> tuple[list[JsonValue], bool, Release | None]:
     """Все вкладки пула и серии выбранного сезона из покрывающей его раздачи.
 
     Разбор фоновый (:class:`web.episode_lookup.EpisodeLookup`): не готов - вернулась
@@ -32,7 +33,7 @@ def card_seasons(
     """
     picture = plan.picture
     if picture.kind != "tv":
-        return [], False
+        return [], False, None
     releases = _picture_releases(plan)
     numbers = {number for release in releases for number in _named_seasons(release)}
     saved = _seasons_from_entry(entry) if entry is not None and entry.episodes else {}
@@ -42,16 +43,16 @@ def card_seasons(
     default = bookmark if bookmark in numbers else (1 if 1 in numbers else min(numbers, default=0))
     target = season if season in numbers else default
     fallback = _joined_seasons(numbers, saved)
-    release = _release_for(plan, releases, target)
+    release = _release_for(plan, releases, target, entry)
     if release is None:
-        return fallback, False
+        return fallback, False, None
     table = episodes.table(release, base_url)
     if table is None:
-        return fallback, True
+        return fallback, True, release
     files = _seasons_from_table(table)
     # Полный пак без сезона в имени называет сезоны только своими файлами.
     numbers.update(files)
-    return _joined_seasons(numbers, _with_table(saved, files)), False
+    return _joined_seasons(numbers, _with_table(saved, files)), False, release
 
 
 def _named_seasons(release: Release) -> tuple[int, ...]:
@@ -72,12 +73,23 @@ def _picture_releases(plan: Plan) -> list[Release]:
     return same_picture or picture.releases
 
 
-def _release_for(plan: Plan, releases: list[Release], season: int) -> Release | None:
+def _release_for(
+    plan: Plan, releases: list[Release], season: int, entry: Entry | None
+) -> Release | None:
     """Раздача, с которой показ сыграл бы сезон: первая в отборе, что его покрывает.
 
     Отбор плана покрывает сезон плана; сезона вне отбора показ ищет своим отбором, и тут
     сперва берётся раздача, которая НАЗВАЛА сезон, а лишь затем молчащая о нём.
     """
+    if entry is not None and entry.episodes and entry.season == season:
+        saved = magnet_hash(entry.magnet)
+        bookmark = (
+            next((release for release in releases if magnet_hash(release.magnet) == saved), None)
+            if saved
+            else None
+        )
+        if bookmark is not None:
+            return bookmark
     ranked = (release for release in plan.ranked if release in releases)
     chosen = next((release for release in ranked if release.covers(season)), None)
     named = next((release for release in releases if season in _named_seasons(release)), None)

@@ -36,6 +36,7 @@ from web.card_ask import NO_ASK, CardAsk
 from web.card_details import CardDetails
 from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
+from web.card_release import card_release
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices
 from web.card_warm import CARD_WARM
@@ -151,7 +152,7 @@ def _body(
     title, year, kind = hint or (picture.title, picture.year, picture.kind)
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
-    seasons, seasons_partial = card_seasons(
+    seasons, seasons_partial, episode_release = card_seasons(
         plan, entry, config.torrserver_url, _episodes, season=ask.season
     )
     series = kind == "tv"
@@ -167,9 +168,8 @@ def _body(
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
         "pick": pick,
-        # Ключи картины и отобранной раздачи: ими «Играть» зовёт показ, номер гуляет.
         "picture": picture.key,
-        "release": heard.release if heard else None,
+        "release": card_release(episode_release, heard),
         "title": picture.title,
         "shown": spoken_title(picture.title, picture.original or ""),
         "original": picture.original or None,

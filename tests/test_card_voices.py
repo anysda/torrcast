@@ -39,11 +39,17 @@ def test_english_and_japanese_tracks_stand_beside_the_russian_one() -> None:
 
 
 def test_the_english_page_names_the_same_tracks_in_english() -> None:
-    heard = _heard(track(0, "rus", "Dub"), track(1, "eng", None))
+    heard = _heard(track(0, "rus", "Dub"), track(1, "eng", None), track(2, "ukr", None))
 
     rows = card_voices(heard, "en")
 
-    assert _field(rows, "label") == ["Russian · Dub", "English"]
+    assert _field(rows, "label") == ["Russian · Dub", "English", "Ukrainian"]
+
+
+def test_the_russian_page_names_ukrainian_in_russian() -> None:
+    assert _field(card_voices(_heard(track(0, "ukr", "Dub")), "ru"), "label") == [
+        "украинский · Dub"
+    ]
 
 
 def test_the_voice_name_is_what_survives_another_release_the_show_may_take() -> None:

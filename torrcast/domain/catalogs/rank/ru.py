@@ -14,6 +14,7 @@ def ru() -> dict[str, str]:
         "rank.lang_german": "немецкий",
         "rank.lang_spanish": "испанский",
         "rank.lang_italian": "итальянский",
+        "rank.lang_ukrainian": "украинский",
         "rank.lang_russian": "русский",
         "rank.lang_original": "оригинальный",
         "rank.stepdown_dead_swarm": "рой мёртв",

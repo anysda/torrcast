@@ -21,6 +21,8 @@ _SPOKEN: dict[str, str] = {
     "ger": "rank.lang_german",
     "spa": "rank.lang_spanish",
     "ita": "rank.lang_italian",
+    "ukr": "rank.lang_ukrainian",
+    "uk": "rank.lang_ukrainian",
     "rus": "rank.lang_russian",
     "ru": "rank.lang_russian",
     "russian": "rank.lang_russian",
