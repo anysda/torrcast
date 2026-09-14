@@ -76,14 +76,19 @@ def test_the_cached_table_answers_the_next_ask_without_touching_the_engine_again
     assert len(engines.asked) == 1
 
 
-def test_a_torrserver_failure_falls_back_to_an_empty_table_not_a_crash() -> None:
-    """Служба раздач упала - таблица пуста, а не исключение наружу карточки."""
+def test_a_torrserver_failure_is_not_an_answer_and_not_a_crash() -> None:
+    """🔴 Упавший разбор отдавал пустую таблицу как ответ: 0 серий без недоезда, строки s2e1 нет.
+
+    Не исключение наружу карточки и не «серий нет»: ``None`` метит тело недоехавшим, и
+    страница переспрашивает, пока через :data:`RETRY` разбор не пойдёт заново.
+    """
     engine = _BoomEngine(torrent_files=_FILES)
     lookup = EpisodeLookup(engines=FakeTorrentEngines(engine), spawn=_sync)
 
     table = lookup.table(_RELEASE, "http://torrserver")
 
-    assert table == []
+    assert table is None
+    assert lookup.table(_RELEASE, "http://torrserver") is None
     assert engine.dropped == []
 
 

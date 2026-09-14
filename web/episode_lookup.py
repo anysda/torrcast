@@ -53,7 +53,7 @@ class EpisodeLookup:
     engines: TorrentEngines
     spawn: Spawn = _daemon
     clock: Callable[[], float] = time.monotonic
-    _table: dict[str, tuple[list[list[int]], float]] = field(default_factory=dict)
+    _table: dict[str, tuple[list[list[int]] | None, float]] = field(default_factory=dict)
     _pending: set[str] = field(default_factory=set)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
@@ -61,7 +61,8 @@ class EpisodeLookup:
         """Таблица серий, если уже разобрана; иначе завести разбор фоном и вернуть ``None``.
 
         ``None`` значит «спроси ещё раз» - карточка в этом случае показывает только
-        счётчик сезонов и метит тело недоехавшим, а вёрстка переспрашивает сама.
+        счётчик сезонов и метит тело недоехавшим, а вёрстка переспрашивает сама. Упавший
+        разбор - тоже ``None``, а не пустая таблица: «серий нет» он не знает.
         """
         magnet = release.magnet
         now = self.clock()
@@ -85,7 +86,7 @@ class EpisodeLookup:
         Показ этой раздачи не начат - держать её в TorrServer больше незачем, тот же
         довод, что и у брошенных запасных раздач (:attr:`_Prep.dropped`).
         """
-        table: list[list[int]] = []
+        table: list[list[int]] | None = None
         parsed = False
         engine = self.engines(base_url, timeout=TIMEOUT)
         torrent_hash = ""
@@ -95,7 +96,7 @@ class EpisodeLookup:
             table = _Series.table(files, release.season)
             parsed = True
         except TorrcastError:
-            table = []
+            table = None  # not an answer: the card stays partial until RETRY asks again
         finally:
             # Ту же раздачу может держать показ или его отбор: сносится только ничья.
             free = bool(torrent_hash) and CLAIMS.unclaim(torrent_hash, self)
