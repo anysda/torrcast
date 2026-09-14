@@ -17,6 +17,7 @@ from hass.hit_posters import hits
 from torrcast.domain.catalogs.tongue import EN, tongue
 from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.settings import SPARQL_TIMEOUT
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
 from torrcast.domain.spoken_title import spoken_title
@@ -167,7 +168,7 @@ class RelatedLookup:
         found: list[Kin] | None = None
         try:
             found = (
-                self.entity_kin(entity, TIMEOUT)
+                self.entity_kin(entity, SPARQL_TIMEOUT)
                 if entity and self.entity_kin
                 else self.franchise(title, series, TIMEOUT)
             )

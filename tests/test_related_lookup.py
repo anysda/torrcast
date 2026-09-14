@@ -6,9 +6,10 @@ from collections.abc import Callable
 
 from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.settings import SPARQL_TIMEOUT
 from torrcast.domain.json_value import JsonValue
 from web.prime import prime
-from web.related_lookup import SILENT, RelatedLookup
+from web.related_lookup import SILENT, TIMEOUT, RelatedLookup
 
 _ONE = Kin("Q1", "Гарри Поттер и Тайная комната", 2002)
 _TWO = Kin("Q2", "Гарри Поттер и Кубок огня", 2005)
@@ -76,6 +77,22 @@ def test_a_blurb_qid_builds_the_shelf_without_a_second_passport() -> None:
     assert related is not None and len(related) == 1
     assert passports == []
     assert entities == ["Q8337"]
+
+
+def test_a_slow_wikidata_kin_answer_is_waited_for_longer_than_a_wikipedia_request() -> None:
+    """A cold franchise query takes seconds; cutting it at the wiki ceiling threw it away."""
+    ceilings: list[float] = []
+
+    def entity_kin(_entity: str, timeout: float) -> list[Kin]:
+        ceilings.append(timeout)
+        return [_ONE]
+
+    lookup = RelatedLookup(
+        franchise=lambda *_: [], entity_kin=entity_kin, offer=_passthrough, spawn=_sync
+    )
+
+    assert lookup.of("Начало", False, "Q25188") is not None
+    assert ceilings == [SPARQL_TIMEOUT] and SPARQL_TIMEOUT > TIMEOUT
 
 
 def test_an_empty_franchise_is_a_finished_answer_not_a_pending_one() -> None:
