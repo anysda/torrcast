@@ -826,7 +826,9 @@ const TCCard = {
       // находки запускала первую, и виднее всего это на полке - плитка «Bones and All»
       // зовётся запросом, у которого в круге две картины (замер `.104` 07-09-2026).
       picture: keys.picture,
-      release: season ? undefined : keys.release,
+      // У сериала ``release`` - раздача, чей список серий открыт во вкладке: строка серии
+      // играет её, иначе показ отбирал бы сезон заново и мог взять другую.
+      release: keys.release,
       voice: picked,
       from_start: fromStart,
       season,
