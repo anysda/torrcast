@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.usecases.discover.cut_circle import CutCircle
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -53,10 +54,11 @@ class CircleMemory:
         return empty[0] if empty is not None and empty[1] > self.clock() else None
 
     def keep(self, query: str, plans: list[Plan]) -> None:
-        """Запомнить непустую находку; пустая - не находка."""
+        """Запомнить непустую находку; пустая - не находка, урезанная - на минуту."""
         if plans:
+            ttl = EMPTY_TTL if isinstance(plans, CutCircle) else self.ttl
             with self._lock:
-                self._found[self.key(query)] = (plans, self.clock() + self.ttl)
+                self._found[self.key(query)] = (plans, self.clock() + ttl)
                 self._empty.pop(self.key(query), None)
 
     def refuse(self, query: str, error: NotFoundError) -> None:

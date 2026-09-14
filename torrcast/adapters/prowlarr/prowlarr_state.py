@@ -42,6 +42,8 @@ class _State:
         #: Индексеры, которых Prowlarr увёл в недоступные, - по именам. Молчунами они не
         #: считаются: молчун не ответил нам, а этих мы и не спрашивали (TC-259).
         self.banned: tuple[str, ...] = ()
+        #: Опорные, чей ноль пришёл по отсечке переходника (:func:`cut_short`): круг урезан.
+        self.cut: tuple[str, ...] = ()
         self._roster = IndexerRoster(self._api, spawn=heal)
         self._circle = IndexerCircle(self._api, slack=slack, budget_of=budget_of)
         #: Начало поиска - от него считается остаток цели (:meth:`spare`, TC-228).

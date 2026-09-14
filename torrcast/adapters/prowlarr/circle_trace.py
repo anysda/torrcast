@@ -17,6 +17,7 @@ def circle_trace(
     fallback: bool,
     late: Sequence[str],
     budgets: Mapping[str, float],
+    cut: Sequence[str] = (),
 ) -> None:
     """Записать круг целиком: кто сколько отдал, кто смолчал, кто ещё в пути.
 
@@ -39,6 +40,7 @@ def circle_trace(
         ms=dict(ms),
         fallback=fallback,
         late=list(late),
+        cut=list(cut),
     )
     if banned:
         mark("индексеры", заблокированы=list(banned))

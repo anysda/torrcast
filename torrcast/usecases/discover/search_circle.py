@@ -26,6 +26,7 @@ from torrcast.usecases.discover._plan_menu import _plans
 from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover._second_typo import _second_typo
+from torrcast.usecases.discover.cut_circle import CutCircle
 from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
 from torrcast.usecases.reinforce._ceiling_reinforce import _ceiling_reinforce
@@ -150,4 +151,4 @@ def search_circle(
         raise NotFoundError(
             phrase("discover.no_season_releases", title=_title(found[0]), season=want.season)
         )
-    return plans
+    return CutCircle(plans) if getattr(client, "cut", ()) else plans

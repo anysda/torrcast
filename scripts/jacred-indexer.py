@@ -18,7 +18,10 @@ from typing import Any
 # install.sh carries it, because without a name in the handshake the address returns the
 # very same answer.
 ORIGINS = ("https://api.jacred.su",)
-TIMEOUT = 3.0
+#: Cold answers of the API took 2.9-4.7 s on the stand (10 queries, 14-09-2026), and a cut of
+#: 3 s turned them into an empty source. The first circle waits 6 s, so 5 s still lands.
+#: torrcast reads an empty answer this late as a cut circle: keep ``ADAPTER_CUT`` in step.
+TIMEOUT = 5.0
 LIMIT = 100
 
 

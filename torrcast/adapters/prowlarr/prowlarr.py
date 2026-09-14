@@ -13,6 +13,7 @@ from torrcast.adapters.prowlarr.search_url import search_url
 from torrcast.domain.anime_fallback import anime_fallback
 from torrcast.domain.capped_indexers import capped_indexers
 from torrcast.domain.circle_indexers import circle_indexers
+from torrcast.domain.cut_short import cut_short
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.nothing_found import nothing_found
@@ -117,6 +118,7 @@ class Prowlarr(_State):
             why_lost = why_lost or err
         self.silent = tuple(self._circle.lost)
         self.capped = capped_indexers(self._circle.counts)
+        self.cut = (*self.cut, *cut_short(self._circle.counts, self._circle.spent))
         # 🔴 TC-318. Пул ПУСТ, а опоздавший ещё в пути - вот тут его и дожидаются:
         # показывать всё равно нечего, и он единственный, кто ещё может привезти картину.
         # Пустая выдача ответившего идёт тут наравне с молчанием - строк не приехало ни
@@ -134,6 +136,7 @@ class Prowlarr(_State):
             ms=self._circle.spent,
             fallback=fallback,
             late=waiting,
+            cut=self.cut,
             budgets={name: self.budget_of(name) for name in self.silent},
         )
         if not got and self.answered:
