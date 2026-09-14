@@ -13,6 +13,8 @@ const TCCard = {
   // Идущий показ меняет карточку и после первых доборов: не крутить пустой круг
   // запросов, но и не оставить «Завершить» после того, как вкладка ушла.
   _PLAY_POLL: 1000,
+  // Сколько карточка доспрашивает дорожки раздачи: потолок отбора у продукта 180 с.
+  _VOICES_WAIT: 200000,
   // Номер живого захода на экран: возврат на карточку гасит опросы прошлого визита,
   // иначе их добор подменял бы тело у экрана, который человек видит сейчас.
   _visit: 0,
@@ -63,16 +65,21 @@ const TCCard = {
     const mine = TCCard._visit;
     const load = ++TCCard._loadId;
     let data = null;
+    const voicesUntil = Date.now() + TCCard._VOICES_WAIT;
     for (let turn = 0; ; turn += 1) {
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
-      const said = await TCApi.card(key, query, turn > 0, facts, season);
+      // Целое тело без дорожек дальше спрашивает только их: долгий заход держится до них.
+      const hearing = !!(data && data.voices_pending && !data.searching);
+      const said = await TCApi.card(key, query, turn > 0, facts, season, hearing);
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       if (said.data) data = said.data;
       // Preview уже честно назвал карточку по фактам плитки. Полный круг иногда не
       // находит его ключ (раздачи успели смениться), и пустой `{ error }` не должен
       // стирать это тело вместе с заголовком, как было у «Вперёд» на 14.8 с.
       if (said.missing && !data) data = TCCard._fallback(key);
-      const last = !said.partial;
+      // Дорожки доезжают добором после «Играть», а не держат её: отбор раздачи - это рой.
+      const voicesLeft = !!(data && data.voices_pending) && Date.now() < voicesUntil;
+      const last = !said.partial && !voicesLeft;
       // Карточка идущего показа опрашивает дальше и после целого ответа: поток вкладки,
       // ушедшей с ``/play``, сносится через секунды, и тело должно услышать смерть
       // показа само. Без этого «Завершить» и возврат из плеера оставляли бы кнопки

@@ -92,7 +92,9 @@ def card(request: Request) -> Answer:
         return refusal(404, "not_found")
     wait = WAIT if request.query.get("wait") == "1" else 0.0
     season = _season(request.query.get("season"))
-    return _answer(plan, config, pick, wait, hint, season, (query, request.query.get("lang", "")))
+    ask = (query, request.query.get("lang", ""))
+    voices = request.query.get("voices") == "1"
+    return _answer(plan, config, pick, wait, hint, season, ask, voices)
 
 
 def _answer(
@@ -103,8 +105,13 @@ def _answer(
     hint: tuple[str, int, str] | None = None,
     season: int | None = None,
     ask: tuple[str, str] = ("", ""),
+    voices: bool = False,
 ) -> Answer:
-    """Тело ответа плюс заголовок недоехавшей части: справка, обложка, родня, серии."""
+    """Тело ответа плюс заголовок недоехавшей части: справка, обложка, родня, серии.
+
+    Дорожки ответ не держат: их читает отбор раздачи, и это секунды роя, а не справки.
+    Тело говорит о них ``voices_pending``, и держит ответ на них только добор ``voices=1``.
+    """
     picture = plan.picture
     watch = store().load()
     entry = watch.get(picture.key)
@@ -119,7 +126,7 @@ def _answer(
         plan, config, pick, entry, facts, _playing(picture.key), hint, season, ask
     )
     body = first
-    while partial and time.monotonic() < until:
+    while (partial or (voices and body.get("voices_pending"))) and time.monotonic() < until:
         time.sleep(_TICK)
         body, partial = _body(
             plan, config, pick, entry, facts, _playing(picture.key), hint, season, ask
@@ -181,6 +188,7 @@ def _body(
         "blurb": fact.about if told else None,
         "poster": poster,
         "voices": card_voices(heard, ask[1]),
+        "voices_pending": hearing,
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
         # TC-1225: картина, которая идёт на приёмнике прямо сейчас
@@ -195,7 +203,7 @@ def _body(
         "releases_count": len(picture.releases),
         "sources_count": CardDetails.sources_count(picture.releases),
     }
-    return body, not told or seasons_partial or coming or judging or hearing
+    return body, not told or seasons_partial or coming or judging
 
 
 def _season(value: str | None) -> int | None:

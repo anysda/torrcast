@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -301,17 +302,54 @@ def test_a_movie_card_lists_every_track_of_the_release_the_show_would_play(
     assert "X-Torrcast-Partial" not in extra
 
 
-def test_a_card_whose_tracks_are_still_being_read_is_marked_partial(
+def test_tracks_still_being_read_do_not_hold_the_waiting_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """🔴 Отбор дорожек держал долгий ответ до потолка: «Играть» у «Тачек» 15.6 с."""
     _wired(monkeypatch, [_MOVIE_PLAN], related=[], voices=_StubVoices(coming=True))
-    monkeypatch.setattr("web.preview.MenuFacts", lambda *a, **k: _ReadyFacts())
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
+    monkeypatch.setattr("web.card.WAIT", 30.0)
+    monkeypatch.setattr("web.card._TICK", 0.01)
+    state_slot.install(FakeStateStore())
+    began = time.monotonic()
+
+    _code, body, extra = _asked(_MOVIE.key, wait=True)
+
+    assert time.monotonic() - began < 5.0
+    assert body["voices"] == []
+    assert body["voices_pending"] is True
+    assert "X-Torrcast-Partial" not in extra
+
+
+@dataclass
+class _LateVoices:
+    """Дорожки, прочитанные на ``after``-м взгляде долгого ответа."""
+
+    after: int
+    looks: int = 0
+
+    def of(self, _plan: Plan, _query: str, _base_url: str) -> tuple[Heard | None, bool]:
+        self.looks += 1
+        if self.looks < self.after:
+            return None, True
+        return Heard(media(tracks=(track(0, "eng", None),)), native=False, studios=()), False
+
+
+def test_a_voices_ask_holds_the_answer_until_the_tracks_arrive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    late = _LateVoices(after=3)
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[])
+    monkeypatch.setattr("web.card._voices", late)
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
+    monkeypatch.setattr("web.card._TICK", 0.0)
     state_slot.install(FakeStateStore())
 
-    _code, body, extra = _asked(_MOVIE.key)
+    _code, body, _extra = _asked(_MOVIE.key, wait=True, extra_query={"voices": "1"})
 
-    assert body["voices"] == []
-    assert "X-Torrcast-Partial" in extra
+    assert [voice["name"] for voice in body["voices"]] == ["eng"]
+    assert body["voices_pending"] is False
+    assert late.looks == 3
 
 
 def test_a_picture_showing_on_the_receiver_right_now_marks_the_card_playing(

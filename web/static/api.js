@@ -71,7 +71,7 @@ const TCApi = {
   // Карточка иногда приходит частями (заголовок ``X-Torrcast-Partial``): её самой
   // читает card.js и переспрашивает долгим заходом (``wait``): сервер держит ответ,
   // пока тело не изменится, вместо того чтобы страница стучалась раз в две секунды.
-  async card(key, query, wait, facts, season) {
+  async card(key, query, wait, facts, season, voices) {
     const values = new URLSearchParams();
     if (query) values.set('query', query);
     if (facts) for (const name of ['title', 'shown', 'year', 'kind']) {
@@ -79,6 +79,8 @@ const TCApi = {
     }
     if (wait) values.set('wait', '1');
     if (season) values.set('season', String(season));
+    // Добор одних дорожек: сервер держит ответ до них, а не отдаёт то же тело сразу.
+    if (wait && voices) values.set('voices', '1');
     // Подписи дорожек сервер пишет на языке страницы, а не процесса.
     if (TC.language === 'ru') values.set('lang', 'ru');
     const tail = values.toString();
