@@ -61,3 +61,16 @@ def test_a_picture_without_a_franchise_answers_with_an_empty_shelf() -> None:
     """Пустой ответ SPARQL значит «родни нет», и полка честно скрывается."""
     client = FakeJsonClient(lambda host, path, params: _reply())
     assert WikidataKin(client).kin("Q1", 1.0) == []
+
+
+def test_a_batch_rides_one_query_and_drops_a_stranger_string() -> None:
+    """🔴 Пачка - один SPARQL; чужой знак не едет в тело запроса и в ответ."""
+    payload = _reply(("Q105993", "Крепкий орешек 2", "1990-07-04"))
+    payload["results"]["bindings"][0]["src"] = {"value": "http://www.wikidata.org/entity/Q105598"}
+    client = FakeJsonClient(lambda host, path, params: payload)
+
+    found = WikidataKin(client).kin_many(["Q105598", "} INSERT {", "Q1"], 1.0)
+
+    assert found == {"Q105598": [Kin("Q105993", "Крепкий орешек 2", 1990)], "Q1": []}
+    assert len(client.calls) == 1
+    assert "INSERT" not in client.calls[0][2]["query"]

@@ -20,3 +20,6 @@ class FakeKinSource:
     def kin(self, entity: str, timeout: float) -> list[Kin]:
         self.asked.append(entity)
         return self.answer(entity, timeout)
+
+    def kin_many(self, entities: list[str], timeout: float) -> dict[str, list[Kin]]:
+        return {entity: self.kin(entity, timeout) for entity in entities}

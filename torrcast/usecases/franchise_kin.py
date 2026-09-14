@@ -86,3 +86,13 @@ class FranchiseKin:
             return None
         self.store.write_kin(entity, found)
         return found
+
+    def by_entities(self, entities: list[str], timeout: float = HTTP_TIMEOUT) -> int:
+        """Заранее снять родню пачки картин, ещё не лежащей в кэше; вернуть, сколько спросили.
+
+        Отказ сети поднимается наверх и в кэш не ложится ничего, как и у :meth:`by_entity`.
+        """
+        asked = [entity for entity in entities if self.store.read_kin(entity) is None]
+        if asked:
+            self.store.write_kins(self.kin.kin_many(asked, timeout))
+        return len(asked)

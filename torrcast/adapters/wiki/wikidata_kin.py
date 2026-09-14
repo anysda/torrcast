@@ -7,8 +7,10 @@ from typing import Final
 
 from torrcast.adapters.wiki.endpoints import SPARQL_HEAD, WIKIDATA_HOST, WIKIDATA_PATH
 from torrcast.domain.facts.kin import Kin
+from torrcast.domain.facts.kin_batch_query import kin_batch_query
 from torrcast.domain.facts.kin_query import kin_query
 from torrcast.domain.facts.read_kin import read_kin
+from torrcast.domain.facts.read_kin_batch import read_kin_batch
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.ports.json_client import JsonClient
 
@@ -47,3 +49,17 @@ class WikidataKin:
             timeout,
         )
         return read_kin(payload)
+
+    def kin_many(self, entities: list[str], timeout: float) -> dict[str, list[Kin]]:
+        """Родня пачки картин одним запросом; отказ сети - исключение, как у :meth:`kin`."""
+        asked = [entity for entity in entities if _ENTITY_RE.match(entity)]
+        if not asked:
+            return {}
+        payload = self.client.get(
+            WIKIDATA_HOST,
+            WIKIDATA_PATH,
+            {"query": kin_batch_query(asked)},
+            dict(SPARQL_HEAD),
+            timeout,
+        )
+        return read_kin_batch(payload, asked)

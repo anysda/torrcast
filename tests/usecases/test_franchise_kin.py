@@ -190,3 +190,21 @@ def test_a_wiki_passport_without_an_entity_is_not_reasked() -> None:
     assert got == []
     assert fresh.asked == []
     assert kin.asked == []
+
+
+def test_a_batch_skips_cached_pictures_and_lands_in_one_write() -> None:
+    """Пачка родни не спрашивает уже известное и пишет итог одной записью хранилища."""
+    writes: list[dict[str, list[Kin]]] = []
+
+    class _CountedStore(FakeKinStore):
+        def write_kins(self, found: dict[str, list[Kin]]) -> None:
+            writes.append(found)
+
+    store = _CountedStore(stored={"Q1": []})
+    kin = FakeKinSource(lambda entity, timeout: [Kin("Q7", "Сосед", 2001)])
+
+    asked = FranchiseKin(FakePassport(), kin, store, FakePassport()).by_entities(["Q1", "Q2"])
+
+    assert asked == 1
+    assert kin.asked == ["Q2"]
+    assert writes == [{"Q2": [Kin("Q7", "Сосед", 2001)]}]

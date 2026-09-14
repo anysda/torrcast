@@ -18,3 +18,7 @@ class FakeKinStore:
     def write_kin(self, entity: str, found: list[Kin]) -> None:
         self.written.append((entity, found))
         self.stored[entity] = found
+
+    def write_kins(self, found: dict[str, list[Kin]]) -> None:
+        for entity, kin in found.items():
+            self.write_kin(entity, kin)

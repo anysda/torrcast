@@ -31,13 +31,17 @@ def kin_query(entity: str) -> str:
     английский ярлык звучал бы чужим на русской странице, а без запасного часть родни
     осталась бы вовсе без имени.
     """
+    return f"SELECT ?item ?itemLabel ?date WHERE {{ {_branches('wd:' + entity)}"
+
+
+def _branches(src: str) -> str:
+    """Тело запроса после ``WHERE {``: три ветки родни, класс фильма и имя."""
     return (
-        "SELECT ?item ?itemLabel ?date WHERE { "
-        f"{{ wd:{entity} wdt:P179 ?series . ?item wdt:P179 ?series }} "
-        f"UNION {{ wd:{entity} (wdt:P155|wdt:P156)* ?item }} "
-        f"UNION {{ ?item wdt:P179/wdt:P361* wd:{entity} }} "
+        f"{{ {src} wdt:P179 ?series . ?item wdt:P179 ?series }} "
+        f"UNION {{ {src} (wdt:P155|wdt:P156)* ?item }} "
+        f"UNION {{ ?item wdt:P179/wdt:P361* {src} }} "
         f"?item wdt:P31/wdt:P279* {_FILM_CLASS} . "
-        f"FILTER(?item != wd:{entity}) "
+        f"FILTER(?item != {src}) "
         "OPTIONAL { ?item wdt:P577|wdt:P580 ?date } "
         'SERVICE wikibase:label { bd:serviceParam wikibase:language "ru,en". } }'
     )
