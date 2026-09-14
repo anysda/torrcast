@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 
@@ -24,6 +25,7 @@ from torrcast.usecases.playback.file_picker import _default_file
 from torrcast.usecases.rank.peer_grace import peer_grace
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.select_bench._bench_keep import KEEP_CEILING, _bench_keep, _Timed
 from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show
 
@@ -64,6 +66,10 @@ class _BenchCore:
         #: Прогревы, которые прямо сейчас кому-то нужны и потолком не убираются: тот, чьего
         #: ответа ждут, и тот, который греется ему на смену. Пусто под меню - там нужны все.
         self.needed: set[tuple[str, int]] = set()
+        #: До какой секунды часов стенда продлевается срок выбранной раздачи, по хэшу.
+        self.keep_until: dict[str, float] = {}
+        self.keep_wait: Callable[[float], object] = time.sleep
+        self._keep_lock = threading.Lock()
 
     @staticmethod
     def _ask(plan: Plan, prep: _Prep, queue: list[int]) -> None:
@@ -107,6 +113,8 @@ class _BenchCore:
         """
         prep.dropped = True
         torrent_hash = prep.torrent_hash
+        if any(other.torrent_hash == torrent_hash for other in self.live()):
+            return  # та же раздача у живого прогрева: отбор показа завёл её вторым номером
         if torrent_hash and CLAIMS.unclaim(torrent_hash, self) and not _held_by_show(torrent_hash):
             self.torrserver.drop(torrent_hash)
 
@@ -132,3 +140,25 @@ class _BenchCore:
         for prep in self.preps.values():
             if prep is not chosen:
                 self._forget(prep)
+        self._keep_open(chosen)
+
+    def _keep_open(self, chosen: _Prep) -> None:
+        """Держать выбранную раздачу открытой, пока её держит стенд (:mod:`._bench_keep`).
+
+        Повторный ``keep_only`` той же раздачи (карточка, потом показ) не заводит второго
+        продления, а отодвигает потолок: отсчёт идёт от последнего выбора.
+        """
+        torrent_hash = chosen.torrent_hash
+        if not torrent_hash or not isinstance(self.torrserver, _Timed):
+            return  # служба не называет срок закрытия: подделке стенда продлевать нечего
+        with self._keep_lock:
+            fresh = torrent_hash not in self.keep_until
+            self.keep_until[torrent_hash] = self.clock() + KEEP_CEILING
+        if fresh:  # поток не держит сам стенд: брошенный стенд уходит сборщику с отметками
+            args = (self.torrserver, chosen, self.keep_until, self._keep_lock)
+            threading.Thread(
+                target=_bench_keep,
+                args=(*args, self.clock, self.keep_wait),
+                name=f"keep-{torrent_hash}",
+                daemon=True,
+            ).start()

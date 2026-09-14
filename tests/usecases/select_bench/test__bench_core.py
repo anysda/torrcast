@@ -93,6 +93,26 @@ def test_a_release_another_holder_keeps_is_not_dropped_under_it() -> None:
     assert torrents.dropped == ["hash-общий-карточки"], "последний держатель убирает за собой"
 
 
+def test_a_second_prep_of_the_chosen_torrent_does_not_drop_it_on_keep_only() -> None:
+    """🔴 Показ с карточки завёл выбранную карточкой раздачу вторым прогревом стенда.
+
+    Стенд 14-09-2026, «История игрушек»: ``keep_only`` убрал второй прогрев того же хэша и
+    снёс выбранную раздачу, юнит добавил её заново и ждал файлы 7.9 с.
+    """
+    torrents = Torrents()
+    bench = _bench(torrents)
+    card = _Prep(number=1, release=rel(), torrent_hash="hash-выбранный")
+    chosen = _Prep(number=1, release=rel(), torrent_hash="hash-выбранный")
+    bench.preps = {("карточка", 1): card, ("показ", 1): chosen}
+    CLAIMS.claim(chosen.torrent_hash, bench)
+
+    bench.keep_only(chosen)
+    assert torrents.dropped == [], "выбранная раздача стоит за живым прогревом"
+
+    bench.drop_all()
+    assert torrents.dropped == ["hash-выбранный"], "последний прогрев хэша убирает за собой"
+
+
 def test_a_prep_dropped_while_it_warmed_lets_its_release_go() -> None:
     """Прогрев убрали, пока он грелся: его отметка снимается, и раздача уходит из службы."""
     torrents = Torrents()

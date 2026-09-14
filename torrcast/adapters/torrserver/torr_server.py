@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from torrcast.adapters.torrserver.contact_wait import ContactWait
+from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
@@ -158,6 +159,9 @@ class TorrServer:
         except requests.RequestException:
             return False
         return True
+
+    def disconnect_timeout(self) -> float:
+        return disconnect_timeout(self.base_url, self._post)
 
     def listed(self, torrent_hash: str) -> bool:
         payload = self._post("/torrents", {"action": "list"})
