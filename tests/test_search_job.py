@@ -80,3 +80,13 @@ def test_the_search_circle_is_the_one_the_card_and_the_warm_up_take() -> None:
     assert warm.take("Interstellar") == [_PLAN]
     pumps = [spawn for spawn in spawned if spawn == warm._pump]
     assert (searched, own, queued, pumps) == (["Interstellar"], [], 0, [])
+
+
+def test_a_deadline_final_does_not_overwrite_a_landed_circle() -> None:
+    """Опрос увидел срок, а круг сел раньше его финала: досчитанное превью не затирает."""
+    job = SearchJob()
+    job.settle([{"key": "circle"}], landed=True)
+    job.settle([{"key": "preview"}])
+    assert job.results == [{"key": "circle"}]
+    job.settle([{"key": "verdict"}], landed=True)
+    assert job.results == [{"key": "verdict"}]
