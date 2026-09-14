@@ -8,10 +8,10 @@ from dataclasses import replace
 from typing import Any
 
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
+from torrcast.adapters.stream_pack.agreed_keys import agreed_keys
 from torrcast.adapters.stream_pack.extra_mbit import extra_mbit
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
-from torrcast.adapters.stream_pack.keys_agree import keys_agree
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
 from torrcast.adapters.stream_pack.refuse_keys import refuse_keys
 from torrcast.adapters.stream_pack.weigh_keys import weigh_keys
@@ -36,7 +36,7 @@ def grid_for(
     *,
     keys_of: Callable[[str], FilmKeys] = film_keys,
     origin_of: Callable[[str], float] = pack_origin,
-    agree_of: Callable[[str, float, FilmKeys], bool] = keys_agree,
+    agree_of: Callable[[str, float, FilmKeys], bool] = agreed_keys,
 ) -> Grid:
     """Сетка для конкретного файла: по опорным кадрам, если карту удалось снять.
 
