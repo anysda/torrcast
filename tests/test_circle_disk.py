@@ -43,6 +43,22 @@ def test_the_file_keeps_only_the_newest_circles(
     assert sorted(json.loads((tmp_path / "circles.json").read_text())) == ["вверх", "матрица"]
 
 
+def test_the_file_on_disk_stays_under_its_byte_ceiling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ceiling is the file as written: indented UTF-8, not a compact string of letters."""
+    now = [0.0]
+    disk = _disk(tmp_path, now)
+    disk.keep("вверх", _TOLD)
+    compact = json.dumps(json.loads((tmp_path / "circles.json").read_text()), ensure_ascii=False)
+    monkeypatch.setattr(circle_disk, "BYTES", 4 * len(compact))
+    for query in ("вверх", "тачки", "матрица", "лука", "коко", "валли"):
+        now[0] += 1
+        disk.keep(query, _TOLD)
+
+    assert (tmp_path / "circles.json").stat().st_size <= circle_disk.BYTES
+
+
 def test_a_broken_file_is_a_miss_not_a_failure(tmp_path: Path) -> None:
     (tmp_path / "circles.json").write_text('{"тачки": {"at": 1e12, "told": [["search"]]}}')
 

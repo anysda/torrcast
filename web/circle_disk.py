@@ -64,9 +64,7 @@ class CircleDisk:
             rows = self._load()
             rows.pop(key, None)
             rows[key] = entry
-            while len(rows) > 1 and (
-                len(rows) > ENTRIES or len(json.dumps(rows, ensure_ascii=False)) > BYTES
-            ):
+            while len(rows) > 1 and (len(rows) > ENTRIES or _size(rows) > BYTES):
                 rows.pop(min(rows, key=lambda name: rows[name].get("at", 0)))
             # диск лёг - круги просто не переживут перезапуск, поиску до этого дела нет
             with contextlib.suppress(TorrcastError):
@@ -80,6 +78,11 @@ class CircleDisk:
                 raw = {}
             self._rows = raw if isinstance(raw, dict) else {}
         return self._rows
+
+
+def _size(rows: dict[str, Any]) -> int:
+    """Bytes of the file as :func:`_write_atomic` lays it down: indented UTF-8, not letters."""
+    return len(json.dumps(rows, ensure_ascii=False, indent=2, sort_keys=True).encode()) + 1
 
 
 def _row(said: Told) -> list[Any]:
