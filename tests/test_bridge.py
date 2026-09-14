@@ -43,6 +43,7 @@ from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.start_progress import START
 from web.tv_session import SESSION
+from web.warm_cache import WarmCache
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -907,6 +908,9 @@ def test_the_progressive_route_answers_with_the_finished_menu_once_the_circle_la
 
     search_progress_module._jobs.clear()
     monkeypatch.setattr("hass.searching.OFFER", lambda results: results)
+    # Один круг с карточкой, но свой кэш: общий на процесс унёс бы «тачки» в чужие тесты.
+    warm = WarmCache(circle=lambda _q: [], blurbs=lambda _p: None, spawn=lambda _job: None)
+    monkeypatch.setattr("hass.bridge.WARM", warm)
     bridge = _bridge(FakePlaybackSession(), settings=lambda: _SEARCH_CONFIG)
     plans = _real_search({"тачки": _CARS})(_SEARCH_CONFIG, Args(query=["тачки"]), Said())
     taken = enter_take(plans, "тачки").number
@@ -928,6 +932,7 @@ def test_the_progressive_route_answers_with_the_finished_menu_once_the_circle_la
     assert [record["key"] for record in records] == [plan.picture.key for plan in plans]
     assert sum(1 for record in records if record["default"]) == 1
     assert [record["pick"] for record in records if record["default"]] == [taken]
+    assert warm.ready("тачки") is not None, "карточка берёт круг выдачи, а не свой"
 
 
 def test_a_search_refusal_carries_the_products_own_words(_russian_product: None) -> None:

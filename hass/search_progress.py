@@ -21,15 +21,14 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from hass import searching
 from hass.refused_error import RefusedError
+from hass.search_job import SearchJob, _Shared
 from hass.search_results import _hit
 from hass.searching import Detect, Offer, Remember
 from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.cli.parse_args import parse_args
 from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
@@ -38,12 +37,8 @@ from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.profile import Profile
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.domain.tune import tune
 from torrcast.ports.progress.progress import Progress
-from torrcast.ports.progress.slot import progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
-from torrcast.usecases.choice._named import _named
-from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 
 if TYPE_CHECKING:
@@ -76,60 +71,9 @@ def _search_with_hook(
 PROGRESSIVE_SEARCH: ProgressiveSearch = _search_with_hook
 
 
-@dataclass
-class _Job:
-    """Один фоновый поиск: клиент индексеров, как только он появился, и итог."""
-
-    client: IndexerClient | None = None
-    done: bool = False
-    error: str | None = None
-    results: list[JsonValue] = field(default_factory=list)
-    finished_at: float = 0.0
-
-
 #: Заходы поиска по тексту запроса; общий на процесс, как и у прочих слотов моста.
-_jobs: dict[str, _Job] = {}
+_jobs: dict[str, SearchJob] = {}
 _jobs_lock = threading.Lock()
-
-
-def _capture(job: _Job) -> Callable[[IndexerClient], None]:
-    def hook(client: IndexerClient) -> None:
-        job.client = client
-
-    return hook
-
-
-def _run(
-    job: _Job,
-    config: Config,
-    query: str,
-    detect: Detect,
-    remember: Remember,
-    search: ProgressiveSearch,
-    offer: Offer | None = None,
-) -> None:
-    args = parse_args([query])
-    chosen = detect(config)
-    try:
-        plans = search(
-            tune(config, chosen.profile), args, progress(), chosen.profile, _capture(job)
-        )
-    except TorrcastError as refusal:
-        job.error = str(refusal)
-        job.done = True
-        job.finished_at = time.monotonic()
-        return
-    remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])
-    taken = enter_take(plans, args.title_query).number
-    hits = [_hit(plan.picture, n, default=n == taken) for n, plan in enumerate(plans, start=1)]
-    # Имя обложки даёт тот же приговор, что и обычному поиску (:data:`hass.searching.OFFER`):
-    # без этого шага веб-выдача шла совсем без обложек. Отказ приговора выдачу не роняет.
-    try:
-        job.results = (searching.OFFER if offer is None else offer)(hits)
-    except (TorrcastError, OSError):
-        job.results = hits
-    job.done = True
-    job.finished_at = time.monotonic()
 
 
 def _preview(
@@ -163,6 +107,7 @@ def search_progress(
     *,
     search: ProgressiveSearch = PROGRESSIVE_SEARCH,
     offer: Offer | None = None,
+    warm: _Shared | None = None,
 ) -> tuple[list[JsonValue], bool]:
     """Тело ``POST /api/search`` с ``progressive: true``: превью или готовый список.
 
@@ -173,18 +118,19 @@ def search_progress(
     ни на одну картину: круг внутри - тот же самый вызов :func:`~torrcast.usecases.
     discover.search_circle.search_circle`, только с одним лишним ходом внутрь. Превью
     промежуточных заходов на итог не влияет вовсе - оно только читает то, что круг уже
-    собрал, и не подменяет собой ни одного его шага.
+    собрал, и не подменяет собой ни одного его шага. ``warm`` - общий кэш кругов
+    (:mod:`hass.search_job`): с ним выдача, прогрев и карточка платят один круг на запрос.
     """
     key = query.strip().casefold()
     with _jobs_lock:
         job = _jobs.get(key)
         stale = job is not None and job.done and time.monotonic() - job.finished_at > JOB_TTL
         if job is None or stale:
-            job = _Job()
+            job = SearchJob()
             _jobs[key] = job
             threading.Thread(
-                target=_run,
-                args=(job, config, query, detect, remember, search, offer),
+                target=job.run,
+                args=(config, query, detect, remember, search, offer, warm),
                 daemon=True,
                 name="search-progress",
             ).start()

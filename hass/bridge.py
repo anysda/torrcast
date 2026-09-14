@@ -46,6 +46,7 @@ from torrcast.ports.refusal_record import refusal_record
 from torrcast.runtime.playback_session import playback_session
 from torrcast.usecases.start_progress import START
 from torrcast.usecases.warm.warm_root import warm_root
+from web.warm_wiring import WARM
 
 VOLUME = "volume"
 
@@ -108,14 +109,13 @@ class Bridge:
     def search(self, query: str) -> list[JsonValue]:
         """``POST /api/search``: список картин тем же поиском, что и показ, мимо очереди.
 
-        Весь шаг - у :func:`hass.searching.searching`: профиль приёмника, круг поиска,
-        память показанного порядка под ``--pick N`` и поле ``default`` у той записи,
-        которую включил бы голый :meth:`play` без номера."""
+        Весь шаг - у :func:`hass.searching.searching`: профиль приёмника, круг поиска, память
+        порядка под ``--pick N`` и ``default`` у записи, которую включил бы голый :meth:`play`."""
         return searching(self._settings(), query, self._search, self._detect, self._remember)
 
     def search_progress(self, query: str) -> tuple[list[JsonValue], bool]:
-        """``POST /api/search`` с ``progressive: true``: превью или готовый список (TC-1126)."""
-        return search_progress(self._settings(), query, self._detect, self._remember)
+        """``POST /api/search`` с ``progressive: true``: один круг с карточкой (:data:`WARM`)."""
+        return search_progress(self._settings(), query, self._detect, self._remember, warm=WARM)
 
     def play(
         self,

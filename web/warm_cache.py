@@ -83,29 +83,33 @@ class WarmCache:
     def __post_init__(self) -> None:
         self._memory = CircleMemory(clock=self.clock, ttl=self.ttl)
 
-    def take(self, query: str) -> list[Plan]:
+    def take(self, query: str, circle: Circle | None = None) -> list[Plan]:
         """Круг живому запросу: согретый - сразу, иначе считается тут же, вперёд фона.
 
-        Круг, который прямо сейчас считает фон, живой не считает второй раз, а дожидается:
-        второй веер по тем же индексерам делил бы с первым пул и тянул оба (карточка с
-        главной открывалась 5.4 с при уже идущем прогреве той же плитки, стенд `.104`).
+        Один круг на запрос для поиска, прогрева, карточки и «похожих»: идущий дожидаются,
+        второй веер делил бы пул с первым. ``circle`` - тот же круг с ходом внутрь (превью).
         """
         key = query.strip()
         with self._cond:
             self._cond.wait_for(
                 lambda: key not in self._busy and key not in self._urgent, timeout=BUSY_WAIT
             )
-        if (refused := self._memory.refusal(query)) is not None:
-            raise refused
-        if (ready := self.ready(query)) is not None:
-            return ready
-        with self._hold():
-            try:
-                plans = self.circle(query)
-            except NotFoundError as nothing:
-                self._memory.refuse(query, nothing)
-                raise
-        self._remember(query, plans)
+            if (refused := self._memory.refusal(query)) is not None:
+                raise refused
+            if (ready := self.ready(query)) is not None:
+                return ready
+            self._busy.add(key)
+        try:
+            with self._hold():
+                plans = (circle or self.circle)(query)
+            self._remember(query, plans)
+        except NotFoundError as nothing:
+            self._memory.refuse(query, nothing)
+            raise
+        finally:
+            with self._cond:
+                self._busy.discard(key)
+                self._cond.notify_all()
         return plans
 
     def ready(self, query: str) -> list[Plan] | None:
@@ -146,6 +150,8 @@ class WarmCache:
                     if not self._urgent and not self._queue:
                         return
                     query = self._urgent.pop(0) if self._urgent else self._queue.pop(0)
+                    if query in self._busy or self.ready(query) is not None:
+                        continue  # a live caller already runs or landed this very circle
                     self._busy.add(query)
                 try:
                     plans = self.circle(query)
