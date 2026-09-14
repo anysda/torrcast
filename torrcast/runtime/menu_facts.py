@@ -24,5 +24,8 @@ class MenuFacts(Facts):
         self,
         pictures: Iterable[FactPicture],
         budget: float | None = None,
+        foreground: bool = False,
     ) -> None:
-        super().__init__(pictures, budget, store=FACTS.cache, source=FACTS.blurbs)
+        super().__init__(
+            pictures, budget, foreground=foreground, store=FACTS.cache, source=FACTS.blurbs
+        )

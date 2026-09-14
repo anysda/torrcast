@@ -16,6 +16,7 @@ class FakeJsonClient:
     answer: Callable[[str, str, dict[str, str]], Any] = _nothing
     calls: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
     warmed: list[str] = field(default_factory=list)
+    foregrounds: list[bool] = field(default_factory=list)
 
     def warm(self, host: str) -> None:
         """Двойник имён не разрешает, но помнит, какое греть просили."""
@@ -28,6 +29,8 @@ class FakeJsonClient:
         params: dict[str, str],
         headers: dict[str, str],
         timeout: float,
+        foreground: bool = False,
     ) -> Any:
         self.calls.append((host, path, dict(params)))
+        self.foregrounds.append(foreground)
         return self.answer(host, path, params)

@@ -8,20 +8,15 @@ import time
 from collections.abc import Callable
 
 from torrcast.adapters.wiki.closed_wave import closed_wave
-from torrcast.adapters.wiki.endpoints import (
-    SPARQL_HEAD,
-    WIKI_HOST,
-    WIKIDATA_HOST,
-    WIKIDATA_PATH,
-)
+from torrcast.adapters.wiki.endpoints import WIKI_HOST
 from torrcast.adapters.wiki.spoken_blurbs import spoken_blurbs
 from torrcast.adapters.wiki.wiki_extracts import wiki_extracts
 from torrcast.adapters.wiki.wiki_host import wiki_host
+from torrcast.adapters.wiki.wiki_ids import wiki_ids
 from torrcast.domain.catalogs.tongue import tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.hms import hms
 from torrcast.domain.facts.read_pages import _read_pages
-from torrcast.domain.facts.read_sparql import read_sparql
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.ports.json_client import JsonClient
 from torrcast.ports.rating_dump import RatingDump
@@ -44,11 +39,12 @@ class WikiBlurbs:
         timeout: float = HTTP_TIMEOUT,
         ready: Callable[[dict[tuple[str, int | None], Fact]], None] | None = None,
         kinds: dict[tuple[str, int | None], str] | None = None,
+        foreground: bool = False,
     ) -> tuple[dict[tuple[str, int | None], Fact], set[tuple[str, int | None]]]:
         """Собрать справку по картинам: Википедия → Wikidata → выгрузка рейтингов.
 
         Цепочка тут не вся: Wikidata спрашивают по идентификаторам из Википедии, и эти два
-        запроса иначе как друг за другом не идут. А вот выгрузка рейтингов - файл на диске, с
+        запроса иначе как друг за другом не идут. Выгрузка рейтингов - файл на диске, с
         сетью не связанный ничем; читалась она третьим шагом, и её сотня тысяч строк ложилась
         на те же полторы секунды дедлайна, что и оба запроса. Теперь она читается ПОКА идёт
         первый запрос и к моменту нужды уже готова.
@@ -95,7 +91,7 @@ class WikiBlurbs:
             self.client.warm(host)
         try:
             candidates, payload, answered, complete = wiki_extracts(
-                self.client, wanted, timeout, kinds
+                self.client, wanted, timeout, kinds, foreground
             )
         except OSError:
             # Википедия и локальная оценка друг от друга не зависят. Сетевой отказ не
@@ -145,7 +141,7 @@ class WikiBlurbs:
         ids: dict[str, tuple[str, int]] = {}
         if entities:
             with contextlib.suppress(Exception):
-                ids = self.ids(sorted(set(entities.values())), timeout)
+                ids = self.ids(sorted(set(entities.values())), timeout, foreground)
         out: dict[tuple[str, int | None], Fact] = {}
         for key in wanted:
             imdb_id, minutes = ids.get(entities.get(key, ""), ("", 0))
@@ -163,34 +159,8 @@ class WikiBlurbs:
                 out[key] = fact
         return out, settled
 
-    def ids(self, items: list[str], timeout: float) -> dict[str, tuple[str, int]]:
-        """Q-идентификаторы → (идентификатор IMDb, минуты). Один запрос на все картины.
-
-        Хронометраж берём здесь, а не из выгрузки IMDb, по цене вопроса: за ``title.basics``
-        пришлось бы качать 225 МБ. Расхождение с IMDb бывает в пару минут — это разница в том,
-        считать ли титры, а не выдумка.
-
-        Длительность спрашивается ВМЕСТЕ С ЕДИНИЦЕЙ, и это не украшение. ``wdt:`` отдаёт
-        голое число, а величина у Wikidata с единицей: у большинства картин там минуты, у
-        «Оппенгеймера» - секунды, и без единицы разобрать одно от другого нечем. Единица
-        лежит не у самого свойства, а у значения утверждения (``psv:``), поэтому её
-        приходится доставать отдельным шагом.
-
-        Шаг этот - ВЛОЖЕННЫЙ ``OPTIONAL`` внутри уже имеющегося, и порядок тут значащий:
-        само число как бралось у ``wdt:``, так и берётся, то есть отбор утверждений не
-        меняется ни на знак; единица лишь подсаживается к нему по равенству величины.
-        Не нашлась или ответ пришёл без неё - число остаётся минутами
-        (:func:`~torrcast.domain.facts.read_sparql.read_sparql`), как было.
-        """
-        values = " ".join(f"wd:{item}" for item in items)
-        query = (
-            f"SELECT ?item ?imdb ?dur ?unit WHERE {{ VALUES ?item {{ {values} }} "
-            "OPTIONAL { ?item wdt:P345 ?imdb } "
-            "OPTIONAL { ?item wdt:P2047 ?dur . "
-            "OPTIONAL { ?item p:P2047/psv:P2047 ?value . "
-            "?value wikibase:quantityAmount ?dur ; wikibase:quantityUnit ?unit } } }"
-        )
-        payload = self.client.get(
-            WIKIDATA_HOST, WIKIDATA_PATH, {"query": query}, dict(SPARQL_HEAD), timeout
-        )
-        return read_sparql(payload)
+    def ids(
+        self, items: list[str], timeout: float, foreground: bool = False
+    ) -> dict[str, tuple[str, int]]:
+        """Добрать данные сущностей, оставив шов для проб первого шага справки."""
+        return wiki_ids(self.client, items, timeout, foreground)

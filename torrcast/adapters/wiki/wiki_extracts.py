@@ -25,6 +25,7 @@ def wiki_extracts(
     wanted: list[tuple[str, int | None]],
     timeout: float,
     kinds: Mapping[tuple[str, int | None], str] | None = None,
+    foreground: bool = False,
 ) -> tuple[
     dict[tuple[str, int | None], list[str]],
     dict[str, Any],
@@ -55,7 +56,9 @@ def wiki_extracts(
 
     def ask(part: list[str]) -> None:
         with contextlib.suppress(Exception):
-            payload = client.get(WIKI_HOST, WIKI_PATH, extract_params(part), {}, timeout)
+            payload = client.get(
+                WIKI_HOST, WIKI_PATH, extract_params(part), {}, timeout, foreground=foreground
+            )
             # HTTP 200 ещё не означает ответ ``action=query``: MediaWiki так же
             # возвращает JSON с ``error``. Такой ответ не может подтверждать отсутствие
             # статьи, иначе временный отказ становился ``empty`` на целую неделю.

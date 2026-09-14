@@ -123,6 +123,7 @@ def _answer(
         facts = _facts.of(*hint)
     else:
         facts = MenuFacts([(picture.title, picture.year, picture.kind)], budget=0.0)
+        facts.foreground = True
         facts.start()
     until = time.monotonic() + wait
     first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint)

@@ -70,6 +70,7 @@ class _FactFlights:
                 ):
                     return facts
             facts = MenuFacts([key], budget=PATIENCE)
+            facts.foreground = True
             facts.start()
             self.pending[key] = facts, now
             return facts

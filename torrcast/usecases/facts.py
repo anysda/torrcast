@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Iterable
+from typing import Any
 
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.facts_budget import facts_budget
@@ -24,6 +25,7 @@ class Facts:
         self,
         pictures: Iterable[FactPicture],
         budget: float | None = None,
+        foreground: bool = False,
         *,
         store: BlurbStore,
         source: BlurbSource,
@@ -32,6 +34,7 @@ class Facts:
         self.wanted = [(row[0], row[1]) for row in rows]
         self.kinds = {(row[0], row[1]): row[2] if len(row) == 3 else "movie" for row in rows}
         self.budget = facts_budget() if budget is None else budget
+        self.foreground = foreground
         self.store = store
         self.source = source
         self.found: dict[tuple[str, int | None], Fact] = {}
@@ -140,12 +143,18 @@ class Facts:
             missing = [key for key in self.wanted if key not in self.found]
             kinds = {key: self.kinds[key] for key in missing}
             try:
-                fresh, answered = self.source.fetch(missing, ready=self._ready, kinds=kinds)
+                source: Callable[..., Any] = self.source.fetch
+                fresh, answered = source(
+                    missing, ready=self._ready, kinds=kinds, foreground=self.foreground
+                )
             except TypeError as error:
-                # Старый встраиваемый источник может не знать подсказку типа.
-                if "unexpected keyword argument 'kinds'" not in str(error):
+                # Старый встраиваемый источник может не знать класс полосы или тип.
+                if "unexpected keyword argument 'foreground'" in str(error):
+                    fresh, answered = self.source.fetch(missing, ready=self._ready, kinds=kinds)
+                elif "unexpected keyword argument 'kinds'" in str(error):
+                    fresh, answered = self.source.fetch(missing, ready=self._ready)
+                else:
                     raise
-                fresh, answered = self.source.fetch(missing, ready=self._ready)
             absent = [key for key in missing if key not in fresh and key in answered]
             # A source's ``answered`` key is a confirmed absence too. Keep it in
             # memory, so the first card agrees with the persisted missing row.

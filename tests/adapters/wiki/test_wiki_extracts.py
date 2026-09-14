@@ -49,3 +49,12 @@ def test_every_candidate_reaches_the_last_home_tile() -> None:
     assert "Одиссея (фильм, 2026)" in asked
     assert "одиссея" in asked
     assert len(client.calls) > _LANES, "home needs a second five-lane source interval"
+
+
+def test_a_card_wave_marks_its_source_requests_foreground() -> None:
+    """Клик несёт свой класс до единственного общего HTTP-диспетчера."""
+    client = FakeJsonClient(lambda _host, _path, _params: {"query": {"pages": []}})
+
+    wiki_extracts(client, [("Тачки", 2006)], 1.0, foreground=True)
+
+    assert client.foregrounds == [True]

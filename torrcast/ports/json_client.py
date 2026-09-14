@@ -15,6 +15,7 @@ class JsonClient(Protocol):
         params: dict[str, str],
         headers: dict[str, str],
         timeout: float,
+        foreground: bool = False,
     ) -> JsonValue: ...
 
     def warm(self, host: str) -> None:

@@ -29,6 +29,7 @@ class FakeBlurbSource:
         timeout: float = HTTP_TIMEOUT,
         ready: Callable[[dict[tuple[str, int | None], Fact]], None] | None = None,
         kinds: dict[tuple[str, int | None], str] | None = None,
+        foreground: bool = False,
     ) -> tuple[dict[tuple[str, int | None], Fact], set[tuple[str, int | None]]]:
         self.walks.append(list(wanted))
         found = self.answer(list(wanted))
