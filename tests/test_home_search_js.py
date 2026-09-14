@@ -100,6 +100,7 @@ def test_a_poster_finished_after_the_final_reaches_its_tile_once(facts: dict[str
 def test_a_failed_search_never_draws_the_empty_result(facts: dict[str, Any], name: str) -> None:
     failed = _scenario(facts, name)
     assert failed["screen"]["failed"] == 1
+    assert failed["screen"]["failedKeys"] == 1, "повтор не достать стрелками пульта"
     assert "web.search.failed" in failed["screen"]["text"]
     assert "web.search.empty" not in failed["screen"]["text"]
 

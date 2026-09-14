@@ -305,7 +305,10 @@ def test_a_new_job_after_the_ttl_keeps_the_poster_verdict_already_known(tmp_path
     source = Posters()
     posters = HitPosters(source=source, shelf=PosterShelf(home=lambda: tmp_path))
 
+    circles: list[str] = []
+
     def search(config: Config, args: Any, said: Any, profile: Any, on_indexer: Any) -> Any:
+        circles.append(args.title_query)
         on_indexer(client)
         return search_circle(
             config,
@@ -333,6 +336,7 @@ def test_a_new_job_after_the_ttl_keeps_the_poster_verdict_already_known(tmp_path
     assert len(source.judged) == 1
     module._jobs["тачки"].finished_at -= JOB_TTL + 1.0
     second = finish()
+    assert len(circles) == 2, "после TTL новый заход не начался: повтор ничего не проверил"
     assert any(hit.get("poster") for hit in second)
     assert len(source.judged) == 1, "повтор после TTL снова судил уже известные обложки"
 

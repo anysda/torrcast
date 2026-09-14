@@ -439,8 +439,13 @@ const TCHome = {
     const failed = document.createElement('div');
     failed.className = 'tc-nothing';
     failed.textContent = TC.say('web.search.failed');
+    // Пульт ходит только по `data-tc-focusable` (`nav.js`): без пометки стрелка с поля
+    // поиска до кнопки не доходила, и повтор был доступен одной мыши.
     const retry = document.createElement('button');
-    retry.className = 'tc-search-retry';
+    retry.type = 'button';
+    retry.className = 'tc-btn tc-btn--primary tc-search-retry';
+    retry.dataset.tcFocusable = '1';
+    retry.dataset.tcGroup = 'search-failed';
     retry.textContent = TC.say('web.detail.retry');
     retry.addEventListener('click', () => TCHome._runSearch(text));
     body.append(failed, retry);

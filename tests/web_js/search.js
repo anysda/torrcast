@@ -26,6 +26,7 @@ function screen(p) {
     dim: p.doc.querySelectorAll('#tc-body .is-dim').length,
     waiting: p.doc.querySelectorAll('#tc-body .tc-cap2').length,
     failed: p.doc.querySelectorAll('#tc-body .tc-search-retry').length,
+    failedKeys: p.doc.querySelectorAll('#tc-body .tc-search-retry[data-tc-focusable]').length,
     text: p.doc.getElementById('tc-body').textContent,
     focus: here.dataset.tcTile ? picture(here) : here.tagName,
   };
