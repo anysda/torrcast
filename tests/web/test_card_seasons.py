@@ -88,3 +88,40 @@ def test_a_merged_spinoff_does_not_become_a_tab_of_the_opened_show() -> None:
 
     assert partial is False
     assert [row["n"] for row in _rows(seasons)] == [1, 2]
+
+
+class _Files:
+    def table(self, _release: Release, _base_url: str) -> list[list[int]] | None:
+        return [[1, 1], [1, 2], [2, 1], [3, 1]]
+
+
+def _single(release: Release) -> Plan:
+    picture = Picture(title="Show", year=2013, kind="tv", releases=[release])
+    return Plan(picture=picture, ranked=[release], runtime=1500.0, warn_mbit=12.0)
+
+
+def test_a_full_pack_without_a_season_in_its_name_gets_tabs_from_its_files() -> None:
+    pack = Release(raw_name="Show / Complete [2013-2023]", title="Show", kind="tv", magnet="m:p")
+
+    seasons, partial = card_seasons(_single(pack), None, "http://torrserver", _Files())
+
+    assert partial is False
+    assert [row["n"] for row in _rows(seasons)] == [1, 2, 3]
+
+
+def test_files_of_a_named_season_add_the_seasons_they_hold() -> None:
+    seasons, _ = card_seasons(_single(_release(1, "m:one")), None, "http://torrserver", _Files())
+
+    assert [row["n"] for row in _rows(seasons)] == [1, 2, 3]
+
+
+def test_the_opened_season_lists_the_release_the_show_would_play() -> None:
+    plan, first, _second = _plan()
+    pack = Release(raw_name="Show / Complete", title="Show", kind="tv", magnet="magnet:pack")
+    plan.picture.releases.append(pack)
+    ranked = replace(plan, ranked=[pack, first])
+    episodes = _Episodes({pack.magnet: [[1, 1], [2, 1]], first.magnet: [[1, 1]]}, [])
+
+    card_seasons(ranked, None, "http://torrserver", episodes)
+
+    assert episodes.asked == [pack.magnet]

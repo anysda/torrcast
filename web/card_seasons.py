@@ -45,7 +45,10 @@ def card_seasons(
     table = episodes.table(release, base_url)
     if table is None:
         return fallback, True
-    return _joined_seasons(numbers, _with_table(saved, _seasons_from_table(table))), False
+    files = _seasons_from_table(table)
+    # Полный пак без сезона в имени называет сезоны только своими файлами.
+    numbers.update(files)
+    return _joined_seasons(numbers, _with_table(saved, files)), False
 
 
 def _named_seasons(release: Release) -> tuple[int, ...]:
@@ -67,10 +70,16 @@ def _picture_releases(plan: Plan) -> list[Release]:
 
 
 def _release_for(plan: Plan, releases: list[Release], season: int) -> Release | None:
-    """Взять раздачу, которая НАЗВАЛА сезон, и лишь затем молчащую о нём."""
-    choices = [*(release for release in plan.ranked if release in releases), *releases]
-    named = next((release for release in choices if season in _named_seasons(release)), None)
-    return named or next((release for release in choices if release.covers(season)), None)
+    """Раздача, с которой показ сыграл бы сезон: первая в отборе, что его покрывает.
+
+    Отбор плана покрывает сезон плана; сезона вне отбора показ ищет своим отбором, и тут
+    сперва берётся раздача, которая НАЗВАЛА сезон, а лишь затем молчащая о нём.
+    """
+    ranked = (release for release in plan.ranked if release in releases)
+    chosen = next((release for release in ranked if release.covers(season)), None)
+    named = next((release for release in releases if season in _named_seasons(release)), None)
+    covering = next((release for release in releases if release.covers(season)), None)
+    return chosen or named or covering
 
 
 def _seasons_from_entry(entry: Entry) -> dict[int, list[JsonValue]]:
