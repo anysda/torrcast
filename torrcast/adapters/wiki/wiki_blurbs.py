@@ -13,6 +13,7 @@ from torrcast.adapters.wiki.spoken_blurbs import spoken_blurbs
 from torrcast.adapters.wiki.wiki_extracts import wiki_extracts
 from torrcast.adapters.wiki.wiki_host import wiki_host
 from torrcast.adapters.wiki.wiki_ids import wiki_ids
+from torrcast.adapters.wiki.wiki_searches import wiki_searches
 from torrcast.domain.catalogs.tongue import tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.hms import hms
@@ -112,11 +113,25 @@ class WikiBlurbs:
         )
         scores, local_ids = in_time
         about, entities, linked = _read_pages(payload, candidates, set(local_ids), kinds)
-        # A complete, valid reply can prove that this *picture* has no article even
-        # when it contains pages. The pages may be a disambiguation or a work of a
-        # different year or type; retrying those forever leaves the card's skeleton
-        # up forever. A failed or partial wave never reaches ``complete``.
-        missing = complete - set(about)
+        # A complete direct wave only proves that our guessed headings missed.  The
+        # passport has another route, Wikipedia search, for translated and differently
+        # punctuated titles.  Try it before declaring the human-facing absence.
+        unresolved = sorted(complete - set(about))
+        searched: set[tuple[str, int | None]] = set()
+        if unresolved:
+            found, replies, searched = wiki_searches(
+                self.client, unresolved, timeout, kinds, foreground
+            )
+            for reply in replies:
+                extra_about, extra_entities, extra_linked = _read_pages(
+                    reply, found, set(local_ids), kinds
+                )
+                about.update(extra_about)
+                entities.update(extra_entities)
+                linked.update(extra_linked)
+        # Only both completed paths can prove absence.  A failed search remains a
+        # retryable skeleton rather than a week-long ``empty`` record on disk.
+        missing = (complete & searched) - set(about)
         about, answered = spoken_blurbs(self.client, about, linked, answered, timeout)
         # Translation may fail independently of the Russian source. It must not turn
         # an otherwise known article into a cached absence.
@@ -134,6 +149,7 @@ class WikiBlurbs:
                         f"IMDb {scores[local_ids[key]]}" if local_ids.get(key) in scores else ""
                     ),
                     missing=key in missing,
+                    entity=entities.get(key, ""),
                 )
                 for key in wanted
             }
@@ -154,6 +170,7 @@ class WikiBlurbs:
                 ),
                 runtime=hms(minutes),
                 missing=key in missing,
+                entity=entities.get(key, ""),
             )
             if fact:
                 out[key] = fact

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +17,9 @@ class Fact:
     #: Wikipedia answered this exact picture and found no article.  This differs from
     #: an unfinished lookup: a card may finish its related shelf as empty immediately.
     missing: bool = False
+    #: Wikidata identity read from the accepted Wikipedia page.  It lets the related
+    #: shelf reuse this proof instead of repeating a passport lookup for the same card.
+    entity: str = field(default="", compare=False)
 
     def __bool__(self) -> bool:
         return bool(self.about or self.rating or self.runtime or self.missing)

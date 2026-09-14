@@ -472,3 +472,51 @@ def test_an_existing_unfit_article_finishes_the_picture_empty(_russian_product: 
     assert ready == [{key: Fact(rating="IMDb 8.4", missing=True)}]
     assert found == {key: Fact(rating="IMDb 8.4", missing=True)}
     assert answered == {key}
+
+
+def test_different_spelling_or_localized_title_is_searched_before_an_empty_fact(
+    _russian_product: None,
+) -> None:
+    """A guessed heading is not a negative result while title search knows the work."""
+    wall = ("ВАЛЛ·И", 2008)
+    mary = ("Mary and Max", 2009)
+    wall_about = "«ВАЛЛ-И» (англ. WALL-E) — американский мультфильм 2008 года."
+    mary_about = "«Мэри и Макс» (англ. Mary and Max) — австралийский фильм 2009 года."
+
+    def answer(_host: str, _path: str, params: dict[str, str]) -> Any:
+        if params.get("generator") == "search":
+            assert params["gsrsearch"] == "Mary and Max фильм"
+            return {
+                "query": {
+                    "pages": [
+                        {
+                            "title": "Мэри и Макс",
+                            "extract": mary_about,
+                            "index": 1,
+                            "pageprops": {"wikibase_item": "Q191845"},
+                        }
+                    ]
+                }
+            }
+        pages: list[dict[str, Any]] = []
+        for name in params["titles"].split("|"):
+            if name == "ВАЛЛ-И":
+                pages.append(
+                    {
+                        "title": "ВАЛЛ-И",
+                        "extract": wall_about,
+                        "pageprops": {"wikibase_item": "Q104905"},
+                    }
+                )
+            else:
+                pages.append({"title": name, "missing": True})
+        return {"query": {"pages": pages}}
+
+    found, answered = WikiBlurbs(FakeJsonClient(answer), FakeRatingDump(dict)).fetch(
+        [wall, mary], kinds={wall: "movie", mary: "movie"}
+    )
+
+    assert found[wall].about == wall_about
+    assert found[mary].about == mary_about
+    assert all(not fact.missing for fact in found.values())
+    assert answered == {wall, mary}

@@ -25,6 +25,7 @@ _QUOTED: Final = re.compile(r'["“]([^"“”]+)["”]')
 #: Двоеточие перед подзаголовком. Пробел после обязателен: без него двоеточие бывает
 #: частью времени или счёта, а не разделителем подписи.
 _COLON: Final = ": "
+_MIDDLE_DOT: Final = re.compile(r"[·•]")
 
 
 def typography(title: str) -> list[str]:
@@ -40,6 +41,12 @@ def typography(title: str) -> list[str]:
         return []
     quoted = _QUOTED.sub(r"«\1»", named)
     out = [quoted]
+    # Catalogues use a middle dot for WALL·E while the Russian article is titled
+    # «ВАЛЛ-И».  The two spellings name one work, but MediaWiki has no redirect for
+    # every punctuation choice, so ask both in the direct, cheapest wave.
+    dashed = _MIDDLE_DOT.sub("-", quoted)
+    if dashed != quoted:
+        out.append(dashed)
     if _COLON in quoted:
         out.append(quoted.replace(_COLON, ". ", 1))
     return out
