@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import Any, Final
 from urllib.parse import urlencode, urlsplit
 
+from torrcast.adapters.wiki.minute_budget import MinuteBudget
 from torrcast.adapters.wiki.request_lanes import RequestLanes
 from torrcast.domain.facts.settings import FACTS_BUDGET
 
@@ -47,6 +48,7 @@ class HttpJsonClient:
         self._lock = threading.Lock()
         #: Полосы у каждого хоста свои: долгий SPARQL полки не держит выдержки Википедии.
         self._requests: dict[str, RequestLanes] = {}
+        self._minute = MinuteBudget()  # one per process: Wikimedia counts all wiki hosts
 
     def get(
         self,
@@ -60,7 +62,8 @@ class HttpJsonClient:
         """Выполняет GET и разбирает JSON; неуспех оставляет исключением."""
         with self._lock:
             lanes = self._requests.setdefault(host, RequestLanes())
-        if not lanes.acquire(timeout, foreground):
+        admitted = self._minute.admit(host, timeout, foreground)
+        if not admitted or not lanes.acquire(timeout, foreground):
             raise OSError(f"{host}: request lane unavailable after {timeout:.1f} s")
         connection: _IPv4Connection | None = None
         try:
@@ -71,6 +74,8 @@ class HttpJsonClient:
                 headers={"User-Agent": self.user_agent, **headers},
             )
             response = connection.getresponse()
+            if response.status == 429:
+                self._minute.throttled(host, response.getheader("Retry-After"))
             if response.status != 200:
                 raise OSError(f"{host} ответил {response.status}")
             return json.loads(response.read())

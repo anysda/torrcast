@@ -13,6 +13,7 @@ import pytest
 
 from tests import thread_guard
 from tests.conftest import free_port
+from torrcast.adapters.wiki import http_json_client
 from torrcast.adapters.wiki.http_json_client import HttpJsonClient, _IPv4Connection
 from torrcast.domain.facts.settings import FACTS_BUDGET
 
@@ -189,3 +190,43 @@ def test_a_picture_is_fetched_over_real_tls_and_by_ipv4(
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_a_wikipedia_429_holds_the_background_and_lets_the_card_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a 429 with ``Retry-After`` the background waits it out; a click still asks."""
+    statuses = [429, 200]
+    asked: list[str] = []
+
+    class _Reply:
+        def __init__(self) -> None:
+            self.status = statuses.pop(0)
+
+        def getheader(self, name: str) -> str | None:
+            return "30" if name == "Retry-After" else None
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    class _Connection:
+        def __init__(self, host: str, **_kwargs: object) -> None:
+            self.host = host
+
+        def request(self, *_args: object, **_kwargs: object) -> None:
+            asked.append(self.host)
+
+        def getresponse(self) -> _Reply:
+            return _Reply()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(http_json_client, "_IPv4Connection", _Connection)
+    client = HttpJsonClient("torrcast/test")
+    with pytest.raises(OSError):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0)
+    with pytest.raises(OSError):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0)
+    assert client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, foreground=True) == {}
+    assert asked == ["ru.wikipedia.org", "ru.wikipedia.org"]
