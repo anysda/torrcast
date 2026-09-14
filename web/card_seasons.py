@@ -5,10 +5,13 @@ from __future__ import annotations
 from typing import Protocol
 
 from torrcast.domain.entry import Entry
+from torrcast.domain.episode import Episode
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.magnet_hash import magnet_hash
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
+from torrcast.usecases.rank.gate_open import gate_open
+from torrcast.usecases.rank.rank_releases import rank_releases
 from torrcast.usecases.select.plan import Plan
 
 
@@ -78,8 +81,8 @@ def _release_for(
 ) -> Release | None:
     """Раздача, с которой показ сыграл бы сезон: первая в отборе, что его покрывает.
 
-    Отбор плана покрывает сезон плана; сезона вне отбора показ ищет своим отбором, и тут
-    сперва берётся раздача, которая НАЗВАЛА сезон, а лишь затем молчащая о нём.
+    Отбор плана покрывает сезон плана; чужой сезон показ отбирает своим порядком из тех
+    же раздач, что его покрывают (:func:`torrcast.usecases.reinforce.plan_for.plan_for`).
     """
     if entry is not None and entry.episodes and entry.season == season:
         saved = magnet_hash(entry.magnet)
@@ -90,11 +93,29 @@ def _release_for(
         )
         if bookmark is not None:
             return bookmark
-    ranked = (release for release in plan.ranked if release in releases)
+    own = plan.series is None or plan.series.want.season == season
+    ranked = (release for release in plan.ranked if own and release in releases)
     chosen = next((release for release in ranked if release.covers(season)), None)
-    named = next((release for release in releases if season in _named_seasons(release)), None)
-    covering = next((release for release in releases if release.covers(season)), None)
-    return chosen or named or covering
+    if chosen is not None:
+        return chosen
+    # Строка серии играет эту раздачу, поэтому чужой сезон ставит порядок отбора ЭТОГО
+    # сезона, а не выдачи и не сезона плана: у «Рика и Морти» так вставала 360p для КПК.
+    covering = [release for release in releases if release.covers(season)]
+    if not covering:
+        return None
+    want = Episode(season, 1)
+    loose = gate_open(covering, plan.runtime, plan.warn_mbit, want, plan.hard_mbit)
+    return rank_releases(
+        covering,
+        plan.runtime,
+        plan.warn_mbit,
+        want=want,
+        loose=loose,
+        hard_mbit=plan.hard_mbit,
+        copy_hevc=plan.copy_hevc,
+        studio=plan.studio,
+        recode_at=plan.recode_at,
+    )[0]
 
 
 def _seasons_from_entry(entry: Entry) -> dict[int, list[JsonValue]]:

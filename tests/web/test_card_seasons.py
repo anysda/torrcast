@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, cast
 
+from torrcast.domain._series import _Series
 from torrcast.domain.entry import Entry
+from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.select.plan import Plan
@@ -157,3 +159,38 @@ def test_the_opened_season_lists_the_release_the_show_would_play() -> None:
     card_seasons(ranked, None, "http://torrserver", episodes)
 
     assert episodes.asked == [pack.magnet]
+
+
+def test_a_season_outside_the_card_ranking_lists_the_release_its_ranking_puts_first() -> None:
+    """Чужой сезон берёт раздачу своим порядком отбора, а не выдачи и не сезона карточки."""
+    plan, first, _second = _plan()
+    gib = 1024**3
+    phone = Release(
+        raw_name="Show [S01-05] WEB-DL-AVC КПК",
+        title="Show",
+        kind="tv",
+        seasons=(1, 2, 3, 4, 5),
+        quality="360p",
+        codec="H.264",
+        voices=("rus",),
+        size=4 * gib,
+        seeders=9,
+        magnet="magnet:phone",
+    )
+    full_hd = replace(
+        phone,
+        raw_name="Show [S01-07] BDRip 1080p",
+        quality="1080p",
+        size=60 * gib,
+        seeders=140,
+        magnet="magnet:full-hd",
+    )
+    plan.picture.releases[:] = [first, phone, full_hd]
+    # Отбор карточки судил первый сезон и поставил телефонную раздачу выше: второй сезон
+    # этот порядок не наследует.
+    plan = replace(plan, ranked=[phone, full_hd, first], series=_Series(want=Episode(1, 1)))
+    episodes = _Episodes({phone.magnet: [[2, 1]], full_hd.magnet: [[2, 1]]}, [])
+
+    card_seasons(plan, None, "http://torrserver", episodes, season=2)
+
+    assert episodes.asked == [full_hd.magnet]
