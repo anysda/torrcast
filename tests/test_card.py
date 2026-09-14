@@ -294,7 +294,7 @@ def test_a_movie_card_lists_every_track_of_the_release_the_show_would_play(
         "английский · Original",
         "японский",
     ]
-    assert [voice["name"] for voice in body["voices"]] == ["LostFilm", "eng · Original", "jpn"]
+    assert [voice["name"] for voice in body["voices"]] == ["LostFilm", "eng", "jpn"]
     assert voices.asked == ["interstellar"]
     assert body["releases_count"] == 2
     assert body["playing"] is False

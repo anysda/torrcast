@@ -41,11 +41,12 @@ def pick_voice(
     молчаливых подмен не бывает.
 
     Спросить можно только явно: ``--voice N`` берёт дорожку N, ``--voice ИМЯ`` ищет
-    подпись или студию, ``--voice`` без значения показывает меню. Слово сравнивается
-    целиком без учёта регистра и пробелов, но не как подстрока: ``MVO`` не совпадает с
-    ``MVO (LostFilm)``. Явный выбор, и только он, пишется в память картины
-    (:attr:`torrcast.domain.entry.Entry.voice`). Автовыбор память не трогает: иначе первый же
-    запуск с другим релизом переписал бы то, что пользователь выбрал руками.
+    подпись или студию, а не нашлось - код языка (``eng``), ``--voice`` без значения
+    показывает меню. Слово сравнивается целиком без учёта регистра и пробелов, но не как
+    подстрока: ``MVO`` не совпадает с ``MVO (LostFilm)``. Явный выбор, и только он, пишется
+    в память картины (:attr:`torrcast.domain.entry.Entry.voice`). Автовыбор память не
+    трогает: иначе первый же запуск с другим релизом переписал бы то, что пользователь
+    выбрал руками.
 
     ``native`` — картина снята по-русски: тогда сама собой выбирается её собственная
     дорожка, а не переозвучка поверх неё (:func:`~torrcast.domain.voice_order.voice_order`).
@@ -85,15 +86,24 @@ def _voice_number(media: Media, number: int) -> int:
 
 
 def _voice_name(media: Media, name: str, studios: Sequence[Studio]) -> tuple[int, str]:
-    """Точное имя подписи или студии; регистр и пробелы значения не имеют."""
-    found = _named_index(media, name, studios)
+    """Точное имя подписи или студии, иначе код языка; регистр и пробелы значения не имеют."""
+    found = _worded_index(media, name, studios)
     if found is not None:
         studio = track_studio(media, found, studios)
         return found, studio.name if studio is not None else media.tracks[found].label
+    found = _language_index(media, name)
+    if found is not None:
+        return found, (media.tracks[found].language or "").strip()
     raise NotFoundError(phrase("rank.voice_name_missing", name=name))
 
 
 def _named_index(media: Media, name: str, studios: Sequence[Studio]) -> int | None:
+    """Индекс по целому имени подписи или студии, а нет такого - по коду языка."""
+    found = _worded_index(media, name, studios)
+    return _language_index(media, name) if found is None else found
+
+
+def _worded_index(media: Media, name: str, studios: Sequence[Studio]) -> int | None:
     """Индекс по целому имени, снисходительно только к регистру и пробелам."""
     wanted = "".join(name.casefold().split())
     for track in media.tracks:
@@ -103,6 +113,20 @@ def _named_index(media: Media, name: str, studios: Sequence[Studio]) -> int | No
         if label == wanted or named == wanted:
             return track.index
     return None
+
+
+def _language_index(media: Media, name: str) -> int | None:
+    """Первая дорожка с таким кодом языка (``eng``): подпись английской дорожки у каждой
+    раздачи своя («eng · Original», «eng · Eng»), а выбор языка переживает смену раздачи."""
+    wanted = name.strip().casefold()
+    return next(
+        (
+            t.index
+            for t in media.tracks
+            if t.named and (t.language or "").strip().casefold() == wanted
+        ),
+        None,
+    )
 
 
 def _ask_voice(media: Media, native: bool = False, studios: Sequence[Studio] = ()) -> int:

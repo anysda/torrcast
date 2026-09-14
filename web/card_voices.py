@@ -14,6 +14,7 @@ from torrcast.domain.catalogs.select.en import en as select_en
 from torrcast.domain.catalogs.select.ru import ru as select_ru
 from torrcast.domain.catalogs.tongue import RU
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.studio import Studio
 from torrcast.domain.track_studio import track_studio
 from torrcast.usecases.rank.spoken_key import ORIGINAL_KEY, spoken_key
 from web.heard import Heard
@@ -22,9 +23,8 @@ from web.heard import Heard
 def card_voices(heard: Heard | None, lang: str) -> list[JsonValue]:
     """Строка на дорожку: подпись человеку, имя для ``voice`` и отметка дефолта.
 
-    ``name`` - то, что ``--voice`` найдёт и в соседней раздаче: студия, если она у
-    дорожки одна такая, иначе подпись дорожки (:func:`torrcast.usecases.rank.pick_voice.
-    pick_voice` сравнивает с обеими), а у дорожек с одинаковой подписью - номер.
+    ``name`` - то, что ``--voice`` найдёт и в соседней раздаче (:func:`torrcast.usecases.
+    rank.pick_voice.pick_voice`): показ отбирает раздачу заново, и она бывает другой.
     """
     if heard is None:
         return []
@@ -33,20 +33,41 @@ def card_voices(heard: Heard | None, lang: str) -> list[JsonValue]:
     default = heard.default
     studios = [track_studio(media, t.index, heard.studios) for t in media.tracks]
     names = [studio.name.casefold() for studio in studios if studio is not None]
+    codes = [_code(track) for track in media.tracks]
     labels = [track.label.casefold() for track in media.tracks]
     rows: list[JsonValue] = []
     for track, studio in zip(media.tracks, studios, strict=True):
         label = _label(track, catalog)
         if studio is not None and studio.name.casefold() not in label.casefold():
             label = f"{label} ({studio.name})"
-        unique = studio is not None and names.count(studio.name.casefold()) == 1
-        name = studio.name if unique and studio is not None else track.label
-        # Две дорожки с одной подписью (``rus`` и ``rus``) словом не различить: вторую
-        # ``--voice`` отдал бы первой, и выбрать её было бы нельзя. Остаётся номер.
-        if not unique and labels.count(track.label.casefold()) > 1:
-            name = str(track.index + 1)
-        rows.append({"name": name, "label": label, "default": track.index == default})
+        rows.append(
+            {
+                "name": _name(track, studio, names, codes, labels),
+                "label": label,
+                "default": track.index == default,
+            }
+        )
     return rows
+
+
+def _name(
+    track: AudioTrack, studio: Studio | None, names: list[str], codes: list[str], labels: list[str]
+) -> str:
+    """Имя для ``voice``, которое переживёт смену раздачи показом: студия, код языка,
+    подпись. Не различает ни одно (``rus`` и ``rus``) - номер: словом вторую не выбрать."""
+    if studio is not None and names.count(studio.name.casefold()) == 1:
+        return studio.name
+    code = _code(track)
+    if code and codes.count(code) == 1:
+        return code
+    if labels.count(track.label.casefold()) == 1:
+        return track.label
+    return str(track.index + 1)
+
+
+def _code(track: AudioTrack) -> str:
+    """Код языка дорожки, если раздача его назвала; ``und`` и пустой тег - не код."""
+    return (track.language or "").strip().casefold() if track.named else ""
 
 
 def _label(track: AudioTrack, catalog: dict[str, str]) -> str:

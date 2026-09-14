@@ -86,6 +86,22 @@ def test_a_remembered_studio_survives_a_release_with_plain_labels(console: FakeC
     )
 
 
+def test_a_language_code_takes_the_track_whose_label_differs_from_release_to_release(
+    console: FakeConsole,
+) -> None:
+    """Живой замер веба: выбранная «eng · Eng» не нашлась в раздаче показа с «eng · Original»."""
+    tracks = (DUB, track(1, "eng", "Original"))
+
+    assert pick_voice(media(tracks=tracks), _Args(voice="ENG")) == (1, "eng")
+    assert pick_voice(media(tracks=tracks), _Args(), "eng") == (1, "eng")
+
+
+def test_a_label_named_like_a_language_code_still_wins_over_the_code(console: FakeConsole) -> None:
+    tracks = (track(0, "rus", "Dub"), track(1, "rus", None))
+
+    assert pick_voice(media(tracks=tracks), _Args(voice="rus")) == (1, "rus")
+
+
 def test_a_studio_word_that_is_absent_is_an_honest_refusal(console: FakeConsole) -> None:
     with pytest.raises(NotFoundError, match="озвучки «NewStation» в этом релизе нет"):
         pick_voice(media(tracks=(DUB, ORIG)), _Args(voice="NewStation"))

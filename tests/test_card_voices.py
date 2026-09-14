@@ -46,13 +46,19 @@ def test_the_english_page_names_the_same_tracks_in_english() -> None:
     assert _field(rows, "label") == ["Russian · Dub", "English"]
 
 
-def test_the_voice_name_is_the_studio_when_the_track_names_one_and_the_label_otherwise() -> None:
-    """Имя уходит показу как ``--voice``: оно обязано найтись в раздаче тем же выбором."""
-    heard = _heard(track(0, "rus", "MVO (LostFilm)"), track(1, "eng", "English"))
+def test_the_voice_name_is_what_survives_another_release_the_show_may_take() -> None:
+    """Имя уходит показу как ``--voice``, а показ отбирает раздачу заново: живой замер
+    выбрал «eng · Eng», показ взял раздачу с «eng · Original» и отказал."""
+    heard = _heard(
+        track(0, "rus", "MVO (LostFilm)"),
+        track(1, "eng", "Original"),
+        track(2, "jpn", "Commentary"),
+        track(3, "jpn", "Original"),
+    )
 
     rows = card_voices(heard, "ru")
 
-    assert _field(rows, "name") == ["LostFilm", "eng · English"]
+    assert _field(rows, "name") == ["LostFilm", "eng", "jpn · Commentary", "jpn · Original"]
 
 
 def test_twin_tracks_that_no_word_tells_apart_are_named_by_number() -> None:
