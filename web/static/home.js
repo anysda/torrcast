@@ -298,13 +298,16 @@ const TCHome = {
   // (`torrcast.domain.wait_indexer`) - тот по-прежнему ждётся СЕРВЕРОМ, здесь только
   // опрос уже идущего заказа (`TCApi.searchProgress`, тот же приём, что у `card.js`).
   //
-  // Потолок опроса - 40 заходов по 400 мс (16 с): круг поиска живёт секунды, а заказ на
-  // сервере - `hass.search_progress.JOB_TTL` (30 с), и это меньше её целиком.
+  // Потолок опроса - 16 с: круг поиска живёт секунды, а заказ на сервере -
+  // `hass.search_progress.JOB_TTL` (30 с), и это меньше её целиком. Пока показать нечего,
+  // опрос идёт раз в 150 мс: круг, сохранённый на диске, готов за 150-400 мс, и шаг 400 мс
+  // держал его плитки лишние полсекунды; с первой находкой шаг снова 400 мс.
   async _runSearch(text) {
     if (TCHome._sourcesCount === null) TCHome._askSources();
     const mine = ++TCHome._token;
+    const until = Date.now() + 16000;
     let known = [];
-    for (let tries = 0; tries < 40; tries += 1) {
+    while (Date.now() < until) {
       const { results, partial } = await TCApi.searchProgress(text);
       if (mine !== TCHome._token || TCHome._query !== text) return;
       const next = TCHome._mergeHits(known, results, partial);
@@ -316,7 +319,7 @@ const TCHome = {
         TCHome._swapBody(TCHome._searchResults(known, partial));
       }
       if (!partial) return;
-      await new Promise((done) => setTimeout(done, 400));
+      await new Promise((done) => setTimeout(done, known.length ? 400 : 150));
     }
   },
 
