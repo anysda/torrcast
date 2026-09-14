@@ -64,9 +64,10 @@ class _FactFlights:
                 facts = active[0]
                 done = getattr(facts, "_done", None)
                 # An unfinished hovered flight queued its requests behind the background, and
-                # the flag cannot move them: the click gets its own flight in front instead.
+                # the flag cannot move them: a click it has no description for yet flies alone.
                 hovered = foreground and not facts.foreground
-                if not (hovered and done is not None and not done.is_set()) and (
+                told = (title, year) in getattr(facts, "found", {})
+                if not (hovered and not told and done is not None and not done.is_set()) and (
                     done is None
                     or not done.is_set()
                     or facts.answered(title, year)

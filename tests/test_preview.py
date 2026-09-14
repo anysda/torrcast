@@ -267,6 +267,27 @@ def test_a_click_gets_its_own_flight_in_front_of_an_unfinished_hover(
     assert poll is card
 
 
+def test_a_click_keeps_an_unfinished_hover_that_already_brought_the_description(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hover's description has arrived and only its decorations fly: the click takes it."""
+
+    class _Described(_Facts):
+        def __init__(self, pictures: object, budget: float) -> None:
+            super().__init__(pictures, budget)
+            self._done = threading.Event()
+            self.found = {("Лука", 2021): _Fact()}
+
+    monkeypatch.setattr(web.preview, "MenuFacts", _Described)
+    flights = web.preview._FactFlights()
+
+    hover = flights.of("Лука", 2021, "movie", foreground=False)
+    card = flights.of("Лука", 2021, "movie")
+
+    assert card is hover
+    assert card.foreground
+
+
 def test_a_finished_silent_fact_lookup_is_retried_without_its_old_flight(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
