@@ -32,19 +32,19 @@ def test_while_the_circle_runs_a_hit_lands_in_its_tile_and_the_rest_wait() -> No
     ]
 
 
-def test_after_the_whole_circle_the_circle_order_stands_and_empty_tiles_dim() -> None:
+def test_after_the_whole_circle_no_tile_moves_and_empty_tiles_dim_in_place() -> None:
     merged = catalog_merge([_TILE, _OTHER], [_STRAY, _HIT], done=True)
     assert _shape(merged) == [
-        ("movie:matrix-x:2020", None, None, None),
         ("movie:the-matrix:1999", "movie:матрица:1999", None, None),
         ("movie:матрица-перезагрузка:2003", None, None, True),
-    ]
+        ("movie:matrix-x:2020", None, None, None),
+    ], "курсор стоит на первой плитке: в конце круга под ним та же картина"
 
 
 def test_a_namesake_of_another_year_and_kind_is_not_the_same_picture() -> None:
     series: _Record = {**_HIT, "year": 2001, "kind": "tv"}
     merged = catalog_merge([_TILE], [series], done=True)
     assert _shape(merged) == [
-        ("movie:the-matrix:1999", None, None, None),
         ("movie:матрица:1999", None, None, True),
+        ("movie:the-matrix:1999", None, None, None),
     ]

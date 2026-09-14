@@ -1,10 +1,11 @@
 """Плитки каталога и находки круга в одной выдаче: раздачи догоняют картины.
 
 Пока круг идёт, плитки каталога стоят первыми, каждая на своём месте (``slot``): находка той
-же картины встаёт В её плитку, а не рядом, и выдача под курсором не прыгает. Картину
-узнаёт то же правило, каким карточка ищет свою картину в круге (:mod:`web.card_lookup`):
-имя целиком и хотя бы одно из «род, год». Плитка, которой после ПОЛНОГО круга раздач не
-нашлось, гаснет (``dim``); до конца круга она только ждёт (``pending``).
+же картины встаёт В её плитку, а не рядом, и выдача под курсором не прыгает ни во время
+круга, ни в его конце: зритель уже навёл курсор на плитку и жмёт. Картину узнаёт то же
+правило, каким карточка ищет свою картину в круге (:mod:`web.card_lookup`): имя целиком и
+хотя бы одно из «род, год». Плитка, которой после ПОЛНОГО круга раздач не нашлось, гаснет
+на своём месте (``dim``); до конца круга она только ждёт (``pending``).
 """
 
 from __future__ import annotations
@@ -32,16 +33,11 @@ def catalog_merge(
         at = _match(tile, found, slots)
         if at is not None:
             slots[at] = _text(tile, "key")
-    if done:
-        taken = set(slots.values())
-        return [
-            *({**hit, "slot": slots[n]} if n in slots else hit for n, hit in enumerate(found)),
-            *({**tile, "dim": True} for tile in tiles if _text(tile, "key") not in taken),
-        ]
     landed = {key: n for n, key in slots.items()}
+    wait = "dim" if done else "pending"
     return [
         *(
-            {**found[landed[key]], "slot": key} if key in landed else {**tile, "pending": True}
+            {**found[landed[key]], "slot": key} if key in landed else {**tile, wait: True}
             for tile in tiles
             if (key := _text(tile, "key"))
         ),
