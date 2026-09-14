@@ -1,0 +1,105 @@
+"""Поиск на главной как поведение: настоящие ``home.js`` и ``tile.js`` в node без браузера.
+
+Сценарии и страница без браузера лежат в ``tests/web_js``: время там виртуальное, сервер
+отвечает по сценарию, а сюда приезжают только факты экрана. Node - такой же инструмент
+гейта, как ffmpeg: без него проверка краснеет, а не пропускается.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+from itertools import pairwise
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+RUNNER = Path(__file__).resolve().parent / "web_js" / "search.js"
+#: Шаги опроса из договора выдачи: пока показать нечего и когда уже есть что.
+EMPTY_STEP_MS, HITS_STEP_MS = 150, 400
+#: Сверх срока сервера страница ждёт не больше этого: опрос перед сроком и его дорога.
+PAST_DEADLINE_MS = 3000
+
+
+@pytest.fixture(scope="module")
+def facts() -> dict[str, Any]:
+    node = shutil.which("node")
+    if node is None:
+        pytest.fail(
+            "node не найден: сторожа поиска на главной исполняют home.js в node, поставь nodejs",
+            pytrace=False,
+        )
+    done = subprocess.run(
+        [node, str(RUNNER)], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert done.returncode == 0, done.stderr
+    said: dict[str, Any] = json.loads(done.stdout)
+    return said
+
+
+def _scenario(facts: dict[str, Any], name: str) -> dict[str, Any]:
+    one: dict[str, Any] = facts[name]
+    assert "crashed" not in one, one.get("crashed")
+    assert one["errors"] == [], f"страница упала посреди опроса: {one['errors']}"
+    return one
+
+
+@pytest.mark.machine
+def test_polling_without_a_final_stops_at_the_server_deadline(facts: dict[str, Any]) -> None:
+    endless = _scenario(facts, "endless")
+    deadline = endless["finalBy"] * 1000
+    assert endless["polls"][-1] >= deadline, "страница бросила опрос раньше срока сервера"
+    assert endless["polls"][-1] <= deadline + PAST_DEADLINE_MS, (
+        f"опрос шёл до {endless['polls'][-1]} мс при сроке сервера {deadline} мс"
+    )
+    assert endless["timers"] == 0, "после срока у страницы остались живые таймеры опроса"
+
+
+@pytest.mark.machine
+def test_a_final_late_within_the_server_deadline_is_drawn_with_best_match(
+    facts: dict[str, Any],
+) -> None:
+    late = _scenario(facts, "late")
+    assert late["screen"]["best"] == 1, "финал на 18 с при сроке 20 с не встал на экран"
+    assert late["screen"]["searching"] == 0
+
+
+@pytest.mark.machine
+def test_poll_steps_are_short_before_hits_long_after_and_none_after_the_final(
+    facts: dict[str, Any],
+) -> None:
+    steps = _scenario(facts, "steps")
+    polls, latency = steps["polls"], steps["latency"]
+    gaps = [later - earlier for earlier, later in pairwise(polls)]
+    assert gaps == [latency + EMPTY_STEP_MS] * 3 + [latency + HITS_STEP_MS] * 3, gaps
+
+
+@pytest.mark.machine
+def test_a_final_equal_to_the_last_preview_still_shows_best_match(facts: dict[str, Any]) -> None:
+    equal = _scenario(facts, "equal")
+    assert equal["polls"] == 3
+    assert equal["screen"]["best"] == 1, "финал, равный превью, не перерисован: нет Best match"
+    assert equal["screen"]["searching"] == 0, "строка «ищем» осталась над финалом"
+
+
+@pytest.mark.machine
+def test_a_catalog_tile_without_releases_dims_and_does_not_open(facts: dict[str, Any]) -> None:
+    dim = _scenario(facts, "dim")
+    assert (dim["during"]["waiting"], dim["during"]["dim"]) == (1, 0)
+    assert (dim["after"]["waiting"], dim["after"]["dim"]) == (0, 1)
+    assert dim["opened"] == ["a"], "погасшая плитка открывает карточку"
+
+
+@pytest.mark.machine
+def test_focus_on_the_second_row_stays_on_its_picture(facts: dict[str, Any]) -> None:
+    second = _scenario(facts, "second")
+    assert (second["before"], second["added"], second["after"]["focus"]) == ("k8", "k8", "k8")
+
+
+@pytest.mark.machine
+def test_focus_follows_a_hit_that_landed_in_a_catalog_tile(facts: dict[str, Any]) -> None:
+    slot = _scenario(facts, "slot")
+    assert slot["before"] == "k"
+    assert slot["after"]["focus"] == "k", f"фокус ушёл на {slot['after']['focus']}"

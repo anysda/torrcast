@@ -13,6 +13,7 @@ const TCTile = {
     tile.dataset.tcTile = '1';
     if (shape.group) tile.dataset.tcGroup = shape.group;
     if (shape.focusId) tile.dataset.tcFocusId = shape.focusId;
+    if (shape.focusId && shape.key) tile.dataset.tcKey = shape.key;
     // Пометка для прогрева (`warm.js`) - ТОТ ЖЕ запрос, с которым откроется карточка:
     // другого источника у неё нет, и разойтись им негде. Стоит на самой плитке, потому
     // что видно на экране именно её, а не строку списка.

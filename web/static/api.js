@@ -59,12 +59,15 @@ const TCApi = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, progressive: true }),
       });
-      if (!said.ok) return { results: [], partial: false };
+      if (!said.ok) return { results: [], partial: false, finalBy: 0 };
       const data = await said.json();
       const results = Array.isArray(data && data.results) ? data.results : [];
-      return { results, partial: said.headers.get('X-Torrcast-Partial') === '1' };
+      // ``finalBy`` - срок финала сервера в секундах от начала заказа: нет срока - нет и
+      // права опрашивать дальше.
+      const finalBy = Number(said.headers.get('X-Torrcast-Final-By')) || 0;
+      return { results, partial: said.headers.get('X-Torrcast-Partial') === '1', finalBy };
     } catch (error) {
-      return { results: [], partial: false };
+      return { results: [], partial: false, finalBy: 0 };
     }
   },
 

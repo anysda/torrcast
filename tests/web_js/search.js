@@ -1,0 +1,136 @@
+// Сценарии поиска на главной: печатают факты страницы одной строкой JSON на сценарий.
+// Решает не этот файл, а `tests/test_home_search_js.py`: здесь только то, что видно на экране.
+'use strict';
+
+const { page } = require('./page.js');
+
+const LIVE = '#tc-body [data-tc-tile][data-tc-focusable]';
+const LATENCY = 30;
+
+function hit(key, extra = {}) {
+  return { key, title: 'T ' + key, year: 2000, kind: 'movie', ...extra };
+}
+
+// Картина плитки - ключ из пометки прогрева, с которым она и откроется: так же её читает щуп.
+function picture(tile) {
+  return JSON.parse(tile.dataset.tcWarmFacts || '{}').key;
+}
+
+function screen(p) {
+  const here = p.doc.activeElement;
+  const tiles = p.doc.querySelectorAll(LIVE);
+  return {
+    keys: tiles.map(picture),
+    best: p.doc.querySelectorAll('#tc-body .tc-tile-best').length,
+    searching: p.doc.querySelectorAll('#tc-body .tc-searching').length,
+    dim: p.doc.querySelectorAll('#tc-body .is-dim').length,
+    waiting: p.doc.querySelectorAll('#tc-body .tc-cap2').length,
+    focus: here.dataset.tcTile ? picture(here) : here.tagName,
+  };
+}
+
+function search(answer, text = 'тачки') {
+  const p = page(answer, { latency: LATENCY });
+  p.home._query = text;
+  p.home._runSearch(text);
+  return p;
+}
+
+function focusKey(p, key) {
+  const tile = p.doc.querySelectorAll(LIVE).find((one) => picture(one) === key);
+  if (tile) tile.focus();
+}
+
+const TEN = Array.from({ length: 10 }, (_, n) => hit('k' + n));
+
+const scenarios = {
+  // Сервер не отдаёт финала никогда: страница обязана бросить опрос сама, по сроку сервера.
+  async endless() {
+    const p = search(() => ({ partial: true, results: TEN.slice(0, 3), finalBy: 12 }));
+    await p.time.run(120000);
+    return { finalBy: 12, polls: p.polls, timers: p.time.pending(), screen: screen(p) };
+  },
+
+  // Финал на 18-й секунде при сроке сервера 20 с: страница его дожидается.
+  async late() {
+    const p = search((_, at) => ({ partial: at < 18000, results: TEN.slice(0, 3), finalBy: 20 }));
+    await p.time.run(60000);
+    return { polls: p.polls, screen: screen(p) };
+  },
+
+  // Шаг опроса: пустое превью - часто, с находками - реже, после финала - ни одного.
+  async steps() {
+    const p = search((n) => ({ partial: n < 6, results: n < 3 ? [] : TEN.slice(0, 2), finalBy: 12 }));
+    await p.time.run(60000);
+    return { latency: LATENCY, polls: p.polls };
+  },
+
+  // Финал слово в слово равен последнему превью: плашка встаёт, строка «ищем» уходит.
+  async equal() {
+    const p = search((n) => ({ partial: n < 2, results: TEN.slice(0, 3), finalBy: 12 }));
+    await p.time.run(60000);
+    return { polls: p.polls.length, screen: screen(p) };
+  },
+
+  // Картина каталога ждёт раздач, а в финале гаснет: подпись «ищу раздачи» уходит, клика нет.
+  async dim() {
+    const p = search((n) => ({
+      partial: n < 2,
+      results: [hit('a'), hit('c', n < 2 ? { pending: true } : { dim: true })],
+      finalBy: 12,
+    }));
+    await p.time.run(200);
+    const during = screen(p);
+    await p.time.run(60000);
+    const tiles = p.doc.querySelectorAll(LIVE);
+    tiles.forEach((tile) => tile.dispatch('click'));
+    return { during, after: screen(p), opened: p.opened };
+  },
+
+  // Фокус на плитке второго ряда: дописанное превью и переставленный финал его не уводят.
+  async second() {
+    const p = search((n, at) => {
+      if (at < 1000) return { partial: true, results: TEN, finalBy: 12 };
+      if (at < 2000) return { partial: true, results: TEN.concat([hit('k10')]), finalBy: 12 };
+      return { partial: false, results: TEN.concat([hit('k10')]).reverse(), finalBy: 12 };
+    });
+    await p.time.run(200);
+    focusKey(p, 'k8');
+    const before = screen(p).focus;
+    await p.time.run(1500);
+    const added = screen(p).focus;
+    await p.time.run(60000);
+    return { before, added, after: screen(p) };
+  },
+
+  // Находка по раздаче садится в плитку каталога и меняет личность (`slot`), но не картину.
+  async slot() {
+    const p = search((n, at) => (at < 1000
+      ? { partial: true, results: [hit('tt1', { pending: true }), hit('a'), hit('k')], finalBy: 12 }
+      : { partial: false, results: [hit('k', { slot: 'tt1' }), hit('a')], finalBy: 12 }));
+    await p.time.run(200);
+    focusKey(p, 'k');
+    const before = screen(p).focus;
+    await p.time.run(60000);
+    return { before, after: screen(p) };
+  },
+};
+
+async function main() {
+  const errors = [];
+  process.on('unhandledRejection', (error) => errors.push(String(error)));
+  const facts = {};
+  for (const [name, run] of Object.entries(scenarios)) {
+    errors.length = 0;
+    try {
+      facts[name] = await run();
+    } catch (error) {
+      facts[name] = { crashed: String(error && error.stack || error) };
+    }
+    await new Promise((done) => setImmediate(done));
+    facts[name].errors = errors.slice();
+  }
+  process.stdout.write(JSON.stringify(facts) + '\n');
+}
+
+main();

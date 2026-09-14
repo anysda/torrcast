@@ -298,44 +298,60 @@ const TCHome = {
   // (`torrcast.domain.wait_indexer`) - тот по-прежнему ждётся СЕРВЕРОМ, здесь только
   // опрос уже идущего заказа (`TCApi.searchProgress`, тот же приём, что у `card.js`).
   //
-  // Потолок опроса - 16 с: круг поиска живёт секунды, а заказ на сервере -
-  // `hass.search_progress.JOB_TTL` (30 с), и это меньше её целиком. Пока показать нечего,
-  // опрос идёт раз в 150 мс: круг, сохранённый на диске, готов за 150-400 мс, и шаг 400 мс
-  // держал его плитки лишние полсекунды; с первой находкой шаг снова 400 мс.
+  // Опрос идёт, пока ответ частичный, и не дольше срока сервера: к `finalBy` секунд от
+  // начала заказа сервер отдаёт финал из собранного (`hass.search_job.FINAL_BY`), и
+  // страница ждёт его с запасом на шаг опроса. Своё число тут было 16 с, а финал
+  // «Начало» на стенде ехал 18-21 с: выдача оставалась без «Best match» навсегда.
+  // Пока показать нечего, шаг 150 мс: круг, сохранённый на диске, готов за 150-400 мс;
+  // с первой находкой шаг снова 400 мс.
   async _runSearch(text) {
     if (TCHome._sourcesCount === null) TCHome._askSources();
     const mine = ++TCHome._token;
-    const until = Date.now() + 16000;
+    const began = Date.now();
+    let until = began;
     let known = [];
-    while (Date.now() < until) {
-      const { results, partial } = await TCApi.searchProgress(text);
+    do {
+      const { results, partial, finalBy } = await TCApi.searchProgress(text);
       if (mine !== TCHome._token || TCHome._query !== text) return;
-      const next = TCHome._mergeHits(known, results, partial);
-      known = next;
+      until = began + finalBy * 1000 + TCHome._FINAL_SLACK;
+      known = TCHome._mergeHits(known, results, partial);
       TCHome._found = { query: text, results: known };
-      // Один и тот же список не пересобирается: у стоящих на экране обложек нет
-      // причины уезжать и заказываться заново.
-      if (JSON.stringify(known) !== TCHome._shownHits) {
+      // Один и тот же экран не пересобирается: у стоящих обложек нет причины уезжать и
+      // заказываться заново. Экран - это список И то, финал ли он: финал, равный последнему
+      // превью, обязан встать, иначе «Best match» не появлялся вовсе.
+      if (TCHome._screenOf(known, partial) !== TCHome._shownHits) {
         TCHome._swapBody(TCHome._searchResults(known, partial));
       }
       if (!partial) return;
       await new Promise((done) => setTimeout(done, known.length ? 400 : 150));
-    }
+    } while (Date.now() < until);
+  },
+
+  // Запас сверх срока сервера: опрос, начатый перед самым сроком, и его дорога назад.
+  _FINAL_SLACK: 2000,
+
+  _screenOf(results, partial) {
+    return JSON.stringify([results, !!partial]);
   },
 
   // Выдача пересобирается целиком на каждом дописывании находок, а фокус клавиатуры
   // живёт В ПЛИТКЕ: без переноса он каждые 400 мс падал бы на голый `<body>`, и
-  // человек возвращался бы к первой плитке, пока круг ещё растёт.
+  // человек возвращался бы к первой плитке, пока круг ещё растёт. Плитка ищется по своей
+  // личности, затем по картине: находка, севшая в плитку каталога, меняет личность
+  // (`slot`), но не картину. Картины больше нет - фокус встаёт на то же место ряда.
   _swapBody(next) {
     const body = document.getElementById('tc-body');
     if (!body) return;
     const live = '[data-tc-tile][data-tc-focusable]';
     const here = document.activeElement;
-    const stood = here && here.matches && here.matches(live) && body.contains(here)
-      ? here.dataset.tcFocusId : '';
+    const stood = here && here.matches && here.matches(live) && body.contains(here) ? here : null;
+    const place = stood ? Array.from(body.querySelectorAll(live)).indexOf(stood) : -1;
     body.replaceWith(next);
-    const tiles = next.querySelectorAll(live);
-    const same = Array.from(tiles).find((tile) => tile.dataset.tcFocusId === stood);
+    if (!stood) return;
+    const tiles = Array.from(next.querySelectorAll(live));
+    const same = tiles.find((tile) => tile.dataset.tcFocusId === stood.dataset.tcFocusId)
+      || tiles.find((tile) => tile.dataset.tcKey && tile.dataset.tcKey === stood.dataset.tcKey)
+      || tiles[Math.min(place, tiles.length - 1)];
     if (same) same.focus();
   },
 
@@ -434,9 +450,9 @@ const TCHome = {
     }
     if (partial) body.appendChild(TCHome._searchingLine());
     TCHome._syncCount(results.filter((hit) => !hit.dim && !hit.pending).length);
-    // Отрисованный список запоминается СТРОКОЙ: следующий равный ответ не повод
+    // Отрисованный экран запоминается СТРОКОЙ: следующий равный ответ не повод
     // пересобирать экран.
-    TCHome._shownHits = JSON.stringify(results);
+    TCHome._shownHits = TCHome._screenOf(results, partial);
     // Выдача - два РЯДА, а не сетка (§4.2): первые семь крупные (210px, у самой первой
     // плашка «Best match»), остальные второй строкой мельче (168px, `tc-grid--second`).
     // Пока круг идёт, плашки нет ни у кого: назвать лучшее совпадение можно только по
