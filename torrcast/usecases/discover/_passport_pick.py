@@ -6,6 +6,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.usecases.discover._vouched import _vouched
+from torrcast.usecases.discover._word_neighbours import _neighbours_only
 
 
 def _passport_pick(
@@ -27,6 +28,7 @@ def _passport_pick(
     found_keys = {picture.key for picture in found}
     if len(passport_hits) == 1 and set(passport_hits) != found_keys:
         passport_found = list(passport_hits.values())
+        # Соседу по слову («Шары вверх» на ``Up``) год справки ± 1 не мешает не быть ею.
         if _vouched(passport_found, about, proven=True):
-            return passport_found
+            return _neighbours_only(passport_found, about.name, about) or None
     return None

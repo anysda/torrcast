@@ -4438,9 +4438,10 @@ def test_паспортное_имя_не_подменяет_картину_пр
             passport=lambda *a, **k: passport,
         )
 
-    assert [picture.title for picture in found] == ["lainpost"], (
+    assert "Serial Experiments Lain" not in [picture.title for picture in found], (
         "спор года сильнее совпавшего длинного имени"
     )
+    assert found == [], "журнал «lainpost» - сосед по слову, а не картина паспорта"
 
 
 def _nine_yards_pool() -> tuple[list[Any], list[Picture], list[Picture]]:

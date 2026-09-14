@@ -12,15 +12,14 @@ from torrcast.domain.cluster import cluster
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
-from torrcast.domain.romaji import romaji
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
-from torrcast.domain.transliterate import transliterate
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._named import _spoken
 from torrcast.usecases.discover._asked_kind import _asked_kind
 from torrcast.usecases.discover._passport_pick import _passport_pick
+from torrcast.usecases.discover._proven_alt import _proven_alt
 from torrcast.usecases.discover._query_note import _query_note
 from torrcast.usecases.discover._second_budget import _second_budget
 from torrcast.usecases.discover._second_circle import _second_circle
@@ -28,6 +27,7 @@ from torrcast.usecases.discover._second_hearsay import _second_hearsay
 from torrcast.usecases.discover._second_origin import _second_origin
 from torrcast.usecases.discover._second_wider import _second_wider
 from torrcast.usecases.discover._widened_subject import _widened_subject
+from torrcast.usecases.discover._word_neighbours import _asked_in, _neighbours_only
 from torrcast.usecases.reinforce._as_is import _as_is
 from torrcast.usecases.reinforce._leading import _leading
 from torrcast.usecases.reinforce._twin import _twin
@@ -127,6 +127,9 @@ def _second_language(
         progress.phase("")
         progress.note(phrase("discover.gate_other_picture", name=name, other=_spoken(about)))
         return _as_is(raw, found, about, progress)
+    # Одни соседи по слову («Шары вверх» на «Вверх») - по-русски не нашлось ничего.
+    found, namesakes = _neighbours_only(found, name, about), found
+    lead = _leading(found)
     first_pictures = cluster(_search_state._search_catalogue.to_releases(raw))
     if (named := _passport_pick(first_pictures, about, found)) is not None:
         return raw, first_pictures, named
@@ -137,7 +140,7 @@ def _second_language(
     # поэтому сверяем по слагу.
     if not alt or slugify(alt) == slugify(name):
         return _as_is(raw, found, about, progress)
-    merged = _second_circle(client, name, alt, index, about, found, raw, progress)
+    merged = _second_circle(client, name, alt, index, about, namesakes, raw, progress)
     # Круг кончился - закрываем его строку прямо здесь. Всё, что скажем дальше, это его
     # итог, а `note` печатается сразу, тогда как строка фазы ждёт закрытия фазы: без этого
     # вердикт «не беру» выходил ПЕРЕД строкой «поиск «Cars»... 102.1 с», и человек читал два
@@ -151,15 +154,10 @@ def _second_language(
     # Одна новая картина бывает второй, несклеившейся языковой половиной той же картины.
     # Всё сверх неё - оригинал расширил предмет поиска вместо уточнения. На ПУСТОЙ первой
     # выдаче расширять нечего, и мерка молчит (:func:`_widened_subject`, TC-866).
-    proven = (
-        bool(about.title)
-        or alt == about.name
-        or alt == transliterate(name)
-        # Романизация - те же слова запроса другой записью, ручается она за себя ровно
-        # как транслит: чужой картины принести не может.
-        or alt == romaji(name)
-    )
-    if not confirmed_alt and _widened_subject(len(pictures), len(first_pictures)):
+    proven = _proven_alt(alt, name, about)
+    widened = not confirmed_alt and _widened_subject(len(pictures), len(first_pictures))
+    asked = _asked_in(found, pictures, name, index, about) if widened else []
+    if widened and not asked:
         outcome = phrase(
             "discover.retry_more_pictures",
             alt=alt,
@@ -169,9 +167,10 @@ def _second_language(
         )
         progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress, pictures)
-    # Транслит - это сами слова запроса, чужого фильма он принести не может; оригинал из
-    # справки отвечает про ту самую картину. А вот оригинал из выдачи ничем не подтверждён.
-    wider, vouched = _second_wider(pictures, query, alt, index, about, proven)
+    wider, vouched = (
+        (asked, True) if asked else _second_wider(pictures, query, alt, index, about, proven)
+    )
+    wider = _neighbours_only(wider, name, about)
     was = sum(len(p.releases) for p in found)
     now = sum(len(p.releases) for p in wider)
     if now <= was:
