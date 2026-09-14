@@ -78,6 +78,11 @@ def _kin(picture: FactPicture) -> None:
 
 def _background_kin(picture: FactPicture) -> None:
     """Finish one visible franchise in its own lane before taking the next tile."""
+    title, year = picture[:2]
+    stored = FACTS.cache.blurbs([(title, year)]).get((title, year))
+    if stored is not None and stored.missing and not stored.entity:
+        # The card of a confirmed missing article shows no franchise: no passport for it.
+        return
     RELATED.finish([picture])
 
 

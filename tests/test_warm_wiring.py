@@ -9,6 +9,7 @@ import pytest
 
 import web.warm_wiring as wiring
 from torrcast.domain.facts.fact import Fact
+from torrcast.runtime.facts_wiring import FACTS
 from torrcast.usecases.facts import FactPicture
 from web.warm_cache import TTL, WORKERS, WarmCache
 
@@ -182,3 +183,29 @@ def test_home_warmup_leaves_three_wikimedia_lanes_for_a_card(
         pictures[4:],
         pictures[4:],
     ]
+
+
+def test_a_visible_tile_with_a_confirmed_missing_article_gets_no_franchise_passport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The visible lane skips the passport a missing article never uses; a silent fact keeps it."""
+    finished: list[list[FactPicture]] = []
+    stored = {("Без статьи", 1991): Fact(missing=True)}
+
+    class _Cache:
+        @staticmethod
+        def blurbs(wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
+            return {key: stored[key] for key in wanted if key in stored}
+
+    class _Related:
+        @staticmethod
+        def finish(pictures: list[FactPicture]) -> None:
+            finished.append(pictures)
+
+    monkeypatch.setattr(FACTS, "cache", _Cache())
+    monkeypatch.setattr(wiring, "RELATED", _Related())
+
+    wiring._background_kin(("Без статьи", 1991, "movie"))
+    wiring._background_kin(("Молчит", 1992, "movie"))
+
+    assert finished == [[("Молчит", 1992, "movie")]]
