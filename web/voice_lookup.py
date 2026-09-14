@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.info_hash import info_hash
+from torrcast.domain.magnet_hash import magnet_hash
 from torrcast.domain.pick_settings import PICK_BUDGET
 from torrcast.domain.profile import Profile
 from torrcast.domain.torrcast_error import TorrcastError
@@ -55,24 +57,31 @@ class VoiceLookup:
     _pending: set[str] = field(default_factory=set)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
-    def of(self, plan: Plan, query: str, config: Config) -> tuple[Heard | None, bool]:
+    def of(
+        self, plan: Plan, query: str, config: Config, live: Entry | None = None
+    ) -> tuple[Heard | None, bool]:
         """Дорожки, если уже прочитаны, и «ещё в пути»; иначе завести отбор фоном.
 
         Прочитанные дорожки не держат раздачу: карточка, открытая заново, греет её снова
         (:class:`web.card_warm.CardWarm`) - сразу той раздачей, что отбор уже выбрал.
+        Живая закладка (``live``) главнее отбора: «Играть» продолжит её, и дорожки с
+        прогревом - её раздачи и серии (:func:`_bookmark`).
         """
         key = plan.picture.key
+        mark, label = _bookmark(live)
         with self._lock:
             cached = self._heard.get(key)
             known = cached is not None and (cached[0] is not None or cached[1] > self.clock())
             heard = cached[0] if cached is not None and known else None
+            if heard is not None and mark and heard.release != mark:
+                known, heard = False, None  # закладка появилась позже отбора карточки
             if known and (heard is None or self.warms.holds(key)):
                 return heard, False
             start = key not in self._pending
             self._pending.add(key)
         if start:
-            release = heard.release if heard is not None else ""
-            self.spawn(lambda: self._build(plan, query, config, release))
+            release = mark or (heard.release if heard is not None else "")
+            self.spawn(lambda: self._build(plan, query, config, release, bool(mark), label))
         if known:
             return heard, False
         with self._lock:
@@ -81,10 +90,23 @@ class VoiceLookup:
                 return None, True
             return cached[0], False
 
-    def _build(self, plan: Plan, query: str, config: Config, release: str = "") -> None:
-        """Отобрать раздачу, прочитать её дорожки и оставить греться только выбранную."""
+    def _build(
+        self,
+        plan: Plan,
+        query: str,
+        config: Config,
+        release: str = "",
+        pinned: bool = False,
+        label: str = "",
+    ) -> None:
+        """Отобрать раздачу, прочитать её дорожки и оставить греться только выбранную.
+
+        ``pinned`` - раздачу назвала закладка: отбор, взявший другую, дорожек не отдаёт,
+        потому что сыграет не она, а меню чужих дорожек соврало бы.
+        """
         heard: Heard | None = None
-        args = parse_args([query, "--card-release", release] if release else [query])
+        words = [query, label] if label else [query]
+        args = parse_args([*words, "--card-release", release] if release else words)
         profile = self.profile_of(config)
         engines = self.engines(config.torrserver_url)
         make = lambda: Bench(engines, choose=file_picker(args), profile=profile)  # noqa: E731
@@ -108,13 +130,24 @@ class VoiceLookup:
         finally:
             if fresh:
                 self.warms.finish(warm, prep)
-            if prep is not None:
+            if prep is not None and (not pinned or info_hash(prep.release) == release):
                 release = info_hash(prep.release)
                 heard = Heard(prep.found, plan.picture.native, prep.release.studios, release)
             with self._lock:
                 if not left:  # ушедшая карточка ответа не узнала, и «дорожек нет» не пишется
                     self._heard[plan.picture.key] = (heard, self.clock() + RETRY)
                 self._pending.discard(plan.picture.key)
+
+
+def _bookmark(live: Entry | None) -> tuple[str, str]:
+    """Раздача и серия, которые продолжит «Играть»; пусто - закладка не ответит.
+
+    Условие то же, что у показа (:func:`torrcast.usecases.cast_command._bookmark.
+    _continue_picked`): фильм - начатый и не досмотренный, сериал - любое место до конца.
+    """
+    if live is None or live.done or not live.magnet or not (live.serial or live.resumable):
+        return "", ""
+    return magnet_hash(live.magnet), live.label
 
 
 __all__ = ["VoiceLookup"]

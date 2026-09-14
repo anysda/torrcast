@@ -162,7 +162,7 @@ def _body(
     # нечего, и страница переспрашивала её до исчерпания заходов.
     coming = related is None and _related.waiting(title, series)
     poster, judging = _poster.of(picture)
-    heard, hearing = _voices.of(plan, ask.query, config) if plan.ranked else (None, False)
+    heard, hearing = _voices.of(plan, ask.query, config, entry) if plan.ranked else (None, False)
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).

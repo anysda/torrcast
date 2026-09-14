@@ -85,9 +85,13 @@ class _StubVoices:
     heard: Heard | None = None
     coming: bool = False
     asked: list[str] = field(default_factory=list)
+    live: list[Entry | None] = field(default_factory=list)
 
-    def of(self, _plan: Plan, query: str, _config: object) -> tuple[Heard | None, bool]:
+    def of(
+        self, _plan: Plan, query: str, _config: object, live: Entry | None = None
+    ) -> tuple[Heard | None, bool]:
         self.asked.append(query)
+        self.live.append(live)
         return self.heard, self.coming
 
 
@@ -342,7 +346,9 @@ class _LateVoices:
     after: int
     looks: int = 0
 
-    def of(self, _plan: Plan, _query: str, _base_url: str) -> tuple[Heard | None, bool]:
+    def of(
+        self, _plan: Plan, _query: str, _base_url: str, _live: object
+    ) -> tuple[Heard | None, bool]:
         self.looks += 1
         if self.looks < self.after:
             return None, True
@@ -898,3 +904,18 @@ def test_a_waiting_ask_brings_parts_landing_close_together_in_one_answer(
     assert body == {"related": []}
     assert "X-Torrcast-Partial" not in extra
     assert looks == []
+
+
+def test_a_card_asks_the_tracks_of_its_live_bookmark(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Живая закладка идёт в отбор дорожек: «Играть» продолжит её, а не раздачу карточки."""
+    voices = _StubVoices()
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[], voices=voices)
+    saved = FakeStateStore()
+    state = saved.load()
+    state.put(_MOVIE.key, Entry(title="Interstellar", magnet="magnet:kept", dur=9.0, pos=3.0))
+    saved.save(state)
+    state_slot.install(saved)
+
+    _asked(_MOVIE.key)
+
+    assert [live.magnet if live else None for live in voices.live] == ["magnet:kept"]
