@@ -60,7 +60,8 @@ def test_a_hovered_tile_starts_its_shelf_from_the_shared_fact_identity(
 
     class _Flights:
         @staticmethod
-        def of(_title: str, _year: int, _kind: str) -> _Facts:
+        def of(_title: str, _year: int, _kind: str, foreground: bool = True) -> _Facts:
+            assert not foreground
             return _Facts()
 
     class _Related:

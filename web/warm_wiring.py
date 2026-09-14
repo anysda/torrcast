@@ -57,7 +57,9 @@ def _kin(picture: FactPicture) -> None:
     kind = picture[2] if len(picture) == 3 else "movie"
     if year is None:
         return
-    facts = _facts.of(title, year, kind)
+    # A hover is a warm-up, not an open card.  Marking it foreground let an
+    # entire screen take precedence over the click it was meant to prepare.
+    facts = _facts.of(title, year, kind, foreground=False)
 
     def start() -> None:
         entity = str(getattr(facts.ready(title, year), "entity", ""))

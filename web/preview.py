@@ -53,7 +53,7 @@ class _FactFlights:
     pending: dict[tuple[str, int, str], tuple[MenuFacts, float]] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    def of(self, title: str, year: int, kind: str) -> MenuFacts:
+    def of(self, title: str, year: int, kind: str, foreground: bool = True) -> MenuFacts:
         """Взять текущий добор или начать ровно один вместо волны клонов."""
         key = title, year, kind
         now = time.monotonic()
@@ -68,9 +68,11 @@ class _FactFlights:
                     or facts.answered(title, year)
                     or now - active[1] < _FAILED_RETRY
                 ):
+                    if foreground:
+                        facts.foreground = True
                     return facts
             facts = MenuFacts([key], budget=PATIENCE)
-            facts.foreground = True
+            facts.foreground = foreground
             facts.start()
             self.pending[key] = facts, now
             return facts

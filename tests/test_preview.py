@@ -230,6 +230,20 @@ def test_waiting_previews_share_one_unfinished_fact_lookup(
     assert made == 1
 
 
+def test_a_card_promotes_a_hovered_fact_flight_to_foreground(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A screen's hover must not claim card priority before the person clicks it."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
+    flights = web.preview._FactFlights()
+
+    hover = flights.of("Лука", 2021, "movie", foreground=False)
+    card = flights.of("Лука", 2021, "movie")
+
+    assert card is hover
+    assert card.foreground
+
+
 def test_a_finished_silent_fact_lookup_is_retried_without_its_old_flight(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
