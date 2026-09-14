@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.picture import Picture
+from torrcast.domain.richer_namesake import _whole_word
 from torrcast.domain.slugify import slugify
 from torrcast.domain.subtitles import _subtitles
 
@@ -13,8 +14,10 @@ def _by_subtitle(query: str, pictures: list[Picture]) -> list[Picture]:
         return []
     # Подписью картину зовут и КУСКОМ: «Kaede to Suzu» при подписи «Kaede to Suzu The
     # Animation». Сличение подписи целиком отвечало пустотой ровно там, где человек назвал
-    # картину почти дословно.
-    items = [p for p in pictures if any(wanted in slug for slug in _subtitles(p))]
+    # картину почти дословно. Кусок - это СЛОВА подписи, а не буквы: «мы» внутри «Тьмы»,
+    # «мыса» и «Мини-фильмы» приводило к «Мы» (2019) семь чужих картин, и самой живой из
+    # них отдавался показ.
+    items = [p for p in pictures if any(_whole_word(slug, wanted) for slug in _subtitles(p))]
     items.sort(
         key=lambda p: (
             p.sort_year is None,
