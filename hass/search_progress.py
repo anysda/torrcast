@@ -82,6 +82,8 @@ def _preview(query: str, job: SearchJob, offer: Offer | None = None) -> list[Jso
     платят заходами в сеть и решают об оригинале, а превью - только то, что уже
     ответило, без единого лишнего запроса к индексерам.
     """
+    if job.hits:
+        return job.dress(job.hits, searching.OFFER if offer is None else offer)
     if job.client is None:
         return []
     peek = getattr(job.client, "inflight", None)

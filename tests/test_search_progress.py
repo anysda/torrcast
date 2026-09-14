@@ -167,6 +167,47 @@ def test_a_slow_poster_verdict_does_not_hold_the_preview_poll() -> None:
         gate.set()
 
 
+def test_a_finished_circle_shows_its_list_while_the_poster_verdict_still_runs() -> None:
+    """🔴 Готовый круг ждал приговор обложек (1.1-1.6 с на стенде), и плиток не было вовсе."""
+    wire_catalogue()
+    verdict = threading.Event()
+    client = Indexer(answers={"тачки": _CARS})
+
+    def search(config: Config, args: Any, said: Any, profile: Any, on_indexer: Any) -> Any:
+        return search_circle(
+            config,
+            args,
+            said,
+            profile,
+            indexer=lambda *_a, **_k: client,
+            passport=lambda *_a, **_k: Origin(),
+        )
+
+    def offer(results: list[JsonValue]) -> list[JsonValue]:
+        verdict.wait(2.0)
+        return [{**hit, "poster": "p"} if isinstance(hit, dict) else hit for hit in results]
+
+    def poll() -> tuple[list[Any], bool]:
+        return search_progress(_CONFIG, "тачки", _detect, _remember, search=search, offer=offer)
+
+    try:
+        results, partial = poll()
+        deadline = time.monotonic() + 1.0
+        while not results and time.monotonic() < deadline:
+            results, partial = poll()
+        assert partial is True
+        assert [(hit["title"], hit.get("poster")) for hit in results] == [
+            ("Тачки", None),
+            ("Тачки 2", None),
+        ]
+        verdict.set()
+        while partial and time.monotonic() < deadline + 2.0:
+            results, partial = poll()
+        assert [hit.get("poster") for hit in results] == ["p", "p"]
+    finally:
+        verdict.set()
+
+
 def test_the_final_poll_carries_the_real_default_and_partial_false() -> None:
     wire_catalogue()
     gate = threading.Event()

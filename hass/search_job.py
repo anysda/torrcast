@@ -56,6 +56,8 @@ class SearchJob:
     finished_at: float = 0.0
     posters: dict[str, JsonValue] = field(default_factory=dict)
     judging: bool = False
+    #: The finished circle's list before its poster verdict: previews show it at once.
+    hits: list[JsonValue] = field(default_factory=list)
 
     def run(
         self,
@@ -84,12 +86,14 @@ class SearchJob:
         remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])
         taken = enter_take(plans, args.title_query).number
         hits = [_hit(plan.picture, n, default=n == taken) for n, plan in enumerate(plans, start=1)]
+        self.judging, self.hits = True, hits  # previews wait for this verdict, not a second one
         # Имя обложки даёт тот же приговор, что и обычному поиску (:data:`hass.searching.OFFER`):
         # без этого шага веб-выдача шла совсем без обложек. Отказ приговора выдачу не роняет.
         try:
             self.results = (searching.OFFER if offer is None else offer)(hits)
         except (TorrcastError, OSError):
             self.results = hits
+        self.judging = False
         self._finish()
 
     def dress(self, hits: list[JsonValue], offer: Offer) -> list[JsonValue]:
