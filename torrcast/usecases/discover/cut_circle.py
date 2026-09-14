@@ -6,13 +6,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.discover.told_circle import ToldCircle
 
 
-class CutCircle(list["Plan"]):
+class CutCircle(ToldCircle):
     """Планы урезанного круга: кэш кругов держит их коротко и на диск не пишет."""
 
 

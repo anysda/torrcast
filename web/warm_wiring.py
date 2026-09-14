@@ -18,7 +18,9 @@ from torrcast.domain.tune import tune
 from torrcast.ports.progress.slot import progress
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
+from torrcast.usecases.discover.replay_indexer import ReplayIndexer
 from torrcast.usecases.discover.search_circle import search_circle
+from web.circle_disk import CircleDisk
 from web.kin_ahead import KIN_AHEAD
 from web.preview import _facts
 from web.prime import prime
@@ -27,6 +29,7 @@ from web.warm_cache import WarmCache
 from web.warm_targets import WarmTargets
 
 if TYPE_CHECKING:
+    from torrcast.usecases.discover.told_indexer import Told
     from torrcast.usecases.facts import FactPicture
     from torrcast.usecases.select.plan import Plan
 
@@ -42,6 +45,19 @@ def _search(query: str) -> list[Plan]:
     chosen = detector.detect(config)
     return search_circle(
         tune(config, chosen.profile), parse_args([query]), progress(), chosen.profile
+    )
+
+
+def _replay(query: str, told: list[Told]) -> list[Plan]:
+    """Круг с диска: тот же разбор, но каталог отвечает записанным, без сети."""
+    config = load_config()
+    chosen = detector.detect(config)
+    return search_circle(
+        tune(config, chosen.profile),
+        parse_args([query]),
+        progress(),
+        chosen.profile,
+        indexer=lambda _url, _key: ReplayIndexer(told),
     )
 
 
@@ -136,7 +152,9 @@ TARGETS: Final = WarmTargets(
     spawn=_daemon,
 )
 #: Один прогрев на процесс: его греет ``POST /api/seen``, из него берёт круг карточка.
-WARM: Final = WarmCache(circle=TARGETS.search, blurbs=_blurbs, spawn=_daemon)
+WARM: Final = WarmCache(
+    circle=TARGETS.search, blurbs=_blurbs, spawn=_daemon, disk=CircleDisk(), replay=_replay
+)
 TARGETS.ask = WARM.ask
 #: Общая карточке и прогреву родня: первый клик читает уже идущий или готовый кэш.
 RELATED: Final = RelatedLookup(

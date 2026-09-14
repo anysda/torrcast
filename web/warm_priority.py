@@ -8,14 +8,19 @@ from typing import Any
 from torrcast.domain.torrcast_error import TorrcastError
 
 
-def _hint(cache: Any, query: str) -> int:
-    """Schedule the card before background work without replacing that work."""
+def _hint(cache: Any, query: str, stale: bool = False) -> int:
+    """Schedule the card before background work without replacing that work.
+
+    ``stale`` - the circle was served from disk and is refreshed even though it is ready.
+    """
     query = query.strip()
-    if not query or cache.ready(query) is not None:
+    if not query or (cache.ready(query) is not None and not stale):
         return 0
     with cache._cond:
         if query in cache._busy or query in cache._urgent:
             return 0
+        if stale:
+            cache._stale.add(query)
         cache._queue = [queued for queued in cache._queue if queued != query]
         cache._urgent.append(query)
         hands = max(0, min(cache.workers - cache._running, 1))

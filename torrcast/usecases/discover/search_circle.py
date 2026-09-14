@@ -28,6 +28,8 @@ from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover._second_typo import _second_typo
 from torrcast.usecases.discover.cut_circle import CutCircle
 from torrcast.usecases.discover.season_reread import season_reread
+from torrcast.usecases.discover.told_circle import ToldCircle
+from torrcast.usecases.discover.told_indexer import ToldIndexer
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
 from torrcast.usecases.reinforce._ceiling_reinforce import _ceiling_reinforce
 from torrcast.usecases.reinforce._leading import _leading
@@ -71,10 +73,11 @@ def search_circle(
         raise InfraError(phrase("discover.prowlarr_not_configured"))
     query = args.title_query
     name, index = split_franchise_index(query)
-    client = (indexer or _search_state._search_indexers)(
+    source = (indexer or _search_state._search_indexers)(
         config.prowlarr_url, config.prowlarr_apikey
     )
-    _notify(on_indexer, client)
+    _notify(on_indexer, source)
+    client = ToldIndexer(source)
     progress.phase(phrase("discover.search_phase", query=name))
     raw = _ask(client, name)
     if not raw:
@@ -151,4 +154,4 @@ def search_circle(
         raise NotFoundError(
             phrase("discover.no_season_releases", title=_title(found[0]), season=want.season)
         )
-    return CutCircle(plans) if getattr(client, "cut", ()) else plans
+    return (CutCircle if getattr(source, "cut", ()) else ToldCircle)(plans, list(client.told))

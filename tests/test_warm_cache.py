@@ -6,15 +6,22 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.domain.server_down_error import ServerDownError
+from torrcast.usecases.discover.cut_circle import CutCircle
+from torrcast.usecases.discover.told_circle import ToldCircle
+from torrcast.usecases.discover.told_indexer import Told
 from torrcast.usecases.facts import FactPicture
 from torrcast.usecases.select.plan import Plan
+from web.circle_disk import CircleDisk
 from web.circle_memory import EMPTY_TTL
 from web.warm_cache import LIMIT, TTL, WORKERS, WarmCache
 
@@ -338,3 +345,45 @@ def test_a_live_request_waits_for_the_circle_the_background_is_already_counting(
     assert taken == [[_PLAN]]
     assert circle.asked == ["Interstellar"]
     assert not [hand for hand in hands if hand.is_alive()]
+
+
+_TOLD: list[Told] = [("search", "Interstellar", 0.0, (), [RawResult("Interstellar 1080p", "h")])]
+
+
+def _restarted(tmp_path: Path, circle: _Circle, spawn: Callable[[Callable[[], None]], None]) -> Any:
+    replayed: list[str] = []
+
+    def replay(query: str, told: list[Told]) -> list[Plan]:
+        replayed.append(query)
+        return [_PLAN] if told == _TOLD else []
+
+    disk = CircleDisk(path=lambda: tmp_path / "circles.json")
+    cache = WarmCache(circle, lambda _p: None, spawn, disk=disk, replay=replay)
+    return cache, replayed
+
+
+def test_after_a_restart_a_repeat_is_served_from_disk_and_refreshed_by_one_background_circle(
+    tmp_path: Path,
+) -> None:
+    """🔴 Холодный процесс гнал круг заново, хотя тот же запрос считался минуту назад."""
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
+    held: list[Callable[[], None]] = []
+    cache, replayed = _restarted(tmp_path, circle, held.append)
+
+    assert cache.take("Interstellar ") == [_PLAN]
+    assert (circle.asked, replayed, held) == (["Interstellar"], ["Interstellar "], [cache._pump])
+    while held:
+        held.pop(0)()
+    assert cache.take("Interstellar") == [_PLAN]
+    assert (circle.asked, replayed) == (["Interstellar", "Interstellar"], ["Interstellar "])
+
+
+def test_a_cut_circle_is_not_written_to_disk(tmp_path: Path) -> None:
+    circle = _Circle(answer=CutCircle([_PLAN], _TOLD))
+    _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
+
+    cache, replayed = _restarted(tmp_path, circle, _sync)
+    cache.take("Interstellar")
+
+    assert (circle.asked, replayed) == (["Interstellar", "Interstellar"], [])
