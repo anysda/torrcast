@@ -22,7 +22,7 @@ from torrcast.domain.release import Release
 from torrcast.ports.state_store.slot import install as install_state
 from torrcast.ports.state_store.slot import store as state_store
 from torrcast.usecases.choice.configure import configure as configure_choice
-from torrcast.usecases.discover._search_state import _configure_discover
+from torrcast.usecases.discover._search_state import _configure_discover, _configure_known
 from torrcast.usecases.rank._cut import _cut
 from torrcast.usecases.rank.bitrate_of import bitrate_of
 from torrcast.usecases.rank.hevc_hope import hevc_hope
@@ -162,6 +162,8 @@ def wire_catalogue(passport: Origin | None = None) -> None:
         return passport or Origin()
 
     _configure_discover(Catalogue(), passport_of, lambda *_args, **_kwargs: Indexer())
+    # Карта IMDb молчит, как справка: круг, доживший до конца теста, машинную карту не читает.
+    _configure_known(lambda _title: [])
     configure_reinforce(Catalogue(), passport_of)
     _configure_choice_environment(
         passport_of, _cut, bitrate_of, hevc_hope, is_candidate, is_dated, _timed
