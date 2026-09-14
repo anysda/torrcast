@@ -350,15 +350,17 @@ const TCHome = {
   //
   // Ключ у двух РАЗНЫХ пунктов меню бывает одним и тем же (одна картина, два плана) -
   // мерж по одному `key` тогда съедал бы второй пункт. Личность плитки - `key` и номер
-  // ЕЁ повторения по счёту, а не сам `key` в одиночку.
+  // ЕЁ повторения по счёту, а не сам `key` в одиночку. Находка, севшая в плитку каталога
+  // (`hass.catalog_merge`), несёт её место в `slot` и остаётся той же плиткой.
   _mergeHits(known, fresh, partial) {
     if (!partial) return fresh;
     const ids = (list) => {
       const seen = new Map();
       return list.map((hit) => {
-        const n = seen.get(hit.key) || 0;
-        seen.set(hit.key, n + 1);
-        return hit.key + '\u0000' + n;
+        const own = hit.slot || hit.key;
+        const n = seen.get(own) || 0;
+        seen.set(own, n + 1);
+        return own + '\u0000' + n;
       });
     };
     const freshIds = ids(fresh);
@@ -429,7 +431,7 @@ const TCHome = {
       return body;
     }
     if (partial) body.appendChild(TCHome._searchingLine());
-    TCHome._syncCount(results.length);
+    TCHome._syncCount(results.filter((hit) => !hit.dim && !hit.pending).length);
     // Отрисованный список запоминается СТРОКОЙ: следующий равный ответ не повод
     // пересобирать экран.
     TCHome._shownHits = JSON.stringify(results);
@@ -454,12 +456,16 @@ const TCHome = {
         poster: hit.poster,
         year: hit.year,
         facts: { title: hit.title, shown: hit.shown || hit.title, year: hit.year, kind: hit.kind },
-        best: firstBest && index === 0,
+        best: firstBest && index === 0 && !hit.dim,
         group: 'search-results',
         query: TCHome._query,
+        // Картина каталога ждёт раздачи под своей обложкой, а не нашлось их за весь круг -
+        // гаснет и больше не открывается: карточке без раздач нечего играть.
+        caption2: hit.pending ? TC.say('web.detail.searching_releases') : '',
+        dim: !!hit.dim,
         // У всей выдачи запрос ОДИН - тот, что человек написал: весь экран находок
         // стоит прогреву одного круга, а не одного круга на плитку.
-        onActivate: TCHome._openCard,
+        onActivate: hit.dim ? null : TCHome._openCard,
       }));
     });
     return row;

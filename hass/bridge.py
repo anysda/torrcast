@@ -46,7 +46,7 @@ from torrcast.ports.refusal_record import refusal_record
 from torrcast.runtime.playback_session import playback_session
 from torrcast.usecases.start_progress import START
 from torrcast.usecases.warm.warm_root import warm_root
-from web.warm_wiring import WARM
+from web.warm_wiring import CATALOG, WARM
 
 VOLUME = "volume"
 
@@ -114,8 +114,9 @@ class Bridge:
         return searching(self._settings(), query, self._search, self._detect, self._remember)
 
     def search_progress(self, query: str) -> tuple[list[JsonValue], bool]:
-        """``POST /api/search`` с ``progressive: true``: один круг с карточкой (:data:`WARM`)."""
-        return search_progress(self._settings(), query, self._detect, self._remember, warm=WARM)
+        """``POST /api/search`` с ``progressive: true``: каталог первым, круг (:data:`WARM`)."""
+        said = self._settings(), query, self._detect, self._remember
+        return search_progress(*said, warm=WARM, catalog=CATALOG)
 
     def play(
         self,
@@ -184,8 +185,7 @@ class Bridge:
         self._orders.leave()
 
     def _volume_of(self, config: Config) -> Volume:
-        """Громкость ТОГО приёмника, который назван настройкой прямо сейчас: адрес
-        меняется живой командой ``cast --tv``, и старое соединение мост отпускает."""
+        """Громкость приёмника из настройки прямо сейчас: ``cast --tv`` меняет его на лету."""
         address = config.tv or ""
         if self._volume is not None and self._volume.address != address:
             self._volume.close()

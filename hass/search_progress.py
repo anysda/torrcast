@@ -24,6 +24,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from hass import searching
+from hass.catalog_merge import catalog_merge
+from hass.catalog_tiles import CatalogTiles
 from hass.refused_error import RefusedError
 from hass.search_job import SearchJob, _Shared
 from hass.search_results import _hit
@@ -82,17 +84,22 @@ def _preview(query: str, job: SearchJob, offer: Offer | None = None) -> list[Jso
     платят заходами в сеть и решают об оригинале, а превью - только то, что уже
     ответило, без единого лишнего запроса к индексерам.
     """
+    said = searching.OFFER if offer is None else offer
     if job.hits:
-        return job.dress(job.hits, searching.OFFER if offer is None else offer)
-    if job.client is None:
-        return []
+        return job.dress(job.hits, said)
+    catalog = [] if job.catalog is None else job.catalog.tiles()
+    shown = catalog_merge(catalog, _peek(query, job), done=False)
+    return job.dress(shown, said) if shown else []
+
+
+def _peek(query: str, job: SearchJob) -> list[JsonValue]:
+    """Находки по тому, что клиент индексеров уже держит в руках."""
     peek = getattr(job.client, "inflight", None)
     raw: list[RawResult] = peek() if peek is not None else []
     if not raw:
         return []
     found = menu_order(pick_franchise(query, cluster(to_releases(raw))))
-    hits = [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
-    return job.dress(hits, searching.OFFER if offer is None else offer)
+    return [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
 
 
 def search_progress(
@@ -104,6 +111,7 @@ def search_progress(
     search: ProgressiveSearch = PROGRESSIVE_SEARCH,
     offer: Offer | None = None,
     warm: _Shared | None = None,
+    catalog: Callable[[str], CatalogTiles] | None = None,
 ) -> tuple[list[JsonValue], bool]:
     """Тело ``POST /api/search`` с ``progressive: true``: превью или готовый список.
 
@@ -116,13 +124,15 @@ def search_progress(
     промежуточных заходов на итог не влияет вовсе - оно только читает то, что круг уже
     собрал, и не подменяет собой ни одного его шага. ``warm`` - общий кэш кругов
     (:mod:`hass.search_job`): с ним выдача, прогрев и карточка платят один круг на запрос.
+    ``catalog`` - плитки каталога под запрос (:mod:`hass.catalog_tiles`): они стоят на экране
+    до первой раздачи, а без раздач гаснут только после полного круга.
     """
     key = query.strip().casefold()
     with _jobs_lock:
         job = _jobs.get(key)
         stale = job is not None and job.done and time.monotonic() - job.finished_at > JOB_TTL
         if job is None or stale:
-            job = SearchJob()
+            job = SearchJob(catalog=None if catalog is None else catalog(query))
             _jobs[key] = job
             threading.Thread(
                 target=job.run,

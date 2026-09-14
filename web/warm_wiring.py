@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
+from urllib.parse import quote
 
+from hass.catalog_index import CatalogIndex
+from hass.catalog_tiles import CatalogTiles
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.wiki.imdb_poster import _HOST
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.tune import tune
 from torrcast.ports.progress.slot import progress
@@ -164,5 +168,30 @@ RELATED: Final = RelatedLookup(
     warm=KIN_AHEAD.offer,
 )
 KIN_AHEAD.fetch = FACTS.franchise.by_entities
+#: Сколько строка поиска ждёт подсказчик IMDb: он отвечает за 0.3-0.9 с, дольше - обрыв.
+SUGGEST_TIMEOUT: Final = 2.0
+#: Указатель каталога по началу имени; собирается фоном на старте (:mod:`hass.warm_facts`).
+INDEX: Final = CatalogIndex(lambda: FACTS.catalogue.names(), lambda: FACTS.ratings.votes())
 
-__all__ = ["RELATED", "TARGETS", "WARM"]
+
+def _suggest(query: str) -> list[dict[str, Any]]:
+    """Подсказчик IMDb: тот же адрес, что у поля поиска на imdb.com (:mod:`~torrcast.
+    adapters.wiki.imdb_poster`)."""
+    path = "/suggestion/x/" + quote(query.strip(), safe="") + ".json"
+    got = FACTS.client.get(
+        _HOST, path, {"includeVideos": "0"}, {}, SUGGEST_TIMEOUT, foreground=True
+    )
+    rows = got.get("d") if isinstance(got, dict) else None
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _catalog(query: str) -> CatalogTiles:
+    """Плитки каталога под запрос строки поиска; подсказки спрашиваются фоном."""
+    return CatalogTiles(query, INDEX, _suggest).start(_daemon)
+
+
+#: Плитки каталога, которые строка поиска показывает до первой раздачи (:mod:`hass.catalog_tiles`).
+CATALOG: Final = _catalog
+
+
+__all__ = ["CATALOG", "INDEX", "RELATED", "SUGGEST_TIMEOUT", "TARGETS", "WARM"]

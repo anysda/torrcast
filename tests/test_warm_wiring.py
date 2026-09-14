@@ -209,3 +209,22 @@ def test_a_visible_tile_with_a_confirmed_missing_article_gets_no_franchise_passp
     wiring._background_kin(("Молчит", 1992, "movie"))
 
     assert finished == [[("Молчит", 1992, "movie")]]
+
+
+def test_the_search_catalog_asks_the_imdb_suggestion_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Подсказки строки поиска идут тем же адресом, что поле поиска imdb.com."""
+    asked: list[tuple[str, str]] = []
+
+    def get(host: str, path: str, *_args: object, **_kwargs: object) -> object:
+        asked.append((host, path))
+        return {"d": [{"id": "tt0816692", "l": "Interstellar", "y": 2014}, "мусор"]}
+
+    monkeypatch.setattr(FACTS.client, "get", get)
+    rows = wiring._suggest("интерстелар ")
+    assert asked == [
+        (
+            "v3.sg.media-imdb.com",
+            "/suggestion/x/%D0%B8%D0%BD%D1%82%D0%B5%D1%80%D1%81%D1%82%D0%B5%D0%BB%D0%B0%D1%80.json",
+        )
+    ]
+    assert rows == [{"id": "tt0816692", "l": "Interstellar", "y": 2014}]

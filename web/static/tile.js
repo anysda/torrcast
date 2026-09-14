@@ -6,10 +6,10 @@
 
 const TCTile = {
   // shape: {key, title, year, kind, poster, query, caption2, best, progress,
-  //         group, loading, onActivate}
+  //         group, loading, dim, onActivate}
   build(shape) {
     const tile = document.createElement('div');
-    tile.className = 'tc-tile';
+    tile.className = shape.dim ? 'tc-tile is-dim' : 'tc-tile';
     tile.dataset.tcTile = '1';
     if (shape.group) tile.dataset.tcGroup = shape.group;
     // Пометка для прогрева (`warm.js`) - ТОТ ЖЕ запрос, с которым откроется карточка:

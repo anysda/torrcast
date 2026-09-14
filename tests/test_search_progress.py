@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from hass.catalog_tiles import CatalogTiles
 from hass.refused_error import RefusedError
 from hass.search_progress import search_progress
 from tests.usecases.discover.world import Indexer, row, wire_catalogue
@@ -300,3 +301,80 @@ def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:
             refused = caught
             break
     assert refused is not None and "нетакого" in refused.word
+
+
+class _Index:
+    """Указатель каталога без выгрузок: одна картина на любой запрос."""
+
+    def __init__(self, *rows: tuple[str, str, str, str, str]) -> None:
+        self.rows = list(rows)
+
+    def look(self, _query: str) -> list[tuple[str, str, str, str, str]]:
+        return self.rows
+
+    def by_id(self, _tconst: str) -> None:
+        return None
+
+    def votes(self) -> dict[str, int]:
+        return {}
+
+
+def _fields(results: list[Any], *names: str) -> list[tuple[Any, ...]]:
+    return [tuple(hit.get(name) for name in names) for hit in results]
+
+
+def _catalog(*rows: tuple[str, str, str, str, str]) -> Any:
+    return lambda query: CatalogTiles(query, cast("Any", _Index(*rows)), lambda _q: [])
+
+
+def test_catalog_tiles_stand_before_the_first_release_and_catch_their_releases() -> None:
+    """Картина каталога на экране до раздач; её находка садится в ту же плитку."""
+    wire_catalogue()
+    gate = threading.Event()
+    client = _PreviewClient(answers={"тачки": _CARS}, raw=[])
+    search = _blocking_search(client, gate)
+    catalog = _catalog(("tt1", "movie", "Cars", "2006", "Тачки"))
+    try:
+        results, partial = search_progress(
+            _CONFIG, "тачки", _detect, _remember, search=search, offer=_as_is, catalog=catalog
+        )
+        assert partial is True
+        assert _fields(results, "title", "pending") == [("Тачки", True)]
+    finally:
+        gate.set()
+    deadline = time.monotonic() + 2.0
+    while partial and time.monotonic() < deadline:
+        results, partial = search_progress(
+            _CONFIG, "тачки", _detect, _remember, search=search, offer=_as_is, catalog=catalog
+        )
+    assert partial is False
+    assert _fields(results, "title", "slot", "dim") == [
+        ("Тачки", "movie:тачки:2006", None),
+        ("Тачки 2", None, None),
+    ]
+
+
+def test_catalog_tiles_without_releases_dim_only_after_the_whole_circle() -> None:
+    """Запрос без раздач: плитки видны, пока круг идёт, и гаснут после него, а не 409."""
+    wire_catalogue()
+    gate = threading.Event()
+    client = _PreviewClient(answers={}, raw=[])
+    search = _blocking_search(client, gate)
+    catalog = _catalog(("tt2", "movie", "Nope", "2001", "Нетакого"))
+
+    def poll() -> tuple[list[Any], bool]:
+        return search_progress(
+            _CONFIG, "нетакого", _detect, _remember, search=search, offer=_as_is, catalog=catalog
+        )
+
+    results, partial = poll()
+    assert partial is True
+    assert [(hit["title"], hit.get("pending"), hit.get("dim")) for hit in results] == [
+        ("Нетакого", True, None)
+    ], "до конца круга плитка ждёт раздачи, а не гаснет"
+    gate.set()
+    deadline = time.monotonic() + 2.0
+    while partial and time.monotonic() < deadline:
+        results, partial = poll()
+    assert partial is False
+    assert [(hit["title"], hit.get("dim")) for hit in results] == [("Нетакого", True)]

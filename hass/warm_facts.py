@@ -19,11 +19,21 @@ from __future__ import annotations
 import threading
 
 from torrcast.runtime.facts_wiring import FACTS
+from web.warm_wiring import INDEX
 
 
 def warm_facts() -> None:
-    """Разобрать офлайн-карту фоном, пока сервис поднимается, а не на первом поиске."""
-    threading.Thread(target=FACTS.catalogue.names, daemon=True, name="warm-facts").start()
+    """Разобрать офлайн-карту фоном, пока сервис поднимается, а не на первом поиске.
+
+    Следом собирается указатель каталога (:data:`web.warm_wiring.INDEX`): по нему строка
+    поиска показывает картины до первой раздачи.
+    """
+    threading.Thread(target=_warm, daemon=True, name="warm-facts").start()
+
+
+def _warm() -> None:
+    FACTS.catalogue.names()
+    INDEX.warm()
 
 
 __all__ = ["warm_facts"]

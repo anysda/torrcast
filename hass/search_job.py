@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from hass import searching
+from hass.catalog_merge import catalog_merge
+from hass.catalog_tiles import CatalogTiles
 from hass.search_results import _hit
 from hass.searching import Detect, Offer, Remember
 from torrcast.cli.parse_args import parse_args
@@ -58,6 +60,8 @@ class SearchJob:
     judging: bool = False
     #: The finished circle's list before its poster verdict: previews show it at once.
     hits: list[JsonValue] = field(default_factory=list)
+    #: Картины каталога под этот запрос (:mod:`hass.catalog_tiles`); без них - только раздачи.
+    catalog: CatalogTiles | None = None
 
     def run(
         self,
@@ -80,19 +84,28 @@ class SearchJob:
         try:
             plans = circle(query) if warm is None else warm.take(query, circle)
         except TorrcastError as refusal:
-            self.error = str(refusal)
+            plans, self.error = [], str(refusal)
+        hits: list[JsonValue] = []
+        if plans:
+            named = [(plan.picture.key, _named(plan.picture)) for plan in plans]
+            remember(args.title_query, named)
+            taken = enter_take(plans, args.title_query).number
+            hits = [_hit(plan.picture, n, default=n == taken) for n, plan in enumerate(plans, 1)]
+        # Картины каталога без раздач гаснут только теперь, после полного круга.
+        shown = (
+            hits if self.catalog is None else catalog_merge(self.catalog.tiles(), hits, done=True)
+        )
+        if not shown:
             self._finish()
             return
-        remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])
-        taken = enter_take(plans, args.title_query).number
-        hits = [_hit(plan.picture, n, default=n == taken) for n, plan in enumerate(plans, start=1)]
-        self.judging, self.hits = True, hits  # previews wait for this verdict, not a second one
+        self.error = None
+        self.judging, self.hits = True, shown  # previews wait for this verdict, not a second one
         # Имя обложки даёт тот же приговор, что и обычному поиску (:data:`hass.searching.OFFER`):
         # без этого шага веб-выдача шла совсем без обложек. Отказ приговора выдачу не роняет.
         try:
-            self.results = (searching.OFFER if offer is None else offer)(hits)
+            self.results = (searching.OFFER if offer is None else offer)(shown)
         except (TorrcastError, OSError):
-            self.results = hits
+            self.results = shown
         self.judging = False
         self._finish()
 

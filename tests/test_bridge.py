@@ -911,6 +911,7 @@ def test_the_progressive_route_answers_with_the_finished_menu_once_the_circle_la
     # Один круг с карточкой, но свой кэш: общий на процесс унёс бы «тачки» в чужие тесты.
     warm = WarmCache(circle=lambda _q: [], blurbs=lambda _p: None, spawn=lambda _job: None)
     monkeypatch.setattr("hass.bridge.WARM", warm)
+    monkeypatch.setattr("hass.bridge.CATALOG", None)  # подсказчик IMDb - сеть, тесту не место
     bridge = _bridge(FakePlaybackSession(), settings=lambda: _SEARCH_CONFIG)
     plans = _real_search({"тачки": _CARS})(_SEARCH_CONFIG, Args(query=["тачки"]), Said())
     taken = enter_take(plans, "тачки").number

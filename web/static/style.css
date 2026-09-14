@@ -267,6 +267,8 @@ body {
    иначе толкала бы соседей и полку ниже, и под неподвижной мышью вставала бы другая. */
 .tc-tile.is-lit { z-index: 2; }
 .tc-tile.is-lit .tc-tile-frame { outline: var(--tc-focus-ring) solid var(--tc-acid); }
+/* Картина каталога, у которой за полный круг не нашлось раздач: видна, но погашена. */
+.tc-tile.is-dim { opacity: .35; filter: grayscale(1); }
 .tc-tile.is-lit .tc-tile-cap { background: var(--tc-acid); }
 .tc-tile.is-lit .tc-tile-cap .tc-caption { color: var(--tc-bg); white-space: normal;
   /* Слово без пробелов длиннее самой плитки: `normal` ему ломаться не даёт, и без
