@@ -16,13 +16,14 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.track_studio import track_studio
 from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.usecases.rank.pick_voice import pick_voice
+from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show, _release_torrents
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, weakref_slot=True)
 class _Voiced:
     """Раздача, поднятая ради ``--voice``: у неё есть хозяин, пока её не принял показ.
 
@@ -53,8 +54,8 @@ class _Voiced:
         if self.handed or not self.torrent_hash:
             return
         torrent_hash, self.torrent_hash = self.torrent_hash, ""
-        if _held_by_show(torrent_hash):
-            return
+        if not CLAIMS.unclaim(torrent_hash, self) or _held_by_show(torrent_hash):
+            return  # another holder in this process (the card lookup) drops it itself
         with contextlib.suppress(TorrcastError):
             (release or _release_torrents)(config, [torrent_hash])
 
@@ -102,7 +103,7 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
     torrserver = _pick_state._select_engines(config.torrserver_url)
     with progress_bar() as progress:
         progress.phase(phrase("select.phase_tracks"))
-        own.torrent_hash = torrent_hash = torrserver.add(entry.magnet)
+        own.torrent_hash = torrent_hash = CLAIMS.adding(entry.magnet, own, torrserver.add)
         torrserver.wait_files(torrent_hash, timeout=META_BUDGET)
         media = _pick_state._select_prober(
             torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET

@@ -20,6 +20,7 @@ from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.select._voiced import _Voiced
+from torrcast.usecases.torrent_claims import CLAIMS
 
 #: Шаг опроса роя, пока ждём первый контакт.
 CONTACT_STEP = 0.5
@@ -75,7 +76,8 @@ def _dead_release(config: Config, entry: Entry, own: _Voiced, clock: Clock | Non
     try:
         with progress_bar() as progress:
             progress.phase(phrase("select.phase_release"))
-            own.torrent_hash = torrent_hash = torrserver.add(entry.magnet)
+            # Held in the process: the card lookup of the same release does not drop it mid-check.
+            own.torrent_hash = torrent_hash = CLAIMS.adding(entry.magnet, own, torrserver.add)
             files = torrserver.wait_files(torrent_hash, timeout=RECORDED_CONTACT)
             kept = any(found.index == entry.file_idx for found in files)
             if kept:

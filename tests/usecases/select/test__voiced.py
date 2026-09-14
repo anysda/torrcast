@@ -7,6 +7,7 @@ from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.select._voiced import _Voiced, _voiced
+from torrcast.usecases.torrent_claims import CLAIMS
 
 
 class _Dropped:
@@ -68,3 +69,34 @@ def test_a_service_that_refuses_does_not_break_the_way_out() -> None:
     own.drop(Config(), _Dropped(fails=True))
 
     assert own.torrent_hash == ""
+
+
+class _CardLookup:
+    """Разбор серий карточки, который держит ту же раздачу в этом процессе."""
+
+
+def test_a_torrent_the_card_lookup_still_holds_is_left_to_it() -> None:
+    """Проверка записи и разбор карточки подняли одну раздачу: снос оставляется последнему."""
+    card = _CardLookup()
+    own = _Voiced()
+    CLAIMS.claim("c" * 40, card)
+    CLAIMS.claim("c" * 40, own)
+    own.torrent_hash = "c" * 40
+    dropped = _Dropped()
+
+    own.drop(Config(), dropped)
+
+    assert dropped.calls == []
+    assert CLAIMS.unclaim("c" * 40, card) is True
+
+
+def test_a_torrent_held_only_by_its_own_check_is_still_removed() -> None:
+    """Своя отметка держателя не держит: иначе каждая проверка записи оставляла раздачу."""
+    own = _Voiced()
+    CLAIMS.claim("d" * 40, own)
+    own.torrent_hash = "d" * 40
+    dropped = _Dropped()
+
+    own.drop(Config(), dropped)
+
+    assert dropped.calls == [["d" * 40]]

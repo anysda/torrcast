@@ -11,8 +11,10 @@ from tests.usecases.select.world import entry
 from torrcast.domain.config import Config
 from torrcast.domain.pick_settings import RECORDED_CONTACT
 from torrcast.domain.server_down_error import ServerDownError
+from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select._dead_release import _dead_release
 from torrcast.usecases.select._voiced import _Voiced
+from torrcast.usecases.torrent_claims import CLAIMS
 
 
 @pytest.fixture(autouse=True)
@@ -119,3 +121,39 @@ def test_an_unasked_question_is_not_marked_as_a_living_release(
 
     (mark,) = tape.named("записанная раздача")
     assert mark["исход"] == "не спрошена", "пустой ответ не должен читаться как «жива»"
+
+
+class _CardLookup:
+    """Разбор серий карточки, который держит ту же раздачу и убирает её, отпустив."""
+
+
+class _Raced(Swarm):
+    """Пока проверка ждёт метаданные, разбор карточки отпускает ту же раздачу."""
+
+    def __init__(self, card: _CardLookup) -> None:
+        super().__init__()
+        self.card = card
+        self.dropped: list[str] = []
+
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
+        if CLAIMS.unclaim(torrent_hash, self.card):
+            self.dropped.append(torrent_hash)
+        return super().wait_files(torrent_hash, timeout, grace)
+
+
+def test_the_card_lookup_does_not_drop_the_recorded_release_from_under_the_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Разбор карточки снял ту же раздачу посреди проверки: 404, «не спрошена», мёртвая запись
+    ушла в показ и 60 с не дала метаданных."""
+    card = _CardLookup()
+    CLAIMS.claim("hash-кино", card)
+    swarm = _Raced(card)
+    composition.use_engines(monkeypatch, swarm)
+    own = _Voiced()
+
+    _dead_release(Config(), entry(file_idx=0), own)
+
+    assert swarm.dropped == []
