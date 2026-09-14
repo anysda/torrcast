@@ -17,10 +17,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.domain.torrcast_error import TorrcastError
 from web.circle_disk import CircleDisk
 from web.circle_memory import CircleMemory
+from web.warm_live import _landed, _take_live
 from web.warm_priority import _hint, _unasked, _warm_blurbs
+from web.warm_pump import _pump
 
 if TYPE_CHECKING:
     from torrcast.usecases.discover.told_indexer import Told
@@ -87,24 +88,29 @@ class WarmCache:
             )
             if (refused := self._memory.refusal(query)) is not None:
                 raise refused
-            if (ready := self.ready(query)) is not None:
+            ready = self.ready(query)
+            if ready is not None and not self._memory.revived(query):
                 return ready
-            self._busy.add(key)
-        try:
-            with self._hold():
-                kept = self._memory.revive(query)
-                plans = (circle or self.circle)(query) if kept is None else kept
-            self._remember(query, plans)
-        except NotFoundError as nothing:
-            self._memory.refuse(query, nothing)
-            raise
-        finally:
-            with self._cond:
-                self._busy.discard(key)
-                self._cond.notify_all()
+            if ready is None:
+                self._busy.add(key)
+        if ready is not None:
+            _hint(self, key, stale=True)  # shown from disk: the network refreshes it behind
+            return ready
+        with self._counting(query), self._hold():
+            kept = self._memory.revive(query)
+            plans = (circle or self.circle)(query) if kept is None else kept
+        self._remember(query, plans, revived=kept is not None)
         if kept is not None:
             _hint(self, key, stale=True)  # served from disk at once, refreshed by the one hand
         return plans
+
+    def take_live(self, query: str) -> list[Plan]:
+        """Круг показу: только пришедший из сети (:func:`web.warm_live._take_live`)."""
+        return _take_live(self, query, BUSY_WAIT)
+
+    def landed(self, query: str) -> list[Plan] | None:
+        """Живой круг или тот, что уже считается; ``None`` - считай свой (:mod:`web.warm_live`)."""
+        return _landed(self, query, BUSY_WAIT)
 
     def ready(self, query: str) -> list[Plan] | None:
         """Согретый круг, ``[]`` при свежем «ничего не нашлось», иначе ``None``."""
@@ -136,37 +142,7 @@ class WarmCache:
         return _hint(self, query)
 
     def _pump(self) -> None:
-        """Брать из очереди, пока она не кончится, уступая дорогу живому запросу."""
-        try:
-            while True:
-                self._quiet()
-                with self._cond:
-                    if not self._urgent and not self._queue:
-                        return
-                    query = self._urgent.pop(0) if self._urgent else self._queue.pop(0)
-                    if query in self._busy or (
-                        self.ready(query) is not None and query not in self._stale
-                    ):
-                        continue  # a live caller already runs or landed this very circle
-                    self._busy.add(query)
-                    stale = query in self._stale
-                    self._stale.discard(query)
-                try:
-                    # Disk warms a screen offline; only what a live caller got from disk is re-asked
-                    kept = None if stale else self._memory.revive(query)
-                    plans = self.circle(query) if kept is None else kept
-                except NotFoundError as nothing:
-                    self._memory.refuse(query, nothing)
-                    plans = []
-                except (TorrcastError, OSError):
-                    plans = []
-                self._remember(query, plans)
-                with self._cond:
-                    self._busy.discard(query)
-                    self._cond.notify_all()
-        finally:
-            with self._cond:
-                self._running -= 1
+        _pump(self)
 
     def _quiet(self) -> None:
         """Дождаться, пока живой запрос отпустит сеть: фон второй в очереди, а не первый."""
@@ -174,12 +150,29 @@ class WarmCache:
             while self._live > 0:
                 self._cond.wait(PATIENCE)
 
-    def _remember(self, query: str, plans: list[Plan]) -> None:
-        """Запомнить непустую находку и согреть справку её картин; пустая - не находка."""
+    @contextmanager
+    def _counting(self, query: str) -> Iterator[None]:
+        """Круг, который считает живой: «ничего» помнится минуту, ждущие будятся в конце."""
+        try:
+            yield
+        except NotFoundError as nothing:
+            self._memory.refuse(query, nothing)
+            raise
+        finally:
+            with self._cond:
+                self._busy.discard(query.strip())
+                self._cond.notify_all()
+
+    def _remember(self, query: str, plans: list[Plan], revived: bool = False) -> None:
+        """Запомнить непустую находку и согреть справку её картин; пустая - не находка.
+
+        Поднятое с диска уже лежит в памяти (:meth:`CircleMemory.revive`) и живым не зовётся.
+        """
         if not plans:
             return
-        self._memory.keep(query, plans)
-        self.spawn(lambda: self._memory.store(query, plans))
+        if not revived:
+            self._memory.keep(query, plans)
+            self.spawn(lambda: self._memory.store(query, plans))
         wanted = _unasked(self, plans, LIMIT)
         if wanted:
             self.spawn(lambda: _warm_blurbs(self, wanted))

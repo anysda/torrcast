@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 import web.show_stage as show_stage
+from tests.test_warm_cache import _TOLD
 from tests.usecases.cast_command.world import GB, plans
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
@@ -15,18 +18,21 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
+from torrcast.usecases.discover.told_circle import ToldCircle
 from torrcast.usecases.select.plan import Plan
+from web.circle_disk import CircleDisk
+from web.warm_cache import WarmCache
 
 
 class _Warm:
     def __init__(self, circle: list[Any]) -> None:
         self.circle, self.asked = circle, []  # type: list[Any], list[str]
 
-    def take(self, query: str) -> list[Any]:
+    def take_live(self, query: str) -> list[Any]:
         self.asked.append(query)
         return self.circle
 
-    def ready(self, query: str) -> list[Any] | None:
+    def landed(self, query: str) -> list[Any] | None:
         return None
 
 
@@ -125,7 +131,7 @@ def _season(number: int, magnet: str) -> Release:
 
 
 class _Ready(_Warm):
-    def ready(self, query: str) -> list[Any] | None:
+    def landed(self, query: str) -> list[Any] | None:
         self.asked.append(query)
         return self.circle
 
@@ -164,5 +170,30 @@ def test_a_card_circle_without_the_asked_season_leaves_the_reinforce_to_the_sear
     monkeypatch.setattr(show_stage, "WARM", _Ready(_show_circle(_season(1, "magnet:one"))))
     monkeypatch.setattr(show_stage, "search_circle", lambda *_rest: own)
     asked = Args(query=["шоу", "s3e1"], picture="tv:шоу:2013")
+
+    assert show_stage._card_circle(Config(), asked, Any, CAUTIOUS) is own  # type: ignore[arg-type]
+
+
+def test_an_episode_row_does_not_play_a_card_circle_revived_from_disk(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """🔴 Строка s2e1 играла круг с диска двухчасовой давности: 0 стартов из 4 на стенде."""
+    circle = _show_circle(_season(1, "magnet:one"), _season(2, "magnet:two"))
+    disk = CircleDisk(path=lambda: tmp_path / "circles.json")
+
+    def _warm(spawn: Callable[[Callable[[], None]], None]) -> WarmCache:
+        told = ToldCircle(circle, _TOLD)
+        return WarmCache(
+            lambda _q: told, lambda _p: None, spawn, disk=disk, replay=lambda *_: circle
+        )
+
+    _warm(lambda job: job()).take("шоу")
+    warm = _warm(lambda job: job())
+    warm.ask(["шоу"])
+    assert warm.ready("шоу") is not None, "карточка круг с диска показывает"
+    own = plans(1)
+    monkeypatch.setattr(show_stage, "WARM", warm)
+    monkeypatch.setattr(show_stage, "search_circle", lambda *_rest: own)
+    asked = Args(query=["шоу", "s2e1"], picture=circle[0].picture.key)
 
     assert show_stage._card_circle(Config(), asked, Any, CAUTIOUS) is own  # type: ignore[arg-type]

@@ -34,21 +34,22 @@ def _card_circle(config: Config, args: Args, progress: Progress, profile: Profil
     Копия, а не общий объект: отбор переставляет планы, а кэш карточки служит дальше.
     """
     if args.picture and args.episode is None:
-        return [_detached(plan) for plan in WARM.take(args.title_query)]
+        return [_detached(plan) for plan in WARM.take_live(args.title_query)]
     if args.picture and (season := _season_circle(config, args, profile)):
         return season
     return search_circle(config, args, progress, profile)
 
 
 def _season_circle(config: Config, args: Args, profile: Profile) -> list[Plan]:
-    """Согретый круг карточки под названную серию; пусто - искать своим кругом.
+    """Живой круг карточки под названную серию; пусто - искать своим кругом.
 
     Строка серии жмётся на карточке, чей круг уже согрет: второй поиск стоил показу
     5 с, а выдача та же, из которой вкладка сезона и собрала список. Пул и ступени
     отбора те же, что у поиска (:func:`plan_for`), и прочитанные хронометраж и студия
     не теряются. Картина карточки без раздач этого сезона - повод добора, и он за поиском.
+    Круг с диска не годен (:meth:`WarmCache.take_live`): идущее обновление дожидается.
     """
-    plans = WARM.ready(args.title_query)
+    plans = WARM.landed(args.title_query)
     replanned: list[Plan] = []
     for plan in plans or []:
         runtime = 0.0 if plan.runtime_estimated else plan.runtime

@@ -37,6 +37,9 @@ class CircleMemory:
     replay: Callable[[str, list[Told]], list[Plan]] | None = None
     _found: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
     _empty: dict[str, tuple[NotFoundError, float]] = field(default_factory=dict, repr=False)
+    #: Last circle that came from the network, poorer or not, and keys shown from disk only.
+    _landed: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
+    _revived: set[str] = field(default_factory=set, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @staticmethod
@@ -54,6 +57,17 @@ class CircleMemory:
             empty = self._empty.get(key)
             return [] if empty is not None and empty[1] > now else None
 
+    def live(self, query: str) -> list[Plan] | None:
+        """Круг, пришедший из сети в свой срок: только его играет показ, запись диска нет."""
+        with self._lock:
+            landed = self._landed.get(self.key(query))
+        return landed[0] if landed is not None and landed[1] > self.clock() else None
+
+    def revived(self, query: str) -> bool:
+        """Показывается ли круг, поднятый с диска, за которым из сети ещё ничего не пришло."""
+        with self._lock:
+            return self.key(query) in self._revived
+
     def refusal(self, query: str) -> NotFoundError | None:
         """Свежий отказ этого запроса, если он есть."""
         with self._lock:
@@ -68,11 +82,13 @@ class CircleMemory:
         if not plans:
             return
         key, poorer = self.key(query), self.poorer(query, plans)
+        ttl = EMPTY_TTL if poorer or isinstance(plans, CutCircle) else self.ttl
         with self._lock:
-            live = self._found.get(key)
-            if poorer and live is not None and live[1] > self.clock():
+            self._landed[key] = (plans, self.clock() + ttl)
+            self._revived.discard(key)
+            shown = self._found.get(key)
+            if poorer and shown is not None and shown[1] > self.clock():
                 return
-            ttl = EMPTY_TTL if poorer or isinstance(plans, CutCircle) else self.ttl
             self._found[key] = (plans, self.clock() + ttl)
             self._empty.pop(key, None)
 
@@ -100,6 +116,7 @@ class CircleMemory:
         plans = list(plans)  # a plain list: what came from disk is not written back
         with self._lock:
             self._found[self.key(query)] = (plans, self.clock() + self.ttl)
+            self._revived.add(self.key(query))
         return plans
 
     def store(self, query: str, plans: list[Plan]) -> None:
