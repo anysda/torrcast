@@ -244,6 +244,29 @@ def test_a_card_promotes_a_hovered_fact_flight_to_foreground(
     assert card.foreground
 
 
+def test_a_click_gets_its_own_flight_in_front_of_an_unfinished_hover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hovered flight already waits behind the background; the click does not wait with it."""
+
+    class _Flying(_Facts):
+        def __init__(self, pictures: object, budget: float) -> None:
+            super().__init__(pictures, budget)
+            self._done = threading.Event()
+
+    monkeypatch.setattr(web.preview, "MenuFacts", _Flying)
+    flights = web.preview._FactFlights()
+
+    hover = flights.of("Лука", 2021, "movie", foreground=False)
+    card = flights.of("Лука", 2021, "movie")
+    poll = flights.of("Лука", 2021, "movie")
+
+    assert card is not hover
+    assert card.foreground
+    assert not hover.foreground
+    assert poll is card
+
+
 def test_a_finished_silent_fact_lookup_is_retried_without_its_old_flight(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
