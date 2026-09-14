@@ -48,7 +48,11 @@ const TCWarm = {
     // Первой - горящая плитка (`nav.js`), а не последняя под курсором: ряд под горящей
     // растёт, она уезжает из-под мыши, и курсор «наводится» на соседа, а жмут по горящей.
     const lit = window.TCNav && TCNav.lit && TCNav.lit.dataset ? TCNav.lit.dataset.tcWarm : '';
-    const hot = lit || TCWarm._first;
+    // Ни горящей, ни наведённой плитки ещё нет, а выдача поиска уже видна: её смотрят,
+    // чтобы выбрать, и первая находка греется как наведённая. Иначе справка и родня
+    // находки ждали наведения, и клик через 700 мс после выдачи платил их сам.
+    const best = document.querySelector('[data-tc-group="search-results"][data-tc-warm]');
+    const hot = lit || TCWarm._first || (best ? best.dataset.tcWarm : '');
     const at = tiles.findIndex((tile) => (typeof tile === 'string' ? tile : tile.query) === hot);
     if (at > 0) tiles.unshift(tiles.splice(at, 1)[0]);
     return { tiles, hot };
