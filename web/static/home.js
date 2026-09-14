@@ -331,11 +331,12 @@ const TCHome = {
     if (!body) return;
     const live = '[data-tc-tile][data-tc-focusable]';
     const here = document.activeElement;
-    const at = here && here.matches && here.matches(live) && body.contains(here)
-      ? Array.from(body.querySelectorAll(live)).indexOf(here) : -1;
+    const stood = here && here.matches && here.matches(live) && body.contains(here)
+      ? here.dataset.tcFocusId : '';
     body.replaceWith(next);
     const tiles = next.querySelectorAll(live);
-    if (at >= 0 && tiles[at]) tiles[at].focus();
+    const same = Array.from(tiles).find((tile) => tile.dataset.tcFocusId === stood);
+    if (same) same.focus();
   },
 
   // Уже показанная плитка МЕСТА не меняет: частичный ответ только дописывает новые
@@ -354,20 +355,11 @@ const TCHome = {
   // (`hass.catalog_merge`), несёт её место в `slot` и остаётся той же плиткой.
   _mergeHits(known, fresh, partial) {
     if (!partial) return fresh;
-    const ids = (list) => {
-      const seen = new Map();
-      return list.map((hit) => {
-        const own = hit.slot || hit.key;
-        const n = seen.get(own) || 0;
-        seen.set(own, n + 1);
-        return own + '\u0000' + n;
-      });
-    };
-    const freshIds = ids(fresh);
+    const freshIds = TCHome._hitIds(fresh);
     const byId = new Map(freshIds.map((id, index) => [id, fresh[index]]));
     const keptIds = new Set();
     const kept = [];
-    for (const [index, id] of ids(known).entries()) {
+    for (const [index, id] of TCHome._hitIds(known).entries()) {
       kept.push(byId.has(id) ? byId.get(id) : known[index]);
       keptIds.add(id);
     }
@@ -376,6 +368,16 @@ const TCHome = {
       .filter(({ id }) => !keptIds.has(id))
       .map(({ hit }) => hit);
     return kept.concat(added);
+  },
+
+  _hitIds(list) {
+    const seen = new Map();
+    return list.map((hit) => {
+      const own = hit.slot || hit.key;
+      const n = seen.get(own) || 0;
+      seen.set(own, n + 1);
+      return own + '\u0000' + n;
+    });
   },
 
   _searchLoading() {
@@ -439,14 +441,18 @@ const TCHome = {
     // плашка «Best match»), остальные второй строкой мельче (168px, `tc-grid--second`).
     // Пока круг идёт, плашки нет ни у кого: назвать лучшее совпадение можно только по
     // полной выдаче, а не по тому, кто ответил первым.
-    body.appendChild(TCHome._hitsRow(results.slice(0, 7), 'tc-row', !partial));
+    const ids = TCHome._hitIds(results);
+    const first = TCHome._hitsRow(results.slice(0, 7), 'tc-row', !partial, ids.slice(0, 7));
+    body.appendChild(first);
     if (results.length > 7) {
-      body.appendChild(TCHome._hitsRow(results.slice(7), 'tc-row tc-grid--second', false));
+      const second = TCHome._hitsRow(
+        results.slice(7), 'tc-row tc-grid--second', false, ids.slice(7));
+      body.appendChild(second);
     }
     return body;
   },
 
-  _hitsRow(hits, cls, firstBest) {
+  _hitsRow(hits, cls, firstBest, ids) {
     const row = document.createElement('div');
     row.className = cls;
     hits.forEach((hit, index) => {
@@ -459,6 +465,7 @@ const TCHome = {
         best: firstBest && index === 0 && !hit.dim,
         group: 'search-results',
         query: TCHome._query,
+        focusId: ids[index],
         // Картина каталога ждёт раздачи под своей обложкой, а не нашлось их за весь круг -
         // гаснет и больше не открывается: карточке без раздач нечего играть.
         caption2: hit.pending ? TC.say('web.detail.searching_releases') : '',
