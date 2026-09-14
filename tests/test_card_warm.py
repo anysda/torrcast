@@ -16,6 +16,7 @@ from web.card_warm import CardWarm
 @dataclass(eq=False)
 class _Prep:
     dropped: bool = False
+    card_warmed: bool = False
 
 
 @dataclass(eq=False)
@@ -59,6 +60,19 @@ def test_the_chosen_release_stays_warm_until_the_card_is_left() -> None:
     assert bench.drops == 0, "чужой уход прогрев не снимает"
     warms.leave("movie:тачки:2006")
     assert bench.drops == 1 and not warms.holds("movie:тачки:2006")
+
+
+def test_only_the_release_the_card_keeps_is_marked_card_warmed() -> None:
+    warms = CardWarm()
+    first, _fresh = warms.open("movie:тачки:2006", lambda: cast(Any, _Bench()))
+    discarded: Any = _Prep()
+    chosen, _fresh = warms.open("movie:вверх:2009", lambda: cast(Any, _Bench()))
+    accepted: Any = _Prep()
+
+    warms.finish(first, discarded)
+    warms.finish(chosen, accepted)
+
+    assert not discarded.card_warmed and accepted.card_warmed
 
 
 def test_one_card_at_a_time_a_new_card_takes_the_old_warm_down() -> None:

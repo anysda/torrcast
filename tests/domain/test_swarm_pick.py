@@ -10,6 +10,7 @@ def test_pick_uses_the_warmed_window_after_settling() -> None:
         file_size=9_000_000_000,
         duration=3600.0,
         settle=3.0,
+        window_seconds=2.0,
     )
 
     assert measured is not None
@@ -22,4 +23,14 @@ def test_one_tick_is_not_an_window() -> None:
 
 
 def test_a_short_zero_read_after_settling_is_not_a_verdict() -> None:
-    assert swarm_pick([(10.0, 0.0), (10.05, 0.0)], 0, 1_000_000, 10.0, settle=10.0) is None
+    assert (
+        swarm_pick(
+            [(10.0, 0.0), (10.05, 0.0)],
+            0,
+            1_000_000,
+            10.0,
+            settle=10.0,
+            window_seconds=2.0,
+        )
+        is None
+    )

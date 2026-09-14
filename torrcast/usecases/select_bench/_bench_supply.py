@@ -15,6 +15,7 @@ def _bench_supply(profile: Profile, prep: _Prep) -> tuple[float, float, float]:
         prep.video.size,
         prep.media.duration,
         profile.supply_settle_seconds,
+        profile.supply_window_seconds,
     )
     if measured is None:
         need = prep.video.size * 8 / prep.media.duration / 1_000_000

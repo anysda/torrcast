@@ -31,7 +31,9 @@ class _DifferentSupply(Torrents):
 def test_slow_front_is_rejected_and_fat_supply_plays(capsys: object) -> None:
     slow, fat = rel("slow"), rel("fat")
     media = Media(RUNTIME, (), "h264", height=1080, width=1920)
-    profile = replace(CAUTIOUS, supply_settle_seconds=0.0, supply_ratio=1.25)
+    profile = replace(
+        CAUTIOUS, supply_settle_seconds=0.0, supply_window_seconds=0.0, supply_ratio=1.25
+    )
     bench = Bench(_DifferentSupply(), prober=probes([slow, fat], media, media), profile=profile)
 
     chosen = bench.resolve(plan([slow, fat]), Args(query=["кино"]), Said())
@@ -44,7 +46,9 @@ def test_slow_front_is_rejected_and_fat_supply_plays(capsys: object) -> None:
 def test_best_is_kept_when_every_swarm_is_short(capsys: object) -> None:
     one, two = rel("slow-one"), rel("slow-two")
     media = Media(RUNTIME, (), "h264", height=1080, width=1920)
-    profile = replace(CAUTIOUS, supply_settle_seconds=0.0, supply_ratio=10.0)
+    profile = replace(
+        CAUTIOUS, supply_settle_seconds=0.0, supply_window_seconds=0.0, supply_ratio=10.0
+    )
     bench = Bench(_DifferentSupply(), prober=probes([one, two], media, media), profile=profile)
 
     chosen = bench.resolve(plan([one, two]), Args(query=["кино"]), Said())
@@ -60,7 +64,7 @@ def test_no_receiver_condemns_a_swarm_before_its_measured_settle_window() -> Non
     prep = _Prep(number=1, release=release)
     prep.video = TorrFile(0, "movie.mkv", 8 * 1024**3)
     prep.media = Media(RUNTIME, (), "h264")
-    prep.supply = [(1.0, 0.0), (2.0, 0.0)]
+    prep.supply = [(10.0, 0.0), (10.05, 0.0)]
 
     for profile in (CAUTIOUS, ANDROID_TV):
         assert _bench_supply(profile, prep)[0] < 0.0, (
@@ -68,21 +72,32 @@ def test_no_receiver_condemns_a_swarm_before_its_measured_settle_window() -> Non
         )
 
 
+def test_a_swarm_that_was_slow_until_it_spun_up_passes() -> None:
+    prep = _Prep(number=1, release=rel("good-after-spin-up"))
+    prep.video = TorrFile(0, "movie.mkv", 9_000_000_000)
+    prep.media = Media(3600.0, (), "h264")
+    prep.supply = [(0.0, 0.0), (9.5, 0.0), (10.0, 0.0), (12.0, 10_000_000.0)]
+
+    for profile in (CAUTIOUS, ANDROID_TV):
+        assert _bench_supply(profile, prep)[0] >= profile.supply_ratio
+
+
 def test_a_settled_slow_swarm_is_still_rejected() -> None:
     prep = _Prep(number=46, release=rel("slow-after-settle"))
     prep.video = TorrFile(0, "movie.mkv", 9_000_000_000)
     prep.media = Media(3600.0, (), "h264")
-    prep.supply = [(10.0, 0.0), (20.0, 17_200_000.0)]
+    prep.supply = [(10.0, 0.0), (12.0, 3_440_000.0)]
 
-    assert _bench_supply(CAUTIOUS, prep)[0] == pytest.approx(0.688)
-    assert _bench_supply(CAUTIOUS, prep)[0] < CAUTIOUS.supply_ratio
+    for profile in (CAUTIOUS, ANDROID_TV):
+        assert _bench_supply(profile, prep)[0] == pytest.approx(0.688)
+        assert _bench_supply(profile, prep)[0] < profile.supply_ratio
 
 
 def test_a_card_warmed_release_is_not_rejudged_by_supply() -> None:
     prep = _Prep(number=1, release=rel("card-warmed"), card_warmed=True)
     prep.video = TorrFile(0, "movie.mkv", 9_000_000_000)
     prep.media = Media(3600.0, (), "h264")
-    prep.supply = [(10.0, 0.0), (20.0, 17_200_000.0)]
+    prep.supply = [(10.0, 0.0), (12.0, 3_440_000.0)]
 
     assert _bench_supply(CAUTIOUS, prep)[0] == pytest.approx(0.688)
     assert _supply_verdict(CAUTIOUS, prep)[0] < 0.0, "показ не перебраковывает карточку"
