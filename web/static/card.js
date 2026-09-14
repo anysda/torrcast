@@ -129,8 +129,13 @@ const TCCard = {
   },
 
   _here(root, key) {
-    const route = location.pathname.slice('/card/'.length);
-    return document.body.contains(root) && decodeURIComponent(route) === key;
+    return document.body.contains(root) && TCCard._onCard(key);
+  },
+
+  // Маршрут нормализован: ``:`` в ключе браузер оставляет как есть, а не ``%3A``.
+  _onCard(key) {
+    const route = location.pathname;
+    return route.startsWith('/card/') && decodeURIComponent(route.slice('/card/'.length)) === key;
   },
 
   _facts() {
@@ -711,7 +716,7 @@ const TCCard = {
   _tvSay(key, phrase, done) {
     TCCard._tvSaid = { key, text: TC.say(phrase), done };
     const button = document.querySelector('[data-tc-card-tv]');
-    if (button && location.pathname === '/card/' + encodeURIComponent(key)) {
+    if (button && TCCard._onCard(key)) {
       button.textContent = TCCard._tvSaid.text;
     }
   },
