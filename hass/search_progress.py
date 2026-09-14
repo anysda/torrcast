@@ -36,7 +36,6 @@ from torrcast.domain.menu_order import menu_order
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.profile import Profile
 from torrcast.domain.raw_result import RawResult
-from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover.search_circle import search_circle
@@ -76,27 +75,22 @@ _jobs: dict[str, SearchJob] = {}
 _jobs_lock = threading.Lock()
 
 
-def _preview(
-    query: str, client: IndexerClient | None, offer: Offer | None = None
-) -> list[JsonValue]:
+def _preview(query: str, job: SearchJob, offer: Offer | None = None) -> list[JsonValue]:
     """Превью прямо сейчас: тем же разбором, что и полный круг, но по неполному пулу.
 
     Ступеней добора (второй язык, добор сезона и озвучки) тут нет нарочно: они сами
     платят заходами в сеть и решают об оригинале, а превью - только то, что уже
     ответило, без единого лишнего запроса к индексерам.
     """
-    if client is None:
+    if job.client is None:
         return []
-    peek = getattr(client, "inflight", None)
+    peek = getattr(job.client, "inflight", None)
     raw: list[RawResult] = peek() if peek is not None else []
     if not raw:
         return []
     found = menu_order(pick_franchise(query, cluster(to_releases(raw))))
     hits = [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
-    try:
-        return (searching.OFFER if offer is None else offer)(hits)
-    except (TorrcastError, OSError):
-        return hits
+    return job.dress(hits, searching.OFFER if offer is None else offer)
 
 
 def search_progress(
@@ -135,7 +129,7 @@ def search_progress(
                 name="search-progress",
             ).start()
     if not job.done:
-        return _preview(query, job.client, offer), True
+        return _preview(query, job, offer), True
     if job.error is not None:
         raise RefusedError(job.error)
     return job.results, False

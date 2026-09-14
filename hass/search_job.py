@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -53,6 +54,8 @@ class SearchJob:
     error: str | None = None
     results: list[JsonValue] = field(default_factory=list)
     finished_at: float = 0.0
+    posters: dict[str, JsonValue] = field(default_factory=dict)
+    judging: bool = False
 
     def run(
         self,
@@ -89,12 +92,42 @@ class SearchJob:
             self.results = hits
         self._finish()
 
+    def dress(self, hits: list[JsonValue], offer: Offer) -> list[JsonValue]:
+        """Превью с уже вынесенными обложками; приговор новым идёт фоном, опрос не ждёт.
+
+        Приговор - поход к источнику картинок до 8 с, и опрос, который его ждал, стоял
+        1.2-3.9 с против 1-150 мс у прочих: обложка доезжает следующим опросом.
+        """
+        if not self.judging and any(_key(hit) not in self.posters for hit in hits):
+            self.judging = True
+            threading.Thread(target=self._judge, args=(hits, offer), daemon=True).start()
+        return [
+            {**hit, "poster": self.posters[_key(hit)]}
+            if isinstance(hit, dict) and self.posters.get(_key(hit)) is not None
+            else hit
+            for hit in hits
+        ]
+
+    def _judge(self, hits: list[JsonValue], offer: Offer) -> None:
+        try:
+            judged = offer(hits)
+        except (TorrcastError, OSError):
+            judged = []
+        for before, after in zip(hits, judged, strict=False):
+            if isinstance(after, dict):
+                self.posters[_key(before)] = after.get("poster")
+        self.judging = False
+
     def _capture(self, client: IndexerClient) -> None:
         self.client = client
 
     def _finish(self) -> None:
         self.done = True
         self.finished_at = time.monotonic()
+
+
+def _key(hit: JsonValue) -> str:
+    return str(hit.get("key", "")) if isinstance(hit, dict) else ""
 
 
 __all__ = ["SearchJob"]

@@ -117,15 +117,53 @@ def test_a_still_running_preview_carries_the_poster_verdict() -> None:
             _CONFIG, "тачки", _detect, _remember, search=search, offer=offer
         )
         deadline = time.monotonic() + 1.0
-        while not results and time.monotonic() < deadline:
+        dressed = [isinstance(hit, dict) and hit.get("poster") for hit in results]
+        while not (dressed and all(dressed)) and time.monotonic() < deadline:
             results, partial = search_progress(
                 _CONFIG, "тачки", _detect, _remember, search=search, offer=offer
             )
+            dressed = [isinstance(hit, dict) and hit.get("poster") for hit in results]
 
         assert partial is True
+        assert results
         hits = [hit for hit in results if isinstance(hit, dict)]
         assert [hit.get("poster") for hit in hits] == ["p-" + str(hit.get("key")) for hit in hits]
     finally:
+        gate.set()
+
+
+def test_a_slow_poster_verdict_does_not_hold_the_preview_poll() -> None:
+    """🔴 Опрос превью ждал приговор обложек (до 8 с): обложка доезжает следующим опросом."""
+    wire_catalogue()
+    gate, verdict = threading.Event(), threading.Event()
+    client = _PreviewClient(answers={"тачки": _CARS}, raw=_CARS)
+    search = _blocking_search(client, gate)
+
+    def offer(results: list[JsonValue]) -> list[JsonValue]:
+        verdict.wait(2.0)
+        return [{**hit, "poster": "p"} if isinstance(hit, dict) else hit for hit in results]
+
+    def poll() -> tuple[list[JsonValue], bool]:
+        return search_progress(_CONFIG, "тачки", _detect, _remember, search=search, offer=offer)
+
+    try:
+        results: list[JsonValue] = []
+        deadline = time.monotonic() + 1.0
+        while not results and time.monotonic() < deadline:
+            results, _partial = poll()
+        started = time.monotonic()
+        results, _partial = poll()
+
+        assert time.monotonic() - started < 0.5
+        assert [hit.get("poster") for hit in results if isinstance(hit, dict)] == [None, None]
+        verdict.set()
+        while time.monotonic() < deadline + 1.0 and not all(
+            isinstance(hit, dict) and hit.get("poster") for hit in results
+        ):  # results is non-empty here: the loop above filled it
+            results, _partial = poll()
+        assert [hit.get("poster") for hit in results if isinstance(hit, dict)] == ["p", "p"]
+    finally:
+        verdict.set()
         gate.set()
 
 
