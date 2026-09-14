@@ -136,11 +136,11 @@ class RelatedLookup:
         with self._lock:
             return (title, series) in self._pending
 
-    def retry(self, title: str, series: bool) -> list[JsonValue] | None:
+    def retry(self, title: str, series: bool, entity: str = "") -> list[JsonValue] | None:
         """Повторить именно открытой карточкой после неуспеха фонового похода."""
         with self._lock:
             self._silent.pop((title, series), None)
-        return self.of(title, series)
+        return self.of(title, series, entity)
 
     def finish(self, pictures: list[FactPicture]) -> None:
         """Дождаться родни видимой полки, но не дольше одного сетевого срока."""

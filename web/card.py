@@ -41,6 +41,7 @@ from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
 from web.refusal import refusal
 from web.request import Request
+from web.start_related import start_related
 from web.warm_wiring import RELATED, WARM
 
 #: Префикс, под которым живёт вся карточка; ключ картины - хвост пути после него.
@@ -72,7 +73,7 @@ def card(request: Request) -> Answer:
     if not query.strip():
         return refusal(400, "no_query")
     key = request.path[len(_PREFIX) :]
-    hint = _start_related(request)
+    hint = start_related(request, _facts, _related)
     if early := preview(request, key, WARM, _related):
         return early
     config = load_config()
@@ -86,26 +87,6 @@ def card(request: Request) -> Answer:
     if plan is None:
         return refusal(404, "not_found")
     return _answer(plan, config, pick, WAIT if request.query.get("wait") == "1" else 0.0, hint)
-
-
-def _start_related(request: Request) -> tuple[str, int, str] | None:
-    """Начать полку открытой плитки до любого лимита фонового прогрева.
-
-    ``seen`` вправе греть только одну плитку экрана: иначе восемь паспортов забивают
-    Wikipedia и лишают человека описания. Открытая карточка не является фоновым экраном,
-    поэтому её родня заводится сама, даже если она не была первой видимой плиткой или
-    ``seen`` уже заменил свою очередь.
-    """
-    title = request.query.get("title", "").strip()
-    kind = request.query.get("kind", "")
-    try:
-        year = int(request.query.get("year", ""))
-    except ValueError:
-        return None
-    if title and kind in {"movie", "tv"} and 1800 <= year <= 3000:
-        _related.retry(title, kind == "tv")
-        return title, year, kind
-    return None
 
 
 def _answer(
@@ -162,7 +143,7 @@ def _body(
     related = (
         []
         if getattr(fact, "missing", False)
-        else CardDetails.others(picture.key, _related_of(_related, title, series, fact))
+        else CardDetails.others(picture.key, _related_of(_related, title, series, fact, told))
     )
     # Родня без идущего похода - молчание источника, а не недоезд: ждать её этой карточке
     # нечего, и страница переспрашивала её до исчерпания заходов.

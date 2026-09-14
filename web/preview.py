@@ -99,7 +99,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     facts = _facts.of(title, year, kind)
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
-    kin = [] if getattr(fact, "missing", False) else _related_of(related, title, series, fact)
+    kin = [] if getattr(fact, "missing", False) else _related_of(related, title, series, fact, told)
     if request.query.get("wait") == "1":
         before = (fact, told, kin)
         until = time.monotonic() + PATIENCE
@@ -107,10 +107,11 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
             _sleep(_TICK)
             fact = facts.ready(title, year)
             told = facts.answered(title, year)
-            if getattr(fact, "missing", False):
-                kin = []
-            else:
-                kin = _related_of(related, title, series, fact)
+            kin = (
+                []
+                if getattr(fact, "missing", False)
+                else _related_of(related, title, series, fact, told)
+            )
             # Справка и родня приходят разными походами. Перемена одной не должна
             # стоять за другой: ``related=None`` оставляет полку частичной.
             if (fact, told, kin) != before:
@@ -164,12 +165,14 @@ def _others(key: str, related: list[JsonValue] | None) -> list[JsonValue] | None
 
 
 def _related_of(
-    related: _Related, title: str, series: bool, fact: object
+    related: _Related, title: str, series: bool, fact: object, told: bool
 ) -> list[JsonValue] | None:
-    """Use a QID when this fact has one, while keeping the empty fact seam small."""
+    """Wait for the blurb QID before paying a fallback passport request."""
     entity = str(getattr(fact, "entity", ""))
     if entity:
         return cast(list[JsonValue] | None, cast(Any, related).of(title, series, entity))
+    if not told:
+        return None
     return related.of(title, series)
 
 

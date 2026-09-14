@@ -227,7 +227,7 @@ def test_a_full_card_keeps_the_tile_identity_for_its_related_shelf(
         extra_query={"title": "Tile name", "year": "2000", "kind": "movie"},
     )
 
-    assert related.asked == [("Tile name", False), ("Tile name", False)]
+    assert related.asked == [("Tile name", False)]
 
 
 def test_an_unknown_key_is_a_404_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -95,10 +95,21 @@ def test_an_unanswered_fact_stays_a_skeleton_not_a_false_absence(
         body={},
     )
 
-    answer = preview(request, "movie:luca:2021", _Warm(), _Related())
+    class _UntouchedRelated(_Related):
+        def __init__(self) -> None:
+            self.asked = False
+
+        def of(self, _title: str, _series: bool) -> None:
+            self.asked = True
+            return None
+
+    related = _UntouchedRelated()
+    answer = preview(request, "movie:luca:2021", _Warm(), related)
 
     assert answer is not None
     assert json.loads(answer.body)["blurb"] is None
+    assert json.loads(answer.body)["related"] is None
+    assert not related.asked
 
 
 def test_an_answered_description_does_not_wait_for_the_related_shelf(
