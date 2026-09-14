@@ -43,6 +43,22 @@ def test_public_rows_become_cardigann_rows() -> None:
     assert row["leechers"] == 3
 
 
+def test_jacred_seasons_are_carried_in_a_parseable_title_marker() -> None:
+    answer: dict[str, Any] = {
+        "results": [
+            {
+                "title": "Сериал WEB-DL 1080p",
+                "magnet": "magnet:?xt=urn:btih:" + "b" * 40,
+                "seasons": [1, 2],
+            }
+        ]
+    }
+
+    (row,) = adapter.search("сериал", lambda *_a: answer)
+
+    assert row["title"] == "Сериал WEB-DL 1080p [Сезон: 1, 2]"
+
+
 def test_dead_api_is_an_empty_optional_source() -> None:
     assert adapter.search("матрица", _raise(OSError())) == []
 

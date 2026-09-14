@@ -86,7 +86,14 @@ def card(request: Request) -> Answer:
     plan, pick = card_lookup(plans, key)
     if plan is None:
         return refusal(404, "not_found")
-    return _answer(plan, config, pick, WAIT if request.query.get("wait") == "1" else 0.0, hint)
+    return _answer(
+        plan,
+        config,
+        pick,
+        WAIT if request.query.get("wait") == "1" else 0.0,
+        hint,
+        _season(request.query.get("season")),
+    )
 
 
 def _answer(
@@ -95,6 +102,7 @@ def _answer(
     pick: int,
     wait: float = 0.0,
     hint: tuple[str, int, str] | None = None,
+    season: int | None = None,
 ) -> Answer:
     """Тело ответа плюс заголовок недоехавшей части: справка, обложка, родня, серии."""
     picture = plan.picture
@@ -107,11 +115,11 @@ def _answer(
         facts.foreground = True
         facts.start()
     until = time.monotonic() + wait
-    first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint)
+    first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint, season)
     body = first
     while partial and time.monotonic() < until:
         time.sleep(_TICK)
-        body, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint)
+        body, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint, season)
         if body != first:
             until = min(until, time.monotonic() + _SETTLE)
     extra = ((_PARTIAL, "1"),) if partial else ()
@@ -132,13 +140,16 @@ def _body(
     facts: MenuFacts,
     playing: bool,
     hint: tuple[str, int, str] | None = None,
+    season: int | None = None,
 ) -> tuple[dict[str, JsonValue], bool]:
     """Тело как оно есть сейчас и «что-то ещё в пути»; пустая справка - готовый ответ."""
     picture = plan.picture
     title, year, kind = hint or (picture.title, picture.year, picture.kind)
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
-    seasons, seasons_partial = card_seasons(plan, entry, config.torrserver_url, _episodes)
+    seasons, seasons_partial = card_seasons(
+        plan, entry, config.torrserver_url, _episodes, season=season
+    )
     series = kind == "tv"
     related = CardDetails.others(
         picture.key, _related_of(_related, title, series, fact, told, year)
@@ -177,3 +188,8 @@ def _body(
         "sources_count": CardDetails.sources_count(picture.releases),
     }
     return body, not told or seasons_partial or coming or judging
+
+
+def _season(value: str | None) -> int | None:
+    """Принять номер вкладки, а мусор оставить выбору первой доступной."""
+    return int(value) if value is not None and value.isdigit() and 0 < int(value) <= 40 else None

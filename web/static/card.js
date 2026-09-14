@@ -59,13 +59,13 @@ const TCCard = {
     return !!body.querySelector('.tc-releases') && !!(said && said.textContent.trim());
   },
 
-  async _load(root, key, query, quiet, facts) {
+  async _load(root, key, query, quiet, facts, season) {
     const mine = TCCard._visit;
     const load = ++TCCard._loadId;
     let data = null;
     for (let turn = 0; ; turn += 1) {
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
-      const said = await TCApi.card(key, query, turn > 0, facts);
+      const said = await TCApi.card(key, query, turn > 0, facts, season);
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       if (said.data) data = said.data;
       // Preview уже честно назвал карточку по фактам плитки. Полный круг иногда не
@@ -138,6 +138,13 @@ const TCCard = {
     const year = values.get('year');
     const kind = values.get('kind');
     return title && year && kind ? { title, shown: values.get('shown') || '', year, kind } : null;
+  },
+
+  _season(key, query, season) {
+    const root = document.getElementById('tc-root');
+    if (root && TCCard._here(root, key)) {
+      TCCard._load(root, key, query, false, TCCard._facts(), season);
+    }
   },
 
   _show(root, key, query, data) {

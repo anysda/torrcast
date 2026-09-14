@@ -21,6 +21,7 @@ const TCCardSeries = {
         // Выбор зрителя помнится на карточке: подмена тела добором не сбрасывает его.
         TCCard._picked = { key, n: season.n };
         tabs.nextSibling.replaceWith(TCCardSeries.episodes(data, index, key, query));
+        TCCard._season(key, query, season.n);
       });
       tabs.appendChild(tab);
     });

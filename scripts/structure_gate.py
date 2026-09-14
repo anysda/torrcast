@@ -90,6 +90,7 @@ TRANSLATION_SUBJECT: Final = (
     "torrcast/domain/glue.py",
     "torrcast/domain/map_episodes.py",
     "torrcast/domain/nonvideo_release.py",
+    "torrcast/domain/_named_seasons.py",
     "torrcast/domain/normalize.py",
     "torrcast/domain/slugify.py",
 )

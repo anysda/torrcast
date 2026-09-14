@@ -27,7 +27,7 @@ def _parse_series(
         episodes = episodes or tuple(range(number or 1, int(last) + 1))
         number = None
     if seasons:
-        return (seasons[0], None, seasons, episodes, True)
+        return (seasons[0], None, seasons if len(seasons) > 1 else (), episodes, True)
     found = _parse_episode(text)
     if found is not None:
         pack = re.search("[eхx]\\s*\\d{1,3}\\s*-\\s*\\d{1,3}", text, re.IGNORECASE)

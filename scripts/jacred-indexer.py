@@ -67,9 +67,12 @@ def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
         for item in found:
             if not isinstance(item, dict) or not item.get("title") or not item.get("magnet"):
                 continue
+            title = item["title"]
+            if seasons := _seasons(item.get("seasons")):
+                title += " [Сезон: " + ", ".join(str(number) for number in seasons) + "]"
             rows.append(
                 {
-                    "title": item["title"],
+                    "title": title,
                     "magnet": item["magnet"],
                     "size": item.get("size") or 0,
                     "seeders": item.get("seeders") or 0,
@@ -79,6 +82,15 @@ def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
             )
         return rows
     return []
+
+
+def _seasons(value: Any) -> tuple[int, ...]:
+    """Сделать факт JacRed частью имени, которое Prowlarr довозит до нашего разбора."""
+    if not isinstance(value, list) or not all(
+        isinstance(number, int) and 0 < number <= 40 for number in value
+    ):
+        return ()
+    return tuple(dict.fromkeys(value))
 
 
 class Handler(BaseHTTPRequestHandler):

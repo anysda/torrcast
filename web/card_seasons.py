@@ -2,17 +2,28 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.release import Release
 from torrcast.usecases.select.plan import Plan
-from web.episode_lookup import EpisodeLookup
+
+
+class _EpisodeTables(Protocol):
+    """Кэш таблиц серий, достаточный карточке."""
+
+    def table(self, release: Release, base_url: str) -> list[list[int]] | None: ...
 
 
 def card_seasons(
-    plan: Plan, entry: Entry | None, base_url: str, episodes: EpisodeLookup
+    plan: Plan,
+    entry: Entry | None,
+    base_url: str,
+    episodes: _EpisodeTables,
+    season: int | None = None,
 ) -> tuple[list[JsonValue], bool]:
-    """Сезоны и серии: из закладки, если она есть; иначе разбор выбранной раздачи.
+    """Все вкладки пула и серии выбранного сезона из покрывающей его раздачи.
 
     Разбор фоновый (:class:`web.episode_lookup.EpisodeLookup`): не готов - вернулась
     ``None``, и карточка честно показывает только счётчик сезонов из имён раздач, помечая
@@ -21,16 +32,18 @@ def card_seasons(
     picture = plan.picture
     if picture.kind != "tv":
         return [], False
-    if entry is not None and entry.episodes:
-        return _seasons_from_entry(entry), False
-    numbers = sorted({season for release in picture.releases for season in _named_seasons(release)})
-    fallback: list[JsonValue] = [{"n": n, "episodes": []} for n in numbers]
-    if not plan.ranked:
+    numbers = {number for release in picture.releases for number in _named_seasons(release)}
+    saved = _seasons_from_entry(entry) if entry is not None and entry.episodes else {}
+    numbers.update(saved)
+    target = season if season in numbers else (1 if 1 in numbers else min(numbers, default=0))
+    fallback = _joined_seasons(numbers, saved)
+    release = _release_for(plan, target)
+    if release is None:
         return fallback, False
-    table = episodes.table(plan.ranked[0], base_url)
+    table = episodes.table(release, base_url)
     if table is None:
         return fallback, True
-    return (_seasons_from_table(table), False) if table else (fallback, False)
+    return _joined_seasons(numbers, _with_table(saved, _seasons_from_table(table))), False
 
 
 def _named_seasons(release: Release) -> tuple[int, ...]:
@@ -39,7 +52,14 @@ def _named_seasons(release: Release) -> tuple[int, ...]:
     return (release.season,) if release.season else ()
 
 
-def _seasons_from_entry(entry: Entry) -> list[JsonValue]:
+def _release_for(plan: Plan, season: int) -> Release | None:
+    """Взять раздачу, которая НАЗВАЛА сезон, и лишь затем молчащую о нём."""
+    choices = [*plan.ranked, *plan.picture.releases]
+    named = next((release for release in choices if season in _named_seasons(release)), None)
+    return named or next((release for release in choices if release.covers(season)), None)
+
+
+def _seasons_from_entry(entry: Entry) -> dict[int, list[JsonValue]]:
     at = entry.where(entry.season or 0, entry.episode or 0)
     seasons: dict[int, list[JsonValue]] = {}
     for index, row in enumerate(entry.episodes):
@@ -53,17 +73,28 @@ def _seasons_from_entry(entry: Entry) -> list[JsonValue]:
                 "pos": entry.pos if current else 0.0,
             }
         )
-    return [{"n": n, "episodes": eps} for n, eps in sorted(seasons.items())]
+    return seasons
 
 
-def _seasons_from_table(table: list[list[int]]) -> list[JsonValue]:
+def _seasons_from_table(table: list[list[int]]) -> dict[int, list[JsonValue]]:
     """Серии из разбора раздачи: картину никто не смотрел, отмечать нечего."""
     seasons: dict[int, list[JsonValue]] = {}
     for row in table:
         season, episode = row[0], row[1]
         blank: dict[str, JsonValue] = {"n": episode, "dur": 0.0, "watched": False, "pos": 0.0}
         seasons.setdefault(season, []).append(blank)
-    return [{"n": n, "episodes": eps} for n, eps in sorted(seasons.items())]
+    return seasons
+
+
+def _joined_seasons(numbers: set[int], known: dict[int, list[JsonValue]]) -> list[JsonValue]:
+    return [{"n": number, "episodes": known.get(number, [])} for number in sorted(numbers)]
+
+
+def _with_table(
+    saved: dict[int, list[JsonValue]], table: dict[int, list[JsonValue]]
+) -> dict[int, list[JsonValue]]:
+    """Закладка хранит просмотренное состояние и старше безличной таблицы файлов."""
+    return {**table, **saved}
 
 
 __all__ = ["card_seasons"]
