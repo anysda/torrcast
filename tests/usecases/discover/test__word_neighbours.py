@@ -172,6 +172,22 @@ def test_the_rule_drops_neighbours_and_keeps_the_franchise_of_the_name() -> None
     assert _neighbours_only([_picture("Шары вверх", 2026, "Balls Up")], "вверх", _UP) == []
 
 
+def test_a_picture_without_the_word_in_its_names_is_no_neighbour() -> None:
+    """Живой CT501 :8495: «Грязные игры / Game of Love (Dirty Games)» 2021 при справке 2005.
+
+    Имя «Dirty Games» стоит у раздачи в скобках, разбор его не сохранил, и слова запроса в
+    именах картины нет. Сосед по слову - тот, у кого оно есть, эту картину резать нечем.
+    """
+    about = Origin(title="Dirty Games", year=2005, name="Dirty Games")
+    alias = _picture("Грязные игры", 2021, "Game of Love")
+    found = [_picture("Грязные игры", 1989, "Dirty Games"), alias, _picture("Dirty Games", 2026)]
+
+    assert alias in _neighbours_only(found, "Dirty Games", about)
+    assert _neighbours_only([alias], "Dirty Games", about) == [alias]
+    kitchen = _picture("Dirty Games in the Kitchen", 2023)
+    assert _neighbours_only([alias, kitchen], "Dirty Games", about) == [alias]
+
+
 def test_the_rule_is_silent_without_the_word_of_the_wiki() -> None:
     """Нет года, оригинала или имя лишь похоже: отличить соседа нечем, найденное как было."""
     found = [_picture("Шары вверх", 2026, "Balls Up")]

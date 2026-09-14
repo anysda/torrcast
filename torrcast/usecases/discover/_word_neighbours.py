@@ -24,6 +24,10 @@ def _neighbours_only(found: list[Picture], name: str, about: Origin) -> list[Pic
     год справки ± 1. Не названа ни одна - решает год: частичное имя («Гарри Поттер») своих
     картин не подписывает, а год первой части у них есть. Нет и года - это соседи.
 
+    Сосед - тот, в чьём имени слово запроса стоит частью. Картину, в именах которой его нет
+    вовсе, индексер привёл по имени, которое разбор не сохранил: «Грязные игры / Game of
+    Love (Dirty Games)» 2021 на «Dirty Games» при справке 2005 года. Соседом её назвать нечем.
+
     ⚠️ Мерка стоит на слове справки и без него молчит: нет оригинала, года или имя лишь
     признано похожим (``guessed``) - отличить соседа от картины нечем.
     """
@@ -31,8 +35,12 @@ def _neighbours_only(found: list[Picture], name: str, about: Origin) -> list[Pic
         return found
     names = _names(name, about)
     if any(_signed(p, names) for p in found):
-        return [p for p in found if _signed(p, names) or _near_year(p, about)]
-    return found if any(_near_year(p, about) for p in found) else []
+        return [
+            p for p in found if _signed(p, names) or _near_year(p, about) or not _worded(p, names)
+        ]
+    if any(_near_year(p, about) for p in found):
+        return found
+    return [p for p in found if not _worded(p, names)]
 
 
 def _asked_in(
@@ -64,6 +72,10 @@ def _signed(picture: Picture, names: set[str]) -> bool:
     own = {slugify(n) for n in picture_names(picture)}
     own |= {franchise_key(n) for n in (picture.title, picture.original) if n}
     return bool(own & names)
+
+
+def _worded(picture: Picture, names: set[str]) -> bool:
+    return any(n in slugify(own) for own in picture_names(picture) for n in names)
 
 
 def _near_year(picture: Picture, about: Origin) -> bool:
