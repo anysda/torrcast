@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -63,8 +64,8 @@ def clip_mp4_late_start(tmp_path: Path) -> str:
 
 
 def test_a_file_that_did_not_open_leaves_the_boundary_as_it_was() -> None:
-    """Не вышло - считаем, что встали ровно на границе: врать про место нечем."""
-    assert _pilot_start("http://нет-такого.invalid/поток", 12.5, timeout=5.0) == 12.5
+    """Не вышло - ``nan`` не выдаёт несуществующий замер за посадку на границе."""
+    assert math.isnan(_pilot_start("http://нет-такого.invalid/поток", 12.5, timeout=5.0))
     assert _film_start("http://нет-такого.invalid/поток", timeout=5.0) == 0.0
 
 
@@ -157,11 +158,8 @@ def test_a_container_without_stamps_is_named_instead_of_answered_silently(
 ) -> None:
     """🔴 Мера этой правки: место не измерено - и это СКАЗАНО, а не отдано числом границы.
 
-    Ответ прежний и остаётся прежним: измерителя у этого места нет, подменить его тут
-    нечем. Ново ровно одно - событие названо. Замер на стенде (.avi h264 с B-кадрами,
-    длительность 300 с, сетка 10 с): пробный прогон не дал первого пакета ни на одной из
-    29 границ, настоящая посадка отстоит от границы до 2.035 с, и следом события в
-    журнале была пустота.
+    Измерителя у этого места нет, подменить его тут нечем. ``nan`` отличает это от
+    настоящей посадки на границе, поэтому полка сверки не закрепит случайную карту.
 
     Отрицательная проба стоит рядом и той же командой: тот же .avi без B-кадров. Там
     ``pts`` есть, прогон меряет место как на всяком здоровом файле, и ни строки отказа
@@ -169,7 +167,7 @@ def test_a_container_without_stamps_is_named_instead_of_answered_silently(
     """
     at = 3 * CLIP_KEY_SECONDS
     blind = _pilot_start(clip_avi_bframes, at)
-    assert blind == at, "ответ пробного прогона изменился - это уже другая правка"
+    assert math.isnan(blind), "неизмеренный прогон притворился посадкой на границе"
     said = [facts for name, facts in tape.calls if name == "пробный прогон не дал первого пакета"]
     assert said, "место не измерено, а в журнале ни строки"
     assert "must be set" in said[0]["отказ"], f"названа не та причина: {said[0]['отказ']}"

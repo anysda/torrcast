@@ -44,6 +44,7 @@ def _play(
     hdr: bool = False,
     session_tag: str = "",
     voice: str = "",
+    file_size: int = 0,
 ) -> int:
     """Упаковка → раздача по http на голом IP → приёмник. Своих демонов нет: и ffmpeg,
     и раздача живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
@@ -92,6 +93,7 @@ def _play(
         profile=profile,
         frame=frame,
         hdr=hdr,
+        file_size=file_size,
     )
     journal().mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     if whole is not None:

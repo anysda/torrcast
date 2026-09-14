@@ -29,6 +29,7 @@ def layout(
     profile: Profile = CAUTIOUS,
     frame: int = 0,
     hdr: bool = False,
+    file_size: int = 0,
 ) -> tuple[MediaGrid, Encoding | None]:
     """Сетка сегментов и решение «перекодировать файл целиком» - одной парой.
 
@@ -86,6 +87,7 @@ def layout(
         cap=profile.max_segment_bytes,
         # И потолок его длины - тоже: он про окно, которым приёмник забирает куски.
         span_cap=profile.max_segment_seconds,
+        file_size=file_size,
     )
     if whole is not None:
         # 🔴 TC-501, вторая половина. Сетка режет ТОЛЬКО по опорным кадрам, и там, где

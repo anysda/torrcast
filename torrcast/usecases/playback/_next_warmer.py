@@ -47,6 +47,10 @@ def _next_warmer(
     if following.done or not following.label:
         return None
     source = torrserver.stream_url(torrent_hash, following.file_idx)
+    file_size = next(
+        (item.size for item in torrserver.files(torrent_hash) if item.index == following.file_idx),
+        0,
+    )
     voice = voice_source(torrserver, torrent_hash, following)
     media = _state.probe(source, timeout=WORKER_DUR)
     video_mbit = max(0.0, media.video_bps / 1e6)
@@ -62,6 +66,7 @@ def _next_warmer(
         profile=profile,
         frame=media.frame,
         hdr=media.hdr,
+        file_size=file_size,
     )
     recoder = (
         None

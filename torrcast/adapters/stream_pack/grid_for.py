@@ -33,10 +33,11 @@ def grid_for(
     fixed_mbit: float = 0.0,
     cap: float = MAX_SEGMENT_BYTES,
     span_cap: float = 0.0,
+    file_size: int = 0,
     *,
     keys_of: Callable[[str], FilmKeys] = film_keys,
     origin_of: Callable[[str], float] = pack_origin,
-    agree_of: Callable[[str, float, FilmKeys], bool] = agreed_keys,
+    agree_of: Callable[..., bool] = agreed_keys,
 ) -> Grid:
     """Сетка для конкретного файла: по опорным кадрам, если карту удалось снять.
 
@@ -144,7 +145,12 @@ def grid_for(
     # Ту же карту сетка несёт дальше: по ней кодировщик считает вес куска, и второго
     # похода на полку за ней больше нет (:attr:`Grid.keys`).
     grid = replace(grid, keys=found)
-    if grid.count > 1 and not agree_of(source_url, grid.start(1), found):
+    agreement = (
+        (source_url, grid.start(1), found, file_size)
+        if file_size > 0
+        else (source_url, grid.start(1), found)
+    )
+    if grid.count > 1 and not agree_of(*agreement):
         return _flat(
             source_url,
             "карта опорных кадров разошлась с прогоном по файлу: прогон встал дальше "
@@ -183,13 +189,8 @@ def _flat(
     (:data:`~torrcast.domain.warm_open.KEYS_REFUSED`) - ошибиться могли и мы.
 
     🔴 ``keys`` - та самая отвергнутая карта, и уезжает она в ДВЕ стороны: на полку рядом
-    с вердиктом (:func:`refuse_keys`) и в саму ровную сетку (:attr:`Grid.keys`). Отвергнуто
-    в ней ровно одно утверждение - «здесь стоит опорный кадр»; пара «время - смещение»
-    честная, и вес куска по ней считается так же, как считался бы по принятой карте.
-    Молчаливая потеря этого указателя стоила зрителю вдвое: ровная сетка оставалась без
-    профиля тяжести (``профиль: 0.0``), кодировщик не брал ни куска впрок, и КАЖДЫЙ кусок
-    уезжал через ужатие на месте, посреди которого упаковка замирает
-    (:func:`torrcast.adapters.recode.yield_to_shrink._yield_to_shrink`).
+    с вердиктом (:func:`refuse_keys`) и в саму ровную сетку (:attr:`Grid.keys`). В ней
+    отвергнуты лишь кадры, поэтому байтовый указатель остаётся у ровной сетки.
     """
     refuse_keys(_keys_cache(source_url), why, keys)
     journal().mark("карта отвергнута сеткой", почему=why)

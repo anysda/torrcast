@@ -120,21 +120,19 @@ def _film_start(
     return begins
 
 
-def _unmeasured(source_url: str, at: float, why: str) -> float:
-    """Место посадки не измерено: ответом остаётся граница, но молчанием это не идёт.
+def _unmeasured(source_url: str, why: str) -> float:
+    """Место посадки не измерено: ``nan`` не притворяется границей.
 
-    🔴 Ответ прежний: другого измерителя у этого места нет. Ново ровно одно - событие
-    названо вслух. Пока его не было, «встали ровно на границе» и «не измерили ничего»
-    приходили одним и тем же числом, и в журнале не оставалось ни строки: отсутствие
-    записи читалось как отсутствие события. Замер на стенде (.avi с B-кадрами, 29 границ
-    сетки) показал класс, где так кончаются ВСЕ границы подряд.
+    ``at`` оставалось от прежнего запасного поведения и было неотличимо от настоящей
+    посадки ровно на кадр. Сверка считает это не приговором карте, но полка не вправе
+    назвать такой запуск измеренным и сохранить его для следующего показа.
     """
     journal().mark("пробный прогон не дал первого пакета", файл=source_url, отказ=why)
-    return at
+    return math.nan
 
 
 def _pilot_start(source_url: str, at: float, timeout: float = PILOT_TIMEOUT) -> float:
-    """Пробный прогон в один кадр: где ffmpeg встал на самом деле. Не вышло — ``at``.
+    """Пробный прогон в один кадр: где ffmpeg встал на самом деле. Не вышло — ``nan``.
 
     🔴 TC-629. Ответ ПЕРЕВОДИТСЯ в ленту фильма, а не зажимается. Различать надо две
     совершенно разные вещи, которые обе выглядят как «встали позже, чем просили»:
@@ -179,19 +177,19 @@ def _pilot_start(source_url: str, at: float, timeout: float = PILOT_TIMEOUT) -> 
             done = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
             refused = run_refusal(done.stderr)
             if done.returncode != 0 or refused:
-                return _unmeasured(source_url, at, refused or f"код возврата {done.returncode}")
+                return _unmeasured(source_url, refused or f"код возврата {done.returncode}")
             found = subprocess.run(
                 ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
                  "packet=pts_time", "-of", "csv=p=0", "-read_intervals", "%+#1", probe_path],
                 capture_output=True, text=True, timeout=timeout, check=True,
             )  # fmt: skip
         except (OSError, subprocess.SubprocessError) as exc:
-            return _unmeasured(source_url, at, str(exc))
+            return _unmeasured(source_url, str(exc))
         head = found.stdout.strip().splitlines()
         try:
             stood = float(head[0].split(",")[0])
         except (IndexError, ValueError):
-            return _unmeasured(source_url, at, "первого пакета в прогоне нет")
+            return _unmeasured(source_url, "первого пакета в прогоне нет")
         # 🔴 TC-629. Ответ лежит в ленте контейнера, а нужен в ленте фильма - той, в которой
         # стоят границы сетки. Уезд вперёд на опорный кадр при этом остаётся как есть: он
         # не ошибка замера, а поведение демуксера (:data:`SEEK_SHIFT`).

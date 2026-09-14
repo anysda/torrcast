@@ -64,6 +64,7 @@ def _worker_loop(
     а не HLS, ffmpeg, приёмник и поиск за ними.
     """
     magnet, torrent_hash = "", ""
+    files = []
     while True:
         entry = store().load().get(key)
         if entry is None:
@@ -78,7 +79,7 @@ def _worker_loop(
             entry.torrent = torrent_hash
             _own_torrent(key, torrent_hash)
             journal().mark("раздача добавлена")
-            torrserver.wait_files(torrent_hash, timeout=WORKER_META)
+            files = torrserver.wait_files(torrent_hash, timeout=WORKER_META)
             journal().mark("файлы раздачи")
             # Тот же магнит, но живёт он теперь и у сторожа: URL потока несёт только хэш,
             # и вернуть раздачу с трекерами после аварии источника может лишь он
@@ -86,6 +87,7 @@ def _worker_loop(
             # мы не ходим - он лежит в записи картины.
             supply.torrent_hash, supply.magnet, supply.lost = torrent_hash, magnet, ""
         source = torrserver.stream_url(torrent_hash, entry.file_idx)
+        file_size = next((item.size for item in files if item.index == entry.file_idx), 0)
         voice = voice_source(torrserver, torrent_hash, entry)
         journal().mark("звук рядом")
         entry = _duration(key, entry, source)
@@ -139,6 +141,7 @@ def _worker_loop(
             session_tag=session_tag,
             # Звук отдельным файлом рядом с видео: второй вход упаковки, если он есть.
             voice=voice,
+            file_size=file_size,
         )
         if watch.closed_by_remote:
             # TC-880: закладка уже сдвинута на следующую серию (:meth:`Watch.close`), но

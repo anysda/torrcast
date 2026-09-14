@@ -7,6 +7,7 @@ import math
 from collections.abc import Callable
 
 from torrcast.adapters.stream_pack._pilot_start import _pilot_start
+from torrcast.adapters.stream_pack.key_agreement import KeyAgreement
 from torrcast.adapters.stream_pack.mapped_start import mapped_start
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import SPLIT_SLACK
@@ -21,7 +22,7 @@ def keys_agree(
     timeout: float = PILOT_TIMEOUT,
     *,
     start: Callable[..., float] = _pilot_start,
-) -> bool:
+) -> KeyAgreement:
     """Стоит ли на месте ``at`` тот опорный кадр, который обещает карта. Не мерили - да.
 
     🔴 Вопрос ровно один: **проехал ли прогон мимо обещанного кадра**. Карта говорит, где
@@ -66,10 +67,12 @@ def keys_agree(
     """
     guess = mapped_start(keys, at)
     if math.isnan(guess):
-        return True
+        return KeyAgreement(True, False)
     stood = start(source_url, at, timeout)
+    if not math.isfinite(stood):
+        return KeyAgreement(True, False)
     if stood <= guess + SPLIT_SLACK:
-        return True
+        return KeyAgreement(True, True)
     ahead = bisect.bisect_left(keys.at, stood - SPLIT_SLACK) - bisect.bisect_right(
         keys.at, guess + SPLIT_SLACK
     )
@@ -80,4 +83,7 @@ def keys_agree(
         факт=round(stood, 3),
         нарисовано=max(ahead, 0),
     )
-    return False
+    return KeyAgreement(False, True)
+
+
+__all__ = ["keys_agree"]

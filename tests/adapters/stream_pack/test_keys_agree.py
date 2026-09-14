@@ -42,7 +42,7 @@ def test_a_run_that_stood_where_the_map_promised_keeps_the_map() -> None:
     at = round(KEYS.at[8] + STEP / 2, 3)
     start, runs = _stood(KEYS.at[8])
 
-    assert keys_agree(URL, at, KEYS, start=start) is True
+    assert keys_agree(URL, at, KEYS, start=start).agreed is True
     assert runs == [at], "прогон обязан подняться ровно один раз и ровно на это место"
 
 
@@ -56,7 +56,7 @@ def test_a_run_that_drove_past_the_promised_frame_condemns_the_map() -> None:
     at = round(KEYS.at[8] + STEP / 2, 3)
     start, _ = _stood(KEYS.at[20])
 
-    assert keys_agree(URL, at, KEYS, start=start) is False
+    assert keys_agree(URL, at, KEYS, start=start).agreed is False
 
 
 def test_a_run_that_stood_one_frame_earlier_is_not_a_verdict() -> None:
@@ -68,7 +68,7 @@ def test_a_run_that_stood_one_frame_earlier_is_not_a_verdict() -> None:
     at = round(KEYS.at[8] + STEP / 2, 3)
     start, _ = _stood(KEYS.at[6])
 
-    assert keys_agree(URL, at, KEYS, start=start) is True
+    assert keys_agree(URL, at, KEYS, start=start).agreed is True
 
 
 def test_a_map_that_promises_nothing_here_is_not_measured() -> None:
@@ -79,9 +79,9 @@ def test_a_map_that_promises_nothing_here_is_not_measured() -> None:
     """
     start, runs = _stood(0.0)
 
-    assert keys_agree(URL, KEYS.at[-1] + 100.0, KEYS, start=start) is True
+    assert keys_agree(URL, KEYS.at[-1] + 100.0, KEYS, start=start).agreed is True
     foreign = FilmKeys(KEYS.duration, KEYS.at, KEYS.offset, "ts")
-    assert keys_agree(URL, 10.0, foreign, start=start) is True
+    assert keys_agree(URL, 10.0, foreign, start=start).agreed is True
     assert runs == [], "прогон подняли там, где карта ничего не обещала"
 
 
@@ -118,7 +118,7 @@ def test_a_drawn_map_is_condemned_by_the_real_run(clip: str) -> None:
     """
     drawn = CLIP_KEYS._replace(at=[max(k - DRAWN, 0.0) for k in CLIP_KEYS.at])
 
-    assert keys_agree(clip, ASK, CLIP_KEYS) is True, "честная карта отвергнута"
-    assert keys_agree(clip, ASK, drawn) is False, (
+    assert keys_agree(clip, ASK, CLIP_KEYS).agreed is True, "честная карта отвергнута"
+    assert keys_agree(clip, ASK, drawn).agreed is False, (
         "нарисованные кадры приняты: сверка спросила карту вместо файла"
     )
