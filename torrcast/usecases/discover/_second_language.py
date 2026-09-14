@@ -18,6 +18,7 @@ from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._named import _spoken
 from torrcast.usecases.discover._asked_kind import _asked_kind
+from torrcast.usecases.discover._map_kept import _map_kept
 from torrcast.usecases.discover._passport_pick import _passport_pick
 from torrcast.usecases.discover._proven_alt import _proven_alt
 from torrcast.usecases.discover._query_note import _query_note
@@ -111,9 +112,8 @@ def _second_language(
     pool = [r for p in found for r in p.releases] or _search_state._search_catalogue.to_releases(
         raw
     )
-    lead = _leading(found)
     ask_passport = passport or _search_state._search_passport
-    asked_kind = _asked_kind(lead, args)
+    asked_kind = _asked_kind(_leading(found), args)
     about = _second_origin(ask_passport, name, asked_kind, index, budget, found)
     alt = alt_query(name, pool, about.title, about.name)
     confirmed_alt = False
@@ -140,7 +140,8 @@ def _second_language(
     # поэтому сверяем по слагу.
     if not alt or slugify(alt) == slugify(name):
         return _as_is(raw, found, about, progress)
-    merged = _second_circle(client, name, alt, index, about, namesakes, raw, progress)
+    crowded = _map_kept(name, first_pictures)
+    merged = _second_circle(client, name, alt, index, about, namesakes, raw, progress, crowded)
     # Круг кончился - закрываем его строку прямо здесь. Всё, что скажем дальше, это его
     # итог, а `note` печатается сразу, тогда как строка фазы ждёт закрытия фазы: без этого
     # вердикт «не беру» выходил ПЕРЕД строкой «поиск «Cars»... 102.1 с», и человек читал два

@@ -22,6 +22,7 @@ def _second_circle(
     found: list[Picture],
     raw: list[RawResult],
     progress: Progress,
+    crowded: bool = False,
 ) -> list[RawResult]:
     """Второй круг по индексерам и склейка его выдачи с первой; пол бюджета - целая цель.
 
@@ -29,6 +30,10 @@ def _second_circle(
     тёзками. Если независимый паспорт назвал отсутствующий в первом круге год, уточняем
     исходное имя им: это всё тот же один добор, но русская строка сохраняет релизы с
     озвучкой, ради которых человек и назвал картину по-русски.
+
+    ``crowded`` - имя картине отстояла карта IMDb у соседей по слову (:func:`_map_kept`).
+    Картина в выдаче одна и год её в круге есть, но слово тесное: «Up» на «Вверх» привозил
+    118 картин против 45, гейт отвергал круг, и меню оставалось из 5 раздач вместо 19.
 
     🔴 TC-386. Круг спрашивается с полом в целую цель: медленный, но живой индексер (на
     живом стенде Knaben отвечал 7.0 с вместо 0.5) в остаток цели не укладывается, и добор
@@ -40,8 +45,7 @@ def _second_circle(
         about.year
         if index is None
         and about.year is not None
-        and len(found) > 1
-        and all(picture.year is None or abs(picture.year - about.year) > 1 for picture in found)
+        and (crowded or (len(found) > 1 and all(_far(picture, about.year) for picture in found)))
         else None
     )
     asked = f"{name} {exact_year}" if exact_year is not None else alt
@@ -56,3 +60,7 @@ def _second_circle(
         return _search_state._search_catalogue.merge(raw, second, client.late())
     finally:
         client.cap_floor = CIRCLE_SHARE
+
+
+def _far(picture: Picture, year: int) -> bool:
+    return picture.year is None or abs(picture.year - year) > 1
