@@ -10,6 +10,7 @@ from tests.fakes.torrent_engines import FakeTorrentEngines
 from torrcast.domain.release import Release
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases.torrent_claims import CLAIMS
 from web.episode_lookup import RETRY, EpisodeLookup
 
 _RELEASE = Release(raw_name="Show s01 WEB-DL 1080p LostFilm", title="Show", magnet="magnet:show")
@@ -120,3 +121,20 @@ def test_a_parsed_release_is_never_asked_again_but_a_failed_one_is() -> None:
 
     assert len(whole.asked) == 1, "разобранное не протухает: содержимое раздачи не меняется"
     assert len(down.asked) == 2, "неудачу спрашивают заново - рой мог ожить"
+
+
+def test_the_series_read_does_not_drop_a_release_the_show_is_choosing() -> None:
+    """🔴 Разбор серий спрашивает ту же раздачу, что отбирает показ: снести её - 404 показу."""
+    engine = FakeTorrentEngine(torrent_hash="hash-magnet:show", torrent_files=_FILES)
+    lookup = EpisodeLookup(engines=FakeTorrentEngines(engine), spawn=_sync)
+    show = _Show()
+    CLAIMS.claim("hash-magnet:show", show)
+    try:
+        assert lookup.table(_RELEASE, "http://torrserver") is not None
+        assert engine.dropped == []
+    finally:
+        CLAIMS.unclaim("hash-magnet:show", show)
+
+
+class _Show:
+    """Отбор показа, который держит раздачу."""

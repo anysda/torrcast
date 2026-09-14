@@ -1,6 +1,7 @@
 """Зеркально проверяет разбор магнита и уборку своих раздач."""
 
 from torrcast.domain.torrent_hash import _torrent_hash
+from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import (
     _held_by_show,
     _own_torrent,
@@ -22,3 +23,18 @@ def test_housekeeping_units_are_callable() -> None:
         callable(unit)
         for unit in (_release_torrents, _own_torrent, _release_orphans, _held_by_show)
     )
+
+
+class _Picking:
+    """Отбор показа: отметки в состоянии у него ещё нет, юнит не поднят."""
+
+
+def test_a_release_the_show_is_still_choosing_counts_as_held() -> None:
+    """Отбор идёт до юнита, и отметку ставит не он: держателя называет процесс."""
+    picking = _Picking()
+    assert _held_by_show(HASH) is False
+    CLAIMS.claim(HASH, picking)
+    try:
+        assert _held_by_show(HASH) is True
+    finally:
+        CLAIMS.unclaim(HASH, picking)

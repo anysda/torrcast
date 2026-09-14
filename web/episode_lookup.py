@@ -20,6 +20,8 @@ from torrcast.domain._series import _Series
 from torrcast.domain.release import Release
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.torrent_engines import TorrentEngines
+from torrcast.usecases.torrent_claims import CLAIMS
+from torrcast.usecases.torrents import _held_by_show
 
 #: Кто разносит фоновую сборку по потоку; в бою - настоящий поток-демон.
 Spawn = Callable[[Callable[[], None]], None]
@@ -88,14 +90,16 @@ class EpisodeLookup:
         engine = self.engines(base_url, timeout=TIMEOUT)
         torrent_hash = ""
         try:
-            torrent_hash = engine.add(release.magnet)
+            torrent_hash = CLAIMS.adding(release.magnet, self, engine.add)
             files = engine.wait_files(torrent_hash, timeout=TIMEOUT, grace=GRACE)
             table = _Series.table(files, release.season)
             parsed = True
         except TorrcastError:
             table = []
         finally:
-            if torrent_hash:
+            # Ту же раздачу может держать показ или его отбор: сносится только ничья.
+            free = bool(torrent_hash) and CLAIMS.unclaim(torrent_hash, self)
+            if free and not _held_by_show(torrent_hash):
                 engine.drop(torrent_hash)
             with self._lock:
                 self._table[release.magnet] = (table, self._until(parsed))

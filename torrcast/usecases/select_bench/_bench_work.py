@@ -18,6 +18,7 @@ from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_core import _BenchCore
+from torrcast.usecases.torrent_claims import CLAIMS
 
 
 class _BenchWork(_BenchCore):
@@ -27,7 +28,9 @@ class _BenchWork(_BenchCore):
         """Фоновая подготовка: раздача в TorrServer, метаданные по DHT, ffprobe."""
         try:
             prep.phase = phrase("select_bench.phase_metadata_dht")
-            prep.torrent_hash = self.torrserver.add(prep.release.magnet)
+            # Отметка встаёт ДО add: add идемпотентен, и чужая уборка той же раздачи, успевшая
+            # между ответом add и отметкой, выдёргивала её из-под метаданных (стенд, 404).
+            prep.torrent_hash = CLAIMS.adding(prep.release.magnet, self, self.torrserver.add)
             files = self.torrserver.wait_files(
                 prep.torrent_hash,
                 timeout=self.meta_budget,

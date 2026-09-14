@@ -36,6 +36,7 @@ from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
 from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.torrent_claims import CLAIMS
 
 
 @pytest.fixture(autouse=True)
@@ -536,3 +537,47 @@ def test_a_dead_series_recording_searches_the_bookmarked_episode_not_the_first()
 
     assert code == EXIT_OK
     assert str(seen[0].episode) == "s5e2", "поиск ищет ту серию, на которой зритель стоял"
+
+
+def test_the_taken_release_is_held_until_the_show_is_handed_over() -> None:
+    """Взятую раздачу держит отбор до подъёма показа: уборка страницы её не снесёт."""
+    pack = release("Кино / Movie BDRip 1080p")
+    one = Plan(
+        picture=Picture(title="Кино", year=1999, releases=[pack]),
+        ranked=[pack],
+        runtime=5400.0,
+        warn_mbit=16.0,
+    )
+    prep = _Prep(number=1, release=pack, torrent_hash="hash-взятая")
+    prep.video = TorrFile(index=0, name="кино.mkv", size=8 * GB)
+    prep.files = [prep.video]
+    prep.media = Media(
+        duration=5400.0,
+        tracks=(AudioTrack(index=0, language="rus", title="Дубляж"),),
+        video="h264",
+        height=1080,
+        video_bps=8.0 * 1e6,
+    )
+    held: list[bool] = []
+
+    class _Bench:
+        def drop_all(self) -> None:
+            held.append(CLAIMS.claimed("hash-взятая"))
+
+    class _Passport:
+        def get(self) -> Origin:
+            return Origin()
+
+    def choose(*_args: object, **_kw: object) -> object:
+        return [one], one, prep, _Bench(), _Passport()
+
+    code = _cmd_play(
+        Args(query=["кино"], dry=True),
+        restart=_never,
+        resume=_never,
+        choose=choose,  # type: ignore[arg-type]
+    )
+
+    assert code == EXIT_OK
+    assert held == [True], "до конца пути показа раздачу держит отбор"
+    assert CLAIMS.claimed("hash-взятая") is False, "путь кончился - отметка снята"

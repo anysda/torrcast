@@ -5,6 +5,7 @@ from __future__ import annotations
 from tests.usecases.select_bench.world import Torrents, plan, probes, rel
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select_bench.bench import Bench
+from torrcast.usecases.torrent_claims import CLAIMS
 
 
 def _bench(torrents: Torrents) -> Bench:
@@ -71,3 +72,34 @@ def test_only_the_chosen_release_survives_the_start_of_the_show() -> None:
     bench.keep_only(chosen)
 
     assert bench.live() == [chosen]
+
+
+def test_a_release_another_holder_keeps_is_not_dropped_under_it() -> None:
+    """🔴 Карточка страницы и отбор показа держат одну раздачу: уборка карточки её не сносит.
+
+    Стенд 14-09-2026: «Тачки» с карточки упали на 404 - прогрев карточки ушёл со страницы
+    и снёс раздачу, которую в ту же секунду отбирал показ.
+    """
+    torrents = Torrents()
+    card, show = _bench(torrents), _bench(torrents)
+    mine = _Prep(number=1, release=rel(), torrent_hash="hash-общий-карточки")
+    CLAIMS.claim(mine.torrent_hash, card)
+    CLAIMS.claim(mine.torrent_hash, show)
+
+    card._forget(mine)
+    assert torrents.dropped == [], "раздачу держит отбор показа"
+
+    show._forget(_Prep(number=1, release=rel(), torrent_hash="hash-общий-карточки"))
+    assert torrents.dropped == ["hash-общий-карточки"], "последний держатель убирает за собой"
+
+
+def test_a_prep_dropped_while_it_warmed_lets_its_release_go() -> None:
+    """Прогрев убрали, пока он грелся: его отметка снимается, и раздача уходит из службы."""
+    torrents = Torrents()
+    bench = _bench(torrents)
+    prep = _Prep(number=1, release=rel(name="поздний"), dropped=True)
+
+    bench._work(plan([rel(name="поздний")]), prep)
+
+    assert prep.torrent_hash in torrents.dropped
+    assert CLAIMS.claimed(prep.torrent_hash) is False

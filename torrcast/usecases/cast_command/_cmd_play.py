@@ -35,6 +35,7 @@ from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.select._remembered import _remembered
 from torrcast.usecases.select._studio_seen import _studio_seen
 from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _release_orphans
 
 if TYPE_CHECKING:
@@ -132,69 +133,68 @@ def _cmd_play(
     if isinstance(picked, int):
         return picked  # закладка выбранной картины ответила показом сама
     plans, plan, prep, bench, passport = picked
-    release, video, media = prep.release, prep.want, prep.found
-    # Дорожку выбирают у того файла, из которого её и возьмёт показ: у видео, а когда
-    # русская лежит рядом отдельным файлом (:attr:`_Prep.apart`) - у него. Номер дорожки
-    # после этого считается ВНУТРИ выбранного файла, и туда же смотрит показ.
-    sound = prep.voiced
-    audio, voice = pick_voice(
-        sound,
-        args,
-        _remembered(state, plan.picture.key, found_entry),
-        plan.picture.native,
-        release.studios,
-    )
-    journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
-    label = spoken_label(sound.tracks[audio]) if audio < len(sound.tracks) else "-"
-    if prep.apart and prep.voice_file is not None:
-        print(phrase("cmd_play.voice_apart", base=prep.voice_file.base))
-    # Чья это озвучка - в подписи дорожки бывает не написано вовсе: сезонный пак
-    # подписывает свои дорожки голым «rus», а студию называет своим именем. Строка
-    # запуска обязана сказать, ЧТО играет, и молчать об этом ей нечем (TC-701).
-    studio = track_studio(sound, audio, release.studios)
-    if studio is not None and studio.name.casefold() not in label.casefold():
-        label = f"{label} ({studio.name})"
-    # Студия из памяти картины: вынужденный дефолт её не переписывает, поэтому знать
-    # прежнюю запись обязана и запись показа, а не только порядок меню.
-    seen = _studio_seen(state, plan.picture.key, found_entry)
-    entry = _entry_for(plan, prep, release, video, media, audio, voice, seen, args)
-    if resumed is None:
-        # Фильм, чья записанная раздача не играется: место у него одно на всю картину, и
-        # спрашивается оно по ключу выбранной картины - закладка, ответившая после меню,
-        # до найденной по запросу записи не доходит вовсе (:func:`_kept_dead`).
-        resumed = _kept_dead(state, plan.picture.key, args)
-    if resumed is not None and resumed.resumable and (not entry.dur or resumed.pos < entry.dur):
-        # Позиция - от серии, а не от файла: другая раздача той же серии продолжается с
-        # того же места (TC-807). Позиция за концом файла новой раздачи - не место,
-        # а его отсутствие: такая серия играется с начала.
-        entry.pos = resumed.pos
-    # Подпись серии - у того файла, который реально играет (TC-807), а не у запроса:
-    # запрос мог звать «s1e1» серию, которая в этой раздаче - s5e1.
-    shown = f" {entry.label}" if entry.label else ""
-    if not plan.series and not shown:
-        shown = f" ({plan.picture.year or '?'})"
-    what = f"{phrase('choice.quoted', it=_title(plan.picture))}{shown}"
-    about = f"{what} · {quality_text(release, media)} · {label}"
-    if entry.pos > 0:
-        about = f"{about}{phrase('cmd_play.resumed_from', pos=_hms(entry.pos))}"
-    journal().emit(
-        "select",
-        "select",
-        release=prep.number,
-        quality=quality_text(release, media),
-        track=label,
-        codec=media.video or "",
-        mbit=round(bitrate_mbit(video.size, media.duration or plan.runtime), 1),
-    )
-    # Настоящий битрейт: размер файла серии/фильма на его же длительность, а не оценка.
-    _notes(config, plans, plan, prep, media, audio, release, video, passport, args)
-    if args.dry:
-        # Показа не будет: «сыгранная» раздача - такой же мусор, как прогретое лишнее.
-        # Убирается по СВОИМ явным хэшам, как на любом выходе без показа.
-        bench.drop_all()
-        # Сухой прогон - главный замер отбора, поэтому он называет, ЧТО выбрал бы:
-        # имя файла внутри раздачи, а не эхо запроса. Иначе дефект «сыграла не та
-        # серия» (сквозная нумерация против сезонной) всухую не виден вовсе (TC-302).
-        print(phrase("cmd_play.dry_no_cast", about=about, base=video.base))
-        return EXIT_OK
-    return _launch(config, plan.picture.key, entry, about, clock, here=args.here)
+    # Взятую раздачу держит отбор, пока показ её не поднял: уборка страницы её не снесёт.
+    with CLAIMS.kept(prep.torrent_hash, bench):
+        release, video, media = prep.release, prep.want, prep.found
+        # Дорожку выбирают у того файла, из которого её и возьмёт показ: у видео, а когда
+        # русская лежит рядом отдельным файлом (:attr:`_Prep.apart`) - у него. Номер дорожки
+        # после этого считается ВНУТРИ выбранного файла, и туда же смотрит показ.
+        sound = prep.voiced
+        audio, voice = pick_voice(
+            sound,
+            args,
+            _remembered(state, plan.picture.key, found_entry),
+            plan.picture.native,
+            release.studios,
+        )
+        journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
+        label = spoken_label(sound.tracks[audio]) if audio < len(sound.tracks) else "-"
+        if prep.apart and prep.voice_file is not None:
+            print(phrase("cmd_play.voice_apart", base=prep.voice_file.base))
+        # Чья это озвучка - в подписи дорожки бывает не написано: пак подписывает дорожки
+        # голым «rus», а студию зовёт своим именем. Строка запуска говорит, ЧТО играет (TC-701).
+        studio = track_studio(sound, audio, release.studios)
+        if studio is not None and studio.name.casefold() not in label.casefold():
+            label = f"{label} ({studio.name})"
+        # Студия из памяти картины: вынужденный дефолт её не переписывает, поэтому знать
+        # прежнюю запись обязана и запись показа, а не только порядок меню.
+        seen = _studio_seen(state, plan.picture.key, found_entry)
+        entry = _entry_for(plan, prep, release, video, media, audio, voice, seen, args)
+        if resumed is None:
+            # Фильм, чья записанная раздача не играется: место у него одно на всю картину, и
+            # спрашивается оно по ключу выбранной картины - закладка, ответившая после меню,
+            # до найденной по запросу записи не доходит вовсе (:func:`_kept_dead`).
+            resumed = _kept_dead(state, plan.picture.key, args)
+        if resumed is not None and resumed.resumable and (not entry.dur or resumed.pos < entry.dur):
+            # Позиция - от серии, а не от файла: другая раздача той же серии продолжается с
+            # того же места (TC-807). Позиция за концом файла новой раздачи - не место,
+            # а его отсутствие: такая серия играется с начала.
+            entry.pos = resumed.pos
+        # Подпись серии - у того файла, который реально играет (TC-807), а не у запроса:
+        # запрос мог звать «s1e1» серию, которая в этой раздаче - s5e1.
+        shown = f" {entry.label}" if entry.label else ""
+        if not plan.series and not shown:
+            shown = f" ({plan.picture.year or '?'})"
+        what = f"{phrase('choice.quoted', it=_title(plan.picture))}{shown}"
+        about = f"{what} · {quality_text(release, media)} · {label}"
+        if entry.pos > 0:
+            about = f"{about}{phrase('cmd_play.resumed_from', pos=_hms(entry.pos))}"
+        journal().emit(
+            "select",
+            "select",
+            release=prep.number,
+            quality=quality_text(release, media),
+            track=label,
+            codec=media.video or "",
+            mbit=round(bitrate_mbit(video.size, media.duration or plan.runtime), 1),
+        )
+        # Настоящий битрейт: размер файла серии/фильма на его же длительность, а не оценка.
+        _notes(config, plans, plan, prep, media, audio, release, video, passport, args)
+        if args.dry:
+            # Показа не будет: «сыгранная» раздача - мусор, убираемый по СВОИМ явным хэшам.
+            bench.drop_all()
+            # Сухой прогон называет, ЧТО выбрал бы: имя файла, а не эхо запроса. Иначе
+            # «сыграла не та серия» (сквозная нумерация против сезонной) не видна (TC-302).
+            print(phrase("cmd_play.dry_no_cast", about=about, base=video.base))
+            return EXIT_OK
+        return _launch(config, plan.picture.key, entry, about, clock, here=args.here)

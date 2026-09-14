@@ -20,6 +20,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.torrent_hash import _torrent_hash
+from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _release_orphans
 from torrcast.usecases.watch import Watch
 
@@ -584,6 +585,29 @@ def test_a_torrent_the_service_did_not_take_down_is_not_forgotten(
 
     assert torrents.dropped == [ORPHAN], "служба вернулась - сироту убрал следующий запуск"
     assert saved().torrent == "", "вот теперь раздачи нет, и записи о ней тоже"
+
+
+def test_an_orphan_the_card_is_reading_right_now_is_not_taken_down(
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Хозяин умер, но ту же раздачу держит этот процесс - карточка читает её дорожки."""
+    remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
+    torrents = _Torrents()
+    composition.use_engines(monkeypatch, torrents)
+    show_unit.alive = False
+    card = _Card()
+    CLAIMS.claim(ORPHAN, card)
+    try:
+        _release_orphans(load_config())
+    finally:
+        CLAIMS.unclaim(ORPHAN, card)
+
+    assert torrents.dropped == []
+    assert saved().torrent == ORPHAN, "не убрано - не забыто, уберёт следующий запуск"
+
+
+class _Card:
+    """Карточка страницы, которая держит раздачу."""
 
 
 class _Answer:

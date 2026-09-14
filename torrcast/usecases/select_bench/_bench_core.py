@@ -24,6 +24,7 @@ from torrcast.usecases.playback.file_picker import _default_file
 from torrcast.usecases.rank.peer_grace import peer_grace
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show
 
 
@@ -99,13 +100,15 @@ class _BenchCore:
     def _forget(self, prep: _Prep) -> None:
         """Убрать раздачу из TorrServer: она либо не подошла, либо больше не нужна.
 
-        Кроме одного случая: её держит живой показ - параллельный ``cast`` греет ту же
+        Кроме двух случаев: её держит живой показ - параллельный ``cast`` греет ту же
         выдачу, и снос чужой раздачи выдернул бы источник из-под экрана
-        (:func:`_held_by_show`).
+        (:func:`_held_by_show`), - или её держит кто-то ещё в этом процессе: карточка
+        страницы и отбор показа (:data:`~torrcast.usecases.torrent_claims.CLAIMS`).
         """
         prep.dropped = True
-        if prep.torrent_hash and not _held_by_show(prep.torrent_hash):
-            self.torrserver.drop(prep.torrent_hash)
+        torrent_hash = prep.torrent_hash
+        if torrent_hash and CLAIMS.unclaim(torrent_hash, self) and not _held_by_show(torrent_hash):
+            self.torrserver.drop(torrent_hash)
 
     def drop_all(self) -> None:
         """Показа не будет: всё прогретое убирается из TorrServer.

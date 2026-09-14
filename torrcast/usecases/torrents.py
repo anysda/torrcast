@@ -13,6 +13,7 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.show_unit.slot import unit
 from torrcast.ports.state_store.slot import store
 from torrcast.ports.torrent_engines import TorrentEngines
+from torrcast.usecases.torrent_claims import CLAIMS
 
 #: Чем сценарий берёт службу раздач: адрес и срок ответа знает он, саму службу - корень
 #: (:mod:`torrcast.runtime.wire`).
@@ -89,7 +90,8 @@ def _release_orphans(config: Config) -> None:
     молчание, мы делали сироту вечной. Не убралось - не забываем, попробуем в другой раз.
     """
     state = store().load()
-    orphans = {key: entry.torrent for key, entry in state if entry.torrent}
+    # Сирота, которую прямо сейчас держит этот процесс (карточка читает её дорожки), живая.
+    orphans = {k: e.torrent for k, e in state if e.torrent and not CLAIMS.claimed(e.torrent)}
     if not orphans:  # обычный случай, и он не стоит ни одного вопроса systemd
         return
     if unit().active():  # показ идёт - раздача под ним живая, и она не сирота
@@ -118,7 +120,13 @@ def _held_by_show(torrent_hash: str) -> bool:
     секунду), ни цены на счастливом пути - одно чтение файла на снос, а сносы не горячий
     путь.
 
+    Отбор показа отметки в состоянии ещё не поставил - он идёт до юнита. Его и карточку
+    страницы, живущих в одном процессе, называют держатели процесса
+    (:data:`~torrcast.usecases.torrent_claims.CLAIMS`).
+
     Цена консервативности: хэш, забытый убитым юнитом (SIGKILL), прогрев сносить не
     станет - за него уберёт :func:`_release_orphans` при следующем запуске показа.
     """
-    return bool(torrent_hash) and torrent_hash in store().load().held()
+    return bool(torrent_hash) and (
+        CLAIMS.claimed(torrent_hash) or torrent_hash in store().load().held()
+    )
