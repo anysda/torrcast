@@ -129,7 +129,8 @@ const TCCard = {
   },
 
   _here(root, key) {
-    return document.body.contains(root) && location.pathname === '/card/' + encodeURIComponent(key);
+    const route = location.pathname.slice('/card/'.length);
+    return document.body.contains(root) && decodeURIComponent(route) === key;
   },
 
   _facts() {
