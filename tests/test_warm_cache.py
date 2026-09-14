@@ -350,12 +350,17 @@ def test_a_live_request_waits_for_the_circle_the_background_is_already_counting(
 _TOLD: list[Told] = [("search", "Interstellar", 0.0, (), [RawResult("Interstellar 1080p", "h")])]
 
 
-def _restarted(tmp_path: Path, circle: _Circle, spawn: Callable[[Callable[[], None]], None]) -> Any:
+def _restarted(
+    tmp_path: Path,
+    circle: _Circle,
+    spawn: Callable[[Callable[[], None]], None],
+    kept: list[Told] = _TOLD,
+) -> Any:
     replayed: list[str] = []
 
     def replay(query: str, told: list[Told]) -> list[Plan]:
         replayed.append(query)
-        return [_PLAN] if told == _TOLD else []
+        return [_PLAN] if told == kept else [_SHOWN]
 
     disk = CircleDisk(path=lambda: tmp_path / "circles.json")
     cache = WarmCache(circle, lambda _p: None, spawn, disk=disk, replay=replay)
@@ -399,3 +404,24 @@ def test_a_screen_after_a_restart_is_warmed_from_disk_without_the_indexers(tmp_p
     assert cache.ask(["Interstellar"]) == 1
     assert (circle.asked, replayed) == (["Interstellar"], ["Interstellar"])
     assert cache.ready("Interstellar") == [_PLAN]
+
+
+def test_a_background_refresh_with_a_silent_source_keeps_the_full_circle(tmp_path: Path) -> None:
+    """🔴 Обновление, где JacRed промолчал, легло поверх полного круга: 4 раздачи вместо 32."""
+    full: list[Told] = [
+        ("search", "Тачки", 0.0, (), [RawResult("Тачки 2006", "a", indexer="JacRed")]),
+        ("search", "Тачки", 0.0, (), [RawResult("Cars 2006", "b", indexer="RuTor")]),
+    ]
+    silent = [said for said in full if said[4][0].indexer != "JacRed"]
+    circle = _Circle(answer=ToldCircle([_PLAN], full))
+    _restarted(tmp_path, circle, _sync, full)[0].take("Тачки")
+    circle.answer = ToldCircle([_SHOWN], silent)
+    held: list[Callable[[], None]] = []
+    cache, _ = _restarted(tmp_path, circle, held.append, full)
+
+    assert cache.take("Тачки") == [_PLAN]
+    while held:
+        held.pop(0)()
+    assert circle.asked == ["Тачки", "Тачки"], "фоновое обновление было"
+    assert cache.take("Тачки") == [_PLAN], "в выдаче полный круг, а не обеднённый"
+    assert _restarted(tmp_path, circle, lambda _job: None, full)[0].take("Тачки") == [_PLAN]

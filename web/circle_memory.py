@@ -61,12 +61,30 @@ class CircleMemory:
         return empty[0] if empty is not None and empty[1] > self.clock() else None
 
     def keep(self, query: str, plans: list[Plan]) -> None:
-        """Запомнить непустую находку; пустая - не находка, урезанная - на минуту."""
-        if plans:
-            ttl = EMPTY_TTL if isinstance(plans, CutCircle) else self.ttl
-            with self._lock:
-                self._found[self.key(query)] = (plans, self.clock() + ttl)
-                self._empty.pop(self.key(query), None)
+        """Запомнить непустую находку; пустая - не находка, урезанная - на минуту.
+
+        Неполный круг (:meth:`poorer`) живой полный не вытесняет, а без него живёт минуту.
+        """
+        if not plans:
+            return
+        key, poorer = self.key(query), self.poorer(query, plans)
+        with self._lock:
+            live = self._found.get(key)
+            if poorer and live is not None and live[1] > self.clock():
+                return
+            ttl = EMPTY_TTL if poorer or isinstance(plans, CutCircle) else self.ttl
+            self._found[key] = (plans, self.clock() + ttl)
+            self._empty.pop(key, None)
+
+    def poorer(self, query: str, plans: list[Plan]) -> bool:
+        """Промолчал ли в круге источник, чьи раздачи есть в записанном на диске.
+
+        Метка урезанного (:class:`CutCircle`) ставится по отсечке переходника и пропускает
+        ноль, пришедший раньше неё (JacRed: 0 за 3060 мс), а число строк честно гуляет.
+        """
+        told = plans.told if isinstance(plans, ToldCircle) else []
+        kept = self.disk.told(self.key(query)) if self.disk is not None and told else None
+        return bool(kept) and bool(_sources(kept or []) - _sources(told))
 
     def revive(self, query: str) -> list[Plan] | None:
         """Круг с диска, собранный заново без сети; ``None`` - записи нет или она стара."""
@@ -85,15 +103,23 @@ class CircleMemory:
         return plans
 
     def store(self, query: str, plans: list[Plan]) -> None:
-        """Записать полный круг на диск; урезанный и пустой туда не идут."""
+        """Записать полный круг на диск; урезанный, неполный и пустой туда не идут."""
         told = plans.told if isinstance(plans, ToldCircle) else []
-        if self.disk is not None and plans and told and not isinstance(plans, CutCircle):
+        if self.disk is None or not plans or not told or isinstance(plans, CutCircle):
+            return
+        if not self.poorer(query, plans):
             self.disk.keep(self.key(query), told)
 
     def refuse(self, query: str, error: NotFoundError) -> None:
         """Запомнить «ничего не нашлось» на :data:`EMPTY_TTL`."""
         with self._lock:
             self._empty[self.key(query)] = (error, self.clock() + EMPTY_TTL)
+
+
+def _sources(told: list[Told]) -> set[str]:
+    return {
+        name for said in told for row in said[4] for name in (*row.indexers, row.indexer) if name
+    }
 
 
 __all__ = ["EMPTY_TTL", "CircleMemory"]
