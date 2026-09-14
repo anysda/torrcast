@@ -168,8 +168,10 @@ class _BenchWork(_BenchCore):
         """
         key = (plan.picture.key, number)
         found = self.preps.get(key)
-        if found is not None:
+        if found is not None and found.release.magnet == plan.ranked[number - 1].magnet:
             return found
+        if found is not None:  # the circle was counted again and this number is another release
+            self._forget(found)
         self._room()
         prep = _Prep(
             number=number,

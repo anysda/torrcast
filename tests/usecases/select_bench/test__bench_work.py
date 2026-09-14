@@ -86,3 +86,16 @@ def test_a_warm_up_counts_its_own_budget_from_the_moment_it_started() -> None:
 
     assert late.error == "фаза «очередь» не уложилась в бюджет"
     assert len(said.phases) == 1, "срок прогрева вышел ещё до вопроса - ждать нечего"
+
+
+def test_a_renumbered_pool_does_not_hand_over_the_warm_up_of_another_release() -> None:
+    """🔴 Карточка грела номер 1 одного круга, показ пересчитал круг, и номер 1 стал другим."""
+    first, second = rel("Кино / Movie (1999) BDRip 1080p"), rel("Кино / Movie (1999) WEB 720p")
+    bench = Bench(Torrents(), prober=probes([first, second]))
+    old = bench.start(plan([first, second]), 1)
+    bench._wait(old, Said())
+
+    fresh = bench.start(plan([second, first]), 1)
+
+    assert fresh.release.magnet == second.magnet
+    assert old.dropped
