@@ -162,3 +162,49 @@ def test_a_qualified_lightyear_cartoon_beats_its_character_page() -> None:
 
     assert about == {key: cartoon}
     assert entities == {key: "Q100000"}
+
+
+_LANTERNS = (
+    "«Фонари́» (англ. Lanterns) — американский телесериал, основанный на комиксах "
+    "издательства DC Comics о двух Зелёных Фонарях — Хэле Джордане и Джоне Стюарте."
+)
+
+
+def _lanterns() -> dict[str, Any]:
+    return {
+        "query": {
+            "pages": [
+                {
+                    "title": "Фонари",
+                    "extract": _LANTERNS,
+                    "pageprops": {"wikibase_item": "Q110556821"},
+                }
+            ]
+        }
+    }
+
+
+def test_a_searched_russian_heading_of_a_latin_series_is_its_article() -> None:
+    """Lanterns 2026 has «Фонари»: IMDb knows that heading in 2026, the article names Lanterns."""
+    key = ("Lanterns", 2026)
+
+    about, entities, _ = _read_pages(
+        _lanterns(), {key: ["Фонари"]}, set(), {key: "tv"}, {("Фонари", 2026)}
+    )
+
+    assert about == {key: _LANTERNS}
+    assert entities == {key: "Q110556821"}
+
+
+def test_a_russian_heading_needs_both_its_map_year_and_the_named_original() -> None:
+    """Without the IMDb year, or for another Latin title, the yearless article proves nothing."""
+    key, other = ("Lanterns", 2026), ("Lamps", 2026)
+
+    assert _read_pages(_lanterns(), {key: ["Фонари"]}, {key}, {key: "tv"})[0] == {}
+    assert (
+        _read_pages(_lanterns(), {key: ["Фонари"]}, set(), {key: "tv"}, {("Фонари", 2025)})[0] == {}
+    )
+    assert (
+        _read_pages(_lanterns(), {other: ["Фонари"]}, set(), {other: "tv"}, {("Фонари", 2026)})[0]
+        == {}
+    )

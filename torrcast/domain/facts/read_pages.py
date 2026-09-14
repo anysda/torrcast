@@ -6,11 +6,13 @@ from collections.abc import Mapping, Set
 
 from torrcast.domain.facts.article_gate import _declares_work, _fits_type
 from torrcast.domain.facts.confirms import confirms
+from torrcast.domain.facts.latin_title import latin_title
 from torrcast.domain.facts.linked_title import linked_title
 from torrcast.domain.facts.wiki_pages import wiki_pages
 from torrcast.domain.facts.wiki_reply import _article
 from torrcast.domain.json_map import json_map
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.slugify import slugify
 
 
 def _read_pages(
@@ -18,6 +20,7 @@ def _read_pages(
     candidates: dict[tuple[str, int | None], list[str]],
     confirmed: Set[tuple[str, int | None]] = frozenset(),
     kinds: Mapping[tuple[str, int | None], str] | None = None,
+    headings: Set[tuple[str, int | None]] = frozenset(),
 ) -> tuple[
     dict[tuple[str, int | None], str],
     dict[tuple[str, int | None], str],
@@ -79,8 +82,14 @@ def _read_pages(
             named = name.casefold() == key[0].strip().casefold() or str(
                 page.get("title") or ""
             ).casefold().startswith(key[0].strip().casefold() + " (")
-            confirmed_work = (
-                key in confirmed and named and _declares_work(str(page.get("title") or ""), extract)
+            # Поиск приводит латинскую плитку на русский заголовок: Lanterns на «Фонари».
+            # Тогда год подтверждает карта IMDb под САМИМ заголовком (``headings``), а связь
+            # с плиткой - оригинал, названный статьёй: «Фонари (англ. Lanterns)».
+            renamed = (_heading(name), key[1]) in headings and slugify(
+                latin_title(extract)
+            ) == slugify(key[0])
+            confirmed_work = ((key in confirmed and named) or renamed) and _declares_work(
+                str(page.get("title") or ""), extract
             )
             if not confirms(extract, key[1]) and not confirmed_work:
                 continue
@@ -92,6 +101,11 @@ def _read_pages(
                 entities[key] = str(props["wikibase_item"])
             break
     return about, entities, linked
+
+
+def _heading(name: str) -> str:
+    """Заголовок статьи без уточнения в скобках: «Фонари (телесериал)» - «Фонари»."""
+    return name.split(" (", 1)[0].strip()
 
 
 def _asked_series(kind: str) -> bool | None:

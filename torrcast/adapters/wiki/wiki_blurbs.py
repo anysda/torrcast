@@ -17,7 +17,7 @@ from torrcast.adapters.wiki.wiki_searches import wiki_searches
 from torrcast.domain.catalogs.tongue import tongue
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.hms import hms
-from torrcast.domain.facts.read_pages import _read_pages
+from torrcast.domain.facts.read_pages import _heading, _read_pages
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.ports.json_client import JsonClient
 from torrcast.ports.rating_dump import RatingDump
@@ -122,9 +122,20 @@ class WikiBlurbs:
             found, replies, searched = wiki_searches(
                 self.client, unresolved, timeout, kinds, foreground
             )
+            headings = (
+                self.catalogue.ids(
+                    [
+                        (_heading(name), key[1], (kinds or {}).get(key, "movie"))
+                        for key, names in found.items()
+                        for name in names
+                    ]
+                )
+                if self.catalogue is not None
+                else {}
+            )
             for reply in replies:
                 extra_about, extra_entities, extra_linked = _read_pages(
-                    reply, found, set(local_ids), kinds
+                    reply, found, set(local_ids), kinds, set(headings)
                 )
                 about.update(extra_about)
                 entities.update(extra_entities)
