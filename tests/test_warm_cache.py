@@ -372,7 +372,8 @@ def test_after_a_restart_a_repeat_is_served_from_disk_and_refreshed_by_one_backg
     cache, replayed = _restarted(tmp_path, circle, held.append)
 
     assert cache.take("Interstellar ") == [_PLAN]
-    assert (circle.asked, replayed, held) == (["Interstellar"], ["Interstellar "], [cache._pump])
+    pumps = [job for job in held if job == cache._pump]
+    assert (circle.asked, replayed, len(pumps)) == (["Interstellar"], ["Interstellar "], 1)
     while held:
         held.pop(0)()
     assert cache.take("Interstellar") == [_PLAN]
@@ -387,3 +388,14 @@ def test_a_cut_circle_is_not_written_to_disk(tmp_path: Path) -> None:
     cache.take("Interstellar")
 
     assert (circle.asked, replayed) == (["Interstellar", "Interstellar"], [])
+
+
+def test_a_screen_after_a_restart_is_warmed_from_disk_without_the_indexers(tmp_path: Path) -> None:
+    """Плитки экрана после перезапуска гнали по кругу каждая, хотя круги лежали на диске."""
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
+    cache, replayed = _restarted(tmp_path, circle, _sync)
+
+    assert cache.ask(["Interstellar"]) == 1
+    assert (circle.asked, replayed) == (["Interstellar"], ["Interstellar"])
+    assert cache.ready("Interstellar") == [_PLAN]

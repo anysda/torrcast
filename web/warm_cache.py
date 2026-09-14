@@ -41,8 +41,7 @@ PATIENCE: Final = 5.0
 BUSY_WAIT: Final = 30.0
 
 
-#: Кто считает круг, кто греет справку пакетом и кто уносит работу в фон; боевых
-#: троих собирает :mod:`web.warm_wiring`.
+#: Кто считает круг, кто греет справку и кто уносит работу в фон (:mod:`web.warm_wiring`).
 Circle = Callable[[str], "list[Plan]"]
 Blurbs = Callable[["list[FactPicture]"], None]
 Spawn = Callable[[Callable[[], None]], None]
@@ -95,8 +94,7 @@ class WarmCache:
             with self._hold():
                 kept = self._memory.revive(query)
                 plans = (circle or self.circle)(query) if kept is None else kept
-            if kept is None:
-                self._remember(query, plans)
+            self._remember(query, plans)
         except NotFoundError as nothing:
             self._memory.refuse(query, nothing)
             raise
@@ -151,9 +149,12 @@ class WarmCache:
                     ):
                         continue  # a live caller already runs or landed this very circle
                     self._busy.add(query)
+                    stale = query in self._stale
                     self._stale.discard(query)
                 try:
-                    plans = self.circle(query)
+                    # Disk warms a screen offline; only what a live caller got from disk is re-asked
+                    kept = None if stale else self._memory.revive(query)
+                    plans = self.circle(query) if kept is None else kept
                 except NotFoundError as nothing:
                     self._memory.refuse(query, nothing)
                     plans = []

@@ -77,10 +77,12 @@ class CircleMemory:
             plans = None if not told else self.replay(query, told)
         except TorrcastError:
             return None
-        if plans:
-            with self._lock:
-                self._found[self.key(query)] = (plans, self.clock() + self.ttl)
-        return plans or None
+        if not plans:
+            return None
+        plans = list(plans)  # a plain list: what came from disk is not written back
+        with self._lock:
+            self._found[self.key(query)] = (plans, self.clock() + self.ttl)
+        return plans
 
     def store(self, query: str, plans: list[Plan]) -> None:
         """Записать полный круг на диск; урезанный и пустой туда не идут."""
