@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable, Iterable
 
@@ -18,6 +19,10 @@ from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.kin_rows import _kin_key, _kin_row, _row_kin
 from torrcast.domain.facts.origin import Origin
 from torrcast.ports.json_store import JsonStore
+
+#: Дописывание - это чтение, правка и запись всего файла. Два писателя разом теряли
+#: запись друг друга: полка родни пачкой и справка карточки пишут одновременно.
+_WRITING = threading.Lock()
 
 
 class FactsFileCache:
@@ -37,9 +42,10 @@ class FactsFileCache:
 
     def write(self, title: str, series: bool | None, found: Origin) -> None:
         """Дописать паспорт к тому, что уже лежит в хранилище."""
-        raw = self.store.read()
-        raw[_origin_key(title, series)] = _origin_row(found)
-        self.store.write(raw)
+        with _WRITING:
+            raw = self.store.read()
+            raw[_origin_key(title, series)] = _origin_row(found)
+            self.store.write(raw)
 
     def read_kin(self, entity: str) -> list[Kin] | None:
         """Родня по Q-идентификатору: ``None`` - не спрашивали, пустой список - нет её."""
@@ -48,9 +54,19 @@ class FactsFileCache:
 
     def write_kin(self, entity: str, found: list[Kin]) -> None:
         """Дописать родню к тому, что уже лежит в хранилище."""
-        raw = self.store.read()
-        raw[_kin_key(entity)] = _kin_row(found)
-        self.store.write(raw)
+        with _WRITING:
+            raw = self.store.read()
+            raw[_kin_key(entity)] = _kin_row(found)
+            self.store.write(raw)
+
+    def write_kins(self, found: dict[str, list[Kin]]) -> None:
+        """Родня пачки картин одной записью файла, а не по записи на картину."""
+        if not found:
+            return
+        with _WRITING:
+            raw = self.store.read()
+            raw.update({_kin_key(entity): _kin_row(kin) for entity, kin in found.items()})
+            self.store.write(raw)
 
     def blurbs(self, wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
         """Что уже лежит на диске и ещё не протухло; за остальным пойдут в сеть.
@@ -70,6 +86,7 @@ class FactsFileCache:
         blanks = list(misses)
         if not found and not blanks:
             return
-        raw = self.store.read()
-        raw.update(_fact_rows(found, blanks, int(self.now()), tongue()))
-        self.store.write(raw)
+        with _WRITING:
+            raw = self.store.read()
+            raw.update(_fact_rows(found, blanks, int(self.now()), tongue()))
+            self.store.write(raw)

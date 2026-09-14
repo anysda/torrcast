@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from tests.fakes.json_store import FakeJsonStore
 from torrcast.adapters.wiki.facts_file_cache import FactsFileCache
 from torrcast.adapters.wiki.json_file_store import JsonFileStore
@@ -83,3 +85,25 @@ def test_nothing_to_remember_never_touches_the_store() -> None:
     FactsFileCache(store).remember({}, [])
 
     assert store.writes == 0
+
+
+@pytest.mark.machine
+def test_kin_written_from_several_threads_is_all_kept(tmp_path: Path) -> None:
+    """🔴 Дописывание - чтение и запись всего файла: писатели разом теряли ряды друг друга."""
+    import threading
+
+    from torrcast.adapters.wiki.state_json_store import StateJsonStore
+
+    cache = FactsFileCache(StateJsonStore(lambda: tmp_path / "facts.json"))
+    writers = [
+        threading.Thread(
+            target=cache.write_kins, args=({f"Q{n}": [Kin("Q1", "x" * 20_000, 2000)]},)
+        )
+        for n in range(16)
+    ]
+    for writer in writers:
+        writer.start()
+    for writer in writers:
+        writer.join()
+
+    assert all(cache.read_kin(f"Q{n}") is not None for n in range(16))
