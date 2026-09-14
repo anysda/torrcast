@@ -6,7 +6,8 @@ from torrcast.domain._named_seasons import _named_seasons
 
 
 def _season_span(text: str) -> tuple[int, ...]:
-    return _named_seasons(text)
+    named = _named_seasons(text)
+    return named if len(named) > 1 else ()
 
 
 __all__ = ["_season_span"]

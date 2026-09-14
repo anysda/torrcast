@@ -6,6 +6,7 @@ import re
 
 from torrcast.domain._name_data.data_2 import _SEASON_EPISODE_RES, _SEASON_ONLY_RES
 from torrcast.domain._name_data.data_3 import _CODEC_TOKEN_RE, _SERIES_HINT_RE
+from torrcast.domain._named_seasons import _named_seasons
 from torrcast.domain.episode import Episode
 from torrcast.domain.episode_span import _episode_span
 from torrcast.domain.fansub_episode import _fansub_episode
@@ -17,7 +18,7 @@ def _parse_series(
 ) -> tuple[int | None, int | None, tuple[int, ...], tuple[int, ...], bool]:
     fansub = _fansub_episode(text)
     text = _CODEC_TOKEN_RE.sub(" ", text)
-    seasons = _season_span(text)
+    seasons = _season_span(text) or _named_seasons(text)
     episodes = _episode_span(text)
     number = int(fansub.group("episode")) if fansub else None
     if fansub and (last := fansub.group("last")):
