@@ -51,6 +51,7 @@ from torrcast.runtime.wire import wire
 from torrcast.usecases.facts import Facts
 from torrcast.usecases.feed_pack import _state as feed_state
 from torrcast.usecases.playback.hls_root import HLS_ENV
+from torrcast.usecases.torrent_claims import CLAIMS
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -600,6 +601,16 @@ def _no_remote(monkeypatch: pytest.MonkeyPatch) -> None:
     пульт, забытый в среде, рулил бы показом посреди чужого теста.
     """
     monkeypatch.delenv(CTL_ENV, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _own_claims(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Держатели раздач у теста свои: хэши подделок у тестов одни и те же.
+
+    Стенд соседнего теста, ещё не ушедший сборщику, держал бы тот же ``hash-magnet`` - и
+    уборка этого теста его щадила бы (:data:`torrcast.usecases.torrent_claims.CLAIMS`).
+    """
+    monkeypatch.setattr(CLAIMS, "_owners", {})
 
 
 @pytest.fixture
