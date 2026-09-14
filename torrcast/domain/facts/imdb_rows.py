@@ -143,11 +143,15 @@ def _rows_by_year(lines: Iterable[str]) -> dict[str, list[str]]:
     return out
 
 
-def _rows_by_name(lines: Iterable[str]) -> dict[str, list[str]]:
-    """Строки одного года по сведённому имени - тем же правилом, что и у запроса."""
+def _rows_by_name(lines: Iterable[str], column: int = 0) -> dict[str, list[str]]:
+    """Строки одного года по сведённому имени - тем же правилом, что и у запроса.
+
+    ``column`` 3 сводит строки по оригиналу: латинская плитка ищет своё прокатное имя.
+    """
     out: dict[str, list[str]] = {}
     for line in lines:
-        out.setdefault(slugify(line.split("\t", 1)[0].rstrip("\n")), []).append(line)
+        fields = line.rstrip("\n").split("\t")
+        out.setdefault(slugify(fields[column] if len(fields) > column else ""), []).append(line)
     return out
 
 

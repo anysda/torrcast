@@ -21,6 +21,7 @@ from torrcast.domain.facts.read_pages import _heading, _read_pages
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.ports.json_client import JsonClient
 from torrcast.ports.rating_dump import RatingDump
+from torrcast.ports.ru_names import RuNames
 from torrcast.ports.title_ids import TitleIds
 
 
@@ -28,11 +29,16 @@ class WikiBlurbs:
     """Два сетевых шага и файл оценок; отказ второго шага не отменяет первого."""
 
     def __init__(
-        self, client: JsonClient, ratings: RatingDump, catalogue: TitleIds | None = None
+        self,
+        client: JsonClient,
+        ratings: RatingDump,
+        catalogue: TitleIds | None = None,
+        names: RuNames | None = None,
     ) -> None:
         self.client = client
         self.ratings = ratings
         self.catalogue = catalogue
+        self.names = names
 
     def fetch(
         self,
@@ -120,7 +126,7 @@ class WikiBlurbs:
         searched: set[tuple[str, int | None]] = set()
         if unresolved:
             found, replies, searched = wiki_searches(
-                self.client, unresolved, timeout, kinds, foreground
+                self.client, unresolved, timeout, kinds, foreground, self.names
             )
             headings = (
                 self.catalogue.ids(

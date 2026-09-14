@@ -82,3 +82,20 @@ def test_the_votes_break_the_tie_between_namesakes(tmp_path: Path) -> None:
 
     assert _names(tmp_path, votes=votes).look("Совпадение", False).title == "Mere Coincidence"
     assert not _names(tmp_path).look("Совпадение", False)
+
+
+def test_an_original_name_gets_its_russian_release_names_of_the_same_year_and_type(
+    tmp_path: Path,
+) -> None:
+    """Латинская плитка находит прокатное имя по оригиналу; чужие год и тип не подходят."""
+    rows = (
+        "Аватар\ttt0499549\tmovie\tAvatar\t2009\n"
+        "Аватар\ttt27931855\ttvSeries\tAvatar\t2022\n"
+        "Аватар 3D\ttt0499549\tmovie\tAvatar\t2009\n"
+        "Кибервойны\ttt0270841\tmovie\tCyber Wars\t2009\n"
+    )
+    catalogue = _names(tmp_path, rows)
+
+    found = catalogue.ru_names([("avatar", 2009, "movie"), ("Avatar", 2022, "movie")])
+
+    assert found == {("avatar", 2009): ["Аватар", "Аватар 3D"]}

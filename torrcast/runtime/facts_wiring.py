@@ -42,7 +42,7 @@ class FactsWiring:
         self.catalogue = ImdbNames(TextFileSource(), self.ratings)
         self.cache = FactsFileCache(StateJsonStore(where))
         self.articles = WikiArticles(self.client, WikiSpelling(self.client), self.catalogue)
-        self.blurbs = WikiBlurbs(self.client, self.ratings, self.catalogue)
+        self.blurbs = WikiBlurbs(self.client, self.ratings, self.catalogue, self.catalogue)
         self.passport = Passport(
             self.articles, self.catalogue, self.cache, WikidataDates(self.client)
         )

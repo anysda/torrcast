@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 from torrcast.domain.facts.imdb_rows import (
+    _TV_KINDS,
     _named_origin,
     _picture_ids_from_lines,
     _rows_by_name,
@@ -39,6 +40,7 @@ class ImdbNames:
         self._names: dict[str, list[_RuName]] | None = None
         self._years: dict[str, list[str]] | None = None
         self._named: dict[str, dict[str, list[str]]] = {}
+        self._originals: dict[str, dict[str, list[str]]] = {}
         self._rows_lock = threading.Lock()
         self._lock = threading.Lock()
 
@@ -65,11 +67,32 @@ class ImdbNames:
                 rows.update(dict.fromkeys(self._year(str(year)).get(slugify(title), ())))
         return _picture_ids_from_lines(rows, pictures)
 
-    def _year(self, year: str) -> dict[str, list[str]]:
+    def ru_names(
+        self, pictures: list[tuple[str, int | None, str]]
+    ) -> dict[tuple[str, int | None], list[str]]:
+        """Прокатные имена по оригиналу, году и типу: «Avatar» 2009 - это «Аватар».
+
+        Поиск Википедии по латинскому имени приносит соседние части франшизы, а статья
+        самой картины лежит под русским именем, которое знает карта.
+        """
+        out: dict[tuple[str, int | None], list[str]] = {}
+        for title, year, kind in pictures:
+            if year is None:
+                continue
+            for line in self._year(str(year), originals=True).get(slugify(title), ()):
+                name, _tconst, imdb_kind = [*line.split("\t"), "", ""][:3]
+                if (imdb_kind in _TV_KINDS) == (kind == "tv") and name:
+                    out.setdefault((title, year), [])
+                    if name not in out[(title, year)]:
+                        out[(title, year)].append(name)
+        return out
+
+    def _year(self, year: str, originals: bool = False) -> dict[str, list[str]]:
         """Строки одного года по сведённому имени; разбираются при первом вопросе."""
         with self._rows_lock:
             if self._years is None:
                 self._years = _rows_by_year(self.source.lines(self.path))
-            if year not in self._named:
-                self._named[year] = _rows_by_name(self._years.get(year, ()))
-            return self._named[year]
+            named = self._originals if originals else self._named
+            if year not in named:
+                named[year] = _rows_by_name(self._years.get(year, ()), 3 if originals else 0)
+            return named[year]
