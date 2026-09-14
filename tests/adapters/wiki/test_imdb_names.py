@@ -55,6 +55,19 @@ def test_an_exact_name_year_and_type_give_the_rating_id_without_a_full_index(
     assert len(source.reads) == 1
 
 
+def test_the_rating_ids_do_not_reread_the_map_for_every_menu(tmp_path: Path) -> None:
+    """🔴 Каждый добор справки и каждая пачка обложек читали и сводили файл заново."""
+    catalogue = _names(tmp_path)
+
+    catalogue.ids([("Американская фабрика", 2019, "movie")])
+    again = catalogue.ids([("американская  ФАБРИКА!", 2019, "movie"), ("Нет такой", 1999, "tv")])
+
+    assert again == {("американская  ФАБРИКА!", 2019): "tt9351980"}
+    source = catalogue.source
+    assert isinstance(source, FakeTextSource)
+    assert len(source.reads) == 1
+
+
 def test_a_missing_map_file_is_silence_not_a_crash(tmp_path: Path) -> None:
     """Нет файла карты (установка без справки) - паспорт пуст, и это не сбой."""
     path = tmp_path / "no-such-file.tsv"

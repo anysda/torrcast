@@ -129,6 +129,28 @@ def _named_origin(
     return Origin(title=latin, year=year, name=name, guessed=guessed, source=SOURCE_MAP)
 
 
+def _rows_by_year(lines: Iterable[str]) -> dict[str, list[str]]:
+    """Строки карты по году: точная тройка без года не сверяется, чужой год не сводится.
+
+    🔴 Проход :func:`_picture_ids_from_lines` по всему файлу сводил 150 тысяч имён на КАЖДЫЙ
+    добор справки и каждую пачку обложек: 0.7 с процессора под GIL, и соседние запросы к
+    Википедии в том же процессе шли втрое дольше. Имена сводятся потом и только в своём году.
+    """
+    out: dict[str, list[str]] = {}
+    for line in lines:
+        fields = line.rstrip("\n").split("\t")
+        out.setdefault(fields[4] if len(fields) > 4 else "", []).append(line)
+    return out
+
+
+def _rows_by_name(lines: Iterable[str]) -> dict[str, list[str]]:
+    """Строки одного года по сведённому имени - тем же правилом, что и у запроса."""
+    out: dict[str, list[str]] = {}
+    for line in lines:
+        out.setdefault(slugify(line.split("\t", 1)[0].rstrip("\n")), []).append(line)
+    return out
+
+
 def _picture_ids_from_lines(
     lines: Iterable[str], pictures: list[tuple[str, int | None, str]]
 ) -> dict[tuple[str, int | None], str]:

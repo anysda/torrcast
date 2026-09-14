@@ -8,6 +8,8 @@ from pathlib import Path
 from torrcast.domain.facts.imdb_rows import (
     _named_origin,
     _picture_ids_from_lines,
+    _rows_by_name,
+    _rows_by_year,
     _ru_rows,
     _RuName,
 )
@@ -35,6 +37,9 @@ class ImdbNames:
         self.ratings = ratings
         self.path = path
         self._names: dict[str, list[_RuName]] | None = None
+        self._years: dict[str, list[str]] | None = None
+        self._named: dict[str, dict[str, list[str]]] = {}
+        self._rows_lock = threading.Lock()
         self._lock = threading.Lock()
 
     def look(self, title: str, series: bool) -> Origin:
@@ -49,5 +54,22 @@ class ImdbNames:
             return self._names
 
     def ids(self, pictures: list[tuple[str, int | None, str]]) -> dict[tuple[str, int | None], str]:
-        """IMDb-id по точной тройке «прокатное имя, год, тип»."""
-        return _picture_ids_from_lines(self.source.lines(self.path), pictures)
+        """IMDb-id по точной тройке «прокатное имя, год, тип».
+
+        Файл читается раз на процесс и раскладывается по годам; имена сводятся лишь в
+        спрошенном году. Сверку делает всё тот же :func:`_picture_ids_from_lines`.
+        """
+        rows: dict[str, None] = {}
+        for title, year, _kind in pictures:
+            if year is not None:
+                rows.update(dict.fromkeys(self._year(str(year)).get(slugify(title), ())))
+        return _picture_ids_from_lines(rows, pictures)
+
+    def _year(self, year: str) -> dict[str, list[str]]:
+        """Строки одного года по сведённому имени; разбираются при первом вопросе."""
+        with self._rows_lock:
+            if self._years is None:
+                self._years = _rows_by_year(self.source.lines(self.path))
+            if year not in self._named:
+                self._named[year] = _rows_by_name(self._years.get(year, ()))
+            return self._named[year]
