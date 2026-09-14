@@ -274,3 +274,43 @@ def test_a_finished_silent_fact_lookup_is_retried_without_its_old_flight(
     preview(request, "movie:luca:2021", _Warm(), _Related())
 
     assert made == 2
+
+
+def test_a_related_tile_without_an_article_still_gets_its_shelf_by_the_known_qid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Нет статьи - текст «описания нет», но полку даёт Q-код, с которым плитку показали."""
+    from torrcast.domain.facts.kin import Kin
+    from torrcast.domain.json_value import JsonValue
+    from web.kin_ahead import KinAhead
+
+    ahead = KinAhead()
+    ahead.offer([Kin("Q471", "Лука", 2021)])
+    monkeypatch.setattr(web.preview, "KIN_AHEAD", ahead)
+    monkeypatch.setattr(web.preview, "MenuFacts", _MissingFacts)
+
+    class _KnownRelated:
+        def __init__(self) -> None:
+            self.entities: list[str] = []
+
+        def waiting(self, _title: str, _series: bool) -> bool:
+            return False
+
+        def of(self, _title: str, _series: bool, *entity: str) -> list[JsonValue] | None:
+            self.entities.extend(entity or ("",))
+            return [{"key": "movie:coco:2017", "title": "Тайна Коко"}]
+
+    related = _KnownRelated()
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie"},
+        body={},
+    )
+
+    answer = preview(request, "movie:luca:2021", _Warm(), related)
+
+    assert answer is not None
+    assert json.loads(answer.body)["blurb"] == ""
+    assert json.loads(answer.body)["related"][0]["title"] == "Тайна Коко"
+    assert related.entities and set(related.entities) == {"Q471"}

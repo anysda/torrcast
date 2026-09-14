@@ -19,6 +19,7 @@ from torrcast.ports.progress.slot import progress
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.discover.search_circle import search_circle
+from web.kin_ahead import KIN_AHEAD
 from web.preview import _facts
 from web.prime import prime
 from web.related_lookup import RelatedLookup
@@ -60,6 +61,9 @@ def _kin(picture: FactPicture) -> None:
     # A hover is a warm-up, not an open card.  Marking it foreground let an
     # entire screen take precedence over the click it was meant to prepare.
     facts = _facts.of(title, year, kind, foreground=False)
+    if kind == "movie" and (known := KIN_AHEAD.entity(title, year)):
+        # A related tile carries the QID of its published shelf: no article step.
+        RELATED.of(title, False, known)
 
     def start() -> None:
         entity = str(getattr(facts.ready(title, year), "entity", ""))
@@ -130,6 +134,8 @@ RELATED: Final = RelatedLookup(
     franchise=FACTS.franchise.of,
     entity_kin=FACTS.franchise.by_entity,
     passport=FACTS.passport.of,
+    warm=KIN_AHEAD.offer,
 )
+KIN_AHEAD.fetch = FACTS.franchise.by_entities
 
 __all__ = ["RELATED", "TARGETS", "WARM"]

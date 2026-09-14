@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from web.kin_ahead import KIN_AHEAD
 from web.request import Request
 
 
@@ -23,7 +24,8 @@ def start_related(request: Request, facts: Any, related: Any) -> tuple[str, int,
         return None
     if title and kind in {"movie", "tv"} and 1800 <= year <= 3000:
         fact = facts.of(title, year, kind).ready(title, year)
-        if entity := str(getattr(fact, "entity", "")):
+        known = "" if kind == "tv" else KIN_AHEAD.entity(title, year)
+        if entity := str(getattr(fact, "entity", "")) or known:
             related.retry(title, kind == "tv", entity)
         return title, year, kind
     return None

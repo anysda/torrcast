@@ -13,6 +13,7 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.runtime.menu_facts import MenuFacts
 from web.answer import Answer
+from web.kin_ahead import KIN_AHEAD
 from web.rating_score import rating_score
 from web.request import Request
 
@@ -101,7 +102,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     facts = _facts.of(title, year, kind)
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
-    kin = [] if getattr(fact, "missing", False) else _related_of(related, title, series, fact, told)
+    kin = _related_of(related, title, series, fact, told, year)
     if request.query.get("wait") == "1":
         before = (fact, told, kin)
         until = time.monotonic() + PATIENCE
@@ -109,11 +110,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
             _sleep(_TICK)
             fact = facts.ready(title, year)
             told = facts.answered(title, year)
-            kin = (
-                []
-                if getattr(fact, "missing", False)
-                else _related_of(related, title, series, fact, told)
-            )
+            kin = _related_of(related, title, series, fact, told, year)
             # Справка и родня приходят разными походами. Перемена одной не должна
             # стоять за другой: ``related=None`` оставляет полку частичной.
             if (fact, told, kin) != before:
@@ -146,7 +143,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     # Confirmed absence finishes both facts and the related shelf.  The release circle
     # may still be loading, but it cannot turn this particular card into a description
     # or a franchise, so asking the page to poll again only creates an empty loop.
-    extra = () if getattr(fact, "missing", False) else ((_PARTIAL, "1"),)
+    extra = () if getattr(fact, "missing", False) and kin is not None else ((_PARTIAL, "1"),)
     return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
 
 
@@ -167,10 +164,17 @@ def _others(key: str, related: list[JsonValue] | None) -> list[JsonValue] | None
 
 
 def _related_of(
-    related: _Related, title: str, series: bool, fact: object, told: bool
+    related: _Related, title: str, series: bool, fact: object, told: bool, year: int | None = None
 ) -> list[JsonValue] | None:
-    """Wait for the blurb QID before paying a fallback passport request."""
-    entity = str(getattr(fact, "entity", ""))
+    """Wait for the blurb QID before paying a fallback passport request.
+
+    A related tile already has the QID of the shelf that published it, so its own
+    shelf does not wait for the Wikipedia article.  Without any QID a confirmed
+    missing article still means no franchise.
+    """
+    entity = str(getattr(fact, "entity", "")) or ("" if series else KIN_AHEAD.entity(title, year))
+    if getattr(fact, "missing", False) and not entity:
+        return []
     if entity:
         return cast(list[JsonValue] | None, cast(Any, related).of(title, series, entity))
     if not told:
