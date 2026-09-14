@@ -6,6 +6,8 @@ import contextlib
 import threading
 from typing import TYPE_CHECKING
 
+import torrcast.usecases.discover._search_state as _search_state
+from torrcast.domain.facts.pool_passport import pool_passport
 from torrcast.domain.picture import Picture
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.first_alive import first_alive
@@ -42,7 +44,12 @@ class _Passport:
             picture = self._picture
             if picture is None:
                 return
-            self._box.append(_environment_port().origin(picture.title, series=picture.kind == "tv"))
+            about = _environment_port().origin(picture.title, series=picture.kind == "tv")
+            # Статья про другую тёзку уступает картине, которую зовут этим именем и выдача, и
+            # карта IMDb: «Мы» (Us, 2019) не «справка знает как 1989» (:func:`pool_passport`).
+            self._box.append(
+                pool_passport(about, picture.title, [picture], _search_state._search_known)
+            )
 
     def get(self) -> Origin:
         thread = self._thread

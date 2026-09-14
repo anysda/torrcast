@@ -114,7 +114,7 @@ def _second_language(
     lead = _leading(found)
     ask_passport = passport or _search_state._search_passport
     asked_kind = _asked_kind(lead, args)
-    about = _second_origin(ask_passport, name, asked_kind, index, budget)
+    about = _second_origin(ask_passport, name, asked_kind, index, budget, found)
     alt = alt_query(name, pool, about.title, about.name)
     confirmed_alt = False
     if alt and not about and name.isascii():

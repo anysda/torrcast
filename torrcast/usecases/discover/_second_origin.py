@@ -7,21 +7,35 @@ import threading
 import time
 from collections.abc import Callable
 
+import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.pool_passport import pool_passport
+from torrcast.domain.picture import Picture
 
 
 def _second_origin(
-    ask: Callable[..., Origin], name: str, kind: bool | None, index: int | None, budget: float
+    ask: Callable[..., Origin],
+    name: str,
+    kind: bool | None,
+    index: int | None,
+    budget: float,
+    found: list[Picture] | None = None,
 ) -> Origin:
     """Паспорт картины перед добором: спрошен вслепую, а номер части снимает с него год.
 
     Справку спрашиваем вслепую: год выдачи ей не сообщаем, иначе она подстроится под него
     и сверять станет нечего. Тип картины - другое дело, у сериала и фильма разные статьи.
     Сети нет - паспорт пуст, и всё дальше работает ровно так, как работало.
+
+    ``found`` - картины русской выдачи. Ответ справки сверяется с ними уже ПОСЛЕ вопроса:
+    статья про другую картину уступает той, что названа тем же именем в выдаче и в карте
+    IMDb (:func:`~torrcast.domain.facts.pool_passport.pool_passport`).
     """
     about = _under_the_hint_and_past_it(ask, name, kind, budget)
     if index is None:
-        return about
+        if found is None:
+            return about
+        return pool_passport(about, name, found, _search_state._search_known)
     # 🔴 Спросили номер части - год справки к делу не относится. Справку зовут по имени
     # франшизы, и отвечает она про её ПЕРВУЮ картину: у «тачек» это 2006 год, а человек
     # просил «тачки 2» - картину 2011-го. Гейт читал это расхождение как подмену и
