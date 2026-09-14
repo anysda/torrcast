@@ -187,12 +187,26 @@ const TCRouter = {
     TCRouter.go('/card/' + encodeURIComponent(key) + tail);
   },
 
+  // Уход с карточки снимает прогрев её раздачи; в плеер - не уход: раздачу забирает показ.
+  // Ключ картины приходит телом карточки (`card.js`), адрес знает только ключ плитки.
+  _card: '',
+  _picture: '',
+  _left(path) {
+    const now = path.startsWith('/card/') ? decodeURIComponent(path.slice('/card/'.length)) : '';
+    const was = TCRouter._card;
+    const picture = TCRouter._picture || was;
+    if (now !== was) TCRouter._picture = '';
+    TCRouter._card = now;
+    if (was && now !== was && path !== '/play') TCApi.cardLeft(picture);
+  },
+
   render() {
     const root = document.getElementById('tc-root');
     // Прежний экран уходит в память страницы ДО смены (`kept.js`): возврат на него
     // встанет готовыми узлами, а не сборкой заново.
     TCKept.stash(root);
     const path = location.pathname;
+    TCRouter._left(path);
     if (path.startsWith('/card/')) {
       const key = decodeURIComponent(path.slice('/card/'.length));
       TCCard.mount(root, key);
@@ -208,6 +222,9 @@ window.TC = TC;
 window.TCTime = TCTime;
 window.TCRouter = TCRouter;
 window.addEventListener('popstate', TCRouter.render);
+window.addEventListener('pagehide', () => {
+  if (TCRouter._card) TCApi.cardLeft(TCRouter._picture || TCRouter._card);
+});
 
 document.addEventListener('DOMContentLoaded', async () => {
   await TC.load();

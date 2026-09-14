@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.info_hash import info_hash
+from torrcast.domain.pick_settings import PICK_BUDGET
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.progress.slot import progress
 from torrcast.ports.torrent_engines import TorrentEngines
@@ -23,6 +24,7 @@ from torrcast.runtime.native_picture import native_picture
 from torrcast.usecases.playback.file_picker import file_picker
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
+from web.card_warm import CardWarm
 from web.episode_lookup import RETRY, Spawn
 from web.heard import Heard
 
@@ -38,47 +40,69 @@ class VoiceLookup:
 
     engines: TorrentEngines
     spawn: Spawn = _daemon
+    warms: CardWarm = field(default_factory=CardWarm)
     clock: Callable[[], float] = time.monotonic
     _heard: dict[str, tuple[Heard | None, float]] = field(default_factory=dict)
     _pending: set[str] = field(default_factory=set)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def of(self, plan: Plan, query: str, base_url: str) -> tuple[Heard | None, bool]:
-        """Дорожки, если уже прочитаны, и «ещё в пути»; иначе завести отбор фоном."""
+        """Дорожки, если уже прочитаны, и «ещё в пути»; иначе завести отбор фоном.
+
+        Прочитанные дорожки не держат раздачу: карточка, открытая заново, греет её снова
+        (:class:`web.card_warm.CardWarm`) - сразу той раздачей, что отбор уже выбрал.
+        """
         key = plan.picture.key
         with self._lock:
             cached = self._heard.get(key)
-            if cached is not None and (cached[0] is not None or cached[1] > self.clock()):
-                return cached[0], False
-            if key not in self._pending:
-                self._pending.add(key)
-                start = True
-            else:
-                start = False
+            known = cached is not None and (cached[0] is not None or cached[1] > self.clock())
+            heard = cached[0] if cached is not None and known else None
+            if known and (heard is None or self.warms.holds(key)):
+                return heard, False
+            start = key not in self._pending
+            self._pending.add(key)
         if start:
-            self.spawn(lambda: self._build(plan, query, base_url))
+            release = heard.release if heard is not None else ""
+            self.spawn(lambda: self._build(plan, query, base_url, release))
+        if known:
+            return heard, False
         with self._lock:
             cached = self._heard.get(key)
             if cached is None or key in self._pending:
                 return None, True
             return cached[0], False
 
-    def _build(self, plan: Plan, query: str, base_url: str) -> None:
-        """Отобрать раздачу, прочитать её дорожки и убрать за собой всё прогретое."""
+    def _build(self, plan: Plan, query: str, base_url: str, release: str = "") -> None:
+        """Отобрать раздачу, прочитать её дорожки и оставить греться только выбранную."""
         heard: Heard | None = None
-        args = parse_args([query])
-        bench = Bench(self.engines(base_url), choose=file_picker(args))
+        args = parse_args([query, "--card-release", release] if release else [query])
+        make = lambda: Bench(self.engines(base_url), choose=file_picker(args))  # noqa: E731
+        warm, fresh = self.warms.open(plan.picture.key, make)
+        prep = None
+        left = False
         try:
-            native_picture(plan.picture, query)
-            prep = bench.resolve(plan, args, progress())
-            release = info_hash(prep.release)
-            heard = Heard(prep.found, plan.picture.native, prep.release.studios, release)
+            if fresh:
+                native_picture(plan.picture, query)
+                prep = warm.bench.resolve(plan, args, self.warms.progress(warm, progress()))
+            else:  # картину уже отбирает показ: дорожки - его раздачи
+                warm.chosen.wait(PICK_BUDGET)
+                prep = warm.prep
+        except self.warms.stopped():
+            left = not warm.taken
+            if not left:
+                warm.chosen.wait(PICK_BUDGET)
+                prep = warm.prep
         except TorrcastError:
-            heard = None
+            prep = None
         finally:
-            bench.drop_all()
+            if fresh:
+                self.warms.finish(warm, prep)
+            if prep is not None:
+                release = info_hash(prep.release)
+                heard = Heard(prep.found, plan.picture.native, prep.release.studios, release)
             with self._lock:
-                self._heard[plan.picture.key] = (heard, self.clock() + RETRY)
+                if not left:  # ушедшая карточка ответа не узнала, и «дорожек нет» не пишется
+                    self._heard[plan.picture.key] = (heard, self.clock() + RETRY)
                 self._pending.discard(plan.picture.key)
 
 

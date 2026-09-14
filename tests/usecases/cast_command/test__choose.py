@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, cast
 
 import pytest
@@ -15,6 +16,7 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._choose import _choose
+from torrcast.usecases.cast_command.play_stage import _configure_play_stage, _play_stage
 from torrcast.usecases.choice._passport import _Passport
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
@@ -67,25 +69,38 @@ class _NoPassport:
 
 
 def test_a_saved_place_of_the_chosen_picture_answers_with_a_code() -> None:
-    """Закладка выбранной картины отвечает показом сама - и код уезжает наружу целым."""
+    """Закладка выбранной картины отвечает показом сама - и код уезжает наружу целым.
+
+    Стенд отбора берётся у сцены (его могла уже греть карточка), и ждущим его ответа
+    называется «ничего»: раздачу играет закладка, а не отбор.
+    """
     state = WatchState()
     state.put(plan().picture.key, entry())
-
-    picked = _choose(
-        Config(),
-        cast(Any, Args(query=["кино"])),
-        Choice(profile=CAUTIOUS, how="стенд"),
-        state,
-        None,
-        _Clock(),
-        circle=lambda *args, **rest: [plan()],
-        stand=lambda *args, **rest: cast(Bench, _NoBench()),
-        passport_of=lambda plans: cast(_Passport, _NoPassport()),
-        pick=lambda *args, **rest: plan(),
-        bookmark=lambda *args, **rest: EXIT_OK,
+    warm: Any = _NoBench()
+    settled: list[object] = []
+    before = _play_stage()
+    _configure_play_stage(
+        replace(before, bench=lambda args, fresh: warm, settled=lambda *got: settled.append(got))
     )
+    try:
+        picked = _choose(
+            Config(),
+            cast(Any, Args(query=["кино"])),
+            Choice(profile=CAUTIOUS, how="стенд"),
+            state,
+            None,
+            _Clock(),
+            circle=lambda *args, **rest: [plan()],
+            stand=lambda *args, **rest: cast(Bench, _NoBench()),
+            passport_of=lambda plans: cast(_Passport, _NoPassport()),
+            pick=lambda *args, **rest: plan(),
+            bookmark=lambda *args, **rest: EXIT_OK,
+        )
+    finally:
+        _configure_play_stage(before)
 
     assert picked == EXIT_OK
+    assert settled == [(warm, None)]
 
 
 class _WatchBench:

@@ -77,3 +77,23 @@ def test_the_card_picture_is_found_by_the_card_rule() -> None:
 
     assert show_stage._card_picture(menu, menu[2].picture.key) == 3
     assert show_stage._card_picture(menu, "movie:никто:1900") == 0
+
+
+class _CardWarm:
+    def __init__(self) -> None:
+        self.taken: list[tuple[str, object]] = []
+
+    def take(self, key: str, fresh: object) -> str:
+        self.taken.append((key, fresh))
+        return "стенд карточки"
+
+
+def test_a_card_show_asks_the_card_warm_for_its_bench(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Картину без серии карточка уже греет; серия и консоль отбирают своим стендом."""
+    warm = _CardWarm()
+    monkeypatch.setattr(show_stage, "CARD_WARM", warm)
+
+    assert show_stage._card_bench(Args(query=["тачки"], picture="k"), "свой") == "стенд карточки"  # type: ignore[arg-type,comparison-overlap]
+    for asked in (Args(query=["тачки"]), Args(query=["шоу", "s1e2"], picture="k")):
+        assert show_stage._card_bench(asked, "свой") == "свой"  # type: ignore[arg-type,comparison-overlap]
+    assert warm.taken == [("k", "свой")]

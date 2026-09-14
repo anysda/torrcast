@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.cast_command.play_stage import PlayStage, _configure_play_stage
 from torrcast.usecases.discover.search_circle import search_circle
 from web.card_lookup import card_lookup
+from web.card_warm import CARD_WARM
 from web.warm_wiring import WARM
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from torrcast.domain.profile import Profile
     from torrcast.ports.progress.progress import Progress
     from torrcast.usecases.select.plan import Plan
+    from torrcast.usecases.select_bench.bench import Bench
 
 
 def _card_circle(config: Config, args: Args, progress: Progress, profile: Profile) -> list[Plan]:
@@ -50,9 +52,23 @@ def _card_picture(plans: list[Plan], key: str) -> int:
     return card_lookup(plans, key)[1]
 
 
+def _card_bench(args: Args, fresh: Bench) -> Bench:
+    """Стенд отбора, который уже греет карточка этой картины, а иначе свежий."""
+    if args.picture and args.episode is None:
+        return CARD_WARM.take(args.picture, fresh)
+    return fresh
+
+
 def show_stage() -> None:
-    """Назначить показу круг и ключ карточки; зовёт мост страницы на старте."""
-    _configure_play_stage(PlayStage(circle=_card_circle, picture=_card_picture))
+    """Назначить показу круг, ключ и прогрев карточки; зовёт мост страницы на старте."""
+    _configure_play_stage(
+        PlayStage(
+            circle=_card_circle,
+            picture=_card_picture,
+            bench=_card_bench,
+            settled=CARD_WARM.settled,
+        )
+    )
 
 
 __all__ = ["show_stage"]

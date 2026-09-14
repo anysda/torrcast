@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from tests.usecases.cast_command.world import plans
+from torrcast.domain.args import Args
 from torrcast.usecases.cast_command.play_stage import (
     PlayStage,
     _configure_play_stage,
@@ -16,6 +19,9 @@ def test_without_the_page_the_show_searches_itself_and_matches_keys_exactly() ->
     menu = plans(3)
 
     assert _play_stage().circle is search_circle
+    fresh: Any = object()
+    assert _play_stage().bench(Args(query=[]), fresh) is fresh, "стенд отбора свой"
+    _play_stage().settled(fresh, None)
     assert _exact_picture(menu, menu[1].picture.key) == 2
     assert _exact_picture(menu, "movie:никто:1900") == 0
 

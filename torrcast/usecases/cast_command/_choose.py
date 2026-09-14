@@ -85,7 +85,8 @@ def _choose(
         # иначе подстроится под подмену и сверять станет нечего.
         passport = passport_of(plans)
         torrserver = _state._play_engines(config.torrserver_url)
-        bench = stand(torrserver, choose=file_picker(args), profile=chosen.profile)
+        fresh = stand(torrserver, choose=file_picker(args), profile=chosen.profile)
+        bench = stage.bench(args, fresh)  # карточка могла уже греть эту картину
         # 🔴 TC-829. Кого возьмёт Enter, спрашивается ОДИН раз и ОДНОЙ ступенью - и этот
         # же приговор уезжает в вопрос ниже. Прогрев и взятие тут не два мнения, которые
         # надо сверять, а одно число на двоих: разойтись им нечем.
@@ -98,7 +99,7 @@ def _choose(
         # тянет из роя чужие раздачи, пишет их на тот же диск и читает ту же сеть, а
         # показ первичен. Человек ещё не выбрал картину, и платить за его раздумья
         # обязаны мы скоростью своего меню, а не зритель - картинкой.
-        prewarm = [] if live is not None else order[:PREWARM]
+        prewarm = [] if live is not None else order[: 1 if args.picture else PREWARM]
         for plan in prewarm:
             # Номер, названный руками, у каждой картины меню свой, и у части их столько
             # раздач не наберётся: спрос с той, которую человек выберет, - за отбором.
@@ -134,6 +135,7 @@ def _choose(
                 # картины, и спрашивают о ней после того, как картина выбрана.
                 code = bookmark(config, state, plan, bench, args=args, clock=clock)
                 if code is not None:
+                    stage.settled(bench, None)
                     return code
                 if args.release is not None:
                     args.release_hash = _state._play_pinned(
@@ -177,7 +179,9 @@ def _choose(
             _card_release_note(args, plan, prep)
             journal().mark("отбор релиза", релиз=prep.number)  # TC-108: замер
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
+            stage.settled(bench, None)
             bench.drop_all()  # прогретое без показа - мусор в рое и кэш в чужой RAM
             raise
         bench.keep_only(prep)  # прогрев греет лишнее - до показа лишнее убираем
+        stage.settled(bench, prep)
     return plans, plan, prep, bench, passport

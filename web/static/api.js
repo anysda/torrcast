@@ -119,6 +119,18 @@ const TCApi = {
     return TCApi._post('/api/seen', { tiles, hot: hot || '' });
   },
 
+  // Карточка ушла с экрана (`app.js`): её раздача больше не греется. Ответ не нужен, а
+  // уход бывает и закрытием вкладки - поэтому `sendBeacon`, как у позиции показа.
+  cardLeft(picture) {
+    const payload = JSON.stringify({ picture });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/card-left', new Blob([payload], { type: 'application/json' }));
+      return;
+    }
+    fetch('/api/card-left', { method: 'POST', body: payload, keepalive: true,
+      headers: { 'Content-Type': 'application/json' } }).catch(() => {});
+  },
+
   async toTv() {
     return TCApi._post('/api/to-tv', {});
   },

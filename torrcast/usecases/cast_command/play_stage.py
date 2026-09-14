@@ -14,7 +14,10 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.discover.search_circle import search_circle
 
 if TYPE_CHECKING:
+    from torrcast.domain.args import Args
+    from torrcast.usecases.select._prep import _Prep
     from torrcast.usecases.select.plan import Plan
+    from torrcast.usecases.select_bench.bench import Bench
 
 
 def _exact_picture(plans: list[Plan], key: str) -> int:
@@ -22,12 +25,28 @@ def _exact_picture(plans: list[Plan], key: str) -> int:
     return next((n for n, plan in enumerate(plans, start=1) if plan.picture.key == key), 0)
 
 
+def _own_bench(_args: Args, fresh: Bench) -> Bench:
+    """Стенд отбора свой: прогревать заранее было некому."""
+    return fresh
+
+
+def _nobody(_bench: Bench, _prep: _Prep | None) -> None:
+    """Ответа отбора никто, кроме самого показа, не ждёт."""
+
+
 @dataclass(frozen=True)
 class PlayStage:
-    """Круг показа и правило «картина по ключу карточки»."""
+    """Круг показа, правило «картина по ключу карточки» и стенд, прогретый карточкой.
+
+    ``bench`` отдаёт показу стенд отбора: свежий или тот, что уже греет карточка.
+    ``settled`` называет выбранную раздачу (``None`` - отбор кончился ничем) тем, кто
+    ждал ответа этого стенда.
+    """
 
     circle: Callable[..., list[Plan]] = search_circle
     picture: Callable[[list[Plan], str], int] = _exact_picture
+    bench: Callable[[Args, Bench], Bench] = _own_bench
+    settled: Callable[[Bench, _Prep | None], None] = _nobody
 
 
 _stage = PlayStage()

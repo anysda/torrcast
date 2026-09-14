@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from web.box import box
 from web.card import card
+from web.card_left import card_left
 from web.history import history
 from web.phrases import phrases
 from web.position import position
@@ -38,6 +39,7 @@ def routes() -> tuple[Route, ...]:
         Route("POST", "/api/seen", seen),
         Route("POST", "/api/to-tv", to_tv),
         Route("POST", "/api/to-web", to_web),
+        Route("POST", "/api/card-left", card_left),
         Route("GET", "/api/card/", card, prefix=True),
         Route("GET", "/card/", serve_shell, prefix=True),
         Route("GET", "/play", serve_shell),

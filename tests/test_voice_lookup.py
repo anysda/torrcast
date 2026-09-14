@@ -36,6 +36,7 @@ class _Bench:
 
     answer: Any
     dropped: list[bool] = field(default_factory=list)
+    kept: list[Any] = field(default_factory=list)
     asked: list[tuple[Plan, Any]] = field(default_factory=list)
 
     def __call__(self, _engine: object, choose: object = None) -> _Bench:
@@ -49,6 +50,9 @@ class _Bench:
 
     def drop_all(self) -> None:
         self.dropped.append(True)
+
+    def keep_only(self, prep: Any) -> None:
+        self.kept.append(prep)
 
 
 @dataclass
@@ -78,7 +82,7 @@ def test_a_slow_build_answers_nothing_yet_and_says_it_is_still_coming(
     assert lookup.of(_PLAN, "film", "http://ts") == (None, True)
 
 
-def test_the_tracks_of_the_resolved_release_come_back_and_the_bench_is_cleaned(
+def test_the_tracks_come_back_and_only_the_chosen_release_stays_warm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bench = _Bench(_MEDIA)
@@ -90,9 +94,26 @@ def test_the_tracks_of_the_resolved_release_come_back_and_the_bench_is_cleaned(
     assert heard is not None
     assert heard.media.tracks == _MEDIA.tracks
     assert bench.asked[0][1].title_query == "film 2010"
-    assert bench.dropped == [True]
+    assert [prep.found for prep in bench.kept] == [_MEDIA] and bench.dropped == []
     lookup.of(_PLAN, "film 2010", "http://ts")
     assert len(bench.asked) == 1
+
+
+def test_a_card_opened_again_warms_the_release_it_already_chose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bench = _Bench(_MEDIA)
+    lookup = _lookup(monkeypatch, bench, spawn=_sync)
+    heard, _coming = lookup.of(_PLAN, "film", "http://ts")
+    assert heard is not None
+
+    lookup.warms.leave(_PLAN.picture.key)
+    again, coming = lookup.of(_PLAN, "film", "http://ts")
+
+    assert bench.dropped == [True], "ушла карточка - ушёл и прогрев"
+    assert again is heard and coming is False
+    assert len(bench.asked) == 2
+    assert bench.asked[1][1].card_release == heard.release
 
 
 def test_a_refused_release_is_an_empty_answer_until_the_retry_time(
@@ -103,7 +124,7 @@ def test_a_refused_release_is_an_empty_answer_until_the_retry_time(
     lookup = _lookup(monkeypatch, bench, spawn=_sync, clock=clock)
 
     assert lookup.of(_PLAN, "film", "http://ts") == (None, False)
-    assert bench.dropped == [True]
+    assert bench.dropped == [True] and bench.kept == []
     lookup.of(_PLAN, "film", "http://ts")
     assert len(bench.asked) == 1
 

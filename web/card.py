@@ -37,6 +37,7 @@ from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices
+from web.card_warm import CARD_WARM
 from web.episode_lookup import GRACE, EpisodeLookup
 from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
@@ -62,7 +63,7 @@ _TICK: Final = 0.25
 #: (см. :class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
 #: Дорожки той раздачи, которую играл бы показ (:class:`web.voice_lookup.VoiceLookup`).
-_voices = VoiceLookup(engines=TorrServer)
+_voices = VoiceLookup(engines=TorrServer, warms=CARD_WARM)
 #: Приговор обложки - тот же, что у выдачи поиска и полки (:mod:`web.card_poster`).
 _poster = CardPoster(offer=hits.offer)
 #: Сколько долгий заход досиживает после первой перемены, пока доезжает остальное: части

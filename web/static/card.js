@@ -73,6 +73,7 @@ const TCCard = {
       const said = await TCApi.card(key, query, turn > 0, facts, season, hearing);
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       if (said.data) data = said.data;
+      if (data && data.picture && TCRouter._card === key) TCRouter._picture = data.picture;
       // Preview уже честно назвал карточку по фактам плитки. Полный круг иногда не
       // находит его ключ (раздачи успели смениться), и пустой `{ error }` не должен
       // стирать это тело вместе с заголовком, как было у «Вперёд» на 14.8 с.
