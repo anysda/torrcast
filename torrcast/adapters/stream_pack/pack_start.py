@@ -69,4 +69,7 @@ def pack_start(
     if not math.isnan(guess) and map_trusted(source_url):
         journal().mark("заход по карте", просили=round(at, 3), встали=round(guess, 3))
         return guess
-    return pilot(source_url, at, timeout)
+    stood = pilot(source_url, at, timeout)
+    # ``nan`` сохраняет для сверки правду «не измерили», но упаковке всё ещё нужен
+    # числовой запасной заход: прежняя граница безопаснее несуществующей метки.
+    return stood if math.isfinite(stood) else at

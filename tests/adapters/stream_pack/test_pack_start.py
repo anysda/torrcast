@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -57,6 +58,11 @@ def test_the_start_of_the_film_needs_no_measurement() -> None:
     """Заход от нуля стоит на нуле: мерить тут нечего."""
     assert pack_start("http://торрент/поток", 0.0) == 0.0
     assert pack_start("http://торрент/поток", -3.0) == 0.0
+
+
+def test_an_unmeasured_pilot_keeps_the_boundary_for_packing() -> None:
+    """Упаковке нужен числовой запасной заход, хотя сверка видит ``nan`` отдельно."""
+    assert pack_start("http://торрент/поток", 12.5, pilot=lambda *_args: math.nan) == 12.5
 
 
 def test_the_map_is_believed_from_the_very_first_entry_without_any_pilot() -> None:
