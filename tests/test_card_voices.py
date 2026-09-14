@@ -55,6 +55,16 @@ def test_the_voice_name_is_the_studio_when_the_track_names_one_and_the_label_oth
     assert _field(rows, "name") == ["LostFilm", "eng · English"]
 
 
+def test_twin_tracks_that_no_word_tells_apart_are_named_by_number() -> None:
+    """Живой замер: у раздачи две дорожки ``rus`` без заголовка, вторая была не выбираема."""
+    heard = _heard(track(0, "rus", None), track(1, "rus", None), track(2, "jpn", None))
+
+    rows = card_voices(heard, "ru")
+
+    assert _field(rows, "name") == ["1", "2", "jpn"]
+    assert _field(rows, "label") == ["русский", "русский", "японский"]
+
+
 def test_an_unnamed_language_is_not_called_original_and_an_unknown_code_stays_a_code() -> None:
     heard = _heard(track(0, "und", "Дубляж"), track(1, "hun", "Original"), track(2, None, None))
 

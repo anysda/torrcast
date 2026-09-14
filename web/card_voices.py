@@ -24,7 +24,7 @@ def card_voices(heard: Heard | None, lang: str) -> list[JsonValue]:
 
     ``name`` - то, что ``--voice`` найдёт и в соседней раздаче: студия, если она у
     дорожки одна такая, иначе подпись дорожки (:func:`torrcast.usecases.rank.pick_voice.
-    pick_voice` сравнивает с обеими).
+    pick_voice` сравнивает с обеими), а у дорожек с одинаковой подписью - номер.
     """
     if heard is None:
         return []
@@ -33,6 +33,7 @@ def card_voices(heard: Heard | None, lang: str) -> list[JsonValue]:
     default = heard.default
     studios = [track_studio(media, t.index, heard.studios) for t in media.tracks]
     names = [studio.name.casefold() for studio in studios if studio is not None]
+    labels = [track.label.casefold() for track in media.tracks]
     rows: list[JsonValue] = []
     for track, studio in zip(media.tracks, studios, strict=True):
         label = _label(track, catalog)
@@ -40,6 +41,10 @@ def card_voices(heard: Heard | None, lang: str) -> list[JsonValue]:
             label = f"{label} ({studio.name})"
         unique = studio is not None and names.count(studio.name.casefold()) == 1
         name = studio.name if unique and studio is not None else track.label
+        # Две дорожки с одной подписью (``rus`` и ``rus``) словом не различить: вторую
+        # ``--voice`` отдал бы первой, и выбрать её было бы нельзя. Остаётся номер.
+        if not unique and labels.count(track.label.casefold()) > 1:
+            name = str(track.index + 1)
         rows.append({"name": name, "label": label, "default": track.index == default})
     return rows
 
