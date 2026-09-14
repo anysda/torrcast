@@ -17,7 +17,7 @@ from torrcast.usecases.select_bench._bench_front import _bench_front
 from torrcast.usecases.select_bench._bench_prewarm import _BenchPrewarm
 from torrcast.usecases.select_bench._bench_queue import _bench_asking, _bench_queue
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
-from torrcast.usecases.select_bench._bench_supply import _bench_supply, _supply_note
+from torrcast.usecases.select_bench._bench_supply import _supply_note, _supply_verdict
 from torrcast.usecases.select_bench._bench_tally import _Tally
 from torrcast.usecases.select_bench._retried_verdict import _retried_verdict
 
@@ -133,7 +133,7 @@ class Bench(_BenchPrewarm):
                 and voice_unproven(prep.voiced, native=plan.picture.native)
             )
             if not trouble and not voiceless:
-                supply = _bench_supply(self.profile, prep)
+                supply = _supply_verdict(self.profile, prep)
                 if args.pinned or supply[0] < 0 or supply[0] >= self.profile.supply_ratio:
                     progress.phase("")
                     prep = self._honest(plan, prep, queue, args, progress, tally.judged)

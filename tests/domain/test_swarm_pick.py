@@ -19,3 +19,7 @@ def test_pick_uses_the_warmed_window_after_settling() -> None:
 
 def test_one_tick_is_not_an_window() -> None:
     assert swarm_pick([(9.0, 9_000_000.0)], 0, 1_000_000, 10.0, settle=3.0) is None
+
+
+def test_a_short_zero_read_after_settling_is_not_a_verdict() -> None:
+    assert swarm_pick([(10.0, 0.0), (10.05, 0.0)], 0, 1_000_000, 10.0, settle=10.0) is None

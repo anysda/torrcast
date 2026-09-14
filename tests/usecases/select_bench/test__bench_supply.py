@@ -12,7 +12,7 @@ from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.json_value import JsonValue
 from torrcast.usecases.select._prep import _Prep
-from torrcast.usecases.select_bench._bench_supply import _bench_supply
+from torrcast.usecases.select_bench._bench_supply import _bench_supply, _supply_verdict
 from torrcast.usecases.select_bench.bench import Bench
 
 
@@ -55,17 +55,37 @@ def test_best_is_kept_when_every_swarm_is_short(capsys: object) -> None:
     assert "ни один проверенный рой не тянет" not in said
 
 
-def test_the_stick_does_not_condemn_a_swarm_before_its_measured_settle_time() -> None:
+def test_no_receiver_condemns_a_swarm_before_its_measured_settle_window() -> None:
     release = rel("good-after-settle")
     prep = _Prep(number=1, release=release)
     prep.video = TorrFile(0, "movie.mkv", 8 * 1024**3)
     prep.media = Media(RUNTIME, (), "h264")
     prep.supply = [(1.0, 0.0), (2.0, 0.0)]
 
-    assert _bench_supply(CAUTIOUS, prep)[0] == 0.0, "нулевое окно измерено, а не потеряно"
-    assert _bench_supply(ANDROID_TV, prep)[0] < 0.0, (
-        "до измеренных 10 с мера ещё молчит: неизвестное снабжение обязано пройти отбор"
-    )
+    for profile in (CAUTIOUS, ANDROID_TV):
+        assert _bench_supply(profile, prep)[0] < 0.0, (
+            "до полного 10-секундного окна мера молчит: неизвестное снабжение проходит отбор"
+        )
+
+
+def test_a_settled_slow_swarm_is_still_rejected() -> None:
+    prep = _Prep(number=46, release=rel("slow-after-settle"))
+    prep.video = TorrFile(0, "movie.mkv", 9_000_000_000)
+    prep.media = Media(3600.0, (), "h264")
+    prep.supply = [(10.0, 0.0), (20.0, 17_200_000.0)]
+
+    assert _bench_supply(CAUTIOUS, prep)[0] == pytest.approx(0.688)
+    assert _bench_supply(CAUTIOUS, prep)[0] < CAUTIOUS.supply_ratio
+
+
+def test_a_card_warmed_release_is_not_rejudged_by_supply() -> None:
+    prep = _Prep(number=1, release=rel("card-warmed"), card_warmed=True)
+    prep.video = TorrFile(0, "movie.mkv", 9_000_000_000)
+    prep.media = Media(3600.0, (), "h264")
+    prep.supply = [(10.0, 0.0), (20.0, 17_200_000.0)]
+
+    assert _bench_supply(CAUTIOUS, prep)[0] == pytest.approx(0.688)
+    assert _supply_verdict(CAUTIOUS, prep)[0] < 0.0, "показ не перебраковывает карточку"
 
 
 def test_the_fallback_supply_note_reports_the_measured_numbers(
@@ -80,7 +100,7 @@ def test_the_fallback_supply_note_reports_the_measured_numbers(
     bench = Bench(Torrents(), prober=probes([thin], media), profile=CAUTIOUS)
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
-        "torrcast.usecases.select_bench.bench._bench_supply",
+        "torrcast.usecases.select_bench.bench._supply_verdict",
         lambda profile, prep: (0.42, 111.0, 222.0),
     )
     try:
@@ -103,7 +123,7 @@ def test_supply_note_reports_the_measured_numbers(capsys: pytest.CaptureFixture[
     prep = _Prep(number=3, release=release)
     prep.video = TorrFile(0, "movie.mkv", 450_000_000)
     prep.media = Media(3600.0, (), "h264")
-    prep.supply = [(0.0, 0.0), (10.0, 2_500_000.0)]
+    prep.supply = [(10.0, 0.0), (20.0, 2_500_000.0)]
 
     measured = _bench_supply(CAUTIOUS, prep)
 

@@ -25,6 +25,13 @@ def _bench_supply(profile: Profile, prep: _Prep) -> tuple[float, float, float]:
     return measured
 
 
+def _supply_verdict(profile: Profile, prep: _Prep) -> tuple[float, float, float]:
+    """Судить новый прогрев, но не отменять уже принятый карточкой."""
+    if prep.card_warmed:
+        return -1.0, 0.0, 0.0
+    return _bench_supply(profile, prep)
+
+
 def _supply_note(prep: _Prep, got: float, need: float, ratio: float) -> str:
     """Назвать выбранный рой его измеренными скоростью, нуждой и отношением."""
     return phrase(

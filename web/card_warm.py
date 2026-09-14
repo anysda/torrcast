@@ -119,7 +119,8 @@ class CardWarm:
             if warm.taken:  # стенд уже у показа, и убирать с него нечего
                 return
             keep = prep is not None and self._current is warm and not warm.stop.is_set()
-            if keep:
+            if keep and prep is not None:
+                prep.card_warmed = True
                 warm.prep = prep
             elif self._current is warm:
                 self._current = None
@@ -196,5 +197,4 @@ class CardWarm:
             warm.chosen.set()
 
 
-#: Прогрев раздачи карточки: страница и показ живут в одном мосту.
 CARD_WARM: Final = CardWarm()

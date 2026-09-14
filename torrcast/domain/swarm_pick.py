@@ -13,9 +13,9 @@ def swarm_pick(
     duration: float,
     settle: float,
 ) -> tuple[float, float, float] | None:
-    """Медианная доставка после разгона; ``None`` - честного окна не получилось."""
+    """Доставка после разгона; ``None`` - полного честного окна не получилось."""
     window = [(elapsed, read) for elapsed, read in samples if elapsed >= settle]
-    if len(window) < 2 or window[-1][0] <= window[0][0]:
+    if len(window) < 2 or window[-1][0] - window[0][0] < settle:
         return None
     elapsed = window[-1][0] - window[0][0]
     speed = max(0.0, window[-1][1] - window[0][1]) / elapsed

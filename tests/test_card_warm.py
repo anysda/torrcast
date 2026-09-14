@@ -54,7 +54,7 @@ def test_the_chosen_release_stays_warm_until_the_card_is_left() -> None:
     warms = CardWarm()
     _warm, bench, prep = _warmed(warms)
 
-    assert bench.kept == [prep] and bench.drops == 0
+    assert bench.kept == [prep] and prep.card_warmed and bench.drops == 0
     warms.leave("movie:другое:2000")
     assert bench.drops == 0, "чужой уход прогрев не снимает"
     warms.leave("movie:тачки:2006")
