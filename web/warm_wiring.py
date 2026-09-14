@@ -74,12 +74,12 @@ def _prime_screen(pictures: list[FactPicture]) -> None:
     """Fill the persisted home screen in one source batch before its first visit."""
 
     def finish() -> None:
-        # Four pictures make at most two extract packets.  Startup therefore keeps
-        # three of Wikimedia's five lanes for a just-opened card; the former full
-        # screen wave took all five and made a 700 ms related-tile click wait behind it.
-        for at in range(0, len(pictures), 4):
+        # Two pictures make one extract packet.  Startup therefore keeps four of
+        # Wikimedia's five lanes for a just-opened card; the former full screen wave
+        # took all five and made a 700 ms related-tile click wait behind it.
+        for at in range(0, len(pictures), 2):
             for _ in range(2):
-                facts = MenuFacts(pictures[at : at + 4])
+                facts = MenuFacts(pictures[at : at + 2])
                 facts.start()
                 facts.finish()
                 facts._done.wait()

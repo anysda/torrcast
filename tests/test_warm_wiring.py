@@ -77,7 +77,7 @@ def test_home_related_warmup_waits_for_its_fact_batch(monkeypatch: pytest.Monkey
 def test_home_warmup_leaves_three_wikimedia_lanes_for_a_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A persisted screen starts no more than four facts in one source wave."""
+    """A persisted screen starts no more than two facts in one source wave."""
     batches: list[list[object]] = []
 
     class _Done:
@@ -104,4 +104,11 @@ def test_home_warmup_leaves_three_wikimedia_lanes_for_a_card(
 
     wiring._prime_screen(pictures)
 
-    assert batches == [pictures[:4], pictures[:4], pictures[4:], pictures[4:]]
+    assert batches == [
+        pictures[:2],
+        pictures[:2],
+        pictures[2:4],
+        pictures[2:4],
+        pictures[4:],
+        pictures[4:],
+    ]
