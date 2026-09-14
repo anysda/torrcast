@@ -16,6 +16,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture
+from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.release import Release
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.state_store import slot as state_slot
@@ -93,6 +94,9 @@ class _StubVoices:
         self.asked.append(query)
         self.live.append(live)
         return self.heard, self.coming
+
+    def profile_of(self, _config: Config) -> Profile:
+        return CAUTIOUS
 
 
 @dataclass
@@ -353,6 +357,9 @@ class _LateVoices:
         if self.looks < self.after:
             return None, True
         return Heard(media(tracks=(track(0, "eng", None),)), native=False, studios=()), False
+
+    def profile_of(self, _config: Config) -> Profile:
+        return CAUTIOUS
 
 
 def test_a_voices_ask_holds_the_answer_until_the_tracks_arrive(

@@ -8,9 +8,12 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.episode import Episode
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.magnet_hash import magnet_hash
+from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.usecases.rank.gate_open import gate_open
+from torrcast.usecases.rank.last_hope import last_hope
 from torrcast.usecases.rank.rank_releases import rank_releases
 from torrcast.usecases.select.plan import Plan
 
@@ -27,6 +30,7 @@ def card_seasons(
     base_url: str,
     episodes: _EpisodeTables,
     season: int | None = None,
+    profile: Profile = CAUTIOUS,
 ) -> tuple[list[JsonValue], bool, Release | None]:
     """Все вкладки пула и серии выбранного сезона из покрывающей его раздачи.
 
@@ -46,7 +50,7 @@ def card_seasons(
     default = bookmark if bookmark in numbers else (1 if 1 in numbers else min(numbers, default=0))
     target = season if season in numbers else default
     fallback = _joined_seasons(numbers, saved)
-    release = _release_for(plan, releases, target, entry)
+    release = _release_for(plan, releases, target, entry, profile)
     if release is None:
         return fallback, False, None
     table = episodes.table(release, base_url)
@@ -77,14 +81,15 @@ def _picture_releases(plan: Plan) -> list[Release]:
 
 
 def _release_for(
-    plan: Plan, releases: list[Release], season: int, entry: Entry | None
+    plan: Plan, releases: list[Release], season: int, entry: Entry | None, profile: Profile
 ) -> Release | None:
     """Раздача, с которой показ сыграл бы сезон: первая в отборе, что его покрывает.
 
     Отбор плана покрывает сезон плана; чужой сезон показ отбирает своим порядком из тех
-    же раздач, что его покрывают (:func:`torrcast.usecases.reinforce.plan_for.plan_for`).
+    же раздач, что его покрывают (:func:`torrcast.usecases.reinforce.plan_for.plan_for`),
+    и тем же профилем приёмника. Сезон в строках закладки играет раздача закладки.
     """
-    if entry is not None and entry.episodes and entry.season == season:
+    if entry is not None and any(row[0] == season for row in entry.episodes):
         saved = magnet_hash(entry.magnet)
         bookmark = (
             next((release for release in releases if magnet_hash(release.magnet) == saved), None)
@@ -103,18 +108,25 @@ def _release_for(
     covering = [release for release in releases if release.covers(season)]
     if not covering:
         return None
-    want = Episode(season, 1)
-    loose = gate_open(covering, plan.runtime, plan.warn_mbit, want, plan.hard_mbit)
+    want, runtime, ceiling, hard = Episode(season, 1), plan.runtime, plan.warn_mbit, plan.hard_mbit
+    loose = gate_open(covering, runtime, ceiling, want, hard, copy_hevc=plan.copy_hevc)
+    last = (
+        plan.recode_at > 0
+        and recodes_whole("hevc", profile.copy_depth, profile)
+        and last_hope(covering, runtime, ceiling, want, loose, hard, copy_hevc=plan.copy_hevc)
+    )
     return rank_releases(
         covering,
-        plan.runtime,
-        plan.warn_mbit,
+        runtime,
+        ceiling,
         want=want,
         loose=loose,
-        hard_mbit=plan.hard_mbit,
+        hard_mbit=hard,
+        last=last,
         copy_hevc=plan.copy_hevc,
         studio=plan.studio,
         recode_at=plan.recode_at,
+        profile=profile,
     )[0]
 
 

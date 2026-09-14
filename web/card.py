@@ -153,7 +153,7 @@ def _body(
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
     seasons, seasons_partial, episode_release = card_seasons(
-        plan, entry, config.torrserver_url, _episodes, season=ask.season
+        plan, entry, config.torrserver_url, _episodes, ask.season, _voices.profile_of(config)
     )
     series = kind == "tv"
     related = CardDetails.others(

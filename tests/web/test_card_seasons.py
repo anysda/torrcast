@@ -111,6 +111,29 @@ def test_the_bookmark_release_beats_a_ranked_pack_for_its_opened_season() -> Non
     assert release is second
 
 
+def test_every_season_in_the_bookmark_rows_lists_and_names_the_bookmark_pack() -> None:
+    """Строки второго сезона приходят из закладки-пака, и раздачу вкладке называет она же."""
+    plan, first, second = _plan()
+    pack = Release(
+        raw_name="Show [S01-02]",
+        title="Show",
+        kind="tv",
+        seasons=(1, 2),
+        magnet="magnet:?xt=urn:btih:" + "c" * 40,
+    )
+    plan.picture.releases.append(pack)
+    plan = replace(plan, ranked=[second, first, pack])
+    rows = [[1, 1, 0, 0], [1, 2, 0, 0], [2, 1, 0, 0], [2, 2, 0, 0]]
+    entry = Entry("Show", pack.magnet, kind="tv", season=1, episode=2, episodes=rows)
+    tables = {first.magnet: [[1, 1]], second.magnet: [[2, 1], [2, 2], [2, 3]], pack.magnet: rows}
+    episodes = _Episodes(cast(dict[str, list[list[int]] | None], tables), [])
+
+    seasons, _partial, release = card_seasons(plan, entry, "http://torrserver", episodes, 2)
+
+    assert [row["n"] for row in _rows(seasons)[1]["episodes"]] == [1, 2]
+    assert release is pack
+
+
 def test_a_merged_spinoff_does_not_become_a_tab_of_the_opened_show() -> None:
     plan, first, second = _plan()
     short = replace(_release(5, "magnet:short"), title="Show Shorts")
