@@ -172,14 +172,6 @@ _SEASON_ONLY_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile("(?P<season>\\d{1,2})[-\\s]*(?:й\\s*)?сезон", re.IGNORECASE),
     re.compile("season\\s*(?P<season>\\d{1,2})", re.IGNORECASE),
 )
-_SEASON_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
-    re.compile("\\bs\\s?(\\d{1,2})\\s*-\\s*s?\\s?(\\d{1,2})\\b", re.IGNORECASE),
-    re.compile("\\b(\\d{1,2})\\s*-\\s*(\\d{1,2})\\s*(?:сезон\\w*|seasons?)\\b", re.IGNORECASE),
-    re.compile(
-        "(?<!\\d)(?<!\\d\\s)\\b(?:сезон\\w*|seasons?)\\s*:\\s*(\\d{1,2})\\s*-\\s*(\\d{1,2})(?:\\s*(?:из|of)\\s*\\d{1,2})?\\b",
-        re.IGNORECASE,
-    ),
-)
 _EPISODE_BRACKET_RE: Final = re.compile(
     # Скобочная линейка серий: «[01-12]», «[1-26]», «(27-40)», «[01-12TV全集+OVA]».
     # Начало - не четыре знака, поэтому скобочный диапазон лет («[2001-2011]»)

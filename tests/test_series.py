@@ -525,7 +525,7 @@ def test_a_colon_after_the_season_word_does_not_invent_a_season_range() -> None:
 
     Двоеточие после слова «сезон» на трекере чаще открывает перечень СЕРИЙ, чем
     диапазон сезонов, и разводит их только то, назван ли сезон ДО слова
-    (:data:`~torrcast.domain._name_data.data_2._SEASON_SPAN_RES`). Без этой границы полный пак
+    (:func:`~torrcast.domain._named_seasons._named_seasons`). Без этой границы полный пак
     «Сезоны: 1-8 из 8» читался правильно, а каждое обычное имя сезона теряло свой номер.
     """
     one = parse_release_name(

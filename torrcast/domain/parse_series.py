@@ -6,11 +6,10 @@ import re
 
 from torrcast.domain._name_data.data_2 import _SEASON_EPISODE_RES, _SEASON_ONLY_RES
 from torrcast.domain._name_data.data_3 import _CODEC_TOKEN_RE, _SERIES_HINT_RE
-from torrcast.domain._named_seasons import _named_seasons
+from torrcast.domain._named_seasons import _named_episode, _named_seasons
 from torrcast.domain.episode import Episode
 from torrcast.domain.episode_span import _episode_span
 from torrcast.domain.fansub_episode import _fansub_episode
-from torrcast.domain.season_span import _season_span
 
 
 def _parse_series(
@@ -18,7 +17,10 @@ def _parse_series(
 ) -> tuple[int | None, int | None, tuple[int, ...], tuple[int, ...], bool]:
     fansub = _fansub_episode(text)
     text = _CODEC_TOKEN_RE.sub(" ", text)
-    seasons = _season_span(text) or _named_seasons(text)
+    seasons = _named_seasons(text)
+    if fansub:
+        # «Season 3 - 11» у фансаба - серия 11 третьего сезона, а не сезоны 3-11.
+        seasons = seasons[:1]
     episodes = _episode_span(text)
     number = int(fansub.group("episode")) if fansub else None
     if fansub and (last := fansub.group("last")):
@@ -27,8 +29,8 @@ def _parse_series(
         # отдельную картину мимо той, где лежат её же серии поштучно.
         episodes = episodes or tuple(range(number or 1, int(last) + 1))
         number = None
-    if seasons:
-        return (seasons[0], None, seasons if len(seasons) > 1 else (), episodes, True)
+    if len(seasons) > 1:
+        return (seasons[0], None, seasons, episodes, True)
     found = _parse_episode(text)
     if found is not None:
         pack = re.search("[eхx]\\s*\\d{1,3}\\s*-\\s*\\d{1,3}", text, re.IGNORECASE)
@@ -47,6 +49,9 @@ def _parse_series(
             episodes,
             True,
         )
+    if seasons:
+        named = number if number is not None else _named_episode(text)
+        return (seasons[0], None if episodes else named, (), episodes, True)
     for pattern in _SEASON_ONLY_RES:
         match = pattern.search(text)
         if match:
