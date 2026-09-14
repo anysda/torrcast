@@ -37,7 +37,11 @@ class _Names:
     def ru_names(
         self, pictures: list[tuple[str, int | None, str]]
     ) -> dict[tuple[str, int | None], list[str]]:
-        names = {"Avatar": ["Аватар"], "The Muse": ["Муза"]}
+        names = {
+            "Avatar": ["Аватар"],
+            "The Muse": ["Муза"],
+            "Defending Your Life": ["Защищая твою жизнь"],
+        }
         return {(title, year): names[title] for title, year, _kind in pictures}
 
 
@@ -45,15 +49,16 @@ def test_a_latin_tile_reads_its_russian_release_name_when_the_article_is_that_pi
     """Поиск по ``Avatar фильм`` не приносит «Аватар» 2009 года; карта IMDb знает имя.
 
     Голое имя - статья про индуизм или про муз, «Аватар (фильм)» называет чужой оригинал,
-    и их адреса в кандидаты не попадают. Заглушка «Муза (фильм)» оригинала не называет
-    вовсе, и её выделяет уточнение.
+    и их адреса в кандидаты не попадают. «Муза (фильм)» и «Защищая твою жизнь» оригинала не
+    называют вовсе, и картину в них выделяет паспортная формула произведения.
     """
-    avatar, muse = ("Avatar", 2009), ("The Muse", 1999)
+    avatar, muse, life = ("Avatar", 2009), ("The Muse", 1999), ("Defending Your Life", 1991)
     pages = {
-        "Аватар": "Авата́р \u2014 термин индуизма; фильм 2009 года тоже назван так.",
+        "Аватар": "Авата́р \u2014 термин индуизма, нисшествие бога.",
         "Аватар (фильм)": "«Аватар» (англ. Cyber Wars) \u2014 фильм 2009 года.",
         "Аватар (фильм, 2009)": "«Авата́р» (англ. Avatar) \u2014 американский фильм 2009 года.",
-        "Муза": "Музы \u2014 богини; кинофильм 1999 года назван так же.",
+        "Муза": "Музы \u2014 богини в древнегреческой мифологии.",
+        "Защищая твою жизнь": "«Защищая твою жизнь» \u2014 романтическая комедия Альберта Брукса.",
         "Муза (фильм)": "«Муза» \u2014 кинофильм 1999 года.",
     }
 
@@ -66,12 +71,16 @@ def test_a_latin_tile_reads_its_russian_release_name_when_the_article_is_that_pi
 
     found, replies, answered = wiki_searches(
         FakeJsonClient(answer),
-        [avatar, muse],
+        [avatar, muse, life],
         1.0,
-        {avatar: "movie", muse: "movie"},
+        {avatar: "movie", muse: "movie", life: "movie"},
         names=_Names(),
     )
 
-    assert found == {avatar: ["Аватар (фильм, 2009)"], muse: ["Муза (фильм)"]}
-    assert len(replies) == 4
-    assert answered == {avatar, muse}
+    assert found == {
+        avatar: ["Аватар (фильм, 2009)"],
+        muse: ["Муза (фильм)"],
+        life: ["Защищая твою жизнь"],
+    }
+    assert len(replies) == 6
+    assert answered == {avatar, muse, life}

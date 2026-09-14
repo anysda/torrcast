@@ -208,3 +208,33 @@ def test_a_russian_heading_needs_both_its_map_year_and_the_named_original() -> N
         _read_pages(_lanterns(), {other: ["Фонари"]}, set(), {other: "tv"}, {("Фонари", 2026)})[0]
         == {}
     )
+
+
+def test_a_russian_heading_naming_no_original_is_the_picture_the_map_named() -> None:
+    """«Защищая твою жизнь» names neither Defending Your Life nor 1991; the IMDb map does both."""
+    key = ("Defending Your Life", 1991)
+    life = "«Защищая твою жизнь» - американская романтическая комедия Альберта Брукса."
+    reply: dict[str, Any] = {"query": {"pages": [{"title": "Защищая твою жизнь", "extract": life}]}}
+    muses: dict[str, Any] = {"query": {"pages": [{"title": "Музы", "extract": "Музы - богини."}]}}
+
+    names: dict[tuple[str, int | None], list[str]] = {key: ["Защищая твою жизнь"]}
+    assert _read_pages(reply, names, set(), {key: "movie"}, {("Защищая твою жизнь", 1991)})[0] == {
+        key: life
+    }
+    assert _read_pages(reply, names, set(), {key: "movie"})[0] == {}
+    assert _read_pages(muses, {key: ["Музы"]}, set(), {key: "movie"}, {("Музы", 1991)})[0] == {}
+
+
+def test_a_russian_heading_naming_no_original_does_not_pass_a_russian_tile_or_another_year() -> (
+    None
+):
+    """A Soviet namesake names no original too: a Russian tile or its own year keeps it out."""
+    soviet = "«Опасное место» - советский фильм 1990 года."
+    reply: dict[str, Any] = {
+        "query": {"pages": [{"title": "Опасное место (фильм)", "extract": soviet}]}
+    }
+    russian: tuple[str, int | None] = ("Опасное место", 2026)
+    latin: tuple[str, int | None] = ("Dangerous Place", 2026)
+    for key in (russian, latin):
+        names: dict[tuple[str, int | None], list[str]] = {key: ["Опасное место (фильм)"]}
+        assert _read_pages(reply, names, set(), {key: "movie"}, {("Опасное место", 2026)})[0] == {}

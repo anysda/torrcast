@@ -8,6 +8,8 @@ from torrcast.domain.facts.article_gate import _declares_work, _fits_type
 from torrcast.domain.facts.confirms import confirms
 from torrcast.domain.facts.latin_title import latin_title
 from torrcast.domain.facts.linked_title import linked_title
+from torrcast.domain.facts.patterns import _CYRILLIC
+from torrcast.domain.facts.picture_year import picture_year
 from torrcast.domain.facts.wiki_pages import wiki_pages
 from torrcast.domain.facts.wiki_reply import _article
 from torrcast.domain.json_map import json_map
@@ -84,10 +86,18 @@ def _read_pages(
             ).casefold().startswith(key[0].strip().casefold() + " (")
             # Поиск приводит латинскую плитку на русский заголовок: Lanterns на «Фонари».
             # Тогда год подтверждает карта IMDb под САМИМ заголовком (``headings``), а связь
-            # с плиткой - оригинал, названный статьёй: «Фонари (англ. Lanterns)».
-            renamed = (_heading(name), key[1]) in headings and slugify(
-                latin_title(extract)
-            ) == slugify(key[0])
+            # с плиткой - оригинал, названный статьёй: «Фонари (англ. Lanterns)». Статья без
+            # оригинала («Защищая твою жизнь») годится лишь латинской плитке и без чужого
+            # года: русское имя ей дала карта по оригиналу, а не совпадение заголовков.
+            latin = slugify(latin_title(extract))
+            renamed = (_heading(name), key[1]) in headings and (
+                latin == slugify(key[0])
+                or (
+                    not latin
+                    and not _CYRILLIC.search(key[0])
+                    and picture_year(extract) in {None, key[1]}
+                )
+            )
             confirmed_work = ((key in confirmed and named) or renamed) and _declares_work(
                 str(page.get("title") or ""), extract
             )

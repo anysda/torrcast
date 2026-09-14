@@ -10,6 +10,7 @@ from typing import Any
 
 from torrcast.adapters.wiki.closed_wave import closed_wave
 from torrcast.adapters.wiki.endpoints import WIKI_HOST, WIKI_PATH
+from torrcast.domain.facts.article_gate import _declares_work
 from torrcast.domain.facts.extract_params import extract_params
 from torrcast.domain.facts.latin_title import latin_title
 from torrcast.domain.facts.read_origin import read_origin
@@ -120,10 +121,12 @@ def wiki_searches(
 def _names_original(title: str, heading: str, extract: object) -> bool:
     """Whether a Russian release heading is the asked Latin picture rather than a namesake.
 
-    The article naming the asked original proves it.  A stub such as «Муза (фильм)»,
-    «кинофильм 1999 года», names none; its film qualifier still separates it from the bare
-    heading, which is the Muses of mythology or the Hindu avatar.  An article naming a
-    different original is another picture.
+    The article naming the asked original proves it.  Short film articles such as «Муза
+    (фильм)» or «Защищая твою жизнь» name none; then the article must declare a work
+    (:func:`_declares_work`), which the Muses of mythology and the Hindu avatar under the
+    same bare heading do not.  The year is still confirmed by the page reader.  An article
+    naming a different original is another picture.
     """
-    latin = slugify(latin_title(str(extract or "")))
-    return latin == slugify(title) or (not latin and " (" in heading)
+    text = str(extract or "")
+    latin = slugify(latin_title(text))
+    return latin == slugify(title) or (not latin and _declares_work(heading, text))
