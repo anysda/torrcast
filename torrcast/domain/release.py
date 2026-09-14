@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Final
 
 from torrcast.domain._name_data.data_1 import (
@@ -90,12 +91,7 @@ class Release(_ReleaseMarks):
 
     @property
     def dubbed(self) -> bool:
-        text = _RU_EXT_RE.sub(
-            " ", _FOREIGN_DUB_RE.sub(" ", _SUB_MENTION_RE.sub(" ", self.raw_name))
-        )
-        if any(v in _DUBBED for v in _parse_voices(text)):
-            return True
-        return bool(_RU_AUDIO_RE.search(text) or _RU_STUDIO_RE.search(text))
+        return _dubbed(self.raw_name)
 
     @property
     def external_dub(self) -> bool:
@@ -162,6 +158,15 @@ class Release(_ReleaseMarks):
     @property
     def franchise(self) -> str:
         return franchise_key(self.title)
+
+
+@lru_cache(maxsize=8192)
+def _dubbed(raw_name: str) -> bool:
+    """Russian voice named by the release name; ranking asks it thousands of times a circle."""
+    text = _RU_EXT_RE.sub(" ", _FOREIGN_DUB_RE.sub(" ", _SUB_MENTION_RE.sub(" ", raw_name)))
+    if any(v in _DUBBED for v in _parse_voices(text)):
+        return True
+    return bool(_RU_AUDIO_RE.search(text) or _RU_STUDIO_RE.search(text))
 
 
 __all__ = ["Release"]

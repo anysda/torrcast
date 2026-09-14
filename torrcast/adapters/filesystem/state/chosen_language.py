@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import threading
 
+from torrcast.adapters.filesystem.state.config_path import config_path
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain.catalogs.tongue import EN
 from torrcast.domain.torrcast_error import TorrcastError
@@ -13,6 +15,8 @@ from torrcast.domain.torrcast_error import TorrcastError
 #: на процесс флаг гасил бы язык соседу - пока один поток читает настройку, второй
 #: получал бы английский на живой и вполне читаемой русской установке.
 _asking = threading.local()
+#: Последний прочитанный язык и отпечаток файла, из которого он прочитан.
+_seen: list[tuple[tuple[str, int, int, int], str]] = []
 
 
 def chosen_language() -> str:
@@ -40,7 +44,18 @@ def chosen_language() -> str:
         return EN
     _asking.busy = True
     try:
-        return load_config().language
+        # One label asks the language on every call, and a search circle asks it about
+        # 1300 times: the file is read again only when its stamp changes.
+        try:
+            stat = os.stat(path := config_path())
+            stamp = (str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino)
+        except OSError:
+            return load_config().language
+        if _seen and _seen[0][0] == stamp:
+            return _seen[0][1]
+        language = load_config().language
+        _seen[:] = [(stamp, language)]
+        return language
     except TorrcastError:
         return EN
     finally:

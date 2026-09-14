@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import torrcast.adapters.filesystem.state.chosen_language as chosen_language_module
 from torrcast.adapters.filesystem.state.chosen_language import chosen_language
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.config import Config
@@ -28,3 +29,16 @@ def test_a_broken_setting_falls_back_to_english(
     monkeypatch.setenv("TORRCAST_CONFIG", str(broken))
 
     assert chosen_language() == "en"
+
+
+def test_an_unchanged_setting_is_not_read_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Надпись спрашивает язык на каждом зове, и круг поиска читал файл ~1300 раз."""
+    save_config(Config(language="ru"))
+    assert chosen_language() == "ru"
+
+    def unread() -> Config:
+        raise AssertionError("файл не менялся, а его читают снова")
+
+    monkeypatch.setattr(chosen_language_module, "load_config", unread)
+
+    assert chosen_language() == "ru"
