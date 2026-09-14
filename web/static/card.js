@@ -518,20 +518,22 @@ const TCCard = {
       return row;
     }
     const noReleases = data.searching || (data.releases_count || 0) === 0;
+    // «Играть» не ждёт круга карточки: раздачу ищет и выбирает показ по нажатию.
+    const noPlay = !data.searching && (data.releases_count || 0) === 0;
 
     const voices = Array.isArray(data.voices) ? data.voices : [];
     const chosen = TCCard._chosenVoice(voices);
 
     const play = document.createElement('button');
     play.type = 'button';
-    play.className = 'tc-btn tc-btn--primary' + (noReleases ? ' tc-btn--disabled' : '');
+    play.className = 'tc-btn tc-btn--primary' + (noPlay ? ' tc-btn--disabled' : '');
     play.dataset.tcPlay = '1';
     play.textContent = TC.say('web.detail.play');
-    play.disabled = noReleases;
-    play.tabIndex = noReleases ? -1 : 0;
-    play.dataset.tcFocusable = noReleases ? undefined : '1';
+    play.disabled = noPlay;
+    play.tabIndex = noPlay ? -1 : 0;
+    play.dataset.tcFocusable = noPlay ? undefined : '1';
     play.dataset.tcGroup = 'buttons';
-    if (!noReleases) {
+    if (!noPlay) {
       play.addEventListener('click', () => TCCard._play(data, key, query, voices, false));
     }
     row.appendChild(play);
@@ -666,7 +668,7 @@ const TCCard = {
     await TCCard._cast(data, key, query, voices);
   },
 
-  // Новый показ на ТВ - тот же заказ, что у «Играть» (номер в круге, озвучка зрителя), но
+  // Новый показ на ТВ - тот же заказ, что у «Играть» (ключи карточки, озвучка зрителя), но
   // без `here`: его берёт приёмник из настройки машины (`config.tv`). Вкладке играть
   // нечего, и она остаётся на карточке: ход каста человек видит на самой кнопке
   // («Готовим…», затем «▶ На ТВ») и в шапке, где встаёт «сейчас играет» с названием.
@@ -682,7 +684,7 @@ const TCCard = {
     const stale = !!before && before.state === 'playing' && names.includes(before.title);
     const said = await TCApi.cast({
       query: query || data.title || data.original || key,
-      pick: data.pick || undefined,
+      ...TCCard._keys(data, key),
       voice: picked,
       from_start: false,
     });
@@ -806,11 +808,11 @@ const TCCard = {
     const picked = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
     TCApi.play({
       query: query || data.title || data.original || key,
-      // 🔴 Номер картины В КРУГЕ обязателен: без него показ брал бы ту, которую круг
+      // 🔴 Картина обязана быть названа: без неё показ брал бы ту, которую круг
       // считает главной по запросу, а не ту, которую человек открыл. Карточка второй
       // находки запускала первую, и виднее всего это на полке - плитка «Bones and All»
       // зовётся запросом, у которого в круге две картины (замер `.104` 07-09-2026).
-      pick: data.pick || undefined,
+      ...TCCard._keys(data, key),
       voice: picked,
       from_start: fromStart,
       season,
@@ -820,6 +822,13 @@ const TCCard = {
       // нет» - страница сама плеер, а не пульт до чужого экрана).
       here: true,
     });
+  },
+
+  // Чем показ узнает картину и раздачу карточки: ключами, а не номером в выдаче. Номер
+  // гуляет от круга к кругу («Вверх» под номером 1 получал «Руки вверх!»), ключ - нет.
+  // Раздачи карточка могла ещё не выбрать: тогда показ выбирает её сам по ключу картины.
+  _keys(data, key) {
+    return { picture: data.picture || key, release: data.release || undefined };
   },
 
   _releases(data) {

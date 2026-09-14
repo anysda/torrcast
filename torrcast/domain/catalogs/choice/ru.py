@@ -26,6 +26,16 @@ def ru() -> dict[str, str]:
             "«{now}» - это не та картина; свежие номера: cast releases {asked}"
         ),
         "choice.playing_pick": "играю «{picture}» - пункт {pick}, названный флагом --pick",
+        "choice.playing_card": "играю «{picture}» - картину с карточки",
+        "choice.card_picture_gone": (
+            "«{asked}»: картины с карточки в выдаче больше нет - открой карточку заново"
+        ),
+        "choice.card_release_replaced": (
+            "«{title}» - раздача с карточки не сыграла; играю другую из выдачи"
+        ),
+        "choice.card_voice_dropped": (
+            "дорожка {voice} была номером в раздаче с карточки; озвучку выбираю сам"
+        ),
         "choice.single_no_menu": "подходит картин: 1 - «{picture}», меню не нужно",
         "choice.blind_refusal": (
             "подходит картин: {total}, а терминала нет - вслепую не выбираю; назови "

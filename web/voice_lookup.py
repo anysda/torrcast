@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from torrcast.cli.parse_args import parse_args
+from torrcast.domain.info_hash import info_hash
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.progress.slot import progress
 from torrcast.ports.torrent_engines import TorrentEngines
@@ -70,7 +71,8 @@ class VoiceLookup:
         try:
             native_picture(plan.picture, query)
             prep = bench.resolve(plan, args, progress())
-            heard = Heard(prep.found, plan.picture.native, prep.release.studios)
+            release = info_hash(prep.release)
+            heard = Heard(prep.found, plan.picture.native, prep.release.studios, release)
         except TorrcastError:
             heard = None
         finally:

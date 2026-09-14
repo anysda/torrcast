@@ -25,6 +25,16 @@ def en() -> dict[str, str]:
             "{asked}"
         ),
         "choice.playing_pick": "playing “{picture}” - item {pick}, named by --pick",
+        "choice.playing_card": "playing “{picture}” - the picture from the card",
+        "choice.card_picture_gone": (
+            "“{asked}”: the picture from the card is no longer in the results - open the card again"
+        ),
+        "choice.card_release_replaced": (
+            "“{title}” - the release from the card did not play; playing another one"
+        ),
+        "choice.card_voice_dropped": (
+            "track {voice} was a number in the release from the card; choosing the voice myself"
+        ),
         "choice.single_no_menu": "matching pictures: 1 - “{picture}”, no menu needed",
         "choice.blind_refusal": (
             "matching pictures: {total}, and there is no terminal - I do not choose "

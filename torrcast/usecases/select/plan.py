@@ -115,6 +115,10 @@ class Plan(_PlanFields):
             and not misses_episode(r, self.want)
         ]
         queue += self._dubbed_tail(queue)
+        # Раздача, которую человек видел на карточке, спрашивается первой - если ворота её
+        # пускают. Мимо ворот она не проходит: это была бы подмена, а не выбор карточки.
+        card = [n for n in queue if args.card_release == (info_hash(self.ranked[n - 1]) or None)]
+        queue = card + [n for n in queue if n not in card]
         # 🔴 Раздача, которая в этом запуске уже не сыграла, из очереди ВЫБЫВАЕТ, а не
         # понижается: при пуле длиной один понижение вернуло бы её же, и зритель получил бы
         # ту же темноту второй раз подряд (:meth:`torrcast.domain.args.Args.buried`).

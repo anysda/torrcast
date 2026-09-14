@@ -551,3 +551,16 @@ def test_the_answered_menu_is_unsubscribed_from_the_reference_and_closed() -> No
 
     assert facts._seen is None
     assert world.painted is not None and world.painted.closed
+
+
+def test_a_card_number_is_not_checked_against_an_old_table() -> None:
+    """Номер картины с карточки выведен из её ключа в этом же круге: прошлая таблица не судья.
+
+    Та же пара, что у отказа ``pick_moved``: под двойкой в старой таблице другая «Мумия».
+    Карточка назвала картину ключом, и отказ был бы ложным.
+    """
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    world = Outside(tty=False, pinned=(mummy[0].picture.key, "Мумия (1999)"))
+
+    assert _pick_plan(mummy, pick=2, asked="мумия", environment=world, card=True) is mummy[1]
+    assert world.said[-1] == phrase("choice.playing_card", picture="Мумия (2017)", pick=2)

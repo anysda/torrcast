@@ -8,9 +8,15 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+import re
+from typing import Final, TypedDict
 
 from torrcast.domain.json_value import JsonValue
+
+#: Инфохэш раздачи: 40 шестнадцатеричных знаков, как его пишет магнит.
+_HASH: Final = re.compile(r"[0-9a-f]{40}")
+#: Ключ картины - короткая строка вида ``movie:имя:год``; длинная - не ключ.
+_KEY_LIMIT: Final = 300
 
 
 class _PlayExtras(TypedDict, total=False):
@@ -22,6 +28,8 @@ class _PlayExtras(TypedDict, total=False):
     episode: int
     from_start: bool
     here: bool
+    picture: str
+    release: str
 
 
 def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
@@ -43,7 +51,17 @@ def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
     here = body.get("here", False)
     if not isinstance(here, bool):
         return "bad_here"
+    # Картину и раздачу карточка называет ключами: номер в выдаче гуляет от круга к кругу.
+    picture, release = body.get("picture", ""), body.get("release", "")
+    if not isinstance(picture, str) or len(picture) > _KEY_LIMIT:
+        return "bad_picture"
+    if not isinstance(release, str) or (release and not _HASH.fullmatch(release.lower())):
+        return "bad_release"
     extras: _PlayExtras = {"from_start": from_start, "here": here}
+    if picture:
+        extras["picture"] = picture
+    if release:
+        extras["release"] = release.lower()
     if voice:
         extras["voice"] = voice
     if isinstance(season, int) and isinstance(episode, int):

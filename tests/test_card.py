@@ -302,6 +302,20 @@ def test_a_movie_card_lists_every_track_of_the_release_the_show_would_play(
     assert "X-Torrcast-Partial" not in extra
 
 
+def test_the_card_names_its_picture_and_release_by_keys_for_the_play_button(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«Играть» зовёт показ ключами карточки: номер в выдаче гуляет от круга к кругу."""
+    heard = Heard(media(tracks=(track(0, "eng", None),)), False, (), release="c" * 40)
+    _wired(monkeypatch, [_MOVIE_PLAN], voices=_StubVoices(heard))
+    state_slot.install(FakeStateStore())
+
+    _code, body, _extra = _asked(_MOVIE.key)
+
+    assert body["picture"] == _MOVIE_PLAN.picture.key
+    assert body["release"] == "c" * 40
+
+
 def test_tracks_still_being_read_do_not_hold_the_waiting_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

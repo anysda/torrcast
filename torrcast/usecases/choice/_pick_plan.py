@@ -25,6 +25,7 @@ def _pick_plan(
     environment: ChoiceEnvironment | None = None,
     menu: bool = False,
     take: Take | None = None,
+    card: bool = False,
 ) -> Plan:
     """Показать решение ступени взятия и спросить, если спрашивать есть о чём.
 
@@ -67,7 +68,8 @@ def _pick_plan(
     verdict = take if take is not None else enter_take(plans, asked, pick, menu)
     plan = plans[verdict.number - 1]
     if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
-        key, named = env.recalled_pick(asked, pick)
+        # Номер картины с карточки выведен из ключа в ЭТОМ круге, а не из прошлой таблицы.
+        key, named = ("", "") if card else env.recalled_pick(asked, pick)
         if key and key != plan.picture.key:
             # Номер - адрес из показанной таблицы, а состав выдачи гуляет: под тем же
             # номером сегодня стоит ДРУГАЯ картина. Показать её молча - подмена; отказ
@@ -84,7 +86,8 @@ def _pick_plan(
         _shown(env, plans, facts, dress=False, asked=asked).close()
         # Картина проговаривается перед показом: номер молчит, и без этой строки
         # человек узнал бы о подмене уже с экрана.
-        env.write(phrase("choice.playing_pick", picture=_named(plan.picture), pick=pick))
+        said = "choice.playing_card" if card else "choice.playing_pick"
+        env.write(phrase(said, picture=_named(plan.picture), pick=pick))
         return plan
     if verdict.refusal:
         raise env.not_found_error(verdict.refusal)

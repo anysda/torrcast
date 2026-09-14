@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Callable
+from typing import Unpack
 
 from hass.following import following
 from hass.motion import Motion
@@ -24,6 +25,7 @@ from hass.next_show import next_show
 from hass.orders import Command, Orders
 from hass.payload import payload
 from hass.play_argv import play_argv
+from hass.play_extras import _PlayExtras
 from hass.posters import Posters
 from hass.refused_error import BUSY, NO_REMOTE, NO_VOLUME, NOTHING_PLAYING, RefusedError
 from hass.remote_refused import remote_refused
@@ -118,19 +120,9 @@ class Bridge:
         said = self._settings(), query, self._detect, self._remember
         return search_progress(*said, warm=WARM, catalog=CATALOG)
 
-    def play(
-        self,
-        query: str,
-        pick: int | None = None,
-        *,
-        voice: str | None = None,
-        season: int | None = None,
-        episode: int | None = None,
-        from_start: bool = False,
-        here: bool = False,
-    ) -> str:
-        """``POST /api/play``: argv собирает :func:`play_argv`. ``here`` - показ у просившего."""
-        return self._start(play_argv(query, pick, voice, season, episode, from_start, here))
+    def play(self, query: str, pick: int | None = None, **extras: Unpack[_PlayExtras]) -> str:
+        """``POST /api/play``: argv собирает :func:`play_argv`, доводы проверены заранее."""
+        return self._start(play_argv(query, pick, **extras))
 
     def resume(self) -> str:
         return _resume(self._start)

@@ -102,3 +102,30 @@ def test_burying_one_release_leaves_the_rest_of_the_queue_in_place() -> None:
 
     assert plan(dead, alive).candidates(asked) == [2]
     assert plan(dead, alive).candidates(_ASKED) == [1, 2], "без похорон очередь прежняя"
+
+
+def test_the_release_the_card_chose_is_asked_first() -> None:
+    """Карточка отобрала раздачу и показала её дорожки: показ спрашивает её первой."""
+    top = release(magnet=f"magnet:?xt=urn:btih:{'a' * 40}", seeders=90)
+    card = release(magnet=f"magnet:?xt=urn:btih:{'b' * 40}", seeders=10)
+    asked = Args(query=["кино"], card_release="b" * 40)
+
+    assert plan(top, card).candidates(asked) == [2, 1], "первая - карточки, остальные за ней"
+    assert plan(top, card).candidates(_ASKED) == [1, 2], "без ключа карточки порядок прежний"
+
+
+def test_a_card_release_that_did_not_play_drops_out_by_the_standard_rule() -> None:
+    """🔴 TC-571 и для раздачи карточки: не сыграла - выбывает, а не встаёт первой снова."""
+    top = release(magnet=f"magnet:?xt=urn:btih:{'a' * 40}", seeders=90)
+    card = release(magnet=f"magnet:?xt=urn:btih:{'b' * 40}", seeders=10)
+    asked = Args(query=["кино"], card_release="b" * 40)
+    asked.bury(card.magnet)
+
+    assert plan(top, card).candidates(asked) == [1]
+
+
+def test_releases_without_a_hash_are_not_taken_for_the_card_release() -> None:
+    """Пустой ключ карточки не совпадает с раздачей, у которой инфохэша нет."""
+    pool = [release(magnet="magnet:?xt=кино", seeders=90), release(magnet="x", seeders=10)]
+
+    assert plan(*pool).candidates(Args(query=["кино"])) == [1, 2]

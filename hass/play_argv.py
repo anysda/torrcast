@@ -15,11 +15,14 @@ from torrcast.cli.parse_args import FROM_START_FLAG
 def play_argv(
     query: str,
     pick: int | None,
-    voice: str | None,
-    season: int | None,
-    episode: int | None,
-    from_start: bool,
+    voice: str | None = None,
+    season: int | None = None,
+    episode: int | None = None,
+    from_start: bool = False,
     here: bool = False,
+    *,
+    picture: str = "",
+    release: str = "",
 ) -> list[str]:
     """``argv``, каким CLI уже читает ``--pick``, серию, ``--voice``, ``--new`` и ``--here``."""
     # 🔴 Серия идёт СРАЗУ за запросом, до любого флага, и это не про красоту. Запрос у
@@ -37,4 +40,8 @@ def play_argv(
         args.append(FROM_START_FLAG)
     if here:
         args.append("--here")
+    if picture:
+        args += ["--picture", picture]
+    if release:
+        args += ["--card-release", release]
     return args

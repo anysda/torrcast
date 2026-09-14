@@ -14,12 +14,13 @@ from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.usecases.cast_command._bookmark import _continue_picked, _plays_recorded
+from torrcast.usecases.cast_command._card_pick import _card_number, _card_release_note
+from torrcast.usecases.cast_command.play_stage import _play_stage
 from torrcast.usecases.choice._passport import _passport
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice._played import _played
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.choice.warm_order import warm_order
-from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.playback.file_picker import file_picker
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce._topup import _topup
@@ -47,7 +48,7 @@ def _choose(
     live: tuple[str, Entry] | None,
     clock: _Clock,
     *,
-    circle: Callable[..., list[Plan]] = search_circle,
+    circle: Callable[..., list[Plan]] | None = None,
     stand: Callable[..., Bench] = Bench,
     passport_of: Callable[..., _Passport] = _passport,
     pick: Callable[..., Plan] = _pick_plan,
@@ -66,7 +67,10 @@ def _choose(
     и зеркалу надо мерить именно порядок, а не сеть и не рой за каждым из них.
     """
     with progress_bar() as progress:
-        plans = circle(config, args, progress, chosen.profile)
+        stage = _play_stage()
+        plans = (circle or stage.circle)(config, args, progress, chosen.profile)
+        if args.picture:  # картину называет карточка: её ключ в этом круге, а не номер
+            args.pick = _card_number(plans, args, stage.picture)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см.
         # torrcast.runtime.facts_wiring.
@@ -123,6 +127,7 @@ def _choose(
                     asked=args.title_query,
                     menu=args.menu,
                     take=take,
+                    card=bool(args.picture),
                 )
                 journal().mark("картина выбрана")  # TC-108: замер
                 # Картина названа - вот теперь очередь закладки: она про место ВНУТРИ
@@ -169,6 +174,7 @@ def _choose(
             # Метаданные уже прочитаны отбором. Только теперь меняем ключ картины:
             # раньше нельзя, стенд ещё держит прогревы под прежним ключом.
             plan.recognize_series(prep.release, prep.files)
+            _card_release_note(args, plan, prep)
             journal().mark("отбор релиза", релиз=prep.number)  # TC-108: замер
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
             bench.drop_all()  # прогретое без показа - мусор в рое и кэш в чужой RAM

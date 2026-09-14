@@ -15,6 +15,8 @@ class Heard:
     media: Media
     native: bool
     studios: tuple[Studio, ...]
+    #: Инфохэш этой раздачи: «Играть» зовёт показ ею, и номера дорожек относятся к ней.
+    release: str = ""
 
     @property
     def default(self) -> int:

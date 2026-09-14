@@ -120,6 +120,8 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     )
     parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
     parser.add_argument("--here", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--picture", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--card-release", default="", help=argparse.SUPPRESS)
     parser.add_argument(
         "--upgrade",
         action="store_true",

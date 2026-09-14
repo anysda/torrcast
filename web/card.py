@@ -177,6 +177,9 @@ def _body(
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
         "pick": pick,
+        # Ключи картины и отобранной раздачи: ими «Играть» зовёт показ, номер гуляет.
+        "picture": picture.key,
+        "release": heard.release if heard else None,
         "title": picture.title,
         "shown": spoken_title(picture.title, picture.original or ""),
         "original": picture.original or None,

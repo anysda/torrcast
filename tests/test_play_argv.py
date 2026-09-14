@@ -63,3 +63,17 @@ def test_the_argv_of_every_combination_is_one_the_cli_actually_reads() -> None:
                     read = parse_args(argv)
                     assert read.query[0] == "шоу", argv
                     assert read.pick == pick, argv
+
+
+def test_the_card_keys_reach_the_show_as_the_flags_it_reads() -> None:
+    """Картину и раздачу карточка называет ключами: номер в выдаче гуляет от круга к кругу."""
+    argv = play_argv("вверх", None, picture="movie:вверх:2009", release="a" * 40)
+
+    read = parse_args(argv)
+    assert read.picture == "movie:вверх:2009"
+    assert read.card_release == "a" * 40
+    assert read.from_menu, "картина с карточки выбрана человеком, а не угадана"
+
+
+def test_without_card_keys_the_argv_is_the_old_one() -> None:
+    assert play_argv("вверх", None) == ["вверх"]

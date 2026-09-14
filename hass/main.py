@@ -28,6 +28,7 @@ from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain.version import __version__
 from torrcast.ports.abandon.slot import install as install_abandon
 from torrcast.runtime.wire import wire
+from web.show_stage import show_stage
 from web.warm_saved import warm_saved
 
 #: ``TORRCAST_HA_PORT=<порт>`` - слушать не 8479. Того же рода переопределение, что и
@@ -52,6 +53,8 @@ def main() -> int:
     этом не ждут показа - их разбирает сервер в своём потоке.
     """
     wire()
+    # Показ с карточки страницы берёт её круг и её картину по ключу (:mod:`web.show_stage`).
+    show_stage()
     # Долгий процесс платит ленивый разбор офлайн-карты один раз, на старте, а не на
     # первом же поиске, которому она понадобится (:func:`warm_facts`, TC-1126).
     warm_facts()

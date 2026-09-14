@@ -29,6 +29,8 @@ _FLAG: Final[Mapping[str, str]] = {
     "play_key": "--play-key",
     "upgrade": "--upgrade",
     "here": "--here",
+    "picture": "--picture",
+    "card_release": "--card-release",
 }
 
 #: Что читает сам показ. ``language`` тут потому, что язык рядом с работой запоминает
@@ -37,7 +39,19 @@ _FLAG: Final[Mapping[str, str]] = {
 #: уводит разбор в свою команду (:attr:`Args.command`), - и в ответе они не появятся.
 #: ``here`` - приёмник ЭТОГО запуска, его читает тот же показ, что и ``dry``.
 _READ_BY_PLAY: Final = frozenset(
-    {"language", "release", "pick", "menu", "file", "voice", "from_start", "dry", "here"}
+    {
+        "language",
+        "release",
+        "pick",
+        "menu",
+        "file",
+        "voice",
+        "from_start",
+        "dry",
+        "here",
+        "picture",
+        "card_release",
+    }
 )
 
 #: Умолчание поля и есть «флаг не назван»: у всех до одного оно ``None`` или ``False``.
