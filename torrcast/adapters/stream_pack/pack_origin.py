@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from torrcast.adapters.pack_memory import _ORIGIN, _ORIGIN_LOCK
-from torrcast.adapters.stream_pack._origin_shelf import keep_origin, read_origin
+from torrcast.adapters.stream_pack._origin_shelf import _keep_origin, _read_origin
 from torrcast.domain.hls_settings import AUDIO_PRIMING
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
 from torrcast.ports.journal.slot import journal
@@ -147,11 +147,11 @@ def pack_origin(
         return ready
     began = time.monotonic()
     # Прогрев и прошлый показ - другие процессы: их замер доезжает сюда только с полки.
-    delay = shelved = read_origin(source_url)
+    delay = shelved = _read_origin(source_url)
     if delay is None:
         delay = slack_of(source_url, timeout)
         if delay is not None:
-            keep_origin(source_url, delay)
+            _keep_origin(source_url, delay)
     spent = round(time.monotonic() - began, 3)
     # Вверх до миллисекунды: в команду сдвиг уезжает с тремя знаками, и округление вниз
     # оставило бы метки на доли миллисекунды ниже нуля - то есть вернуло бы муксеру повод

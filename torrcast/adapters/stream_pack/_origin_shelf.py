@@ -29,7 +29,7 @@ def _origin_cache(source_url: str) -> Path:
     return state_path().parent / "origin" / f"{digest}.json"
 
 
-def read_origin(source_url: str) -> float | None:
+def _read_origin(source_url: str) -> float | None:
     """Провал ленты ниже нуля с полки, секунды; ``None`` - нет, битая или чужая запись.
 
     Чужая - та, чей URL не совпал с ключом: у имени шестнадцать знаков хэша, а неверное
@@ -46,7 +46,7 @@ def read_origin(source_url: str) -> float | None:
     return None
 
 
-def keep_origin(source_url: str, slack: float, kept: int = ORIGIN_KEPT) -> None:
+def _keep_origin(source_url: str, slack: float, kept: int = ORIGIN_KEPT) -> None:
     """Положить измеренный провал на полку; осечка записи - не беда, это кэш."""
     cache = _origin_cache(source_url)
     with contextlib.suppress(OSError):
