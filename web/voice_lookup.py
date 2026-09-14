@@ -112,7 +112,7 @@ class VoiceLookup:
         make = lambda: Bench(engines, choose=file_picker(args), profile=profile)  # noqa: E731
         warm, fresh = self.warms.open(plan.picture.key, make)
         prep = None
-        left = False
+        left = released = False
         try:
             if fresh:
                 native_picture(plan.picture, query)
@@ -122,15 +122,18 @@ class VoiceLookup:
                 prep = warm.prep
         except self.warms.stopped():
             left = not warm.taken
-            if not left:
+            if not left:  # показ ждёт стенд, пока его не отпустят: отпустить до ответа
+                self.warms.finish(warm, None)
+                released = True
                 warm.chosen.wait(PICK_BUDGET)
                 prep = warm.prep
         except TorrcastError:
             prep = None
         finally:
-            if fresh:
-                self.warms.finish(warm, prep)
-            if prep is not None and (not pinned or info_hash(prep.release) == release):
+            foreign = pinned and prep is not None and info_hash(prep.release) != release
+            if fresh and not released:  # чужую закладке раздачу не греют: играть её не будут
+                self.warms.finish(warm, None if foreign else prep)
+            if prep is not None and not foreign:
                 release = info_hash(prep.release)
                 heard = Heard(prep.found, plan.picture.native, prep.release.studios, release)
             with self._lock:
