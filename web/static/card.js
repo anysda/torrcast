@@ -347,8 +347,12 @@ const TCCard = {
       // каждый добор возвращал карточку к первому сезону посреди чтения.
       const picked = TCCard._picked && TCCard._picked.key === key
         ? data.seasons.findIndex((season) => season.n === TCCard._picked.n) : -1;
+      // Без выбора зрителя открыт сезон закладки (как у сервера), иначе первый.
+      const bookmark = TCCardSeries._resumeEpisodeNumber(data).season;
+      const resumed = data.seasons.findIndex((season) => season.n === bookmark);
       const firstSeason = data.seasons.findIndex((season) => season.n === 1);
-      const selected = picked >= 0 ? picked : firstSeason < 0 ? 0 : firstSeason;
+      const fallback = resumed >= 0 ? resumed : firstSeason < 0 ? 0 : firstSeason;
+      const selected = picked >= 0 ? picked : fallback;
       info.append(TCCardSeries.tabs(data, key, query, selected),
         TCCardSeries.episodes(data, selected, key, query));
     }

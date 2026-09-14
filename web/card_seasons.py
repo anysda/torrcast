@@ -37,7 +37,10 @@ def card_seasons(
     numbers = {number for release in releases for number in _named_seasons(release)}
     saved = _seasons_from_entry(entry) if entry is not None and entry.episodes else {}
     numbers.update(saved)
-    target = season if season in numbers else (1 if 1 in numbers else min(numbers, default=0))
+    # Без выбранной вкладки открыт сезон закладки, как у стримингов: таблица нужна ему.
+    bookmark = entry.season if entry is not None else None
+    default = bookmark if bookmark in numbers else (1 if 1 in numbers else min(numbers, default=0))
+    target = season if season in numbers else default
     fallback = _joined_seasons(numbers, saved)
     release = _release_for(plan, releases, target)
     if release is None:
