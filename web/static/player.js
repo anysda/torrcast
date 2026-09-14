@@ -94,9 +94,10 @@ const TCPlayer = {
   //: частичную карточку, тем же самым приёмом - без сокета, без push.
   async _live() {
     TCPlayer._screenPreparing();
+    const began = Date.now();
     while (TCPlayer._mounted() && !TCPlayer._url) {
       if (await TCPlayerBox.rebox(TCPlayer)) break;
-      await TCPlayer._sleep(1000);
+      await TCPlayer._sleep(TCPlayerBox.pace(Date.now() - began));
     }
   },
 
