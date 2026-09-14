@@ -37,7 +37,7 @@ from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.episode_lookup import GRACE, EpisodeLookup
-from web.preview import _facts, preview
+from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
 from web.refusal import refusal
 from web.request import Request
@@ -162,7 +162,7 @@ def _body(
     related = (
         []
         if getattr(fact, "missing", False)
-        else CardDetails.others(picture.key, _related.of(title, series))
+        else CardDetails.others(picture.key, _related_of(_related, title, series, fact))
     )
     # Родня без идущего похода - молчание источника, а не недоезд: ждать её этой карточке
     # нечего, и страница переспрашивала её до исчерпания заходов.

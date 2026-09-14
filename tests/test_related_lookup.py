@@ -51,6 +51,33 @@ def test_a_synchronous_build_answers_the_very_same_call_with_tiles_shaped_like_s
     assert first["query"] == "Гарри Поттер и Тайная комната"
 
 
+def test_a_blurb_qid_builds_the_shelf_without_a_second_passport() -> None:
+    """The accepted article already named Wikidata's entity for this exact picture."""
+    passports: list[str] = []
+    entities: list[str] = []
+
+    def franchise(title: str, _series: bool, _timeout: float) -> list[Kin]:
+        passports.append(title)
+        return []
+
+    def entity_kin(entity: str, _timeout: float) -> list[Kin]:
+        entities.append(entity)
+        return [_ONE]
+
+    lookup = RelatedLookup(
+        franchise=franchise,
+        entity_kin=entity_kin,
+        offer=_passthrough,
+        spawn=_sync,
+    )
+
+    related = lookup.of("Гарри Поттер и философский камень", False, "Q8337")
+
+    assert related is not None and len(related) == 1
+    assert passports == []
+    assert entities == ["Q8337"]
+
+
 def test_an_empty_franchise_is_a_finished_answer_not_a_pending_one() -> None:
     """Родни у картины нет - это законченный пустой ответ, а не «ещё не готово»."""
     lookup = RelatedLookup(franchise=lambda *_a: [], offer=_passthrough, spawn=_sync)

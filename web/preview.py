@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Final, Protocol
+from typing import Any, Final, Protocol, cast
 
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.spoken_title import spoken_title
@@ -99,7 +99,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     facts = _facts.of(title, year, kind)
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
-    kin = [] if getattr(fact, "missing", False) else related.of(title, series)
+    kin = [] if getattr(fact, "missing", False) else _related_of(related, title, series, fact)
     if request.query.get("wait") == "1":
         before = (fact, told, kin)
         until = time.monotonic() + PATIENCE
@@ -107,7 +107,10 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
             _sleep(_TICK)
             fact = facts.ready(title, year)
             told = facts.answered(title, year)
-            kin = [] if getattr(fact, "missing", False) else related.of(title, series)
+            if getattr(fact, "missing", False):
+                kin = []
+            else:
+                kin = _related_of(related, title, series, fact)
             # Справка и родня приходят разными походами. Перемена одной не должна
             # стоять за другой: ``related=None`` оставляет полку частичной.
             if (fact, told, kin) != before:
@@ -158,6 +161,16 @@ def _others(key: str, related: list[JsonValue] | None) -> list[JsonValue] | None
     if related is None:
         return None
     return [tile for tile in related if not isinstance(tile, dict) or tile.get("key") != key]
+
+
+def _related_of(
+    related: _Related, title: str, series: bool, fact: object
+) -> list[JsonValue] | None:
+    """Use a QID when this fact has one, while keeping the empty fact seam small."""
+    entity = str(getattr(fact, "entity", ""))
+    if entity:
+        return cast(list[JsonValue] | None, cast(Any, related).of(title, series, entity))
+    return related.of(title, series)
 
 
 __all__ = ["preview", "time"]

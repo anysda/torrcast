@@ -77,13 +77,25 @@ def _prime_screen(pictures: list[FactPicture]) -> None:
         # Two pictures make one extract packet.  Startup therefore keeps four of
         # Wikimedia's five lanes for a just-opened card; the former full screen wave
         # took all five and made a 700 ms related-tile click wait behind it.
+        without_entity: list[FactPicture] = []
         for at in range(0, len(pictures), 2):
             for _ in range(2):
                 facts = MenuFacts(pictures[at : at + 2])
                 facts.start()
                 facts.finish()
                 facts._done.wait()
-        prime(RELATED, pictures)
+                for picture in pictures[at : at + 2]:
+                    title, year = picture[:2]
+                    kind = picture[2] if len(picture) == 3 else "movie"
+                    ready = getattr(facts, "ready", None)
+                    fact = ready(title, year) if ready else None
+                    entity = str(getattr(fact, "entity", ""))
+                    if entity:
+                        RELATED.of(title, kind == "tv", entity)
+                    else:
+                        without_entity.append((title, year, kind))
+        if without_entity:
+            prime(RELATED, without_entity)
 
     _daemon(finish)
 
@@ -103,6 +115,7 @@ TARGETS.ask = WARM.ask
 #: Общая карточке и прогреву родня: первый клик читает уже идущий или готовый кэш.
 RELATED: Final = RelatedLookup(
     franchise=FACTS.franchise.of,
+    entity_kin=FACTS.franchise.by_entity,
     passport=FACTS.passport.of,
 )
 

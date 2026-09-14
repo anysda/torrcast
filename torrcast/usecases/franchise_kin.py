@@ -70,6 +70,10 @@ class FranchiseKin:
             entity = origin.entity
         if not entity:
             return [] if answered else None
+        return self.by_entity(entity, timeout)
+
+    def by_entity(self, entity: str, timeout: float = HTTP_TIMEOUT) -> list[Kin] | None:
+        """Collect a shelf from an identity already proved by the card's blurb."""
         cached = self.store.read_kin(entity)
         if cached is not None:
             return cached

@@ -95,6 +95,7 @@ class RelatedLookup:
     """Кэш родни на процесс: первый вопрос о картине заводит фон, а не ждёт его."""
 
     franchise: Franchise
+    entity_kin: Callable[[str, float], list[Kin] | None] | None = None
     offer: Offer = hits.offer
     passport: PassportOf = _no_passport
     warm: Warm = _no_warm
@@ -105,7 +106,7 @@ class RelatedLookup:
     _silent: dict[tuple[str, bool], float] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
-    def of(self, title: str, series: bool) -> list[JsonValue] | None:
+    def of(self, title: str, series: bool, entity: str = "") -> list[JsonValue] | None:
         """Полка родни картины; ключ кэша - ровно то, чем полка добыта: имя И тип.
 
         🔴 Тип в ключе не украшение. Карточка спрашивает полку по имени картины и её
@@ -125,7 +126,7 @@ class RelatedLookup:
             if asked in self._pending or now < self._silent.get(asked, 0.0):
                 return None
             self._pending.add(asked)
-        self.spawn(lambda: self._build(title, series))
+        self.spawn(lambda: self._build(title, series, entity))
         with self._lock:
             cached = self._tiles.get(asked)
             return cached[0] if cached is not None else None
@@ -152,7 +153,7 @@ class RelatedLookup:
                 return
             time.sleep(0.05)
 
-    def _build(self, title: str, series: bool) -> None:
+    def _build(self, title: str, series: bool, entity: str = "") -> None:
         """Собрать плитки родни; молчание в кэш не ложится - переспросят после :data:`SILENT`.
 
         🔴 Пустая полка кэшируется только когда она ОТВЕЧЕНА (:meth:`FranchiseKin.of`
@@ -165,7 +166,11 @@ class RelatedLookup:
         """
         found: list[Kin] | None = None
         try:
-            found = self.franchise(title, series, TIMEOUT)
+            found = (
+                self.entity_kin(entity, TIMEOUT)
+                if entity and self.entity_kin
+                else self.franchise(title, series, TIMEOUT)
+            )
             if found is None:
                 return
             seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
@@ -192,6 +197,3 @@ class RelatedLookup:
         ответа, который никто не прочитает.
         """
         return self.passport(name, False, TIMEOUT).title if tongue() == EN else ""
-
-
-__all__ = ["Franchise", "PassportOf", "RelatedLookup", "Spawn", "Warm"]
