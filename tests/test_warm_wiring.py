@@ -107,6 +107,43 @@ def test_home_related_warmup_waits_for_its_fact_batch(monkeypatch: pytest.Monkey
     assert order == ["start", "finish", "settled", "start", "finish", "settled", "related"]
 
 
+def test_home_warmup_starts_no_passport_for_a_confirmed_missing_article(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tile without an article shows no franchise; only a silent fact gets a shelf lookup."""
+    primed: list[list[FactPicture]] = []
+    found = {"Без статьи": Fact(missing=True), "Молчит": Fact()}
+
+    class _Done:
+        @staticmethod
+        def wait() -> None:
+            return None
+
+    class _Facts:
+        _done = _Done()
+
+        def __init__(self, _pictures: object) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def finish(self) -> None:
+            return None
+
+        @staticmethod
+        def ready(title: str, _year: int | None) -> Fact:
+            return found[title]
+
+    monkeypatch.setattr(wiring, "MenuFacts", _Facts)
+    monkeypatch.setattr(wiring, "prime", lambda _related, pictures: primed.append(pictures))
+    monkeypatch.setattr(wiring, "_daemon", lambda job: job())
+
+    wiring._prime_screen([("Без статьи", 1991, "movie"), ("Молчит", 1992, "movie")])
+
+    assert primed == [[("Молчит", 1992, "movie")]]
+
+
 def test_home_warmup_leaves_three_wikimedia_lanes_for_a_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

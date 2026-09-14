@@ -109,7 +109,11 @@ def _prime_screen(pictures: list[FactPicture]) -> None:
                     entity = str(getattr(fact, "entity", ""))
                     if entity:
                         RELATED.of(title, kind == "tv", entity)
-                    else:
+                    elif not getattr(fact, "missing", False) and (
+                        (title, year, kind) not in without_entity
+                    ):
+                        # A card with a confirmed missing article shows no franchise
+                        # (web.preview._related_of); its passport only spent Wikipedia.
                         without_entity.append((title, year, kind))
         if without_entity:
             prime(RELATED, without_entity)
