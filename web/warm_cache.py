@@ -23,8 +23,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
-from web.warm_priority import _hint, _warm_blurbs
+from web.circle_memory import CircleMemory
+from web.warm_priority import _hint, _unasked, _warm_blurbs
 
 if TYPE_CHECKING:
     from torrcast.usecases.facts import FactPicture
@@ -69,7 +71,7 @@ class WarmCache:
     clock: Callable[[], float] = time.monotonic
     ttl: float = TTL
     workers: int = WORKERS
-    _plans: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
+    _memory: CircleMemory = field(init=False, repr=False)
     _queue: list[str] = field(default_factory=list, repr=False)
     _urgent: list[str] = field(default_factory=list, repr=False)
     _busy: set[str] = field(default_factory=set, repr=False)
@@ -77,6 +79,9 @@ class WarmCache:
     _running: int = field(default=0, repr=False)
     _live: int = field(default=0, repr=False)
     _cond: threading.Condition = field(default_factory=threading.Condition, repr=False)
+
+    def __post_init__(self) -> None:
+        self._memory = CircleMemory(clock=self.clock, ttl=self.ttl)
 
     def take(self, query: str) -> list[Plan]:
         """Круг живому запросу: согретый - сразу, иначе считается тут же, вперёд фона.
@@ -90,20 +95,22 @@ class WarmCache:
             self._cond.wait_for(
                 lambda: key not in self._busy and key not in self._urgent, timeout=BUSY_WAIT
             )
+        if (refused := self._memory.refusal(query)) is not None:
+            raise refused
         if (ready := self.ready(query)) is not None:
             return ready
         with self._hold():
-            plans = self.circle(query)
+            try:
+                plans = self.circle(query)
+            except NotFoundError as nothing:
+                self._memory.refuse(query, nothing)
+                raise
         self._remember(query, plans)
         return plans
 
     def ready(self, query: str) -> list[Plan] | None:
-        """Согретый круг или ``None``; пустую находку за согретую тут не считают."""
-        with self._cond:
-            found = self._plans.get(query.strip())
-            if found is None or found[1] <= self.clock():
-                return None
-            return found[0]
+        """Согретый круг, ``[]`` при свежем «ничего не нашлось», иначе ``None``."""
+        return self._memory.plans(query)
 
     def ask(self, screen: Sequence[str]) -> int:
         """Принять экран запросов: очередь становится ЭТИМ экраном, прошлая уступает.
@@ -130,18 +137,6 @@ class WarmCache:
     def hint(self, query: str) -> int:
         return _hint(self, query)
 
-    def _unasked(self, plans: list[Plan]) -> list[FactPicture]:
-        """Картины круга, о которых справку ещё не спрашивали в этой жизни процесса."""
-        wanted: list[FactPicture] = []
-        with self._cond:
-            for plan in plans[:LIMIT]:
-                picture = plan.picture
-                if (picture.title, picture.year) in self._told:
-                    continue
-                self._told.add((picture.title, picture.year))
-                wanted.append((picture.title, picture.year, picture.kind))
-        return wanted
-
     def _pump(self) -> None:
         """Брать из очереди, пока она не кончится, уступая дорогу живому запросу."""
         try:
@@ -154,6 +149,9 @@ class WarmCache:
                     self._busy.add(query)
                 try:
                     plans = self.circle(query)
+                except NotFoundError as nothing:
+                    self._memory.refuse(query, nothing)
+                    plans = []
                 except (TorrcastError, OSError):
                     plans = []
                 self._remember(query, plans)
@@ -174,9 +172,8 @@ class WarmCache:
         """Запомнить непустую находку и согреть справку её картин; пустая - не находка."""
         if not plans:
             return
-        with self._cond:
-            self._plans[query.strip()] = (plans, self.clock() + self.ttl)
-        wanted = self._unasked(plans)
+        self._memory.keep(query, plans)
+        wanted = _unasked(self, plans, LIMIT)
         if wanted:
             self.spawn(lambda: _warm_blurbs(self, wanted))
 

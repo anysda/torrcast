@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -147,6 +148,53 @@ def test_an_answered_empty_description_is_not_left_as_a_skeleton(
     assert answer is not None
     assert json.loads(answer.body)["blurb"] == ""
     assert json.loads(answer.body)["related"] == []
+
+
+def test_a_confirmed_missing_article_still_asks_the_page_to_wait_for_the_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 «Пропавшая»: без статьи и без родни раздачи всё равно едут, опрос не кончается."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _MissingFacts)
+    request = Request(
+        method="GET",
+        path="/api/card/tv:lost:2026",
+        query={"query": "Lost", "title": "Пропавшая", "year": "2026", "kind": "tv"},
+        body={},
+    )
+
+    answer = preview(request, "tv:lost:2026", _Warm(), _Related())
+
+    assert answer is not None
+    assert json.loads(answer.body)["searching"] is True
+    assert ("X-Torrcast-Partial", "1") in answer.extra
+
+
+def test_a_waiting_preview_gives_way_as_soon_as_the_circle_lands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Готовый круг не досиживает терпение справки: полная карточка отвечает сразу."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
+    monkeypatch.setattr(web.preview, "PATIENCE", 5.0)
+    monkeypatch.setattr(web.preview, "_sleep", lambda _seconds: None)
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"query": "Luca", "title": "Лука", "year": "2021", "kind": "movie", "wait": "1"},
+        body={},
+    )
+
+    class _LandingWarm(_Warm):
+        looks = 0
+
+        def ready(self, _query: str) -> object | None:  # type: ignore[override]
+            self.looks += 1
+            return None if self.looks == 1 else ["plan"]
+
+    started = time.monotonic()
+    answer = preview(request, "movie:luca:2021", _LandingWarm(), _Related())
+
+    assert answer is None
+    assert time.monotonic() - started < 1.0
 
 
 def test_a_ready_description_is_published_before_later_fact_details(

@@ -9,11 +9,13 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.usecases.facts import FactPicture
 from torrcast.usecases.select.plan import Plan
+from web.circle_memory import EMPTY_TTL
 from web.warm_cache import LIMIT, TTL, WORKERS, WarmCache
 
 _MOVIE = Picture(title="Interstellar", year=2014, kind="movie")
@@ -90,6 +92,30 @@ def test_an_empty_find_is_not_remembered_as_a_warm_circle() -> None:
     cache.take("Interstellar")
 
     assert circle.asked == ["Interstellar", "Interstellar"]
+
+
+def test_nothing_found_is_remembered_for_a_minute_and_not_asked_again() -> None:
+    """Картина без раздач: переспрос карточки раз в секунду не гонит круг заново."""
+    asked: list[str] = []
+    now = [1000.0]
+
+    def _circle(query: str) -> list[Plan]:
+        asked.append(query)
+        raise NotFoundError("nothing")
+
+    cache = _cache(_circle, clock=lambda: now[0])
+    cache.ask(["Ludwig"])
+
+    assert cache.ready("Ludwig") == []
+    with pytest.raises(NotFoundError):
+        cache.take("Ludwig")
+    cache.ask(["Ludwig"])
+    assert asked == ["Ludwig"]
+    now[0] += EMPTY_TTL + 1.0
+    assert cache.ready("Ludwig") is None
+    with pytest.raises(NotFoundError):
+        cache.take("Ludwig")
+    assert asked == ["Ludwig", "Ludwig"]
 
 
 def test_a_screen_of_search_hits_costs_one_circle_for_the_whole_screen() -> None:

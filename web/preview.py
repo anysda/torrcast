@@ -112,6 +112,8 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         until = time.monotonic() + PATIENCE
         while time.monotonic() < until:
             _sleep(_TICK)
+            if warm.ready(request.query["query"]) is not None:
+                return None  # the circle landed: the full card answers now, not after PATIENCE
             fact = facts.ready(title, year)
             told = facts.answered(title, year)
             kin = _related_of(related, title, series, fact, told, year)
@@ -144,11 +146,10 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         "sources_count": 0,
         "searching": True,
     }
-    # Confirmed absence finishes both facts and the related shelf.  The release circle
-    # may still be loading, but it cannot turn this particular card into a description
-    # or a franchise, so asking the page to poll again only creates an empty loop.
-    extra = () if getattr(fact, "missing", False) and kin is not None else ((_PARTIAL, "1"),)
-    return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
+    # Always partial: ``searching`` has no end but the circle, even for a confirmed missing
+    # article. A final-looking answer here left such a card on "searching" forever.
+    encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    return Answer(200, encoded, extra=((_PARTIAL, "1"),))
 
 
 def _year(value: str) -> int | None:

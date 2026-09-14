@@ -25,9 +25,22 @@ def _hint(cache: Any, query: str) -> int:
     return 1
 
 
+def _unasked(cache: Any, plans: Any, limit: int) -> list[Any]:
+    """Pictures of a circle whose facts were not asked yet in this process life."""
+    wanted: list[Any] = []
+    with cache._cond:
+        for plan in plans[:limit]:
+            picture = plan.picture
+            if (picture.title, picture.year) in cache._told:
+                continue
+            cache._told.add((picture.title, picture.year))
+            wanted.append((picture.title, picture.year, picture.kind))
+    return wanted
+
+
 def _warm_blurbs(cache: Any, wanted: Any) -> None:
     with contextlib.suppress(TorrcastError, OSError):
         cache.blurbs(wanted)
 
 
-__all__ = ["_hint", "_warm_blurbs"]
+__all__ = ["_hint", "_unasked", "_warm_blurbs"]
