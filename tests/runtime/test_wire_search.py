@@ -79,5 +79,6 @@ def test_the_search_gets_the_real_catalogue_and_the_real_release_service() -> No
     assert _search_state._search_catalogue is torrent_catalogue
     assert _search_state._search_passport == FACTS.passport.of
     assert _search_state._search_indexers is Prowlarr
+    assert _search_state._search_known == FACTS.catalogue.pictures
     assert _reinforce_configure._catalogue is torrent_catalogue
     assert _reinforce_configure._passport_source == FACTS.passport.of

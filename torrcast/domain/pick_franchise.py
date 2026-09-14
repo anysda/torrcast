@@ -10,6 +10,7 @@ from torrcast.domain.by_both_names import _by_both_names
 from torrcast.domain.by_subtitle import _by_subtitle
 from torrcast.domain.by_words import _by_words
 from torrcast.domain.confirmed_continuations import confirmed_continuations
+from torrcast.domain.facts.proof_in_map import KnownPictures
 from torrcast.domain.franchise_item_key import _franchise_item_key
 from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.franchises import franchises
@@ -27,7 +28,11 @@ from torrcast.domain.with_subtitled import _with_subtitled
 
 
 def pick_franchise(
-    query: str, pictures: list[Picture], *, join_continuations: bool = True
+    query: str,
+    pictures: list[Picture],
+    *,
+    join_continuations: bool = True,
+    imdb: KnownPictures | None = None,
 ) -> list[Picture]:
     groups = franchises(pictures)
     aliases = _aliases(groups)
@@ -64,7 +69,7 @@ def pick_franchise(
                 and (_group_weight(groups, pointed) > _group_weight(groups, wanted))
             ):
                 return pointed
-            return _richer_namesake(groups, wanted) or wanted
+            return _richer_namesake(groups, wanted, imdb=imdb) or wanted
         if pointed is not None:
             return pointed
         if (counted := in_digits(wanted)) in digits:
@@ -105,7 +110,7 @@ def pick_franchise(
             index = None
         if not items:
             items, index = (_by_both_names(query, pictures), None)
-        return _numbered(items, index) or _asked_otherwise(query, name, pictures)
+        return _numbered(items, index) or _asked_otherwise(query, name, pictures, imdb)
     franchise_items = both_languages(groups, aliases, key)
     if index is None and join_continuations:
         seen = {p.key for p in franchise_items}
@@ -138,7 +143,9 @@ def pick_franchise(
     return _with_subtitled(items, name, pictures, index)
 
 
-def _asked_otherwise(query: str, name: str, pictures: list[Picture]) -> list[Picture]:
+def _asked_otherwise(
+    query: str, name: str, pictures: list[Picture], imdb: KnownPictures | None = None
+) -> list[Picture]:
     """Последняя попытка перед отказом: лишний год в конце и промах одной буквы.
 
     🔴 TC-777. Обе формы человек берёт из НАШЕГО же меню - оттуда и год «(2008)», и
@@ -160,11 +167,11 @@ def _asked_otherwise(query: str, name: str, pictures: list[Picture]) -> list[Pic
     и по Enter вставала первая часть франшизы вместо названной.
     """
     bare, year = asked_year(query)
-    if year is not None and (found := pick_franchise(bare, pictures)):
+    if year is not None and (found := pick_franchise(bare, pictures, imdb=imdb)):
         return [p for p in found if p.year == year] or found
     if near := nearly_named(name, pictures):
         index = split_franchise_index(query)[1]
-        return pick_franchise(near if index is None else f"{near} {index}", pictures)
+        return pick_franchise(near if index is None else f"{near} {index}", pictures, imdb=imdb)
     return []
 
 

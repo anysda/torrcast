@@ -67,7 +67,7 @@ def _voice_reinforce(
     (:func:`_second_language`).
     """
     from torrcast.domain.cluster import cluster
-    from torrcast.domain.pick_franchise import pick_franchise
+    from torrcast.usecases.discover.franchise_pick import franchise_pick
 
     name, _index = (query, None) if titled else split_franchise_index(query)
     exact = f"{lead.original} {lead.year}"
@@ -97,7 +97,7 @@ def _voice_reinforce(
     if len(merged) == len(raw):
         return raw, cluster(_catalogue_port().to_releases(raw)), found
     pictures = cluster(_catalogue_port().to_releases(merged))
-    wider = pick_franchise(query, pictures)
+    wider = franchise_pick(query, pictures)
     was = sum(len(p.releases) for p in found)
     now = sum(len(p.releases) for p in wider)
     if now <= was:

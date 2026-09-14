@@ -64,7 +64,7 @@ def _season_reinforce(
     (:func:`_second_language`).
     """
     from torrcast.domain.cluster import cluster
-    from torrcast.domain.pick_franchise import pick_franchise
+    from torrcast.usecases.discover.franchise_pick import franchise_pick
 
     name, _index = (query, None) if titled else split_franchise_index(query)
     want = args.episode or Episode(1, 1)
@@ -111,6 +111,6 @@ def _season_reinforce(
     if len(merged) == len(raw):
         return raw, cluster(_catalogue_port().to_releases(raw)), found
     pictures = cluster(_catalogue_port().to_releases(merged))
-    wider = pick_franchise(query, pictures)
+    wider = franchise_pick(query, pictures)
     progress.note(phrase("reinforce.season_note", season=want.season, query=season_query))
     return merged, pictures, wider

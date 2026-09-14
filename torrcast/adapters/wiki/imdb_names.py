@@ -14,6 +14,8 @@ from torrcast.domain.facts.imdb_rows import (
     _ru_rows,
     _RuName,
 )
+from torrcast.domain.facts.map_picture import MapPicture
+from torrcast.domain.facts.map_pictures import map_pictures
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import RU_NAMES_PATH
 from torrcast.domain.slugify import slugify
@@ -54,6 +56,10 @@ class ImdbNames:
             if self._names is None:
                 self._names = _ru_rows(self.source.lines(self.path))
             return self._names
+
+    def pictures(self, title: str) -> list[MapPicture]:
+        """Все картины карты под точным прокатным именем, с голосами IMDb: мерка известности."""
+        return map_pictures(self.names().get(slugify(title), []), self.ratings.votes())
 
     def ids(self, pictures: list[tuple[str, int | None, str]]) -> dict[tuple[str, int | None], str]:
         """IMDb-id по точной тройке «прокатное имя, год, тип».

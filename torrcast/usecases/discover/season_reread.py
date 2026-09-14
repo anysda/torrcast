@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.domain.reads_season import reads_season
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -31,7 +31,7 @@ def _season_asked(found: list[Picture], name: str, pictures: list[Picture]) -> b
         return False
     # Голое имя: номер снят выше, поэтому пополнение меню продолжениями сюда доехало бы
     # молча и переспорило бы разбор (:func:`~torrcast.domain.pick_franchise.pick_franchise`).
-    return reads_season(pick_franchise(name, pictures, join_continuations=False))
+    return reads_season(franchise_pick(name, pictures, join_continuations=False))
 
 
 def season_reread(

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.usecases.discover._vouched import _vouched
 from torrcast.usecases.discover._word_neighbours import _neighbours_only
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 
 
 def _passport_pick(
@@ -23,7 +23,7 @@ def _passport_pick(
     """
     passport_hits: dict[str, Picture] = {}
     for passport_name in (about.title, about.name):
-        for picture in pick_franchise(passport_name, first_pictures):
+        for picture in franchise_pick(passport_name, first_pictures):
             passport_hits[picture.key] = picture
     found_keys = {picture.key for picture in found}
     if len(passport_hits) == 1 and set(passport_hits) != found_keys:

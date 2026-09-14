@@ -6,8 +6,8 @@ from typing import Final
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.franchise_name import franchise_name
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 
 #: Сколько соседей по франшизе называем в строке отказа. Больше не помещается в строку, да
 #: и незачем: это подсказка, а не второй список - список человек уже получит по `cast`.
@@ -23,7 +23,7 @@ def _kin(picture: Picture | None, pictures: list[Picture], shown: set[str]) -> l
     """
     if picture is None:
         return []
-    whole = pick_franchise(franchise_name(picture.title), pictures)
+    whole = franchise_pick(franchise_name(picture.title), pictures)
     return [p for p in whole if p.key not in shown and p.key != picture.key and p.releases]
 
 

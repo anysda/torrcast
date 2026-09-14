@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.usecases.discover._vouched import _vouched
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 
 
 def _second_wider(
@@ -23,8 +23,8 @@ def _second_wider(
     и подписанная самим именем добора, - но вторая лишь тогда, когда за это имя ручается
     справка (:func:`_vouched`).
     """
-    mine = pick_franchise(query, pictures)
-    theirs = pick_franchise(f"{alt} {index}" if index else alt, pictures)
+    mine = franchise_pick(query, pictures)
+    theirs = franchise_pick(f"{alt} {index}" if index else alt, pictures)
     vouched = _vouched(theirs, about, proven)
     if not (vouched or not mine):  # за это имя никто не ручается - берём лишь своё
         theirs = []

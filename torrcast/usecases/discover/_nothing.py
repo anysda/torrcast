@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 
 
 def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
@@ -22,7 +22,7 @@ def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
       плюс перечень того, что в ней есть, - молчаливого отказа быть не должно (TC-373);
     * во всём остальном → честное «ничего не нашлось», то есть «назови другими словами».
     """
-    whole = pick_franchise(name, pictures) if index is not None else []
+    whole = franchise_pick(name, pictures) if index is not None else []
     if whole:
         have = ", ".join(f"{p.title} ({p.year or '?'})" for p in whole[:5])
         more = phrase("discover.franchise_more") if len(whole) > 5 else ""

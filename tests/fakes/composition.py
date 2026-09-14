@@ -128,6 +128,11 @@ def use_passport(patch: pytest.MonkeyPatch, passport: StandIn) -> None:
     patch.setattr(_search_state, "_search_passport", passport)
 
 
+def use_known_pictures(patch: pytest.MonkeyPatch, known: StandIn) -> None:
+    """Офлайн-карта картин IMDb - поиску: тест не читает карту машины, на которой идёт."""
+    patch.setattr(_search_state, "_search_known", known)
+
+
 def use_await_playing(patch: pytest.MonkeyPatch, await_playing: StandIn) -> None:
     """Ожидание картинки на экране - модулю запуска показа, который её и ждёт."""
     patch.setattr(_launch_show, "_await_playing", await_playing)

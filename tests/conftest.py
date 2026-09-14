@@ -490,6 +490,7 @@ def _silent_facts(
     вовсе. Слот назван здесь поимённо, как и остальные подделки.
     """
     composition.use_passport(monkeypatch, lambda title, series=False, budget=0.0: Origin())
+    composition.use_known_pictures(monkeypatch, lambda title: [])
     if request.node.nodeid != LIVE_BLURBS_PROBE:
         monkeypatch.setattr(FACTS, "blurbs", FakeBlurbSource())
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))

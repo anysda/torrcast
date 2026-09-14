@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.cluster import cluster
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.split_franchise_index import split_franchise_index
@@ -21,6 +20,7 @@ from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._no_budget import _no_budget
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 
 if TYPE_CHECKING:
     pass
@@ -93,7 +93,7 @@ def _titled_number(
     if len(merged) == len(raw):
         return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []
     pictures = cluster(_search_state._search_catalogue.to_releases(merged))
-    found = pick_franchise(query, pictures)
+    found = franchise_pick(query, pictures)
     if not found:
         return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []
     progress.note(phrase("discover.whole_number_note", name=name, query=query))

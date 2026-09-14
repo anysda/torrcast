@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.facts.proof_in_map import KnownPictures, _renown
 from torrcast.domain.group_weight import _group_weight
 from torrcast.domain.picture import Picture
 from torrcast.domain.thin_pool import THIN_POOL
@@ -17,8 +18,21 @@ def _whole_word(key: str, wanted: str) -> bool:
     )
 
 
+def _more_renowned(
+    groups: dict[str, list[Picture]], held: str, rivals: list[str], known: KnownPictures
+) -> list[str]:
+    """Соперники, которых карта знает лучше самой картины; карта о ней молчит - все прежние."""
+    mine = _renown(groups[held], known)
+    if not mine:
+        return rivals
+    return [key for key in rivals if _renown(groups[key], known) > mine]
+
+
 def _richer_namesake(
-    groups: dict[str, list[Picture]], wanted: str, incumbent: str | None = None
+    groups: dict[str, list[Picture]],
+    wanted: str,
+    incumbent: str | None = None,
+    imdb: KnownPictures | None = None,
 ) -> str | None:
     """Кому отдать спрошенное имя, когда о самом имени каталог не знает почти ничего.
 
@@ -53,6 +67,16 @@ def _richer_namesake(
     ⚠️ Граница правила названа числом: спасает оно ровно там, где тёзка каталогом почти
     не подтверждён. Была бы у «Властелина» (1999) не одна раздача, а пятнадцать, - он
     перестал бы быть тощим и снова забрал бы запрос себе.
+
+    🔴 Выдача мерит известность ЧИСЛОМ РАЗДАЧ, а оно у короткого имени врёт: «Мы» (Us,
+    2019) лежало одной картиной на две раздачи, а рядом «Чем мы заняты в тени» - два сезона
+    на четыре, и запрос уходил соседу по слову. ``imdb`` - офлайн-карта IMDb
+    (:func:`~torrcast.domain.facts.proof_in_map.proof_in_map`): когда она доказывает саму
+    картину точным именем, типом и годом, счёт раздач больше не решает, и соперник берёт имя
+    лишь при большем числе голосов (так ранжирует и TMDb ``search/movie``: имя, год,
+    популярность). «Властелина» (1999) карта не знает вовсе, и он уступает «Властелину колец»
+    по-прежнему. Молчит карта о самой картине - правило остаётся прежним, счётом выдачи.
+    Третье имя (``incumbent``) картину запроса не называет, и карта его не доказывает.
     """
     held = incumbent or wanted
     mine = groups[held]
@@ -66,6 +90,8 @@ def _richer_namesake(
         and len(groups[key]) > len(mine)
         and _group_weight(groups, key) > _group_weight(groups, held)
     ]
+    if rivals and incumbent is None and imdb is not None:
+        rivals = _more_renowned(groups, held, rivals, imdb)
     if not rivals:
         return None
     return max(rivals, key=lambda key: (len(groups[key]), _group_weight(groups, key), key))

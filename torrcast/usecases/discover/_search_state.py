@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from torrcast.domain.facts.proof_in_map import KnownPictures
 from torrcast.ports.passport_source import PassportSource
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
@@ -19,6 +20,10 @@ from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 _search_catalogue: TorrentCatalogue
 _search_passport: PassportSource
 _search_indexers: Callable[[str, str], IndexerClient]
+#: Картины офлайн-карты IMDb под прокатным именем: ими разбор выдачи доказывает картину
+#: запроса и меряет её известность против соседей по слову
+#: (:func:`~torrcast.usecases.discover.franchise_pick.franchise_pick`).
+_search_known: KnownPictures
 
 
 def _configure_discover(
@@ -31,3 +36,9 @@ def _configure_discover(
     _search_catalogue = catalogue
     _search_passport = passport
     _search_indexers = indexers
+
+
+def _configure_known(known: KnownPictures) -> None:
+    """Передать поиску офлайн-карту картин: читается она лишь тогда, когда тёзки спорят."""
+    global _search_known
+    _search_known = known

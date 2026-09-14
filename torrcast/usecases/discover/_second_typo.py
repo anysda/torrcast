@@ -8,7 +8,6 @@ from torrcast.domain.cluster import cluster
 from torrcast.domain.exactly_named import exactly_named
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.nearly_named import nearly_named
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
@@ -16,6 +15,7 @@ from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._second_circle import _second_circle
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 
 
 def _second_typo(
@@ -89,7 +89,7 @@ def _second_typo(
         # Номер части переспрашивается вместе с опознанным именем: правится имя, а не
         # номер («байки метра 2» - это по-прежнему просьба про вторую).
         asked = recognized if index is None else f"{recognized} {index}"
-        if not (found := pick_franchise(asked, seen)):
+        if not (found := franchise_pick(asked, seen)):
             continue
         if exact:
             # 🔴 TC-1158. Полное имя первый круг уже спрашивал ДОСЛОВНО и получил пусто:
@@ -106,7 +106,7 @@ def _second_typo(
         # 🔴 Пустой отбор ПОСЛЕ слияния ведёт к следующему кандидату, а не наружу: склейка
         # берёт имя раздачи большинством по одному infoHash, и опознанное имя каталога из
         # пересобранного кластера уезжает. Прежний круг спросил бы второе слово - и этот тоже.
-        if found := pick_franchise(asked, seen):
+        if found := franchise_pick(asked, seen):
             return merged, seen, found
     return raw, [], []
 

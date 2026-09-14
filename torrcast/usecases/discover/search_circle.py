@@ -13,7 +13,6 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.journal.slot import journal
@@ -27,6 +26,7 @@ from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover._second_typo import _second_typo
 from torrcast.usecases.discover.cut_circle import CutCircle
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.told_circle import ToldCircle
 from torrcast.usecases.discover.told_indexer import ToldIndexer
@@ -87,7 +87,7 @@ def search_circle(
     journal().mark("индексеры ответили", строк=len(raw))  # TC-108: замер
     pictures = cluster(_search_state._search_catalogue.to_releases(raw))
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
-    found = pick_franchise(query, pictures)
+    found = franchise_pick(query, pictures)
     titled = False
     if (reread := season_reread(args, name, index, found, pictures)) is not None:
         # 🔴 TC-363. У сериала номер это сезон, а не часть франшизы

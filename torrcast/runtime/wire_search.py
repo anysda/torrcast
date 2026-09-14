@@ -16,7 +16,7 @@ from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.usecases.cache_reserve import _configure_cache_reserve
 from torrcast.usecases.choice.configure import configure as configure_choice
-from torrcast.usecases.discover._search_state import _configure_discover
+from torrcast.usecases.discover._search_state import _configure_discover, _configure_known
 from torrcast.usecases.episode_duration import _configure_episode_duration
 from torrcast.usecases.rank._cut import _cut
 from torrcast.usecases.rank.bitrate_of import bitrate_of
@@ -66,4 +66,6 @@ def wire_search() -> None:
     # единственного, кто видел сразу `torrcast.adapters.prowlarr` и `torrcast.runtime.facts_wiring`
     # (TC-632). Слот - снова именем из модуля, по причине выше.
     _configure_discover(torrent_catalogue, FACTS.passport.of, Prowlarr)
+    # Офлайн-карта IMDb: чья картина короткое имя - решают её имя, год и голоса.
+    _configure_known(FACTS.catalogue.pictures)
     configure_reinforce(torrent_catalogue, FACTS.passport.of)
