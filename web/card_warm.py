@@ -68,7 +68,10 @@ class _Stoppable:
         return self
 
     def __exit__(
-        self, kind: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
+        self,
+        kind: type[BaseException] | None,
+        error: BaseException | None,
+        trace: TracebackType | None,
     ) -> None:
         return None
 
