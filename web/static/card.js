@@ -62,6 +62,10 @@ const TCCard = {
   },
 
   async _load(root, key, query, quiet, facts, season) {
+    // Перезагрузка без номера (возврат, повтор, показ на ТВ) спрашивает вкладку зрителя:
+    // иначе сервер разбирал первый сезон, и серии открытой вкладки приходили пустыми.
+    const picked = TCCard._picked && TCCard._picked.key === key ? TCCard._picked.n : undefined;
+    season = season || picked;
     const mine = TCCard._visit;
     const load = ++TCCard._loadId;
     let data = null;
