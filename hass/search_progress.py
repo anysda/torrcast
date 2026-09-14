@@ -77,18 +77,21 @@ _jobs: dict[str, SearchJob] = {}
 _jobs_lock = threading.Lock()
 
 
-def _preview(query: str, job: SearchJob, offer: Offer | None = None) -> list[JsonValue]:
+def _preview(
+    query: str, job: SearchJob, offer: Offer | None = None, *, done: bool = False
+) -> list[JsonValue]:
     """Превью прямо сейчас: тем же разбором, что и полный круг, но по неполному пулу.
 
     Ступеней добора (второй язык, добор сезона и озвучки) тут нет нарочно: они сами
     платят заходами в сеть и решают об оригинале, а превью - только то, что уже
-    ответило, без единого лишнего запроса к индексерам.
+    ответило, без единого лишнего запроса к индексерам. ``done`` - это финал к сроку
+    (:data:`~hass.search_job.FINAL_BY`): картины каталога без раздач тогда гаснут.
     """
     said = searching.OFFER if offer is None else offer
     if job.hits:
         return job.dress(job.hits, said)
     catalog = [] if job.catalog is None else job.catalog.tiles()
-    shown = catalog_merge(catalog, _peek(query, job), done=False)
+    shown = catalog_merge(catalog, _peek(query, job), done=done)
     return job.dress(shown, said) if shown else []
 
 
@@ -126,6 +129,9 @@ def search_progress(
     (:mod:`hass.search_job`): с ним выдача, прогрев и карточка платят один круг на запрос.
     ``catalog`` - плитки каталога под запрос (:mod:`hass.catalog_tiles`): они стоят на экране
     до первой раздачи, а без раздач гаснут только после полного круга.
+
+    Финал приходит не позже срока :data:`~hass.search_job.FINAL_BY` от начала захода: тот,
+    кто опрашивает, получает к нему собранное, а круг досчитывается фоном.
     """
     key = query.strip().casefold()
     with _jobs_lock:
@@ -140,6 +146,8 @@ def search_progress(
                 daemon=True,
                 name="search-progress",
             ).start()
+    if job.overdue():
+        job.settle(_preview(query, job, offer, done=True))
     if not job.done:
         return _preview(query, job, offer), True
     if job.error is not None:

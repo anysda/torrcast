@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from hass.refused_error import RefusedError
+from hass.search_job import FINAL_BY
 from hass.serve import serve
 
 
@@ -240,10 +241,12 @@ def test_a_progressive_search_carries_the_partial_header(address: str, bridge: _
         code = answer.status
         said = json.loads(answer.read().decode("utf-8"))
         partial = answer.headers.get("X-Torrcast-Partial")
+        final_by = answer.headers.get("X-Torrcast-Final-By")
 
     assert code == 200
     assert said == {"results": bridge.results}
     assert partial == "1"
+    assert final_by == f"{FINAL_BY:g}", "потолок опроса страницы - срок финала сервера"
     assert bridge.progressed == ["тачки"]
     assert bridge.searched == [], "обычный поиск прогрессивный опрос не звал"
 

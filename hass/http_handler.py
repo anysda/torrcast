@@ -31,6 +31,7 @@ from hass.http_routes import (
 )
 from hass.play_extras import play_extras
 from hass.refused_error import RefusedError
+from hass.search_job import FINAL_BY
 from torrcast.domain.json_value import JsonValue
 from web.answer_for import answer_for
 
@@ -92,9 +93,13 @@ class _Handler(BaseHTTPRequestHandler):
                 self._answer(400, {"error": "no_query"})
                 return
             if body.get("progressive") is True:
-                # Опт-ин (TC-1126): страница читает ``X-Torrcast-Partial``, HA - нет.
+                # Опт-ин (TC-1126): страница читает ``X-Torrcast-Partial``, HA - нет. Срок
+                # финала страница берёт тут же: потолок её опроса - срок сервера, не своё число.
                 results, partial = self.bridge.search_progress(query.strip())
-                headers = {"X-Torrcast-Partial": "1" if partial else "0"}
+                headers = {
+                    "X-Torrcast-Partial": "1" if partial else "0",
+                    "X-Torrcast-Final-By": f"{FINAL_BY:g}",
+                }
                 self._answer(200, {"results": results}, headers=headers)
                 return
             self._answer(200, {"results": self.bridge.search(query.strip())})

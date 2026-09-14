@@ -11,7 +11,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Final, Protocol
 
 from hass import searching
 from hass.catalog_merge import catalog_merge
@@ -20,6 +20,7 @@ from hass.search_results import _hit
 from hass.searching import Detect, Offer, Remember
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
+from torrcast.domain.goal_spare import GOAL
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import Profile
 from torrcast.domain.torrcast_error import TorrcastError
@@ -33,6 +34,12 @@ from torrcast.usecases.choice.enter_take import enter_take
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.usecases.select.plan import Plan
+
+#: Срок финала от начала захода, секунды: цель самого круга (:data:`GOAL`) и две секунды на
+#: приговор обложек. Приговор шёл после круга без срока, 8-10.5 с при нуле обложек на стенде,
+#: и финал «Начало» ехал 18-21 с. К сроку опрос получает финал из собранного, круг и
+#: приговор досчитываются фоном, и повторный заход застаёт их полный список.
+FINAL_BY: Final = GOAL + 2.0
 
 #: Тот же тип, что :data:`hass.search_progress.ProgressiveSearch`; назван тут, чтобы не
 #: замыкать импорт по кругу.
@@ -62,6 +69,8 @@ class SearchJob:
     hits: list[JsonValue] = field(default_factory=list)
     #: Картины каталога под этот запрос (:mod:`hass.catalog_tiles`); без них - только раздачи.
     catalog: CatalogTiles | None = None
+    started_at: float = field(default_factory=time.monotonic)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def run(
         self,
@@ -96,18 +105,31 @@ class SearchJob:
             hits if self.catalog is None else catalog_merge(self.catalog.tiles(), hits, done=True)
         )
         if not shown:
-            self._finish()
+            self.settle([], landed=True)
             return
         self.error = None
         self.judging, self.hits = True, shown  # previews wait for this verdict, not a second one
         # Имя обложки даёт тот же приговор, что и обычному поиску (:data:`hass.searching.OFFER`):
         # без этого шага веб-выдача шла совсем без обложек. Отказ приговора выдачу не роняет.
         try:
-            self.results = (searching.OFFER if offer is None else offer)(shown)
+            judged = (searching.OFFER if offer is None else offer)(shown)
         except (TorrcastError, OSError):
-            self.results = shown
+            judged = shown
         self.judging = False
-        self._finish()
+        self.settle(judged, landed=True)
+
+    def overdue(self) -> bool:
+        """Срок финала прошёл, а заход ещё не отдал его."""
+        return not self.done and time.monotonic() - self.started_at >= FINAL_BY
+
+    def settle(self, results: list[JsonValue], *, landed: bool = False) -> None:
+        """Финал: к сроку - собранное, если ещё не отдан; досчитанный заход - всегда."""
+        with self._lock:
+            if self.done and not landed:
+                return
+            self.results = results
+            self.done = True
+            self.finished_at = time.monotonic()
 
     def dress(self, hits: list[JsonValue], offer: Offer) -> list[JsonValue]:
         """Превью с уже вынесенными обложками; приговор новым идёт фоном, опрос не ждёт.
@@ -138,13 +160,9 @@ class SearchJob:
     def _capture(self, client: IndexerClient) -> None:
         self.client = client
 
-    def _finish(self) -> None:
-        self.done = True
-        self.finished_at = time.monotonic()
-
 
 def _key(hit: JsonValue) -> str:
     return str(hit.get("key", "")) if isinstance(hit, dict) else ""
 
 
-__all__ = ["SearchJob"]
+__all__ = ["FINAL_BY", "SearchJob"]
