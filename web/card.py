@@ -36,12 +36,14 @@ from web.card_details import CardDetails
 from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
+from web.card_voices import card_voices
 from web.episode_lookup import GRACE, EpisodeLookup
 from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
 from web.refusal import refusal
 from web.request import Request
 from web.start_related import start_related
+from web.voice_lookup import VoiceLookup
 from web.warm_wiring import RELATED, WARM
 
 #: Префикс, под которым живёт вся карточка; ключ картины - хвост пути после него.
@@ -59,6 +61,8 @@ _TICK: Final = 0.25
 #: Разбор серий той раздачи, которую играл бы показ - один кэш на весь процесс
 #: (см. :class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
+#: Дорожки той раздачи, которую играл бы показ (:class:`web.voice_lookup.VoiceLookup`).
+_voices = VoiceLookup(engines=TorrServer)
 #: Приговор обложки - тот же, что у выдачи поиска и полки (:mod:`web.card_poster`).
 _poster = CardPoster(offer=hits.offer)
 #: Сколько долгий заход досиживает после первой перемены, пока доезжает остальное: части
@@ -86,14 +90,9 @@ def card(request: Request) -> Answer:
     plan, pick = card_lookup(plans, key)
     if plan is None:
         return refusal(404, "not_found")
-    return _answer(
-        plan,
-        config,
-        pick,
-        WAIT if request.query.get("wait") == "1" else 0.0,
-        hint,
-        _season(request.query.get("season")),
-    )
+    wait = WAIT if request.query.get("wait") == "1" else 0.0
+    season = _season(request.query.get("season"))
+    return _answer(plan, config, pick, wait, hint, season, (query, request.query.get("lang", "")))
 
 
 def _answer(
@@ -103,6 +102,7 @@ def _answer(
     wait: float = 0.0,
     hint: tuple[str, int, str] | None = None,
     season: int | None = None,
+    ask: tuple[str, str] = ("", ""),
 ) -> Answer:
     """Тело ответа плюс заголовок недоехавшей части: справка, обложка, родня, серии."""
     picture = plan.picture
@@ -115,11 +115,15 @@ def _answer(
         facts.foreground = True
         facts.start()
     until = time.monotonic() + wait
-    first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint, season)
+    first, partial = _body(
+        plan, config, pick, entry, facts, _playing(picture.key), hint, season, ask
+    )
     body = first
     while partial and time.monotonic() < until:
         time.sleep(_TICK)
-        body, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint, season)
+        body, partial = _body(
+            plan, config, pick, entry, facts, _playing(picture.key), hint, season, ask
+        )
         if body != first:
             until = min(until, time.monotonic() + _SETTLE)
     extra = ((_PARTIAL, "1"),) if partial else ()
@@ -141,6 +145,7 @@ def _body(
     playing: bool,
     hint: tuple[str, int, str] | None = None,
     season: int | None = None,
+    ask: tuple[str, str] = ("", ""),
 ) -> tuple[dict[str, JsonValue], bool]:
     """Тело как оно есть сейчас и «что-то ещё в пути»; пустая справка - готовый ответ."""
     picture = plan.picture
@@ -158,6 +163,9 @@ def _body(
     # нечего, и страница переспрашивала её до исчерпания заходов.
     coming = related is None and _related.waiting(title, series)
     poster, judging = _poster.of(picture)
+    heard, hearing = (None, False)
+    if plan.ranked:
+        heard, hearing = _voices.of(plan, ask[0], config.torrserver_url)
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
@@ -172,7 +180,7 @@ def _body(
         "rating": rating_score(fact.rating),
         "blurb": fact.about if told else None,
         "poster": poster,
-        "voices": CardDetails.voices(plan),
+        "voices": card_voices(heard, ask[1]),
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
         # TC-1225: картина, которая идёт на приёмнике прямо сейчас
@@ -187,7 +195,7 @@ def _body(
         "releases_count": len(picture.releases),
         "sources_count": CardDetails.sources_count(picture.releases),
     }
-    return body, not told or seasons_partial or coming or judging
+    return body, not told or seasons_partial or coming or judging or hearing
 
 
 def _season(value: str | None) -> int | None:

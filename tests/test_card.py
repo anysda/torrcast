@@ -10,6 +10,7 @@ import pytest
 
 import web.card as card_page
 from tests.fakes.state_store import FakeStateStore
+from tests.usecases.rank.releases import media, track
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.fact import Fact
@@ -21,6 +22,7 @@ from torrcast.usecases.select.plan import Plan
 from web.answer import JSON
 from web.card import WAIT, card
 from web.episode_lookup import GRACE
+from web.heard import Heard
 from web.request import Request
 from web.warm_cache import WarmCache
 
@@ -76,6 +78,19 @@ class _StubEpisodes:
 
 
 @dataclass
+class _StubVoices:
+    """Подмена :class:`web.voice_lookup.VoiceLookup`: дорожки уже прочитаны или ещё в пути."""
+
+    heard: Heard | None = None
+    coming: bool = False
+    asked: list[str] = field(default_factory=list)
+
+    def of(self, _plan: Plan, query: str, _base_url: str) -> tuple[Heard | None, bool]:
+        self.asked.append(query)
+        return self.heard, self.coming
+
+
+@dataclass
 class _StubRelated:
     """Подмена :class:`web.related_lookup.RelatedLookup` - тест сам решает, что готово.
 
@@ -127,8 +142,10 @@ def _wired(
     episodes: list[list[int]] | None = None,
     related: list[Any] | None = None,
     poster: str | None = None,
+    voices: _StubVoices | None = None,
 ) -> None:
     monkeypatch.setattr("web.card.load_config", lambda: Config())
+    monkeypatch.setattr("web.card._voices", voices or _StubVoices())
     monkeypatch.setattr("web.card.WARM", _warm(_plans(plans)))
     monkeypatch.setattr("web.card._episodes", _StubEpisodes(episodes))
     monkeypatch.setattr("web.card._related", _StubRelated(related))
@@ -255,13 +272,16 @@ def test_a_search_refusal_surfaces_as_409_with_the_products_own_word(
     assert body["error"] == "nothing_found"
 
 
-def test_a_movie_card_names_its_voices_by_studio_not_by_a_bare_bool(
+def test_a_movie_card_lists_every_track_of_the_release_the_show_would_play(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _wired(monkeypatch, [_MOVIE_PLAN])
+    """🔴 Дефект владельца 14-09-2026: студии из имён раздач не знали английской дорожки."""
+    tracks = (track(0, "rus", "MVO (LostFilm)"), track(1, "eng", "Original"), track(2, "jpn", None))
+    voices = _StubVoices(Heard(media(tracks=tracks), native=False, studios=()))
+    _wired(monkeypatch, [_MOVIE_PLAN], voices=voices)
     state_slot.install(FakeStateStore())
 
-    code, body, _extra = _asked(_MOVIE.key)
+    code, body, extra = _asked(_MOVIE.key, extra_query={"lang": "ru"})
 
     assert code == 200
     assert body["title"] == "Interstellar"
@@ -269,13 +289,29 @@ def test_a_movie_card_names_its_voices_by_studio_not_by_a_bare_bool(
     assert body["runtime"] == 8520.0
     assert body["runtime_estimated"] is False
     assert body["seasons"] == []
-    voices = {voice["name"]: voice for voice in body["voices"]}
-    assert voices.keys() == {"LostFilm", "AlexFilm"}
-    assert voices["LostFilm"]["quality"] == "1080p"
-    assert voices["LostFilm"]["default"] is True
-    assert voices["AlexFilm"]["default"] is False
+    assert [voice["label"] for voice in body["voices"]] == [
+        "русский · MVO (LostFilm)",
+        "английский · Original",
+        "японский",
+    ]
+    assert [voice["name"] for voice in body["voices"]] == ["LostFilm", "eng · Original", "jpn"]
+    assert voices.asked == ["interstellar"]
     assert body["releases_count"] == 2
     assert body["playing"] is False
+    assert "X-Torrcast-Partial" not in extra
+
+
+def test_a_card_whose_tracks_are_still_being_read_is_marked_partial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wired(monkeypatch, [_MOVIE_PLAN], related=[], voices=_StubVoices(coming=True))
+    monkeypatch.setattr("web.preview.MenuFacts", lambda *a, **k: _ReadyFacts())
+    state_slot.install(FakeStateStore())
+
+    _code, body, extra = _asked(_MOVIE.key)
+
+    assert body["voices"] == []
+    assert "X-Torrcast-Partial" in extra
 
 
 def test_a_picture_showing_on_the_receiver_right_now_marks_the_card_playing(

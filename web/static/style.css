@@ -335,8 +335,6 @@ body {
 .tc-drop-row.is-selected { background: var(--tc-acid); color: var(--tc-bg); }
 .tc-drop-square { width: .875rem; height: .875rem; background: var(--tc-bg); }
 .tc-drop-name { font-weight: 900; font-size: 1.5625rem; text-transform: uppercase; }
-.tc-drop-meta { font-weight: 700; font-size: 1.25rem; letter-spacing: .08em; color: var(--tc-muted); }
-.tc-drop-row.is-selected .tc-drop-meta { color: rgba(11, 11, 11, .72); }
 
 /* --- Карточка картины ---------------------------------------------------- */
 .tc-back { font-weight: 900; font-size: 1.5rem; letter-spacing: .06em; text-transform: uppercase;

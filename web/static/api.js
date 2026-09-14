@@ -79,6 +79,8 @@ const TCApi = {
     }
     if (wait) values.set('wait', '1');
     if (season) values.set('season', String(season));
+    // Подписи дорожек сервер пишет на языке страницы, а не процесса.
+    if (TC.language === 'ru') values.set('lang', 'ru');
     const tail = values.toString();
     const url = '/api/card/' + encodeURIComponent(key) + (tail ? '?' + tail : '');
     try {

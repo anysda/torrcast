@@ -767,11 +767,9 @@ const TCCard = {
       row.setAttribute('role', 'button');
       const name = document.createElement('div');
       name.className = 'tc-drop-name';
-      name.textContent = voice.name;
-      const meta = document.createElement('div');
-      meta.className = 'tc-drop-meta';
-      meta.textContent = [voice.quality, voice.seeders].filter((v) => v).join(' · ');
-      row.append(name, meta);
+      // Подпись дорожки на языке страницы; `name` - то, что уйдёт показу как `voice`.
+      name.textContent = voice.label || voice.name;
+      row.append(name);
       const pick = () => {
         sessionStorage.setItem(TCCard._voiceKey, voice.name);
         drop.style.display = 'none';
@@ -790,8 +788,8 @@ const TCCard = {
     return wrap;
   },
 
-  // Озвучку продукту называет ЗРИТЕЛЬ, и только он. Список карточки собран по всему кругу
-  // раздач, а раздачу показ выбирает своим поиском: послать первую строку списка как
+  // Озвучку продукту называет ЗРИТЕЛЬ, и только он. Список карточки - дорожки раздачи,
+  // отобранной фоном, а показ отбирает свою заново: послать первую строку списка как
   // `voice` значит связать ему руки, и вместо показа приходит отказ «no “Есарев” voice
   // track in this release» (замерено на стенде `.104`, показ не поднялся ни разу).
   // Выбор читается прямо в клике: сделанный ПОСЛЕ отрисовки кнопки, в замыкании он
