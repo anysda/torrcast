@@ -110,14 +110,21 @@ def test_rebuild_fills_both_shelves_with_projected_tiles(tmp_path: Path) -> None
 def test_rebuild_warms_the_first_eight_tiles_of_each_shelf(tmp_path: Path) -> None:
     """Первый клик на видимой полке не становится первым заходом к индексерам."""
     warmed: list[list[WarmTarget]] = []
+    behind: list[list[WarmTarget]] = []
     cache = _cache(tmp_path, feed=lambda _limit: _many_rows(20))
-    cache.warm = warmed.append
+
+    def warm(screen: list[WarmTarget], later: list[WarmTarget]) -> None:
+        warmed.append(screen)
+        behind.append(later)
+
+    cache.warm = warm
 
     cache._rebuild()
 
     assert len(warmed) == 1
     assert len(warmed[0]) == 16
     assert len(warmed[0][:8]) == len(warmed[0][8:]) == 8
+    assert not {target[1] for target in behind[0]} & {target[1] for target in warmed[0]}
     assert all(
         query.startswith("Картина ")
         and key.startswith("movie:")

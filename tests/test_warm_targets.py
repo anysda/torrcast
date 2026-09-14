@@ -97,6 +97,32 @@ def test_a_shelf_primes_every_visible_tile_in_one_screen_batch() -> None:
     assert primed == [[("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]]
 
 
+def test_tiles_behind_the_screen_get_facts_but_no_indexer_circle() -> None:
+    """Continue and the ninth tile are primed after the screen; circles stay the screen's."""
+    primed: list[list[FactPicture]] = []
+    asked: list[list[str]] = []
+
+    def ask(screen: Sequence[str]) -> int:
+        asked.append(list(screen))
+        return len(screen)
+
+    targets = WarmTargets(
+        circle=lambda _query: [],
+        prime=lambda _pictures: None,
+        prime_screen=primed.append,
+        kin=lambda _picture: None,
+        ask=ask,
+    )
+
+    targets.prepare(
+        [("Up", "movie:up:2009", "Вверх", 2009, "movie")],
+        [("Inception", "movie:inception:2010", "Начало", 2010, "movie")],
+    )
+
+    assert primed == [[("Вверх", 2009, "movie"), ("Начало", 2010, "movie")]]
+    assert asked == [["Up"]]
+
+
 def test_an_observed_tile_primes_in_the_background_before_its_circle() -> None:
     """`seen` не держит браузер за Wikipedia, но начинает её до клика."""
     order: list[str] = []

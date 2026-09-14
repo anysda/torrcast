@@ -70,11 +70,17 @@ class WarmTargets:
             self.kin((picture.title, picture.year, picture.kind))
         return plans
 
-    def prepare(self, targets: Sequence[WarmTarget]) -> int:
-        """Start facts for the first tile, then queue its indexer circles."""
-        pictures: list[FactPicture] = [
-            (title, year, kind) for _query, _key, title, year, kind in targets
-        ]
+    def prepare(self, targets: Sequence[WarmTarget], later: Sequence[WarmTarget] = ()) -> int:
+        """Start facts for the screen, then the tiles behind it, and queue screen circles.
+
+        ``later`` tiles are known before a click too (the Continue row, a shelf after the
+        eighth tile). They get facts and franchise in the same one-lane batch, but no
+        indexer circle: that queue belongs to the screen.
+        """
+        pictures: list[FactPicture] = []
+        for _query, _key, title, year, kind in (*targets, *later):
+            if (title, year, kind) not in pictures:
+                pictures.append((title, year, kind))
         (self.prime_screen or self.prime)(pictures)
         with self._lock:
             self._keys.update({query.strip(): key for query, key, *_rest in targets})

@@ -36,7 +36,7 @@ from web.warm_targets import WarmTarget
 Feed = Callable[[int], list[FeedRow]]
 #: Кто запускает фоновую сборку; в бою - настоящий поток-демон.
 Spawn = Callable[[Callable[[], None]], None]
-Warm = Callable[[list[WarmTarget]], object]
+Warm = Callable[[list[WarmTarget], list[WarmTarget]], object]
 #: Сколько кандидатов собирается на полку сверх видимых плиток: картины без обложки
 #: на полку не попадают, а их места добираются следующими картинами с обложкой
 #: (:func:`web.shelf_tiles._covered`), и запас кандидатов - это из чего добирать.
@@ -49,7 +49,7 @@ def _daemon(job: Callable[[], None]) -> None:
     threading.Thread(target=job, daemon=True, name="shelves-cache").start()
 
 
-def _no_warm(_targets: list[WarmTarget]) -> None:
+def _no_warm(_targets: list[WarmTarget], _later: list[WarmTarget]) -> None:
     """Без проводки сборка не трогает очередь кругов."""
 
 
@@ -135,7 +135,7 @@ class ShelvesCache:
             return
         # Сначала факты плиток, затем публикация: клик по уже видимой полке не ждёт
         # единственного рабочего поиска раздач.
-        self.warm(_targets(best))
+        self.warm(_targets(best), _targets(best, later=True))
         with self._lock:
             current = self._body
             if current is not None and min_tiles(current) >= FLOOR > min_tiles(best):
@@ -169,22 +169,24 @@ class ShelvesCache:
             _write_atomic(self.path, body)
 
 
-def _targets(body: dict[str, JsonValue]) -> list[WarmTarget]:
-    """Прогреть только первые видимые плитки обеих полок."""
+def _targets(body: dict[str, JsonValue], later: bool = False) -> list[WarmTarget]:
+    """Первые видимые плитки обеих полок; ``later`` - плитки за ними, ближние первыми."""
+    shelves = [
+        rows if isinstance(rows := body.get(shelf), list) else [] for shelf in ("fresh", "popular")
+    ]
+    if later:
+        depth = max(map(len, shelves))
+        tiles = [rows[at] for at in range(_VISIBLE, depth) for rows in shelves if at < len(rows)]
+    else:
+        tiles = [tile for rows in shelves for tile in rows[:_VISIBLE]]
     targets: list[WarmTarget] = []
-    for shelf in ("fresh", "popular"):
-        rows = body.get(shelf)
-        if not isinstance(rows, list):
+    for tile in tiles:
+        if not isinstance(tile, dict):
             continue
-        for tile in rows[:_VISIBLE]:
-            if not isinstance(tile, dict):
-                continue
-            title, year, kind = tile.get("title"), tile.get("year"), tile.get("kind")
-            if not isinstance(title, str) or not isinstance(year, int) or not isinstance(kind, str):
-                continue
-            targets.append(
-                (str(tile.get("query", "")), str(tile.get("key", "")), title, year, kind)
-            )
+        title, year, kind = tile.get("title"), tile.get("year"), tile.get("kind")
+        if not isinstance(title, str) or not isinstance(year, int) or not isinstance(kind, str):
+            continue
+        targets.append((str(tile.get("query", "")), str(tile.get("key", "")), title, year, kind))
     return targets
 
 
