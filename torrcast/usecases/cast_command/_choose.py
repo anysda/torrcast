@@ -73,9 +73,11 @@ def _choose(
             args.pick = _card_number(plans, args, stage.picture)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см.
-        # torrcast.runtime.facts_wiring.
+        # torrcast.runtime.facts_wiring. Показу с карточки меню не читают: справка нужна
+        # одной картине, и чужие строки круга не держат ни её, ни старт.
+        asked = [plans[args.pick - 1]] if args.picture and args.pick else plans
         facts = _state._play_facts(
-            [(p.picture.title, p.picture.year, p.picture.kind) for p in plans]
+            [(p.picture.title, p.picture.year, p.picture.kind) for p in asked]
         )
         facts.start()
         # 🔴 TC-199/TC-200. Год картины, которая встанет дефолтом, сверяется со справкой -

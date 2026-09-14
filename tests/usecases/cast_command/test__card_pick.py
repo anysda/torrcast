@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+from tests.fakes import composition
 from tests.usecases.cast_command.world import plan, plans, release
 from torrcast.domain.args import Args
 from torrcast.domain.catalogs.phrase import phrase
@@ -124,3 +125,55 @@ class _NoPassport:
         from torrcast.domain.facts.origin import Origin
 
         return Origin()
+
+
+def test_a_show_from_the_card_asks_the_facts_of_its_own_picture_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Меню показа с карточки никто не читает: справка по всему кругу только держала старт.
+
+    Живой замер: на круге из трёх десятков картин показ стоял 1.5 с в ожидании справки
+    и ещё 1.4 с в дописи её кэша, хотя картина карточки лежала в кэше целиком.
+    """
+    asked: list[list[object]] = []
+
+    class _Facts:
+        def __init__(self, wanted: list[object]) -> None:
+            asked.append(list(wanted))
+
+        def start(self) -> None:
+            return None
+
+        def wait(self) -> None:
+            return None
+
+        def finish(self) -> None:
+            return None
+
+        def ready(self, *_rest: object) -> Any:
+            from torrcast.domain.facts.fact import Fact
+
+            return Fact()
+
+        get = ready
+
+    composition.use_facts(monkeypatch, _Facts)
+    menu = plans(3)
+    card = menu[1].picture
+
+    picked = _choose(
+        Config(),
+        cast(Any, Args(query=["тачки"], picture=card.key)),
+        Choice(profile=CAUTIOUS, how="стенд"),
+        WatchState(),
+        None,
+        _Clock(),
+        circle=lambda *args, **rest: menu,
+        stand=lambda *args, **rest: cast(Any, _NoBench()),
+        passport_of=lambda plans: cast(Any, _NoPassport()),
+        pick=lambda *args, **rest: menu[1],
+        bookmark=lambda *args, **rest: EXIT_OK,
+    )
+
+    assert picked == EXIT_OK
+    assert asked == [[(card.title, card.year, card.kind)]]
