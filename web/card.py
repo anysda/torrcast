@@ -36,7 +36,6 @@ from web.card_ask import NO_ASK, CardAsk
 from web.card_details import CardDetails
 from web.card_lookup import card_lookup
 from web.card_poster import CardPoster
-from web.card_release import card_release
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices
 from web.card_warm import CARD_WARM
@@ -44,6 +43,7 @@ from web.episode_lookup import GRACE, EpisodeLookup
 from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
 from web.refusal import refusal
+from web.release_keys import release_keys
 from web.request import Request
 from web.start_related import start_related
 from web.voice_lookup import VoiceLookup
@@ -169,7 +169,7 @@ def _body(
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
         "pick": pick,
         "picture": picture.key,
-        "release": card_release(episode_release, heard),
+        **release_keys(plan, episode_release, heard, WARM.live(ask.query) is not None),
         "title": picture.title,
         "shown": spoken_title(picture.title, picture.original or ""),
         "original": picture.original or None,

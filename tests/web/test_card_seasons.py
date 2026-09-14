@@ -217,3 +217,17 @@ def test_a_season_outside_the_card_ranking_lists_the_release_its_ranking_puts_fi
     card_seasons(plan, None, "http://torrserver", episodes, season=2)
 
     assert episodes.asked == [full_hd.magnet]
+
+
+def test_a_bookmark_release_gone_from_the_pool_is_not_swapped_for_the_first_ranked() -> None:
+    """🔴 Раздачи закладки не было в пуле с диска: вкладка молча назвала первую по рангу."""
+    plan, _first, second = _plan()
+    kept = "magnet:?xt=urn:btih:" + "e" * 40
+    entry = Entry("Show", kept, kind="tv", season=2, episode=1, episodes=[[2, 1, 0, 0]])
+    episodes = _Episodes({kept: [[2, 1], [2, 2]], second.magnet: [[2, 1]]}, [])
+
+    _seasons, partial, release = card_seasons(plan, entry, "http://torrserver", episodes)
+
+    assert release is not None and release.magnet == kept and release.season == 2
+    assert release not in plan.picture.releases
+    assert (episodes.asked, partial) == ([kept], False)

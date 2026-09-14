@@ -65,6 +65,7 @@ def en() -> dict[str, str]:
         "web.detail.source_from.other": "{n} sources",
         "web.detail.from": "from",
         "web.detail.no_releases": "No releases found",
+        "web.detail.bookmark_gone": "The bookmarked release is gone: another one plays",
         "web.detail.searching_releases": "Searching releases…",
         "web.detail.resumes": "Resumes {label} · {time}",
         "web.detail.season": "Season {n}",

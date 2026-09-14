@@ -87,17 +87,14 @@ def _release_for(
 
     Отбор плана покрывает сезон плана; чужой сезон показ отбирает своим порядком из тех
     же раздач, что его покрывают (:func:`torrcast.usecases.reinforce.plan_for.plan_for`),
-    и тем же профилем приёмника. Сезон в строках закладки играет раздача закладки.
+    и тем же профилем приёмника. Сезон в строках закладки играет раздача закладки, и её
+    нет в пуле - всё равно она (TC-1263: закладка главнее), а не первая по рангу молча.
     """
     if entry is not None and any(row[0] == season for row in entry.episodes):
         saved = magnet_hash(entry.magnet)
-        bookmark = (
-            next((release for release in releases if magnet_hash(release.magnet) == saved), None)
-            if saved
-            else None
-        )
-        if bookmark is not None:
-            return bookmark
+        if saved:
+            pooled = (release for release in releases if magnet_hash(release.magnet) == saved)
+            return next(pooled, None) or _bookmark_release(entry)
     own = plan.series is None or plan.series.want.season == season
     ranked = (release for release in plan.ranked if own and release in releases)
     chosen = next((release for release in ranked if release.covers(season)), None)
@@ -128,6 +125,20 @@ def _release_for(
         recode_at=plan.recode_at,
         profile=profile,
     )[0]
+
+
+def _bookmark_release(entry: Entry) -> Release:
+    """Раздача закладки, которой нет в пуле: её файлы разбираются по магниту закладки."""
+    seasons = tuple(sorted({row[0] for row in entry.episodes}))
+    single = seasons[0] if len(seasons) == 1 else None
+    return Release(
+        raw_name=entry.title,
+        title=entry.title,
+        kind="tv",
+        season=single,
+        seasons=() if single else seasons,
+        magnet=entry.magnet,
+    )
 
 
 def _seasons_from_entry(entry: Entry) -> dict[int, list[JsonValue]]:

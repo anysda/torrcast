@@ -112,6 +112,9 @@ class WarmCache:
         """Живой круг или тот, что уже считается; ``None`` - считай свой (:mod:`web.warm_live`)."""
         return _landed(self, query, BUSY_WAIT)
 
+    def live(self, query: str) -> list[Plan] | None:
+        return self._memory.live(query)
+
     def ready(self, query: str) -> list[Plan] | None:
         """Согретый круг, ``[]`` при свежем «ничего не нашлось», иначе ``None``."""
         return self._memory.plans(query)

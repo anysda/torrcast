@@ -590,6 +590,12 @@ const TCCard = {
       text.textContent = TC.say('web.detail.no_releases');
       norel.append(mark, text);
       row.appendChild(norel);
+    } else if (data.bookmark_gone) {
+      // Раздачи закладки нет в живой выдаче: сказать до «Играть», что сыграет другая.
+      const gone = document.createElement('div');
+      gone.className = 'tc-resumes';
+      gone.textContent = TC.say('web.detail.bookmark_gone');
+      row.appendChild(gone);
     } else if (data.resumable && data.label) {
       const time = TCCard._resumeTime(data);
       if (time) {
