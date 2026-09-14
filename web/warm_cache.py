@@ -91,9 +91,9 @@ class WarmCache:
         """
         key = query.strip()
         with self._cond:
-            self._cond.wait_for(
-                lambda: key not in self._busy and key not in self._urgent, timeout=BUSY_WAIT
-            )
+            # Only a circle that is really running is waited for. A queued one is taken over:
+            # it waited for the one hand to finish another tile's circle first.
+            self._cond.wait_for(lambda: key not in self._busy, timeout=BUSY_WAIT)
             if (refused := self._memory.refusal(query)) is not None:
                 raise refused
             if (ready := self.ready(query)) is not None:

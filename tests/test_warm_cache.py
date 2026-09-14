@@ -247,6 +247,26 @@ def test_a_refused_circle_of_a_live_card_reaches_the_caller() -> None:
         cache.take("Ludwig")
 
 
+def test_an_open_card_does_not_queue_behind_a_background_circle_of_another_tile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Карточка ставила свой круг в срочную очередь и ждала, пока фон досчитает чужой."""
+    monkeypatch.setattr("web.warm_cache.BUSY_WAIT", 2.0)
+    circle = _Circle()
+    held: list[Callable[[], None]] = []  # the only hand is busy with another tile's circle
+    cache = _cache(circle, spawn=held.append)
+    cache.hint("Interstellar")
+
+    started = time.monotonic()
+    taken = cache.take("Interstellar")
+
+    assert (taken, circle.asked) == ([_PLAN], ["Interstellar"])
+    assert time.monotonic() - started < 1.0
+    for hand in held:
+        hand()  # the hand comes back later and does not count the same circle again
+    assert circle.asked == ["Interstellar"]
+
+
 @pytest.mark.machine
 def test_the_background_waits_while_a_live_request_holds_the_indexers() -> None:
     """Живое идёт вперёд очереди: пока карточка считает круг, фон не начинает своего."""
