@@ -99,3 +99,16 @@ def test_an_original_name_gets_its_russian_release_names_of_the_same_year_and_ty
     found = catalogue.ru_names([("avatar", 2009, "movie"), ("Avatar", 2022, "movie")])
 
     assert found == {("avatar", 2009): ["Аватар", "Аватар 3D"]}
+
+
+def test_an_original_name_gives_the_imdb_id_of_the_same_year_and_type(tmp_path: Path) -> None:
+    """Под оригиналом «Lioness» 2023 карта держит сериал tt13111078; фильм того же имени - нет."""
+    rows = (
+        "Спецназ: Львица\ttt13111078\ttvSeries\tLioness\t2023\n"
+        "Львица\ttt13111078\ttvSeries\tLioness\t2023\n"
+        "Львица\ttt7777777\tmovie\tLioness\t2023\n"
+    )
+
+    found = _names(tmp_path, rows).original_ids([("Lioness", 2023, "tv")])
+
+    assert found == {("Lioness", 2023): ["tt13111078"]}

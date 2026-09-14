@@ -9,3 +9,7 @@ class RuNames(Protocol):
     def ru_names(
         self, pictures: list[tuple[str, int | None, str]]
     ) -> dict[tuple[str, int | None], list[str]]: ...
+
+    def original_ids(
+        self, pictures: list[tuple[str, int | None, str]]
+    ) -> dict[tuple[str, int | None], list[str]]: ...

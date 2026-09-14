@@ -76,16 +76,39 @@ class ImdbNames:
         самой картины лежит под русским именем, которое знает карта.
         """
         out: dict[tuple[str, int | None], list[str]] = {}
+        for key, name, _tconst in self._originals_of(pictures):
+            if name not in out.setdefault(key, []):
+                out[key].append(name)
+        return out
+
+    def original_ids(
+        self, pictures: list[tuple[str, int | None, str]]
+    ) -> dict[tuple[str, int | None], list[str]]:
+        """IMDb-id картины по оригиналу, году и типу: «Lioness» 2023 - это tt13111078.
+
+        Прокатное имя приводит к статье, которая называет другой оригинал: IMDb переименовал
+        сериал, а статья «Спецназ: Львица» помнит «Special Ops: Lioness». Одну картину в них
+        доказывает id, а не совпадение имён.
+        """
+        out: dict[tuple[str, int | None], list[str]] = {}
+        for key, _name, tconst in self._originals_of(pictures):
+            if tconst and tconst not in out.setdefault(key, []):
+                out[key].append(tconst)
+        return out
+
+    def _originals_of(
+        self, pictures: list[tuple[str, int | None, str]]
+    ) -> list[tuple[tuple[str, int | None], str, str]]:
+        """Строки карты под оригиналом того же года и типа: ключ, прокатное имя, IMDb-id."""
+        rows: list[tuple[tuple[str, int | None], str, str]] = []
         for title, year, kind in pictures:
             if year is None:
                 continue
             for line in self._year(str(year), originals=True).get(slugify(title), ()):
-                name, _tconst, imdb_kind = [*line.split("\t"), "", ""][:3]
+                name, tconst, imdb_kind = [*line.split("\t"), "", ""][:3]
                 if (imdb_kind in _TV_KINDS) == (kind == "tv") and name:
-                    out.setdefault((title, year), [])
-                    if name not in out[(title, year)]:
-                        out[(title, year)].append(name)
-        return out
+                    rows.append(((title, year), name, tconst))
+        return rows
 
     def _year(self, year: str, originals: bool = False) -> dict[str, list[str]]:
         """Строки одного года по сведённому имени; разбираются при первом вопросе."""

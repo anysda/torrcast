@@ -10,6 +10,7 @@ from typing import Any
 
 from torrcast.adapters.wiki.closed_wave import closed_wave
 from torrcast.adapters.wiki.endpoints import WIKI_HOST, WIKI_PATH
+from torrcast.adapters.wiki.wiki_ids import wiki_ids
 from torrcast.domain.facts.article_gate import _declares_work
 from torrcast.domain.facts.extract_params import extract_params
 from torrcast.domain.facts.latin_title import latin_title
@@ -90,12 +91,20 @@ def wiki_searches(
             if not isinstance(json_map(json_map(payload).get("query")).get("pages"), list):
                 return
             hops, pages = wiki_pages(payload)
-            origin = [
-                title
-                for title in titles
-                if (page := _article(title, hops, pages)) is not None
-                and _names_original(key[0], str(page.get("title") or ""), page.get("extract"))
-            ]
+            origin: list[str] = []
+            doubted: dict[str, list[str]] = {}
+            for title in titles:
+                if (page := _article(title, hops, pages)) is None:
+                    continue
+                if _names_original(key[0], str(page.get("title") or ""), page.get("extract")):
+                    origin.append(title)
+                elif entity := str(json_map(page.get("pageprops")).get("wikibase_item") or ""):
+                    doubted.setdefault(entity, []).append(title)
+            if doubted and names:
+                origin = [
+                    *_same_id(client, names, key, kind, doubted, timeout, foreground),
+                    *origin,
+                ]
             with lock:
                 replies.append(payload)
                 looked[key] = origin
@@ -130,3 +139,31 @@ def _names_original(title: str, heading: str, extract: object) -> bool:
     text = str(extract or "")
     latin = slugify(latin_title(text))
     return latin == slugify(title) or (not latin and _declares_work(heading, text))
+
+
+def _same_id(
+    client: JsonClient,
+    names: RuNames,
+    key: tuple[str, int | None],
+    kind: str,
+    doubted: dict[str, list[str]],
+    timeout: float,
+    foreground: bool,
+) -> list[str]:
+    """Headings whose article names another original but is the asked picture by IMDb id.
+
+    IMDb renames a series, and its Russian article keeps the first original: «Спецназ:
+    Львица» names «Special Ops: Lioness», while the map files the release name under
+    «Lioness» 2023.  Names cannot join them; the article's Wikidata IMDb id can.  A failed
+    Wikidata request raises, so the picture stays unanswered instead of a false absence.
+    """
+    known = set(names.original_ids([(key[0], key[1], kind)]).get(key, ()))
+    if not known:
+        return []
+    ids = wiki_ids(client, sorted(doubted), timeout, foreground)
+    return [
+        title
+        for entity, titles in doubted.items()
+        if ids.get(entity, ("", 0))[0] in known
+        for title in titles
+    ]

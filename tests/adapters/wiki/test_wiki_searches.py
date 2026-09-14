@@ -44,6 +44,11 @@ class _Names:
         }
         return {(title, year): names[title] for title, year, _kind in pictures}
 
+    def original_ids(
+        self, pictures: list[tuple[str, int | None, str]]
+    ) -> dict[tuple[str, int | None], list[str]]:
+        return {}
+
 
 def test_a_latin_tile_reads_its_russian_release_name_when_the_article_is_that_picture() -> None:
     """Поиск по ``Avatar фильм`` не приносит «Аватар» 2009 года; карта IMDb знает имя.
@@ -84,3 +89,79 @@ def test_a_latin_tile_reads_its_russian_release_name_when_the_article_is_that_pi
     }
     assert len(replies) == 6
     assert answered == {avatar, muse, life}
+
+
+class _Renamed:
+    def ru_names(
+        self, pictures: list[tuple[str, int | None, str]]
+    ) -> dict[tuple[str, int | None], list[str]]:
+        return {(title, year): ["Львица", "Спецназ: Львица"] for title, year, _kind in pictures}
+
+    def original_ids(
+        self, pictures: list[tuple[str, int | None, str]]
+    ) -> dict[tuple[str, int | None], list[str]]:
+        return {(title, year): ["tt13111078"] for title, year, _kind in pictures}
+
+
+def _renamed_series(sparql: Any) -> tuple[Any, ...]:
+    """IMDb files «Спецназ: Львица» under «Lioness»; the article keeps the first original."""
+    key = ("Lioness", 2023)
+    pages = {
+        "Львица (телесериал)": ("«Львица» (англ. The Lioness) \u2014 телесериал 2023 года.", "Q1"),
+        "Спецназ: Львица": (
+            "«Спецназ: Львица» (англ. Special Ops: Lioness) \u2014 американский шпионский "
+            "телесериал. Премьера состоялась 23 июля 2023 года на Paramount+.",
+            "Q116199566",
+        ),
+    }
+
+    def answer(host: str, _path: str, params: dict[str, str]) -> Any:
+        if "query" in params and "SELECT" in params["query"]:
+            return sparql(params["query"])
+        if "gsrsearch" in params:
+            return {"query": {"pages": []}}
+        asked = params["titles"].split("|")
+        found = [
+            {"title": t, "extract": e, "index": 1, "pageprops": {"wikibase_item": q}}
+            for t, (e, q) in pages.items()
+            if t in asked
+        ]
+        return {"query": {"pages": found}}
+
+    return key, wiki_searches(FakeJsonClient(answer), [key], 1.0, {key: "tv"}, names=_Renamed())
+
+
+def _imdb(**ids: str) -> Any:
+    rows = [
+        {"item": {"value": f"http://www.wikidata.org/entity/{q}"}, "imdb": {"value": tt}}
+        for q, tt in ids.items()
+    ]
+    return lambda _query: {"results": {"bindings": rows}}
+
+
+def test_a_renamed_series_reaches_the_russian_article_that_carries_its_imdb_id() -> None:
+    """«Lioness» 2023 is «Спецназ: Львица»: the article names the first original.
+
+    Names disagree, and «No description is available» on this card was a lie.  The
+    article's Wikidata IMDb id equals the id the map filed under «Lioness», and that
+    joins them; «Львица (телесериал)» with another id stays a namesake.
+    """
+    key, (found, _replies, answered) = _renamed_series(
+        _imdb(Q116199566="tt13111078", Q1="tt0000001")
+    )
+
+    assert found[key][0] == "Спецназ: Львица"
+    assert "Львица (телесериал)" not in found[key]
+    assert answered == {key}
+
+
+def test_a_silent_wikidata_leaves_the_renamed_series_unanswered_rather_than_empty() -> None:
+    """Without the id check absence is not proven: no answered key, no week-long ``empty``."""
+
+    def refuse(_query: str) -> Any:
+        raise OSError("Wikidata is silent")
+
+    key, (found, _replies, answered) = _renamed_series(refuse)
+
+    assert key not in found
+    assert answered == set()
