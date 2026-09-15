@@ -108,3 +108,11 @@ def test_a_comma_list_of_seasons_stays_a_list() -> None:
 
 def test_a_descending_season_range_is_not_a_pack() -> None:
     assert parse_release_name("Сериал 3-1 сезоны").seasons == ()
+
+
+def test_a_short_season_list_and_a_season_range_before_episodes_name_every_season() -> None:
+    """«Футурама / S6, 7 / Серии: 1-52» и «Интерны [S01-03E01-60 of 60]» - паки сезонов."""
+    assert _named_seasons("Futurama / S6, 7 / Эпизоды (Серии): 1-52 из 52") == (6, 7)
+    assert _named_seasons("Futurama / S1, 2, 3, 4 / Эпизоды (Серии): 1-72 из 72") == (1, 2, 3, 4)
+    assert _named_seasons("Интерны [S01-03E01-60 of 60] (2010) 6xDVD9") == (1, 2, 3)
+    assert _named_seasons("Show S02E01-10 of 10") == ()

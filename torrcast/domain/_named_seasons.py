@@ -52,6 +52,9 @@ _PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(_LEAD + r"((?:s\d{1,2}[., +/\\&-]+)+s\d{1,2}\b)", _I),
     re.compile(_LEAD + r"[([]?(s\d{2,}-\d{2,}\b)[)\]]?", _I),
     re.compile(_LEAD + r"[([]?(s[1-9]-[2-9])(?!\d)[)\]]?", _I),
+    # «S6, 7 / Серии: 1-52» и «[S01-03E01-60 of 60]»: сезоны пака, а серии идут следом.
+    re.compile(_LEAD + r"(s\d{1,2}(?:\s*,\s*\d{1,2})+)(?!\d)" + _NOT_EPISODES, _I),
+    re.compile(_LEAD + r"[([]?(s\d{1,2}-\d{1,2})(?=e\d)", _I),
     re.compile(
         _NOT_AFTER_NUMBER
         + _COMPLETE
