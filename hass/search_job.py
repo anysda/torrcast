@@ -177,26 +177,6 @@ class SearchJob:
                 self.posters[_key(before)] = after.get("poster")
         self.judging = False
 
-    def redress(self, offer: Offer) -> None:
-        """Спросить обложки готового списка снова, когда тишина источника кончилась.
-
-        Имена только прибавляются. Список, который за это время сменил досчитанный круг,
-        не трогается: у него свой приговор.
-        """
-        before = self.results
-        try:
-            judged = offer(before)
-        except (TorrcastError, OSError):
-            judged = before
-        merged = [
-            after if isinstance(after, dict) and after.get("poster") else was
-            for was, after in zip(before, judged, strict=True)
-        ]
-        with self._lock:
-            if self.results is before:
-                self.results = merged
-        self.judging = False
-
     def _capture(self, client: IndexerClient) -> None:
         self.client = client
 

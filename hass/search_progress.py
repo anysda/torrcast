@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Protocol
 from hass import searching
 from hass.catalog_merge import catalog_merge
 from hass.catalog_tiles import CatalogTiles
+from hass.redress import redress
 from hass.refused_error import RefusedError
 from hass.search_job import POSTERS_BY, SearchJob, _Shared
 from hass.search_results import _hit
@@ -174,9 +175,7 @@ def search_progress(
         return job.results, False
     job.promised = job.promised or covers.pending(job.results)
     if _coming(job, covers) and not job.judging and covers.due(job.results):
-        job.judging = True
-        said = searching.OFFER if offer is None else offer
-        threading.Thread(target=job.redress, args=(said,), daemon=True, name="redress").start()
+        redress(job, searching.OFFER if offer is None else offer)
     return _shown(job.results, covers), False
 
 
