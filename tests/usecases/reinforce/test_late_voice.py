@@ -107,3 +107,36 @@ def test_an_empty_pocket_ends_the_circle_without_a_word(untouched: list[str]) ->
     late, said = _late([])
 
     assert late is None and said.notes == []
+
+
+#: Меню «наруто»: своя картина и соседняя, «Ураганные хроники» со своим оригиналом.
+_NARUTO = row("Наруто / Naruto [TV] [1-220 из 220] [RUS(ext), JAP] [2002] DVDRip", "n", seeders=40)
+_SHIPPUDEN = row(
+    "Наруто: Ураганные хроники / Naruto Shippuuden [TV] [154-500 из 500] [RUS(int)] [2007] HDTVRip",
+    "s",
+    seeders=30,
+)
+
+
+def test_the_pocket_does_not_hand_over_a_release_of_another_picture_of_the_menu(
+    untouched: list[str],
+) -> None:
+    """🔴 «Наруто» s1e220 играл «Naruto Shippuden - 220»: карман отдал раздачи соседа.
+
+    Раздача «[154-500 из 500]» лежит в меню у «Ураганных хроник», а «Naruto- Shippuuden»
+    названа их оригиналом: серию 220 чужого счёта она отдаёт за свою. Своё остаётся.
+    """
+    menu = pictures([_NARUTO, _SHIPPUDEN])
+    naruto = next(p for p in menu if p.key == "tv:наруто:2002")
+    own = row("Naruto [TV] [1-220] 2002 BDRip 1080p Jetix", "j", seeders=9)
+    alien = row("Naruto- Shippuuden - AniLiberty.TOP [HDTVRip 720p][AVC][200-300]", "c", seeders=20)
+    naruto.aside = list(releases([_SHIPPUDEN, alien, own]))
+    args = Args(query=["наруто", "s1e220"])
+    config = Config(prowlarr_apikey="k", prowlarr_url="http://x")
+    plans = [plan_for(p, args, config, CAUTIOUS) for p in menu]
+    mine = next(plan for plan in plans if plan.picture is naruto)
+
+    late = late_voice(mine, args, config, Said(), CAUTIOUS, menu=plans)
+
+    assert late is not None
+    assert [r.raw_name for r in late.picture.releases] == [own.title]

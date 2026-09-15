@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.release import Release
+from torrcast.domain.slugify import slugify
 from torrcast.usecases.reinforce.plan_for import plan_for
 
 if TYPE_CHECKING:
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
 
 
-def _fresh(picture: Picture) -> list[Release]:
+def _fresh(picture: Picture, menu: Sequence[Plan] = ()) -> list[Release]:
     """Отложенное, чего в пуле картины ещё нет, - и в первую очередь обещающее русский.
 
     🔴 Отбор проверяет паспорта не всей очереди, а её головы: бюджет попыток и часы
@@ -36,12 +38,36 @@ def _fresh(picture: Picture) -> list[Release]:
     Не обещает никто - идёт всё отложенное, как есть.
     """
     mine = {r.raw_name for r in picture.releases}
-    fresh = [r for r in picture.aside if r.raw_name not in mine]
+    fresh = [r for r in picture.aside if r.raw_name not in mine and not _theirs(r, picture, menu)]
     return [r for r in fresh if r.dubbed] or fresh
 
 
+def _names(picture: Picture) -> set[str]:
+    return {slugify(name) for name in (picture.title, picture.original) if name}
+
+
+def _theirs(release: Release, picture: Picture, menu: Sequence[Plan]) -> bool:
+    """Раздача другой картины меню: лежит в её пуле или названа её именем, а не своим.
+
+    🔴 «Наруто» s1e220 играл «Naruto Shippuden - 220»: карман отдал «Ураганные хроники
+    [154-500 из 500]», и серия 220 чужого счёта ушла за свою.
+    """
+    others = [plan.picture for plan in menu if plan.picture is not picture]
+    if any(release.raw_name in {r.raw_name for r in other.releases} for other in others):
+        return True
+    called = {release.slug, slugify(release.original or "")} - {""}
+    alien = set().union(*map(_names, others)) - _names(picture)
+    return bool(called & alien)
+
+
 def late_voice(
-    plan: Plan, args: Args, config: Config, progress: Progress, profile: Profile = CAUTIOUS
+    plan: Plan,
+    args: Args,
+    config: Config,
+    progress: Progress,
+    profile: Profile = CAUTIOUS,
+    *,
+    menu: Sequence[Plan] = (),
 ) -> Plan | None:
     """План из раздач, отложенных сторожем добора, - когда русской дорожки не нашлось.
 
@@ -73,7 +99,7 @@ def late_voice(
     picture = plan.picture
     if not picture.aside:
         return None
-    fresh = _fresh(picture)
+    fresh = _fresh(picture, menu)
     if not fresh:
         return None
     late = plan_for(replace(picture, releases=fresh, aside=[]), args, config, profile, plan.runtime)

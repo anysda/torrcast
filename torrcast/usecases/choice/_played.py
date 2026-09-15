@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 def _late(
     bench: Bench,
+    plans: list[Plan],
     plan: Plan,
     args: Args,
     progress: Progress,
@@ -40,7 +41,7 @@ def _late(
     Иначе добавка отбирала бы у человека то, что у него уже было.
     """
     try:
-        late = late_voice(plan, args, config, progress, profile)
+        late = late_voice(plan, args, config, progress, profile, menu=plans)
         if late is None:
             return None
         bench.keep_plan(late)
@@ -108,7 +109,7 @@ def _played(
         # некого, но пул собирали по имени, а приговор вынесен по дорожкам
         # (:func:`late_voice`). Поздний круг идёт ПЕРЕД уходом к тёзке: своя картина
         # по-русски лучше чужой.
-        late = _late(bench, plan, args, progress, config, profile)
+        late = _late(bench, plans, plan, args, progress, config, profile)
         if late is not None:
             return late
         spare = understudy(plans, plan, args)
@@ -131,7 +132,7 @@ def _played(
             prep.voiced, native=plan.picture.native
         )
         if not args.pinned and voiceless:
-            late = _late(bench, plan, args, progress, config, profile)
+            late = _late(bench, plans, plan, args, progress, config, profile)
             if late is not None:
                 return late
         return plan, prep
