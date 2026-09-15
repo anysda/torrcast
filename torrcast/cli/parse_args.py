@@ -123,6 +123,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     parser.add_argument("--picture", default="", help=argparse.SUPPRESS)
     parser.add_argument("--picture-original", default="", help=argparse.SUPPRESS)
     parser.add_argument("--card-release", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--layout", default="", help=argparse.SUPPRESS)
     parser.add_argument(
         "--upgrade",
         action="store_true",

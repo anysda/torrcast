@@ -48,7 +48,9 @@ def test_tabs_are_the_union_and_the_selected_season_uses_its_own_release() -> No
     plan, first, second = _plan()
     episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1], [2, 2]]}, [])
 
-    seasons, partial, release = card_seasons(plan, None, "http://torrserver", episodes, season=2)
+    seasons, partial, release, _layout = card_seasons(
+        plan, None, "http://torrserver", episodes, season=2
+    )
 
     assert partial is False
     rows = _rows(seasons)
@@ -71,7 +73,9 @@ def test_bookmark_keeps_every_pool_season_and_does_not_choose_its_release_for_an
     )
     episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1], [2, 2]]}, [])
 
-    seasons, partial, release = card_seasons(plan, entry, "http://torrserver", episodes, season=1)
+    seasons, partial, release, _layout = card_seasons(
+        plan, entry, "http://torrserver", episodes, season=1
+    )
 
     assert partial is False
     rows = _rows(seasons)
@@ -87,7 +91,7 @@ def test_without_a_chosen_tab_the_bookmark_season_gets_its_file_table() -> None:
     entry = Entry("Show", second.magnet, kind="tv", season=2, episode=1, episodes=[[2, 1, 0, 0]])
     episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1], [2, 2]]}, [])
 
-    seasons, partial, release = card_seasons(plan, entry, "http://torrserver", episodes)
+    seasons, partial, release, _layout = card_seasons(plan, entry, "http://torrserver", episodes)
 
     assert partial is False
     assert episodes.asked == [second.magnet]
@@ -105,7 +109,9 @@ def test_the_bookmark_release_beats_a_ranked_pack_for_its_opened_season() -> Non
     entry = Entry("Show", second.magnet, kind="tv", season=2, episode=1, episodes=[[2, 1, 0, 0]])
     episodes = _Episodes({second.magnet: [[2, 1]], pack.magnet: [[1, 1], [2, 1]]}, [])
 
-    _seasons, _partial, release = card_seasons(ranked, entry, "http://torrserver", episodes)
+    _seasons, _partial, release, _layout = card_seasons(
+        ranked, entry, "http://torrserver", episodes
+    )
 
     assert episodes.asked == [second.magnet]
     assert release is second
@@ -128,7 +134,9 @@ def test_every_season_in_the_bookmark_rows_lists_and_names_the_bookmark_pack() -
     tables = {first.magnet: [[1, 1]], second.magnet: [[2, 1], [2, 2], [2, 3]], pack.magnet: rows}
     episodes = _Episodes(cast(dict[str, list[list[int]] | None], tables), [])
 
-    seasons, _partial, release = card_seasons(plan, entry, "http://torrserver", episodes, 2)
+    seasons, _partial, release, _layout = card_seasons(
+        plan, entry, "http://torrserver", episodes, 2
+    )
 
     assert [row["n"] for row in _rows(seasons)[1]["episodes"]] == [1, 2]
     assert release is pack
@@ -140,7 +148,7 @@ def test_a_merged_spinoff_does_not_become_a_tab_of_the_opened_show() -> None:
     plan.picture.releases.append(short)
     episodes = _Episodes({first.magnet: [[1, 1]], second.magnet: [[2, 1]]}, [])
 
-    seasons, partial, _selected = card_seasons(plan, None, "http://torrserver", episodes)
+    seasons, partial, _selected, _layout = card_seasons(plan, None, "http://torrserver", episodes)
 
     assert partial is False
     assert [row["n"] for row in _rows(seasons)] == [1, 2]
@@ -159,7 +167,9 @@ def _single(release: Release) -> Plan:
 def test_a_full_pack_without_a_season_in_its_name_gets_tabs_from_its_files() -> None:
     pack = Release(raw_name="Show / Complete [2013-2023]", title="Show", kind="tv", magnet="m:p")
 
-    seasons, partial, release = card_seasons(_single(pack), None, "http://torrserver", _Files())
+    seasons, partial, release, _layout = card_seasons(
+        _single(pack), None, "http://torrserver", _Files()
+    )
 
     assert partial is False
     assert [row["n"] for row in _rows(seasons)] == [1, 2, 3]
@@ -167,7 +177,9 @@ def test_a_full_pack_without_a_season_in_its_name_gets_tabs_from_its_files() -> 
 
 
 def test_files_of_a_named_season_add_the_seasons_they_hold() -> None:
-    seasons, _, _ = card_seasons(_single(_release(1, "m:one")), None, "http://torrserver", _Files())
+    seasons, _, _, _layout = card_seasons(
+        _single(_release(1, "m:one")), None, "http://torrserver", _Files()
+    )
 
     assert [row["n"] for row in _rows(seasons)] == [1, 2, 3]
 
@@ -226,7 +238,7 @@ def test_a_bookmark_release_gone_from_the_pool_is_not_swapped_for_the_first_rank
     entry = Entry("Show", kept, kind="tv", season=2, episode=1, episodes=[[2, 1, 0, 0]])
     episodes = _Episodes({kept: [[2, 1], [2, 2]], second.magnet: [[2, 1]]}, [])
 
-    _seasons, partial, release = card_seasons(plan, entry, "http://torrserver", episodes)
+    _seasons, partial, release, _layout = card_seasons(plan, entry, "http://torrserver", episodes)
 
     assert release is not None and release.magnet == kept and release.season == 2
     assert release not in plan.picture.releases
@@ -237,11 +249,12 @@ def test_a_bookmark_release_gone_from_the_pool_is_not_swapped_for_the_first_rank
 class _Catalog:
     known: dict[int, list[Any]]
     pending: bool = False
+    layout: list[int] | None = None
 
     def rows(
         self, _picture: Picture, _releases: Any, saved: dict[int, list[Any]]
-    ) -> tuple[dict[int, list[Any]], bool]:
-        return {**self.known, **saved}, self.pending
+    ) -> tuple[dict[int, list[Any]], bool, list[int]]:
+        return {**self.known, **saved}, self.pending, self.layout or []
 
 
 def _blank(*numbers: int) -> list[Any]:
@@ -253,13 +266,27 @@ def test_a_catalogued_series_shows_every_season_and_episode_without_torrserver()
     episodes = _Episodes({}, [])
     catalog = _Catalog({1: _blank(1, 2), 2: _blank(1, 2, 3), 3: _blank(1)}, pending=True)
 
-    seasons, partial, release = card_seasons(
+    seasons, partial, release, _layout = card_seasons(
         plan, None, "http://torrserver", episodes, 2, catalog=catalog
     )
 
     rows = _rows(seasons)
     assert [(row["n"], len(row["episodes"])) for row in rows] == [(1, 2), (2, 3), (3, 1)]
     assert (episodes.asked, partial, release) == ([], True, second)
+
+
+def test_a_list_numbered_unlike_the_releases_keeps_only_its_own_tabs_interns() -> None:
+    """Раздачи зовут сезоны 1 и 2, список IMDb один сезон из 3: вкладка 2 раздач не рисуется."""
+    plan, first, _second = _plan()
+    episodes = _Episodes({}, [])
+    catalog = _Catalog({1: _blank(1, 2, 3)}, layout=[3])
+
+    seasons, partial, release, layout = card_seasons(
+        plan, None, "http://ts", episodes, 2, catalog=catalog
+    )
+
+    assert [(row["n"], len(row["episodes"])) for row in _rows(seasons)] == [(1, 3)]
+    assert (episodes.asked, partial, release, layout) == ([], False, first, [3])
 
 
 def test_a_pool_season_the_catalogue_does_not_know_yet_still_reads_its_files() -> None:
@@ -274,7 +301,9 @@ def test_a_pool_season_the_catalogue_does_not_know_yet_still_reads_its_files() -
     episodes = _Episodes({fresh.magnet: [[4, 1], [4, 2]]}, [])
     catalog = _Catalog({1: _blank(1), 2: _blank(1)})
 
-    seasons, partial, _ = card_seasons(plan, None, "http://ts", episodes, 4, catalog=catalog)
+    seasons, partial, _, _layout = card_seasons(
+        plan, None, "http://ts", episodes, 4, catalog=catalog
+    )
 
     assert [(row["n"], len(row["episodes"])) for row in _rows(seasons)] == [(1, 1), (2, 1), (4, 2)]
     assert (episodes.asked, partial) == ([fresh.magnet], False)
@@ -286,7 +315,9 @@ def test_a_pool_season_the_catalogue_skips_keeps_its_tab() -> None:
     episodes = _Episodes({second.magnet: [[2, 1], [2, 2]]}, [])
     catalog = _Catalog({1: _blank(1), 3: _blank(1)})
 
-    seasons, _partial, _ = card_seasons(plan, None, "http://ts", episodes, 2, catalog=catalog)
+    seasons, _partial, _, _layout = card_seasons(
+        plan, None, "http://ts", episodes, 2, catalog=catalog
+    )
 
     assert [(row["n"], len(row["episodes"])) for row in _rows(seasons)] == [(1, 1), (2, 2), (3, 1)]
 
@@ -300,9 +331,9 @@ def test_a_season_the_ranked_pack_holds_no_files_for_lists_the_release_that_name
     episodes = _Episodes({pack.magnet: [[1, 1], [4, 1]], fifth.magnet: None}, [])
     ranked = replace(plan, ranked=[pack, first, fifth])
 
-    _seasons, partial, release = card_seasons(ranked, None, "http://ts", episodes, 5)
+    _seasons, partial, release, _layout = card_seasons(ranked, None, "http://ts", episodes, 5)
     episodes.tables[fifth.magnet] = [[5, 1], [5, 2]]
-    seasons, again, chosen = card_seasons(ranked, None, "http://ts", episodes, 5)
+    seasons, again, chosen, _layout = card_seasons(ranked, None, "http://ts", episodes, 5)
 
     assert (partial, release, again, chosen) == (True, fifth, False, fifth)
     assert [len(row["episodes"]) for row in _rows(seasons) if row["n"] == 5] == [2]

@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.episode_file import EpisodeFile
+from torrcast.domain.episode_ordinal import EpisodeOrdinal
 from torrcast.domain.map_episodes import map_episodes
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
@@ -26,6 +27,17 @@ class _Series:
     """
 
     want: Episode
+    #: Числа серий сезонов списка, в котором человек выбрал серию, когда это не нумерация
+    #: раздач: ``want`` тогда сквозной номер ``s1eN`` (:mod:`torrcast.domain.episode_ordinal`).
+    layout: EpisodeOrdinal | None = None
+    #: Серия, как её назвала строка списка: ею говорит отказ.
+    shown: Episode | None = None
+
+    @classmethod
+    def asked(cls, want: Episode, layout: EpisodeOrdinal | None = None) -> _Series:
+        """Серия запроса; строка чужой раздачам нумерации ищется сквозным номером."""
+        ordinal = layout.want(want) if layout is not None else None
+        return cls(ordinal, layout, want) if ordinal is not None else cls(want)
 
     def choose(self, release: Release, files: list[TorrFile]) -> TorrFile:
         """Файл нужной серии; такой серии в раздаче нет — честная строка со списком.
@@ -41,7 +53,10 @@ class _Series:
         found_files = map_episodes(files, release.season, by_order=False) or _in_order(
             release, files
         )
-        found = next((f for f in found_files if f.at == self.want), None)
+        if self.layout is not None:
+            found = self.layout.find(found_files, self.want.episode)
+        else:
+            found = next((f for f in found_files if f.at == self.want), None)
         if found is None:
             raise NotFoundError(self._miss_reason(release, found_files))
         return next(f for f in files if f.index == found.index)
@@ -65,6 +80,8 @@ class _Series:
         — и прежний ответ был неправдой дважды: и про наличие, и про причину. Поэтому здесь
         называются ОБЕ системы.
         """
+        if self.shown is not None:
+            return phrase("series.episode_absent", want=self.shown, summary=self.summary(files))
         if (
             self.want.season > 1
             and release.episodes

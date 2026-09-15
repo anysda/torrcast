@@ -69,7 +69,8 @@ def test_the_lookup_carries_nothing_but_the_episode_it_was_asked_about() -> None
     которую играют: у пака в состояние уезжал пустой список от запасной раздачи, и сериал
     переставал быть сериалом - автоперехода на следующую серию не было вовсе.
     """
-    assert [field.name for field in fields(_Series)] == ["want"]
+    # Числа серий списка и строка списка - тоже сам вопрос, их ставит только построение.
+    assert [field.name for field in fields(_Series)] == ["want", "layout", "shown"]
 
 
 def test_two_releases_asked_in_turn_answer_independently_of_each_other() -> None:

@@ -87,3 +87,16 @@ def test_a_picture_that_is_not_a_short_string_is_refused() -> None:
     assert play_extras({"picture": "x" * 301}) == "bad_picture"
     assert play_extras({"original": 2}) == "bad_picture"
     assert play_extras({"original": "x" * 301}) == "bad_picture"
+
+
+def test_the_season_counts_of_the_card_list_travel_through_and_garbage_is_refused() -> None:
+    extras = play_extras({"season": 3, "episode": 20, "layout": "60,60,61,98"})
+
+    assert extras == {
+        "from_start": False,
+        "here": False,
+        "season": 3,
+        "episode": 20,
+        "layout": "60,60,61,98",
+    }
+    assert [play_extras({"layout": bad}) for bad in ("60,,61", 60, "-1")] == ["bad_layout"] * 3

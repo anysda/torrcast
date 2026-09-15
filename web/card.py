@@ -154,7 +154,7 @@ def _body(
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
     url, profile = config.torrserver_url, _voices.profile_of(config)
-    seasons, seasons_partial, episode_release = card_seasons(
+    seasons, seasons_partial, episode_release, layout = card_seasons(
         plan, entry, url, _episodes, ask.season, profile, SERIES
     )
     series = kind == "tv"
@@ -185,14 +185,14 @@ def _body(
         "voices_pending": hearing,
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
-        # TC-1225: картина, которая идёт на приёмнике прямо сейчас
-        # (:meth:`torrcast.domain.watch_state.WatchState.showing`) - карточка меняет свои
-        # кнопки на «Подключиться»/«Завершить», а не держит «PLAY ON TV» рядом с уже идущим
-        # показом (:mod:`web.static.card.js`).
+        # Картина идёт на приёмнике (:meth:`torrcast.domain.watch_state.WatchState.showing`):
+        # кнопки «Подключиться»/«Завершить» вместо «PLAY ON TV» (:mod:`web.static.card.js`).
         "playing": playing,
         # Машина без ТВ (``config.tv`` пуст) не предлагает показ на ТВ вовсе.
         "tv": bool(config.tv),
         "seasons": seasons,
+        # Числа серий сезонов списка не как у раздач: строка просит серию сквозным номером.
+        "layout": [*layout],
         "related": related,
         "releases_count": len(picture.releases),
         "sources_count": CardDetails.sources_count(picture.releases),

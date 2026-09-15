@@ -42,10 +42,10 @@ def test_every_episode_comes_at_once_and_the_one_to_come_carries_its_date() -> N
     )
     catalog = _catalog(asked, tvmaze)
 
-    rows, pending = catalog.rows(SHOW, [RELEASE], {})
+    rows, pending, layout = catalog.rows(SHOW, [RELEASE], {})
     catalog.rows(SHOW, [RELEASE], {})
 
-    assert pending is False
+    assert (pending, layout) == (False, [])
     assert rows == {
         1: [
             {"n": 1, "dur": 0.0, "watched": False, "pos": 0.0},
@@ -60,7 +60,7 @@ def test_the_bookmark_rows_lie_over_the_catalogue_by_episode_number() -> None:
     watched: list[JsonValue] = [{"n": 1, "dur": 1300.0, "watched": True, "pos": 1300.0}]
     extra: list[JsonValue] = [{"n": 1, "dur": 0.0, "watched": False, "pos": 0.0}]
 
-    rows, pending = catalog.rows(SHOW, [RELEASE], {1: watched, 3: extra})
+    rows, pending, _layout = catalog.rows(SHOW, [RELEASE], {1: watched, 3: extra})
 
     assert pending is True, "TVmaze ещё в пути - карточка переспросит"
     assert rows[1] == [
@@ -72,7 +72,7 @@ def test_the_bookmark_rows_lie_over_the_catalogue_by_episode_number() -> None:
 
 def test_a_series_outside_the_catalogue_has_no_rows() -> None:
     other = Picture(title="Unknown", year=2020, kind="tv")
-    assert _catalog([], _Tvmaze({}, True)).rows(other, [RELEASE], {}) == ({}, False)
+    assert _catalog([], _Tvmaze({}, True)).rows(other, [RELEASE], {}) == ({}, False, [])
 
 
 def test_a_series_the_names_did_not_know_is_asked_again_after_a_while() -> None:
@@ -93,11 +93,28 @@ def test_a_series_the_names_did_not_know_is_asked_again_after_a_while() -> None:
         lambda: moment[0],
     )
 
-    assert catalog.rows(SHOW, [RELEASE], {}) == ({}, False)
+    assert catalog.rows(SHOW, [RELEASE], {}) == ({}, False, [])
     known.append("tt0000001")
-    assert catalog.rows(SHOW, [RELEASE], {}) == ({}, False), "до срока не переспрашивает"
+    assert catalog.rows(SHOW, [RELEASE], {}) == ({}, False, []), "до срока не переспрашивает"
     moment[0] = RETRY
 
-    rows, _pending = catalog.rows(SHOW, [RELEASE], {})
+    rows, _pending, _layout = catalog.rows(SHOW, [RELEASE], {})
 
     assert (sorted(rows), len(asked)) == ([1], 2)
+
+
+def test_a_list_not_numbered_as_the_releases_comes_with_its_season_counts_interns() -> None:
+    """IMDb 3 и 2 серии, раздачи зовут сезон 5, TVmaze молчит: список есть, строка сквозная."""
+    imdb = {1: (1, 2, 3), 2: (1, 2)}
+    fifth = Release(raw_name="Show S05E01", title="Show", kind="tv", season=5, episode=1)
+    catalog = SeriesCatalog(
+        lambda *_: "tt0000001", lambda _t: imdb, _Tvmaze({}, True), lambda: "2026-09-15"
+    )
+    saved: list[JsonValue] = [{"n": 1, "dur": 0.0, "watched": False, "pos": 0.0}]
+
+    rows, pending, layout = catalog.rows(SHOW, [fifth], {})
+
+    assert ({s: len(r) for s, r in rows.items()}, pending, layout) == ({1: 3, 2: 2}, True, [3, 2])
+    assert catalog.rows(SHOW, [fifth], {5: saved}) == ({}, True, []), "закладка считает раздачей"
+    imdb.pop(1)
+    assert catalog.rows(SHOW, [fifth], {}) == ({}, True, []), "без первого сезона номера не счесть"

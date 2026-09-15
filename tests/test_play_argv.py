@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from hass.play_argv import play_argv
 from torrcast.cli.parse_args import parse_args
+from torrcast.cli.stray_flags import stray_flags
+from torrcast.domain.episode import Episode
 
 
 def test_the_bare_old_call_stays_a_single_word() -> None:
@@ -78,3 +80,11 @@ def test_the_card_keys_reach_the_show_as_the_flags_it_reads() -> None:
 
 def test_without_card_keys_the_argv_is_the_old_one() -> None:
     assert play_argv("вверх", None) == ["вверх"]
+
+
+def test_the_row_of_a_list_unlike_the_releases_reaches_the_show_with_its_season_counts() -> None:
+    """Строка «Интернов» IMDb s3e20 едет с числами серий сезонов: показ ищет 140-ю серию."""
+    read = parse_args(play_argv("интерны", None, season=3, episode=20, layout="60,60,61,98"))
+
+    assert (read.episode, read.layout, read.card_release) == (Episode(3, 20), "60,60,61,98", "")
+    assert not stray_flags(read), "показ читает флаг сам"

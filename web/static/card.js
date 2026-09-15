@@ -825,6 +825,9 @@ const TCCard = {
     // сезона, и её номер дорожки в чужой раздаче значит другое.
     const picked = season && /^\d+$/.test(known || '') ? undefined : known;
     const keys = TCCard._keys(data, key);
+    // Список не как у раздач («Интерны» IMDb: 60, 60, 61, 98) несёт числа серий сезонов:
+    // показ ищет строку сквозным номером в любой раздаче, а не в раздаче вкладки.
+    const layout = season && (data.layout || []).length ? data.layout.join(',') : undefined;
     TCApi.play({
       query: query || data.title || data.original || key,
       // 🔴 Картина обязана быть названа: без неё показ брал бы ту, которую круг
@@ -836,7 +839,8 @@ const TCCard = {
       original: keys.original,
       // У сериала ``release`` - раздача, чей список серий открыт во вкладке: строка серии
       // играет её, иначе показ отбирал бы сезон заново и мог взять другую.
-      release: keys.release,
+      release: layout ? undefined : keys.release,
+      layout,
       voice: picked,
       from_start: fromStart,
       season,

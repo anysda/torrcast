@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import Final, TypedDict
 
+from torrcast.domain.episode_ordinal import EpisodeOrdinal
 from torrcast.domain.json_value import JsonValue
 
 #: Инфохэш раздачи: 40 шестнадцатеричных знаков, как его пишет магнит.
@@ -31,6 +32,7 @@ class _PlayExtras(TypedDict, total=False):
     picture: str
     original: str
     release: str
+    layout: str
 
 
 def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
@@ -61,6 +63,10 @@ def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
         return "bad_picture"
     if not isinstance(release, str) or (release and not _HASH.fullmatch(release.lower())):
         return "bad_release"
+    # Числа серий сезонов списка карточки не как у раздач: серия едет сквозным номером.
+    layout = body.get("layout", "")
+    if not isinstance(layout, str) or (layout and EpisodeOrdinal.read(layout) is None):
+        return "bad_layout"
     extras: _PlayExtras = {"from_start": from_start, "here": here}
     if picture:
         extras["picture"] = picture
@@ -68,6 +74,8 @@ def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
         extras["original"] = original
     if release:
         extras["release"] = release.lower()
+    if layout:
+        extras["layout"] = layout
     if voice:
         extras["voice"] = voice
     if isinstance(season, int) and isinstance(episode, int):

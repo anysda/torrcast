@@ -24,6 +24,7 @@ def play_argv(
     picture: str = "",
     original: str = "",
     release: str = "",
+    layout: str = "",
 ) -> list[str]:
     """``argv``, каким CLI уже читает ``--pick``, серию, ``--voice``, ``--new`` и ``--here``."""
     # 🔴 Серия идёт СРАЗУ за запросом, до любого флага, и это не про красоту. Запрос у
@@ -47,4 +48,6 @@ def play_argv(
         args += ["--picture-original", original]
     if release:
         args += ["--card-release", release]
+    if layout:
+        args += ["--layout", layout]
     return args

@@ -23,7 +23,7 @@ from torrcast.usecases.select.plan import Plan
 class _Catalog(Protocol):
     def rows(
         self, picture: Picture, releases: Sequence[Release], saved: dict[int, list[JsonValue]]
-    ) -> tuple[dict[int, list[JsonValue]], bool]: ...
+    ) -> tuple[dict[int, list[JsonValue]], bool, list[int]]: ...
 
 
 class _EpisodeTables(Protocol):
@@ -40,23 +40,24 @@ def card_seasons(
     season: int | None = None,
     profile: Profile = CAUTIOUS,
     catalog: _Catalog | None = None,
-) -> tuple[list[JsonValue], bool, Release | None]:
+) -> tuple[list[JsonValue], bool, Release | None, list[int]]:
     """Все вкладки и серии: из каталога сериала, иначе из покрывающей сезон раздачи.
 
     Сериал из каталога (:class:`web.series_catalog.SeriesCatalog`) получает все сезоны и
     серии сразу; закладка накладывается на них по номеру серии и главнее каталога.
     Разбор раздачи фоновый (:class:`web.episode_lookup.EpisodeLookup`): не готов - вернулась
     ``None``, и карточка честно показывает только счётчик сезонов из имён раздач, помечая
-    тело недоехавшим (второй элемент пары), совсем как справку.
+    тело недоехавшим (второй элемент), совсем как справку. Четвёртый - числа серий сезонов
+    списка каталога, который нумерует сериал не как раздачи: вкладки тогда только его.
     """
     picture = plan.picture
     if picture.kind != "tv":
-        return [], False, None
+        return [], False, None, []
     releases = _picture_releases(plan)
     numbers = {number for release in releases for number in _named_seasons(release)}
     saved = _seasons_from_entry(entry) if entry is not None and entry.episodes else {}
-    known, pending = catalog.rows(picture, releases, saved) if catalog else ({}, False)
-    numbers.update(known, saved)
+    known, pending, layout = catalog.rows(picture, releases, saved) if catalog else ({}, False, [])
+    numbers = set(known) if layout else numbers | set(known) | set(saved)
     # Без выбранной вкладки открыт сезон закладки, как у стримингов: таблица нужна ему.
     bookmark = entry.season if entry is not None else None
     default = bookmark if bookmark in numbers else (1 if 1 in numbers else min(numbers, default=0))
@@ -64,10 +65,10 @@ def card_seasons(
     fallback = _joined_seasons(numbers, known or saved)
     release = _release_for(plan, releases, target, entry, profile)
     if release is None or target in known:
-        return fallback, pending, release
+        return fallback, pending, release, layout
     table = episodes.table(release, base_url)
     if table is None:
-        return fallback, True, release
+        return fallback, True, release, []
     files = _seasons_from_table(table)
     if target not in files and target not in _named_seasons(release):
         # Пак без сезона «покрывает» любой, но файлы «Универа» кончаются на s04: сезон 5 играет
@@ -76,12 +77,12 @@ def card_seasons(
         named = _release_for(plan, naming, target, entry, profile) if naming else None
         table = episodes.table(named, base_url) if named is not None else table
         if named is not None and table is None:
-            return fallback, True, named
+            return fallback, True, named, []
         files, release = _seasons_from_table(table or []), named or release
     # Полный пак без сезона в имени называет сезоны только своими файлами.
     numbers.update(files)
     # Закладка хранит просмотренное состояние и старше безличной таблицы файлов.
-    return _joined_seasons(numbers, {**files, **(known or saved)}), False, release
+    return _joined_seasons(numbers, {**files, **(known or saved)}), False, release, []
 
 
 def _named_seasons(release: Release) -> tuple[int, ...]:

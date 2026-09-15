@@ -11,10 +11,12 @@
 2. берётся раскладка с меньшим числом промахов против имён раздач пула (:func:`_missed`):
    нет названного сезона, номер серии больше сезона, «из N» не равно числу его серий;
    при равенстве - IMDb: она лежит на диске и отвечает без сети;
-3. раздачи пула сезона не называют («След [Серии 1-224]»): номера сквозные и ложатся
-   только на раскладку из одного сезона;
-4. раскладки нет, и остаются таблицы раздач, если выбранной противоречит больше половины
-   раздач с номерами или молчит TVmaze, а раздачи зовут сезон, которого у IMDb нет;
+3. раздачи пула сезона не называют («След [Серии 1-224]»): номера сквозные, и нумерацией
+   раздач бывает только раскладка из одного сезона;
+4. раскладка не нумерация раздач, если ей противоречит больше половины раздач с номерами
+   или молчит TVmaze, а раздачи зовут сезон, которого у IMDb нет. Список она всё равно
+   даёт сразу, а серию строки показ ищет по сквозному номеру
+   (:class:`torrcast.domain.episode_ordinal.EpisodeOrdinal`);
 5. сезон старше последнего сезона раздач и закладки показывает только серии, которые знает
    TVmaze, если выбранная раскладка совпала с ним на сезонах раздач: пустые заготовки IMDb
    («Рик и Морти» s10-12 по одной серии) не становятся вкладками;
@@ -25,7 +27,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Final
 
 from torrcast.domain.release import Release
@@ -44,19 +46,22 @@ def series_layout(
     releases: Sequence[Release],
     saved: Iterable[int],
     now: str,
-) -> dict[int, list[tuple[int, str]]]:
-    """Строки сезонов ``(номер, дата выхода или "")``; пусто - каталог сериала не знает."""
+) -> tuple[dict[int, list[tuple[int, str]]], bool]:
+    """Строки сезонов ``(номер, дата выхода или "")`` и «это нумерация раздач».
+
+    Пусто - каталог сериала не знает.
+    """
     tvmaze = _by_season(aired)
     pooled = {number for release in releases for number in _named(release)}
     candidates = [layout for layout in (_grown(imdb, tvmaze, releases), tvmaze) if layout]
-    if not pooled:
-        candidates = [layout for layout in candidates if set(layout) == {1}]
+    single = [layout for layout in candidates if set(layout) == {1}]
     if not candidates:
-        return {}
-    chosen = min(candidates, key=lambda layout: _misses(layout, releases))
+        return {}, False
+    chosen = min(single if single and not pooled else candidates, key=_weigh(releases))
     counted = sum(1 for release in releases if _named(release) or _top(release))
-    if 2 * _misses(chosen, releases) > counted or (not tvmaze and not pooled <= imdb.keys()):
-        return {}
+    direct = (bool(pooled) or set(chosen) == {1}) and not (
+        2 * _misses(chosen, releases) > counted or (not tvmaze and not pooled <= imdb.keys())
+    )
     named = pooled | set(saved)
     last = max(named, default=None)
     common = [s for s in chosen.keys() & tvmaze.keys() if last is not None and s <= last]
@@ -72,7 +77,11 @@ def series_layout(
         ]
         if rows:
             out[season] = rows
-    return out
+    return out, direct
+
+
+def _weigh(releases: Sequence[Release]) -> Callable[[Numbers], int]:
+    return lambda layout: _misses(layout, releases)
 
 
 def _by_season(aired: Aired) -> dict[int, tuple[int, ...]]:

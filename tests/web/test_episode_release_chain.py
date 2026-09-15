@@ -154,12 +154,16 @@ def _card_body(
 
 
 def _page_sends_the_tab_release() -> bool:
-    """Строка серии шлёт ``release`` тела, отрисовавшего вкладку, и для сериала тоже."""
+    """Строка серии шлёт ``release`` тела, отрисовавшего вкладку, и для сериала тоже.
+
+    Список не как у раздач (``layout``) раздачи вкладки не шлёт: строку ищут сквозным номером.
+    """
     row = "row.addEventListener('click', () => TCCard._play(data, key, query,"
     play = CARD_JS.split("  _play(data, key, query, voices, fromStart, season, episode) {", 1)[1]
     play = play.split("\n  },", 1)[0]
     keys = re.search(r"_keys\(data, key\) \{\s*return \{[^}]*release: data\.release", CARD_JS)
-    return row in SERIES_JS and "release: keys.release," in play and keys is not None
+    sends = "release: layout ? undefined : keys.release," in play
+    return row in SERIES_JS and sends and keys is not None
 
 
 def _show_plays(monkeypatch: pytest.MonkeyPatch, release: str) -> tuple[str | None, str]:

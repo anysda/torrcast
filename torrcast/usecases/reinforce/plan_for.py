@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain._series import _Series
 from torrcast.domain.episode import Episode
+from torrcast.domain.episode_ordinal import EpisodeOrdinal
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.recodes_whole import recodes_whole
@@ -55,7 +56,10 @@ def plan_for(
     """
     from torrcast.domain.runtime_guess import RUNTIME_GUESS
 
-    series = _Series(want=args.episode or Episode(1, 1)) if picture.kind == "tv" else None
+    asked = args.episode or Episode(1, 1)
+    series = (
+        _Series.asked(asked, EpisodeOrdinal.read(args.layout)) if picture.kind == "tv" else None
+    )
     estimated = runtime <= 0
     if estimated:
         runtime = RUNTIME_GUESS.get(picture.kind, 7200.0)

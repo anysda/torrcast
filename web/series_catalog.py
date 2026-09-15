@@ -48,11 +48,16 @@ class SeriesCatalog:
     clock: Callable[[], float] = monotonic
     _ids: dict[str, tuple[str, float]] = field(default_factory=dict)
 
-    def rows(self, picture: Picture, releases: Sequence[Release], saved: Rows) -> tuple[Rows, bool]:
-        """Серии по сезонам и «TVmaze ещё в пути»; сериал вне каталога - пусто.
+    def rows(
+        self, picture: Picture, releases: Sequence[Release], saved: Rows
+    ) -> tuple[Rows, bool, list[int]]:
+        """Серии по сезонам, «TVmaze ещё в пути» и числа серий списка чужой раздачам нумерации.
 
         Ещё не вышедшая серия несёт дату выхода ``air``: страница рисует её серой. Строки
         закладки ``saved`` ложатся поверх по номеру серии: серий каталога они не прячут.
+        Список не как у раздач («Интерны» IMDb 60, 60, 61, 98) отдаётся с числами серий
+        сезонов: строку показ ищет сквозным номером. Закладка считает серии раздачей, и
+        такому списку с ней не сойтись: тогда пусто, как вне каталога.
         """
         key, moment = picture.key, self.clock()
         tconst, asked = self._ids.get(key, ("", float("-inf")))
@@ -60,16 +65,30 @@ class SeriesCatalog:
             tconst = self.ids(picture.title, picture.original or "", picture.year)
             self._ids[key] = (tconst, moment)
         if not tconst:
-            return {}, False  # outside the catalogue the card keeps the release tables
+            return {}, False, []  # outside the catalogue the card keeps the release tables
         aired, pending = self.aired(tconst, COLD)
         imdb = self.numbers(tconst) or {}
-        layout = series_layout(imdb, aired, releases, saved, self.now())
+        layout, direct = series_layout(imdb, aired, releases, saved, self.now())
+        if not direct:
+            counts = _counts(layout) if not saved else []
+            rows = {season: [_row(n, air) for n, air in layout[season]] for season in layout}
+            return (rows, pending, counts) if counts else ({}, pending, [])
         out: Rows = {}
         for season in sorted({*layout, *saved}):
             by_number = {n: _row(n, air) for n, air in layout.get(season, ())}
             by_number.update((_number(row), row) for row in saved.get(season, ()))
             out[season] = [by_number[n] for n in sorted(by_number)]
-        return out, pending
+        return out, pending, []
+
+
+def _counts(layout: Mapping[int, list[tuple[int, str]]]) -> list[int]:
+    """Числа серий сезонов 1..N, если каждый сезон считает серии с первой подряд; иначе пусто."""
+    counts = [len(layout.get(season, ())) for season in range(1, len(layout) + 1)]
+    whole = all(
+        [n for n, _air in layout.get(season, ())] == list(range(1, count + 1))
+        for season, count in enumerate(counts, 1)
+    )
+    return counts if counts and whole and all(counts) else []
 
 
 def _number(row: JsonValue) -> int:

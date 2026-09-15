@@ -12,8 +12,12 @@ def _aired(
     return {(s, n): (when, when) for s, count in seasons.items() for n in range(1, count + 1)}
 
 
-def _counts(layout: dict[int, list[tuple[int, str]]]) -> dict[int, int]:
-    return {season: len(rows) for season, rows in layout.items()}
+def _counts(layout: tuple[dict[int, list[tuple[int, str]]], bool]) -> dict[int, int]:
+    return {season: len(rows) for season, rows in layout[0].items()}
+
+
+def _direct(layout: tuple[dict[int, list[tuple[int, str]]], bool]) -> bool:
+    return layout[1]
 
 
 def test_the_layout_that_holds_the_releases_wins_interns() -> None:
@@ -23,7 +27,7 @@ def test_the_layout_that_holds_the_releases_wins_interns() -> None:
 
     layout = series_layout(imdb, _aired(dict.fromkeys(range(1, 6), 20)), releases, [], NOW)
 
-    assert _counts(layout) == dict.fromkeys(range(1, 6), 20)
+    assert (_counts(layout), _direct(layout)) == (dict.fromkeys(range(1, 6), 20), True)
 
 
 def test_imdb_wins_a_tie_and_grows_a_season_tvmaze_confirms_futurama() -> None:
@@ -49,19 +53,19 @@ def test_imdb_placeholders_past_the_releases_are_not_tabs_while_tvmaze_answers()
     assert _counts(series_layout(imdb, _aired({1: 2, 2: 2}), releases, [3], NOW))[3] == 1
 
 
-def test_without_tvmaze_imdb_numbering_the_releases_contradict_is_not_shown_interns() -> None:
-    """Раздачи зовут сезон 3, у IMDb его нет: s1 из 60 серий не сыграл бы s1e45."""
+def test_without_tvmaze_imdb_numbering_the_releases_contradict_is_listed_not_direct_interns() -> (
+    None
+):
+    """Раздачи зовут сезон 3, у IMDb его нет: список IMDb есть, но строка s1e45 не s1e45 раздач."""
     imdb = {1: tuple(range(1, 61)), 2: tuple(range(1, 61))}
     releases = [parse_release_name(f"Интерны / Сезон: {n} / Серии: 1-20 из 20") for n in (1, 3)]
 
-    assert series_layout(imdb, {}, releases, [], NOW) == {}
+    silent = series_layout(imdb, {}, releases, [], NOW)
+    assert (_counts(silent), _direct(silent)) == ({1: 60, 2: 60}, False)
     single = [parse_release_name(f"Интерны s{n}e05 WEB-DL") for n in (1, 2, 3)]
-    assert series_layout(imdb, {}, single, [], NOW) == {}, "один сезон вне IMDb из трёх"
-    assert _counts(series_layout(imdb, _aired({1: 20, 2: 20, 3: 20}), releases, [], NOW)) == {
-        1: 20,
-        2: 20,
-        3: 20,
-    }
+    assert _direct(series_layout(imdb, {}, single, [], NOW)) is False, "один сезон вне IMDb из трёх"
+    live = series_layout(imdb, _aired({1: 20, 2: 20, 3: 20}), releases, [], NOW)
+    assert (_counts(live), _direct(live)) == ({1: 20, 2: 20, 3: 20}, True)
 
 
 INTERNS_IMDB = {1: tuple(range(1, 61)), 2: tuple(range(1, 61)), 3: tuple(range(1, 62))}
@@ -72,10 +76,10 @@ def test_seasons_imdb_knows_named_as_twenty_episodes_each_take_the_tvmaze_number
     """«Интерны»: пул зовёт только сезоны 1-3 IMDb, но «из 20» у сезона из 60 - промах."""
     releases = [parse_release_name(f"Интерны / Сезон: {n} / Серии: 1-20 из 20") for n in (1, 2, 3)]
 
-    assert _counts(series_layout(INTERNS_IMDB, INTERNS_TVMAZE, releases, [], NOW)) == dict.fromkeys(
-        range(1, 15), 20
-    )
-    assert series_layout(INTERNS_IMDB, {}, releases, [], NOW) == {}, "без TVmaze - таблицы"
+    live = series_layout(INTERNS_IMDB, INTERNS_TVMAZE, releases, [], NOW)
+    assert (_counts(live), _direct(live)) == (dict.fromkeys(range(1, 15), 20), True)
+    silent = series_layout(INTERNS_IMDB, {}, releases, [], NOW)
+    assert (_counts(silent), _direct(silent)) == ({1: 60, 2: 60, 3: 61}, False), "без TVmaze"
 
 
 def test_a_pack_of_seasons_counts_its_total_against_the_seasons_it_names() -> None:
@@ -83,8 +87,8 @@ def test_a_pack_of_seasons_counts_its_total_against_the_seasons_it_names() -> No
 
     layout = series_layout(INTERNS_IMDB, INTERNS_TVMAZE, releases, [], NOW)
 
-    assert _counts(layout) == dict.fromkeys(range(1, 15), 20)
-    assert series_layout(INTERNS_IMDB, {}, releases, [], NOW) == {}
+    assert (_counts(layout), _direct(layout)) == (dict.fromkeys(range(1, 15), 20), True)
+    assert _direct(series_layout(INTERNS_IMDB, {}, releases, [], NOW)) is False
 
 
 def test_tvmaze_seasons_past_the_releases_do_not_extend_a_numbering_they_contradict() -> None:
@@ -92,7 +96,7 @@ def test_tvmaze_seasons_past_the_releases_do_not_extend_a_numbering_they_contrad
 
     layout = series_layout(INTERNS_IMDB, INTERNS_TVMAZE, releases, [], NOW)
 
-    assert _counts(layout) == {1: 60, 2: 60, 3: 61}
+    assert (_counts(layout), _direct(layout)) == ({1: 60, 2: 60, 3: 61}, True)
 
 
 def test_releases_numbered_through_fit_only_a_single_season_sled() -> None:
@@ -100,10 +104,11 @@ def test_releases_numbered_through_fit_only_a_single_season_sled() -> None:
     imdb = {1: tuple(range(1, 31)), 6: (1, 2)}
     releases = [parse_release_name("След (2007-2024) SATRip [Серии 1-24 из ?]")]
 
-    assert series_layout(imdb, _aired({1: 12, 2: 12, 3: 12}), releases, [], NOW) == {}
-    assert series_layout(imdb, {}, releases, [], NOW) == {}
+    assert _direct(series_layout(imdb, _aired({1: 12, 2: 12, 3: 12}), releases, [], NOW)) is False
+    assert _direct(series_layout(imdb, {}, releases, [], NOW)) is False
     single = [parse_release_name("Ван-Пис [TV] [1-24 из 1000+] [RUS(int)]")]
-    assert _counts(series_layout({1: tuple(range(1, 31))}, {}, single, [], NOW)) == {1: 30}
+    one = series_layout({1: tuple(range(1, 31))}, {}, single, [], NOW)
+    assert (_counts(one), _direct(one)) == ({1: 30}, True)
 
 
 def test_an_episode_still_to_come_carries_its_date() -> None:
@@ -112,15 +117,15 @@ def test_an_episode_still_to_come_carries_its_date() -> None:
 
     layout = series_layout({1: (1, 2)}, aired, releases, [], NOW)
 
-    assert layout == {1: [(1, ""), (2, "2026-09-20")]}
+    assert layout == ({1: [(1, ""), (2, "2026-09-20")]}, True)
 
 
 def test_dates_are_not_borrowed_across_a_different_season_numbering() -> None:
     aired = {(1, 1): ("2026-09-21", "2026-09-21")}
     layout = series_layout({1: (1, 2)}, aired, [], [], NOW)
 
-    assert layout == {1: [(1, ""), (2, "")]}
+    assert layout == ({1: [(1, ""), (2, "")]}, True)
 
 
 def test_a_series_no_catalogue_knows_has_no_layout() -> None:
-    assert series_layout({}, {}, [parse_release_name("Show S01E01")], [], NOW) == {}
+    assert series_layout({}, {}, [parse_release_name("Show S01E01")], [], NOW) == ({}, False)
