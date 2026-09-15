@@ -50,6 +50,7 @@ import argparse
 import contextlib
 import itertools
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -1955,26 +1956,31 @@ def check_7_series(ctx: Ctx) -> Result:
         spent = time.monotonic() - began
         tabs_ok = tabs_ok and spent <= _EPISODES_BAR
         tab_times.append(f"{name or index}:{spent:.1f}")
-    season_two = next(
+    expected = _episode_parts(ctx.series_target)
+    if expected is None:
+        return Result(7, "Сериал", False, None, f"некорректная серия {ctx.series_target!r}")
+    expected_season, expected_episode = expected
+    target_season_tab = next(
         (
             tabs.nth(index)
             for index in range(tabs.count())
-            if re.search(r"\b2\b", tabs.nth(index).inner_text())
+            if re.search(rf"\b{expected_season}\b", tabs.nth(index).inner_text())
         ),
         None,
     )
-    if season_two is None:
-        return Result(7, "Сериал", False, None, "нет вкладки второго сезона")
-    _reveal_tab(season_two)
+    if target_season_tab is None:
+        return Result(7, "Сериал", False, None, f"нет вкладки сезона {expected_season}")
+    _reveal_tab(target_season_tab)
     try:
-        season_two.click(force=True, timeout=_EPISODES_BAR * 1000)
+        target_season_tab.click(force=True, timeout=_EPISODES_BAR * 1000)
     except Exception:
         return Result(
             7,
             "Сериал",
             False,
             None,
-            f"вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; Season 2 вне области",
+            f"вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; "
+            f"Season {expected_season} вне области",
         )
     with contextlib.suppress(Exception):
         ctx.page.locator("[data-tc-episode]").first.wait_for(state="visible", timeout=30_000)
@@ -2008,10 +2014,6 @@ def check_7_series(ctx: Ctx) -> Result:
         if season is not None and episode is not None:
             break
         time.sleep(1.0)
-    expected = _episode_parts(ctx.series_target)
-    if expected is None:
-        return Result(7, "Сериал", False, None, f"некорректная серия {ctx.series_target!r}")
-    expected_season, expected_episode = expected
     ok = tabs_ok and season == expected_season and episode == expected_episode
     detail = (
         f"{ctx.series_title!r}; вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; "
@@ -4188,6 +4190,11 @@ def main() -> int:
     )
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument(
+        "--browser-executable",
+        default=os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE", ""),
+        help="путь к Chromium щупа, если Playwright не хранит свой headless shell",
+    )
+    parser.add_argument(
         "--play",
         action="store_true",
         help="разрешить настоящий показ (пп. 4,6-11,20,32-36) - отнимает полосу упаковки у соседа",
@@ -4245,7 +4252,11 @@ def main() -> int:
     with sync_playwright() as driver:
         # Chromium без окна по умолчанию прячет полосы прокрутки (`--hide-scrollbars`):
         # с этим флагом ширина любой полосы 0, и пункт 26 зеленел бы на любой вёрстке.
-        browser = driver.chromium.launch(headless=True, ignore_default_args=["--hide-scrollbars"])
+        browser = driver.chromium.launch(
+            headless=True,
+            executable_path=args.browser_executable or None,
+            ignore_default_args=["--hide-scrollbars"],
+        )
         # 31 и 28 - первыми, на свежей странице: пункты ниже водят по полкам и греют
         # плитки, и холодную карточку после них было бы не с чего открыть. Окно - экран
         # ПК владельца (1920x1080), на котором сняты его дефекты карточки.
