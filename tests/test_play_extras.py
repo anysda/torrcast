@@ -66,12 +66,13 @@ def test_the_result_carries_every_field_the_card_sent() -> None:
 
 
 def test_the_card_keys_travel_through_and_the_hash_is_lowered() -> None:
-    extras = play_extras({"picture": "movie:вверх:2009", "release": "AB" * 20})
+    extras = play_extras({"picture": "movie:вверх:2009", "original": "Up", "release": "AB" * 20})
 
     assert extras == {
         "from_start": False,
         "here": False,
         "picture": "movie:вверх:2009",
+        "original": "Up",
         "release": "ab" * 20,
     }
 
@@ -84,3 +85,5 @@ def test_a_release_that_is_not_an_info_hash_is_refused() -> None:
 def test_a_picture_that_is_not_a_short_string_is_refused() -> None:
     assert play_extras({"picture": 2}) == "bad_picture"
     assert play_extras({"picture": "x" * 301}) == "bad_picture"
+    assert play_extras({"original": 2}) == "bad_picture"
+    assert play_extras({"original": "x" * 301}) == "bad_picture"

@@ -29,6 +29,7 @@ class _PlayExtras(TypedDict, total=False):
     from_start: bool
     here: bool
     picture: str
+    original: str
     release: str
 
 
@@ -53,13 +54,18 @@ def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
         return "bad_here"
     # Картину и раздачу карточка называет ключами: номер в выдаче гуляет от круга к кругу.
     picture, release = body.get("picture", ""), body.get("release", "")
-    if not isinstance(picture, str) or len(picture) > _KEY_LIMIT:
+    original = body.get("original", "")
+    if not isinstance(picture, str) or not isinstance(original, str):
+        return "bad_picture"
+    if max(len(picture), len(original)) > _KEY_LIMIT:
         return "bad_picture"
     if not isinstance(release, str) or (release and not _HASH.fullmatch(release.lower())):
         return "bad_release"
     extras: _PlayExtras = {"from_start": from_start, "here": here}
     if picture:
         extras["picture"] = picture
+    if original:
+        extras["original"] = original
     if release:
         extras["release"] = release.lower()
     if voice:

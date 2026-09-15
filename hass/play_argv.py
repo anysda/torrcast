@@ -22,6 +22,7 @@ def play_argv(
     here: bool = False,
     *,
     picture: str = "",
+    original: str = "",
     release: str = "",
 ) -> list[str]:
     """``argv``, каким CLI уже читает ``--pick``, серию, ``--voice``, ``--new`` и ``--here``."""
@@ -42,6 +43,8 @@ def play_argv(
         args.append("--here")
     if picture:
         args += ["--picture", picture]
+    if original:
+        args += ["--picture-original", original]
     if release:
         args += ["--card-release", release]
     return args

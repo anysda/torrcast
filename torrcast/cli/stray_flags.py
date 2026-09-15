@@ -30,6 +30,7 @@ _FLAG: Final[Mapping[str, str]] = {
     "upgrade": "--upgrade",
     "here": "--here",
     "picture": "--picture",
+    "picture_original": "--picture-original",
     "card_release": "--card-release",
 }
 
@@ -50,6 +51,7 @@ _READ_BY_PLAY: Final = frozenset(
         "dry",
         "here",
         "picture",
+        "picture_original",
         "card_release",
     }
 )

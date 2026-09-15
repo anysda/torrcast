@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.slugify import slugify
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -29,23 +30,39 @@ def _season_year(plans: list[Plan], args: Args) -> int:
     🔴 TC-1267. «Мажор» s5e8: карточка держит ``tv:мажор:2014``, а все раздачи выдачи
     подписаны «[2026, ...]» - годом пятого сезона, и круг собрал ``tv:мажор:2026``. Серия
     вышла, русская раздача в пуле есть, а показ отказывал «картины с карточки больше нет».
-    Сериал того же имени с годом позже карточки и с раздачами под ЭТУ серию - та же
-    картина; фильм, другое имя или год раньше - по-прежнему отказ, а не соседка.
+    Фильм, другое имя или год раньше - по-прежнему отказ, а не соседка.
     """
     kind, _, rest = args.picture.partition(":")
     slug, _, year = rest.rpartition(":")
-    if kind != "tv" or args.episode is None or not year.isdigit():
+    want = args.episode
+    if kind != "tv" or want is None or not year.isdigit():
         return 0
     return next(
         (
             n
             for n, plan in enumerate(plans, start=1)
-            if plan.picture.kind == "tv"
-            and plan.picture.key.split(":")[1] == slug
-            and (plan.picture.year or 0) > int(year)
+            if _later_season(plan, slug, int(year), args.picture_original, want.season)
             and plan.candidates(args)
         ),
         0,
+    )
+
+
+def _later_season(plan: Plan, slug: str, year: int, original: str, season: int) -> bool:
+    """Картина круга - поздний сезон сериала карточки, а не ремейк того же имени.
+
+    Ремейк («Доктор Кто» 1963 и 2005) делит с карточкой имя, а бывает и оригинал, поэтому
+    мало и того и другого: у позднего сезона счёт продолжается - просят не первый сезон,
+    и первого среди раздач картины круга нет. Ремейк свой счёт начинает с единицы.
+    """
+    picture = plan.picture
+    return (
+        picture.kind == "tv"
+        and picture.key.split(":")[1] == slug
+        and (picture.year or 0) > year
+        and slugify(picture.original or "") == slugify(original)
+        and season > 1
+        and not any(1 in (release.seasons or (release.season,)) for release in picture.releases)
     )
 
 

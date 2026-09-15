@@ -832,6 +832,8 @@ const TCCard = {
       // находки запускала первую, и виднее всего это на полке - плитка «Bones and All»
       // зовётся запросом, у которого в круге две картины (замер `.104` 07-09-2026).
       picture: keys.picture,
+      // Оригинал отличает поздний сезон картины от ремейка с тем же русским именем.
+      original: keys.original,
       // У сериала ``release`` - раздача, чей список серий открыт во вкладке: строка серии
       // играет её, иначе показ отбирал бы сезон заново и мог взять другую.
       release: keys.release,
@@ -850,7 +852,11 @@ const TCCard = {
   // гуляет от круга к кругу («Вверх» под номером 1 получал «Руки вверх!»), ключ - нет.
   // Раздачи карточка могла ещё не выбрать: тогда показ выбирает её сам по ключу картины.
   _keys(data, key) {
-    return { picture: data.picture || key, release: data.release || undefined };
+    return {
+      picture: data.picture || key,
+      original: data.original || undefined,
+      release: data.release || undefined,
+    };
   },
 
   _releases(data) {
