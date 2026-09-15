@@ -10,14 +10,19 @@ from __future__ import annotations
 
 from hass.both_posters import BothPosters
 from torrcast.adapters.wiki.imdb_poster import ImdbPoster
+from torrcast.adapters.wiki.urgent_client import UrgentClient
 from torrcast.adapters.wiki.wiki_poster import WikiPoster
 from torrcast.runtime.facts_wiring import FACTS
 
 
-def picture_source() -> BothPosters:
-    """Источник картинок моста: оба источника по порядку доверия."""
+def picture_source(urgent: bool = False) -> BothPosters:
+    """Источник картинок моста: оба источника по порядку доверия.
+
+    ``urgent`` - картинки видимого списка: их запросы идут впереди полок и «похожих».
+    """
+    client = UrgentClient(FACTS.client) if urgent else FACTS.client
     return BothPosters(
-        WikiPoster(FACTS.client, FACTS.client),
-        ImdbPoster(FACTS.client, FACTS.client, FACTS.catalogue),
-        FACTS.client,
+        WikiPoster(client, client),
+        ImdbPoster(client, client, FACTS.catalogue),
+        client,
     )
