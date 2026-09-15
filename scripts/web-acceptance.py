@@ -195,6 +195,12 @@ class Ctx:
     shots: Path
     english: dict[str, str]
     current_key: str = ""
+    play_title: str = _PLAY_MOVIE_TITLE
+    series_title: str = _SERIES_TITLE
+    series_target: str = _SERIES_TARGET
+    screen_title: str = _SERIES_TITLE
+    screen_target: str = _SERIES_TARGET
+    throttle_after_frame: int = 0
 
 
 def _get(url: str, timeout: float = 10.0) -> tuple[int, bytes]:
@@ -1655,6 +1661,7 @@ _METER_JS: Final = """() => {
   if (old) old.stop();
   const meter = {
     born: performance.now(), frame: null, start: null, playing: [], waits: [], waiting: null,
+    armed: null, nextPlaying: null, nextFrame: null,
   };
   const watch = (video) => {
     if (meter.video === video) return;
@@ -1662,6 +1669,7 @@ _METER_JS: Final = """() => {
     const at = () => (performance.now() - meter.born) / 1000;
     video.addEventListener('playing', () => {
       meter.playing.push(at());
+      if (meter.armed !== null && meter.nextPlaying === null) meter.nextPlaying = at();
       if (meter.waiting !== null) { meter.waits.push(at() - meter.waiting); meter.waiting = null; }
     });
     video.addEventListener('waiting', () => {
@@ -1669,6 +1677,9 @@ _METER_JS: Final = """() => {
     });
     const frame = () => {
       if (meter.frame === null) meter.frame = at();
+      if (meter.armed !== null && meter.nextPlaying !== null && meter.nextFrame === null) {
+        meter.nextFrame = at() - meter.armed;
+      }
       video.requestVideoFrameCallback(frame);
     };
     if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(frame);
@@ -1676,6 +1687,10 @@ _METER_JS: Final = """() => {
   const observer = new MutationObserver(() => document.querySelectorAll('video').forEach(watch));
   observer.observe(document.documentElement, {childList: true, subtree: true});
   document.querySelectorAll('video').forEach(watch);
+  meter.arm = () => {
+    meter.armed = (performance.now() - meter.born) / 1000;
+    meter.nextPlaying = null; meter.nextFrame = null; meter.waits = []; meter.waiting = null;
+  };
   meter.stop = () => observer.disconnect(); window.__tcAcceptanceMeter = meter;
 }"""
 
@@ -1719,6 +1734,23 @@ def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float]:
     return values, sum(values)
 
 
+def _next_frame_measure(ctx: Ctx, limit: float) -> tuple[float | None, dict[str, Any]]:
+    """Кадр следующей серии только после её собственного ``playing``.
+
+    Один и тот же ``<video>`` переживает автопереход. Обычный rVFC после плашки
+    мог бы поймать ещё кадр старой серии, поэтому счётчик вооружается до отсчёта
+    и принимает кадр лишь после следующего события ``playing``.
+    """
+    began = time.monotonic()
+    while time.monotonic() - began < limit:
+        meter = ctx.page.evaluate("window.__tcAcceptanceMeter || {}")
+        if isinstance(meter, dict) and isinstance(meter.get("nextFrame"), int | float):
+            return float(meter["nextFrame"]), meter
+        ctx.page.wait_for_timeout(100)
+    meter = ctx.page.evaluate("window.__tcAcceptanceMeter || {}")
+    return None, meter if isinstance(meter, dict) else {}
+
+
 def check_4_playback(ctx: Ctx) -> Result:
     """Показ: кадр не позднее 5 с и без подгрузов за первые три минуты."""
     # Карточка судит описание, рейтинг и озвучки. Отсутствующая озвучка - отдельная
@@ -1726,7 +1758,7 @@ def check_4_playback(ctx: Ctx) -> Result:
     guard = _playback_guard(4, "Показ", ctx, True, "")
     if guard:
         return guard
-    refusal = _open_card_by_page(ctx, _PLAY_MOVIE_TITLE)
+    refusal = _open_card_by_page(ctx, ctx.play_title)
     if refusal is not None:
         return Result(4, "Показ", False, None, refusal)
     ctx.current_key = _card_key(ctx)
@@ -1738,12 +1770,22 @@ def check_4_playback(ctx: Ctx) -> Result:
     frame, meter = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
     if frame is None:
         return Result(4, "Показ", False, None, f"кадра нет за {_PLAY_START_WAIT / 1000:.0f} с")
-    waits, total = _wait_stalls(ctx, _WATCH_SECONDS)
+    cdp = None
+    control = "без сужения"
+    try:
+        if ctx.throttle_after_frame:
+            cdp = _narrow(ctx, ctx.throttle_after_frame)
+            control = f"CDP после первого кадра {ctx.throttle_after_frame} Б/с"
+        waits, total = _wait_stalls(ctx, _WATCH_SECONDS)
+    finally:
+        if cdp is not None:
+            cdp.send("Network.emulateNetworkConditions", _WIDE)
+            cdp.detach()
     start = meter.get("start")
     ok = frame <= _FRAME_BAR and not waits
     detail = (
         f"стартовая позиция {start!r}; первый кадр за {frame:.1f} с (порог {_FRAME_BAR:.0f}); "
-        f"подгрузы за {_WATCH_SECONDS:.0f} с: {len(waits)}, сумма {total:.1f} с {waits}"
+        f"подгрузы за {_WATCH_SECONDS:.0f} с ({control}): {len(waits)}, сумма {total:.1f} с {waits}"
     )
     return Result(4, "Показ", ok, None, detail)
 
@@ -1880,7 +1922,7 @@ def check_7_series(ctx: Ctx) -> Result:
     Карточку пункт открывает СВОЮ, а не донашивает ту, что осталась от пункта 3: там
     стоит фильм, у которого серий не бывает по устройству продукта.
     """
-    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    refusal = _open_card_by_page(ctx, ctx.series_title)
     if refusal is not None:
         return Result(7, "Сериал", False, None, refusal)
     tabs = ctx.page.locator(".tc-tab")
@@ -1937,9 +1979,10 @@ def check_7_series(ctx: Ctx) -> Result:
         return Result(7, "Сериал", False, None, detail)
     # Искать надо по странице: `episodes` - это уже сами строки серий, и поиск ВНУТРИ
     # них не находит ничего никогда, каким бы верным ни был список.
-    target = ctx.page.locator(f'[data-tc-episode="{_SERIES_TARGET}"]')
+    target = ctx.page.locator(f'[data-tc-episode="{ctx.series_target}"]')
     if target.count() == 0:
-        return Result(7, "Сериал", False, None, f"серий {count}, но {_SERIES_TARGET} среди них нет")
+        detail = f"серий {count}, но {ctx.series_target} среди них нет"
+        return Result(7, "Сериал", False, None, detail)
     # Клик по серии - тоже старт показа, не иначе, чем кнопка «Играть» в пункте 4: без
     # `--play` он поднимал show мимо `allow_play` и мимо счётчика соседа. Тормоз тот же.
     guard = _playback_guard(7, "Сериал", ctx, True, "")
@@ -1961,8 +2004,9 @@ def check_7_series(ctx: Ctx) -> Result:
         time.sleep(1.0)
     ok = tabs_ok and season == 2 and episode == 1
     detail = (
-        f"вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; серий {count}; "
-        f"выбран {_SERIES_TARGET}, /api/state season={season!r} episode={episode!r}"
+        f"{ctx.series_title!r}; вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; "
+        f"серий {count}; выбран {ctx.series_target}, /api/state season={season!r} "
+        f"episode={episode!r}"
     )
     return Result(7, "Сериал", ok, None, detail)
 
@@ -1970,13 +2014,24 @@ def check_7_series(ctx: Ctx) -> Result:
 def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
     """Автопереход: перемотка к концу → плашка с отсчётом → через 10 с следующая серия.
 
-    🔴 Мерится на СЕРИАЛЕ, который поднял пункт 7, а не на фильме из пункта 4: следующей
-    серии у фильма нет по устройству продукта, и плашка на нём не появится никогда
-    (по живому замеру пункт держался красным на фильме и звал это дефектом).
+    🔴 Пункт сам открывает первую видимую серию, а не донашивает результат пункта 7:
+    красный список сезонов не имеет права превращать проверку зрительского перехода
+    в «заблокирован». Фильм для этого не годится: следующей серии у него нет по
+    устройству продукта, и плашка на нём не появится никогда.
     """
-    guard = _playback_guard(8, "Автопереход", ctx, series_ok, "пункт 7 (сериал не поднялся)")
+    del series_ok
+    guard = _playback_guard(8, "Автопереход", ctx, True, "")
     if guard:
         return guard
+    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    if refusal is not None:
+        return Result(8, "Автопереход", False, None, refusal)
+    # s1e1 лежит в первой, уже видимой вкладке. Это именно путь зрителя: карточка,
+    # строка серии, клик, а не JS-переход и не результат проверки вкладок выше.
+    target = ctx.page.locator('[data-tc-episode="s1e1"]')
+    if target.count() == 0:
+        return Result(8, "Автопереход", False, None, "нет видимой строки s1e1 для перехода")
+    target.first.click()
     if not _await_playback(ctx):
         return Result(8, "Автопереход", False, None, "первого кадра серии так и не было")
     duration = float(ctx.page.eval_on_selector("video", "v => v.duration"))
@@ -2000,6 +2055,9 @@ def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
         return Result(8, "Автопереход", False, None, why)
     before = _state(ctx)
     before_pair = (before.get("season"), before.get("episode"))
+    # Вооружаем именно после плашки, когда старая серия ещё играет: следующий rVFC
+    # теперь нельзя спутать с её последним кадром.
+    ctx.page.evaluate("window.__tcAcceptanceMeter.arm()")
     ctx.page.wait_for_timeout(10_000)
     # 🔴 Планка - смена СЕРИИ, а не смена тела снимка: позиция тикает при любом показе,
     # и `before_body != after_body` зеленело бы и на перезапуске ТОЙ ЖЕ серии, то есть
@@ -2015,12 +2073,13 @@ def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
         if None not in after_pair and after_pair != before_pair:
             break
         ctx.page.wait_for_timeout(1000)
-    frame, _ = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
+    frame, _ = _next_frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
     waits, total = _wait_stalls(ctx, _WATCH_SECONDS) if frame is not None else ([], 0.0)
     ok = None not in after_pair and after_pair != before_pair and frame is not None and not waits
     detail = (
-        f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
-        f"кадр {frame!r} с, подгрузы за {_WATCH_SECONDS:.0f} с: {len(waits)}, {total:.1f} с"
+        f"s1e1; плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
+        f"кадр следующей серии {frame!r} с, подгрузы за {_WATCH_SECONDS:.0f} с: "
+        f"{len(waits)}, {total:.1f} с"
     )
     return Result(8, "Автопереход", ok, None, detail)
 
@@ -2786,26 +2845,39 @@ def check_13_texts(ctx: Ctx) -> Result:
             "показ выключен этим прогоном (--play не задан)",
             "каталог проверен, но надпись до кадра на экране зрителя не проверена",
         )
-    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    refusal = _open_card_by_page(ctx, ctx.screen_title)
     if refusal is not None:
         return Result(13, "Тексты", False, None, refusal)
-    tabs = ctx.page.locator(".tc-tab")
-    season_two = next(
-        (
-            tabs.nth(index)
-            for index in range(tabs.count())
-            if re.search(r"\b2\b", tabs.nth(index).inner_text())
-        ),
-        None,
-    )
-    if season_two is None:
-        return Result(13, "Тексты", False, None, "нет вкладки второго сезона для проверки экрана")
-    _reveal_tab(season_two)
-    season_two.click(force=True)
-    row = ctx.page.locator(f'[data-tc-episode="{_SERIES_TARGET}"]')
-    if row.count() == 0:
-        return Result(13, "Тексты", False, None, f"нет {_SERIES_TARGET} для проверки экрана")
-    row.first.click()
+    screen_path = ctx.screen_title
+    if ctx.screen_target:
+        season_match = re.fullmatch(r"s(\d+)e\d+", ctx.screen_target)
+        if season_match is None:
+            return Result(13, "Тексты", False, None, f"некорректная серия {ctx.screen_target!r}")
+        season_number = season_match.group(1)
+        tabs = ctx.page.locator(".tc-tab")
+        tab = next(
+            (
+                tabs.nth(index)
+                for index in range(tabs.count())
+                if re.search(rf"\b{re.escape(season_number)}\b", tabs.nth(index).inner_text())
+            ),
+            None,
+        )
+        if tab is None:
+            detail = f"нет вкладки сезона {season_number} для проверки экрана"
+            return Result(13, "Тексты", False, None, detail)
+        _reveal_tab(tab)
+        tab.click(force=True)
+        row = ctx.page.locator(f'[data-tc-episode="{ctx.screen_target}"]')
+        if row.count() == 0:
+            return Result(13, "Тексты", False, None, f"нет {ctx.screen_target} для проверки экрана")
+        row.first.click()
+        screen_path += f" {ctx.screen_target}"
+    else:
+        button = ctx.page.locator("[data-tc-play]")
+        if button.count() == 0:
+            return Result(13, "Тексты", False, None, "нет «Играть» для проверки экрана")
+        button.first.click()
     began = time.monotonic()
     screen = ""
     saw_screen = False
@@ -2829,7 +2901,7 @@ def check_13_texts(ctx: Ctx) -> Result:
         + f"; ключей из них {len(referenced)}, вне каталога: {missing_keys or 'нет'}; "
         f"JS-литералов человеку: {len(suspects)} {suspects}; "
         f"CSS content-литералов: {len(css_suspects)} {css_suspects}; "
-        f"экран до кадра {'виден' if saw_screen else 'НЕ ВИДЕН'}; "
+        f"экран {screen_path!r} до кадра {'виден' if saw_screen else 'НЕ ВИДЕН'}; "
         f"stream_source: {'НЕТ' if 'stream_source' not in screen.casefold() else 'ЕСТЬ'}"
     )
     return Result(13, "Тексты", ok, None, detail)
@@ -4112,11 +4184,37 @@ def main() -> int:
     )
     parser.add_argument("--shots", type=Path, default=Path("/tmp/web-acceptance-shots"))
     parser.add_argument(
+        "--play-title",
+        default=_PLAY_MOVIE_TITLE,
+        help="фильм пункта 4; нужен для живого контроля подгрузов на том же пути",
+    )
+    parser.add_argument("--series-title", default=_SERIES_TITLE, help="сериал и строка пункта 7")
+    parser.add_argument(
+        "--series-episode", default=_SERIES_TARGET, help="строка сериала пункта 7, например s1e1"
+    )
+    parser.add_argument(
+        "--screen-title", default=_SERIES_TITLE, help="карточка экранной части пункта 13"
+    )
+    parser.add_argument(
+        "--screen-episode",
+        default=_SERIES_TARGET,
+        help="серия экранной части пункта 13; пустая строка выбирает фильмовую «Играть»",
+    )
+    parser.add_argument(
+        "--throttle-after-frame",
+        type=int,
+        default=0,
+        metavar="BYTES_S",
+        help="контроль подгрузов: CDP сужает сеть только после первого кадра пункта 4",
+    )
+    parser.add_argument(
         "--only",
         default="",
         help="номера пунктов через запятую; пункт без своего предшественника заблокирован",
     )
     args = parser.parse_args()
+    if args.throttle_after_frame < 0:
+        parser.error("--throttle-after-frame должен быть неотрицательным")
     only = {int(number) for number in args.only.split(",") if number.strip()}
 
     en_code, en_body = _get(args.base + "/api/phrases")
@@ -4147,13 +4245,31 @@ def main() -> int:
             args.play,
             args.shots,
             english,
+            play_title=args.play_title,
+            series_title=args.series_title,
+            series_target=args.series_episode,
+            screen_title=args.screen_title,
+            screen_target=args.screen_episode,
+            throttle_after_frame=args.throttle_after_frame,
         )
         pick(31, "Главная → карточка", lambda: check_31_home_card(wide))
         pick(28, "Полка → обложка", lambda: check_28_shelf_card(wide))
         pick(30, "Обложки выдачи", lambda: check_30_search_posters(wide))
         pick(29, "Кнопка на ТВ", lambda: check_29_card_tv_button(wide))
         page = browser.new_page()
-        ctx = Ctx(args.base, page, args.play, args.shots, english)
+        ctx = Ctx(
+            args.base,
+            page,
+            args.play,
+            args.shots,
+            english,
+            play_title=args.play_title,
+            series_title=args.series_title,
+            series_target=args.series_episode,
+            screen_title=args.screen_title,
+            screen_target=args.screen_episode,
+            throttle_after_frame=args.throttle_after_frame,
+        )
         pick(1, "Главная", lambda: check_1_home(ctx))
         pick(17, "Вбок", lambda: check_17_wheel(ctx))
         pick(18, "Подпись", lambda: check_18_caption_scroll(ctx))

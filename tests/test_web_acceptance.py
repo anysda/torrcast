@@ -67,3 +67,27 @@ def test_скачок_закладки_не_становится_кадром_б
     frame, _ = module._frame_measure(ctx, 0.0)
 
     assert frame is None
+
+
+def test_автопереход_не_принимает_последний_кадр_старой_серии() -> None:
+    module = acceptance()
+    page = Page(
+        {"frame": 0.1, "start": 30.0, "playing": [0.1], "nextFrame": None},
+        30.4,
+    )
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
+
+    frame, _ = module._next_frame_measure(ctx, 0.0)
+
+    assert frame is None
+
+
+def test_автопереход_берёт_кадр_после_следующего_playing() -> None:
+    module = acceptance()
+    page = Page({"nextFrame": 4.2, "nextPlaying": 4.1}, 0.0)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
+
+    frame, meter = module._next_frame_measure(ctx, 1.0)
+
+    assert frame == 4.2
+    assert meter["nextPlaying"] == 4.1
