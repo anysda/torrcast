@@ -7,6 +7,8 @@ from typing import Any, cast
 
 import pytest
 
+import torrcast.usecases.cast_command._choose as choose_module
+import torrcast.usecases.cast_command._play_state as play_state
 from tests.fakes import composition
 from tests.usecases.cast_command.world import entry, plan, plans
 from torrcast.domain.args import Args
@@ -183,3 +185,54 @@ def test_the_menu_warm_rises_as_before_when_no_bookmark_answers() -> None:
     assert picked == EXIT_OK
     assert bench.warmed == [one.picture.key for one in menu]
     assert bench.spared == [menu[0].picture.key]
+
+
+class _ChosenError(Exception):
+    """Отбор позван: дальше зеркалу идти незачем."""
+
+
+class _ReorderBench(_WatchBench):
+    def reorder(self, plan: Plan, _renewed: Plan) -> Plan:
+        return plan
+
+    def keep_plan(self, plan: Plan) -> None:
+        return None
+
+
+def test_the_selection_gets_the_renewal_the_stage_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 Показ с карточки на круге с диска стартует обновлением из сети: оно едет от сцены."""
+    handed: list[object] = []
+
+    def played(*got: object) -> None:
+        handed.append(got[-1])
+        raise _ChosenError
+
+    def renewed(_args: Args) -> None:
+        return None
+
+    monkeypatch.setattr(choose_module, "_topup", lambda plan, *_rest, **_named: plan)
+    monkeypatch.setattr(choose_module, "_timed", lambda plan, *_rest: plan)
+    monkeypatch.setattr(choose_module, "_played", played)
+    monkeypatch.setattr(play_state, "_play_native", lambda *_rest: None)
+    before = _play_stage()
+    _configure_play_stage(replace(before, renewed=renewed))
+    menu = plans(1)
+    try:
+        with pytest.raises(_ChosenError):
+            _choose(
+                Config(),
+                cast(Any, Args(query=["тачки"])),
+                Choice(profile=CAUTIOUS, how="стенд"),
+                WatchState(),
+                None,
+                _Clock(),
+                circle=lambda *args, **rest: menu,
+                stand=lambda *args, **rest: cast(Bench, _ReorderBench()),
+                passport_of=lambda pictures: cast(_Passport, _NoPassport()),
+                pick=lambda *args, **rest: menu[0],
+                bookmark=lambda *args, **rest: None,
+            )
+    finally:
+        _configure_play_stage(before)
+
+    assert handed == [renewed]

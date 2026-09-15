@@ -22,6 +22,7 @@ def test_without_the_page_the_show_searches_itself_and_matches_keys_exactly() ->
     fresh: Any = object()
     assert _play_stage().bench(Args(query=[]), fresh) is fresh, "стенд отбора свой"
     _play_stage().settled(fresh, None)
+    assert _play_stage().renewed(Args(query=[])) is None, "круг свой и из сети: обновлять нечем"
     assert _exact_picture(menu, menu[1].picture.key) == 2
     assert _exact_picture(menu, "movie:никто:1900") == 0
 

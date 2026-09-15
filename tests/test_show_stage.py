@@ -19,6 +19,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
 from torrcast.ports.progress.quiet import Quiet
+from torrcast.usecases.cast_command.play_stage import _configure_play_stage, _play_stage
 from torrcast.usecases.discover.told_circle import ToldCircle
 from torrcast.usecases.select.plan import Plan
 from web.circle_disk import CircleDisk
@@ -235,3 +236,13 @@ def test_a_card_show_renews_its_picture_from_the_circle_of_the_network(
     assert got is circle[0] and warm.asked == ["сеть: шоу"]
     assert show_stage._card_renewed(Args(query=["шоу", "s2e1"])) is None
     assert warm.asked == ["сеть: шоу"], "консоль и Home Assistant карточки не называют"
+
+
+def test_the_page_stage_renews_a_show_from_the_card_circle() -> None:
+    """Мост страницы ставит обновление карточки: без него пул с диска без живой раздачи молчит."""
+    before = _play_stage()
+    try:
+        show_stage.show_stage()
+        assert _play_stage().renewed is show_stage._card_renewed
+    finally:
+        _configure_play_stage(before)
