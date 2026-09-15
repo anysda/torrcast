@@ -7,6 +7,7 @@ import json
 import pytest
 
 import web.shelves as shelves_module
+from hass.hit_posters import hits
 from torrcast.domain.json_value import JsonValue
 from web.request import Request
 from web.shelves import shelves
@@ -51,3 +52,8 @@ def test_an_unbuilt_cache_marks_the_answer_partial(
 
     assert answer.code == 200
     assert ("X-Torrcast-Partial", "1") in answer.extra
+
+
+def test_the_shelves_take_only_covers_whose_bytes_are_here() -> None:
+    """Сборка полок ждёт байты обложек: плитка главной не держит соединение браузера."""
+    assert shelves_module._cache.offer == hits.settled

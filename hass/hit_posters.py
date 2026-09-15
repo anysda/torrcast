@@ -40,6 +40,8 @@ from torrcast.domain.json_value import JsonValue
 FIELD = "poster"
 #: Сколько ждём источник картинок на один запрос, секунды.
 _TIMEOUT = 8.0
+#: Сколько фоновая сборка ждёт байты всей своей пачки, секунды.
+_SETTLE_BY = 30.0
 
 
 class HitPosters(HitClaims):
@@ -81,6 +83,22 @@ class HitPosters(HitClaims):
     def urgent(self, results: list[JsonValue]) -> list[JsonValue]:
         """:meth:`offer` видимого списка: его запросы идут впереди полок и «похожих»."""
         return self.offer(results, urgent=True)
+
+    def settled(self, results: list[JsonValue]) -> list[JsonValue]:
+        """:meth:`offer` фоновой сборки: имя остаётся только у тех, чьи байты уже легли.
+
+        Полку главной страница получает готовой, и имя без байтов держало соединение
+        браузера на маршруте картинки до :data:`~hass.hit_claims._WAIT`: шесть таких плиток
+        останавливали опрос поиска на той же вкладке (TC-1286). Байты ждёт фон, а не человек.
+        """
+        offered = self.offer(results)
+        self._arrive([_name(ask) for ask in map(_about, offered) if ask], _SETTLE_BY)
+        return [
+            {name: value for name, value in record.items() if name != FIELD}
+            if isinstance(record, dict) and FIELD in record and not self.landed(record)
+            else record
+            for record in offered
+        ]
 
     def landed(self, record: JsonValue) -> bool:
         """Байты картинки этой записи уже здесь: плитка не ждёт их на маршруте."""

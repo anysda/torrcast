@@ -8,6 +8,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
+
 from hass.hit_posters import _KEEP, FIELD, HitPosters
 from hass.poster_lookup import _poster_identity
 from hass.poster_shelf import PosterShelf
@@ -235,3 +237,27 @@ def test_a_name_outlives_a_list_longer_than_the_ready_ones(tmp_path: Path) -> No
     assert hits.read(given[0]) == (POSTER, "image/jpeg"), (
         f"первая из {len(titles)} картинок стала битой, хотя её байты лежат на полке"
     )
+
+
+class _HalfSource(FakeSource):
+    """Байты едут не сразу, и у «Оно» не доезжают вовсе: приговор был, загрузка сорвалась."""
+
+    def bodies(self, wanted: dict[Ask, list[str]], timeout: float) -> dict[Ask, bytes]:
+        threading.Event().wait(0.2)
+        got = super().bodies(wanted, timeout)
+        return {ask: body for ask, body in got.items() if ask.title != "Оно"}
+
+
+@pytest.mark.machine
+def test_a_background_build_names_only_pictures_whose_bytes_landed(tmp_path: Path) -> None:
+    """Полка главной получает имя только легшей обложки: маршрут отдаст её без ожидания.
+
+    Имя без байтов держало соединение браузера на маршруте картинки до шести секунд, и
+    плитки полок останавливали опрос поиска на той же вкладке (TC-1286).
+    """
+    source = _HalfSource(pages={"Тачки": ["Cars"], "Оно": ["It"]})
+    hits = _hits(tmp_path, source)
+    cars, it = hits.settled([_row(), _row("Оно", 2017)])
+    assert isinstance(cars, dict) and FIELD in cars, "сборка не дождалась легших байтов"
+    assert hits.landed(cars)
+    assert isinstance(it, dict) and FIELD not in it, "полка унесла имя недоехавшей обложки"

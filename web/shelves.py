@@ -33,7 +33,7 @@ def _feed(limit: int) -> list[FeedRow]:
 _cache = ShelvesCache(
     feed=_feed,
     catalogue=torrent_catalogue,
-    offer=hits.offer,
+    offer=hits.settled,
     passport=FACTS.passport.of,
     warm=TARGETS.prepare,
 )

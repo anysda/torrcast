@@ -11,7 +11,7 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture_tile import picture_tile
 from torrcast.domain.spoken_title import spoken_title
 
-#: Кто дописывает плиткам обложку; в бою - :data:`hass.hit_posters.hits`.offer.
+#: Кто дописывает плиткам обложку; в бою - :data:`hass.hit_posters.hits`.settled.
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
 #: Тот же ``Passport.of``: раздача сама латиницы не назвала - паспорт добирает её фоном
 #: (:func:`web.related_lookup._seed` живёт тем же приёмом).
@@ -54,9 +54,9 @@ def _covered(records: list[JsonValue], limit: int) -> list[JsonValue]:
     """Первые limit записей с обложкой: место выброшенной добирает следующая картина.
 
     Рекомендация без картинки - не рекомендация: полку листают глазами, а не читают.
-    «Обложки нет» тут - ПРИГОВОР источника, а не «обложка ещё едет»: имя выдаётся сразу
-    после приговора, пока байты едут фоном (:class:`hass.hit_posters.HitPosters`), и у
-    едущей обложки поле ``poster`` уже на месте.
+    «Обложки нет» тут - ПРИГОВОР источника, а не «обложка ещё едет»: в бою сборка ждёт
+    байты (:meth:`hass.hit_posters.HitPosters.settled`), и имя остаётся только у легшей
+    обложки; обложка, чьи байты не доехали, уступает место следующей картине.
 
     🔴 Имени нет НИ У ОДНОЙ записи - приговора не было вовсе: источник картинок молчит,
     и отличить «обложки нет» от «не спросили» нечем. Такую сборку отбор не трогает -

@@ -124,6 +124,15 @@ class HitClaims:
             if event is not None:
                 event.wait(max(0.0, deadline - time.monotonic()))
 
+    def _arrive(self, names: Sequence[str], limit: float) -> None:
+        """Дождаться байтов тех из картинок, что ещё в пути, но не дольше ``limit`` на всех."""
+        deadline = time.monotonic() + limit
+        for name in names:
+            with self._lock:
+                event = self._pending.get(name)
+            if event is not None:
+                event.wait(max(0.0, deadline - time.monotonic()))
+
     def _missed(self, name: str, unknown: bool, calm_at: float) -> None:
         """Записать промах под замком: настоящий держится долго, неизвестный - до тишины."""
         tries = self._again.get(name, (0, 0.0))[0] + 1
