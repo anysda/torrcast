@@ -15,13 +15,15 @@ def same_series_later(later: Picture, year: int | None, season: int) -> bool:
     ремейка («Доктор Кто» 1963 и 2005). Имя и даже оригинал у ремейка те же, поэтому
     решает счёт: просят не первый сезон, и первого среди раздач поздней картины нет.
     Тот же год - одна картина, разбитая кругом; год раньше - не продолжение.
+    Год неизвестен - судит тот же счёт: картина без года в круге «Галактики» держала паки
+    ремейка 2003.
     """
-    if not year or not later.year or later.year == year:
+    if year and later.year == year:
         return True
-    return (
-        later.year > year
-        and season > 1
-        and not any(1 in (release.seasons or (release.season,)) for release in later.releases)
+    if year and later.year and later.year < year:
+        return False
+    return season > 1 and not any(
+        1 in (release.seasons or (release.season,)) for release in later.releases
     )
 
 

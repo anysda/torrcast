@@ -21,7 +21,7 @@ def _show(year: int | None, *seasons: tuple[int, ...]) -> Picture:
 
 @pytest.mark.parametrize(
     ("later", "year", "season"),
-    [(_show(2026, (5,)), 2014, 5), (_show(2014, (1,)), 2014, 1), (_show(None, (1,)), 2014, 1)],
+    [(_show(2026, (5,)), 2014, 5), (_show(2014, (1,)), 2014, 1), (_show(None, (5,)), 2014, 5)],
 )
 def test_a_later_season_or_the_same_year_is_the_same_series(
     later: Picture, year: int, season: int
@@ -37,6 +37,8 @@ def test_a_later_season_or_the_same_year_is_the_same_series(
         (_show(2005, (1, 2)), 1963, 2),
         (_show(2005, (2,)), 1963, 1),
         (_show(1963, (2,)), 2005, 2),
+        (_show(None, (1,)), 1978, 1),
+        (_show(None, (1, 2)), 1978, 2),
     ],
 )
 def test_a_remake_starts_its_own_count_and_is_not_the_same_series(
