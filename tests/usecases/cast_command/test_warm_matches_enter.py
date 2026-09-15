@@ -12,7 +12,9 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import inspect
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -84,6 +86,7 @@ class _WatchBench:
     def __init__(self) -> None:
         self.warmed: list[str] = []
         self.spared: list[str] = []
+        self.kept: list[str] = []
         self.dropped = False
 
     def start(self, plan: Plan, number: int) -> None:
@@ -95,6 +98,15 @@ class _WatchBench:
 
     def drop_all(self) -> None:
         self.dropped = True
+
+    def reorder(self, _before: Plan, after: Plan) -> Plan:
+        return after
+
+    def keep_plan(self, plan: Plan) -> None:
+        self.kept.append(plan.picture.key)
+
+    def keep_only(self, _prep: object) -> None:
+        return None
 
 
 @pytest.fixture(autouse=True)
@@ -214,3 +226,33 @@ def test_the_list_on_screen_stays_chronological_when_the_warm_starts_from_the_mi
     assert remembered == [one.picture.key for one in menu], "порядок номеров поехал"
     assert bench.warmed[0] == menu[1].picture.key, "греется дефолт, а он второй в списке"
     assert taken is not None and taken.picture.year == 2016
+
+
+def test_a_picture_changed_after_the_menu_gets_its_own_spare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IMDb может сменить картину после меню, и её запасной нельзя оставлять соседке."""
+    menu = branches()[0].menu()
+    chosen = menu[1]
+    bench = _WatchBench()
+    module = importlib.import_module("torrcast.usecases.cast_command._choose")
+    prep = SimpleNamespace(release=chosen.ranked[0], files=[], number=1)
+    monkeypatch.setattr(module, "_played", lambda *args: (args[2], prep))
+
+    with outside(Outside()):
+        _choose(
+            Config(),
+            cast(Any, Args(query=["моана"], pick=1)),
+            Choice(profile=CAUTIOUS, how="стенд"),
+            WatchState(),
+            None,
+            _Clock(),
+            circle=lambda *rest, **named: menu,
+            stand=lambda *rest, **named: cast(Bench, bench),
+            passport_of=lambda pictures: cast(_Passport, _NoPassport()),
+            pick=lambda *rest, **named: chosen,
+            bookmark=lambda *rest, **named: None,
+        )
+
+    assert bench.kept == [chosen.picture.key]
+    assert bench.spared == [menu[0].picture.key, chosen.picture.key]
