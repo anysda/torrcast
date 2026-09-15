@@ -104,7 +104,9 @@ def test_серия_контроля_не_прибита_к_s2e1() -> None:
 
 
 def _tiles(dim: int, live: int = 0, year: str = "") -> list[dict[str, Any]]:
-    shown = [{"dim": True, "live": False, "text": ""} for _ in range(dim)]
+    # Погашенная плитка на странице тоже несёт `data-tc-focusable` (`web/static/tile.js`):
+    # гасит её только снятый `onActivate`, поэтому снимок видит её «живой».
+    shown = [{"dim": True, "live": True, "text": ""} for _ in range(dim)]
     return shown + [{"dim": False, "live": True, "text": year} for _ in range(live)]
 
 
@@ -263,7 +265,7 @@ class SeasonPage:
             raise AssertionError(expression)
         if arg is None:
             shot = [{"name": name} for name in self.current]
-            self.current = ["Season 1", "Season 2"]
+            self.current = ["Season 2", "Season 1"]
             return shot
         assert arg in self.current
         self.clicked = arg

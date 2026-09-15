@@ -1629,7 +1629,7 @@ def check_2_search(ctx: Ctx) -> Result:
                 # Погашенные добавочные плитки могут быть штатным хвостом выдачи:
                 # «Мы» 2019 остаётся открываемым. Красно только когда зрителю не
                 # досталась ни одна открываемая плитка и не объяснили причину.
-                bad = not any(tile["live"] for tile in tiles) and not nothing
+                bad = not any(tile["live"] and not tile["dim"] for tile in tiles) and not nothing
                 return (
                     not bad,
                     f"{query!r}: плиток {len(tiles)}, погашено {dim}, надпись {nothing!r}",
@@ -2007,21 +2007,6 @@ def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
     if not _await_card(ctx):
         return f"карточка {title!r} не доехала за {_CARD_READY_WAIT / 1000:.0f} с"
     return None
-
-
-def _reveal_tab(tab: Any) -> None:
-    """Прокрутить полосу вкладок до вкладки, прежде чем нажимать её как зритель."""
-    tab.evaluate(
-        """node => {
-          for (let parent = node.parentElement; parent; parent = parent.parentElement) {
-            if (parent.scrollWidth > parent.clientWidth) {
-              parent.scrollLeft = node.offsetLeft - parent.offsetLeft
-                - (parent.clientWidth - node.offsetWidth) / 2;
-              return;
-            }
-          }
-        }"""
-    )
 
 
 def _episode_parts(target: str) -> tuple[int, int] | None:
