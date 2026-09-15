@@ -21,7 +21,7 @@ from torrcast.usecases.select_bench._bench_supply import _supply_verdict
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.usecases.select_bench._bench_tally import _Tally
-    from torrcast.usecases.select_bench.bench import Bench
+    from torrcast.usecases.select_bench._bench_trouble import _BenchTrouble
 
 #: От клика до первого кадра, секунды: решение владельца.
 SHOW_START: Final = 5.0
@@ -36,7 +36,7 @@ _STEP: Final = 0.2
 
 
 def _in_time(
-    bench: Bench,
+    bench: _BenchTrouble,
     plan: Plan,
     args: Args,
     prep: _Prep,
@@ -71,7 +71,7 @@ def _in_time(
     return prep
 
 
-def _fit(bench: Bench, plan: Plan, prep: _Prep) -> bool:
+def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep) -> bool:
     """Годна ли готовая раздача показу теми же мерками, что и в очереди."""
     trouble = bench._trouble(
         prep,
