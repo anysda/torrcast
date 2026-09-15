@@ -6,7 +6,7 @@ import re
 
 from torrcast.domain._name_data.data_2 import _SEASON_EPISODE_RES, _SEASON_ONLY_RES
 from torrcast.domain._name_data.data_3 import _CODEC_TOKEN_RE, _SERIES_HINT_RE
-from torrcast.domain._named_seasons import _named_episode, _named_seasons
+from torrcast.domain._named_seasons import _TWO_BY_TWO_RE, _named_episode, _named_seasons
 from torrcast.domain.episode import Episode
 from torrcast.domain.episode_span import _episode_span
 from torrcast.domain.fansub_episode import _fansub_episode
@@ -16,7 +16,7 @@ def _parse_series(
     text: str,
 ) -> tuple[int | None, int | None, tuple[int, ...], tuple[int, ...], bool]:
     fansub = _fansub_episode(text)
-    text = _CODEC_TOKEN_RE.sub(" ", text)
+    text = _without_channel(_CODEC_TOKEN_RE.sub(" ", text))
     seasons = _named_seasons(text)
     if fansub:
         # «Season 3 - 11» у фансаба - серия 11 третьего сезона, а не сезоны 3-11.
@@ -59,6 +59,14 @@ def _parse_series(
     if number is not None:
         return (None, number, (), episodes, True)
     return (None, None, (), episodes, bool(episodes) or bool(_SERIES_HINT_RE.search(text)))
+
+
+def _without_channel(text: str) -> str:
+    """Снять «2x2», если сезон назван иначе: «[S01] | 2x2» - первый сезон, а не второй."""
+    bare = _TWO_BY_TWO_RE.sub(" ", text)
+    patterns = (*_SEASON_EPISODE_RES, *_SEASON_ONLY_RES)
+    named = bare != text and (_named_seasons(bare) or any(p.search(bare) for p in patterns))
+    return bare if named else text
 
 
 def _parse_episode(text: str) -> Episode | None:

@@ -45,6 +45,8 @@ _WORD: Final = r"(?:seasons?|сезон(?:ы|а|ов|и)?)"
 _NOT_AFTER_NUMBER: Final = r"(?<!\d)(?<!\d\s)"
 #: Перечень, за которым идёт слово «серии», - это серии, а не сезоны.
 _NOT_EPISODES: Final = r"(?![.,]\d)(?!\s*(?:сери|эпизод|episodes?\b))"
+#: Телеканал «2x2» в имени раздачи: форма «сезон x серия», но сезон называет не он.
+_TWO_BY_TWO_RE: Final = re.compile(r"\b2\s*[xх]\s*2\b", _I)
 
 _PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(_LEAD + r"((?:s\d{1,2}[., +/\\&-]+)+s\d{1,2}\b)", _I),
@@ -119,4 +121,4 @@ def _range(values: str) -> tuple[int, ...]:
     return (numbers[0],) if len(numbers) == 1 else ()
 
 
-__all__ = ["_named_episode", "_named_seasons"]
+__all__ = ["_TWO_BY_TWO_RE", "_named_episode", "_named_seasons"]

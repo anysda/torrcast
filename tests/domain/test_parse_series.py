@@ -38,3 +38,12 @@ def test_a_tv_channel_in_the_voice_credits_is_not_a_season() -> None:
     name = "Терминатор 2 / Terminator 2 (1991) BDRip 1080p | Dub (ТВ-3) + DVO (Twister)"
 
     assert not _parse_series(name)[4]
+
+
+def test_the_2x2_channel_does_not_override_the_season_the_name_gives() -> None:
+    """«Футурама [S01] ... | 2x2» и «Сезон: 7 ... DVO (2x2)»: «2x2» - телеканал озвучки."""
+    assert _parse_series("Футурама / Futurama [S01] (1999) WEBRip-HEVC 2160p | 2x2")[0] == 1
+    named = "Futurama / Сезон: 7 / Серии: 1-26 из 26 [2012-2013, HDRip] DVO (2x2) + Original"
+    assert _parse_series(named)[0] == 7
+    assert _parse_series("Scrubs 2x24 My Dream Job")[:2] == (2, 24)
+    assert _parse_series("Сериал 2x2 1080p")[:2] == (2, 2), "без другого сезона это серия"
