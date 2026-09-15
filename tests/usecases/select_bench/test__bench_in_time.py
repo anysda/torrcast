@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 
 import pytest
 
@@ -83,5 +84,19 @@ def test_a_younger_release_without_a_proven_russian_track_does_not_jump_the_queu
     bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, _ENG))
 
     prep = bench.resolve(plan(_POOL), _ASKED, Said())
+
+    assert prep.number == 1
+
+
+@pytest.mark.machine
+def test_a_younger_release_that_the_receiver_gets_recoded_does_not_jump_the_queue(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """Младшая тяжелее потолка приёмника пережимается на ходу и срока не выигрывает."""
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    heavy = replace(_RUS, video_bps=15_000_000.0)
+    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, heavy))
+
+    prep = bench.resolve(plan(_POOL, recode_at=10.0), _ASKED, Said())
 
     assert prep.number == 1
