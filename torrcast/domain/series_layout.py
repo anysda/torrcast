@@ -13,7 +13,9 @@
    TVmaze: пустые заготовки IMDb («Рик и Морти» s10-12 по одной серии) не становятся
    вкладками. Молчит TVmaze - остаются сезоны IMDb;
 4. дату серии дают часы TVmaze, если его нумерация сезона совпала с выбранной; серия,
-   которая ещё не вышла, несёт дату выхода, вышедшая - пустую строку.
+   которая ещё не вышла, несёт дату выхода, вышедшая - пустую строку;
+5. молчит TVmaze, а раздачи зовут сезон, которого у IMDb нет («Интерны» S05): нумерации
+   расходятся, серия IMDb не сыграла бы, и раскладки нет - остаются таблицы раздач.
 """
 
 from __future__ import annotations
@@ -38,10 +40,11 @@ def series_layout(
     """Строки сезонов ``(номер, дата выхода или "")``; пусто - каталог сериала не знает."""
     tvmaze = _by_season(aired)
     candidates = [layout for layout in (imdb, tvmaze) if layout]
-    if not candidates:
+    pooled = {number for release in releases for number in _named(release)}
+    if not candidates or (not tvmaze and not pooled <= imdb.keys()):
         return {}
     chosen = min(candidates, key=lambda layout: _misses(layout, releases))
-    named = {number for release in releases for number in _named(release)} | set(saved)
+    named = pooled | set(saved)
     last = max(named, default=None)
     grown = _grown(chosen, tvmaze if chosen is imdb else {}, releases)
     out: dict[int, list[tuple[int, str]]] = {}

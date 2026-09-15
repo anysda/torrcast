@@ -49,6 +49,19 @@ def test_imdb_placeholders_past_the_releases_are_not_tabs_while_tvmaze_answers()
     assert _counts(series_layout(imdb, _aired({1: 2, 2: 2}), releases, [3], NOW))[3] == 1
 
 
+def test_without_tvmaze_imdb_numbering_the_releases_contradict_is_not_shown_interns() -> None:
+    """Раздачи зовут сезон 3, у IMDb его нет: s1 из 60 серий не сыграл бы s1e45."""
+    imdb = {1: tuple(range(1, 61)), 2: tuple(range(1, 61))}
+    releases = [parse_release_name(f"Интерны / Сезон: {n} / Серии: 1-20 из 20") for n in (1, 3)]
+
+    assert series_layout(imdb, {}, releases, [], NOW) == {}
+    assert _counts(series_layout(imdb, _aired({1: 20, 2: 20, 3: 20}), releases, [], NOW)) == {
+        1: 20,
+        2: 20,
+        3: 20,
+    }
+
+
 def test_an_episode_still_to_come_carries_its_date() -> None:
     aired = {**_aired({1: 1}), (1, 2): ("2026-09-21T01:00:00+00:00", "2026-09-20")}
     releases = [parse_release_name("Show S01E01")]
