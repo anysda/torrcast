@@ -30,6 +30,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
 from hass.hit_posters import hits
+from hass.offer_within import offer_within
 from hass.refused_error import RefusedError
 from hass.search_results import search_results
 from torrcast.adapters.chromecast.profile_detector import detector
@@ -92,9 +93,9 @@ def searching(
 
     ``offer`` дописывает имя картинки только тем записям, чья картина прошла приговор
     (:class:`hass.hit_posters.HitPosters`: год сверен И адрес постера назван источником) -
-    не каждой находке, иначе список нёс бы рамку вокруг пустоты. Приговор ждётся тут же, в
-    сети, до возврата списка: пачка стоит на нём полдесятка запросов разом, а не по три на
-    находку, и это осознанный размен - плитка не бывает битой ценой этого ожидания. Не
+    не каждой находке, иначе список нёс бы рамку вокруг пустоты. Приговор ждётся тут же, но
+    не дольше :data:`hass.offer_within.VERDICT_BY`: к сроку список уходит с именами легших
+    картинок, а приговор досчитывается фоном (TC-1284). Не
     названный зовущим, он берётся из :data:`OFFER` в момент вызова, а не в момент
     объявления: подделка в зеркале ставится именно туда. ``warm`` - общий кэш кругов: без
     него карточка, открытая следом, проходила индексеры второй раз (TC-1264). Круг с диска
@@ -112,4 +113,4 @@ def searching(
     except TorrcastError as refusal:
         raise RefusedError(str(refusal)) from refusal
     remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])
-    return named(search_results(plans, enter_take(plans, args.title_query).number))
+    return offer_within(named, search_results(plans, enter_take(plans, args.title_query).number))
