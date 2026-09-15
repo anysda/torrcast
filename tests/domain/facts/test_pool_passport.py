@@ -63,3 +63,15 @@ def test_an_article_without_a_year_does_not_open_the_map() -> None:
     article = Origin(title="Mēs?", name="Мы")
     assert pool_passport(article, "Мы", [Picture(title="Мы", year=2019)], known) is article
     assert asked == []
+
+
+def test_a_cyrillic_original_gives_no_latin_title() -> None:
+    """Оригинал русской картины записан кириллицей: латиницей её добирать нечем."""
+    rows = {"мама": [MapPicture("Мама", 2013, False, "Мама", 900)]}
+    article = Origin(title="Mother!", year=2017, name="Мама")
+
+    about = pool_passport(
+        article, "Мама", [Picture(title="Мама", year=2013)], lambda t: rows.get(slugify(t), [])
+    )
+
+    assert about == Origin(title="", year=2013, name="Мама", source=SOURCE_MAP)
