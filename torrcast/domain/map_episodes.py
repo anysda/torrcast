@@ -3,12 +3,12 @@
 import re
 import statistics
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 from typing import Final
 
 from torrcast.domain.episode_file import EpisodeFile
 from torrcast.domain.file_like import FileLike
 from torrcast.domain.parse_episode import parse_episode
+from torrcast.domain.season_numbering import season_numbering
 
 __all__ = ["map_episodes"]
 
@@ -76,28 +76,10 @@ def _map_numbered_episodes(
     for read in (_read_sne, _read_episode_only, _read_bare):
         found = _collect(videos, read, season_hint)
         if found:
-            return _split_hundreds(videos, found) if read is _read_bare else found
+            # Сотни как сезон («S01/101 Pilot») читаются только у голых номеров.
+            folders = {f.index: _folder_season(f.name) for f in videos if read is _read_bare}
+            return season_numbering(found, folders)
     return []
-
-
-def _split_hundreds(videos: Sequence[FileLike], found: list[EpisodeFile]) -> list[EpisodeFile]:
-    """«S01/101 Pilot»: сотни - сезон, остаток - серия, как «103/113» у Sonarr.
-
-    Раскладка только там, где сезон назван КАТАЛОГОМ и сотни у всех его файлов с ним
-    совпали: сквозные 101-150 аниме в папке без сезона остаются сквозными.
-    """
-    folder = {f.index: _folder_season(f.name) for f in videos}
-    seasons: dict[int, list[EpisodeFile]] = {}
-    for f in found:
-        seasons.setdefault(f.season, []).append(f)
-    split = []
-    for season, items in seasons.items():
-        if all(folder[f.index] == season and f.episode // 100 == season for f in items) and len(
-            {f.episode % 100 for f in items} - {0}
-        ) == len(items):
-            items = [replace(f, episode=f.episode % 100) for f in items]
-        split.extend(items)
-    return sorted(split, key=lambda f: (f.season, f.episode))
 
 
 def _map_explicit_episodes(

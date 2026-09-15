@@ -44,6 +44,22 @@ def test_hundreds_of_a_season_folder_are_the_season() -> None:
     assert _picked(name, _BREAKING_BAD, Episode(2, 9)) == "209 4 Days Out -- 4 дня на природе.mkv"
 
 
+def test_a_running_count_laid_out_by_seasons_restarts_in_each_season() -> None:
+    interns = _files(
+        "Интерны/01. Интерны. История болезни (2012).avi",
+        *(
+            f"Интерны/Интерны. Сезон №{s}. Серии №{20 * s - 19:03d}-{20 * s:03d}/"
+            f"Интерны. Сезон №{s}. Серия №{n:03d}.avi"
+            for s in (1, 2, 3)
+            for n in range(20 * s - 19, 20 * s + 1)
+        ),
+    )
+    name = "Интерны [S01-14 + Фильм о фильме] (2010-2016) DVDRip, HDTV, WEB-DL"
+    assert _picked(name, interns, Episode(3, 20)) == "Интерны. Сезон №3. Серия №060.avi"
+    broken = [f for f in interns if "Серия №021" not in f.name]
+    assert (2, 22) in {(f.season, f.episode) for f in map_episodes(broken)}
+
+
 def test_absolute_anime_numbers_without_a_season_folder_stay_absolute() -> None:
     naruto = _files(*(f"Naruto/[Group] Naruto - {n} [720p].mkv" for n in range(101, 106)))
     assert [f.episode for f in map_episodes(naruto)] == [101, 102, 103, 104, 105]

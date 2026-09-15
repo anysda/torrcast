@@ -20,6 +20,10 @@ _PATTERNS: Final = (
     ),
     re.compile(r"(?P<season>\d{1,2})\s*сезон\D{0,14}?(?P<episode>\d{1,3})\s*сери\w*", re.I),
     re.compile(r"(?P<episode>\d{1,3})\s*сери\D{0,14}?(?P<season>\d{1,2})\s*сезон\w*", re.I),
+    # «Интерны. Сезон №3. Серия №056»: номер после слова, со знаком номера.
+    re.compile(
+        r"сезон\s*№?\s*(?P<season>\d{1,2})\W{0,4}сери[яи]\s*№?\s*(?P<episode>\d{1,4})\b", re.I
+    ),
 )
 
 
