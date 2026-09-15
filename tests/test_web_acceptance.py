@@ -91,3 +91,10 @@ def test_автопереход_берёт_кадр_после_следующе�
 
     assert frame == 4.2
     assert meter["nextPlaying"] == 4.1
+
+
+def test_серия_контроля_не_прибита_к_s2e1() -> None:
+    module = acceptance()
+
+    assert module._episode_parts("s1e1") == (1, 1)
+    assert module._episode_parts("episode 1") is None

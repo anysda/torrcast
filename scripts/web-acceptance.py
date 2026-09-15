@@ -1916,6 +1916,12 @@ def _reveal_tab(tab: Any) -> None:
     )
 
 
+def _episode_parts(target: str) -> tuple[int, int] | None:
+    """Разобрать адрес строки, чтобы контроль мог выбрать не только ``s2e1``."""
+    match = re.fullmatch(r"s(\d+)e(\d+)", target)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
 def check_7_series(ctx: Ctx) -> Result:
     """Сериал: каждая вкладка даёт строки за 2 с, клик включает названную серию.
 
@@ -2002,11 +2008,15 @@ def check_7_series(ctx: Ctx) -> Result:
         if season is not None and episode is not None:
             break
         time.sleep(1.0)
-    ok = tabs_ok and season == 2 and episode == 1
+    expected = _episode_parts(ctx.series_target)
+    if expected is None:
+        return Result(7, "Сериал", False, None, f"некорректная серия {ctx.series_target!r}")
+    expected_season, expected_episode = expected
+    ok = tabs_ok and season == expected_season and episode == expected_episode
     detail = (
         f"{ctx.series_title!r}; вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; "
         f"серий {count}; выбран {ctx.series_target}, /api/state season={season!r} "
-        f"episode={episode!r}"
+        f"episode={episode!r}, ожидается ({expected_season}, {expected_episode})"
     )
     return Result(7, "Сериал", ok, None, detail)
 
