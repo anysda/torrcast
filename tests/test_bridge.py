@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+import hass.search_progress as search_progress_module
 from hass.bridge import VOLUME, Bridge
 from hass.posters import Posters
 from hass.refused_error import NO_NEXT, NO_REMOTE, NO_VOLUME, NOTHING_PLAYING, RefusedError
@@ -908,8 +909,6 @@ def test_the_progressive_route_answers_with_the_finished_menu_once_the_circle_la
     monkeypatch: pytest.MonkeyPatch, _english: None
 ) -> None:
     """🔴 TC-1126: полнота превью-маршрута не отличается от обычного - тот же круг внутри."""
-    import hass.search_progress as search_progress_module
-
     search_progress_module._jobs.clear()
     monkeypatch.setattr("hass.searching.OFFER", lambda results: results)
     # Один круг с карточкой, но свой кэш: общий на процесс унёс бы «тачки» в чужие тесты.
