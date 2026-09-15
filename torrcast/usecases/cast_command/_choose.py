@@ -110,13 +110,13 @@ def _choose(
             # Картину, за которую ответит закладка, не греем: она сыграет записанную
             # раздачу, и прогретое снесётся при любом ответе на меню - выбери человек
             # её, снесёт закладка, выбери соседнюю - уборка чужих картин.
-            if _plays_recorded(state, plan.picture.key, args):
+            if _plays_recorded(state, plan, args):
                 continue
             if queue := plan.candidates(args):
                 bench.start(plan, queue[0])
         # ...и запасной релиз той картины, в которую попадёт Enter: брак верха не должен
         # стоить человеку подъёма второй раздачи с нуля (:data:`PREWARM_SPARE`).
-        if live is None and not _plays_recorded(state, order[0].picture.key, args):
+        if live is None and not _plays_recorded(state, order[0], args):
             bench.spare(order[0], args)
         # TC-108: замер. Правило взятия названо тут же (:attr:`Take.why`): без него в
         # разборе видно, что грелось, но не видно, почему грелось именно это.

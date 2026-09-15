@@ -153,7 +153,7 @@ def _continue_picked(
     return _continue(config, plan.picture.key, started, args=args, clock=clock)
 
 
-def _plays_recorded(state: WatchState, key: str, args: Args) -> bool:
+def _plays_recorded(state: WatchState, plan: Plan, args: Args) -> bool:
     """Ответит ли закладка этой картины показом записанной раздачи - и снесёт прогретое.
 
     Спрашивает прогрев под меню до подъёма раздачи картины
@@ -162,17 +162,18 @@ def _plays_recorded(state: WatchState, key: str, args: Args) -> bool:
     выбери человек её, прогретое снесёт сама закладка (:func:`_continue_picked`), выбери
     соседнюю - его уберёт уборка чужих картин
     (:meth:`torrcast.usecases.select_bench.bench.Bench.keep_plan`). Условие обязано совпадать с
-    условием самой закладки знак в знак, поэтому живёт рядом с ней.
+    условием самой закладки знак в знак (и с :func:`_gone_bookmark`), поэтому живёт рядом с ней.
 
-    Похороненная раздача (:meth:`torrcast.domain.args.Args.buried`) закладкой больше не
-    играется, значит и греть эту картину надо наравне с прочими: иначе поиск, в который
-    закладка сама же и ушла, начинал бы её с холодного места.
+    Похороненную раздачу (:meth:`torrcast.domain.args.Args.buried`) закладка не играет: картину
+    греть наравне с прочими, иначе поиск, куда ушла закладка, начинал бы с холодного места.
     """
-    started = state.get(key)
+    started = state.get(plan.picture.key)
     if started is None or args.pinned or args.buried(started.magnet):
         return False
-    return args.from_start or (
-        args.episode is None and (args.from_menu if started.serial else started.resumable)
+    return (
+        args.from_start
+        or _gone_bookmark(plan, started, args)
+        or (args.episode is None and (args.from_menu if started.serial else started.resumable))
     )
 
 

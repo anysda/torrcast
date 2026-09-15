@@ -11,7 +11,7 @@ from tests.usecases.cast_command.world import entry, plan, release
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.watch_state import WatchState
-from torrcast.usecases.cast_command._bookmark import _continue_picked
+from torrcast.usecases.cast_command._bookmark import _continue_picked, _plays_recorded
 from torrcast.usecases.cast_command._gone_bookmark import _gone_bookmark
 from torrcast.usecases.start_clock import _Clock
 
@@ -85,3 +85,12 @@ def test_an_episode_row_plays_the_gone_bookmark_release_at_that_episode(
     assert code == 0
     assert bench.dropped == 1
     assert "s2e1" in capsys.readouterr().out
+
+
+def test_the_menu_warm_up_skips_the_row_the_gone_bookmark_plays() -> None:
+    """Кандидат выдачи такой строки не играет: закладка сама снесёт прогретое."""
+    state = WatchState()
+    state.put(plan().picture.key, _series())
+
+    assert _plays_recorded(state, _pool(_POOLED), _row()) is True
+    assert _plays_recorded(state, _pool(_POOLED, _SAVED), _row()) is False
