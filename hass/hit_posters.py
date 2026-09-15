@@ -161,14 +161,15 @@ class HitPosters(HitClaims):
         poster_parts(wanted, lambda part: self._land(part, urgent))
 
     def _land(self, wanted: dict[Ask, list[str]], urgent: bool) -> None:
-        """Байты одной части и раздача их ждущим; промах - отложить попытку."""
-        began = self._now()
-        failed = False
+        """Байты одной части и раздача их ждущим.
+
+        Приговор уже назвал адрес, и байты не доехали - источник промолчал (обрыв чтения у
+        IMDb), а не «картинки нет»: спросить снова, не больше :data:`~hass.hit_claims._ATTEMPTS`.
+        """
         try:
             bodies = self._source_of(urgent).bodies(wanted, _TIMEOUT)
         except Exception:
-            bodies, failed = {}, True
-        troubled = failed or self._weather.troubled_since(began)
+            bodies = {}
         for ask in wanted:
             name, body = _name(ask), bodies.get(ask)
             if body:
@@ -178,7 +179,7 @@ class HitPosters(HitClaims):
                 if body:
                     self._keep(name, body)
                 else:
-                    self._missed(name, troubled, self._weather.calm_at())
+                    self._missed(name, True, self._weather.calm_at())
             if waiting is not None:
                 waiting.set()
 
