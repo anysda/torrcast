@@ -2,25 +2,31 @@
 
 Два источника нумеруют один сериал по-разному. IMDb держит «Интернов» четырьмя сезонами
 по 60-98 серий, TVmaze и раздачи - четырнадцатью по 20; «Футураму» русские раздачи зовут
-как IMDb, а TVmaze сезоны 6 и 7 сводит в два по 26. Правило одно для всех:
+как IMDb, а TVmaze сезоны 6 и 7 сводит в два по 26. Показанная серия должна включаться,
+поэтому правило одно для всех:
 
-1. берётся раскладка с меньшим числом промахов против имён раздач пула (:func:`_misses`),
-   при равенстве - IMDb: она лежит на диске и отвечает без сети;
-2. сезон IMDb дорастает до верхнего номера серии односезонной раздачи, если столько серий
+1. сезон IMDb дорастает до верхнего номера серии односезонной раздачи, если столько серий
    в этом сезоне знает TVmaze: «Футурама» s6 и s7 по 26. Обратного нет: IMDb сводит
    эфирные сезоны в один («Интерны» s1 из 60), и раскладку TVmaze он не раздувает;
-3. сезон старше последнего сезона раздач и закладки показывает только серии, которые знает
-   TVmaze: пустые заготовки IMDb («Рик и Морти» s10-12 по одной серии) не становятся
-   вкладками. Молчит TVmaze - остаются сезоны IMDb;
-4. дату серии дают часы TVmaze, если его нумерация сезона совпала с выбранной; серия,
-   которая ещё не вышла, несёт дату выхода, вышедшая - пустую строку;
-5. молчит TVmaze, а раздачи зовут сезон, которого у IMDb нет («Интерны» S05): нумерации
-   расходятся, серия IMDb не сыграла бы, и раскладки нет - остаются таблицы раздач.
+2. берётся раскладка с меньшим числом промахов против имён раздач пула (:func:`_missed`):
+   нет названного сезона, номер серии больше сезона, «из N» не равно числу его серий;
+   при равенстве - IMDb: она лежит на диске и отвечает без сети;
+3. раздачи пула сезона не называют («След [Серии 1-224]»): номера сквозные и ложатся
+   только на раскладку из одного сезона;
+4. раскладки нет, и остаются таблицы раздач, если выбранной противоречит больше половины
+   раздач с номерами или молчит TVmaze, а раздачи зовут сезон, которого у IMDb нет;
+5. сезон старше последнего сезона раздач и закладки показывает только серии, которые знает
+   TVmaze, если выбранная раскладка совпала с ним на сезонах раздач: пустые заготовки IMDb
+   («Рик и Морти» s10-12 по одной серии) не становятся вкладками;
+6. дату серии дают часы TVmaze, если его нумерация сезона совпала с выбранной; серия,
+   которая ещё не вышла, несёт дату выхода, вышедшая - пустую строку.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence
+from typing import Final
 
 from torrcast.domain.release import Release
 
@@ -28,6 +34,8 @@ from torrcast.domain.release import Release
 Aired = Mapping[tuple[int, int], tuple[str, str]]
 #: Номера серий по сезонам.
 Numbers = Mapping[int, tuple[int, ...]]
+#: «Серии: 1-20 из 20», «[S01-03E01-60 of 60]»; «из 1000+» и «из XX» числа не называют.
+_OF_RE: Final = re.compile(r"(?<=\d)\s*(?:из|of)\s*(\d{1,4})(?![\d+])", re.IGNORECASE)
 
 
 def series_layout(
@@ -39,22 +47,26 @@ def series_layout(
 ) -> dict[int, list[tuple[int, str]]]:
     """Строки сезонов ``(номер, дата выхода или "")``; пусто - каталог сериала не знает."""
     tvmaze = _by_season(aired)
-    candidates = [layout for layout in (imdb, tvmaze) if layout]
     pooled = {number for release in releases for number in _named(release)}
-    if not candidates or (not tvmaze and not pooled <= imdb.keys()):
+    candidates = [layout for layout in (_grown(imdb, tvmaze, releases), tvmaze) if layout]
+    if not pooled:
+        candidates = [layout for layout in candidates if set(layout) == {1}]
+    if not candidates:
         return {}
     chosen = min(candidates, key=lambda layout: _misses(layout, releases))
+    counted = sum(1 for release in releases if _named(release) or _top(release))
+    if 2 * _misses(chosen, releases) > counted or (not tvmaze and not pooled <= imdb.keys()):
+        return {}
     named = pooled | set(saved)
     last = max(named, default=None)
-    grown = _grown(chosen, tvmaze if chosen is imdb else {}, releases)
+    common = [s for s in chosen.keys() & tvmaze.keys() if last is not None and s <= last]
+    agrees = bool(tvmaze) and all(chosen[s] == tvmaze[s] for s in common)
     out: dict[int, list[tuple[int, str]]] = {}
-    for season in sorted(grown):
-        beyond = last is not None and season > last
-        if beyond and tvmaze:
+    for season in sorted(chosen):
+        if last is not None and season > last and agrees:
             numbers, dated = tvmaze.get(season, ()), True
         else:
-            numbers = grown.get(season, ())
-            dated = chosen is tvmaze or tvmaze.get(season) == chosen.get(season)
+            numbers, dated = chosen[season], tvmaze.get(season) == chosen[season]
         rows = [
             (number, _coming(aired, season, number, now) if dated else "") for number in numbers
         ]
@@ -76,8 +88,12 @@ def _named(release: Release) -> tuple[int, ...]:
     return (release.season,) if release.season else ()
 
 
+def _top(release: Release) -> int:
+    return max(release.episodes) if release.episodes else (release.episode or 0)
+
+
 def _misses(layout: Numbers, releases: Sequence[Release]) -> int:
-    """Сколько раздач раскладка не вмещает: нет названного сезона или номера серии.
+    """Сколько раздач раскладка не вмещает: нет сезона, номера серии или числа «из N».
 
     Номер серии пака из нескольких сезонов сквозной, поэтому сравнивается с суммой серий
     его сезонов; пак без сезона в имени - с числом всех серий сериала.
@@ -87,15 +103,15 @@ def _misses(layout: Numbers, releases: Sequence[Release]) -> int:
 
 
 def _missed(layout: Numbers, release: Release, total: int) -> bool:
-    seasons = _named(release)
-    top = max(release.episodes) if release.episodes else (release.episode or 0)
+    seasons, top = _named(release), _top(release)
     if not seasons:
         return bool(top) and (1 not in layout or top > total)
     if any(season not in layout for season in seasons):
         return True
-    if len(seasons) == 1:
-        return top > max(layout[seasons[0]], default=0)
-    return top > sum(len(layout[season]) for season in seasons)
+    held = sum(len(layout[season]) for season in seasons)
+    top_held = max(layout[seasons[0]], default=0) if len(seasons) == 1 else held
+    whole = _OF_RE.search(release.raw_name)
+    return top > top_held or (whole is not None and int(whole.group(1)) != held)
 
 
 def _grown(
