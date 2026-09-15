@@ -7,6 +7,7 @@ from typing import Final
 
 from torrcast.domain._name_data.data_3 import VIDEO_EXT
 from torrcast.domain.file_like import FileLike
+from torrcast.domain.folder_language import folder_language
 
 #: Расширения, которыми раздачи подписывают отдельную звуковую дорожку. ``.mka`` первым
 #: не случайно: студии озвучки кладут дорожку именно так, и в аниме это типовая раскладка.
@@ -23,7 +24,9 @@ def voice_beside[File: FileLike](video: File, files: Sequence[File]) -> File | N
 
     * **то же имя** - у файла звука та же основа имени, что у видео, а лежать он может
       где угодно (студии кладут дорожки в отдельную папку). Это правило и держит
-      сериалы: у каждой серии свой файл звука, и связывает их имя, а не порядок;
+      сериалы: у каждой серии свой файл звука, и связывает их имя, а не порядок.
+      Файлов с тем же именем несколько - берётся первый из каталога, названного русским
+      («Sound/Rus [Dub+MVO]/»), а без такого каталога это «не знаю»;
     * **единственный** - и файл звука, и видеофайл в раздаче по одному. Так раздают
       фильм: видео плюс дорожка, и спутать не с чем.
 
@@ -32,9 +35,9 @@ def voice_beside[File: FileLike](video: File, files: Sequence[File]) -> File | N
     раздачи первый по номеру файл звука английский), и брать первый попавшийся значит
     включить зрителю чужой язык молча.
 
-    Опознание ЯЗЫКА сюда не относится вовсе и по имени не делается: в аниме имя файла
-    звука не называет язык никогда (194 файла из 194), и отвечает на это ``ffprobe``
-    самого файла.
+    Язык по имени ФАЙЛА не опознаётся: в аниме имя файла звука не называет язык никогда
+    (194 файла из 194), и отвечает на это ``ffprobe`` самого файла. Каталог раскладки
+    язык называет, и судится он только при выборе между файлами с одним именем.
     """
     sound = [item for item in files if item.name.lower().endswith(_AUDIO_EXT)]
     if not sound:
@@ -43,6 +46,10 @@ def voice_beside[File: FileLike](video: File, files: Sequence[File]) -> File | N
     same = [item for item in sound if _stem(item.name) == want]
     if len(same) == 1:
         return same[0]
+    # «Наруто»: у серии дорожки «Sound/Eng [Dub]» и «Sound/Rus [Dub+MVO]» с одним именем.
+    russian = [item for item in same if folder_language(item.name) == "rus"]
+    if russian:
+        return russian[0]
     videos = [item for item in files if item.name.lower().endswith(VIDEO_EXT)]
     return sound[0] if len(sound) == 1 and len(videos) == 1 else None
 

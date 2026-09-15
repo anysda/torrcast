@@ -45,3 +45,26 @@ def test_release_without_sound_files_answers_nothing() -> None:
     """Субтитры и картинки звуком не считаются: их расширений в списке нет."""
     files = _files("Movie.mkv", "Movie.srt", "cover.jpg")
     assert voice_beside(files[0], files) is None
+
+
+def test_of_several_same_named_tracks_the_russian_folder_is_taken() -> None:
+    """🔴 «Наруто» s1e1 играл по-японски: у серии три дорожки, английская первой по номеру.
+
+    Имя у всех трёх одно, и прежде это было «не знаю». Каталог раскладки язык называет:
+    из «Sound/Rus [Dub+MVO]» берётся первая, английская остаётся в стороне.
+    """
+    root = "[SOFCJ-Raws] Naruto (DVDRip)/"
+    files = _files(
+        root + "Sound/Eng [Dub]/Naruto - 001.mka",
+        root + "Sound/Rus [Dub+MVO]/[2x2] [001-220] [MVO]/Naruto - 001.mka",
+        root + "Sound/Rus [Dub+MVO]/[Jetix] [001-104] [Dub]/Naruto - 001.mka",
+        root + "Naruto - 001.mkv",
+    )
+    found = voice_beside(files[3], files)
+    assert found is not None and found.index == 1
+    nameless = _files(
+        root + "Sound/A/Naruto - 001.mka",
+        root + "Sound/B/Naruto - 001.mka",
+        root + "Naruto - 001.mkv",
+    )
+    assert voice_beside(nameless[2], nameless) is None
