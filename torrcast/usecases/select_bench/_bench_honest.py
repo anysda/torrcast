@@ -92,7 +92,7 @@ class _BenchHonest(_BenchTrouble):
             )
             if not self._peek(alt, progress, deadline, phase):
                 progress.phase("")
-                _turned_down(judged, number, phrase("select_bench.reason_no_answer"))
+                _turned_down(judged, number, phrase("select_bench.reason_no_answer"), alt)
                 print(
                     phrase(
                         "select_bench.honest_no_answer_note",
@@ -116,7 +116,7 @@ class _BenchHonest(_BenchTrouble):
                 hard_mbit=plan.hard_mbit,
             )
             if why:
-                _turned_down(judged, number, why)
+                _turned_down(judged, number, why, alt)
                 print(phrase("select_bench.unfit_note", number=number, why=why))
                 self._forget(alt)  # спросили и получили ответ - держать его больше незачем
                 continue
@@ -126,14 +126,14 @@ class _BenchHonest(_BenchTrouble):
             # числе на кадр релиза, чей паспорт про язык промолчал (TC-492): это тот же
             # размен знания на незнание, только в профиль.
             if voice_unproven(alt.found, native=plan.picture.native):
-                _turned_down(judged, number, phrase("select_bench.reason_no_voice"))
+                _turned_down(judged, number, phrase("select_bench.reason_no_voice"), alt)
                 print(phrase("select_bench.honest_no_voice_note", number=number))
                 self._forget(alt)
                 continue
             if not honest_shot(alt.release, alt.found) or alt.found.frame <= chosen.found.frame:
                 quality = quality_text(alt.release, alt.found)
                 not_better = phrase("select_bench.reason_not_better", quality=quality)
-                _turned_down(judged, number, not_better)
+                _turned_down(judged, number, not_better, alt)
                 print(phrase("select_bench.honest_not_better_note", number=number, quality=quality))
                 self._forget(alt)
                 continue

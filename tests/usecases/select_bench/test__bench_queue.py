@@ -12,6 +12,8 @@ from torrcast.domain.args import Args
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 from torrcast.usecases.select_bench._bench_queue import _bench_queue
 
 
@@ -70,3 +72,30 @@ def test_a_named_release_is_the_whole_queue_and_says_nothing_extra(
 
     assert _bench_queue(plan(ranked), Args(query=["кино"], release=2)) == [2]
     assert capsys.readouterr().out == ""
+
+
+class _Noted(Silent):
+    """Молчащая лента, которая помнит события отбора."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, object]]] = []
+
+    def emit(self, phase: str, event: str, **fields: object) -> None:
+        self.events.append((event, dict(fields)))
+
+
+def test_the_queue_event_names_each_head_release_with_seeds_size_and_dub_claim() -> None:
+    """Почему раздача стоит на своём месте, видно из следа, а не поиском заново."""
+    ranked = [rel(name="Кино (2019) BDRip 1080p Дубляж", seeders=40, size_gb=2.0)]
+    noted = _Noted()
+    install(noted)
+    try:
+        _bench_queue(plan(ranked), _ASKED)
+    finally:
+        install(Silent())
+
+    [(event, fields)] = noted.events
+    assert event == "queue"
+    assert fields["lineup"] == [
+        {"n": 1, "seeds": 40, "mb": 2048, "dub": True, "name": "Кино (2019) BDRip 1080p Дубляж"}
+    ]

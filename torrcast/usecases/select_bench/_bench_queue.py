@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
@@ -15,6 +15,9 @@ from torrcast.usecases.start_progress import START
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
+
+#: Сколько голов очереди ложится в след поимённо: фронт, запасные и хвост, где стоял №7 «Мы».
+LINEUP: Final = 20
 
 
 def _bench_queue(plan: Plan, args: Args) -> list[int]:
@@ -32,7 +35,12 @@ def _bench_queue(plan: Plan, args: Args) -> list[int]:
     queue = plan.candidates(args)
     drops = queue_drops(plan, queue, pinned=args.release is not None)
     journal().emit(
-        "select", "queue", pool=len(plan.picture.releases), queued=len(queue), dropped=drops
+        "select",
+        "queue",
+        pool=len(plan.picture.releases),
+        queued=len(queue),
+        dropped=drops,
+        lineup=[_lined(plan, number) for number in queue[:LINEUP]],
     )
     if not queue:
         raise NotFoundError(unfit_line(plan, drops, plan.kin))
@@ -47,6 +55,18 @@ def _bench_queue(plan: Plan, args: Args) -> list[int]:
             )
         )
     return queue
+
+
+def _lined(plan: Plan, number: int) -> dict[str, object]:
+    """Строка очереди в след: почему раздача стоит на своём месте, видно без поиска заново."""
+    release = plan.ranked[number - 1]
+    return {
+        "n": number,
+        "seeds": release.seeders,
+        "mb": release.size >> 20,
+        "dub": release.dubbed,
+        "name": release.raw_name,
+    }
 
 
 def _bench_asking(attempt: int, total: int) -> str:

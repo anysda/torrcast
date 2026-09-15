@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.select.world import release
+from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
+from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torrcast_error import TorrcastError
@@ -51,6 +53,33 @@ def test_a_verdict_is_remembered_and_written_to_the_trace_at_once() -> None:
 
     assert judged == {3: "битрейт выше потолка"}
     assert noted.events == [("select", "drop", {"release": 3, "why": "битрейт выше потолка"})]
+
+
+@pytest.mark.parametrize(
+    ("tracks", "said"),
+    [
+        ((AudioTrack(0, "rus", "Дубляж"),), "rus"),
+        ((AudioTrack(0, "eng"),), "foreign"),
+        ((AudioTrack(0, None),), "silent"),
+        (None, "unread"),
+    ],
+)
+def test_a_verdict_on_a_prepared_release_carries_what_its_passport_said(
+    tracks: tuple[AudioTrack, ...] | None, said: str
+) -> None:
+    """Разбор порядка очереди видит, заявила ли раздача дубляж зря, прямо из следа."""
+    prep = _prep()
+    prep.media = None if tracks is None else Media(5400.0, tracks, "h264")
+    noted = _Noted()
+    install(noted)
+    try:
+        _turned_down({}, 7, "нет русской дорожки", prep)
+    finally:
+        install(Silent())
+
+    assert noted.events == [
+        ("select", "drop", {"release": 7, "why": "нет русской дорожки", "passport": said})
+    ]
 
 
 def test_our_own_waiting_is_not_a_verdict_on_the_release() -> None:

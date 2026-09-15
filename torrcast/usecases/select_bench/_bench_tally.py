@@ -56,9 +56,9 @@ class _Tally:
         """
         self.tried.append(f"{number} - {why}")
         if _silenced(prep):
-            _did_not_answer(number, why)
+            _did_not_answer(number, why, prep)
         else:
-            _turned_down(self.judged, number, why)
+            _turned_down(self.judged, number, why, prep)
         self.silents += 1 if _silenced(prep) else 0
         spent = clock() - since
         if self.mute is not None:

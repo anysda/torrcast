@@ -104,9 +104,9 @@ class _BenchRecheck(_BenchNotes):
         if trouble:
             silent = _silenced(prep)
             if silent:
-                _did_not_answer(number, trouble)
+                _did_not_answer(number, trouble, prep)
             else:
-                _turned_down(judged, number, trouble)
+                _turned_down(judged, number, trouble, prep)
             result = (
                 phrase("select_bench.recheck_result_alone_silent")
                 if silent
@@ -131,7 +131,7 @@ class _BenchRecheck(_BenchNotes):
             # (под русской ручкой - :attr:`Media.foreign`).
             if all(track.named for track in prep.found.tracks):
                 return self._mute_fallback(plan, prep, queue, judged, len(queue), len(queue))
-            _turned_down(judged, number, phrase("select_bench.reason_no_voice"))
+            _turned_down(judged, number, phrase("select_bench.reason_no_voice"), prep)
             print(phrase("select_bench.recheck_no_voice_note", number=number))
             self._forget(prep)
             return None

@@ -8,7 +8,7 @@ from torrcast.ports.journal.slot import journal
 from torrcast.usecases.select._prep import _Prep
 
 
-def _turned_down(judged: dict[int, str], number: int, why: str) -> None:
+def _turned_down(judged: dict[int, str], number: int, why: str, prep: _Prep | None = None) -> None:
     """Релиз отвергнут: приговор запомнить и положить в след - ровно один раз на решение.
 
     🔴 TC-194. Единственное место, где рождается запись ``select/drop``, и заведено оно
@@ -19,15 +19,28 @@ def _turned_down(judged: dict[int, str], number: int, why: str) -> None:
 
     ``judged`` - те же приговоры по номерам, которыми потом объясняется снижение ступени
     (:func:`stepdown_note`): релиз, которого мы коснулись, обязан числиться отбракованным,
-    а не «не дошли».
+    а не «не дошли». С ``prep`` в след ложится и итог паспорта (:func:`_passport`).
     """
     judged[number] = why
-    journal().emit("select", "drop", release=number, why=why)
+    journal().emit("select", "drop", release=number, why=why, **_passport(prep))
 
 
-def _did_not_answer(number: int, why: str) -> None:
+def _did_not_answer(number: int, why: str, prep: _Prep | None = None) -> None:
     """Записать осечку роя, не превращая наше ожидание в приговор раздаче."""
-    journal().emit("select", "drop", release=number, why=why)
+    journal().emit("select", "drop", release=number, why=why, **_passport(prep))
+
+
+def _passport(prep: _Prep | None) -> dict[str, str]:
+    """Что паспорт сказал о русской дорожке: названа, прямо нет, промолчал, не прочитан.
+
+    Без этого поля разбор порядка очереди не видел, заявила ли раздача дубляж зря.
+    """
+    if prep is None:
+        return {}
+    media = prep.media
+    if media is None:
+        return {"passport": "unread"}
+    return {"passport": "rus" if media.russian else "foreign" if media.foreign else "silent"}
 
 
 def _waiting_note(prep: _Prep, why: str) -> str:
