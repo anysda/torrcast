@@ -127,5 +127,19 @@ def test_dates_are_not_borrowed_across_a_different_season_numbering() -> None:
     assert layout == ({1: [(1, ""), (2, "")]}, True)
 
 
+def test_a_catalogue_that_splits_the_show_its_own_way_stays_silent_futurama() -> None:
+    """IMDb режет «Футураму» по-своему: раздачи знают в s1 тринадцать серий, IMDb - девять."""
+    imdb = {1: tuple(range(1, 10)), 2: tuple(range(1, 21)), 6: tuple(range(1, 17))}
+    releases = [
+        parse_release_name("Футурама / Futurama / S1E1-13 of 13 (1999) VHSRip"),
+        parse_release_name("Футурама / Сезон: 6 / Серии: 1-26 из 26"),
+        parse_release_name("Футурама / Futurama [S06] (2010-2011) WEB-DL-LostFilm"),
+    ]
+
+    assert series_layout(imdb, {}, releases, [], NOW) == ({}, False)
+    merging = [parse_release_name("Футурама / Сезон: 2 / Серии: 1-20 из 20")]
+    assert _counts(series_layout(imdb, {}, merging, [], NOW)) == {1: 9, 2: 20, 6: 16}
+
+
 def test_a_series_no_catalogue_knows_has_no_layout() -> None:
     assert series_layout({}, {}, [parse_release_name("Show S01E01")], [], NOW) == ({}, False)

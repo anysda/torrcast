@@ -16,7 +16,10 @@
 4. раскладка не нумерация раздач, если ей противоречит больше половины раздач с номерами
    или молчит TVmaze, а раздачи зовут сезон, которого у IMDb нет. Список она всё равно
    даёт сразу, а серию строки показ ищет по сквозному номеру
-   (:class:`torrcast.domain.episode_ordinal.EpisodeOrdinal`);
+   (:class:`torrcast.domain.episode_ordinal.EpisodeOrdinal`), - но только пока она СВОДИТ
+   сезоны раздач. Раздача, которая знает в сезонах каталога больше серий, чем он сам
+   («Футурама» S1E1-13 против девяти у IMDb), разложила сериал иначе, а не дробнее:
+   сквозной номер попал бы в чужую серию, и каталог молчит, оставляя таблицы раздач;
 5. сезон старше последнего сезона раздач и закладки показывает только серии, которые знает
    TVmaze, если выбранная раскладка совпала с ним на сезонах раздач: пустые заготовки IMDb
    («Рик и Морти» s10-12 по одной серии) не становятся вкладками;
@@ -62,6 +65,8 @@ def series_layout(
     direct = (bool(pooled) or set(chosen) == {1}) and not (
         2 * _misses(chosen, releases) > counted or (not tvmaze and not pooled <= imdb.keys())
     )
+    if not direct and _splits(chosen, releases):
+        return {}, False
     named = pooled | set(saved)
     last = max(named, default=None)
     common = [s for s in chosen.keys() & tvmaze.keys() if last is not None and s <= last]
@@ -117,10 +122,33 @@ def _missed(layout: Numbers, release: Release, total: int) -> bool:
         return bool(top) and (1 not in layout or top > total)
     if any(season not in layout for season in seasons):
         return True
-    held = sum(len(layout[season]) for season in seasons)
-    top_held = max(layout[seasons[0]], default=0) if len(seasons) == 1 else held
+    top_held, held = _held(layout, seasons)
     whole = _OF_RE.search(release.raw_name)
     return top > top_held or (whole is not None and int(whole.group(1)) != held)
+
+
+def _splits(layout: Numbers, releases: Sequence[Release]) -> bool:
+    """Раскладка дробит сериал не как раздачи, а по-своему: сквозной номер ей не помощник.
+
+    Признак - раздача, которая называет в сезонах раскладки больше серий, чем та держит
+    («Футурама» S1E1-13 из 13 против девяти у IMDb): раздачи не дробят её сезоны, а
+    расходятся с ней составом, и N-й файл подряд уже не N-я строка списка.
+    """
+    for release in releases:
+        seasons = _named(release)
+        if not seasons or any(season not in layout for season in seasons):
+            continue
+        top_held, held = _held(layout, seasons)
+        whole = _OF_RE.search(release.raw_name)
+        if _top(release) > top_held or (whole is not None and int(whole.group(1)) > held):
+            return True
+    return False
+
+
+def _held(layout: Numbers, seasons: Sequence[int]) -> tuple[int, int]:
+    """Верхний номер серии сезона и сколько серий всего держит раскладка в этих сезонах."""
+    held = sum(len(layout[season]) for season in seasons)
+    return (max(layout[seasons[0]], default=0) if len(seasons) == 1 else held, held)
 
 
 def _grown(
