@@ -1871,6 +1871,7 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     for index in range(tabs.count()):
         tab = tabs.nth(index)
         name = tab.inner_text().strip()
+        tab.scroll_into_view_if_needed()
         began = time.monotonic()
         tab.click()
         try:
@@ -1883,13 +1884,6 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
         spent = time.monotonic() - began
         tabs_ok = tabs_ok and spent <= _EPISODES_BAR
         tab_times.append(f"{name or index}:{spent:.1f}")
-    with contextlib.suppress(Exception):
-        ctx.page.locator("[data-tc-episode]").first.wait_for(state="visible", timeout=30000)
-    episodes = ctx.page.locator("[data-tc-episode]")
-    count = episodes.count()
-    if count == 0:
-        detail = f"нет [data-tc-episode] в карточке {_SERIES_TITLE!r}"
-        return Result(7, "Сериал", False, None, detail)
     season_two = next(
         (
             tabs.nth(index)
@@ -1900,7 +1894,15 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     )
     if season_two is None:
         return Result(7, "Сериал", False, None, "нет вкладки второго сезона")
+    season_two.scroll_into_view_if_needed()
     season_two.click()
+    with contextlib.suppress(Exception):
+        ctx.page.locator("[data-tc-episode]").first.wait_for(state="visible", timeout=30_000)
+    episodes = ctx.page.locator("[data-tc-episode]")
+    count = episodes.count()
+    if count == 0:
+        detail = f"нет [data-tc-episode] в карточке {_SERIES_TITLE!r}"
+        return Result(7, "Сериал", False, None, detail)
     # Искать надо по странице: `episodes` - это уже сами строки серий, и поиск ВНУТРИ
     # них не находит ничего никогда, каким бы верным ни был список.
     target = ctx.page.locator(f'[data-tc-episode="{_SERIES_TARGET}"]')
@@ -2755,6 +2757,19 @@ def check_13_texts(ctx: Ctx) -> Result:
     refusal = _open_card_by_page(ctx, _SERIES_TITLE)
     if refusal is not None:
         return Result(13, "Тексты", False, None, refusal)
+    tabs = ctx.page.locator(".tc-tab")
+    season_two = next(
+        (
+            tabs.nth(index)
+            for index in range(tabs.count())
+            if re.search(r"\b2\b", tabs.nth(index).inner_text())
+        ),
+        None,
+    )
+    if season_two is None:
+        return Result(13, "Тексты", False, None, "нет вкладки второго сезона для проверки экрана")
+    season_two.scroll_into_view_if_needed()
+    season_two.click()
     row = ctx.page.locator(f'[data-tc-episode="{_SERIES_TARGET}"]')
     if row.count() == 0:
         return Result(13, "Тексты", False, None, f"нет {_SERIES_TARGET} для проверки экрана")
