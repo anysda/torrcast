@@ -122,7 +122,8 @@ _PARTIAL_WAIT: Final = 30.0
 #: живому замеру у этого имени разбирается первый сезон целиком, 7 серий.
 #: Фильм приёмки: его ищет пункт 2, его же карточку открывают пункты 3 и 6.
 _MOVIE_TITLE: Final = "Интерстеллар"
-_SERIES_TITLE: Final = "Во все тяжкие"
+_SERIES_TITLE: Final = "Рик и Морти"
+_SERIES_TARGET: Final = "s2e1"
 #: Сколько ждать тело карточки, открытой кликом: карточка едет по сети, и нажимать
 #: стрелки по скелету значит мерить скорость сети, а не навигацию. По живому замеру у
 #: сериала разбор раздачи в TorrServer доезжает за 25-30 с, у фильма - сразу.
@@ -1716,9 +1717,15 @@ def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float]:
 
 def check_4_playback(ctx: Ctx, card_ok: bool) -> Result:
     """Показ: кадр не позднее 5 с и без подгрузов за первые три минуты."""
-    guard = _playback_guard(4, "Показ", ctx, card_ok, "пункт 3 («Играть» недоступна)")
+    # Карточка судит описание, рейтинг и озвучки. Отсутствующая озвучка - отдельная
+    # краснота карточки, но не причина не измерять уже доступную кнопку «Играть».
+    guard = _playback_guard(4, "Показ", ctx, True, "")
     if guard:
         return guard
+    if ctx.page.locator("[data-tc-play]").count() == 0:
+        refusal = _open_card_by_page(ctx, _MOVIE_TITLE)
+        if refusal is not None:
+            return Result(4, "Показ", False, None, refusal)
     ctx.current_key = _card_key(ctx)
     ctx.page.evaluate(_METER_JS)
     ctx.page.locator("[data-tc-play]").first.click()
@@ -1855,8 +1862,6 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     Карточку пункт открывает СВОЮ, а не донашивает ту, что осталась от пункта 3: там
     стоит фильм, у которого серий не бывает по устройству продукта.
     """
-    if not card_ok:
-        return Result(7, "Сериал", False, "пункт 3 (карточки нет)", "список серий негде искать")
     refusal = _open_card_by_page(ctx, _SERIES_TITLE)
     if refusal is not None:
         return Result(7, "Сериал", False, None, refusal)
@@ -1885,11 +1890,22 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     if count == 0:
         detail = f"нет [data-tc-episode] в карточке {_SERIES_TITLE!r}"
         return Result(7, "Сериал", False, None, detail)
+    season_two = next(
+        (
+            tabs.nth(index)
+            for index in range(tabs.count())
+            if re.search(r"\b2\b", tabs.nth(index).inner_text())
+        ),
+        None,
+    )
+    if season_two is None:
+        return Result(7, "Сериал", False, None, "нет вкладки второго сезона")
+    season_two.click()
     # Искать надо по странице: `episodes` - это уже сами строки серий, и поиск ВНУТРИ
     # них не находит ничего никогда, каким бы верным ни был список.
-    target = ctx.page.locator('[data-tc-episode="s1e2"]')
+    target = ctx.page.locator(f'[data-tc-episode="{_SERIES_TARGET}"]')
     if target.count() == 0:
-        return Result(7, "Сериал", False, None, f"серий {count}, но s1e2 среди них нет")
+        return Result(7, "Сериал", False, None, f"серий {count}, но {_SERIES_TARGET} среди них нет")
     # Клик по серии - тоже старт показа, не иначе, чем кнопка «Играть» в пункте 4: без
     # `--play` он поднимал show мимо `allow_play` и мимо счётчика соседа. Тормоз тот же.
     guard = _playback_guard(7, "Сериал", ctx, True, "")
@@ -1909,10 +1925,10 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
         if season is not None and episode is not None:
             break
         time.sleep(1.0)
-    ok = tabs_ok and season == 1 and episode == 2
+    ok = tabs_ok and season == 2 and episode == 1
     detail = (
         f"вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; серий {count}; "
-        f"выбран s1e2, /api/state season={season!r} episode={episode!r}"
+        f"выбран {_SERIES_TARGET}, /api/state season={season!r} episode={episode!r}"
     )
     return Result(7, "Сериал", ok, None, detail)
 
@@ -2739,9 +2755,9 @@ def check_13_texts(ctx: Ctx) -> Result:
     refusal = _open_card_by_page(ctx, _SERIES_TITLE)
     if refusal is not None:
         return Result(13, "Тексты", False, None, refusal)
-    row = ctx.page.locator('[data-tc-episode="s1e2"]')
+    row = ctx.page.locator(f'[data-tc-episode="{_SERIES_TARGET}"]')
     if row.count() == 0:
-        return Result(13, "Тексты", False, None, "нет s1e2 для проверки экрана")
+        return Result(13, "Тексты", False, None, f"нет {_SERIES_TARGET} для проверки экрана")
     row.first.click()
     began = time.monotonic()
     screen = ""
