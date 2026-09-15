@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 from typing import Final
+
+from torrcast.domain.version import __version__
 
 #: Выгрузка IMDb ``title.ratings.tsv``: ``tconst<TAB>рейтинг<TAB>голоса``. Кладёт и
 #: обновляет `install.sh`; нет файла - просто не будет рейтинга.
@@ -125,8 +128,12 @@ FACTS_RULES: Final = 9
 RUNTIME_CAP_MINUTES: Final = 24 * 60
 
 
-#: Кем представляемся Wikimedia: у них это требование к автоматике, а не вежливость.
-USER_AGENT: Final = "torrcast/1.0 (https://github.com/anysda/torrcast)"
+#: Кем представляемся Wikimedia: у них это требование к автоматике, а не вежливость. Их
+#: правило - имя/версия клиента, адрес для связи и библиотека/версия запросов.
+USER_AGENT: Final = (
+    f"torrcast/{__version__} (https://github.com/anysda/torrcast) "
+    f"Python-http.client/{platform.python_version()}"
+)
 
 
 #: Сколько статей влезает в один запрос ``prop=extracts`` (лимит самого API).

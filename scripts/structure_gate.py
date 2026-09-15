@@ -117,7 +117,7 @@ TRANSLATION_DEBT: Final = {
     # (`torrcast.usecases.lookers.Lookers.looker`: `with contextlib.suppress(Exception)`,
     # `torrcast.adapters.wiki.wiki_blurbs.WikiBlurbs.fetch`: `except OSError`) - до
     # человека строка не доходит ни разу, переводить нечего.
-    "torrcast/adapters/wiki/http_json_client.py": 2,
+    "torrcast/adapters/wiki/http_json_client.py": 1,
     # Тот же путь: собирает её `wiki_blurbs.fetch`'s `except OSError`, экран не видит.
     "torrcast/adapters/wiki/wiki_extracts.py": 1,
 }

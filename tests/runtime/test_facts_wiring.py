@@ -60,3 +60,13 @@ def test_different_state_directories_do_not_read_each_others_cache(tmp_path: Pat
     assert wiring.cache.blurbs([("Тачки", 2006)]) == {}
     assert wiring.cache.read("Тачки", False) is None
     assert not second.exists()
+
+
+def test_the_user_agent_names_the_version_contact_and_library() -> None:
+    """Wikimedia asks automation for client/version (contact) library/version."""
+    from torrcast.domain.version import __version__
+
+    client, contact, library = USER_AGENT.split(" ", 2)
+    assert client == f"torrcast/{__version__}"
+    assert contact.startswith("(https://") and contact.endswith(")")
+    assert library.startswith("Python-http.client/") and library[-1].isdigit()

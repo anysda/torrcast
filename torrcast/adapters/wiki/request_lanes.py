@@ -12,7 +12,8 @@ REQUEST_LANES: Final = 5
 class RequestLanes:
     """Пять полос, в которых клик обходит только ещё не начавшийся фон."""
 
-    def __init__(self) -> None:
+    def __init__(self, limit: int = REQUEST_LANES) -> None:
+        self.limit = limit
         self.active = 0
         self.waiting_foreground = 0
         self.condition = threading.Condition()
@@ -30,7 +31,7 @@ class RequestLanes:
             if foreground:
                 self.waiting_foreground += 1
             try:
-                while self.active >= REQUEST_LANES or (not foreground and self.waiting_foreground):
+                while self.active >= self.limit or (not foreground and self.waiting_foreground):
                     left = deadline - time.monotonic()
                     if left <= 0.0:
                         return False
