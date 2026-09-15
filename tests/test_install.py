@@ -233,6 +233,12 @@ def test_name_map_intermediates_stay_beside_the_result() -> None:
     assert "mktemp" not in body
 
 
+def test_name_map_update_builds_its_disk_index() -> None:
+    body = SCRIPT.split("setup_names() {", 1)[1].split("\n}", 1)[0]
+    assert body.count("build_names_index") == 2
+    assert "torrcast.adapters.wiki.imdb_name_index.build" in SCRIPT
+
+
 def _warm_budget_probe() -> str:
     """Ровно тот питон, который установщик выполняет, - вынутый из его же текста."""
     body = _body("warm_budget")
