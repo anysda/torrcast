@@ -257,6 +257,7 @@ def _fake(work: dict[str, float]) -> str:
         "install_torrserver",
         "setup_facts",
         "setup_names",
+        "setup_episodes",
     ):
         secs = work.get(name)
         if secs is None:

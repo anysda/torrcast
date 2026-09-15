@@ -22,6 +22,7 @@ from types import FrameType
 
 from hass.announce import Announce
 from hass.bridge import Bridge
+from hass.refresh_episodes import refresh_episodes
 from hass.serve import PORT, serve
 from hass.warm_facts import warm_facts
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -61,6 +62,8 @@ def main() -> int:
     # The saved home shelves are visible immediately after a cold restart.  Their
     # descriptions and franchise shelves must use the same idle startup window.
     warm_saved()
+    # Сезоны и серии карточки берутся из индекса IMDb: служба освежает его сама.
+    refresh_episodes()
     bridge = Bridge()
     # Про отказ человека знает только мост: у консоли отказываться некому. Назначается
     # это здесь, в композиционном корне, а не самим мостом.

@@ -239,6 +239,14 @@ def test_name_map_update_builds_its_disk_index() -> None:
     assert "torrcast.adapters.wiki.imdb_name_index.build" in SCRIPT
 
 
+def test_the_facts_phase_builds_the_episode_index_through_the_package() -> None:
+    """Серии сериала карточка берёт из индекса: установщик собирает его без шага человека."""
+    body = SCRIPT.split("setup_episodes() {", 1)[1].split("\n}", 1)[0]
+    assert "torrcast.adapters.wiki.imdb_episode_index.build" in body
+    assert '"$IMDB_EPISODES_URL" "$IMDB_EPISODES_PATH"' in body
+    assert "setup_episodes\n" in SCRIPT.split("if has facts; then", 1)[1].split("fi", 1)[0]
+
+
 def _warm_budget_probe() -> str:
     """Ровно тот питон, который установщик выполняет, - вынутый из его же текста."""
     body = _body("warm_budget")

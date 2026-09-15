@@ -373,6 +373,12 @@ IMDB_NAMES_PATH="${TORRCAST_IMDB_NAMES_PATH:-$STATE_DIR/imdb-ru-names.tsv}"
 #: месячной давности она не знает разве что новинок проката.
 IMDB_NAMES_DAYS="${TORRCAST_IMDB_NAMES_DAYS:-30}"
 
+# Номера сезонов и серий IMDb под список серий карточки сериала
+# (torrcast/domain/facts/settings.py, EPISODES_PATH). 55 МБ архива, индекс 6-7 МБ;
+# дальше его раз в сутки освежает сама служба (hass/refresh_episodes.py).
+IMDB_EPISODES_URL="${TORRCAST_IMDB_EPISODES_URL:-https://datasets.imdbws.com/title.episode.tsv.gz}"
+IMDB_EPISODES_PATH="${TORRCAST_IMDB_EPISODES_PATH:-$STATE_DIR/imdb-episodes.sqlite3}"
+
 # Источники, которые домашний канал может резать (см. фазу `sources`).
 PL_DEFS_URL="${TORRCAST_PL_DEFS_URL:-https://indexers.prowlarr.com/master/11}"
 DEFS_TARBALL="${TORRCAST_DEFS_TARBALL:-https://codeload.github.com/Prowlarr/Indexers/tar.gz/refs/heads/master}"
@@ -3773,6 +3779,19 @@ build_names_index() {
     fi
 }
 
+setup_episodes() {
+    log "series episodes: IMDb season and episode numbers ($IMDB_EPISODES_PATH)" "серии сериалов: номера сезонов и серий IMDb ($IMDB_EPISODES_PATH)"
+    install -d -m 0755 "$(dirname "$IMDB_EPISODES_PATH")"
+    # Выгрузка не менялась - сборка узнаёт это по заголовкам ответа и выходит, не качая.
+    "$PREFIX/venv/bin/python" -m torrcast.adapters.wiki.imdb_episode_index.build \
+        "$IMDB_EPISODES_URL" "$IMDB_EPISODES_PATH" || true
+    if [ -s "$IMDB_EPISODES_PATH" ]; then
+        info "episode index: $IMDB_EPISODES_PATH ($(du -h "$IMDB_EPISODES_PATH" | cut -f1))" "индекс серий: $IMDB_EPISODES_PATH ($(du -h "$IMDB_EPISODES_PATH" | cut -f1))"
+    else
+        info "IMDb episode index could not be built - series cards list episodes from releases; playback is unaffected" "индекс серий IMDb не собрался - карточка сериала берёт серии из раздач, на показ не влияет"
+    fi
+}
+
 cleanup_login_notice() {
     local motd_file="${TORRCAST_MOTD:-/etc/motd}"
     local motd_d="${TORRCAST_MOTD_D:-/etc/update-motd.d}"
@@ -3847,6 +3866,7 @@ main() {
     if has facts; then
         late_run "IMDb ratings for menu details" "оценки IMDb для справки в меню" setup_facts
         late_run "Russian IMDb release names for title metadata" "русские прокатные имена IMDb для паспорта картины" setup_names
+        late_run "IMDb season and episode numbers for series cards" "номера сезонов и серий IMDb для карточки сериала" setup_episodes
         phase_done 'warmup' 'догрев'
     fi
     [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"

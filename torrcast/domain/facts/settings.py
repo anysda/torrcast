@@ -19,6 +19,12 @@ RATINGS_PATH: Final = Path("/var/lib/torrcast/imdb-ratings.tsv")
 RU_NAMES_PATH: Final = Path("/var/lib/torrcast/imdb-ru-names.tsv")
 
 
+#: Индекс серий IMDb: сезоны и номера серий сериала по его tconst, без сети. Собирает
+#: `install.sh`, затем раз в сутки служба (:mod:`hass.refresh_episodes`) из выгрузки ниже.
+EPISODES_PATH: Final = Path("/var/lib/torrcast/imdb-episodes.sqlite3")
+EPISODES_URL: Final = "https://datasets.imdbws.com/title.episode.tsv.gz"
+
+
 #: Чем отвечена справка: русская Википедия. Сюда же попадают все её обходы - выборка по
 #: имени, поиск, подсказки написания, перенаправление: источник у них один.
 SOURCE_WIKI: Final = "wiki"
