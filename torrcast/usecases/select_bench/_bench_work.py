@@ -12,6 +12,7 @@ from torrcast.domain.pick_settings import SWARM_GRACE
 from torrcast.domain.rank_settings import PEER_GRACE
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.voice_beside import voice_beside
+from torrcast.domain.voice_folder import voice_folder
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.rank.voice_unproven import voice_unproven
@@ -101,10 +102,11 @@ class _BenchWork(_BenchCore):
             return
         prep.voice_file = found
         with suppress(TorrcastError):
-            prep.voice_media = self.prober(
+            heard = self.prober(
                 self.torrserver.stream_url(prep.torrent_hash, found.index),
                 timeout=self.probe_budget,
             )
+            prep.voice_media = voice_folder(heard, found.name)
         journal().mark("дорожка отдельным файлом", релиз=prep.number, файл=found.base)
 
     def _sample_supply(self, prep: _Prep) -> None:

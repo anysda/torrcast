@@ -8,10 +8,13 @@ from itertools import count
 import pytest
 
 from tests.fakes.clock import FakeClock
-from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
+from tests.usecases.select_bench.world import GB, RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.adapters.torrserver.contact_wait import ContactWait
+from torrcast.domain.args import Args
+from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.domain.swarm_error import SwarmError
+from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select_bench.bench import Bench
 
@@ -178,3 +181,27 @@ def test_a_fresh_warm_up_whose_add_failed_does_not_keep_the_old_torrent() -> Non
     bench._forget(old)
 
     assert torrents.dropped == [f"hash-{one.magnet}"]
+
+
+def test_a_nameless_sound_file_in_a_russian_folder_is_the_russian_voice() -> None:
+    """Безымянный .mka в «Sound/Rus [Dub+MVO]» - русская дорожка, и серия не играет японской."""
+    pool = [rel(name="Наруто (S1) [RUS(ext), ENG, JAP+Sub]", seeders=91)]
+    root = "[SOFCJ-Raws] Naruto (DVDRip)"
+    files = [
+        TorrFile(0, f"{root}/[SOFCJ-Raws] Naruto - 111 (DVDRip).mkv", GB),
+        TorrFile(
+            1, f"{root}/Sound/Rus [Dub+MVO]/[2x2] [MVO]/[SOFCJ-Raws] Naruto - 111 (DVDRip).mka"
+        ),
+    ]
+    japanese = Media(RUNTIME, (AudioTrack(index=0, language="jpn"),), "hevc", height=576)
+    nameless = Media(RUNTIME, (AudioTrack(index=0, codec="ac3"),), None)
+
+    def read(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        return nameless if source_url.endswith("/1") else japanese
+
+    prep = Bench(Torrents(files=files), prober=read).resolve(
+        plan(pool), Args(query=["Наруто"]), Said()
+    )
+
+    assert prep.apart, "русская дорожка из каталога Rus не опознана: серия пойдёт по-японски"
+    assert prep.voiced is not None and prep.voiced.russian
