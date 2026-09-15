@@ -146,8 +146,8 @@ class SearchPage:
 
 
 class SearchNodes:
-    def __init__(self, page: SearchPage, selector: str, index: int | None = None) -> None:
-        self.page, self.selector, self.index = page, selector, index
+    def __init__(self, page: SearchPage, selector: str) -> None:
+        self.page, self.selector = page, selector
 
     @property
     def first(self) -> SearchNodes:
@@ -162,9 +162,6 @@ class SearchNodes:
     def wait_for(self, **_: Any) -> None:
         return None
 
-    def nth(self, index: int) -> SearchNodes:
-        return SearchNodes(self.page, self.selector, index)
-
     def count(self) -> int:
         if self.selector == "field":
             return 1
@@ -174,21 +171,10 @@ class SearchNodes:
         if self.selector == ".tc-nothing":
             return int(bool(screen["nothing"]))
         tiles = screen["tiles"]
-        if self.selector == ".tc-tile-skeleton":
-            # Playwright ждёт `nth(i)`, которого в пересобранном теле уже нет, до срока
-            # и падает `TimeoutError`; здесь срок наступает сразу.
-            assert self.index is not None
-            if self.index >= len(tiles):
-                raise TimeoutError(f"waiting for locator('[data-tc-tile]').nth({self.index})")
-            return 0
         if self.selector == "[data-tc-tile]":
             self.page.rerender()
             return len(tiles)
         return sum(1 for tile in tiles if tile["live"])
-
-    def locator(self, selector: str) -> SearchNodes:
-        del selector
-        return SearchNodes(self.page, ".tc-tile-skeleton", self.index)
 
     def inner_text(self) -> str:
         return str(self.page.now()["nothing"])
