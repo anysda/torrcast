@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.facts.domestic_about import domestic_about
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.proven_native import proven_native
 from torrcast.domain.picture import Picture
@@ -26,4 +27,11 @@ def native_picture(picture: Picture, query: str, known: Origin | None = None) ->
         series = picture.kind == "tv"
         about = FACTS.cache.read(query, series) or FACTS.cache.read(query, None)
     if about and proven_native(about, picture.title):
+        picture.native = True
+        return
+    # Паспорт промолчал или назвал имя статьи на чужом языке («англ. Interns»): страну
+    # производства говорит описание ЭТОЙ картины - ряд ключуется её именем и годом.
+    wanted = (picture.title, picture.year)
+    blurb = FACTS.cache.blurbs([wanted]).get(wanted)
+    if blurb and domestic_about(blurb.about):
         picture.native = True

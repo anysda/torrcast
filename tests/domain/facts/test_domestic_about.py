@@ -1,0 +1,35 @@
+"""Зеркало :mod:`torrcast.domain.facts.domestic_about`: страна производства из описания."""
+
+from __future__ import annotations
+
+import pytest
+
+from torrcast.domain.facts.domestic_about import domestic_about
+
+
+@pytest.mark.parametrize(
+    "about",
+    [
+        "«Инте́рны» — российский комедийный телесериал, посвящённый работе врачей-интернов.",
+        "«Брат» — российский криминальный фильм 1997 года режиссёра Алексея Балабанова.",
+        "«Ну, погоди!» — советский и российский мультсериал.",
+        "«Семнадцать мгновений весны» — советский двенадцатисерийный телевизионный фильм.",
+    ],
+)
+def test_a_russian_or_soviet_picture_is_domestic(about: str) -> None:
+    assert domestic_about(about)
+
+
+@pytest.mark.parametrize(
+    "about",
+    [
+        "«Эксперименты Лэйн» — японский аниме-сериал, созданный студией Triangle Staff.",
+        "«Тачки» — американский компьютерно-анимационный фильм студии Pixar.",
+        "«Во все тяжкие» — американский телесериал в жанре криминальной драмы.",
+        "«Код 8» — канадский фильм. В российском прокате - с 2020 года.",
+        "«Август восьмого» — российско-американский военный фильм.",
+        "",
+    ],
+)
+def test_a_foreign_or_joint_picture_is_not(about: str) -> None:
+    assert not domestic_about(about)

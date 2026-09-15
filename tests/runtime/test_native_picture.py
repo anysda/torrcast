@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.kind import Kind
 from torrcast.domain.picture import Picture
@@ -67,3 +68,26 @@ def test_a_silent_cache_leaves_everything_as_it_was() -> None:
     native_picture(picture, "неизвестное кино")
 
     assert not picture.native
+
+
+def test_a_russian_series_named_in_english_by_its_article_is_native_by_its_description() -> None:
+    """🔴 TC-1267. Паспорт «Интернов» назвал «англ. Interns» - страну говорит описание."""
+    FACTS.cache.write("интерны", True, Origin(title="Interns", name="Интерны"))
+    about = "«Интерны» — российский комедийный телесериал о работе врачей-интернов."
+    FACTS.cache.remember({("Интерны", 2010): Fact(about=about)})
+    series = _picture("Интерны", 2010, "tv")
+
+    native_picture(series, "интерны")
+
+    assert series.native
+
+
+def test_a_foreign_description_keeps_the_unnamed_track_unproven() -> None:
+    """🔴 TC-492. «Лэйн» - японский сериал: безымянная дорожка русской не становится."""
+    about = "«Эксперименты Лэйн» — японский фантастический телесериал студии Triangle Staff."
+    FACTS.cache.remember({("Эксперименты Лэйн", 1998): Fact(about=about)})
+    series = _picture("Эксперименты Лэйн", 1998, "tv")
+
+    native_picture(series, "эксперименты лэйн")
+
+    assert not series.native
