@@ -36,8 +36,11 @@ class FakeSource:
     gate: threading.Event | None = None
     judged: list[Ask] = field(default_factory=list)
     loaded: list[Ask] = field(default_factory=list)
+    #: Сколько раз звали приговор: одна выдача - один поход, как бы её ни делили спросившие.
+    calls: int = 0
 
     def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
+        self.calls += 1
         self.judged.extend(asks)
         return {ask: list(self.pages.get(ask.title, ())) for ask in asks}
 

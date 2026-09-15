@@ -74,23 +74,26 @@ class HitClaims:
             return again is not None and name not in self._judging and self._now() >= again[1]
 
     def _claim(self, asks: Sequence[Ask]) -> dict[Ask, str]:
-        """Состояние каждой картины; незаявленные и неизвестные заявляются за спросившим."""
-        state: dict[Ask, str] = {}
-        for ask in asks:
+        """Состояние каждой картины; незаявленные и неизвестные заявляются за спросившим.
+
+        Пачка заявляется одним проходом под замком: по картине за раз превью и финал делили
+        одну выдачу пополам и звали источник дважды. Полка читается после, вне замка; что
+        нашлось на ней, снимается с заявки готовым.
+        """
+        with self._lock:
+            state = {ask: self._known(_name(ask)) for ask in asks}
+            for ask in (ask for ask, one in state.items() if one is _ASK):
+                self._judging[_name(ask)] = threading.Event()
+        for ask in [ask for ask, one in state.items() if one is _ASK]:
             name = _name(ask)
-            with self._lock:
-                state[ask] = self._known(name)
-            if state[ask] is not _ASK:
-                continue
             kept = self._shelf.read(name)
+            if not kept:
+                continue
             with self._lock:
-                if kept:
-                    self._keep(name, kept)
-                    state[ask] = _READY
-                else:
-                    state[ask] = self._known(name)
-                    if state[ask] is _ASK:
-                        self._judging[name] = threading.Event()
+                self._keep(name, kept)
+                event = self._judging.pop(name)
+            state[ask] = _READY
+            event.set()
         return state
 
     def _known(self, name: str) -> str:

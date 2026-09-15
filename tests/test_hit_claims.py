@@ -132,3 +132,45 @@ def test_a_picture_has_landed_only_once_its_bytes_are_here(tmp_path: Path) -> No
             break
         threading.Event().wait(0.02)
     assert posters.landed(_row()) and not posters.pending([_row()])
+
+
+class _SlowShelf(PosterShelf):
+    """Полка, чьё второе чтение стоит, пока проба не откроет ворота.
+
+    Первый спросивший уже прошёл первую картину и стоит на второй: окно, в котором второй
+    спросивший забирал себе вторую картину, пока приговор заявлялся по картине за раз.
+    """
+
+    def __init__(self, home: Path, opened: threading.Event) -> None:
+        super().__init__(home=lambda: home)
+        self.opened = opened
+        self.reading = threading.Event()
+        self.reads = 0
+
+    def read(self, identity: str) -> bytes | None:
+        self.reads += 1
+        if self.reads == 2:
+            self.reading.set()
+            self.opened.wait(_SETTLE)
+        return super().read(identity)
+
+
+@pytest.mark.machine
+def test_two_askers_of_one_list_do_not_split_it_between_them(tmp_path: Path) -> None:
+    """Превью и финал спрашивают одну выдачу: источник зовётся на неё один раз, а не по половине."""
+    opened = threading.Event()
+    shelf = _SlowShelf(tmp_path, opened)
+    source = FakeSource(pages={"Тачки": ["Cars"], "Тачки 2": ["Cars 2"]})
+    posters = HitPosters(source, shelf)
+    both, back = [_row(), _row("Тачки 2", 2011)], [_row("Тачки 2", 2011), _row()]
+    first = threading.Thread(target=posters.offer, args=(both,))
+    first.start()
+    assert shelf.reading.wait(_SETTLE)
+    second = threading.Thread(target=posters.urgent, args=(back,))
+    second.start()
+    second.join(0.2)
+    opened.set()
+    first.join(_SETTLE)
+    second.join(_SETTLE)
+    assert sorted(ask.title for ask in source.judged) == ["Тачки", "Тачки 2"], "судили дважды"
+    assert source.calls == 1, "одну выдачу поделили на два похода к источнику"
