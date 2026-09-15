@@ -194,8 +194,11 @@ const TCNav = {
   },
 
   // С плитки полки: влево и вправо - только по своей полке, вверх и вниз - на соседнюю
-  // линию. Всё прочее (поле поиска, кнопки карточки, плеер) судит общий счёт.
+  // линию. Вниз с поля поиска во всю ширину - тоже на ближнюю линию: по общему счёту
+  // `Try again` у левого края проигрывал плитке под серединой поля и был недостижим.
+  // Всё прочее (кнопки карточки, плеер) судит общий счёт.
   nearest(from, way) {
+    if (way === 'down' && from.matches('.tc-search-input')) return TCNav._across(from, way);
     if (!from.closest('.tc-row')) return TCNav._geometric(from, way);
     return way === 'left' || way === 'right' ? TCNav._along(from, way) : TCNav._across(from, way);
   },
