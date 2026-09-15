@@ -69,10 +69,12 @@ def keys_agree(
     if math.isnan(guess):
         return KeyAgreement(True, False)
     stood = start(source_url, at, timeout)
-    if not math.isfinite(stood):
-        return KeyAgreement(True, False)
+    # Без замера вердикт прежний, как у посадки ровно на границе: сетка первого показа не
+    # меняется. Меняется одно - такой вердикт не назван измеренным и на полку не ляжет.
+    measured = math.isfinite(stood)
+    stood = stood if measured else at
     if stood <= guess + SPLIT_SLACK:
-        return KeyAgreement(True, True)
+        return KeyAgreement(True, measured)
     ahead = bisect.bisect_left(keys.at, stood - SPLIT_SLACK) - bisect.bisect_right(
         keys.at, guess + SPLIT_SLACK
     )
@@ -83,7 +85,7 @@ def keys_agree(
         факт=round(stood, 3),
         нарисовано=max(ahead, 0),
     )
-    return KeyAgreement(False, True)
+    return KeyAgreement(False, measured)
 
 
 __all__ = ["keys_agree"]

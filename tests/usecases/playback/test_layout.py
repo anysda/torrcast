@@ -82,3 +82,18 @@ def test_the_layout_hands_the_receiver_ceilings_to_the_grid(
 
     assert seen["cap"] == ANDROID_TV.max_segment_bytes
     assert seen["span_cap"] == ANDROID_TV.max_segment_seconds > 0.0
+
+
+def test_the_layout_hands_the_file_size_to_the_grid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Размер файла - ключ полки сверки карты: потерян по дороге - прогон платится каждый показ."""
+    seen: dict[str, object] = {}
+
+    def spy(source_url: str, duration: float, *_args: object, **kwargs: object) -> MediaGrid:
+        seen.update(kwargs)
+        return grid_for(source_url, duration)
+
+    use_media_grid(monkeypatch, spy)
+
+    layout(Config(), "file:///нет-такого", 300.0, "h264", 5.0, depth=8, file_size=7976407699)
+
+    assert seen["file_size"] == 7976407699

@@ -22,6 +22,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.worker_settings import WORKER_META
 from torrcast.ports.journal import slot as journal_slot
 from torrcast.ports.receiver import Receiver
@@ -102,6 +103,11 @@ def test_the_loop_pins_the_thresholds_snapshot_to_the_session_start_record(
 
 def _shown_title(entry: Entry, _ports: None = None) -> str:
     """Подпись, с которой цикл зовёт показ: ровно она уезжает на экран."""
+    return _shown(entry, FakeTorrentEngine())[0]
+
+
+def _shown(entry: Entry, engine: FakeTorrentEngine) -> tuple[str, dict[str, Any]]:
+    """Подпись и именованные доводы, с которыми цикл зовёт показ."""
     key = "tv:harley-quinn:2019"
     state = FakeStateStore()
     fresh = state.load()
@@ -109,16 +115,16 @@ def _shown_title(entry: Entry, _ports: None = None) -> str:
     state.save(fresh)
     state_slot.install(state)
     journal_slot.install(Tape())
-    seen: list[str] = []
+    seen: list[tuple[str, dict[str, Any]]] = []
 
     def play(config: Config, source: str, audio: int, about: str, *args: Any, **kw: Any) -> int:
-        seen.append(about)
+        seen.append((about, kw))
         return 0
 
     worker_loop._worker_loop(
         Config(),
         key,
-        FakeTorrentEngine(),
+        engine,
         None,  # type: ignore[arg-type]  # приёмник зовёт только показ, а он здесь подделка
         FakeStreamSource(),
         [],
@@ -155,6 +161,15 @@ def test_a_forced_voice_swap_reaches_the_screen_and_not_the_terminal(
 def test_a_show_without_a_swap_carries_no_extra_word(_ports_restored: None) -> None:
     """Подмены нет - и приписывать подписи нечего: молчаливых подмен не бывает, лишних тоже."""
     assert _shown_title(_harley(studio="The Kitchen Russia")) == "Харли Квинн s5e1"
+
+
+def test_the_size_of_the_played_file_reaches_the_show(_ports_restored: None) -> None:
+    """Размер из метаданных раздачи - ключ полки сверки карты, и взят он у ИГРАЕМОГО файла."""
+    files = [TorrFile(0, "s05e01.mkv", 7976407699), TorrFile(1, "s05e02.mkv", 4009830538)]
+
+    _, kw = _shown(_harley(file_idx=1), FakeTorrentEngine(torrent_files=files))
+
+    assert kw["file_size"] == 4009830538
 
 
 def test_a_finished_season_is_continued_by_the_next_one(

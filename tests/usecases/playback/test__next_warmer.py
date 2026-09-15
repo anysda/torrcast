@@ -11,12 +11,14 @@ from tests.fakes import composition
 from tests.fakes.torrent_engine import FakeTorrentEngine
 from torrcast.adapters.recode.recode_dir import RECODE_DIR
 from torrcast.adapters.recode.recoder import Recoder
+from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import PLAYING_FLAG
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.playback._next_warmer import _next_warmer
+from torrcast.usecases.playback.media_grid import MediaGrid
 
 _FILES = [
     TorrFile(index=0, name="Erin - 01.mkv", size=700),
@@ -74,6 +76,25 @@ def test_the_next_episode_is_warmed_from_its_own_video(tmp_path: Path) -> None:
     assert made is not None
     assert made.source == "http://fake/hash/1"
     assert made.voice == "", "звук внутри видео - второму входу взяться неоткуда"
+
+
+def test_the_next_episode_hands_its_own_size_to_the_grid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Размер - ключ полки сверки карты, и взят он у СЛЕДУЮЩЕЙ серии, а не у текущей."""
+    seen: dict[str, object] = {}
+
+    def spy(source_url: str, duration: float, *_args: object, **kwargs: object) -> MediaGrid:
+        seen.update(kwargs)
+        return grid_for(source_url, duration)
+
+    composition.use_media_grid(monkeypatch, spy)
+    files = [TorrFile(0, "Erin - 01.mkv", 700), TorrFile(1, "Erin - 02.mkv", 701)]
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+
+    _next_warmer(config, FakeTorrentEngine(torrent_files=files), "hash", _serial(apart=False))
+
+    assert seen["file_size"] == 701
 
 
 def test_the_next_episode_keeps_its_track_apart(tmp_path: Path) -> None:

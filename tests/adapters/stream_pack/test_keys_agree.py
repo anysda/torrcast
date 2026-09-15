@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pytest
@@ -83,6 +84,29 @@ def test_a_map_that_promises_nothing_here_is_not_measured() -> None:
     foreign = FilmKeys(KEYS.duration, KEYS.at, KEYS.offset, "ts")
     assert keys_agree(URL, 10.0, foreign, start=start).agreed is True
     assert runs == [], "прогон подняли там, где карта ничего не обещала"
+
+
+def test_a_run_without_a_first_packet_judges_like_the_boundary_and_is_not_measured() -> None:
+    """🔴 Прогон без первого пакета (``nan``): вердикт тот же, что был до полки, но не «замер».
+
+    До полки неудачный прогон отвечал самой границей, и сверка судила именно её: у mkv
+    посадка ровно на кадр карта ведёт на прежний кадр, и такая граница карту осуждала.
+    Иной вердикт здесь - это другая сетка первого показа.
+    """
+    mp4 = FilmKeys(KEYS.duration, KEYS.at, KEYS.offset, "mp4")
+    blind, _ = _stood(math.nan)
+    for keys, at in ((KEYS, KEYS.at[8]), (mp4, KEYS.at[8]), (KEYS, KEYS.at[8] + STEP / 2)):
+        boundary, _ = _stood(at)
+        before, now = (
+            keys_agree(URL, at, keys, start=boundary),
+            keys_agree(URL, at, keys, start=blind),
+        )
+        assert now.agreed is before.agreed, (
+            f"без замера сетка первого показа стала другой: {keys.kind} {at}"
+        )
+        assert before.measured and not now.measured, "неизмеренный прогон назван замером"
+    assert keys_agree(URL, KEYS.at[8], KEYS, start=blind).agreed is False
+    assert keys_agree(URL, KEYS.at[8], mp4, start=blind).agreed is True
 
 
 #: Карта ролика стенда, собранная ИЗ его шага опорных кадров, а не снятая с файла: сверке

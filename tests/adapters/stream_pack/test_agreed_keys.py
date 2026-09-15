@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import inspect
+import math
+from collections.abc import Callable
 
 from torrcast.adapters.stream_pack.agreed_keys import agreed_keys
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.key_agreement import KeyAgreement
+from torrcast.adapters.stream_pack.keys_agree import keys_agree
 from torrcast.domain.film_keys import FilmKeys
 
 URL = "http://торрент/поток?link=0123456789abcdef&index=0"
@@ -115,3 +118,31 @@ def test_the_same_url_with_another_file_size_does_not_take_the_shelf() -> None:
     assert agreed_keys(URL, 20.0, KEYS, SIZE + 1, agree=second) is True
 
     assert second.calls == 1, "размер файла не вошёл в ключ полки"
+
+
+def test_a_pilot_without_a_first_packet_stays_off_the_shelf_through_the_real_verdict() -> None:
+    """🔴 Стык, а не подделанный вердикт: ``nan`` прогона доходит до полки как «не мерили»."""
+    mp4 = FilmKeys(KEYS.duration, KEYS.at, KEYS.offset, "mp4")
+    runs: list[float] = []
+
+    def run(stood: float) -> Callable[[str, float, FilmKeys], KeyAgreement]:
+        def start(_url: str, at: float, _timeout: float) -> float:
+            runs.append(at)
+            return stood
+
+        return lambda url, at, keys: keys_agree(url, at, keys, start=start)
+
+    assert agreed_keys(URL, 20.0, mp4, SIZE, agree=run(math.nan)) is True
+    assert agreed_keys(URL, 20.0, mp4, SIZE, agree=run(20.0)) is True
+
+    assert runs == [20.0, 20.0], "неизмеренный прогон лёг на полку и спрятал новый замер"
+
+
+def test_a_file_without_a_known_size_neither_reads_nor_writes_the_shelf() -> None:
+    """Размера нет - нет и ключа: сверка идёт прогоном на каждом показе."""
+    first, second = Pilot(True), Pilot(True)
+
+    assert agreed_keys(URL, 20.0, KEYS, 0, agree=first) is True
+    assert agreed_keys(URL, 20.0, KEYS, 0, agree=second) is True
+
+    assert (first.calls, second.calls) == (1, 1), "полка поверила файлу без размера"

@@ -10,6 +10,7 @@ import pytest
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from torrcast.adapters.browser.web_box_path import web_box_path
+from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
@@ -17,6 +18,7 @@ from torrcast.domain.position import Position
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.usecases.playback._play import _play
 from torrcast.usecases.playback.hls_root import HLS_ENV
+from torrcast.usecases.playback.media_grid import MediaGrid
 from torrcast.usecases.start_clock import _Clock
 
 
@@ -159,6 +161,29 @@ def test_the_grid_is_named_to_the_receiver(tmp_path: Path) -> None:
     _play(_config(tmp_path), "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=receiver)
 
     assert receiver.next_cut is not None
+
+
+def test_the_file_size_reaches_the_grid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Размер файла - ключ полки сверки карты: потерян показом - прогон платится каждый раз."""
+    seen: dict[str, object] = {}
+
+    def spy(source_url: str, duration: float, *_args: object, **kwargs: object) -> MediaGrid:
+        seen.update(kwargs)
+        return grid_for(source_url, duration)
+
+    composition.use_media_grid(monkeypatch, spy)
+
+    _play(
+        _config(tmp_path),
+        "file:///нет-такого",
+        0,
+        "«Кино»",
+        _Clock(),
+        receiver=_Screening(),
+        file_size=4009830538,
+    )
+
+    assert seen["file_size"] == 4009830538
 
 
 def test_a_show_raised_on_a_non_browser_receiver_tells_the_tab(tmp_path: Path) -> None:
