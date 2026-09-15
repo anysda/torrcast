@@ -48,7 +48,11 @@ from torrcast.ports.show_unit import slot as unit_slot
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.wire import wire
-from torrcast.usecases.discover._search_state import _configure_known
+from torrcast.usecases.discover._search_state import (
+    _configure_known,
+    _configure_recognize,
+    _unrecognized,
+)
 from torrcast.usecases.facts import Facts
 from torrcast.usecases.feed_pack import _state as feed_state
 from torrcast.usecases.playback.hls_root import HLS_ENV
@@ -495,6 +499,8 @@ def _silent_facts(
     # Карту IMDb глушит не monkeypatch: он вернул бы на выходе машинную карту, и круг поиска,
     # доживший до конца теста, разбирал бы её 2 с на глазах сторожа потоков.
     _configure_known(lambda _title: [])
+    # The web wiring gives the search the real offline map; a test recognizes nothing.
+    _configure_recognize(_unrecognized)
     if request.node.nodeid != LIVE_BLURBS_PROBE:
         monkeypatch.setattr(FACTS, "blurbs", FakeBlurbSource())
     # Каталог сериалов карточки: машинная карта имён, индекс серий и TVmaze - та же сеть.

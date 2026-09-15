@@ -404,6 +404,9 @@ class _Index:
     def votes(self) -> dict[str, int]:
         return {}
 
+    def ready(self, _wait: float = 0.0) -> bool:
+        return True
+
 
 def _fields(results: list[Any], *names: str) -> list[tuple[Any, ...]]:
     return [tuple(hit.get(name) for name in names) for hit in results]

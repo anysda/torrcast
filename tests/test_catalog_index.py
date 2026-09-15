@@ -54,3 +54,46 @@ def test_an_index_is_silent_before_it_is_warmed_and_on_a_short_query() -> None:
     assert cold.look("матрица") == []
     assert _index().look("ма") == []
     assert _index().by_id("tt1454468") == _ROWS[5]
+
+
+def _named(*rows: _RuName, votes: dict[str, int]) -> CatalogIndex:
+    names: dict[str, list[_RuName]] = {}
+    for one in rows:
+        names.setdefault(slugify(one[4]), []).append(one)
+    index = CatalogIndex(lambda: names, lambda: votes)
+    index.warm()
+    return index
+
+
+_US: _RuName = ("tt6857112", "movie", "Us", "2019", "Мы")
+_INTERSTELLAR: _RuName = ("tt0816692", "movie", "Interstellar", "2014", "Интерстеллар")
+_MOCKBUSTER: _RuName = ("tt4168808", "movie", "Interstelar", "2014", "Интерстелар")
+_STAR_VOTES = {"tt6857112": 399_858, "tt0816692": 2_605_028}
+
+
+def test_a_short_exact_name_is_a_picture_but_not_a_prefix_of_others() -> None:
+    index = _named(
+        _US, ("tt1", "movie", "Mouse", "2020", "Мышеловка"), votes={**_STAR_VOTES, "tt1": 9_000}
+    )
+    assert [one[4] for one in index.look("мы")] == ["Мы"]
+
+
+def test_a_trailing_year_is_not_part_of_the_name() -> None:
+    assert [one[4] for one in _named(_US, votes=_STAR_VOTES).look("Мы 2019")] == ["Мы"]
+
+
+def test_one_letter_off_finds_the_picture_past_an_unknown_namesake_of_the_typo() -> None:
+    index = _named(_INTERSTELLAR, _MOCKBUSTER, votes=_STAR_VOTES)
+    assert [one[4] for one in index.look("Интерстелар")] == ["Интерстеллар"]
+    assert [one[4] for one in index.look("Интерстеллер")] == ["Интерстеллар"]
+    assert [one[4] for one in index.look("Interstelar")] == ["Интерстеллар"]
+
+
+def test_a_typo_is_not_guessed_in_short_words_or_beside_digits() -> None:
+    index = _named(
+        _INTERSTELLAR,
+        ("tt2", "movie", "It 2", "2019", "Оно 2"),
+        votes={**_STAR_VOTES, "tt2": 9_000},
+    )
+    assert index.look("Оно 3") == []
+    assert index.look("ывапрол") == []

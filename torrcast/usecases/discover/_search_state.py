@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.facts.proof_in_map import KnownPictures
 from torrcast.ports.passport_source import PassportSource
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
@@ -26,6 +27,16 @@ _search_indexers: Callable[[str, str], IndexerClient]
 _search_known: KnownPictures
 
 
+def _unrecognized(_query: str, _wait: float) -> MapPicture | None:
+    return None
+
+
+#: Which picture of the offline map the query names, waiting up to the given seconds for a
+#: cold map: the first round then asks the indexers by its names too
+#: (:mod:`torrcast.usecases.discover.named_round`). Without a map nothing is recognized.
+_search_recognize: Callable[[str, float], MapPicture | None] = _unrecognized
+
+
 def _configure_discover(
     catalogue: TorrentCatalogue,
     passport: PassportSource,
@@ -42,3 +53,9 @@ def _configure_known(known: KnownPictures) -> None:
     """Передать поиску офлайн-карту картин: читается она лишь тогда, когда тёзки спорят."""
     global _search_known
     _search_known = known
+
+
+def _configure_recognize(recognize: Callable[[str, float], MapPicture | None]) -> None:
+    """Give the search the offline map's recognizer of a picture by its name."""
+    global _search_recognize
+    _search_recognize = recognize

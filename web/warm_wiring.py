@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 
 from hass.catalog_index import CatalogIndex
+from hass.catalog_picture import catalog_picture
 from hass.catalog_tiles import CatalogTiles
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -22,6 +23,7 @@ from torrcast.domain.tune import tune
 from torrcast.ports.progress.slot import progress
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
+from torrcast.usecases.discover._search_state import _configure_recognize
 from torrcast.usecases.discover.replay_indexer import ReplayIndexer
 from torrcast.usecases.discover.search_circle import search_circle
 from web.circle_disk import CircleDisk
@@ -172,6 +174,7 @@ KIN_AHEAD.fetch = FACTS.franchise.by_entities
 SUGGEST_TIMEOUT: Final = 2.0
 #: Указатель каталога по началу имени; собирается фоном на старте (:mod:`hass.warm_facts`).
 INDEX: Final = CatalogIndex(lambda: FACTS.catalogue.names(), lambda: FACTS.ratings.votes())
+_configure_recognize(lambda query, wait: catalog_picture(INDEX, query, wait))
 
 
 def _suggest(query: str) -> list[dict[str, Any]]:

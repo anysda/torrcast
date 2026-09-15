@@ -45,9 +45,14 @@ class CatalogTiles:
         «Старик и море»; его зовут туда, где карта не узнала имени: опечатка, чужое письмо.
         """
         with self._lock:
-            if self._offline is None:
-                self._offline = [_tile(*_named(row)) for row in self.index.look(self.query)]
-            return list(self._offline or self._online)
+            if self._offline is not None:
+                return list(self._offline or self._online)
+            built = self.index.ready()
+            offline = [_tile(*_named(row)) for row in self.index.look(self.query)]
+            if built:
+                # A map still being built answers nothing: its silence is not kept.
+                self._offline = offline
+            return list(offline or self._online)
 
     def _ask(self) -> None:
         try:

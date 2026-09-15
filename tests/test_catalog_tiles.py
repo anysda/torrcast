@@ -62,3 +62,13 @@ def test_a_silent_suggester_leaves_no_tiles_and_no_error() -> None:
         raise OSError("обрыв")
 
     assert CatalogTiles("интерстелар", _index(), broken).start(_now).tiles() == []
+
+
+def test_a_cold_map_is_asked_again_once_it_is_built() -> None:
+    names: dict[str, list[_RuName]] = {}
+    index = CatalogIndex(lambda: names, lambda: _VOTES)
+    tiles = CatalogTiles("матрица", index, _suggest([])).start(_now)
+    assert tiles.tiles() == []
+    names["матрица"] = [_MATRIX]
+    index.warm()
+    assert [cast("Any", tile)["title"] for tile in tiles.tiles()] == ["Матрица"]

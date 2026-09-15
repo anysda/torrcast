@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.origin import Origin
@@ -19,14 +18,15 @@ from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._named import _also, _different_display_names, _title
-from torrcast.usecases.discover._ask import _ask, _notify
+from torrcast.usecases.discover._ask import _notify
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._plan_menu import _plans
 from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover._second_typo import _second_typo
 from torrcast.usecases.discover.cut_circle import CutCircle
-from torrcast.usecases.discover.franchise_pick import franchise_pick
+from torrcast.usecases.discover.named_round import NamedRound
+from torrcast.usecases.discover.recognized_pick import recognized_pick
 from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.told_circle import ToldCircle
 from torrcast.usecases.discover.told_indexer import ToldIndexer
@@ -73,21 +73,29 @@ def search_circle(
         raise InfraError(phrase("discover.prowlarr_not_configured"))
     query = args.title_query
     name, index = split_franchise_index(query)
-    source = (indexer or _search_state._search_indexers)(
-        config.prowlarr_url, config.prowlarr_apikey
-    )
+
+    def spawn() -> IndexerClient:
+        return (indexer or _search_state._search_indexers)(
+            config.prowlarr_url, config.prowlarr_apikey
+        )
+
+    source = spawn()
     _notify(on_indexer, source)
     client = ToldIndexer(source)
     progress.phase(phrase("discover.search_phase", query=name))
-    raw = _ask(client, name)
-    if not raw:
+    # A part number is the franchise's business: only a plain name is recognized by the map.
+    first = NamedRound(source)
+    raw, named = first.ask(client, spawn, on_indexer, name, query if index is None else "")
+    if not raw and not named:
         # Ни одной строки - повод заподозрить забытую раскладку (:func:`unswap_layout`).
         # Проверка стоит один заход к индексерам и только там, где иначе был бы отказ.
         query, name, index, raw = _relayout(client, query, name, index, progress)
-    journal().mark("индексеры ответили", строк=len(raw))  # TC-108: замер
-    pictures = cluster(_search_state._search_catalogue.to_releases(raw))
+    journal().mark("индексеры ответили", строк=len(raw) + len(named))  # TC-108: замер
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
-    found = franchise_pick(query, pictures)
+    pictures, found = recognized_pick(query, raw, named, first.known)
+    raw = _search_state._search_catalogue.merge(raw, named) if named else raw
+    # The picture's names already asked what the reinforcements below would ask for it.
+    led = first.leads(found)
     titled = False
     if (reread := season_reread(args, name, index, found, pictures)) is not None:
         # 🔴 TC-363. У сериала номер это сезон, а не часть франшизы
@@ -107,11 +115,16 @@ def search_circle(
         titled = bool(found)
         if titled:
             name, index = query, None
-    if worth_asking_original(found, args, config, profile):
+    if not led and worth_asking_original(found, args, config, profile):
         raw, pictures, found = _second_language(
             client, query, args, raw, found, progress, titled, passport=passport
         )
-    elif index is None and not titled and ceiling_hides_name(client, name, pictures, found):
+    elif (
+        not led
+        and index is None
+        and not titled
+        and ceiling_hides_name(client, name, pictures, found)
+    ):
         # Номер части и «цифра - часть названия» уточнению не подчиняются: запрос «имя +
         # год» строится по голому имени, и смысл номера в нём теряется.
         raw, pictures, found = _ceiling_reinforce(
@@ -125,7 +138,7 @@ def search_circle(
         )
     # Картина есть, а русской дорожки не обещает ни одна её играбельная раздача - добрать
     # точной строкой «оригинал + год» (:func:`_voice_reinforce`).
-    if (voiceless := voiceless_pool(found, args, config, profile)) is not None:
+    if not led and (voiceless := voiceless_pool(found, args, config, profile)) is not None:
         raw, pictures, found = _voice_reinforce(
             client, query, voiceless, raw, found, progress, titled
         )

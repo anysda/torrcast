@@ -31,8 +31,6 @@ from hass.refused_error import RefusedError
 from hass.search_job import POSTERS_BY, SearchJob, _Shared
 from hass.search_results import _hit
 from hass.searching import Detect, Offer, Remember
-from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.menu_order import menu_order
@@ -40,7 +38,8 @@ from torrcast.domain.profile import Profile
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
-from torrcast.usecases.discover.franchise_pick import franchise_pick
+from torrcast.usecases.discover.named_round import NamedRound
+from torrcast.usecases.discover.recognized_pick import recognized_pick
 from torrcast.usecases.discover.search_circle import search_circle
 
 if TYPE_CHECKING:
@@ -110,9 +109,11 @@ def _peek(query: str, job: SearchJob) -> list[JsonValue]:
     """Находки по тому, что клиент индексеров уже держит в руках."""
     peek = getattr(job.client, "inflight", None)
     raw: list[RawResult] = peek() if peek is not None else []
-    if not raw:
+    named = job.client.named_inflight() if isinstance(job.client, NamedRound) else []
+    if not raw and not named:
         return []
-    found = menu_order(franchise_pick(query, cluster(to_releases(raw))))
+    known = job.client.known if isinstance(job.client, NamedRound) else None
+    found = menu_order(recognized_pick(query, raw, named, known)[1])
     return [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
 
 
