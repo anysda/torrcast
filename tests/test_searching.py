@@ -9,9 +9,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
 from hass.searching import searching
+from tests.test_warm_cache import _TOLD
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.domain.args import Args
@@ -25,6 +27,7 @@ from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
+from web.circle_disk import CircleDisk
 from web.warm_cache import WarmCache
 
 _CONFIG = Config(prowlarr_apikey="KEY", tv="10.0.1.7")
@@ -165,3 +168,24 @@ def test_a_card_after_the_search_step_takes_its_circle_without_a_second_trip() -
 
     assert [plan.picture.title for plan in warm.take("тачки")][:1] == ["Тачки"]
     assert asked == ["тачки"]
+
+
+def test_the_search_step_after_a_restart_counts_a_fresh_circle_instead_of_the_disk_one(
+    tmp_path: Path,
+) -> None:
+    """Выдача HA шла свежим кругом; общий кэш отдавал ей круг с диска возрастом до суток."""
+    asked: list[str] = []
+
+    def counted(config: Config, args: Args, progress: Any, profile: Profile) -> list[Plan]:
+        asked.append(args.title_query)
+        return _search(config, args, progress, profile)
+
+    disk = CircleDisk(path=lambda: tmp_path / "circles.json")
+    disk.keep("тачки", _TOLD)
+    old = _plans()[2:]
+    warm = WarmCache(
+        lambda _q: [], lambda _p: None, lambda _job: None, disk=disk, replay=lambda *_: old
+    )
+    records = searching(_CONFIG, "тачки", counted, _cautious, pins.remember_menu, _offer, warm=warm)
+
+    assert (asked, len(records)) == (["тачки"], len(_plans()))

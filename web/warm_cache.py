@@ -104,9 +104,9 @@ class WarmCache:
             _hint(self, key, stale=True)  # served from disk at once, refreshed by the one hand
         return plans
 
-    def take_live(self, query: str) -> list[Plan]:
-        """Круг только из сети, когда круг с диска не дал показу раздачи (:mod:`web.warm_live`)."""
-        return _take_live(self, query, BUSY_WAIT)
+    def take_live(self, query: str, circle: Circle | None = None) -> list[Plan]:
+        """Круг только из сети: показу без раздачи с диска и выдаче HA (:mod:`web.warm_live`)."""
+        return _take_live(self, query, BUSY_WAIT, circle)
 
     def live(self, query: str) -> list[Plan] | None:
         return self._memory.live(query)

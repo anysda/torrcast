@@ -64,7 +64,7 @@ Offer = Callable[[list[JsonValue]], list[JsonValue]]
 class _Warm(Protocol):
     """Общий кэш кругов (:class:`web.warm_cache.WarmCache`): карточка следом круг не повторяет."""
 
-    def take(self, query: str, circle: Callable[[str], list[Plan]]) -> list[Plan]: ...
+    def take_live(self, query: str, circle: Callable[[str], list[Plan]]) -> list[Plan]: ...
 
 
 #: Боевые исполнители шага - ровно те же, что у консоли. Кладёт их мост
@@ -97,7 +97,8 @@ def searching(
     находку, и это осознанный размен - плитка не бывает битой ценой этого ожидания. Не
     названный зовущим, он берётся из :data:`OFFER` в момент вызова, а не в момент
     объявления: подделка в зеркале ставится именно туда. ``warm`` - общий кэш кругов: без
-    него карточка, открытая следом, проходила индексеры второй раз (TC-1264).
+    него карточка, открытая следом, проходила индексеры второй раз (TC-1264). Круг с диска
+    выдача не берёт (:meth:`web.warm_cache.WarmCache.take_live`): она всегда шла свежим кругом.
     """
     named = OFFER if offer is None else offer
     chosen = detect(config)
@@ -107,7 +108,7 @@ def searching(
         return search(tune(config, chosen.profile), args, progress(), chosen.profile)
 
     try:
-        plans = circle(query) if warm is None else warm.take(query, circle)
+        plans = circle(query) if warm is None else warm.take_live(query, circle)
     except TorrcastError as refusal:
         raise RefusedError(str(refusal)) from refusal
     remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])

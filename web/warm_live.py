@@ -3,6 +3,7 @@
 A circle from disk stood for hours: releases left the pool, and the one release of the Rick
 and Morty s2e1 row that plays was not in it. The show still starts on such a circle at once;
 only when its selection ends with nothing does it ask for this one (:mod:`web.show_stage`).
+The search step of Home Assistant always counted a fresh circle, and takes only this one too.
 """
 
 from __future__ import annotations
@@ -48,7 +49,9 @@ def _landed(cache: _Cache, query: str, patience: float) -> list[Plan] | None:
     return None if live is None else list(live)
 
 
-def _take_live(cache: _Cache, query: str, patience: float) -> list[Plan]:
+def _take_live(
+    cache: _Cache, query: str, patience: float, circle: Callable[[str], list[Plan]] | None = None
+) -> list[Plan]:
     """A live circle: waited for when one runs, counted ahead of the background otherwise."""
     key = query.strip()
     if (live := _landed(cache, query, patience)) is not None:
@@ -60,7 +63,7 @@ def _take_live(cache: _Cache, query: str, patience: float) -> list[Plan]:
         cache._urgent = [queued for queued in cache._urgent if queued != key]
         cache._stale.discard(key)
     with cache._counting(query), cache._hold():
-        plans = cache.circle(query)
+        plans = (circle or cache.circle)(query)
     cache._remember(query, plans)
     return plans
 
