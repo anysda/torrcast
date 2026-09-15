@@ -225,7 +225,8 @@ const TCPlayer = {
       // Секунду показа знает hls.js, а не `<video>`: первый кусок он просит ДО того, как
       // `onReady` тронет `currentTime`, и с закладки уходит за `v0.m4s`, уводя головку
       // единственной полосы упаковки в начало (стенд `.104`: 95 с, ноль байт картинки).
-      const hls = new Hls({ startPosition: at > 0 ? at : -1 });
+      // Первый кусок просится вместе с подключением `<video>`, а не после открытия MSE.
+      const hls = new Hls({ startPosition: at > 0 ? at : -1, startFragPrefetch: true });
       TCPlayer._hls = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, onReady);
       hls.on(Hls.Events.ERROR, (event, data) => { if (data.fatal) TCPlayer._onStreamError(); });
