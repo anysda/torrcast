@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from torrcast.domain.same_series_later import same_series_later
 from torrcast.usecases.choice._namesake import _namesake
 from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.liveliness import liveliness
@@ -62,8 +63,12 @@ def _episode_understudy(plans: list[Plan], failed: Plan, args: Args) -> Plan | N
     по имени брали самую живую («Re:Zero» 2020, 89 сидов) - а у неё все раздачи своими
     именами сказали «нужной серии нет». Для серии тёзка - картина того же оригинала, и из
     тёзок берётся та, у кого очередь под ЭТУ серию не пуста; живость решает среди них.
+    Тёзка другого года - только продолжение счёта сезонов (:func:`same_series_later`):
+    карточка «Доктор Кто» 1963 s1e1 уходила к ремейку 2005 и играла его «Розу».
     """
-    own = _original(failed)
+    own, want = _original(failed), failed.want
+    if want is None:
+        return None
     twins = [
         plan
         for plan in plans
@@ -73,6 +78,7 @@ def _episode_understudy(plans: list[Plan], failed: Plan, args: Args) -> Plan | N
             plan.picture.title.casefold() == failed.picture.title.casefold()
             or (own and _original(plan) == own)
         )
+        and same_series_later(plan.picture, failed.picture.year, want.season)
         and plan.candidates(args)
     ]
     return max(twins, key=liveliness, default=None)

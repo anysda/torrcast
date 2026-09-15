@@ -146,3 +146,15 @@ def test_without_an_episode_the_namesake_stays_the_liveliest_by_title() -> None:
         shown.series = None
 
     assert understudy(menu, menu[0], Args(query=["re:zero"])) is menu[1]
+
+
+def test_a_remake_of_the_same_name_is_not_an_understudy_for_an_episode() -> None:
+    """Карточка «Доктор Кто» 1963 s1e1 уходила к ремейку 2005 и играла его «Розу»."""
+    pack = replace(film("Доктор Кто / Doctor Who / S1 [2005] 1080p", kind="tv"), season=1)
+    old = plan("Доктор Кто", 1963, kind="tv", pool=[replace(pack, episodes=(5,))])
+    remake = plan("Доктор Кто", 2005, kind="tv", original="Doctor Who", pool=[pack])
+    for shown in (old, remake):
+        shown.series = _Series(want=Episode(1, 1))
+
+    assert remake.candidates(Args(query=["доктор кто", "s1e1"])), "серия у ремейка есть"
+    assert understudy([old, remake], old, Args(query=["доктор кто", "s1e1"])) is None

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.same_series_later import same_series_later
 from torrcast.domain.slugify import slugify
 
 if TYPE_CHECKING:
@@ -52,8 +53,7 @@ def _later_season(plan: Plan, slug: str, year: int, original: str, season: int) 
     """Картина круга - поздний сезон сериала карточки, а не ремейк того же имени.
 
     Ремейк («Доктор Кто» 1963 и 2005) делит с карточкой имя, а бывает и оригинал, поэтому
-    мало и того и другого: у позднего сезона счёт продолжается - просят не первый сезон,
-    и первого среди раздач картины круга нет. Ремейк свой счёт начинает с единицы.
+    сверх них решает счёт сезонов (:func:`same_series_later`).
     """
     picture = plan.picture
     return (
@@ -61,8 +61,7 @@ def _later_season(plan: Plan, slug: str, year: int, original: str, season: int) 
         and picture.key.split(":")[1] == slug
         and (picture.year or 0) > year
         and slugify(picture.original or "") == slugify(original)
-        and season > 1
-        and not any(1 in (release.seasons or (release.season,)) for release in picture.releases)
+        and same_series_later(picture, year, season)
     )
 
 
