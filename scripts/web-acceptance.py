@@ -1888,7 +1888,12 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
         name = tab.inner_text().strip()
         _reveal_tab(tab)
         began = time.monotonic()
-        tab.click(force=True)
+        try:
+            tab.click(force=True, timeout=_EPISODES_BAR * 1000)
+        except Exception:
+            tabs_ok = False
+            tab_times.append(f"{name or index}:>{_EPISODES_BAR:.0f} (вне области)")
+            continue
         try:
             ctx.page.wait_for_function(
                 "() => document.querySelectorAll('[data-tc-episode]').length > 0",
@@ -1910,7 +1915,16 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     if season_two is None:
         return Result(7, "Сериал", False, None, "нет вкладки второго сезона")
     _reveal_tab(season_two)
-    season_two.click(force=True)
+    try:
+        season_two.click(force=True, timeout=_EPISODES_BAR * 1000)
+    except Exception:
+        return Result(
+            7,
+            "Сериал",
+            False,
+            None,
+            f"вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; Season 2 вне области",
+        )
     with contextlib.suppress(Exception):
         ctx.page.locator("[data-tc-episode]").first.wait_for(state="visible", timeout=30_000)
     episodes = ctx.page.locator("[data-tc-episode]")
