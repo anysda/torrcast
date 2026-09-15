@@ -9,6 +9,8 @@ row the picture's names brought never becomes a tile of its own.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.cluster import cluster
 from torrcast.domain.compose import _compose
@@ -32,7 +34,13 @@ def recognized_pick(
     own = [release for release in pool if own_release(release, known)]
     if not own:
         return pictures, franchise_pick(query, cluster(releases))
-    lead = _compose("tv" if known.series else "movie", known.year, own)
+    # The map names the picture, not the rows: asking «Up 2009» beside «Вверх» brings
+    # releases titled in Latin, and the viewer would read his own picture under a foreign name.
+    lead = replace(
+        _compose("tv" if known.series else "movie", known.year, own),
+        title=known.name,
+        original=known.original or None,
+    )
     others = cluster([release for release in releases if not own_release(release, known)])
     return pictures, [lead, *(p for p in franchise_pick(query, others) if p.key != lead.key)]
 

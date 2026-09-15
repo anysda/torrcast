@@ -39,3 +39,11 @@ def test_without_a_recognized_picture_or_its_releases_the_text_decides_as_before
     assert recognized_pick("Начало", _TYPED, [], None)[1] == franchise("Начало", _TYPED)
     stranger = MapPicture("Начало", 1970, False, "Nachalo", 3_000)
     assert recognized_pick("Начало", _TYPED, [], stranger)[1] == franchise("Начало", _TYPED)
+
+
+def test_the_map_names_the_lead_even_when_its_rows_came_in_latin() -> None:
+    wire_catalogue()
+    up = MapPicture("Вверх", 2009, False, "Up", 1_255_534)
+    latin = [row("Up.2009.2160p.BluRay.x265", "f"), row("Up.2009.1080p.BluRay.x264", "g")]
+    _, found = recognized_pick("Вверх", [], latin, up)
+    assert (found[0].title, found[0].original, found[0].key) == ("Вверх", "Up", "movie:вверх:2009")
