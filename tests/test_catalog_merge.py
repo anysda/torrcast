@@ -48,3 +48,10 @@ def test_a_namesake_of_another_year_and_kind_is_not_the_same_picture() -> None:
         ("movie:матрица:1999", None, None, True),
         ("movie:the-matrix:1999", None, None, None),
     ]
+
+
+def test_a_suggesters_guess_without_releases_leaves_after_the_circle() -> None:
+    guess: _Record = {**_OTHER, "guess": True}
+    assert _shape(catalog_merge([guess], [], done=False)) == [(_OTHER["key"], None, True, None)]
+    assert catalog_merge([guess], [], done=True) == []
+    assert "guess" not in catalog_merge([guess], [], done=False)[0]  # type: ignore[operator]

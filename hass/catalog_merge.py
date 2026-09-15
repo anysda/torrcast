@@ -5,13 +5,15 @@
 круга, ни в его конце: зритель уже навёл курсор на плитку и жмёт. Картину узнаёт то же
 правило, каким карточка ищет свою картину в круге (:mod:`web.card_lookup`): имя целиком и
 хотя бы одно из «род, год». Плитка, которой после ПОЛНОГО круга раздач не нашлось, гаснет
-на своём месте (``dim``); до конца круга она только ждёт (``pending``).
+на своём месте (``dim``); до конца круга она только ждёт (``pending``). Догадка подсказчика
+(:data:`~hass.catalog_tiles.GUESS`) без раздач после круга уходит совсем.
 """
 
 from __future__ import annotations
 
 from typing import Final
 
+from hass.catalog_tiles import GUESS
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture import Picture
 from web.card_lookup import _score
@@ -37,9 +39,9 @@ def catalog_merge(
     wait = "dim" if done else "pending"
     return [
         *(
-            {**found[landed[key]], "slot": key} if key in landed else {**tile, wait: True}
+            {**found[landed[key]], "slot": key} if key in landed else {**_bare(tile), wait: True}
             for tile in tiles
-            if (key := _text(tile, "key"))
+            if (key := _text(tile, "key")) and (key in landed or not (done and tile.get(GUESS)))
         ),
         *(hit for n, hit in enumerate(found) if n not in slots),
     ]
@@ -67,6 +69,10 @@ def _picture(record: _Record, name: str) -> Picture:
         "tv" if record.get("kind") == "tv" else "movie",
         _text(record, "original") or None,
     )
+
+
+def _bare(tile: _Record) -> _Record:
+    return {name: value for name, value in tile.items() if name != GUESS}
 
 
 def _text(record: _Record, name: str) -> str:

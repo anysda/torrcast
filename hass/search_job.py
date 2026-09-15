@@ -22,6 +22,7 @@ from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
 from torrcast.domain.goal_spare import GOAL
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import Profile
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
@@ -99,6 +100,9 @@ class SearchJob:
 
         try:
             plans = circle(query) if warm is None else warm.take(query, circle)
+        except NotFoundError:
+            # Nothing found is an answer of the search, an empty list, not a failed search.
+            plans = []
         except TorrcastError as refusal:
             plans, self.error = [], str(refusal)
         hits: list[JsonValue] = []

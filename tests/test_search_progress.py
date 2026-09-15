@@ -22,6 +22,7 @@ from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.usecases.discover.search_circle import search_circle
@@ -368,11 +369,29 @@ def test_a_new_job_after_the_ttl_keeps_the_poster_verdict_already_known(tmp_path
     assert len(source.judged) == 1, "повтор после TTL снова судил уже известные обложки"
 
 
-def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:
+def test_nothing_found_is_an_empty_final_not_a_refusal() -> None:
+    """The page says «nothing found» only on an empty final: a refusal draws a failed search."""
     wire_catalogue()
     gate = threading.Event()
     client = _PreviewClient(answers={}, raw=[])
     search = _blocking_search(client, gate)
+
+    results, partial = _poll("нетакого", search)
+    assert (results, partial) == ([], True), "the job is not done yet: an empty step"
+
+    gate.set()
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and partial:
+        results, partial = _poll("нетакого", search)
+    assert (results, partial) == ([], False)
+
+
+def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:
+    gate = threading.Event()
+
+    def search(*_args: Any) -> Any:
+        gate.wait(2.0)
+        raise InfraError("Prowlarr не отвечает")
 
     results, partial = _poll("нетакого", search)
     assert (results, partial) == ([], True), "отказ ещё не готов - это просто пустой ход"
@@ -386,7 +405,7 @@ def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:
         except RefusedError as caught:
             refused = caught
             break
-    assert refused is not None and "нетакого" in refused.word
+    assert refused is not None and "Prowlarr" in refused.word
 
 
 class _Index:

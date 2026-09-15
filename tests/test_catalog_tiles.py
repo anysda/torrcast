@@ -72,3 +72,9 @@ def test_a_cold_map_is_asked_again_once_it_is_built() -> None:
     names["матрица"] = [_MATRIX]
     index.warm()
     assert [cast("Any", tile)["title"] for tile in tiles.tiles()] == ["Матрица"]
+
+
+def test_a_suggesters_tile_is_marked_a_guess() -> None:
+    rows = [{"id": "tt0816692", "l": "Interstellar", "y": 2014, "qid": "movie"}]
+    tiles = CatalogTiles("интерстелар", _index(), _suggest(rows)).start(_now).tiles()
+    assert [cast("Any", tile)["guess"] for tile in tiles] == [True]

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Final
 
 from hass.catalog_index import MIN_VOTES, SHOWN, CatalogIndex
 from hass.search_results import _hit
@@ -19,6 +19,9 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture import Picture
 from torrcast.domain.slugify import slugify
 
+#: A tile only the IMDb suggester named: without releases after the whole circle it is a guess
+#: about the text, not a picture of the catalogue, and it leaves instead of dimming.
+GUESS: Final = "guess"
 #: Ответ подсказчика IMDb на запрос: строки ``{"id", "l", "y", "qid", ...}``.
 Suggest = Callable[[str], "list[dict[str, Any]]"]
 
@@ -59,7 +62,7 @@ class CatalogTiles:
             rows = self.suggest(self.query)
         except Exception:  # подсказчик второй: его обрыв не отнимает у поиска карту
             rows = []
-        tiles = [_tile(*named) for row in rows if (named := self._from(row)) is not None]
+        tiles = [_guess(_tile(*named)) for row in rows if (named := self._from(row)) is not None]
         with self._lock:
             self._online = tiles
 
@@ -90,4 +93,8 @@ def _tile(title: str, original: str, year: int | None, kind: str) -> JsonValue:
     return _hit(picture, 0, default=False)
 
 
-__all__ = ["CatalogTiles", "Suggest"]
+def _guess(tile: JsonValue) -> JsonValue:
+    return {**tile, GUESS: True} if isinstance(tile, dict) else tile
+
+
+__all__ = ["GUESS", "CatalogTiles", "Suggest"]
