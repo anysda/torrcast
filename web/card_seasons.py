@@ -69,9 +69,19 @@ def card_seasons(
     if table is None:
         return fallback, True, release
     files = _seasons_from_table(table)
+    if target not in files and target not in _named_seasons(release):
+        # Пак без сезона «покрывает» любой, но файлы «Универа» кончаются на s04: сезон 5 играет
+        # раздача, которая его называет, первая тем же порядком отбора.
+        naming = [other for other in releases if target in _named_seasons(other)]
+        named = _release_for(plan, naming, target, entry, profile) if naming else None
+        table = episodes.table(named, base_url) if named is not None else table
+        if named is not None and table is None:
+            return fallback, True, named
+        files, release = _seasons_from_table(table or []), named or release
     # Полный пак без сезона в имени называет сезоны только своими файлами.
     numbers.update(files)
-    return _joined_seasons(numbers, _with_table(known or saved, files)), False, release
+    # Закладка хранит просмотренное состояние и старше безличной таблицы файлов.
+    return _joined_seasons(numbers, {**files, **(known or saved)}), False, release
 
 
 def _named_seasons(release: Release) -> tuple[int, ...]:
@@ -182,13 +192,6 @@ def _seasons_from_table(table: list[list[int]]) -> dict[int, list[JsonValue]]:
 
 def _joined_seasons(numbers: set[int], known: dict[int, list[JsonValue]]) -> list[JsonValue]:
     return [{"n": number, "episodes": known.get(number, [])} for number in sorted(numbers)]
-
-
-def _with_table(
-    saved: dict[int, list[JsonValue]], table: dict[int, list[JsonValue]]
-) -> dict[int, list[JsonValue]]:
-    """Закладка хранит просмотренное состояние и старше безличной таблицы файлов."""
-    return {**table, **saved}
 
 
 __all__ = ["card_seasons"]

@@ -289,3 +289,20 @@ def test_a_pool_season_the_catalogue_skips_keeps_its_tab() -> None:
     seasons, _partial, _ = card_seasons(plan, None, "http://ts", episodes, 2, catalog=catalog)
 
     assert [(row["n"], len(row["episodes"])) for row in _rows(seasons)] == [(1, 1), (2, 2), (3, 1)]
+
+
+def test_a_season_the_ranked_pack_holds_no_files_for_lists_the_release_that_names_it() -> None:
+    """«Универ. Новая общага»: пак без сезона в имени держит s01-s04, сезон 5 зовёт «[S05]»."""
+    plan, first, _second = _plan()
+    pack = Release(raw_name="Show 1080p", title="Show", kind="tv", magnet="magnet:pack")
+    fifth = _release(5, "magnet:fifth")
+    plan.picture.releases.extend([pack, fifth])
+    episodes = _Episodes({pack.magnet: [[1, 1], [4, 1]], fifth.magnet: None}, [])
+    ranked = replace(plan, ranked=[pack, first, fifth])
+
+    _seasons, partial, release = card_seasons(ranked, None, "http://ts", episodes, 5)
+    episodes.tables[fifth.magnet] = [[5, 1], [5, 2]]
+    seasons, again, chosen = card_seasons(ranked, None, "http://ts", episodes, 5)
+
+    assert (partial, release, again, chosen) == (True, fifth, False, fifth)
+    assert [len(row["episodes"]) for row in _rows(seasons) if row["n"] == 5] == [2]
