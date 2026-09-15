@@ -31,7 +31,9 @@ def pool_passport(about: Origin, name: str, found: list[Picture], imdb: KnownPic
     """
     wanted = slugify(name)
     exact = [p for p in found if p.year is not None and slugify(p.title) == wanted]
-    if about.year is not None and any(_near(p.year, about.year) for p in exact):
+    if about.year is None:
+        return about
+    if any(_near(p.year, about.year) for p in exact):
         return about
     proofs = [proof for p in exact if (proof := proof_in_map(p, imdb)) is not None and proof.votes]
     best = max(proofs, key=lambda proof: proof.votes, default=None)

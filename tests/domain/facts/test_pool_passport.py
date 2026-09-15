@@ -52,12 +52,14 @@ def test_the_boundary_a_silent_map_leaves_the_article_as_it_was() -> None:
     assert pool_passport(article, "Мы", [Picture(title="Мы нашли", year=2019)], _known) is article
 
 
-def test_a_cyrillic_original_gives_no_latin_title() -> None:
-    """Оригинал русской картины записан кириллицей: латиницей её добирать нечем."""
-    rows = {"мама": [MapPicture("Мама", 2013, False, "Мама", 900)]}
+def test_an_article_without_a_year_does_not_open_the_map() -> None:
+    """Без года статья не спорит с пулом: карту читать незачем."""
+    asked: list[str] = []
 
-    about = pool_passport(
-        Origin(), "Мама", [Picture(title="Мама", year=2013)], lambda t: rows.get(slugify(t), [])
-    )
+    def known(title: str) -> list[MapPicture]:
+        asked.append(title)
+        return []
 
-    assert about == Origin(title="", year=2013, name="Мама", source=SOURCE_MAP)
+    article = Origin(title="Mēs?", name="Мы")
+    assert pool_passport(article, "Мы", [Picture(title="Мы", year=2019)], known) is article
+    assert asked == []
