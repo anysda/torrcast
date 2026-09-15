@@ -14,6 +14,7 @@ from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _waiting_note
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_front import _bench_front
+from torrcast.usecases.select_bench._bench_in_time import _in_time
 from torrcast.usecases.select_bench._bench_prewarm import _BenchPrewarm
 from torrcast.usecases.select_bench._bench_queue import _bench_asking, _bench_queue
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
@@ -101,9 +102,8 @@ class Bench(_BenchPrewarm):
                 self.start(plan, ahead)
             # Секундомер стоит вокруг ОЖИДАНИЯ, а не вокруг работы фонового потока.
             entered = self.clock()
-            asking = _bench_asking(attempt, len(queue))
-            voice_search = "" if args.pinned else asking
-            self._wait(prep, progress, prefix=voice_search, limit=tally.patience(deadline, entered))
+            prefix = "" if args.pinned else _bench_asking(attempt, len(queue))
+            prep = _in_time(self, plan, args, prep, front, progress, prefix, tally, deadline)
             # Ошибка самой службы раздачи относится ко всей очереди, а не к одному
             # рою. Перебирать остальные релизы бессмысленно: они пойдут через тот же
             # мёртвый порт и лишь размножат одну строку, после чего итог ещё и свалит
