@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
 
 
-def understudy(plans: list[Plan], failed: Plan, args: Args | None = None) -> Plan | None:
+def understudy(plans: list[Plan], failed: Plan, args: Args) -> Plan | None:
     """🔴 TC-203. Живая ТЁЗКА выбранной картины - та, которой показ доиграет вместо неё.
 
     У выбранной картины кончились все раздачи, а рядом в меню стоит одноимённая живая -
@@ -40,7 +40,7 @@ def understudy(plans: list[Plan], failed: Plan, args: Args | None = None) -> Pla
     number = next((n for n, plan in enumerate(plans, start=1) if plan.picture is failed.picture), 0)
     if number == 0:
         return None
-    if args is not None and failed.want is not None:
+    if failed.want is not None:
         return _episode_understudy(plans, failed, args)
     twins = [
         n

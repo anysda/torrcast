@@ -51,7 +51,7 @@ def _late(aside: list[Any]) -> tuple[Any, Said]:
     config = Config(prowlarr_apikey="k", prowlarr_url="http://x")
     said = Said()
     plan = plan_for(picture, args, config, CAUTIOUS)
-    return late_voice(plan, args, config, said, CAUTIOUS), said
+    return late_voice(plan, args, config, said, CAUTIOUS, menu=[plan]), said
 
 
 def test_the_pocket_left_by_the_guard_is_spent_when_no_russian_was_proven(

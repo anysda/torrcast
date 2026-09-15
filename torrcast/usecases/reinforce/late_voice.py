@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
 
 
-def _fresh(picture: Picture, menu: Sequence[Plan] = ()) -> list[Release]:
+def _fresh(picture: Picture, menu: Sequence[Plan]) -> list[Release]:
     """Отложенное, чего в пуле картины ещё нет, - и в первую очередь обещающее русский.
 
     🔴 Отбор проверяет паспорта не всей очереди, а её головы: бюджет попыток и часы
@@ -67,7 +67,7 @@ def late_voice(
     progress: Progress,
     profile: Profile = CAUTIOUS,
     *,
-    menu: Sequence[Plan] = (),
+    menu: Sequence[Plan],
 ) -> Plan | None:
     """План из раздач, отложенных сторожем добора, - когда русской дорожки не нашлось.
 

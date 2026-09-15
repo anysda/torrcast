@@ -2857,6 +2857,10 @@ def _invisible_man() -> list[Any]:
     ]
 
 
+#: Запрос без серии: дублёр ищется тёзкой, а не серией.
+_NO_EPISODE = Args(query=["кино"])
+
+
 def test_the_show_moves_to_a_live_namesake_when_the_chosen_picture_cannot_play() -> None:
     """🔴 TC-203. У выбранной картины играть нечем, а тёзка рядом жива - уходим к ней.
 
@@ -2865,7 +2869,7 @@ def test_the_show_moves_to_a_live_namesake_when_the_chosen_picture_cannot_play()
     год при живой картине 2020-го - и отказ был честен про картину и неправдой про вечер.
     """
     plans = _invisible_man()
-    spare = understudy(plans, plans[0])
+    spare = understudy(plans, plans[0], _NO_EPISODE)
     assert spare is not None and spare.picture.year == 2020
     note = understudy_note(plans[0], spare, "годного релиза нет")
     assert "\n" not in note, "строка одна"
@@ -2883,7 +2887,7 @@ def test_the_understudy_is_a_namesake_and_never_someone_elses_picture() -> None:
     играть ею нечем ровно так же.
     """
     cars = _parts(("Тачки", 2006, 66), ("Тачки 3", 2017, 121))
-    assert understudy(cars, cars[0]) is None, "соседка по франшизе - другое кино"
+    assert understudy(cars, cars[0], _NO_EPISODE) is None, "соседка по франшизе - другое кино"
 
     film = _franchise_plan("Нелюбовь", 2017, [rel(name="кино", seeders=9)])
     series = _franchise_plan(
@@ -2892,11 +2896,13 @@ def test_the_understudy_is_a_namesake_and_never_someone_elses_picture() -> None:
         [rel(name="s01", seeders=120), rel(name="s02", seeders=60)],
         kind="tv",
     )
-    assert understudy([film, series], film) is None, "сериал вместо фильма - подмена"
+    assert understudy([film, series], film, _NO_EPISODE) is None, "сериал вместо фильма - подмена"
 
     dead = _parts(("Мумия", 1999, 47), ("Мумия", 2017, 2))
-    assert understudy(dead, dead[0]) is None, "тёзка мертва - уходить некуда"
-    assert understudy(_invisible_man()[:1], _invisible_man()[0]) is None, "меню из одной"
+    assert understudy(dead, dead[0], _NO_EPISODE) is None, "тёзка мертва - уходить некуда"
+    assert understudy(_invisible_man()[:1], _invisible_man()[0], _NO_EPISODE) is None, (
+        "меню из одной"
+    )
 
 
 class _SwitchBench:
