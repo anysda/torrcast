@@ -68,3 +68,18 @@ def test_a_broken_name_round_does_not_break_the_search() -> None:
         ToldIndexer(source), _Broken, None, "Интерстелар", "Интерстелар"
     )
     assert (raw, named) == ([_ROW], [])
+
+
+def test_a_map_built_a_moment_late_still_names_a_text_nobody_answered() -> None:
+    known: list[MapPicture | None] = [None, _INTERSTELLAR]
+    _configure_recognize(lambda _query, _wait: known.pop(0))
+    spawned: list[Indexer] = []
+
+    def spawn() -> Indexer:
+        spawned.append(Indexer(answers={"интерстеллар 2014": [_ROW], "interstellar 2014": [_ROW]}))
+        return spawned[-1]
+
+    source = spawn()
+    first = NamedRound(source)
+    raw, named = first.ask(ToldIndexer(source), spawn, None, "Интерстелар", "Интерстелар")
+    assert (raw, len(named), len(spawned)) == ([], 2, 3)

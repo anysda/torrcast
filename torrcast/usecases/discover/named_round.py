@@ -9,7 +9,7 @@ rows keep the namesakes and the rest of the franchise on the screen as before.
 from __future__ import annotations
 
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from typing import Final
 
@@ -82,11 +82,12 @@ class NamedRound:
         """
         with ThreadPoolExecutor(max_workers=3, thread_name_prefix="named-round") as pool:
             typed = pool.submit(_ask, client, name)
-            self.known = _search_state._search_recognize(query, RECOGNIZE_WAIT) if query else None
-            asked = [pool.submit(self._one, spawn(), text) for text in _texts(self.known, name)]
-            if asked:
-                _notify(on_indexer, self)
+            asked = self._names(pool, spawn, on_indexer, name, query)
             raw = typed.result()
+            if not raw and not asked:
+                # A map still being built on a cold start names the picture a moment later,
+                # and a text nobody answered leaves time to ask by its names.
+                asked = self._names(pool, spawn, on_indexer, name, query)
             told = [future.result() for future in asked]
         client.told.extend(said for one in told for said in one.told)
         return raw, [row for one in told for said in one.told for row in said[4]]
@@ -95,6 +96,21 @@ class NamedRound:
         """The first found picture is the recognized one, holding its own releases."""
         known = self.known
         return known is not None and bool(found) and own_release(found[0].releases[0], known)
+
+    def _names(
+        self,
+        pool: ThreadPoolExecutor,
+        spawn: Callable[[], IndexerClient],
+        on_indexer: Callable[[IndexerClient], None] | None,
+        name: str,
+        query: str,
+    ) -> list[Future[ToldIndexer]]:
+        """Ask the indexers by the names of the picture the map knows ``query`` to be."""
+        self.known = _search_state._search_recognize(query, RECOGNIZE_WAIT) if query else None
+        asked = [pool.submit(self._one, spawn(), text) for text in _texts(self.known, name)]
+        if asked:
+            _notify(on_indexer, self)
+        return asked
 
     def _one(self, source: IndexerClient, text: str) -> ToldIndexer:
         self._named.append(source)
