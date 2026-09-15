@@ -115,6 +115,12 @@ class _BenchCore:
         torrent_hash = prep.torrent_hash
         if any(other.torrent_hash == torrent_hash for other in self.live()):
             return  # та же раздача у живого прогрева: отбор показа завёл её вторым номером
+        adding = (other for other in self.live() if not other.torrent_hash)
+        if any(
+            not other.ready.is_set() and other.release.magnet == prep.release.magnet
+            for other in adding
+        ):
+            return  # свежий прогрев той же раздачи ещё в ``add``: отметка у стенда общая
         if torrent_hash and CLAIMS.unclaim(torrent_hash, self) and not _held_by_show(torrent_hash):
             self.torrserver.drop(torrent_hash)
 

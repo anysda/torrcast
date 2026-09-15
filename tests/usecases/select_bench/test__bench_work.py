@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from itertools import count
 
 import pytest
@@ -115,3 +116,65 @@ def test_a_warm_up_already_dropped_is_not_handed_to_the_show() -> None:
     assert fresh is not old
     assert not fresh.dropped and not fresh.error
     assert bench.live() == [fresh]
+
+
+class _SlowAdd(Torrents):
+    """Второй ``add`` той же раздачи висит, пока его не отпустят: занятый TorrServer."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.adds, self.adding, self.let = 0, threading.Event(), threading.Event()
+
+    def add(self, magnet: str) -> str:
+        self.adds += 1
+        if self.adds == 2:
+            self.adding.set()
+            self.let.wait(5)
+        return super().add(magnet)
+
+
+def test_a_dropped_warm_up_ending_late_does_not_drop_the_fresh_one_still_adding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Снесённый прогрев кончился, пока свежий той же раздачи ждал ``add``: снос его торрента."""
+    one, torrents, probing, done = rel(), _SlowAdd(), threading.Event(), threading.Event()
+
+    def prober(_source: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        probing.set()
+        done.wait(5)
+        return Media(RUNTIME, (), "h264")
+
+    bench = Bench(torrents, prober=prober)
+    old = bench.start(plan([one]), 1)
+    assert probing.wait(5)
+    bench.drop_all()
+    forgot, forget = threading.Event(), bench._forget
+
+    def forgetting(prep: _Prep) -> None:
+        forget(prep)
+        forgot.set()
+
+    monkeypatch.setattr(bench, "_forget", forgetting)
+    fresh = bench.start(plan([one]), 1)
+    assert torrents.adding.wait(5)
+    done.set()
+    assert forgot.wait(5) and old.dropped
+    torrents.let.set()
+    bench._wait(fresh, Said())
+
+    assert torrents.dropped == [f"hash-{one.magnet}"], "свежий прогрев потерял раздачу"
+    assert not fresh.error and bench.live() == [fresh]
+
+
+def test_a_fresh_warm_up_whose_add_failed_does_not_keep_the_old_torrent() -> None:
+    """Свежий прогрев той же раздачи упал на ``add``: снесённый старый уносит свою раздачу."""
+    one, torrents = rel(), Torrents()
+    bench = Bench(torrents, prober=probes([one]))
+    old, failed = _Prep(number=1, release=one), _Prep(number=1, release=one)
+    old.torrent_hash = f"hash-{one.magnet}"
+    failed.ready.set()
+    bench.preps = {("old", 1): old, ("fresh", 1): failed}
+
+    bench._forget(old)
+
+    assert torrents.dropped == [f"hash-{one.magnet}"]
