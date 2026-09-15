@@ -161,8 +161,7 @@ def _body(
     related = CardDetails.others(
         picture.key, _related_of(_related, title, series, fact, told, year)
     )
-    # Родня без идущего похода - молчание источника, а не недоезд: ждать её этой карточке
-    # нечего, и страница переспрашивала её до исчерпания заходов.
+    # Родня без идущего похода - молчание источника: ждать нечего, страница не переспрашивает.
     coming = related is None and _related.waiting(title, series)
     poster, judging = _poster.of(picture)
     heard, hearing = _voices.of(plan, ask.query, config, entry) if plan.ranked else (None, False)
