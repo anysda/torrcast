@@ -21,6 +21,8 @@ RUNNER = Path(__file__).resolve().parent / "web_js" / "search.js"
 EMPTY_STEP_MS, HITS_STEP_MS = 150, 400
 #: Сверх срока сервера страница ждёт не больше этого: опрос перед сроком и его дорога.
 PAST_DEADLINE_MS = 3000
+#: Шаг дозапроса обложек после финала, пока сервер говорит, что они в пути.
+POSTER_STEP_MS = 2500
 
 
 @pytest.fixture(scope="module")
@@ -73,26 +75,63 @@ def test_poll_steps_are_short_before_hits_long_after_and_one_after_the_final(
     steps = _scenario(facts, "steps")
     polls, latency = steps["polls"], steps["latency"]
     gaps = [later - earlier for earlier, later in pairwise(polls)]
-    expected = [latency + EMPTY_STEP_MS] * 3 + [latency + HITS_STEP_MS] * 3 + [12000 + latency]
+    expected = [latency + EMPTY_STEP_MS] * 3 + [latency + HITS_STEP_MS] * 3
     assert gaps == expected, gaps
-    assert steps["timers"] == 0, "дозапрос обложек оставил живой таймер"
+    assert steps["timers"] == 0, "финал без обложек в пути оставил живой таймер"
 
 
 @pytest.mark.machine
 def test_a_final_equal_to_the_last_preview_still_shows_best_match(facts: dict[str, Any]) -> None:
     equal = _scenario(facts, "equal")
-    assert equal["polls"] == 4
+    # Два превью и финал; дозапроса нет: сервер не сказал, что обложки в пути.
+    assert equal["polls"] == 3
     assert equal["screen"]["best"] == 1, "финал, равный превью, не перерисован: нет Best match"
     assert equal["screen"]["searching"] == 0, "строка «ищем» осталась над финалом"
 
 
 @pytest.mark.machine
-def test_a_poster_finished_after_the_final_reaches_its_tile_once(facts: dict[str, Any]) -> None:
+def test_a_poster_finished_after_the_final_reaches_its_tile(facts: dict[str, Any]) -> None:
     after = _scenario(facts, "posterAfterFinal")
-    assert len(after["polls"]) == 2, "после финала разрешён ровно один дозапрос обложек"
+    gaps = [later - earlier for earlier, later in pairwise(after["polls"])]
+    assert gaps == [POSTER_STEP_MS + 30] * 2, "дозапрос шёл не шагом или после «обложки пришли»"
     assert after["screen"]["keys"] == ["cars"]
     assert "web.tile.no_art" not in after["screen"]["text"], "готовая обложка не заменила заглушку"
     assert after["timers"] == 0, "дозапрос обложек стал бесконечным опросом"
+
+
+@pytest.mark.machine
+def test_posters_said_to_be_coming_forever_stop_at_the_server_cap(facts: dict[str, Any]) -> None:
+    cap = _scenario(facts, "posterCap")
+    assert cap["polls"][-1] <= cap["postersBy"] * 1000, f"дозапрос шёл до {cap['polls'][-1]} мс"
+    assert len(cap["polls"]) == 1 + (cap["postersBy"] * 1000 - 30) // (POSTER_STEP_MS + 30)
+    assert cap["timers"] == 0, "после потолка у страницы остались живые таймеры"
+
+
+@pytest.mark.machine
+def test_a_poll_held_past_the_deadline_still_gets_the_final(facts: dict[str, Any]) -> None:
+    """🔴 TC-1286: опрос, начатый до срока и застрявший за ним, обрывал поиск без финала."""
+    held = _scenario(facts, "held")
+    assert held["screen"]["best"] == 1 and held["screen"]["searching"] == 0
+    assert held["screen"]["failed"] == 0
+
+
+@pytest.mark.machine
+def test_one_failed_poll_of_a_live_search_is_not_a_failure(facts: dict[str, Any]) -> None:
+    blip = _scenario(facts, "blip")
+    assert blip["screen"]["failed"] == 0, "живой поиск объявил сбой на одном сорванном опросе"
+    assert blip["screen"]["best"] == 1
+
+
+@pytest.mark.machine
+def test_a_lost_search_keeps_its_tiles_and_try_again_focuses_the_first(
+    facts: dict[str, Any],
+) -> None:
+    lost = _scenario(facts, "lost")
+    assert lost["failed"]["failed"] == 1
+    assert lost["failed"]["keys"] == ["k0", "k1", "k2"], "сбой стёр показанные плитки"
+    assert lost["after"]["failed"] == 0 and lost["after"]["best"] == 1
+    assert lost["after"]["focus"] == "k0", f"фокус после повтора: {lost['after']['focus']}"
+    assert lost["timers"] == 0
 
 
 @pytest.mark.machine

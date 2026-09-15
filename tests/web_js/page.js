@@ -202,10 +202,12 @@ function page(answer, { latency = 30 } = {}) {
           ok: status >= 200 && status < 300,
           status,
           headers: { get: (name) => ({ 'X-Torrcast-Partial': said.partial ? '1' : '0',
-            'X-Torrcast-Final-By': String(said.finalBy ?? 12) })[name] ?? null },
+            'X-Torrcast-Final-By': String(said.finalBy ?? 12),
+            'X-Torrcast-Posters-Pending': said.postersPending ? '1' : '0',
+            'X-Torrcast-Posters-By': String(said.postersBy ?? 60) })[name] ?? null },
           json: async () => ({ results: said.results }),
         });
-      }, latency);
+      }, said.delay ?? latency);
     }),
   };
   ctx.window = ctx;

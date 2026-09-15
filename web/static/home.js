@@ -304,50 +304,74 @@ const TCHome = {
   // «Начало» на стенде ехал 18-21 с: выдача оставалась без «Best match» навсегда.
   // Пока показать нечего, шаг 150 мс: круг, сохранённый на диске, готов за 150-400 мс;
   // с первой находкой шаг снова 400 мс.
-  async _runSearch(text) {
+  async _runSearch(text, retried = false) {
     if (TCHome._sourcesCount === null) TCHome._askSources();
     const mine = ++TCHome._token;
+    const gone = () => mine !== TCHome._token || TCHome._query !== text;
+    TCHome._focusFirst = retried;
     const began = Date.now();
     let until = began;
     let known = [];
+    let answered = false;
+    let misses = 0;
+    let asked = began;
+    let said;
     do {
-      const { results, partial, finalBy, failed } = await TCApi.searchProgress(text);
-      if (mine !== TCHome._token || TCHome._query !== text) return;
-      if (failed) {
-        TCHome._swapBody(TCHome._searchFailed(text));
-        return;
-      }
-      until = began + finalBy * 1000 + TCHome._FINAL_SLACK;
-      known = TCHome._mergeHits(known, results, partial);
-      TCHome._found = { query: text, results: known };
-      // Один и тот же экран не пересобирается: у стоящих обложек нет причины уезжать и
-      // заказываться заново. Экран - это список И то, финал ли он: финал, равный последнему
-      // превью, обязан встать, иначе «Best match» не появлялся вовсе.
-      if (TCHome._screenOf(known, partial) !== TCHome._shownHits) {
-        TCHome._swapBody(TCHome._searchResults(known, partial));
-      }
-      if (!partial) {
-        // Финал ограничивает обычный опрос, но приговор обложек способен закончиться
-        // после него. Один запрос через тот же срок забирает готовые имена постеров;
-        // дальше страница молчит, поэтому ТВ-мост не получает бесконечный хвост.
-        if (finalBy > 0) {
-          await new Promise((done) => setTimeout(done, finalBy * 1000));
-          const refreshed = await TCApi.searchProgress(text);
-          if (mine !== TCHome._token || TCHome._query !== text || refreshed.failed) return;
-          const dressed = TCHome._mergeHits(known, refreshed.results, refreshed.partial);
-          TCHome._found = { query: text, results: dressed };
-          if (TCHome._screenOf(dressed, refreshed.partial) !== TCHome._shownHits) {
-            TCHome._swapBody(TCHome._searchResults(dressed, refreshed.partial));
-          }
+      asked = Date.now();
+      said = await TCApi.searchProgress(text);
+      if (gone()) return;
+      if (said.failed) {
+        // Сорванный опрос живого поиска (сервер уже отвечал) не сбой: сервер досчитывает
+        // заход, и следующий опрос его застаёт. Сбой - только подряд `_POLL_TRIES` раз.
+        misses += 1;
+        if (!answered || misses >= TCHome._POLL_TRIES) {
+          TCHome._swapBody(TCHome._searchFailed(text, known));
+          return;
         }
-        return;
+      } else {
+        answered = true;
+        misses = 0;
+        until = began + said.finalBy * 1000 + TCHome._FINAL_SLACK;
+        known = TCHome._showHits(text, known, said);
+        if (!said.partial) break;
       }
       await new Promise((done) => setTimeout(done, known.length ? 400 : 150));
-    } while (Date.now() < until);
+      // Срок сверяется по НАЧАЛУ опроса: опрос, начатый до срока и застрявший за ним в
+      // очереди браузера, иначе обрывал поиск за миг до финала (TC-1286).
+    } while (asked < until || misses > 0);
+    if (said.failed || said.partial) return;
+    // Финал бывает раньше обложек: сервер называет, что они ещё в пути, и потолок от начала
+    // захода. Дозапрос идёт шагом `_POSTER_STEP`, пока они в пути, но не дольше потолка:
+    // на ТВ каждый запрос идёт через мост, и бесконечный хвост нагружал бы его.
+    const postersUntil = began + said.postersBy * 1000;
+    while (said.postersPending && Date.now() + TCHome._POSTER_STEP <= postersUntil) {
+      await new Promise((done) => setTimeout(done, TCHome._POSTER_STEP));
+      said = await TCApi.searchProgress(text);
+      if (gone() || said.failed || said.partial) return;
+      known = TCHome._showHits(text, known, said);
+    }
+  },
+
+  // Ответ опроса на экран: тот же экран не пересобирается, у стоящих обложек нет причины
+  // уезжать и заказываться заново. Экран - это список И то, финал ли он: финал, равный
+  // последнему превью, обязан встать, иначе «Best match» не появлялся вовсе.
+  _showHits(text, known, said) {
+    const merged = TCHome._mergeHits(known, said.results, said.partial);
+    TCHome._found = { query: text, results: merged };
+    if (TCHome._screenOf(merged, said.partial) !== TCHome._shownHits) {
+      TCHome._swapBody(TCHome._searchResults(merged, said.partial));
+    }
+    return merged;
   },
 
   // Запас сверх срока сервера: опрос, начатый перед самым сроком, и его дорога назад.
   _FINAL_SLACK: 2000,
+
+  // Сколько сорванных опросов подряд живой поиск переживает до экрана сбоя.
+  _POLL_TRIES: 3,
+
+  // Шаг дозапроса обложек после финала.
+  _POSTER_STEP: 2500,
 
   _screenOf(results, partial) {
     return JSON.stringify([results, !!partial]);
@@ -365,8 +389,18 @@ const TCHome = {
     const here = document.activeElement;
     const stood = here && here.matches && here.matches(live) && body.contains(here) ? here : null;
     const place = stood ? Array.from(body.querySelectorAll(live)).indexOf(stood) : -1;
+    // После «Try again» фокус стоял на кнопке, которая уходит с экрана: пульт терял место.
+    // Он встаёт на первую плитку, как только она есть, если человек не ушёл с кнопки сам.
+    const idle = !here || here === document.body || (body.contains(here) && !stood);
     body.replaceWith(next);
-    if (!stood) return;
+    if (!stood) {
+      const first = TCHome._focusFirst && idle ? next.querySelector(live) : null;
+      if (first) {
+        TCHome._focusFirst = false;
+        first.focus();
+      }
+      return;
+    }
     const tiles = Array.from(next.querySelectorAll(live));
     const same = tiles.find((tile) => tile.dataset.tcFocusId === stood.dataset.tcFocusId)
       || tiles.find((tile) => tile.dataset.tcKey && tile.dataset.tcKey === stood.dataset.tcKey)
@@ -431,9 +465,10 @@ const TCHome = {
     return body;
   },
 
-  _searchFailed(text) {
-    TCHome._syncCount(null);
-    TCHome._shownHits = ' ';
+  // Сбой поиска не стирает уже показанных плиток: человек видел их и может открыть,
+  // а строка сбоя с повтором встаёт над ними.
+  _searchFailed(text, known = []) {
+    TCHome._syncCount(known.length ? known.length : null);
     const body = document.createElement('div');
     body.id = 'tc-body';
     const failed = document.createElement('div');
@@ -447,8 +482,13 @@ const TCHome = {
     retry.dataset.tcFocusable = '1';
     retry.dataset.tcGroup = 'search-failed';
     retry.textContent = TC.say('web.detail.retry');
-    retry.addEventListener('click', () => TCHome._runSearch(text));
+    retry.addEventListener('click', () => TCHome._runSearch(text, true));
     body.append(failed, retry);
+    if (known.length) {
+      const shown = TCHome._searchResults(known, true);
+      body.append(...Array.from(shown.children).filter((one) => !one.matches('.tc-searching')));
+    }
+    TCHome._shownHits = ' ';
     return body;
   },
 

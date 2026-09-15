@@ -65,8 +65,12 @@ const TCApi = {
       // ``finalBy`` - срок финала сервера в секундах от начала заказа: нет срока - нет и
       // права опрашивать дальше.
       const finalBy = Number(said.headers.get('X-Torrcast-Final-By')) || 0;
+      // Обложки готового списка ещё в пути и потолок их дозапроса от начала захода.
+      const postersPending = said.headers.get('X-Torrcast-Posters-Pending') === '1';
+      const postersBy = Number(said.headers.get('X-Torrcast-Posters-By')) || 0;
       return {
-        results, partial: said.headers.get('X-Torrcast-Partial') === '1', finalBy, failed: false,
+        results, partial: said.headers.get('X-Torrcast-Partial') === '1', finalBy,
+        postersPending, postersBy, failed: false,
       };
     } catch (error) {
       return { results: [], partial: false, finalBy: 0, failed: true };

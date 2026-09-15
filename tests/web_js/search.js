@@ -75,14 +75,58 @@ const scenarios = {
     return { polls: p.polls.length, screen: screen(p) };
   },
 
-  // Финал бывает без имён картинок: один дозапрос приносит готовую обложку, затем таймеров нет.
+  // Финал бывает без имён картинок: дозапрос идёт, пока сервер говорит «обложки в пути».
   async posterAfterFinal() {
     const p = search((n) => ({
-      partial: false,
-      results: [hit('cars', n ? { poster: 'cars.jpg' } : {})], finalBy: 2,
+      partial: false, postersPending: n < 2,
+      results: [hit('cars', n > 1 ? { poster: 'cars.jpg' } : {})], finalBy: 2,
     }));
-    await p.time.run(10000);
+    await p.time.run(60000);
     return { polls: p.polls, timers: p.time.pending(), screen: screen(p) };
+  },
+
+  // Сервер твердит «обложки в пути» вечно: дозапрос кончается потолком сервера.
+  async posterCap() {
+    const p = search(() => ({ partial: false, postersPending: true, results: TEN, postersBy: 20 }));
+    await p.time.run(120000);
+    return { postersBy: 20, polls: p.polls, timers: p.time.pending() };
+  },
+
+  // Опрос, начатый до срока, застрял в очереди браузера на 3 с: финал всё равно встаёт.
+  async held() {
+    const p = search((n, at) => ({
+      partial: at < 14000, results: TEN.slice(0, 3), finalBy: 12,
+      delay: at >= 13000 && at < 14000 ? 3000 : undefined,
+    }));
+    await p.time.run(60000);
+    return { polls: p.polls, screen: screen(p) };
+  },
+
+  // Один сорванный опрос посреди живого поиска: экрана сбоя нет, финал встаёт.
+  async blip() {
+    const p = search((n) => (n === 3 ? { status: 502 }
+      : { partial: n < 5, results: TEN.slice(0, 3), finalBy: 12 }));
+    await p.time.run(60000);
+    return { polls: p.polls.length, screen: screen(p) };
+  },
+
+  // Сервер пропал посреди поиска: плитки на месте, повтор ищет снова, фокус на первой плитке.
+  async lost() {
+    let phase = 'up';
+    const p = search((n) => {
+      if (phase === 'down') return { reject: true };
+      if (phase === 'final') return { partial: false, results: TEN.slice(0, 3), finalBy: 12 };
+      if (n === 2) phase = 'down';
+      return { partial: true, results: TEN.slice(0, 3), finalBy: 12 };
+    });
+    await p.time.run(5000);
+    const failed = screen(p);
+    const retry = p.doc.querySelector('.tc-search-retry');
+    retry.focus();
+    phase = 'final';
+    retry.dispatch('click');
+    await p.time.run(60000);
+    return { failed, after: screen(p), timers: p.time.pending() };
   },
 
   async failedNetwork() {
