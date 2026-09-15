@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain._series import _Series
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
+from torrcast.domain.foreign_work import foreign_work
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.map_episodes import map_episodes
 from torrcast.domain.not_found_error import NotFoundError
@@ -112,7 +113,7 @@ class Plan(_PlanFields):
                 self.last_resort,
                 self.copy_hevc,
             )
-            and not misses_episode(r, self.want)
+            and not self._elsewhere(r)
         ]
         queue += self._dubbed_tail(queue)
         # Раздача, которую человек видел на карточке, спрашивается первой - если ворота её
@@ -172,11 +173,17 @@ class Plan(_PlanFields):
             for n, r in enumerate(self.ranked, start=1)
             if n not in seen
             and r.dubbed
-            and not misses_episode(r, self.want)
+            and not self._elsewhere(r)
             and is_candidate(
                 r, self.runtime, self.warn_mbit, True, self.hard_mbit, True, self.copy_hevc
             )
         ]
+
+    def _elsewhere(self, release: Release) -> bool:
+        """Серии тут нет: имя её не обещает или раздача другой работы (:func:`foreign_work`)."""
+        return misses_episode(release, self.want) or (
+            self.want is not None and foreign_work(release, self.picture)
+        )
 
     @property
     def want(self) -> Episode | None:

@@ -10,6 +10,7 @@ from torrcast.domain.args import Args
 from torrcast.domain.episode import Episode
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.picture import Picture
 
 
 @pytest.fixture(autouse=True)
@@ -129,3 +130,14 @@ def test_releases_without_a_hash_are_not_taken_for_the_card_release() -> None:
     pool = [release(magnet="magnet:?xt=кино", seeders=90), release(magnet="x", seeders=10)]
 
     assert plan(*pool).candidates(Args(query=["кино"])) == [1, 2]
+
+
+def test_a_series_queue_has_no_release_of_another_work_of_the_franchise() -> None:
+    """«Наруто» s1e1 играл «Naruto Shippuuden - 001»: раздача ТВ-2 лежала в пуле ТВ-1."""
+    other = parsed("Naruto: Shippuuden / Наруто [ТВ-2] (500 из 500) Complete [WEB-DL 1080p]")
+    mine = parsed("Наруто / Naruto [01-220] (2002-2007) BDRip 1080p", seeders=5)
+    season = parsed("Наруто / Naruto 2nd Season [01-26 из 26] (2003) BDRip 1080p", seeders=4)
+    picture = Picture(title="Наруто", year=2002, kind="tv", original="Naruto")
+    built = plan(other, mine, season, picture=picture, series=_Series(want=Episode(1, 1)))
+
+    assert built.candidates(_ASKED) == [2, 3]
