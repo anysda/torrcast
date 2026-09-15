@@ -17,10 +17,36 @@ if TYPE_CHECKING:
 
 def _card_number(plans: list[Plan], args: Args, find: Callable[[list[Plan], str], int]) -> int:
     """Номер картины карточки в этом круге; пропала из круга - честный отказ, не соседка."""
-    number = find(plans, args.picture)
+    number = find(plans, args.picture) or _season_year(plans, args)
     if not 1 <= number <= len(plans):
         raise NotFoundError(phrase("choice.card_picture_gone", asked=args.title_query))
     return number
+
+
+def _season_year(plans: list[Plan], args: Args) -> int:
+    """Сериал карточки, собранный кругом под годом СЕЗОНА; нет такого - ноль.
+
+    🔴 TC-1267. «Мажор» s5e8: карточка держит ``tv:мажор:2014``, а все раздачи выдачи
+    подписаны «[2026, ...]» - годом пятого сезона, и круг собрал ``tv:мажор:2026``. Серия
+    вышла, русская раздача в пуле есть, а показ отказывал «картины с карточки больше нет».
+    Сериал того же имени с годом позже карточки и с раздачами под ЭТУ серию - та же
+    картина; фильм, другое имя или год раньше - по-прежнему отказ, а не соседка.
+    """
+    kind, _, rest = args.picture.partition(":")
+    slug, _, year = rest.rpartition(":")
+    if kind != "tv" or args.episode is None or not year.isdigit():
+        return 0
+    return next(
+        (
+            n
+            for n, plan in enumerate(plans, start=1)
+            if plan.picture.kind == "tv"
+            and plan.picture.key.split(":")[1] == slug
+            and (plan.picture.year or 0) > int(year)
+            and plan.candidates(args)
+        ),
+        0,
+    )
 
 
 def _card_release_note(args: Args, plan: Plan, prep: _Prep) -> None:
