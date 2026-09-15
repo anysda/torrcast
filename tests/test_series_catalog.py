@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
-from web.series_catalog import COLD, SeriesCatalog
+from web.series_catalog import COLD, RETRY, SeriesCatalog
 
 SHOW = Picture(title="Show", year=2020, kind="tv", original="Show")
 RELEASE = Release(raw_name="Show S01E01", title="Show", kind="tv", season=1, episode=1)
@@ -73,3 +73,31 @@ def test_the_bookmark_rows_lie_over_the_catalogue_by_episode_number() -> None:
 def test_a_series_outside_the_catalogue_has_no_rows() -> None:
     other = Picture(title="Unknown", year=2020, kind="tv")
     assert _catalog([], _Tvmaze({}, True)).rows(other, [RELEASE], {}) == ({}, False)
+
+
+def test_a_series_the_names_did_not_know_is_asked_again_after_a_while() -> None:
+    """Индекс имён достраивается после запуска: пустой id не держится до перезапуска."""
+    asked: list[str] = []
+    known: list[str] = []
+    moment = [0.0]
+
+    def series_id(title: str, _original: str, _year: int | None) -> str:
+        asked.append(title)
+        return known[0] if known else ""
+
+    catalog = SeriesCatalog(
+        series_id,
+        lambda _t: {1: (1, 2)},
+        _Tvmaze({}, False),
+        lambda: "2026-09-15T08:00:00+00:00",
+        lambda: moment[0],
+    )
+
+    assert catalog.rows(SHOW, [RELEASE], {}) == ({}, False)
+    known.append("tt0000001")
+    assert catalog.rows(SHOW, [RELEASE], {}) == ({}, False), "до срока не переспрашивает"
+    moment[0] = RETRY
+
+    rows, _pending = catalog.rows(SHOW, [RELEASE], {})
+
+    assert (sorted(rows), len(asked)) == ([1], 2)

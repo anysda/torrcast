@@ -56,9 +56,7 @@ def card_seasons(
     numbers = {number for release in releases for number in _named_seasons(release)}
     saved = _seasons_from_entry(entry) if entry is not None and entry.episodes else {}
     known, pending = catalog.rows(picture, releases, saved) if catalog else ({}, False)
-    if known:
-        numbers = {n for n in numbers if n > max(known)} | set(known)
-    numbers.update(saved)
+    numbers.update(known, saved)
     # Без выбранной вкладки открыт сезон закладки, как у стримингов: таблица нужна ему.
     bookmark = entry.season if entry is not None else None
     default = bookmark if bookmark in numbers else (1 if 1 in numbers else min(numbers, default=0))

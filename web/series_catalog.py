@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
+from time import monotonic
 from typing import Final
 
 from torrcast.adapters.wiki.imdb_episode_index.seasons import seasons
@@ -26,6 +27,8 @@ from torrcast.runtime.facts_wiring import FACTS
 #: Сколько первый вопрос сериала ждёт TVmaze: живой отвечает за 0.2-0.5 с (стенд `.104`),
 #: а весь ответ карточки обещан за 2 с.
 COLD: Final = 0.8
+#: Сериал без id переспрашивается не раньше этого: индекс имён мог достроиться после однострока.
+RETRY: Final = 60.0
 #: Строки серий по сезонам, как их отдаёт карточка.
 Rows = dict[int, list[JsonValue]]
 
@@ -36,13 +39,14 @@ def _now() -> str:
 
 @dataclass
 class SeriesCatalog:
-    """Раскладка сериала по картине пула; id сериала ищется раз на процесс."""
+    """Раскладка сериала по картине пула; найденный id сериала ищется раз на процесс."""
 
     ids: Callable[[str, str, int | None], str]
     numbers: Callable[[str], Mapping[int, tuple[int, ...]] | None]
     aired: Callable[[str, float], tuple[Mapping[tuple[int, int], tuple[str, str]], bool]]
     now: Callable[[], str] = _now
-    _ids: dict[str, str] = field(default_factory=dict)
+    clock: Callable[[], float] = monotonic
+    _ids: dict[str, tuple[str, float]] = field(default_factory=dict)
 
     def rows(self, picture: Picture, releases: Sequence[Release], saved: Rows) -> tuple[Rows, bool]:
         """Серии по сезонам и «TVmaze ещё в пути»; сериал вне каталога - пусто.
@@ -50,10 +54,11 @@ class SeriesCatalog:
         Ещё не вышедшая серия несёт дату выхода ``air``: страница рисует её серой. Строки
         закладки ``saved`` ложатся поверх по номеру серии: серий каталога они не прячут.
         """
-        key = picture.key
-        if key not in self._ids:
-            self._ids[key] = self.ids(picture.title, picture.original or "", picture.year)
-        tconst = self._ids[key]
+        key, moment = picture.key, self.clock()
+        tconst, asked = self._ids.get(key, ("", float("-inf")))
+        if not tconst and moment - asked >= RETRY:
+            tconst = self.ids(picture.title, picture.original or "", picture.year)
+            self._ids[key] = (tconst, moment)
         if not tconst:
             return {}, False  # outside the catalogue the card keeps the release tables
         aired, pending = self.aired(tconst, COLD)

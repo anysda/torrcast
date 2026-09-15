@@ -278,3 +278,14 @@ def test_a_pool_season_the_catalogue_does_not_know_yet_still_reads_its_files() -
 
     assert [(row["n"], len(row["episodes"])) for row in _rows(seasons)] == [(1, 1), (2, 1), (4, 2)]
     assert (episodes.asked, partial) == ([fresh.magnet], False)
+
+
+def test_a_pool_season_the_catalogue_skips_keeps_its_tab() -> None:
+    """Раздача зовёт сезон 2, каталог знает 1 и 3: вкладка 2 остаётся, как без каталога."""
+    plan, _first, second = _plan()
+    episodes = _Episodes({second.magnet: [[2, 1], [2, 2]]}, [])
+    catalog = _Catalog({1: _blank(1), 3: _blank(1)})
+
+    seasons, _partial, _ = card_seasons(plan, None, "http://ts", episodes, 2, catalog=catalog)
+
+    assert [(row["n"], len(row["episodes"])) for row in _rows(seasons)] == [(1, 1), (2, 2), (3, 1)]
