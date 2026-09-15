@@ -128,6 +128,11 @@ const TCApi = {
     return TCApi._post('/api/seen', { tiles, hot: hot || '' });
   },
 
+  // Записи на экране (`warm.js`): их раздачи держатся подключёнными, пока страница зовёт.
+  async hold(keys) {
+    return TCApi._post('/api/hold', { keys });
+  },
+
   // Карточка ушла с экрана (`app.js`): её раздача больше не греется. Ответ не нужен, а
   // уход бывает и закрытием вкладки - поэтому `sendBeacon`, как у позиции показа.
   cardLeft(picture) {

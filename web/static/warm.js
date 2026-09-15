@@ -15,9 +15,16 @@ const TCWarm = {
   // двумя кадрами прокрутки список видимого не меняется, а запрос стоил бы круга.
   _PAUSE: 400,
 
+  // Записи «Продолжить» и карточки держатся подключёнными, пока страница зовёт
+  // (`POST /api/hold`, `web/record_hold.py`, там же число): иначе «Играть» с закладки ждёт
+  // первого контакта роя заново, 4-36 с.
+  _HOLD_BEAT: 10000,
+  _holding: '',
+
   start() {
     if (TCWarm._timer) return;
     TCWarm._timer = setInterval(TCWarm.look, TCWarm._PAUSE);
+    setInterval(() => TCWarm.hold(true), TCWarm._HOLD_BEAT);
     document.addEventListener('scroll', TCWarm.look, true);
     for (const kind of ['pointerover', 'focusin']) {
       document.addEventListener(kind, TCWarm._aim, true);
@@ -58,7 +65,22 @@ const TCWarm = {
     return { tiles, hot };
   },
 
+  // Скрытая вкладка не зовёт: раздачи отпускаются, когда на страницу никто не смотрит.
+  hold(beat) {
+    if (document.hidden) return;
+    const keys = new Set();
+    for (const node of document.querySelectorAll('[data-tc-hold]')) keys.add(node.dataset.tcHold);
+    const router = window.TCRouter;
+    if (router && router._card) keys.add(router._card);
+    if (router && router._picture) keys.add(router._picture);
+    const mark = [...keys].join('\n');
+    if (!keys.size || (!beat && mark === TCWarm._holding)) return;
+    TCWarm._holding = mark;
+    TCApi.hold([...keys]);
+  },
+
   look() {
+    TCWarm.hold(false);
     const seen = TCWarm.seen();
     const mark = JSON.stringify(seen);
     // Пустой экран (человек ушёл в поиск, результатов ещё нет) сообщается ровно один

@@ -18,6 +18,8 @@ const TCTile = {
     // другого источника у неё нет, и разойтись им негде. Стоит на самой плитке, потому
     // что видно на экране именно её, а не строку списка.
     if (shape.query) tile.dataset.tcWarm = shape.query;
+    // Запись истории: её раздача держится подключённой, пока плитка на странице (`warm.js`).
+    if (shape.hold) tile.dataset.tcHold = shape.hold;
     if (shape.facts && shape.key && shape.query) {
       tile.dataset.tcWarmFacts = JSON.stringify({ query: shape.query, key: shape.key,
         title: shape.facts.title, year: shape.facts.year, kind: shape.facts.kind });

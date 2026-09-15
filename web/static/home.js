@@ -622,6 +622,7 @@ const TCHome = {
         caption2: item.label || '',
         progress: item.dur ? item.pos / item.dur : 0,
         group: 'shelf-continue',
+        hold: item.key,
         query: item.query || item.title,
         facts: item.year && item.kind
           ? { title: item.title, shown: item.shown || item.title, year: item.year, kind: item.kind } : null,
