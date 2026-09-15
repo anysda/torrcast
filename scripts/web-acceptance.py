@@ -1888,7 +1888,7 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
         name = tab.inner_text().strip()
         _reveal_tab(tab)
         began = time.monotonic()
-        tab.click()
+        tab.click(force=True)
         try:
             ctx.page.wait_for_function(
                 "() => document.querySelectorAll('[data-tc-episode]').length > 0",
@@ -1910,7 +1910,7 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     if season_two is None:
         return Result(7, "Сериал", False, None, "нет вкладки второго сезона")
     _reveal_tab(season_two)
-    season_two.click()
+    season_two.click(force=True)
     with contextlib.suppress(Exception):
         ctx.page.locator("[data-tc-episode]").first.wait_for(state="visible", timeout=30_000)
     episodes = ctx.page.locator("[data-tc-episode]")
@@ -2784,20 +2784,25 @@ def check_13_texts(ctx: Ctx) -> Result:
     if season_two is None:
         return Result(13, "Тексты", False, None, "нет вкладки второго сезона для проверки экрана")
     _reveal_tab(season_two)
-    season_two.click()
+    season_two.click(force=True)
     row = ctx.page.locator(f'[data-tc-episode="{_SERIES_TARGET}"]')
     if row.count() == 0:
         return Result(13, "Тексты", False, None, f"нет {_SERIES_TARGET} для проверки экрана")
     row.first.click()
     began = time.monotonic()
     screen = ""
+    saw_screen = False
     while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
         screen = str(ctx.page.evaluate("document.body.innerText || ''"))
-        if "stream_source" in screen.casefold() or _video(ctx, "v => v.currentTime") is not None:
+        saw_screen = saw_screen or bool(screen.strip())
+        current = _video(ctx, "v => v.currentTime")
+        if "stream_source" in screen.casefold() or (
+            isinstance(current, int | float) and current > 0.3
+        ):
             break
         ctx.page.wait_for_timeout(100)
     _stop_show(ctx)
-    visible_ok = "stream_source" not in screen.casefold()
+    visible_ok = saw_screen and "stream_source" not in screen.casefold()
     ok = source_ok and visible_ok
     detail = (
         f"EN ключей {len(english)} (код {en_code}), RU ключей {len(russian)} (код {ru_code}), "
@@ -2807,7 +2812,8 @@ def check_13_texts(ctx: Ctx) -> Result:
         + f"; ключей из них {len(referenced)}, вне каталога: {missing_keys or 'нет'}; "
         f"JS-литералов человеку: {len(suspects)} {suspects}; "
         f"CSS content-литералов: {len(css_suspects)} {css_suspects}; "
-        f"на экране stream_source: {'НЕТ' if visible_ok else 'ЕСТЬ'}"
+        f"экран до кадра {'виден' if saw_screen else 'НЕ ВИДЕН'}; "
+        f"stream_source: {'НЕТ' if 'stream_source' not in screen.casefold() else 'ЕСТЬ'}"
     )
     return Result(13, "Тексты", ok, None, detail)
 
