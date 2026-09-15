@@ -132,3 +132,25 @@ def test_a_job_with_posters_coming_outlives_its_ttl_but_not_the_cap(
     finally:
         circles.hold.set()
         gate.set()
+
+
+def test_the_poll_that_sees_the_covers_end_after_the_ttl_gets_the_final(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Обложки кончились позже срока захода: опрос, заставший конец, получает финал."""
+    gate = threading.Event()
+    posters = HitPosters(FakeSource(gate=gate), PosterShelf(home=lambda: tmp_path))
+    circles = _Circles()
+    try:
+        assert posters.pending(_final(circles, posters))
+        monkeypatch.setattr(module, "JOB_TTL", -1.0)
+        gate.set()
+        deadline = time.monotonic() + _SETTLE
+        while posters.pending(module._jobs["тачки"].results) and time.monotonic() < deadline:
+            threading.Event().wait(0.02)
+        results, partial = _poll(circles, posters)
+        assert partial is False, "конец обложек за сроком захода сменил заход новым"
+        assert FIELD in _cars(results) and circles.asked == ["тачки"]
+    finally:
+        circles.hold.set()
+        gate.set()

@@ -68,6 +68,8 @@ class SearchJob:
     finished_at: float = 0.0
     posters: dict[str, JsonValue] = field(default_factory=dict)
     judging: bool = False
+    #: A poll has seen this job's covers coming: the job then stays until the poster cap.
+    promised: bool = False
     #: The finished circle's list before its poster verdict: previews show it at once.
     hits: list[JsonValue] = field(default_factory=list)
     #: Картины каталога под этот запрос (:mod:`hass.catalog_tiles`); без них - только раздачи.

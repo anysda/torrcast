@@ -129,8 +129,7 @@ def search_progress(
 ) -> tuple[list[JsonValue], bool]:
     """Тело ``POST /api/search`` с ``progressive: true``: превью или готовый список.
 
-    Второе поле - «поиск ещё идёт», тем же смыслом, каким его несёт
-    ``X-Torrcast-Partial`` у ``GET /api/card/*`` (:mod:`web.card_lookup`).
+    Второе поле - «поиск ещё идёт», как ``X-Torrcast-Partial`` у :mod:`web.card_lookup`.
 
     🔴 Полнота готового ответа не отличается от обычного :func:`hass.searching.searching`
     ни на одну картину: круг внутри - тот же самый вызов :func:`~torrcast.usecases.
@@ -173,6 +172,7 @@ def search_progress(
         raise RefusedError(job.error)
     if covers is None:
         return job.results, False
+    job.promised = job.promised or covers.pending(job.results)
     if _coming(job, covers) and not job.judging and covers.due(job.results):
         job.judging = True
         said = searching.OFFER if offer is None else offer
@@ -181,10 +181,10 @@ def search_progress(
 
 
 def _coming(job: SearchJob, covers: _Covers | None) -> bool:
-    """Обложки готового захода ещё в пути, и потолок дозапроса не пройден."""
+    """Обложки готового захода в пути или были в пути у опроса, и потолок не пройден."""
     if covers is None or not job.done or time.monotonic() - job.started_at >= POSTERS_BY:
         return False
-    return job.judging or covers.pending(job.results)
+    return job.promised or job.judging or covers.pending(job.results)
 
 
 def _shown(results: list[JsonValue], covers: _Covers) -> list[JsonValue]:
