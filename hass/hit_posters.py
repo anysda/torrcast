@@ -30,6 +30,7 @@ from hass.hit_ask import _about, _name
 from hass.hit_claims import _ASK, _CLAIMED, _KEEP, _RETRY, _WAIT, HitClaims
 from hass.picture_source import picture_source
 from hass.picture_type import picture_type
+from hass.poster_parts import poster_parts
 from hass.poster_shelf import PosterShelf
 from hass.poster_source import PosterSource
 from torrcast.domain.facts.ask import Ask
@@ -146,9 +147,7 @@ class HitPosters(HitClaims):
                 else:
                     self._missed(_name(ask), troubled, self._weather.calm_at())
         if found:
-            threading.Thread(
-                target=self._fill, args=(found, urgent), daemon=True, name="hit-posters"
-            ).start()
+            threading.Thread(target=self._fill, args=(found, urgent), daemon=True).start()
 
     def _answer(self, asks: Sequence[Ask], urgent: bool) -> dict[Ask, list[str]] | None:
         """Приговор на всю пачку; ``None`` - источник МОЛЧИТ, а не «постеров нет»."""
@@ -158,7 +157,11 @@ class HitPosters(HitClaims):
             return None
 
     def _fill(self, wanted: dict[Ask, list[str]], urgent: bool) -> None:
-        """Байты всей пачки разом и раздача их ждущим; промах - отложить попытку."""
+        """Байты пачки частями (:mod:`hass.poster_parts`): доехавшая ложится, не ждя медленной."""
+        poster_parts(wanted, lambda part: self._land(part, urgent))
+
+    def _land(self, wanted: dict[Ask, list[str]], urgent: bool) -> None:
+        """Байты одной части и раздача их ждущим; промах - отложить попытку."""
         began = self._now()
         failed = False
         try:

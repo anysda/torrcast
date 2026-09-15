@@ -261,3 +261,28 @@ def test_a_background_build_names_only_pictures_whose_bytes_landed(tmp_path: Pat
     assert isinstance(cars, dict) and FIELD in cars, "сборка не дождалась легших байтов"
     assert hits.landed(cars)
     assert isinstance(it, dict) and FIELD not in it, "полка унесла имя недоехавшей обложки"
+
+
+class _OneSlowSource(FakeSource):
+    """Байты «Оно» стоят за закрытым затвором, байты «Тачек» приходят сразу."""
+
+    def bodies(self, wanted: dict[Ask, list[str]], timeout: float) -> dict[Ask, bytes]:
+        if any(ask.title == "Оно" for ask in wanted) and self.gate is not None:
+            self.gate.wait(_SETTLE)
+        return {ask: POSTER for ask, pages in wanted.items() if pages}
+
+
+def test_a_picture_lands_without_waiting_for_the_slowest_of_its_batch(tmp_path: Path) -> None:
+    """Доехавшая обложка ложится сразу: одна застрявшая картинка не прячет байты всей пачки."""
+    gate = threading.Event()
+    source = _OneSlowSource(pages={"Тачки": ["Cars"], "Оно": ["It"]}, gate=gate)
+    hits = _hits(tmp_path, source)
+    try:
+        cars, it = hits.urgent([_row(), _row("Оно", 2017)])
+        deadline = time.monotonic() + _SETTLE / 2
+        while not hits.landed(cars) and time.monotonic() < deadline:
+            threading.Event().wait(0.02)
+        assert hits.landed(cars), "доехавшая обложка ждала самую медленную картинку пачки"
+        assert not hits.landed(it) and hits.pending([it])
+    finally:
+        gate.set()
