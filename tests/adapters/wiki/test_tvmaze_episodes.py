@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from torrcast.adapters.wiki.tvmaze_episodes import FRESH, RETRY, TvmazeEpisodes
+from torrcast.adapters.wiki.tvmaze_episodes import (
+    CALLS,
+    FRESH,
+    RETRY,
+    WINDOW,
+    TvmazeEpisodes,
+    _Pace,
+)
 
 SHOW = "https://api.tvmaze.com/lookup/shows?imdb=tt0000001"
 EPISODES = "https://api.tvmaze.com/shows/7/episodes"
@@ -98,3 +105,23 @@ def test_a_series_tvmaze_does_not_know_is_an_empty_answer_kept_for_a_day(tmp_pat
     assert catalogue.aired("tt0000001") == ({}, False)
     assert net.asked == [SHOW]
     assert catalogue.aired("../../etc/passwd") == ({}, False)
+
+
+def test_the_twenty_first_question_in_ten_seconds_waits_for_the_window() -> None:
+    now, slept = [0.0], list[float]()
+
+    def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds
+
+    pace = _Pace(_now(now), sleep)
+    for _ in range(CALLS):
+        pace()
+        now[0] += 0.1
+    pace()
+
+    assert len(slept) == 1
+    assert abs(slept[0] - (WINDOW - CALLS * 0.1)) < 1e-9, "ждёт выхода первого из окна"
+    now[0] += WINDOW
+    pace()
+    assert len(slept) == 1, "окно прошло - без ожидания"

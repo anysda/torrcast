@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,10 +37,37 @@ TIMEOUT = 5.0
 FRESH = 24 * 3600.0
 #: Неудачу переспрашивать не раньше этого.
 RETRY = 60.0
+#: Условия TVmaze: не больше 20 вопросов за 10 с с одного адреса.
+CALLS = 20
+WINDOW = 10.0
 _TCONST = re.compile(r"tt\d{1,10}")
 
 
+@dataclass
+class _Pace:
+    """Скользящее окно вопросов: лишний ждёт, пока старейший из окна не выйдет из него."""
+
+    clock: Callable[[], float] = time.monotonic
+    sleep: Callable[[float], None] = time.sleep
+    _asked: deque[float] = field(default_factory=deque)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def __call__(self) -> None:
+        with self._lock:
+            now = self.clock()
+            if len(self._asked) >= CALLS and now - self._asked[0] < WINDOW:
+                self.sleep(WINDOW - (now - self._asked[0]))
+                now = self.clock()
+            while self._asked and now - self._asked[0] >= WINDOW:
+                self._asked.popleft()
+            self._asked.append(now)
+
+
+_PACE = _Pace()
+
+
 def _get(url: str) -> object:
+    _PACE()
     request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     try:
         with urlopen(request, timeout=TIMEOUT) as response:
