@@ -1856,6 +1856,21 @@ def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
     return None
 
 
+def _reveal_tab(tab: Any) -> None:
+    """Прокрутить полосу вкладок до вкладки, прежде чем нажимать её как зритель."""
+    tab.evaluate(
+        """node => {
+          for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+            if (parent.scrollWidth > parent.clientWidth) {
+              parent.scrollLeft = node.offsetLeft - parent.offsetLeft
+                - (parent.clientWidth - node.offsetWidth) / 2;
+              return;
+            }
+          }
+        }"""
+    )
+
+
 def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     """Сериал: каждая вкладка даёт строки за 2 с, клик включает названную серию.
 
@@ -1871,7 +1886,7 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     for index in range(tabs.count()):
         tab = tabs.nth(index)
         name = tab.inner_text().strip()
-        tab.scroll_into_view_if_needed()
+        _reveal_tab(tab)
         began = time.monotonic()
         tab.click()
         try:
@@ -1894,7 +1909,7 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     )
     if season_two is None:
         return Result(7, "Сериал", False, None, "нет вкладки второго сезона")
-    season_two.scroll_into_view_if_needed()
+    _reveal_tab(season_two)
     season_two.click()
     with contextlib.suppress(Exception):
         ctx.page.locator("[data-tc-episode]").first.wait_for(state="visible", timeout=30_000)
@@ -2768,7 +2783,7 @@ def check_13_texts(ctx: Ctx) -> Result:
     )
     if season_two is None:
         return Result(13, "Тексты", False, None, "нет вкладки второго сезона для проверки экрана")
-    season_two.scroll_into_view_if_needed()
+    _reveal_tab(season_two)
     season_two.click()
     row = ctx.page.locator(f'[data-tc-episode="{_SERIES_TARGET}"]')
     if row.count() == 0:
