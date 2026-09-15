@@ -131,6 +131,11 @@ _CARD_READY_WAIT: Final = 45000.0
 #: метаданные роя и упаковать первые куски: по живому замеру это заняло 10 с до
 #: `readyState 4`, порог взят с запасом на холодный рой.
 _PLAY_START_WAIT: Final = 90000.0
+#: Цели владельца, а не характеристика текущего стенда.  Числа не ослабляются при
+#: перегруженной машине: load только печатается рядом с приговором.
+_FRAME_BAR: Final = 5.0
+_EPISODES_BAR: Final = 2.0
+_WATCH_SECONDS: Final = 180.0
 #: Плитка, которую можно открыть. Пока полка не доехала, страница рисует СКЕЛЕТЫ тем же
 #: `data-tc-tile`, и первый узел в DOM обычно как раз скелет: у него нет ни обработчика,
 #: ни фокуса, и клик по нему не делает ничего (по живому замеру - 14 скелетов).
@@ -185,6 +190,7 @@ class Ctx:
     allow_play: bool
     shots: Path
     english: dict[str, str]
+    current_key: str = ""
 
 
 def _get(url: str, timeout: float = 10.0) -> tuple[int, bytes]:
@@ -1515,7 +1521,7 @@ def check_22_shelf_cards_open(base: str) -> Result:
 
 
 def check_2_search(ctx: Ctx) -> Result:
-    """Поиск: «Интерстеллар» → плитка с 2014 в первых трёх за ≤15 с."""
+    """Поиск не оставляет зрителя перед погашенными плитками без объяснения."""
     # Главную пункт открывает сам: под `--only 2` страница - `about:blank`, поля нет.
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
     placeholder = ctx.english.get("web.search.placeholder", "")
@@ -1523,26 +1529,45 @@ def check_2_search(ctx: Ctx) -> Result:
     if field is None or field.count() == 0:
         detail = f"поле поиска не найдено: input[placeholder={placeholder!r}] нет в DOM"
         return Result(2, "Поиск", False, None, detail)
+
+    def verdict(query: str) -> tuple[bool, str]:
+        field.first.fill(query)
+        field.first.press("Enter")
+        began = time.monotonic()
+        while time.monotonic() - began < 15.0:
+            settled = ctx.page.locator(".tc-searching").count() == 0
+            tiles = ctx.page.locator("[data-tc-tile]")
+            live = [
+                tiles.nth(i)
+                for i in range(tiles.count())
+                if tiles.nth(i).locator(".tc-tile-skeleton").count() == 0
+            ]
+            if settled and live:
+                dim = sum("is-dim" in (tile.get_attribute("class") or "") for tile in live)
+                nothing = (
+                    ctx.page.locator(".tc-nothing").inner_text()
+                    if ctx.page.locator(".tc-nothing").count()
+                    else ""
+                )
+                # Одной доступной плитки недостаточно: зритель всё ещё видит остальные
+                # погашенными без причины и не знает, почему они не открываются.
+                bad = dim > 0 and not nothing.strip()
+                return (
+                    not bad,
+                    f"{query!r}: плиток {len(live)}, погашено {dim}, надпись {nothing.strip()!r}",
+                )
+            ctx.page.wait_for_timeout(200)
+        return False, f"{query!r}: выдача не установилась за 15 с"
+
+    controls = [verdict(query) for query in ("Мы", "ывапрол")]
+    # Последним оставляем нормальный запрос: следующая проверка открывает плитку тем
+    # же путём, а краснота отрицательных запросов не должна блокировать её измерение.
     field.first.fill(_MOVIE_TITLE)
     field.first.press("Enter")
-    began = time.monotonic()
-    tiles = ctx.page.locator("[data-tc-tile]")
-    seen_count = 0
-    found_2014 = False
-    while time.monotonic() - began < 15.0:
-        seen_count = tiles.count()
-        if seen_count:
-            texts = [tiles.nth(i).inner_text() for i in range(min(3, seen_count))]
-            if any("2014" in text for text in texts):
-                found_2014 = True
-                break
-        ctx.page.wait_for_timeout(300)
-    spent = time.monotonic() - began
-    detail = (
-        f"поле найдено, ввод отправлен; за {spent:.1f} с плиток [data-tc-tile]: {seen_count}; "
-        f"2014 среди первых трёх: {found_2014}"
-    )
-    return Result(2, "Поиск", found_2014, None, detail)
+    ctx.page.locator(_LIVE_TILE).first.wait_for(state="visible", timeout=20_000)
+    regular = ctx.page.locator(_LIVE_TILE).count() > 0
+    detail = "; ".join(text for _, text in controls) + f"; {_MOVIE_TITLE!r}: живая плитка {regular}"
+    return Result(2, "Поиск", regular and all(ok for ok, _ in controls), None, detail)
 
 
 def check_3_card(ctx: Ctx, search_ok: bool) -> Result:
@@ -1616,64 +1641,99 @@ def _playback_guard(
 
 
 def _await_playback(ctx: Ctx) -> bool:
-    """Дождаться первого кадра: `<video>` в DOM и `readyState >= 3` (есть что показывать)."""
-    with contextlib.suppress(Exception):
-        ctx.page.wait_for_selector("video", timeout=_PLAY_START_WAIT)
-        ctx.page.wait_for_function(
-            "() => { const v = document.querySelector('video'); return !!v && v.readyState >= 3; }",
-            timeout=_PLAY_START_WAIT,
-        )
-        return True
-    return False
+    """Дождаться именно кадра, а не заполненного браузерного буфера."""
+    return _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)[0] is not None
+
+
+_METER_JS: Final = """() => {
+  const old = window.__tcAcceptanceMeter;
+  if (old) old.stop();
+  const meter = {
+    born: performance.now(), frame: null, start: null, playing: [], waits: [], waiting: null,
+  };
+  const watch = (video) => {
+    if (meter.video === video) return;
+    meter.video = video; meter.start = video.currentTime;
+    const at = () => (performance.now() - meter.born) / 1000;
+    video.addEventListener('playing', () => {
+      meter.playing.push(at());
+      if (meter.waiting !== null) { meter.waits.push(at() - meter.waiting); meter.waiting = null; }
+    });
+    video.addEventListener('waiting', () => {
+      if (meter.frame !== null) meter.waiting = at();
+    });
+    const frame = () => {
+      if (meter.frame === null) meter.frame = at();
+      video.requestVideoFrameCallback(frame);
+    };
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(frame);
+  };
+  const observer = new MutationObserver(() => document.querySelectorAll('video').forEach(watch));
+  observer.observe(document.documentElement, {childList: true, subtree: true});
+  document.querySelectorAll('video').forEach(watch);
+  meter.stop = () => observer.disconnect(); window.__tcAcceptanceMeter = meter;
+}"""
+
+
+def _frame_measure(ctx: Ctx, limit: float) -> tuple[float | None, dict[str, Any]]:
+    """Первый кадр через rVFC либо ход после стартовой секунды, без ``readyState``."""
+    ctx.page.evaluate(_METER_JS)
+    began = time.monotonic()
+    while time.monotonic() - began < limit:
+        meter = ctx.page.evaluate("window.__tcAcceptanceMeter")
+        if isinstance(meter, dict):
+            frame = meter.get("frame")
+            start = meter.get("start")
+            current = _video(ctx, "v => v.currentTime")
+            moved = (
+                isinstance(start, int | float)
+                and isinstance(current, int | float)
+                and current > start + 0.3
+                and bool(meter.get("playing"))
+            )
+            if isinstance(frame, int | float) or moved:
+                spent = float(frame) if isinstance(frame, int | float) else time.monotonic() - began
+                return spent, meter
+        ctx.page.wait_for_timeout(100)
+    meter = ctx.page.evaluate("window.__tcAcceptanceMeter")
+    return None, meter if isinstance(meter, dict) else {}
+
+
+def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float]:
+    """Сумма ``waiting`` после первого кадра, пока зритель смотрит первые три минуты."""
+    began = time.monotonic()
+    while time.monotonic() - began < seconds:
+        ctx.page.wait_for_timeout(250)
+    meter = ctx.page.evaluate("window.__tcAcceptanceMeter || {}")
+    waits = meter.get("waits", []) if isinstance(meter, dict) else []
+    current = meter.get("waiting") if isinstance(meter, dict) else None
+    if isinstance(current, int | float):
+        # Незаконченный ``waiting`` уже портит просмотр, даже если конец ещё не настал.
+        waits = [*waits, 0.001]
+    values = [float(value) for value in waits if isinstance(value, int | float) and value > 0]
+    return values, sum(values)
 
 
 def check_4_playback(ctx: Ctx, card_ok: bool) -> Result:
-    """Показ: `video.currentTime` растёт монотонно 60 с, без stall дольше 3 с."""
+    """Показ: кадр не позднее 5 с и без подгрузов за первые три минуты."""
     guard = _playback_guard(4, "Показ", ctx, card_ok, "пункт 3 («Играть» недоступна)")
     if guard:
         return guard
+    ctx.current_key = _card_key(ctx)
+    ctx.page.evaluate(_METER_JS)
     ctx.page.locator("[data-tc-play]").first.click()
     # Кнопка только КЛАДЁТ заказ: продукт ещё ищет раздачу, качает метаданные и пакует
     # первые куски. Судить ровность хода до первого кадра значило бы мерить прогрев, а
     # не показ, поэтому 60 с ровности отсчитываются от `readyState >= 3`, а не от клика.
-    if not _await_playback(ctx):
-        waited = _PLAY_START_WAIT / 1000.0
-        why = f"картинка не пошла за {waited:.0f} с после «Играть»"
-        return Result(4, "Показ", False, None, why)
-    began = time.monotonic()
-    last = -1.0
-    first = 0.0
-    grew, total, dropped = 0, 0, 0
-    stalled_since: float | None = None
-    worst_stall = 0.0
-    samples = 0
-    while time.monotonic() - began < 60.0:
-        now = time.monotonic()
-        current = float(ctx.page.eval_on_selector("video", "v => v.currentTime"))
-        stalled = bool(ctx.page.eval_on_selector("video", "v => v.readyState < 3"))
-        if not stalled:
-            stalled_since = None
-        elif stalled_since is None:
-            stalled_since = now
-        else:
-            worst_stall = max(worst_stall, now - stalled_since)
-        if last >= 0:
-            total += 1
-            grew += current > last
-            dropped += current < last
-        else:
-            first = current
-        last, samples = current, samples + 1
-        time.sleep(1.0)
-    # ТЗ просит ход монотонный и без провала длиннее 3 с. Провал в 3 с - это и есть
-    # весь допуск на нерастущие пары, и `grew` СУДИТСЯ этим допуском: замерший, но
-    # набитый буфером кадр (`currentTime` стоит, `readyState >= 3`, провала по
-    # readyState нет) обязан краснеть, а не зеленеть числом, которое считалось только
-    # для печати. Откат назад (пара с убылью) допуском не покрыт ничем.
-    ok = total > 0 and dropped == 0 and worst_stall <= 3.0 and grew >= total - 3
+    frame, meter = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
+    if frame is None:
+        return Result(4, "Показ", False, None, f"кадра нет за {_PLAY_START_WAIT / 1000:.0f} с")
+    waits, total = _wait_stalls(ctx, _WATCH_SECONDS)
+    start = meter.get("start")
+    ok = frame <= _FRAME_BAR and not waits
     detail = (
-        f"{samples} замеров за 60 с, ход {last - first:.1f} с, растущих пар {grew}/{total}, "
-        f"пар с откатом {dropped}, худший провал {worst_stall:.1f} с"
+        f"стартовая позиция {start!r}; первый кадр за {frame:.1f} с (порог {_FRAME_BAR:.0f}); "
+        f"подгрузы за {_WATCH_SECONDS:.0f} с: {len(waits)}, сумма {total:.1f} с {waits}"
     )
     return Result(4, "Показ", ok, None, detail)
 
@@ -1687,38 +1747,39 @@ _BOOKMARK_WAIT: Final = 30.0
 
 
 def check_5_bookmark(ctx: Ctx, play_ok: bool) -> Result:
-    """Закладка: стоп на 90-й секунде → `WatchState`/`/api/state` даёт `pos` в 90±3.
-
-    🔴 До 90-й секунды показ ПЕРЕМАТЫВАЕТСЯ, а не досиживается. Поток - полносеточный
-    VOD всей картины, и `currentTime` у него считает от начала КАРТИНЫ, а не от начала
-    показа: поднявшись с прежней закладки (по живому замеру «Интерстеллар» поехал с
-    410,9 с), вкладка уже на первом же круге больше девяноста - скрипт мерил место
-    старой закладки и звал это провалом продукта.
-    """
+    """Закладка: зрительский путь главная → «Продолжить» → «Играть», без JS seek."""
     if not play_ok:
         return Result(5, "Закладка", False, "пункт 4 (показ не идёт)", "остановить нечего")
-    ctx.page.eval_on_selector("video", f"v => {{ v.currentTime = {_BOOKMARK_AT}; }}")
+    key = ctx.current_key
+    ctx.page.keyboard.press("Escape")
     began = time.monotonic()
-    current = 0.0
-    while time.monotonic() - began < 30.0:
-        current = float(ctx.page.eval_on_selector("video", "v => v.currentTime"))
-        if abs(current - _BOOKMARK_AT) <= 2.0:
-            break
-        time.sleep(0.5)
-    ctx.page.eval_on_selector("video", "v => v.pause()")
-    position = None
-    began = time.monotonic()
+    position: float | None = None
     while time.monotonic() - began < _BOOKMARK_WAIT:
-        code, body = _get(ctx.base + "/api/state")
-        if code == 200:
-            with contextlib.suppress(json.JSONDecodeError):
-                position = json.loads(body).get("position")
-        if isinstance(position, int | float) and abs(position - _BOOKMARK_AT) <= 3.0:
+        _label, position = _place_of(ctx, key)
+        if position is not None:
             break
         time.sleep(1.0)
-    ok = isinstance(position, int | float) and abs(position - _BOOKMARK_AT) <= 3.0
-    where = f"{_BOOKMARK_AT:.0f}"
-    detail = f"перемотка на {where} с, стоп у {current:.1f}; /api/state position={position!r}"
+    back = ctx.page.locator(".tc-back")
+    if back.count():
+        back.first.click()
+    ctx.page.wait_for_timeout(500)
+    ctx.page.keyboard.press("Escape")
+    continue_tile = ctx.page.locator(f'[data-tc-group="shelf-continue"][data-tc-key="{key}"]')
+    fresh = continue_tile.count() > 0
+    if fresh:
+        continue_tile.first.click()
+        with contextlib.suppress(Exception):
+            ctx.page.locator("[data-tc-play]").first.wait_for(state="visible", timeout=30_000)
+        ctx.page.evaluate(_METER_JS)
+        ctx.page.locator("[data-tc-play]").first.click()
+        frame, _ = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
+    else:
+        frame = None
+    ok = position is not None and fresh and frame is not None and frame <= _FRAME_BAR
+    detail = (
+        f"после Esc история {key!r} на {position!r}; «Продолжить» {'есть' if fresh else 'НЕТ'}; "
+        f"кадр с закладки {frame!r} с (порог {_FRAME_BAR:.0f})"
+    )
     return Result(5, "Закладка", ok, None, detail)
 
 
@@ -1789,7 +1850,7 @@ def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
 
 
 def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
-    """Сериал: список серий непуст, выбор s1e2 → закладка на s1e2.
+    """Сериал: каждая вкладка даёт строки за 2 с, клик включает названную серию.
 
     Карточку пункт открывает СВОЮ, а не донашивает ту, что осталась от пункта 3: там
     стоит фильм, у которого серий не бывает по устройству продукта.
@@ -1799,6 +1860,24 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
     refusal = _open_card_by_page(ctx, _SERIES_TITLE)
     if refusal is not None:
         return Result(7, "Сериал", False, None, refusal)
+    tabs = ctx.page.locator(".tc-tab")
+    tab_times: list[str] = []
+    tabs_ok = tabs.count() > 0
+    for index in range(tabs.count()):
+        tab = tabs.nth(index)
+        name = tab.inner_text().strip()
+        began = time.monotonic()
+        tab.click()
+        try:
+            ctx.page.wait_for_function(
+                "() => document.querySelectorAll('[data-tc-episode]').length > 0",
+                timeout=_EPISODES_BAR * 1000,
+            )
+        except Exception:
+            tabs_ok = False
+        spent = time.monotonic() - began
+        tabs_ok = tabs_ok and spent <= _EPISODES_BAR
+        tab_times.append(f"{name or index}:{spent:.1f}")
     with contextlib.suppress(Exception):
         ctx.page.locator("[data-tc-episode]").first.wait_for(state="visible", timeout=30000)
     episodes = ctx.page.locator("[data-tc-episode]")
@@ -1830,8 +1909,11 @@ def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
         if season is not None and episode is not None:
             break
         time.sleep(1.0)
-    ok = season == 1 and episode == 2
-    detail = f"серий {count}, выбран s1e2, /api/state season={season!r} episode={episode!r}"
+    ok = tabs_ok and season == 1 and episode == 2
+    detail = (
+        f"вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; серий {count}; "
+        f"выбран s1e2, /api/state season={season!r} episode={episode!r}"
+    )
     return Result(7, "Сериал", ok, None, detail)
 
 
@@ -1883,9 +1965,12 @@ def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
         if None not in after_pair and after_pair != before_pair:
             break
         ctx.page.wait_for_timeout(1000)
-    ok = None not in after_pair and after_pair != before_pair
+    frame, _ = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
+    waits, total = _wait_stalls(ctx, _WATCH_SECONDS) if frame is not None else ([], 0.0)
+    ok = None not in after_pair and after_pair != before_pair and frame is not None and not waits
     detail = (
-        f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}, сменилась: {ok}"
+        f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
+        f"кадр {frame!r} с, подгрузы за {_WATCH_SECONDS:.0f} с: {len(waits)}, {total:.1f} с"
     )
     return Result(8, "Автопереход", ok, None, detail)
 
@@ -2583,7 +2668,7 @@ def _page_assets(base: str) -> tuple[list[str], list[str], list[str]]:
     return scripts, styles, []
 
 
-def check_13_texts(base: str) -> Result:
+def check_13_texts(ctx: Ctx) -> Result:
     """Тексты: нет литералов человеку в static/*, все ключи страницы в каталоге, ru = набор.
 
     Файлы берутся из разметки самой страницы, а не из перечня имён внутри пункта. До
@@ -2599,6 +2684,7 @@ def check_13_texts(base: str) -> Result:
 
     ⚠️ Грепом, а не разбором AST (см. шапку модуля).
     """
+    base = ctx.base
     en_code, en_body = _get(base + "/api/phrases")
     ru_code, ru_body = _get(base + "/api/phrases?lang=ru")
     english = json.loads(en_body) if en_code == 200 else {}
@@ -2634,7 +2720,7 @@ def check_13_texts(base: str) -> Result:
                 if any(ch.isalpha() for ch in match.group(2)):
                     css_suspects.append(f"{name}:{lineno}:{match.group(2)!r}")
 
-    ok = (
+    source_ok = (
         same_keys
         and bool(scripts)
         and not unreachable
@@ -2642,6 +2728,31 @@ def check_13_texts(base: str) -> Result:
         and not suspects
         and not css_suspects
     )
+    if not ctx.allow_play:
+        return Result(
+            13,
+            "Тексты",
+            False,
+            "показ выключен этим прогоном (--play не задан)",
+            "каталог проверен, но надпись до кадра на экране зрителя не проверена",
+        )
+    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    if refusal is not None:
+        return Result(13, "Тексты", False, None, refusal)
+    row = ctx.page.locator('[data-tc-episode="s1e2"]')
+    if row.count() == 0:
+        return Result(13, "Тексты", False, None, "нет s1e2 для проверки экрана")
+    row.first.click()
+    began = time.monotonic()
+    screen = ""
+    while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
+        screen = str(ctx.page.evaluate("document.body.innerText || ''"))
+        if "stream_source" in screen.casefold() or _video(ctx, "v => v.currentTime") is not None:
+            break
+        ctx.page.wait_for_timeout(100)
+    _stop_show(ctx)
+    visible_ok = "stream_source" not in screen.casefold()
+    ok = source_ok and visible_ok
     detail = (
         f"EN ключей {len(english)} (код {en_code}), RU ключей {len(russian)} (код {ru_code}), "
         f"наборы {'совпадают' if same_keys else 'РАСХОДЯТСЯ'}; "
@@ -2649,7 +2760,8 @@ def check_13_texts(base: str) -> Result:
         + (f", НЕ ПРОЧИТАНО: {'; '.join(unreachable)}" if unreachable else "")
         + f"; ключей из них {len(referenced)}, вне каталога: {missing_keys or 'нет'}; "
         f"JS-литералов человеку: {len(suspects)} {suspects}; "
-        f"CSS content-литералов: {len(css_suspects)} {css_suspects}"
+        f"CSS content-литералов: {len(css_suspects)} {css_suspects}; "
+        f"на экране stream_source: {'НЕТ' if visible_ok else 'ЕСТЬ'}"
     )
     return Result(13, "Тексты", ok, None, detail)
 
@@ -3983,12 +4095,12 @@ def main() -> int:
         pick(25, "Колесо", lambda: check_25_page_wheel(ctx))
         pick(26, "Полосы", lambda: check_26_bars(ctx))
         pick(27, "Под мышью", lambda: check_27_under_pointer(ctx))
-        ok2 = pick(2, "Поиск", lambda: check_2_search(ctx))
-        ok3 = pick(3, "Карточка", lambda: check_3_card(ctx, ok2))
+        pick(2, "Поиск", lambda: check_2_search(ctx))
+        ok3 = pick(3, "Карточка", lambda: check_3_card(ctx, True))
         ok4 = pick(4, "Показ", lambda: check_4_playback(ctx, ok3))
-        ok5 = pick(5, "Закладка", lambda: check_5_bookmark(ctx, ok4))
+        ok5 = pick(5, "Закладка", lambda: check_5_bookmark(ctx, True))
         pick(6, "Сначала", lambda: check_6_restart(ctx, ok5))
-        ok7 = pick(7, "Сериал", lambda: check_7_series(ctx, ok3))
+        ok7 = pick(7, "Сериал", lambda: check_7_series(ctx, True))
         pick(8, "Автопереход", lambda: check_8_autoplay(ctx, ok7))
         ok9 = pick(9, "На ТВ", lambda: check_9_on_tv(ctx, ok4 or ok7))
         ok10 = pick(10, "На комп", lambda: check_10_on_pc(ctx, ok9))
@@ -4003,13 +4115,13 @@ def main() -> int:
         pick(38, "До кадра", lambda: check_38_bare_until_frame(ctx))
         pick(39, "Назад с подготовки", lambda: check_39_back_calls_off(ctx))
         pick(40, "Назад с буферизации", lambda: check_40_back_from_buffering(ctx))
+        pick(13, "Тексты", lambda: check_13_texts(ctx))
         browser.close()
 
     pick(15, "Обложки", lambda: check_15_posters(args.base))
     pick(16, "Мусор", lambda: check_16_junk(args.base))
     pick(22, "Полка → карточка", lambda: check_22_shelf_cards_open(args.base))
     pick(12, "Франшиза", lambda: check_12_franchise(args.base))
-    pick(13, "Тексты", lambda: check_13_texts(args.base))
     pick(14, "Гейт", lambda: check_14_gate(args.repo))
     pick(37, "Стоп в боте", lambda: check_37_bot_stop(args.repo))
     return _print(results)
