@@ -68,6 +68,8 @@ class _Prep:
     #: коротким вторым замером: заменить его вправе только штатная проверка мёртвого роя.
     card_warmed: bool = False
     ready: threading.Event = field(default_factory=threading.Event)
+    #: Карта опорных кадров снята или отказана; ``None`` - прогрев карты о себе не сказал.
+    mapped: threading.Event | None = None
 
     @property
     def want(self) -> TorrFile:

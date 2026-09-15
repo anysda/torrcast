@@ -12,14 +12,14 @@ from torrcast.ports.prober import Prober
 #: самого стенда нет - всё это кладёт композиционный корень (:mod:`torrcast.runtime.wire`).
 #: Отсрочка приезжает заводом, а не значением: часы у каждого прогрева свои.
 _bench_prober: Prober
-_bench_warm_file: Callable[..., None]
+_bench_warm_file: Callable[..., object]
 _bench_swarm_pulse: Callable[..., Callable[[], bool]]
 _bench_contact_wait: Callable[[float], ContactWait]
 
 
 def _configure_select_bench(
     prober: Prober,
-    warm_file: Callable[..., None],
+    warm_file: Callable[..., object],
     swarm_pulse: Callable[..., Callable[[], bool]],
     contact_wait: Callable[[float], ContactWait],
 ) -> None:

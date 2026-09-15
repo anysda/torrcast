@@ -10,6 +10,7 @@ from dataclasses import replace
 import pytest
 
 import torrcast.usecases.select_bench._bench_in_time as _bench_in_time
+from tests.fakes import composition
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
@@ -98,5 +99,26 @@ def test_a_younger_release_that_the_receiver_gets_recoded_does_not_jump_the_queu
     bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, heavy))
 
     prep = bench.resolve(plan(_POOL, recode_at=10.0), _ASKED, Said())
+
+    assert prep.number == 1
+
+
+@pytest.mark.machine
+def test_a_younger_release_whose_keyframe_map_is_still_read_does_not_jump_the_queue(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """Без карты опорных кадров у подмены нет сетки, и LOAD ждал бы её: ждётся старшая."""
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    reading = threading.Event()
+    taken = threading.Event()
+    taken.set()
+
+    def warm(source_url: str, **_: object) -> threading.Event:
+        return reading if f"hash-{_POOL[1].magnet}/" in source_url else taken
+
+    composition.use_warm_file(monkeypatch, warm)
+    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, _RUS))
+
+    prep = bench.resolve(plan(_POOL), _ASKED, Said())
 
     assert prep.number == 1

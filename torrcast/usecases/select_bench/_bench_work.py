@@ -50,9 +50,10 @@ class _BenchWork(_BenchCore):
             # самая ранняя секунда, когда известен файл, - то есть параллельно и ffprobe,
             # и вопросам человека. Показ потом либо берёт готовое, либо
             # дожидается этого же чтения, а не начинает своё вторым потоком.
-            _bench_state._bench_warm_file(
+            mapped = _bench_state._bench_warm_file(
                 source, alive=lambda: not prep.dropped, name=prep.want.name
             )
+            prep.mapped = mapped if isinstance(mapped, threading.Event) else None
             self._sample_supply(prep)
             prep.media = self.prober(
                 source,

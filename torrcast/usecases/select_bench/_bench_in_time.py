@@ -82,6 +82,9 @@ def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep) -> bool:
     )
     if trouble or voice_unproven(prep.voiced, native=plan.picture.native):
         return False
+    # Без карты опорных кадров нет сетки, и LOAD ждёт её: карта №2 «Тачек» снималась 8.5 с.
+    if prep.mapped is not None and not prep.mapped.is_set():
+        return False
     # Подмена покупает время, а кусок тяжелее потолка приёмника пережимается на ходу: 22.5 Мбит
     # «Выжившего» отдали первый сегмент за 4.4 с вместо 0.6 у копии (стенд 15-09).
     heavy = prep.media and prep.video and prep.media.weight_mbit(prep.video.size) > plan.recode_at

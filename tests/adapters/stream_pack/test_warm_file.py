@@ -140,3 +140,17 @@ def test_a_release_the_show_gave_up_on_is_not_warmed_further() -> None:
     )
     time.sleep(0.2)
     assert watch.asked == [], "прогрев пошёл по релизу, от которого показ уже отказался"
+
+
+@pytest.mark.machine
+def test_the_returned_event_marks_a_map_taken_or_refused() -> None:
+    """Событие встаёт, когда карта снята или отказана: по нему отбор в срок ждёт сетку."""
+    for keys in (FilmKeys(600.0, [0.0], [0], "mp4"), None):
+        watch = Watch(keys)
+        mapped = warm_file(
+            "http://торрент/поток",
+            keys_of=watch.keys_of,
+            warm=watch.warm,
+            origin_of=watch.origin_of,
+        )
+        assert mapped.wait(3.0), "карта кончилась, а событие не встало"

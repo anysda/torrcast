@@ -26,7 +26,7 @@ def warm_file(
     keys_of: Callable[[str], FilmKeys] = film_keys,
     warm: Callable[[str, int, int, Any], int] = warm_at,
     origin_of: Callable[[str], float] = pack_origin,
-) -> None:
+) -> threading.Event:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
 
     Зовётся с самой ранней секунды, когда известен файл, — пока человек отвечает на
@@ -45,12 +45,19 @@ def warm_file(
     размер головы по контейнеру. ``warm`` уезжает и в :func:`pull_head`: прогрев головы и
     прогрев места - одна и та же работа, и на стенде их видит один наблюдатель.
     ``origin_of`` - замер начала ленты: живой ffprobe, стенду не нужный.
+
+    Возвращает событие «карта снята или отказана»: без карты сетки нет, и отбор в срок
+    (:func:`torrcast.usecases.select_bench._bench_in_time._fit`) ждёт его у подмены.
     """
+    mapped = threading.Event()
 
     def work() -> None:
         keys: FilmKeys | None = None
-        with contextlib.suppress(Exception):
-            keys = keys_of(source_url)
+        try:
+            with contextlib.suppress(Exception):  # не вышло: показ снимет карту сам
+                keys = keys_of(source_url)
+        finally:
+            mapped.set()
         if alive is not None and not alive():
             return
         offset = keys.byte_at(at) if keys is not None and at > 0 else 0
@@ -71,3 +78,4 @@ def warm_file(
                 warm(source_url, offset, HEAD_WARM, alive)
 
     threading.Thread(target=work, daemon=True).start()
+    return mapped
