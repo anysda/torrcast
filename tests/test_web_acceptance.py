@@ -216,3 +216,18 @@ def test_поиск_судит_один_снимок_выдачи_а_не_пер
     assert "'Мы': плиток 8, погашено 6" in result.detail
     assert "'ывапрол': плиток 8, погашено 8, надпись ''" in result.detail
     assert result.ok is False
+
+
+def test_пустая_выдача_с_надписью_установилась_и_зелёная(monkeypatch: pytest.MonkeyPatch) -> None:
+    settled = {"searching": False, "nothing": ""}
+    result = _search(
+        monkeypatch,
+        {
+            "Мы": [{**settled, "tiles": _tiles(6, 2)}],
+            "ывапрол": [{"searching": False, "tiles": [], "nothing": "Nothing found"}],
+            "Интерстеллар": [{**settled, "tiles": _tiles(0, 3, "2014")}],
+        },
+    )
+
+    assert "'ывапрол': плиток 0, погашено 0, надпись 'Nothing found'" in result.detail
+    assert result.ok is True

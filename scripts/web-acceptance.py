@@ -1575,9 +1575,10 @@ def check_2_search(ctx: Ctx) -> Result:
         while time.monotonic() - began < 15.0:
             screen = _search_screen(ctx)
             tiles = screen["tiles"]
-            if not screen["searching"] and tiles:
+            nothing = screen["nothing"]
+            # Пустая выдача с надписью - тоже установившийся ответ: зрителю объяснили.
+            if not screen["searching"] and (tiles or nothing):
                 dim = sum(1 for tile in tiles if tile["dim"])
-                nothing = screen["nothing"]
                 # Погашенные добавочные плитки могут быть штатным хвостом выдачи:
                 # «Мы» 2019 остаётся открываемым. Красно только когда зрителю не
                 # досталась ни одна открываемая плитка и не объяснили причину.
