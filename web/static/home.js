@@ -340,10 +340,10 @@ const TCHome = {
       // очереди браузера, иначе обрывал поиск за миг до финала (TC-1286).
     } while (asked < until || misses > 0);
     if (said.failed || said.partial) return;
-    // Финал бывает раньше обложек: сервер называет, что они ещё в пути, и потолок от начала
-    // захода. Дозапрос идёт шагом `_POSTER_STEP`, пока они в пути, но не дольше потолка:
-    // на ТВ каждый запрос идёт через мост, и бесконечный хвост нагружал бы его.
-    const postersUntil = began + said.postersBy * 1000;
+    // Финал бывает раньше обложек: сервер называет, что они ещё в пути, и сколько секунд до
+    // его потолка. Потолок идёт от начала захода сервера, а заход бывает старше страницы:
+    // отсчёт от своего начала опрашивал за потолком и гнал новый круг поиска.
+    const postersUntil = Date.now() + said.postersBy * 1000;
     while (said.postersPending && Date.now() + TCHome._POSTER_STEP <= postersUntil) {
       await new Promise((done) => setTimeout(done, TCHome._POSTER_STEP));
       said = await TCApi.searchProgress(text);

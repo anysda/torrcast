@@ -128,6 +128,10 @@ class SearchJob:
         """Срок финала прошёл, а заход ещё не отдал его."""
         return not self.done and time.monotonic() - self.started_at >= FINAL_BY
 
+    def posters_left(self) -> float:
+        """Секунды до потолка дозапроса обложек: он идёт от начала захода, а не от опроса."""
+        return max(0.0, POSTERS_BY - (time.monotonic() - self.started_at))
+
     def settle(self, results: list[JsonValue], *, landed: bool = False) -> None:
         """Финал: к сроку - собранное, если ещё не отдан; досчитанный заход - всегда."""
         with self._lock:

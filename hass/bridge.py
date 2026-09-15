@@ -28,6 +28,7 @@ from hass.payload import payload
 from hass.play_argv import play_argv
 from hass.play_extras import _PlayExtras
 from hass.posters import Posters
+from hass.posters_left import posters_left
 from hass.refused_error import BUSY, NO_REMOTE, NO_VOLUME, NOTHING_PLAYING, RefusedError
 from hass.remote_refused import remote_refused
 from hass.resuming import _resume
@@ -117,13 +118,14 @@ class Bridge:
         said = self._settings(), query, self._search, self._detect, self._remember
         return searching(*said, warm=WARM)
 
-    def search_progress(self, query: str) -> tuple[list[JsonValue], bool, bool]:
+    def search_progress(self, query: str) -> tuple[list[JsonValue], bool, float]:
         """``POST /api/search`` с ``progressive: true``: каталог первым, круг (:data:`WARM`).
 
-        Третье поле - «обложки готового списка ещё в пути»: страница дозапрашивает их."""
+        Третье поле - сколько секунд ещё дозапрашивать обложки готового списка; 0 - не в пути."""
         said = self._settings(), query, self._detect, self._remember
         results, partial = search_progress(*said, warm=WARM, catalog=CATALOG, covers=hits)
-        return results, partial, not partial and hits.pending(results)
+        coming = not partial and hits.pending(results)
+        return results, partial, posters_left(query) if coming else 0.0
 
     def play(self, query: str, pick: int | None = None, **extras: Unpack[_PlayExtras]) -> str:
         """``POST /api/play``: argv собирает :func:`play_argv`, доводы проверены заранее."""

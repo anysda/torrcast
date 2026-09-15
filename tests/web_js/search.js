@@ -92,6 +92,16 @@ const scenarios = {
     return { postersBy: 20, polls: p.polls, timers: p.time.pending() };
   },
 
+  // Финал на 10-й секунде, сервер: до потолка ещё 20 с. Отсчёт идёт от ответа, не от начала.
+  async posterCapFromFinal() {
+    const p = search((_, at) => ({
+      partial: at < 10000, postersPending: at >= 10000, results: TEN, finalBy: 12,
+      postersBy: Math.max(0, 30 - at / 1000),
+    }));
+    await p.time.run(120000);
+    return { capAt: 30000, polls: p.polls, timers: p.time.pending() };
+  },
+
   // Опрос, начатый до срока, застрял в очереди браузера на 3 с: финал всё равно встаёт.
   async held() {
     const p = search((n, at) => ({

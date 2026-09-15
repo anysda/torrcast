@@ -108,6 +108,19 @@ def test_posters_said_to_be_coming_forever_stop_at_the_server_cap(facts: dict[st
 
 
 @pytest.mark.machine
+def test_the_poster_cap_counts_from_the_final_answer(facts: dict[str, Any]) -> None:
+    """Сервер называет секунды до своего потолка: страница считает их от ответа, не от начала.
+
+    Заход сервера бывает старше страницы, и опрос за его потолком гнал новый круг поиска."""
+    cap = _scenario(facts, "posterCapFromFinal")
+    assert cap["polls"][-1] <= cap["capAt"], f"дозапрос шёл за потолком сервера: {cap['polls']}"
+    assert cap["polls"][-1] > cap["capAt"] - 2 * POSTER_STEP_MS, (
+        f"дозапрос бросили задолго до потолка сервера: {cap['polls']}"
+    )
+    assert cap["timers"] == 0
+
+
+@pytest.mark.machine
 def test_a_poll_held_past_the_deadline_still_gets_the_final(facts: dict[str, Any]) -> None:
     """🔴 TC-1286: опрос, начатый до срока и застрявший за ним, обрывал поиск без финала."""
     held = _scenario(facts, "held")

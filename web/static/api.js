@@ -65,7 +65,7 @@ const TCApi = {
       // ``finalBy`` - срок финала сервера в секундах от начала заказа: нет срока - нет и
       // права опрашивать дальше.
       const finalBy = Number(said.headers.get('X-Torrcast-Final-By')) || 0;
-      // Обложки готового списка ещё в пути и потолок их дозапроса от начала захода.
+      // Обложки готового списка ещё в пути и секунды до потолка их дозапроса у сервера.
       const postersPending = said.headers.get('X-Torrcast-Posters-Pending') === '1';
       const postersBy = Number(said.headers.get('X-Torrcast-Posters-By')) || 0;
       return {
