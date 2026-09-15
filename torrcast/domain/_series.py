@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
@@ -38,7 +38,9 @@ class _Series:
         «Рик и Морти» (21 серия) в состояние уезжал пустой список от запасной раздачи, и
         сериал переставал быть сериалом: автоперехода на следующую серию не было вовсе.
         """
-        found_files = map_episodes(files, release.season)
+        found_files = map_episodes(files, release.season, by_order=False) or _in_order(
+            release, files
+        )
         found = next((f for f in found_files if f.at == self.want), None)
         if found is None:
             raise NotFoundError(self._miss_reason(release, found_files))
@@ -105,3 +107,21 @@ class _Series:
             first=files[0].at,
             last=files[-1].at,
         )
+
+
+def _in_order(release: Release, files: list[TorrFile]) -> list[EpisodeFile]:
+    """Серии по порядку файлов - только там, где порядок и есть номер.
+
+    Пак «S1-4, 1-72» с файлами «1ACV01» по порядку отдавал на s1e1 первый файл первого
+    сезона, а «[1061-1112 из XX]» на s1e1 - серию 1061. Сезоны, разложенные каталогами,
+    порядку верят; иначе имя с несколькими сезонами не верит, а названная линейка серий
+    верит, только если файлов ровно столько.
+    """
+    ordered = map_episodes(files, release.season)
+    if len({f.season for f in ordered}) > 1:
+        return ordered
+    if len(release.seasons) > 1 or (release.episodes and len(ordered) != len(release.episodes)):
+        return []
+    if not release.episodes:
+        return ordered
+    return [replace(f, episode=n) for f, n in zip(ordered, release.episodes, strict=True)]

@@ -10,7 +10,8 @@ __all__ = ["parse_episode"]
 _MERGED_TAIL: Final = r"(?:[_exх]\d{1,3})?"
 _PATTERNS: Final = (
     re.compile(
-        r"\bs\s*(?P<season>\d{1,2})\s*[.\-_ ]?\s*e\s*(?P<episode>\d{1,3})" + _MERGED_TAIL + r"\b",
+        # Четыре знака у серии - сквозной счёт длинного аниме («Ван-Пис» s1e1178).
+        r"\bs\s*(?P<season>\d{1,2})\s*[.\-_ ]?\s*e\s*(?P<episode>\d{1,4})" + _MERGED_TAIL + r"\b",
         re.IGNORECASE,
     ),
     re.compile(

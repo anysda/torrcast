@@ -32,6 +32,12 @@ _EPISODE_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
     # «N to M» без слова «серия»: англоязычная линейка серий («OVAs 1 to 4»).
     # Четырёхзначное начало не берём - «2001 to 2011» это годы, а не серии.
     re.compile("(?<!\\d)(?P<start>\\d{1,3})\\s+to\\s+(?P<end>\\d{1,3})(?!\\d)", re.IGNORECASE),
+    # Сквозной счёт длинного аниме: «[1061-1112 из XX]», «[944-999 из XXX]». Итог
+    # «из» обязателен - без него четыре знака читались бы годами.
+    re.compile(
+        "(?<!\\d)(?P<start>\\d{1,4})\\s*-\\s*(?P<end>\\d{3,4})(?!\\d)\\s*(?:из|of)\\s*(?:\\d|[xх]{2})",
+        re.IGNORECASE,
+    ),
 )
 _EPISODE_COUNT_RE: Final = re.compile(
     "(?<!\\d)(?P<count>\\d{1,3})\\s*(?:из|of)\\s*(?P<total>\\d{1,3})(?!\\d)", re.IGNORECASE
