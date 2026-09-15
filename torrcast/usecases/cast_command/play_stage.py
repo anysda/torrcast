@@ -34,19 +34,26 @@ def _nobody(_bench: Bench, _prep: _Prep | None) -> None:
     """Ответа отбора никто, кроме самого показа, не ждёт."""
 
 
+def _unrenewed(_args: Args) -> Plan | None:
+    """Круг свой и только что из сети: свежее спросить не у кого."""
+    return None
+
+
 @dataclass(frozen=True)
 class PlayStage:
     """Круг показа, правило «картина по ключу карточки» и стенд, прогретый карточкой.
 
     ``bench`` отдаёт показу стенд отбора: свежий или тот, что уже греет карточка.
     ``settled`` называет выбранную раздачу (``None`` - отбор кончился ничем) тем, кто
-    ждал ответа этого стенда.
+    ждал ответа этого стенда. ``renewed`` отдаёт картину карточки из круга сети, когда
+    отбор по кругу карточки кончился ничем (:func:`renewed_plan`).
     """
 
     circle: Callable[..., list[Plan]] = search_circle
     picture: Callable[[list[Plan], str], int] = _exact_picture
     bench: Callable[[Args, Bench], Bench] = _own_bench
     settled: Callable[[Bench, _Prep | None], None] = _nobody
+    renewed: Callable[[Args], Plan | None] = _unrenewed
 
 
 _stage = PlayStage()

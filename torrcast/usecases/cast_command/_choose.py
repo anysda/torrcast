@@ -174,7 +174,9 @@ def _choose(
                 # кэш - СЛЕДУЮЩЕЕ меню этой франшизы будет полным. Ко времени до меню это
                 # отношения не имеет, а к моменту ответа поток обычно давно закончил.
                 facts.finish()
-            plan, prep = _played(bench, plans, plan, args, progress, facts, config, chosen.profile)
+            plan, prep = _played(
+                bench, plans, plan, args, progress, facts, config, chosen.profile, stage.renewed
+            )
             # Метаданные уже прочитаны отбором. Только теперь меняем ключ картины:
             # раньше нельзя, стенд ещё держит прогревы под прежним ключом.
             plan.recognize_series(prep.release, prep.files)

@@ -117,7 +117,7 @@ class _ShowWarm:
     def __init__(self, circle: list[Plan]) -> None:
         self.circle = circle
 
-    def landed(self, _query: str) -> list[Plan]:
+    def ready(self, _query: str) -> list[Plan]:
         return self.circle
 
 

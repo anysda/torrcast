@@ -18,6 +18,7 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
+from torrcast.ports.progress.quiet import Quiet
 from torrcast.usecases.discover.told_circle import ToldCircle
 from torrcast.usecases.select.plan import Plan
 from web.circle_disk import CircleDisk
@@ -28,12 +29,16 @@ class _Warm:
     def __init__(self, circle: list[Any]) -> None:
         self.circle, self.asked = circle, []  # type: list[Any], list[str]
 
-    def take_live(self, query: str) -> list[Any]:
+    def take(self, query: str) -> list[Any]:
         self.asked.append(query)
         return self.circle
 
-    def landed(self, query: str) -> list[Any] | None:
+    def ready(self, query: str) -> list[Any] | None:
         return None
+
+    def take_live(self, query: str) -> list[Any]:
+        self.asked.append("сеть: " + query)
+        return self.circle
 
 
 class _Late:
@@ -131,7 +136,7 @@ def _season(number: int, magnet: str) -> Release:
 
 
 class _Ready(_Warm):
-    def landed(self, query: str) -> list[Any] | None:
+    def ready(self, query: str) -> list[Any] | None:
         self.asked.append(query)
         return self.circle
 
@@ -174,26 +179,59 @@ def test_a_card_circle_without_the_asked_season_leaves_the_reinforce_to_the_sear
     assert show_stage._card_circle(Config(), asked, Any, CAUTIOUS) is own  # type: ignore[arg-type]
 
 
-def test_an_episode_row_does_not_play_a_card_circle_revived_from_disk(
+def test_a_card_show_plays_the_card_circle_revived_from_disk_at_once(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """🔴 Строка s2e1 играла круг с диска двухчасовой давности: 0 стартов из 4 на стенде."""
+    """🔴 Показ ждал круг из сети после рестарта: старт 1.7-9.0 с вместо 0.1-0.4 с с диска."""
     circle = _show_circle(_season(1, "magnet:one"), _season(2, "magnet:two"))
     disk = CircleDisk(path=lambda: tmp_path / "circles.json")
 
+    network: list[str] = []
+
+    def _counted(query: str) -> list[Plan]:
+        network.append(query)
+        return ToldCircle(circle, _TOLD)
+
     def _warm(spawn: Callable[[Callable[[], None]], None]) -> WarmCache:
-        told = ToldCircle(circle, _TOLD)
         return WarmCache(
-            lambda _q: told, lambda _p: None, spawn, disk=disk, replay=lambda *_: circle
+            _counted,
+            lambda _p: None,
+            spawn,
+            disk=disk,
+            replay=lambda *_: circle,
         )
 
     _warm(lambda job: job()).take("шоу")
-    warm = _warm(lambda job: job())
+    held: list[Callable[[], None]] = []
+    warm = _warm(held.append)
     warm.ask(["шоу"])
-    assert warm.ready("шоу") is not None, "карточка круг с диска показывает"
-    own = plans(1)
+    while held:
+        held.pop(0)()
+    network.clear()
+    assert warm.live("шоу") is None, "в памяти только круг с диска"
     monkeypatch.setattr(show_stage, "WARM", warm)
-    monkeypatch.setattr(show_stage, "search_circle", lambda *_rest: own)
+    monkeypatch.setattr(show_stage, "search_circle", _search)
     asked = Args(query=["шоу", "s2e1"], picture=circle[0].picture.key)
 
-    assert show_stage._card_circle(Config(), asked, Any, CAUTIOUS) is own  # type: ignore[arg-type]
+    got = show_stage._card_circle(Config(), asked, Quiet(), CAUTIOUS)
+
+    assert [r.magnet for r in got[0].ranked] == ["magnet:two"]
+    assert network == [], "круг из сети показ не ждал"
+    film = Args(query=["шоу"], picture=circle[0].picture.key)
+    assert len(show_stage._card_circle(Config(), film, Quiet(), CAUTIOUS)) == 1
+    assert network == [], "картина без серии тоже стартует с диска, сеть догоняет фоном"
+
+
+def test_a_card_show_renews_its_picture_from_the_circle_of_the_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Отбор по кругу карточки кончился ничем: картина карточки берётся из круга сети."""
+    circle = _show_circle(_season(1, "magnet:one"), _season(2, "magnet:two"))
+    warm = _Warm(plans(1) + circle)
+    monkeypatch.setattr(show_stage, "WARM", warm)
+
+    got = show_stage._card_renewed(Args(query=["шоу", "s2e1"], picture=circle[0].picture.key))
+
+    assert got is circle[0] and warm.asked == ["сеть: шоу"]
+    assert show_stage._card_renewed(Args(query=["шоу", "s2e1"])) is None
+    assert warm.asked == ["сеть: шоу"], "консоль и Home Assistant карточки не называют"

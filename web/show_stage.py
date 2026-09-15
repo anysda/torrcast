@@ -32,24 +32,24 @@ def _card_circle(config: Config, args: Args, progress: Progress, profile: Profil
     Серия с карточки берёт тот же круг, переложенный под свой сезон
     (:func:`_season_circle`); сезона в нём нет - добор сезона умеет только свой поиск.
     Копия, а не общий объект: отбор переставляет планы, а кэш карточки служит дальше.
+    Круг с диска идёт в показ сразу; пул в нём старый - за свежим ходит :func:`_card_renewed`.
     """
     if args.picture and args.episode is None:
-        return [_detached(plan) for plan in WARM.take_live(args.title_query)]
+        return [_detached(plan) for plan in WARM.take(args.title_query)]
     if args.picture and (season := _season_circle(config, args, profile)):
         return season
     return search_circle(config, args, progress, profile)
 
 
 def _season_circle(config: Config, args: Args, profile: Profile) -> list[Plan]:
-    """Живой круг карточки под названную серию; пусто - искать своим кругом.
+    """Согретый круг карточки под названную серию; пусто - искать своим кругом.
 
     Строка серии жмётся на карточке, чей круг уже согрет: второй поиск стоил показу
     5 с, а выдача та же, из которой вкладка сезона и собрала список. Пул и ступени
     отбора те же, что у поиска (:func:`plan_for`), и прочитанные хронометраж и студия
     не теряются. Картина карточки без раздач этого сезона - повод добора, и он за поиском.
-    Круг с диска не годен (:meth:`WarmCache.take_live`): идущее обновление дожидается.
     """
-    plans = WARM.landed(args.title_query)
+    plans = WARM.ready(args.title_query)
     replanned: list[Plan] = []
     for plan in plans or []:
         runtime = 0.0 if plan.runtime_estimated else plan.runtime
@@ -73,6 +73,18 @@ def _detached(plan: Plan) -> Plan:
     return own
 
 
+def _card_renewed(args: Args) -> Plan | None:
+    """Картина карточки из круга сети: отбор по кругу карточки кончился ничем.
+
+    Круг с диска стоял часами, и раздачи, которой в нём нет, отбор не спросит: «Рик и
+    Морти» s2e1 не стартовал на нём, пока обновление не приехало. Идущее обновление
+    дожидается, а нет его - круг считается тут же (:meth:`WarmCache.take_live`).
+    """
+    if not args.picture:
+        return None
+    return card_lookup(WARM.take_live(args.title_query), args.picture)[0]
+
+
 def _card_picture(plans: list[Plan], key: str) -> int:
     """Номер картины по ключу карточки - тем же правилом, каким её нашла карточка."""
     return card_lookup(plans, key)[1]
@@ -93,6 +105,7 @@ def show_stage() -> None:
             picture=_card_picture,
             bench=_card_bench,
             settled=CARD_WARM.settled,
+            renewed=_card_renewed,
         )
     )
 

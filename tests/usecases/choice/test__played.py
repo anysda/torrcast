@@ -6,15 +6,18 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 import torrcast.usecases.choice._played as played_module
-from tests.usecases.choice.world import Outside, outside, parts, plan
+from tests.usecases.choice.world import Outside, film, outside, parts, plan
 from tests.usecases.rank.releases import media, track
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.release import Release
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.progress.quiet import Quiet
 from torrcast.usecases.choice._played import _played
@@ -240,3 +243,66 @@ def test_a_late_circle_that_falls_over_does_not_take_the_gathered_show_with_it()
 
     assert played is plans[0] and prep.release is plans[0].ranked[0], "показ остался прежним"
     assert bench.late == [], "второго отбора не было"
+
+
+class StaleBench(SwitchBench):
+    """Стенд, у которого играет только раздача, пришедшая с кругом из сети."""
+
+    def resolve(self, plan: Plan, args: Args, progress: Progress) -> _Prep:
+        self.asked.append(plan.picture.year)
+        if plan.ranked[0].magnet != "magnet-из сети":
+            raise NotFoundError(REFUSAL)
+        return _Prep(number=1, release=plan.ranked[0])
+
+
+def _disk_pool() -> list[Release]:
+    """Пул «Кино» с диска: его единственную раздачу отбор уже спросил."""
+    return [film("Кино 2020 WEB-DL 1080p")]
+
+
+def _stale(live: list[Release]) -> tuple[StaleBench, Outside, Plan, Plan]:
+    """«Кино» из круга с диска и его же картина из круга сети с пулом ``live``."""
+    disk = plan(pool=_disk_pool())
+    return StaleBench(), Outside(), disk, plan(pool=live)
+
+
+def test_a_pool_from_disk_that_ran_dry_is_renewed_by_the_circle_of_the_network() -> None:
+    """🔴 «Рик и Морти» s2e1 с круга диска: 9 раздач сезона отпали, играющей в пуле не было."""
+    fresh = replace(film("Кино 2020 WEB-DL 1080p свежая"), magnet="magnet-из сети")
+    bench, world, disk, live = _stale([*_disk_pool(), fresh])
+
+    with outside(world):
+        played, prep = _played(
+            bench,
+            [disk],
+            disk,
+            Args(query=["кино"]),
+            Quiet(),
+            None,
+            Config(),
+            CAUTIOUS,
+            lambda _a: live,
+        )
+
+    assert prep.release.magnet == "magnet-из сети" and played.ranked == [fresh]
+    assert bench.asked == [2020, 2020] and bench.kept == [2020]
+    assert world.events == [("select", "renewed", {"fresh": 1})]
+
+
+def test_a_renewal_with_nothing_new_leaves_the_refusal_as_it_was_born() -> None:
+    bench, world, disk, live = _stale(_disk_pool())
+
+    with outside(world), pytest.raises(NotFoundError, match="годного релиза нет"):
+        _played(
+            bench,
+            [disk],
+            disk,
+            Args(query=["кино"]),
+            Quiet(),
+            None,
+            Config(),
+            CAUTIOUS,
+            lambda _a: live,
+        )
+
+    assert bench.asked == [2020] and world.events == []

@@ -2,18 +2,47 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Protocol
 
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
 from web.warm_priority import _hint
 
+if TYPE_CHECKING:
+    import threading
 
-def _pump(cache: Any) -> None:
+    from torrcast.usecases.select.plan import Plan
+    from web.circle_memory import CircleMemory
+
+
+class _Cache(Protocol):
+    """What of :class:`web.warm_cache.WarmCache` the background hand reaches for."""
+
+    _cond: threading.Condition
+    _queue: list[str]
+    _urgent: list[str]
+    _busy: set[str]
+    _stale: set[str]
+    _running: int
+    _memory: CircleMemory
+
+    @property
+    def circle(self) -> Callable[[str], list[Plan]]: ...
+
+    def ready(self, query: str) -> list[Plan] | None: ...
+
+    def _quiet(self) -> None: ...
+
+    def _remember(self, query: str, plans: list[Plan], revived: bool = False) -> None: ...
+
+
+def _pump(cache: _Cache) -> None:
     """Take from the queue until it ends, giving way to a live request.
 
-    A screen is warmed from disk offline. A card (the urgent queue) woke a circle from disk,
-    and the show plays only a circle from the network, so that one is refreshed right behind.
+    A screen is warmed from disk offline. A card (the urgent queue) woke a circle from disk:
+    the show starts on it at once, and it is refreshed from the network right behind, so a
+    selection that ends with nothing finds the new releases already landed.
     """
     try:
         while True:
@@ -30,10 +59,10 @@ def _pump(cache: Any) -> None:
                 cache._busy.add(query)
                 stale = query in cache._stale
                 cache._stale.discard(query)
-            kept = None
+            kept: list[Plan] | None = None
             try:
                 kept = None if stale else cache._memory.revive(query)
-                plans = cache.circle(query) if kept is None else kept
+                plans: list[Plan] = cache.circle(query) if kept is None else kept
             except NotFoundError as nothing:
                 cache._memory.refuse(query, nothing)
                 plans = []

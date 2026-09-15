@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Final
 from torrcast.domain.not_found_error import NotFoundError
 from web.circle_disk import CircleDisk
 from web.circle_memory import CircleMemory
-from web.warm_live import _landed, _take_live
+from web.warm_live import _take_live
 from web.warm_priority import _hint, _unasked, _warm_blurbs
 from web.warm_pump import _pump
 
@@ -105,12 +105,8 @@ class WarmCache:
         return plans
 
     def take_live(self, query: str) -> list[Plan]:
-        """Круг показу: только пришедший из сети (:func:`web.warm_live._take_live`)."""
+        """Круг только из сети, когда круг с диска не дал показу раздачи (:mod:`web.warm_live`)."""
         return _take_live(self, query, BUSY_WAIT)
-
-    def landed(self, query: str) -> list[Plan] | None:
-        """Живой круг или тот, что уже считается; ``None`` - считай свой (:mod:`web.warm_live`)."""
-        return _landed(self, query, BUSY_WAIT)
 
     def live(self, query: str) -> list[Plan] | None:
         return self._memory.live(query)
