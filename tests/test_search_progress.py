@@ -14,10 +14,13 @@ from hass.catalog_tiles import CatalogTiles
 from hass.hit_posters import HitPosters
 from hass.poster_shelf import PosterShelf
 from hass.refused_error import RefusedError
+from hass.search_job import SearchJob
 from hass.search_progress import JOB_TTL, search_progress
+from tests.fakes import composition
 from tests.usecases.discover.world import Indexer, row, wire_catalogue
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
+from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import CAUTIOUS
@@ -27,6 +30,14 @@ _CONFIG = Config(prowlarr_apikey="KEY")
 _CARS = [
     row("Тачки / Cars (2006) BDRip 1080p | D", "a", size_gb=5.0, seeders=66),
     row("Тачки 2 / Cars 2 (2011) BDRip 1080p | D", "b", size_gb=5.0, seeders=44),
+]
+_WE = [
+    row("Мы / Us (2019) BDRip 1080p", "a"),
+    row("Мы / Us (2019) WEB-DL 720p", "b"),
+    row("Чем мы заняты в тени / What We Do in the Shadows (2020) S02 WEB-DL 1080p", "c"),
+    row("Чем мы заняты в тени / What We Do in the Shadows (2020) S02 WEB-DL 720p", "d"),
+    row("Чем мы заняты в тени / What We Do in the Shadows (2024) S06 WEB-DL 1080p", "e"),
+    row("Чем мы заняты в тени / What We Do in the Shadows (2024) S06 WEB-DL 720p", "f"),
 ]
 
 
@@ -103,6 +114,24 @@ def test_a_still_running_job_answers_with_a_preview_before_the_circle_returns() 
         )
     finally:
         gate.set()
+
+
+def test_a_preview_keeps_a_crowded_short_name_the_map_proves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 `_peek` обязан разбирать «Мы» тем же правилом, что и первый круг."""
+    wire_catalogue()
+    known = {
+        "мы": [MapPicture("Мы", 2019, False, "Us", 399488)],
+        "чем-мы-заняты-в-тени": [
+            MapPicture("Чем мы заняты в тени", 2019, True, "What We Do in the Shadows", 129020)
+        ],
+    }
+    composition.use_known_pictures(monkeypatch, lambda title: known.get(title.casefold(), []))
+    job = SearchJob(client=_PreviewClient(raw=_WE))
+
+    hits = [hit for hit in module._peek("Мы", job) if isinstance(hit, dict)]
+    assert [hit["title"] for hit in hits] == ["Мы"]
 
 
 def test_a_still_running_preview_carries_the_poster_verdict() -> None:

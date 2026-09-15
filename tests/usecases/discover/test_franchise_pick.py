@@ -43,3 +43,17 @@ def test_without_the_map_the_pool_count_decides_as_before() -> None:
     titles = {p.title for p in franchise_pick("Мы", _POOL)}
 
     assert titles == {"Чем мы заняты в тени"}
+
+
+def test_an_uncontested_name_does_not_open_the_map(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Карта нужна лишь когда короткое имя спорит с более богатым соседом."""
+    asked: list[str] = []
+
+    def known(title: str) -> list[MapPicture]:
+        asked.append(title)
+        return []
+
+    composition.use_known_pictures(monkeypatch, known)
+
+    assert [picture.title for picture in franchise_pick("Мы", _POOL[:1])] == ["Мы"]
+    assert asked == []

@@ -1,6 +1,7 @@
 """Тощий тёзка, которого карта IMDb доказывает: :func:`_richer_namesake` с ``imdb``."""
 
 from torrcast.domain.facts.map_picture import MapPicture
+from torrcast.domain.facts.proof_in_map import KnownPictures
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.richer_namesake import _richer_namesake
@@ -12,7 +13,7 @@ def _picture(title: str, year: int, copies: int, kind: str = "movie") -> Picture
     return Picture(title=title, year=year, kind=kind, releases=releases)  # type: ignore[arg-type]
 
 
-def _known(rows: list[MapPicture]):  # type: ignore[no-untyped-def]
+def _known(rows: list[MapPicture]) -> KnownPictures:
     return lambda title: [row for row in rows if slugify(row.name) == slugify(title)]
 
 

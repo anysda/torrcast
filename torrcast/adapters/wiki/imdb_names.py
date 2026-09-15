@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from torrcast.adapters.wiki.imdb_name_index.build import _index_path
+from torrcast.adapters.wiki.imdb_name_index.rows import rows
 from torrcast.domain.facts.imdb_rows import (
     _TV_KINDS,
     _named_origin,
@@ -39,6 +41,7 @@ class ImdbNames:
         self.source = source
         self.ratings = ratings
         self.path = path
+        self.index_path = _index_path(path)
         self._names: dict[str, list[_RuName]] | None = None
         self._years: dict[str, list[str]] | None = None
         self._named: dict[str, dict[str, list[str]]] = {}
@@ -59,7 +62,9 @@ class ImdbNames:
 
     def pictures(self, title: str) -> list[MapPicture]:
         """Все картины карты под точным прокатным именем, с голосами IMDb: мерка известности."""
-        return map_pictures(self.names().get(slugify(title), []), self.ratings.votes())
+        indexed = rows(self.index_path, title)
+        candidates = self.names().get(slugify(title), []) if indexed is None else indexed
+        return map_pictures(candidates, self.ratings.votes())
 
     def ids(self, pictures: list[tuple[str, int | None, str]]) -> dict[tuple[str, int | None], str]:
         """IMDb-id по точной тройке «прокатное имя, год, тип».

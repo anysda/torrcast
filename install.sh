@@ -3725,6 +3725,7 @@ setup_names() {
     # Свежее месяца не перекачиваем: 735 МБ на каждый прогон установщика незачем.
     if [ -s "$IMDB_NAMES_PATH" ] && [ -z "$(find "$IMDB_NAMES_PATH" -mtime +"$IMDB_NAMES_DAYS")" ]; then
         skip "$IMDB_NAMES_PATH ($(wc -l < "$IMDB_NAMES_PATH") names)" "$IMDB_NAMES_PATH ($(wc -l < "$IMDB_NAMES_PATH") имён)"
+        build_names_index
         return
     fi
     local tmp="$IMDB_NAMES_PATH.part"
@@ -3752,12 +3753,24 @@ setup_names() {
     if awk -F'\t' 'NR==FNR { b[$1]=$2 "\t" $3 "\t" $4; next } \
         ($1 in b) { print $2 "\t" $1 "\t" b[$1] }' "$basics" "$names" > "$tmp"; then
         mv "$tmp" "$IMDB_NAMES_PATH"
+        build_names_index
         info "names: $(wc -l < "$IMDB_NAMES_PATH")" "имён: $(wc -l < "$IMDB_NAMES_PATH")"
     else
         rm -f "$tmp"
         info "IMDb name map could not be built - metadata stays unchanged; playback is unaffected" "карта имён IMDb не собралась - паспорт останется как был, на показ не влияет"
     fi
     rm -f "$names" "$basics"
+}
+
+build_names_index() {
+    local index="${IMDB_NAMES_PATH%.tsv}.sqlite3"
+    if "$PREFIX/venv/bin/python" -m torrcast.adapters.wiki.imdb_name_index.build \
+        "$IMDB_NAMES_PATH" "$index"; then
+        info "name index: $index" "индекс имён: $index"
+    else
+        rm -f "$index"
+        info "IMDb name index could not be built - metadata stays unchanged; playback is unaffected" "индекс имён IMDb не собрался - паспорт останется как был, на показ не влияет"
+    fi
 }
 
 cleanup_login_notice() {

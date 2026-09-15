@@ -35,11 +35,11 @@ from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.menu_order import menu_order
-from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.profile import Profile
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
+from torrcast.usecases.discover.franchise_pick import franchise_pick
 from torrcast.usecases.discover.search_circle import search_circle
 
 if TYPE_CHECKING:
@@ -101,7 +101,7 @@ def _peek(query: str, job: SearchJob) -> list[JsonValue]:
     raw: list[RawResult] = peek() if peek is not None else []
     if not raw:
         return []
-    found = menu_order(pick_franchise(query, cluster(to_releases(raw))))
+    found = menu_order(franchise_pick(query, cluster(to_releases(raw))))
     return [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
 
 
