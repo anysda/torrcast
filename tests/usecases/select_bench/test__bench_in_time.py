@@ -104,6 +104,20 @@ def test_a_younger_release_that_the_receiver_gets_recoded_does_not_jump_the_queu
 
 
 @pytest.mark.machine
+def test_a_younger_release_of_another_year_does_not_jump_the_queue(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """🔴 Склеенная соседняя работа («Rick and Morty: The Anime» 2024 в картине 2013) не подмена."""
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    pool = [_POOL[0], replace(_POOL[1], year=2024), _POOL[2]]
+    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, _RUS))
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert prep.number == 1
+
+
+@pytest.mark.machine
 def test_a_younger_release_whose_keyframe_map_is_still_read_does_not_jump_the_queue(
     monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
 ) -> None:

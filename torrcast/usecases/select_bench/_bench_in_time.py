@@ -82,6 +82,11 @@ def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep) -> bool:
     )
     if trouble or voice_unproven(prep.voiced, native=plan.picture.native):
         return False
+    # Склейка кладёт в картину и соседнюю работу: «Rick and Morty: The Anime» (2024) стоял №2
+    # у «Рика и Морти» (2013), и подмена показала чужой сериал. Другой год ждёт очереди.
+    year = plan.picture.year
+    if year is not None and prep.release.year not in (None, year):
+        return False
     # Без карты опорных кадров нет сетки, и LOAD ждёт её: карта №2 «Тачек» снималась 8.5 с.
     if prep.mapped is not None and not prep.mapped.is_set():
         return False
