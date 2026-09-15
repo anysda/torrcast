@@ -1718,7 +1718,7 @@ def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float]:
     return values, sum(values)
 
 
-def check_4_playback(ctx: Ctx, card_ok: bool) -> Result:
+def check_4_playback(ctx: Ctx) -> Result:
     """Показ: кадр не позднее 5 с и без подгрузов за первые три минуты."""
     # Карточка судит описание, рейтинг и озвучки. Отсутствующая озвучка - отдельная
     # краснота карточки, но не причина не измерять уже доступную кнопку «Играть».
@@ -1873,7 +1873,7 @@ def _reveal_tab(tab: Any) -> None:
     )
 
 
-def check_7_series(ctx: Ctx, card_ok: bool) -> Result:
+def check_7_series(ctx: Ctx) -> Result:
     """Сериал: каждая вкладка даёт строки за 2 с, клик включает названную серию.
 
     Карточку пункт открывает СВОЮ, а не донашивает ту, что осталась от пункта 3: там
@@ -4164,11 +4164,11 @@ def main() -> int:
         pick(26, "Полосы", lambda: check_26_bars(ctx))
         pick(27, "Под мышью", lambda: check_27_under_pointer(ctx))
         pick(2, "Поиск", lambda: check_2_search(ctx))
-        ok3 = pick(3, "Карточка", lambda: check_3_card(ctx, True))
-        ok4 = pick(4, "Показ", lambda: check_4_playback(ctx, ok3))
+        pick(3, "Карточка", lambda: check_3_card(ctx, True))
+        ok4 = pick(4, "Показ", lambda: check_4_playback(ctx))
         ok5 = pick(5, "Закладка", lambda: check_5_bookmark(ctx, True))
         pick(6, "Сначала", lambda: check_6_restart(ctx, ok5))
-        ok7 = pick(7, "Сериал", lambda: check_7_series(ctx, True))
+        ok7 = pick(7, "Сериал", lambda: check_7_series(ctx))
         pick(8, "Автопереход", lambda: check_8_autoplay(ctx, ok7))
         ok9 = pick(9, "На ТВ", lambda: check_9_on_tv(ctx, ok4 or ok7))
         ok10 = pick(10, "На комп", lambda: check_10_on_pc(ctx, ok9))
