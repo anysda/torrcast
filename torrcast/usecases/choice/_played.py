@@ -111,7 +111,7 @@ def _played(
         late = _late(bench, plan, args, progress, config, profile)
         if late is not None:
             return late
-        spare = understudy(plans, plan)
+        spare = understudy(plans, plan, args)
         if spare is None:
             raise
         why = _why_refused(refusal)

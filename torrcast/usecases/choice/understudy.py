@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from torrcast.usecases.choice._namesake import _namesake
@@ -9,10 +10,11 @@ from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
+    from torrcast.domain.args import Args
     from torrcast.usecases.select.plan import Plan
 
 
-def understudy(plans: list[Plan], failed: Plan) -> Plan | None:
+def understudy(plans: list[Plan], failed: Plan, args: Args | None = None) -> Plan | None:
     """🔴 TC-203. Живая ТЁЗКА выбранной картины - та, которой показ доиграет вместо неё.
 
     У выбранной картины кончились все раздачи, а рядом в меню стоит одноимённая живая -
@@ -38,6 +40,8 @@ def understudy(plans: list[Plan], failed: Plan) -> Plan | None:
     number = next((n for n, plan in enumerate(plans, start=1) if plan.picture is failed.picture), 0)
     if number == 0:
         return None
+    if args is not None and failed.want is not None:
+        return _episode_understudy(plans, failed, args)
     twins = [
         n
         for n in alive_numbers(plans, list(range(1, len(plans) + 1)))
@@ -48,3 +52,31 @@ def understudy(plans: list[Plan], failed: Plan) -> Plan | None:
     if not twins:
         return None
     return plans[max(twins, key=lambda n: liveliness(plans[n - 1])) - 1]
+
+
+def _episode_understudy(plans: list[Plan], failed: Plan, args: Args) -> Plan | None:
+    """Дублёр для СЕРИИ: та же вещь под другим именем меню, у которой эта серия есть.
+
+    🔴 TC-1267. «Re:Zero» s2e18: сериал живёт в меню тремя картинами, и паки второго
+    сезона лежали под «Re: Жизнь в альтернативном мире с нуля» (оригинал тот же). Тёзкой
+    по имени брали самую живую («Re:Zero» 2020, 89 сидов) - а у неё все раздачи своими
+    именами сказали «нужной серии нет». Для серии тёзка - картина того же оригинала, и из
+    тёзок берётся та, у кого очередь под ЭТУ серию не пуста; живость решает среди них.
+    """
+    own = _original(failed)
+    twins = [
+        plan
+        for plan in plans
+        if plan.picture is not failed.picture
+        and plan.picture.kind == failed.picture.kind
+        and (
+            plan.picture.title.casefold() == failed.picture.title.casefold()
+            or (own and _original(plan) == own)
+        )
+        and plan.candidates(args)
+    ]
+    return max(twins, key=liveliness, default=None)
+
+
+def _original(plan: Plan) -> str:
+    return " ".join(re.findall(r"\w+", (plan.picture.original or "").casefold()))

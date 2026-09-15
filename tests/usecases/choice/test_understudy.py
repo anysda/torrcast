@@ -7,8 +7,14 @@
 
 from __future__ import annotations
 
-from tests.usecases.choice.world import parts, plan
+from dataclasses import replace
+
+from tests.usecases.choice.world import film, parts, plan
+from torrcast.domain._series import _Series
+from torrcast.domain.args import Args
+from torrcast.domain.episode import Episode
 from torrcast.usecases.choice.understudy import understudy
+from torrcast.usecases.select.plan import Plan
 
 
 def test_a_live_namesake_is_the_one_that_finishes_the_evening_instead() -> None:
@@ -78,3 +84,62 @@ def test_a_plan_that_is_not_in_the_menu_at_all_gets_no_understudy() -> None:
     stranger = plan("Дюна", 2021, seeders=90)
 
     assert understudy(mummy, stranger) is None
+
+
+def _rezero(asked: Episode) -> list[Plan]:
+    """Меню «Re:Zero» с живой выдачи: паки второго сезона лежат под другим русским именем."""
+
+    def show(title: str, year: int, original: str, *packs: tuple[int, tuple[int, ...]]) -> Plan:
+        pool = [
+            replace(
+                film(f"{title} {n} WEB-DL 1080p", seeders=seeds, kind="tv"), season=2, episodes=eps
+            )
+            for n, (seeds, eps) in enumerate(packs)
+        ]
+        shown = plan(title, year, kind="tv", original=original, pool=pool)
+        shown.series = _Series(want=asked)
+        return shown
+
+    return [
+        show(
+            "Re:Zero - жизнь с нуля в другом мире",
+            2016,
+            "Re:Zero kara Hajimeru Isekai Seikatsu",
+            (9, ()),
+        ),
+        show(
+            "Re:Zero - жизнь с нуля в другом мире",
+            2020,
+            "Re:Zero kara Hajimeru Isekai Seikatsu 2",
+            (89, tuple(range(1, 14))),
+        ),
+        show(
+            "Re: Жизнь в альтернативном мире с нуля",
+            2020,
+            "Re:Zero kara hajimeru isekai seikatsu",
+            (6, ()),
+        ),
+    ]
+
+
+def test_an_episode_goes_to_the_twin_that_has_it_not_to_the_liveliest() -> None:
+    """🔴 TC-1267. s2e18: у живой тёзки по имени серии нет, паки - у тёзки по оригиналу."""
+    menu = _rezero(Episode(2, 18))
+
+    spare = understudy(menu, menu[0], Args(query=["re:zero", "s2e18"]))
+
+    assert spare is menu[2], "серию искали у тёзки, у которой её нет ни в одной раздаче"
+
+
+def test_an_episode_no_twin_has_is_a_refusal_not_a_walk() -> None:
+    menu = _rezero(Episode(2, 18))[:2]
+
+    assert understudy(menu, menu[0], Args(query=["re:zero", "s2e18"])) is None
+
+
+def test_without_an_episode_the_namesake_stays_the_liveliest_by_title() -> None:
+    menu = _rezero(Episode(2, 18))
+    for shown in menu:
+        shown.series = None
+
+    assert understudy(menu, menu[0], Args(query=["re:zero"])) is menu[1]
