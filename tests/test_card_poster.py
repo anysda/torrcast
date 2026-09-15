@@ -79,3 +79,17 @@ def test_a_failed_verdict_is_a_miss_not_a_dead_background_thread() -> None:
     poster = CardPoster(offer=_Verdict(fails=True), spawn=_sync)
 
     assert poster.of(_GARO) == (None, False)
+
+
+def test_an_answer_held_by_429_is_asked_again_after_the_quiet_not_in_ten_minutes() -> None:
+    """Картина, чья картинка ещё может приехать, промахом на 600 с не считается."""
+    now = [0.0]
+    verdict = _Verdict()
+    poster = CardPoster(offer=verdict, spawn=_sync, clock=lambda: now[0], pending=lambda _r: True)
+
+    assert poster.of(_GARO) == (None, False)
+    poster.of(_GARO)
+    assert len(verdict.asked) == 1, "до конца тишины карточка сеть не спрашивает"
+    now[0] = 21.0
+    poster.of(_GARO)
+    assert len(verdict.asked) == 2

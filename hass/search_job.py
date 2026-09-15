@@ -40,6 +40,9 @@ if TYPE_CHECKING:
 #: и финал «Начало» ехал 18-21 с. К сроку опрос получает финал из собранного, круг и
 #: приговор досчитываются фоном, и повторный заход застаёт их полный список.
 FINAL_BY: Final = GOAL + 2.0
+#: Потолок дозапроса обложек от начала захода, секунды: после финала страница спрашивает
+#: обложки, пока они в пути, но не дольше него, а заход с обложками в пути не сменяется новым.
+POSTERS_BY: Final = 60.0
 
 #: Тот же тип, что :data:`hass.search_progress.ProgressiveSearch`; назван тут, чтобы не
 #: замыкать импорт по кругу.
@@ -161,8 +164,31 @@ class SearchJob:
         except (TorrcastError, OSError):
             judged = []
         for before, after in zip(hits, judged, strict=False):
-            if isinstance(after, dict):
+            # Имя не отнимается: приговор в минуту 429 молчит, а найденная обложка остаётся.
+            if isinstance(after, dict) and (
+                after.get("poster") or _key(before) not in self.posters
+            ):
                 self.posters[_key(before)] = after.get("poster")
+        self.judging = False
+
+    def redress(self, offer: Offer) -> None:
+        """Спросить обложки готового списка снова, когда тишина источника кончилась.
+
+        Имена только прибавляются. Список, который за это время сменил досчитанный круг,
+        не трогается: у него свой приговор.
+        """
+        before = self.results
+        try:
+            judged = offer(before)
+        except (TorrcastError, OSError):
+            judged = before
+        merged = [
+            after if isinstance(after, dict) and after.get("poster") else was
+            for was, after in zip(before, judged, strict=True)
+        ]
+        with self._lock:
+            if self.results is before:
+                self.results = merged
         self.judging = False
 
     def _capture(self, client: IndexerClient) -> None:
@@ -173,4 +199,4 @@ def _key(hit: JsonValue) -> str:
     return str(hit.get("key", "")) if isinstance(hit, dict) else ""
 
 
-__all__ = ["FINAL_BY", "SearchJob"]
+__all__ = ["FINAL_BY", "POSTERS_BY", "SearchJob"]

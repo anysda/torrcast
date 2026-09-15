@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from hass.refused_error import RefusedError
-from hass.search_job import FINAL_BY
+from hass.search_job import FINAL_BY, POSTERS_BY
 from hass.serve import serve
 
 
@@ -27,6 +27,7 @@ class _Bridge:
         self.results: list[dict[str, Any]] = []
         self.progressed: list[str] = []
         self.progress_partial = False
+        self.posters_pending = False
         self.controlled: list[tuple[str, float]] = []
         self.nexted: list[dict[str, Any] | None] = []
         self.resumed = 0
@@ -43,11 +44,11 @@ class _Bridge:
         self.searched.append(query)
         return self.results
 
-    def search_progress(self, query: str) -> tuple[list[dict[str, Any]], bool]:
+    def search_progress(self, query: str) -> tuple[list[dict[str, Any]], bool, bool]:
         if self.refuse:
             raise RefusedError(self.refuse)
         self.progressed.append(query)
-        return self.results, self.progress_partial
+        return self.results, self.progress_partial, self.posters_pending
 
     def play(
         self,
@@ -267,6 +268,25 @@ def test_a_finished_progressive_search_carries_the_partial_false_header(
         partial = answer.headers.get("X-Torrcast-Partial")
 
     assert partial == "0"
+
+
+def test_a_final_with_posters_coming_says_so_and_names_the_cap(
+    address: str, bridge: _Bridge
+) -> None:
+    """Страница дозапрашивает обложки по заголовку и не дольше потолка сервера."""
+    bridge.posters_pending = True
+    body = json.dumps({"query": "тачки", "progressive": True}).encode()
+    request = urllib.request.Request(
+        f"{address}/api/search",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=5) as answer:
+        pending = answer.headers.get("X-Torrcast-Posters-Pending")
+        cap = answer.headers.get("X-Torrcast-Posters-By")
+
+    assert (pending, cap) == ("1", f"{POSTERS_BY:g}")
 
 
 def test_play_carries_the_pick_from_search_into_the_show(address: str, bridge: _Bridge) -> None:

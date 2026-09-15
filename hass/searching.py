@@ -72,7 +72,7 @@ class _Warm(Protocol):
 SEARCH: Search = search_circle
 DETECT: Detect = detector.detect
 REMEMBER: Remember = pins.remember_menu
-OFFER: Offer = hits.offer
+OFFER: Offer = hits.urgent
 
 
 def searching(

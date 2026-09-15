@@ -23,8 +23,11 @@ from torrcast.domain.torrcast_error import TorrcastError
 #: Сколько помнится промах: картинка у картины может появиться, но не за минуты, а
 #: каждый заход карточки иначе снова звал бы приговор в сеть.
 _MISS_TTL: Final = 600.0
+#: Через сколько спросить снова, если источник молчал в минуту 429: это не промах.
+_AGAIN_TTL: Final = 20.0
 
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
+Pending = Callable[[list[JsonValue]], bool]
 Spawn = Callable[[Callable[[], None]], None]
 
 
@@ -36,9 +39,14 @@ class CardPoster:
     """Приговор обложки на картину: один поход в сеть на имя, итог в памяти процесса."""
 
     def __init__(
-        self, offer: Offer, spawn: Spawn = _daemon, clock: Callable[[], float] = time.monotonic
+        self,
+        offer: Offer,
+        spawn: Spawn = _daemon,
+        clock: Callable[[], float] = time.monotonic,
+        pending: Pending = lambda _records: False,
     ) -> None:
         self._offer = offer
+        self._pending = pending
         self._spawn = spawn
         self._clock = clock
         self._lock = threading.Lock()
@@ -82,7 +90,8 @@ class CardPoster:
             if name:
                 self._found[key] = name
             else:
-                self._missed[key] = self._clock() + _MISS_TTL
+                coming = self._pending([record])
+                self._missed[key] = self._clock() + (_AGAIN_TTL if coming else _MISS_TTL)
 
 
 __all__ = ["CardPoster"]

@@ -927,10 +927,10 @@ def test_the_progressive_route_answers_with_the_finished_menu_once_the_circle_la
         lambda *_a, **_k: Indexer(answers={"тачки": _CARS}),
     )
 
-    results, partial = bridge.search_progress("тачки")
+    results, partial, _pending = bridge.search_progress("тачки")
     deadline = time.monotonic() + 2.0
     while partial and time.monotonic() < deadline:
-        results, partial = bridge.search_progress("тачки")
+        results, partial, _pending = bridge.search_progress("тачки")
 
     records = cast("list[dict[str, Any]]", results)
     assert partial is False

@@ -67,7 +67,7 @@ _episodes = EpisodeLookup(engines=TorrServer)
 #: Дорожки той раздачи, которую играл бы показ (:class:`web.voice_lookup.VoiceLookup`).
 _voices = VoiceLookup(engines=TorrServer, warms=CARD_WARM)
 #: Приговор обложки - тот же, что у выдачи поиска и полки (:mod:`web.card_poster`).
-_poster = CardPoster(offer=hits.offer)
+_poster = CardPoster(offer=hits.urgent, pending=hits.pending)
 #: Сколько долгий заход досиживает после первой перемены, пока доезжает остальное: части
 #: приходят порознь (стенд `.104`: родня и серии через 2.1 с, приговор обложки через 2.7 с),
 #: и ответ на каждую перемену стоил странице лишнего запроса.

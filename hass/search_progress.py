@@ -20,14 +20,14 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Protocol
 
 from hass import searching
 from hass.catalog_merge import catalog_merge
 from hass.catalog_tiles import CatalogTiles
 from hass.refused_error import RefusedError
-from hass.search_job import SearchJob, _Shared
+from hass.search_job import POSTERS_BY, SearchJob, _Shared
 from hass.search_results import _hit
 from hass.searching import Detect, Offer, Remember
 from torrcast.adapters.prowlarr.to_releases import to_releases
@@ -70,6 +70,16 @@ def _search_with_hook(
 
 
 PROGRESSIVE_SEARCH: ProgressiveSearch = _search_with_hook
+
+
+class _Covers(Protocol):
+    """Что мост знает о картинках записей (:class:`hass.hit_posters.HitPosters`)."""
+
+    def landed(self, record: JsonValue) -> bool: ...
+
+    def pending(self, records: Sequence[JsonValue]) -> bool: ...
+
+    def due(self, records: Sequence[JsonValue]) -> bool: ...
 
 
 #: Заходы поиска по тексту запроса; общий на процесс, как и у прочих слотов моста.
@@ -115,6 +125,7 @@ def search_progress(
     offer: Offer | None = None,
     warm: _Shared | None = None,
     catalog: Callable[[str], CatalogTiles] | None = None,
+    covers: _Covers | None = None,
 ) -> tuple[list[JsonValue], bool]:
     """Тело ``POST /api/search`` с ``progressive: true``: превью или готовый список.
 
@@ -132,11 +143,18 @@ def search_progress(
 
     Финал приходит не позже срока :data:`~hass.search_job.FINAL_BY` от начала захода: тот,
     кто опрашивает, получает к нему собранное, а круг досчитывается фоном.
+
+    ``covers`` - память картинок моста. С ней имя картинки уходит только тем записям, чьи
+    байты уже здесь: плитка, спросившая имя раньше байтов, держала соединение браузера до
+    6 с, и шесть таких плиток останавливали опрос поиска (TC-1286). Отложенный из-за 429
+    приговор готового списка спрашивается снова опросом, застав конец тишины, а заход с
+    обложками в пути не сменяется новым кругом до :data:`~hass.search_job.POSTERS_BY`.
     """
     key = query.strip().casefold()
     with _jobs_lock:
         job = _jobs.get(key)
         stale = job is not None and job.done and time.monotonic() - job.finished_at > JOB_TTL
+        stale = stale and not (job is not None and _coming(job, covers))
         if job is None or stale:
             job = SearchJob(catalog=None if catalog is None else catalog(query))
             _jobs[key] = job
@@ -149,10 +167,34 @@ def search_progress(
     if job.overdue():
         job.settle(_preview(query, job, offer, done=True))
     if not job.done:
-        return _preview(query, job, offer), True
+        preview = _preview(query, job, offer)
+        return (preview if covers is None else _shown(preview, covers)), True
     if job.error is not None:
         raise RefusedError(job.error)
-    return job.results, False
+    if covers is None:
+        return job.results, False
+    if _coming(job, covers) and not job.judging and covers.due(job.results):
+        job.judging = True
+        said = searching.OFFER if offer is None else offer
+        threading.Thread(target=job.redress, args=(said,), daemon=True, name="redress").start()
+    return _shown(job.results, covers), False
+
+
+def _coming(job: SearchJob, covers: _Covers | None) -> bool:
+    """Обложки готового захода ещё в пути, и потолок дозапроса не пройден."""
+    if covers is None or not job.done or time.monotonic() - job.started_at >= POSTERS_BY:
+        return False
+    return job.judging or covers.pending(job.results)
+
+
+def _shown(results: list[JsonValue], covers: _Covers) -> list[JsonValue]:
+    """Записи для страницы: имя картинки только у тех, чьи байты уже здесь."""
+    return [
+        {name: value for name, value in record.items() if name != "poster"}
+        if isinstance(record, dict) and "poster" in record and not covers.landed(record)
+        else record
+        for record in results
+    ]
 
 
 __all__ = ["JOB_TTL", "PROGRESSIVE_SEARCH", "ProgressiveSearch", "search_progress"]

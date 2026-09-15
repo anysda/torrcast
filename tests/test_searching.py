@@ -12,6 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+import hass.searching as searching_module
+from hass.hit_posters import hits
 from hass.searching import searching
 from tests.test_warm_cache import _TOLD
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
@@ -189,3 +191,8 @@ def test_the_search_step_after_a_restart_counts_a_fresh_circle_instead_of_the_di
     records = searching(_CONFIG, "тачки", counted, _cautious, pins.remember_menu, _offer, warm=warm)
 
     assert (asked, len(records)) == (["тачки"], len(_plans()))
+
+
+def test_the_visible_list_asks_its_posters_ahead_of_the_shelves() -> None:
+    """Приговор выдачи идёт срочным: полки главной и «похожие» не занимают его минуту."""
+    assert hits.urgent == searching_module.OFFER

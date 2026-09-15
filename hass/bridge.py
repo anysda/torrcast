@@ -20,6 +20,7 @@ from collections.abc import Callable
 from typing import Unpack
 
 from hass.following import following
+from hass.hit_posters import hits
 from hass.motion import Motion
 from hass.next_show import next_show
 from hass.orders import Command, Orders
@@ -116,10 +117,13 @@ class Bridge:
         said = self._settings(), query, self._search, self._detect, self._remember
         return searching(*said, warm=WARM)
 
-    def search_progress(self, query: str) -> tuple[list[JsonValue], bool]:
-        """``POST /api/search`` с ``progressive: true``: каталог первым, круг (:data:`WARM`)."""
+    def search_progress(self, query: str) -> tuple[list[JsonValue], bool, bool]:
+        """``POST /api/search`` с ``progressive: true``: каталог первым, круг (:data:`WARM`).
+
+        Третье поле - «обложки готового списка ещё в пути»: страница дозапрашивает их."""
         said = self._settings(), query, self._detect, self._remember
-        return search_progress(*said, warm=WARM, catalog=CATALOG)
+        results, partial = search_progress(*said, warm=WARM, catalog=CATALOG, covers=hits)
+        return results, partial, not partial and hits.pending(results)
 
     def play(self, query: str, pick: int | None = None, **extras: Unpack[_PlayExtras]) -> str:
         """``POST /api/play``: argv собирает :func:`play_argv`, доводы проверены заранее."""

@@ -90,3 +90,27 @@ def test_a_deadline_final_does_not_overwrite_a_landed_circle() -> None:
     assert job.results == [{"key": "circle"}]
     job.settle([{"key": "verdict"}], landed=True)
     assert job.results == [{"key": "verdict"}]
+
+
+def test_a_poster_once_named_is_not_taken_away_by_a_silent_verdict() -> None:
+    """Превью в минуту 429 молчит об уже найденной обложке: имя у плитки остаётся."""
+    job = SearchJob()
+    hits: list[Any] = [{"key": "cars"}]
+    job._judge(hits, lambda records: [{"key": "cars", "poster": "p"} for _ in records])
+    job._judge(hits, lambda records: records)
+    assert job.dress(hits, _as_is) == [{"key": "cars", "poster": "p"}]
+
+
+def test_a_redress_adds_names_and_leaves_a_list_the_circle_replaced() -> None:
+    """Дозапрос прибавляет имена; досчитанный за это время круг он не затирает."""
+    job = SearchJob()
+    job.settle([{"key": "a", "poster": "pa"}, {"key": "b"}], landed=True)
+    job.redress(lambda records: [{"key": "a"}, {"key": "b", "poster": "pb"}])
+    assert job.results == [{"key": "a", "poster": "pa"}, {"key": "b", "poster": "pb"}]
+
+    def late(records: list[Any]) -> list[Any]:
+        job.settle([{"key": "circle"}], landed=True)
+        return [{**record, "poster": "late"} for record in records]
+
+    job.redress(late)
+    assert job.results == [{"key": "circle"}]

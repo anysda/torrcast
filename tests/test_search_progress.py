@@ -44,8 +44,6 @@ _WE = [
 @pytest.fixture(autouse=True)
 def _clear_jobs() -> None:
     """Реестр заходов общий на процесс: тесты не смеют путать чужой запрос со своим."""
-    import hass.search_progress as module
-
     module._jobs.clear()
 
 
