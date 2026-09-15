@@ -36,12 +36,19 @@ const TCCardSeries = {
     for (const episode of season.episodes) {
       const row = document.createElement('div');
       const isResume = season.n === resumeEpisode.season && episode.n === resumeEpisode.episode;
-      row.className = 'tc-ep' + (episode.watched ? ' is-watched' : '') + (isResume ? ' is-resume' : '');
-      row.tabIndex = 0;
-      row.dataset.tcFocusable = '1';
-      row.dataset.tcGroup = 'episodes';
+      // Серия ещё не вышла: серая строка с датой выхода, фокус и нажатие её обходят.
+      const coming = Boolean(episode.air);
+      row.className = 'tc-ep' + (episode.watched ? ' is-watched' : '') + (isResume ? ' is-resume' : '')
+        + (coming ? ' is-unreleased' : '');
       row.dataset.tcEpisode = 's' + season.n + 'e' + episode.n;
-      row.setAttribute('role', 'button');
+      if (coming) {
+        row.setAttribute('aria-disabled', 'true');
+      } else {
+        row.tabIndex = 0;
+        row.dataset.tcFocusable = '1';
+        row.dataset.tcGroup = 'episodes';
+        row.setAttribute('role', 'button');
+      }
       const num = document.createElement('div');
       num.className = 'tc-ep-num';
       num.textContent = String(episode.n);
@@ -50,7 +57,11 @@ const TCCardSeries = {
       title.textContent = TC.say('web.detail.season', { n: season.n }) + ' · ' + episode.n;
       const meta = document.createElement('div');
       meta.className = 'tc-ep-meta';
-      if (episode.watched) {
+      if (coming) {
+        const air = document.createElement('div');
+        air.textContent = TC.say('web.detail.airs', { date: TCCardSeries._date(episode.air) });
+        meta.appendChild(air);
+      } else if (episode.watched) {
         const watched = document.createElement('div');
         watched.textContent = TC.say('web.detail.watched');
         meta.appendChild(watched);
@@ -70,11 +81,21 @@ const TCCardSeries = {
         bar.style.width = Math.max(0, Math.min(1, episode.pos / episode.dur)) * 100 + '%';
         row.appendChild(bar);
       }
-      row.addEventListener('click', () => TCCard._play(data, key, query,
-        data.voices || [], false, season.n, episode.n));
+      if (!coming) {
+        row.addEventListener('click', () => TCCard._play(data, key, query,
+          data.voices || [], false, season.n, episode.n));
+      }
       list.appendChild(row);
     }
     return list;
+  },
+
+  _date(iso) {
+    const [year, month, day] = String(iso).split('-');
+    if (!day) return String(iso);
+    if (TC.language === 'ru') return day + '.' + month + '.' + year;
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+      .toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
   },
 
   _resumeEpisodeNumber(data) {

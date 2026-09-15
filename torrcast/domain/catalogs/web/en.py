@@ -70,6 +70,7 @@ def en() -> dict[str, str]:
         "web.detail.resumes": "Resumes {label} · {time}",
         "web.detail.season": "Season {n}",
         "web.detail.watched": "✓ Watched",
+        "web.detail.airs": "Out {date}",
         "web.detail.resumes_here": "▶ Resumes here · {time}",
         "web.detail.runtime_hm": "{h} h {m} min",
         "web.detail.runtime_m": "{m} min",

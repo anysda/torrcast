@@ -372,6 +372,8 @@ body {
                color: var(--tc-text-soft); }
 .tc-ep-meta { font-weight: 700; font-size: 1.25rem; letter-spacing: .1em; color: var(--tc-muted-dim); }
 .tc-ep.is-watched .tc-ep-title { color: var(--tc-muted); }
+.tc-ep.is-unreleased { cursor: default; }
+.tc-ep.is-unreleased :is(.tc-ep-title, .tc-ep-meta) { color: var(--tc-disabled-ink); }
 .tc-ep.is-resume { background: var(--tc-acid); color: var(--tc-bg); }
 .tc-ep.is-resume :is(.tc-ep-num, .tc-ep-title, .tc-ep-meta) { color: var(--tc-bg); }
 .tc-ep-progress { position: absolute; left: 0; bottom: 0; height: .375rem;
