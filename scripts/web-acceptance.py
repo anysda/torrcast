@@ -146,6 +146,54 @@ _WATCH_SECONDS: Final = 180.0
 #: ни фокуса, и клик по нему не делает ничего (по живому замеру - 14 скелетов).
 _LIVE_TILE: Final = "[data-tc-tile][data-tc-focusable]"
 
+#: Снимок частей карточки за один обход DOM. Карточка пересобирается после фонового
+#: ответа, поэтому ``count()`` с последующим ``inner_text()`` мог читать уже другой узел.
+_CARD_TEXTS_JS: Final = """() => {
+  const card = document.querySelector('[data-tc-card]');
+  const text = (sel) => {
+    const node = card && card.querySelector(sel);
+    return node ? (node.innerText || '') : '';
+  };
+  return { title: text('.tc-title-detail'), description: text('[data-tc-card-description]'),
+           rating: text('[data-tc-card-rating]') };
+}"""
+
+
+def _card_texts(ctx: Ctx) -> dict[str, str]:
+    """Видимый текст карточки одним снимком, пустые части нормализованы в строки."""
+    shot = ctx.page.evaluate(_CARD_TEXTS_JS)
+    if not isinstance(shot, dict):
+        return {"title": "", "description": "", "rating": ""}
+    return {name: str(shot.get(name) or "") for name in ("title", "description", "rating")}
+
+
+#: Сезоны читаются и нажимаются без ``count() -> nth()``: между двумя обращениями
+#: продукт заменяет тело карточки после ответа справки.
+_SEASONS_JS: Final = """() => [...document.querySelectorAll('.tc-tab')].map(tab =>
+  ({ name: (tab.innerText || '').trim() }))"""
+_CLICK_SEASON_JS: Final = """name => {
+  const tab = [...document.querySelectorAll('.tc-tab')]
+    .find(node => (node.innerText || '').trim() === name);
+  if (!tab) return false;
+  tab.scrollIntoView({block: 'nearest', inline: 'center'});
+  tab.click();
+  return true;
+}"""
+
+
+def _seasons(ctx: Ctx) -> list[str]:
+    """Имена вкладок в один момент, без живых locator-индексов."""
+    shot = ctx.page.evaluate(_SEASONS_JS)
+    if not isinstance(shot, list):
+        return []
+    return [str(tab.get("name") or "") for tab in shot if isinstance(tab, dict)]
+
+
+def _click_season(ctx: Ctx, name: str) -> bool:
+    """Нажать названный в снимке сезон в том же обращении к текущему DOM."""
+    return bool(ctx.page.evaluate(_CLICK_SEASON_JS, name))
+
+
 #: Число внутри строки рейтинга: «IMDb 8.7» - оценка есть, «IMDb» без цифры - нет.
 _NUMBER_RE: Final = re.compile(r"\d+[.,]?\d*")
 
@@ -1222,9 +1270,8 @@ def check_19_latin_titles(ctx: Ctx) -> Result:
             card = None
         if card is not None:
             deadline = time.monotonic() + _PARTIAL_WAIT
-            title_node = card.locator(".tc-title-detail")
             while time.monotonic() < deadline:
-                card_title = title_node.inner_text() if title_node.count() else ""
+                card_title = _card_texts(ctx)["title"]
                 if card_title.strip():
                     break
                 ctx.page.wait_for_timeout(1000)
@@ -1582,7 +1629,7 @@ def check_2_search(ctx: Ctx) -> Result:
                 # Погашенные добавочные плитки могут быть штатным хвостом выдачи:
                 # «Мы» 2019 остаётся открываемым. Красно только когда зрителю не
                 # досталась ни одна открываемая плитка и не объяснили причину.
-                bad = dim == len(tiles) and not nothing
+                bad = not any(tile["live"] for tile in tiles) and not nothing
                 return (
                     not bad,
                     f"{query!r}: плиток {len(tiles)}, погашено {dim}, надпись {nothing!r}",
@@ -1626,15 +1673,13 @@ def check_3_card(ctx: Ctx, search_ok: bool) -> Result:
     # Карточка приезжает пустой каркасом и наполняется фоном (справка, озвучки): судить
     # её через 500 мс значит мерить скорость сети. Ждём появления описания, а не времени.
     deadline = time.monotonic() + _PARTIAL_WAIT
-    desc_node = card.locator("[data-tc-card-description]")
     description = ""
     while time.monotonic() < deadline:
-        description = desc_node.inner_text() if desc_node.count() else ""
+        description = _card_texts(ctx)["description"]
         if description.strip():
             break
         ctx.page.wait_for_timeout(1000)
-    rating_node = card.locator("[data-tc-card-rating]")
-    rating_text = rating_node.inner_text() if rating_node.count() else ""
+    rating_text = _card_texts(ctx)["rating"]
     # Рейтинг человеку показывается с источником («IMDb 8.7») - так велит каталог, и
     # голая цифра на экране не значила бы ничего. Скрипт ищет ЧИСЛО внутри строки.
     rating_ok = bool(_NUMBER_RE.search(rating_text))
@@ -1724,6 +1769,16 @@ _METER_JS: Final = """() => {
   meter.stop = () => observer.disconnect(); window.__tcAcceptanceMeter = meter;
 }"""
 
+#: Сериализованный снимок счётчика. Незакрытый ``waiting`` получает настоящую
+#: длительность на миг чтения, а не условную тысячную секунды.
+_METER_SNAPSHOT_JS: Final = """() => {
+  const meter = window.__tcAcceptanceMeter;
+  if (!meter) return {};
+  const now = (performance.now() - meter.born) / 1000;
+  return {...meter, waits: meter.waiting === null ? [...meter.waits]
+    : [...meter.waits, Math.max(0, now - meter.waiting)]};
+}"""
+
 
 def _frame_measure(ctx: Ctx, limit: float) -> tuple[float | None, dict[str, Any]]:
     """Первый кадр через rVFC либо ход после стартовой секунды, без ``readyState``."""
@@ -1754,14 +1809,26 @@ def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float]:
     began = time.monotonic()
     while time.monotonic() - began < seconds:
         ctx.page.wait_for_timeout(250)
-    meter = ctx.page.evaluate("window.__tcAcceptanceMeter || {}")
+    meter = ctx.page.evaluate(_METER_SNAPSHOT_JS)
     waits = meter.get("waits", []) if isinstance(meter, dict) else []
-    current = meter.get("waiting") if isinstance(meter, dict) else None
-    if isinstance(current, int | float):
-        # Незаконченный ``waiting`` уже портит просмотр, даже если конец ещё не настал.
-        waits = [*waits, 0.001]
     values = [float(value) for value in waits if isinstance(value, int | float) and value > 0]
     return values, sum(values)
+
+
+def _click_play(ctx: Ctx, limit: float = _CARD_READY_WAIT) -> tuple[float | None, str]:
+    """Нажать показ или вернуть человеческий отказ вместо таймаута Playwright."""
+    button = ctx.page.locator("[data-tc-play]")
+    began = time.monotonic()
+    try:
+        button.first.wait_for(state="visible", timeout=int(limit * 1000))
+    except Exception:
+        return None, f"кнопка показа не появилась за {time.monotonic() - began:.0f} с"
+    clicked = time.monotonic()
+    try:
+        button.first.click()
+    except Exception as error:
+        return None, f"кнопка показа не нажалась за {time.monotonic() - began:.0f} с: {error!s}"
+    return clicked, ""
 
 
 def _next_frame_measure(ctx: Ctx, limit: float) -> tuple[float | None, dict[str, Any]]:
@@ -1793,13 +1860,16 @@ def check_4_playback(ctx: Ctx) -> Result:
         return Result(4, "Показ", False, None, refusal)
     ctx.current_key = _card_key(ctx)
     ctx.page.evaluate(_METER_JS)
-    ctx.page.locator("[data-tc-play]").first.click()
+    clicked, why = _click_play(ctx)
+    if clicked is None:
+        return Result(4, "Показ", False, None, why)
     # Кнопка только КЛАДЁТ заказ: продукт ещё ищет раздачу, качает метаданные и пакует
     # первые куски. Судить ровность хода до первого кадра значило бы мерить прогрев, а
     # не показ, поэтому 60 с ровности отсчитываются от `readyState >= 3`, а не от клика.
     frame, meter = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
     if frame is None:
         return Result(4, "Показ", False, None, f"кадра нет за {_PLAY_START_WAIT / 1000:.0f} с")
+    from_click = time.monotonic() - clicked
     cdp = None
     control = "без сужения"
     try:
@@ -1812,9 +1882,10 @@ def check_4_playback(ctx: Ctx) -> Result:
             cdp.send("Network.emulateNetworkConditions", _WIDE)
             cdp.detach()
     start = meter.get("start")
-    ok = (ctx.stalls_only or frame <= _FRAME_BAR) and not waits
+    ok = (ctx.stalls_only or from_click <= _FRAME_BAR) and not waits
     detail = (
-        f"стартовая позиция {start!r}; первый кадр за {frame:.1f} с (порог {_FRAME_BAR:.0f}); "
+        f"стартовая позиция {start!r}; первый кадр за {from_click:.1f} с от клика "
+        f"({frame:.1f} с по счётчику, порог {_FRAME_BAR:.0f}); "
         f"подгрузы за {_WATCH_SECONDS:.0f} с ({control}): {len(waits)}, сумма {total:.1f} с {waits}"
         + ("; контроль измеряет только подгрузы" if ctx.stalls_only else "")
     )
@@ -1829,10 +1900,8 @@ _BOOKMARK_AT: Final = 90.0
 _BOOKMARK_WAIT: Final = 30.0
 
 
-def check_5_bookmark(ctx: Ctx, play_ok: bool) -> Result:
+def check_5_bookmark(ctx: Ctx) -> Result:
     """Закладка: зрительский путь главная → «Продолжить» → «Играть», без JS seek."""
-    if not play_ok:
-        return Result(5, "Закладка", False, "пункт 4 (показ не идёт)", "остановить нечего")
     key = ctx.current_key
     ctx.page.keyboard.press("Escape")
     began = time.monotonic()
@@ -1849,19 +1918,27 @@ def check_5_bookmark(ctx: Ctx, play_ok: bool) -> Result:
     ctx.page.keyboard.press("Escape")
     continue_tile = ctx.page.locator(f'[data-tc-group="shelf-continue"][data-tc-key="{key}"]')
     fresh = continue_tile.count() > 0
+    clicked: float | None = None
     if fresh:
         continue_tile.first.click()
         with contextlib.suppress(Exception):
             ctx.page.locator("[data-tc-play]").first.wait_for(state="visible", timeout=30_000)
         ctx.page.evaluate(_METER_JS)
-        ctx.page.locator("[data-tc-play]").first.click()
+        clicked, why = _click_play(ctx)
+        if clicked is None:
+            return Result(5, "Закладка", False, None, why)
         frame, _ = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
     else:
         frame = None
-    ok = position is not None and fresh and frame is not None and frame <= _FRAME_BAR
+    from_click = time.monotonic() - clicked if clicked is not None and frame is not None else None
+    if from_click is None:
+        ok = False
+    else:
+        ok = position is not None and fresh and frame is not None and from_click <= _FRAME_BAR
     detail = (
         f"после Esc история {key!r} на {position!r}; «Продолжить» {'есть' if fresh else 'НЕТ'}; "
-        f"кадр с закладки {frame!r} с (порог {_FRAME_BAR:.0f})"
+        f"кадр с закладки {from_click!r} с от клика "
+        f"({frame!r} с по счётчику, порог {_FRAME_BAR:.0f})"
     )
     return Result(5, "Закладка", ok, None, detail)
 
@@ -1953,6 +2030,20 @@ def _episode_parts(target: str) -> tuple[int, int] | None:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
+def _episode_season(ctx: Ctx, target: str) -> str | None:
+    """Открыть сезон строки серии по снимку вкладок, не полагаясь на прошлый пункт."""
+    parts = _episode_parts(target)
+    if parts is None:
+        return f"некорректная серия {target!r}"
+    season, _episode = parts
+    name = next((tab for tab in _seasons(ctx) if re.search(rf"\b{season}\b", tab)), None)
+    if name is None:
+        return f"нет вкладки сезона {season} для {target}"
+    if not _click_season(ctx, name):
+        return f"вкладка сезона {season} исчезла для {target}"
+    return None
+
+
 def check_7_series(ctx: Ctx) -> Result:
     """Сериал: каждая вкладка даёт строки за 2 с, клик включает названную серию.
 
@@ -1962,16 +2053,14 @@ def check_7_series(ctx: Ctx) -> Result:
     refusal = _open_card_by_page(ctx, ctx.series_title)
     if refusal is not None:
         return Result(7, "Сериал", False, None, refusal)
-    tabs = ctx.page.locator(".tc-tab")
     tab_times: list[str] = []
-    tabs_ok = tabs.count() > 0
-    for index in range(tabs.count()):
-        tab = tabs.nth(index)
-        name = tab.inner_text().strip()
-        _reveal_tab(tab)
+    tab_names = _seasons(ctx)
+    tabs_ok = bool(tab_names)
+    for index, name in enumerate(tab_names):
         began = time.monotonic()
         try:
-            tab.click(force=True, timeout=_EPISODES_BAR * 1000)
+            if not _click_season(ctx, name):
+                raise RuntimeError("вкладка исчезла")
         except Exception:
             tabs_ok = False
             tab_times.append(f"{name or index}:>{_EPISODES_BAR:.0f} (вне области)")
@@ -1990,19 +2079,14 @@ def check_7_series(ctx: Ctx) -> Result:
     if expected is None:
         return Result(7, "Сериал", False, None, f"некорректная серия {ctx.series_target!r}")
     expected_season, expected_episode = expected
-    target_season_tab = next(
-        (
-            tabs.nth(index)
-            for index in range(tabs.count())
-            if re.search(rf"\b{expected_season}\b", tabs.nth(index).inner_text())
-        ),
-        None,
+    target_season = next(
+        (name for name in tab_names if re.search(rf"\b{expected_season}\b", name)), None
     )
-    if target_season_tab is None:
+    if target_season is None:
         return Result(7, "Сериал", False, None, f"нет вкладки сезона {expected_season}")
-    _reveal_tab(target_season_tab)
     try:
-        target_season_tab.click(force=True, timeout=_EPISODES_BAR * 1000)
+        if not _click_season(ctx, target_season):
+            raise RuntimeError("вкладка исчезла")
     except Exception:
         return Result(
             7,
@@ -2017,7 +2101,7 @@ def check_7_series(ctx: Ctx) -> Result:
     episodes = ctx.page.locator("[data-tc-episode]")
     count = episodes.count()
     if count == 0:
-        detail = f"нет [data-tc-episode] в карточке {_SERIES_TITLE!r}"
+        detail = f"нет [data-tc-episode] в карточке {ctx.series_title!r}"
         return Result(7, "Сериал", False, None, detail)
     # Искать надо по странице: `episodes` - это уже сами строки серий, и поиск ВНУТРИ
     # них не находит ничего никогда, каким бы верным ни был список.
@@ -2053,7 +2137,7 @@ def check_7_series(ctx: Ctx) -> Result:
     return Result(7, "Сериал", ok, None, detail)
 
 
-def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
+def check_8_autoplay(ctx: Ctx) -> Result:
     """Автопереход: перемотка к концу → плашка с отсчётом → через 10 с следующая серия.
 
     🔴 Пункт сам открывает первую видимую серию, а не донашивает результат пункта 7:
@@ -2061,11 +2145,10 @@ def check_8_autoplay(ctx: Ctx, series_ok: bool) -> Result:
     в «заблокирован». Фильм для этого не годится: следующей серии у него нет по
     устройству продукта, и плашка на нём не появится никогда.
     """
-    del series_ok
     guard = _playback_guard(8, "Автопереход", ctx, True, "")
     if guard:
         return guard
-    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    refusal = _open_card_by_page(ctx, ctx.series_title)
     if refusal is not None:
         return Result(8, "Автопереход", False, None, refusal)
     # s1e1 лежит в первой, уже видимой вкладке. Это именно путь зрителя: карточка,
@@ -2896,39 +2979,40 @@ def check_13_texts(ctx: Ctx) -> Result:
         if season_match is None:
             return Result(13, "Тексты", False, None, f"некорректная серия {ctx.screen_target!r}")
         season_number = season_match.group(1)
-        tabs = ctx.page.locator(".tc-tab")
-        tab = next(
-            (
-                tabs.nth(index)
-                for index in range(tabs.count())
-                if re.search(rf"\b{re.escape(season_number)}\b", tabs.nth(index).inner_text())
-            ),
+        tab_name = next(
+            (name for name in _seasons(ctx) if re.search(rf"\b{re.escape(season_number)}\b", name)),
             None,
         )
-        if tab is None:
+        if tab_name is None:
             detail = f"нет вкладки сезона {season_number} для проверки экрана"
             return Result(13, "Тексты", False, None, detail)
-        _reveal_tab(tab)
-        tab.click(force=True)
+        if not _click_season(ctx, tab_name):
+            return Result(13, "Тексты", False, None, f"вкладка сезона {season_number} исчезла")
         row = ctx.page.locator(f'[data-tc-episode="{ctx.screen_target}"]')
         if row.count() == 0:
             return Result(13, "Тексты", False, None, f"нет {ctx.screen_target} для проверки экрана")
+        ctx.page.evaluate(_METER_JS)
         row.first.click()
         screen_path += f" {ctx.screen_target}"
     else:
-        button = ctx.page.locator("[data-tc-play]")
-        if button.count() == 0:
-            return Result(13, "Тексты", False, None, "нет «Играть» для проверки экрана")
-        button.first.click()
+        ctx.page.evaluate(_METER_JS)
+        clicked, why = _click_play(ctx)
+        if clicked is None:
+            return Result(13, "Тексты", False, None, why)
     began = time.monotonic()
     screen = ""
     saw_screen = False
     while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
         screen = str(ctx.page.evaluate("document.body.innerText || ''"))
         saw_screen = saw_screen or bool(screen.strip())
+        meter = ctx.page.evaluate(_METER_SNAPSHOT_JS)
+        start = meter.get("start") if isinstance(meter, dict) else None
         current = _video(ctx, "v => v.currentTime")
         if "stream_source" in screen.casefold() or (
-            isinstance(current, int | float) and current > 0.3
+            isinstance(start, int | float)
+            and isinstance(current, int | float)
+            and current > start + 0.3
+            and bool(meter.get("playing"))
         ):
             break
         ctx.page.wait_for_timeout(100)
@@ -3023,19 +3107,19 @@ _CARD_LOOK: Final = """() => {
     desc: desc && !desc.classList.contains('tc-detail-skel') ? desc.textContent.trim() : '',
   };
 }"""
-#: Номер последней плитки главной, чью середину человек видит: она в окне и под ней сама
-#: плитка; нет такой - ``-1``. Середина, а не вся плитка: ряд полки обрезан краем окна, и
+#: Ключ последней плитки главной, чью середину человек видит: она в окне и под ней сама
+#: плитка; нет такой - пустая строка. Середина, а не вся плитка: ряд полки обрезан краем окна, и
 #: правило «целиком» оставляло три плитки полки истории, уже согретые. Проверка попадания:
 #: крайнюю плитку ряда накрывает поле у края полки (``tc-shelf-safe``), и клик уходил в него.
 _PICK_TILE: Final = """sel => {
-  let last = -1;
-  document.querySelectorAll(sel).forEach((tile, i) => {
+  let last = '';
+  document.querySelectorAll(sel).forEach(tile => {
     const b = tile.getBoundingClientRect();
     const x = b.left + b.width / 2;
     const y = b.top + b.height / 2;
     if (!(b.width > 0 && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)) return;
     const e = document.elementFromPoint(x, y);
-    if (e && e.closest('[data-tc-tile]') === tile) last = i;
+    if (e && e.closest('[data-tc-tile]') === tile) last = tile.dataset.tcKey || '';
   });
   return last;
 }"""
@@ -3070,7 +3154,9 @@ _COLD_TILES: Final = """sel => {
     const y = b.top + b.height / 2;
     const off = b.width > 0 && (x < 0 || y < 0 || x > innerWidth || y > innerHeight);
     const q = tile.dataset.tcWarm || '';
-    if (off && q && tile.querySelector('img.tc-tile-art-img') && !out.includes(q)) out.push(q);
+    const key = tile.dataset.tcKey || '';
+    if (off && q && key && tile.querySelector('img.tc-tile-art-img')
+      && !out.some(item => item.key === key)) out.push({key, query: q});
   });
   return out.length <= 3 ? out : [out[0], out[out.length >> 1], out[out.length - 1]];
 }"""
@@ -3081,8 +3167,6 @@ _UNDER: Final = """([x, y]) => {
   if (t) return t.dataset.tcWarm || 'плитка';
   return e ? e.tagName.toLowerCase() + '.' + e.className : 'ничего';
 }"""
-_TILE_BY_QUERY: Final = """([sel, q]) =>
-  [...document.querySelectorAll(sel)].findIndex(tile => tile.dataset.tcWarm === q)"""
 _TILE_ART: Final = """tile => {
   const img = tile.querySelector('img.tc-tile-art-img');
   return !!(img && img.complete && img.naturalWidth > 0);
@@ -3213,8 +3297,13 @@ def _home_tile(ctx: Ctx) -> Any:
     _home(ctx)
     ctx.page.evaluate("() => window.scrollBy(0, innerHeight / 2)")
     ctx.page.wait_for_timeout(1000)
-    index = ctx.page.evaluate(_PICK_TILE, _LIVE_TILE)
-    return ctx.page.locator(_LIVE_TILE).nth(index) if index >= 0 else None
+    key = ctx.page.evaluate(_PICK_TILE, _LIVE_TILE)
+    return _tile_by_key(ctx, str(key)) if key else None
+
+
+def _tile_by_key(ctx: Ctx, key: str) -> Any:
+    """Живая плитка по её постоянному ключу, а не по протухшему индексу DOM."""
+    return ctx.page.locator(f"{_LIVE_TILE}[data-tc-key={json.dumps(key)}]")
 
 
 def _middle(ctx: Ctx, tile: Any) -> tuple[float, float]:
@@ -3248,18 +3337,22 @@ def check_28_shelf_card(ctx: Ctx) -> Result:
     :data:`_COLD_CARD`, и обложка к этому мигу на месте.
     """
     _home(ctx)
-    queries = ctx.page.evaluate(_COLD_TILES, _LIVE_TILE)
-    if not queries:
+    tiles = ctx.page.evaluate(_COLD_TILES, _LIVE_TILE)
+    if not tiles:
         return Result(28, "Полка → обложка", False, None, "за краем окна нет плитки с обложкой")
     ok, said = True, []
-    for number, query in enumerate(queries, 1):
+    for number, picked in enumerate(tiles, 1):
+        if not isinstance(picked, dict):
+            ok = False
+            said.append("снимок холодной плитки испорчен")
+            continue
+        key, query = str(picked.get("key") or ""), str(picked.get("query") or "")
         _home(ctx)
-        index = ctx.page.evaluate(_TILE_BY_QUERY, [_LIVE_TILE, query])
-        if index < 0:
+        if not key:
             ok = False
             said.append(f"{query!r}: плитки на свежей главной нет")
             continue
-        tile = ctx.page.locator(_LIVE_TILE).nth(index)
+        tile = _tile_by_key(ctx, key)
         tile.scroll_into_view_if_needed()
         loaded_by = time.monotonic() + 10.0
         while not tile.evaluate(_TILE_ART) and time.monotonic() < loaded_by:
@@ -3321,9 +3414,8 @@ def _cast_from_card(ctx: Ctx, button: Any) -> tuple[bool, str]:
     button.click()
     words: list[str] = []
     state: dict[str, Any] = {}
-    tv = ctx.page.locator("[data-tc-card-tv]")
     while time.monotonic() - began < _CAST_WAIT:
-        text = (tv.first.text_content() or "").strip() if tv.count() else ""
+        text = _tv_text(ctx)
         if text and not any(word.startswith(text + " (") for word in words):
             words.append(f"{text} ({time.monotonic() - began:.1f} с)")
         state = _state(ctx)
@@ -3336,7 +3428,7 @@ def _cast_from_card(ctx: Ctx, button: Any) -> tuple[bool, str]:
     # касте (стенд `.104`: пара 5.7 -> 5.7, а журнал остановил показ на 0:00:09).
     grew, _within = _await_position_growth(ctx, first)
     second = _position(ctx)
-    text = (tv.first.text_content() or "").strip() if tv.count() else ""
+    text = _tv_text(ctx)
     if text and not any(word.startswith(text + " (") for word in words):
         words.append(f"{text} ({time.monotonic() - began:.1f} с)")
     _shot(ctx, "29-cast.png")
@@ -3350,6 +3442,15 @@ def _cast_from_card(ctx: Ctx, button: Any) -> tuple[bool, str]:
         f"кнопка: {' → '.join(words) or 'без слов'}; после stop {after!r}"
     )
     return playing and grew, said
+
+
+def _tv_text(ctx: Ctx) -> str:
+    """Надпись кнопки ТВ одним снимком, пока карточка может пересобраться."""
+    text = ctx.page.evaluate(
+        "() => { const node = document.querySelector('[data-tc-card-tv]');"
+        " return node ? (node.textContent || '').trim() : ''; }"
+    )
+    return str(text or "")
 
 
 def _final_hits(base: str, query: str) -> list[dict[str, Any]]:
@@ -3589,15 +3690,18 @@ def _plant_place(ctx: Ctx) -> tuple[str | None, float | None, str]:
 
     Возвращает ключ картины и секунду легшего места, либо причину, почему место не легло.
     """
-    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    refusal = _open_card_by_page(ctx, ctx.series_title)
     if refusal is not None:
         return None, None, refusal
     key = _card_key(ctx)
+    season_refusal = _episode_season(ctx, _PLACE_EPISODE)
+    if season_refusal is not None:
+        return None, None, season_refusal
     target = ctx.page.locator(f'[data-tc-episode="{_PLACE_EPISODE}"]')
     with contextlib.suppress(Exception):
         target.first.wait_for(state="visible", timeout=30000)
     if target.count() == 0:
-        return None, None, f"серии {_PLACE_EPISODE} нет в карточке {_SERIES_TITLE!r}"
+        return None, None, f"серии {_PLACE_EPISODE} нет в карточке {ctx.series_title!r}"
     target.first.click()
     pair, why = _await_shown(ctx)
     if pair != _PLACE_EPISODE:
@@ -3660,7 +3764,7 @@ def check_33_series_place(ctx: Ctx) -> Result:
     if key is None or planted is None:
         blocked = f"стенд не дал показа {_PLACE_EPISODE}: {why}"
         return Result(33, "Сериал с места", False, blocked, "место не поставлено")
-    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    refusal = _open_card_by_page(ctx, ctx.series_title)
     if refusal is not None:
         return Result(33, "Сериал с места", False, None, refusal)
     began = time.monotonic()
@@ -3847,10 +3951,13 @@ def check_35_same_on_tv(ctx: Ctx) -> Result:
     guard = _playback_guard(35, name, ctx, True, "")
     if guard:
         return guard
-    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    refusal = _open_card_by_page(ctx, ctx.series_title)
     if refusal is not None:
         return Result(35, name, False, None, refusal)
     # Серия - всегда s1e2: закладка сериала после прогона уезжает (передача, досмотр до конца).
+    season_refusal = _episode_season(ctx, _PLACE_EPISODE)
+    if season_refusal is not None:
+        return Result(35, name, False, None, season_refusal)
     episode = ctx.page.locator(f'[data-tc-episode="{_PLACE_EPISODE}"]')
     with contextlib.suppress(Exception):
         episode.first.wait_for(state="visible", timeout=30000)
@@ -3903,7 +4010,7 @@ def check_36_place_survives(ctx: Ctx) -> Result:
     guard = _playback_guard(36, "Место цело", ctx, True, "")
     if guard:
         return guard
-    refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+    refusal = _open_card_by_page(ctx, ctx.series_title)
     if refusal is not None:
         return Result(36, "Место цело", False, None, refusal)
     key = _card_key(ctx)
@@ -3913,10 +4020,13 @@ def check_36_place_survives(ctx: Ctx) -> Result:
         if planted_key is None:
             blocked = f"стенд не дал показа {_PLACE_EPISODE}: {why}"
             return Result(36, "Место цело", False, blocked, "место не поставлено")
-        refusal = _open_card_by_page(ctx, _SERIES_TITLE)
+        refusal = _open_card_by_page(ctx, ctx.series_title)
         if refusal is not None:
             return Result(36, "Место цело", False, None, refusal)
         label, pos = _place_of(ctx, key)
+    season_refusal = _episode_season(ctx, "s1e1")
+    if season_refusal is not None:
+        return Result(36, "Место цело", False, None, season_refusal)
     other = ctx.page.locator('[data-tc-episode="s1e1"]')
     with contextlib.suppress(Exception):
         other.first.wait_for(state="visible", timeout=30000)
@@ -4341,10 +4451,10 @@ def main() -> int:
         pick(2, "Поиск", lambda: check_2_search(ctx))
         pick(3, "Карточка", lambda: check_3_card(ctx, True))
         ok4 = pick(4, "Показ", lambda: check_4_playback(ctx))
-        ok5 = pick(5, "Закладка", lambda: check_5_bookmark(ctx, True))
+        ok5 = pick(5, "Закладка", lambda: check_5_bookmark(ctx))
         pick(6, "Сначала", lambda: check_6_restart(ctx, ok5))
         ok7 = pick(7, "Сериал", lambda: check_7_series(ctx))
-        pick(8, "Автопереход", lambda: check_8_autoplay(ctx, ok7))
+        pick(8, "Автопереход", lambda: check_8_autoplay(ctx))
         ok9 = pick(9, "На ТВ", lambda: check_9_on_tv(ctx, ok4 or ok7))
         ok10 = pick(10, "На комп", lambda: check_10_on_pc(ctx, ok9))
         pick(20, "Уход", lambda: check_20_leave_tears_down(ctx, ok10))

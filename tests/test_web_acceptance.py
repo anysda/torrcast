@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -231,6 +232,105 @@ def test_пустая_выдача_с_надписью_установилась_
 
     assert "'ывапрол': плиток 0, погашено 0, надпись 'Nothing found'" in result.detail
     assert result.ok is True
+
+
+def test_поиск_красный_когда_нет_открываемой_плитки_даже_без_погашения(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settled = {"searching": False, "nothing": ""}
+    result = _search(
+        monkeypatch,
+        {
+            "Мы": [{**settled, "tiles": [{"dim": False, "live": False, "text": ""}]}],
+            "ывапрол": [{"searching": False, "tiles": [], "nothing": "Nothing found"}],
+            "Интерстеллар": [{**settled, "tiles": _tiles(0, 3, "2014")}],
+        },
+    )
+
+    assert "'Мы': плиток 1, погашено 0, надпись ''" in result.detail
+    assert result.ok is False
+
+
+class SeasonPage:
+    """После снимка вкладок карточка заменяет DOM, как при фоновом ответе."""
+
+    def __init__(self) -> None:
+        self.current = ["Season 1", "Season 2"]
+        self.clicked = ""
+
+    def evaluate(self, expression: str, arg: str | None = None) -> Any:
+        if "querySelectorAll('.tc-tab')" not in expression:
+            raise AssertionError(expression)
+        if arg is None:
+            shot = [{"name": name} for name in self.current]
+            self.current = ["Season 1", "Season 2"]
+            return shot
+        assert arg in self.current
+        self.clicked = arg
+        return True
+
+
+def test_сезон_берётся_снимком_и_нажимается_после_пересборки() -> None:
+    module = acceptance()
+    page = SeasonPage()
+    ctx = module.Ctx("http://example", page, False, Path("/tmp"), {})
+
+    assert module._seasons(ctx) == ["Season 1", "Season 2"]
+    assert module._click_season(ctx, "Season 2") is True
+    assert page.clicked == "Season 2"
+    assert ".nth(" not in inspect.getsource(module.check_7_series)
+    assert ".nth(" not in inspect.getsource(module.check_13_texts)
+
+
+class StallPage(Page):
+    def __init__(self, waits: list[float]) -> None:
+        super().__init__({}, 0.0)
+        self.waits = waits
+
+    def evaluate(self, expression: str) -> Any:
+        if "Math.max(0, now - meter.waiting)" in expression:
+            return {"waits": self.waits}
+        return super().evaluate(expression)
+
+
+def test_подгрузы_на_заглушке_видео_дают_ноль_или_два_замера() -> None:
+    module = acceptance()
+    clean = module.Ctx("http://example", StallPage([]), True, Path("/tmp"), {})
+    broken = module.Ctx("http://example", StallPage([0.4, 1.25]), True, Path("/tmp"), {})
+
+    assert module._wait_stalls(clean, 0) == ([], 0)
+    waits, total = module._wait_stalls(broken, 0)
+    assert waits == [0.4, 1.25]
+    assert total == pytest.approx(1.65)
+    assert "addEventListener('waiting'" in module._METER_JS
+
+
+class MissingPlay(Video):
+    def __init__(self) -> None:
+        super().__init__(0)
+
+    @property
+    def first(self) -> MissingPlay:
+        return self
+
+    def wait_for(self, **_: Any) -> None:
+        raise TimeoutError("absent")
+
+
+class MissingPlayPage(Page):
+    def locator(self, selector: str) -> Video:
+        assert selector == "[data-tc-play]"
+        return MissingPlay()
+
+
+def test_нет_кнопки_показа_возвращает_приговор_а_не_таймаут() -> None:
+    module = acceptance()
+    ctx = module.Ctx("http://example", MissingPlayPage({}, 0), True, Path("/tmp"), {})
+
+    clicked, detail = module._click_play(ctx, 0)
+
+    assert clicked is None
+    assert detail.startswith("кнопка показа не появилась за ")
 
 
 def test_обычный_поиск_требует_сам_фильм_а_не_любую_плитку(monkeypatch: pytest.MonkeyPatch) -> None:
