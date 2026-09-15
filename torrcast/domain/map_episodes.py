@@ -28,6 +28,8 @@ _EPISODE_ONLY_RES: Final = (
     re.compile(r"\bep?\.?\s?(?P<episode>\d{1,3})\b(?!\s*(?:сезон|мин))", re.I),
     re.compile(r"\b(?P<episode>\d{1,3})\s*(?:из|of)\s*\d{1,3}\b", re.I),
     re.compile(r"\b(?P<episode>\d{1,3})\s*-?\s*(?:я|ая)?\s*сери", re.I),
+    # «Интерны. Серия №181» без сезона: номер после слова, со знаком номера.
+    re.compile(r"\bсерия\s*№\s*(?P<episode>\d{1,4})\b", re.I),
 )
 _SEASON_ONLY_RES: Final = (
     re.compile(r"\bs\s?(?P<season>\d{1,2})\b(?!\s?e)", re.I),

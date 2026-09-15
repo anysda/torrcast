@@ -115,3 +115,13 @@ def test_file_order_takes_the_numbers_of_the_span_only_when_the_count_matches() 
         _picked(name, unnumbered, Episode(1, 1))
     with pytest.raises(NotFoundError):
         _picked("Сериал / Show [21-30 из 40] (2020) WEB-DL 1080p", unnumbered, Episode(1, 22))
+
+
+def test_a_single_numbered_episode_is_not_the_first_one() -> None:
+    """🔴 «Интерны» s1e1 играли «Серия №181»: единственный файл читался первым по порядку."""
+    name = "Интерны (Новогодняя). Серия №181  (2013) WEBRip"
+    lonely = _files("Интерны. (Новогодняя). Серия №181  (2013).avi")
+    assert [(f.season, f.episode) for f in map_episodes(lonely)] == [(1, 181)]
+    with pytest.raises(NotFoundError):
+        _picked(name, lonely, Episode(1, 1))
+    assert _picked(name, lonely, Episode(1, 181)) == "Интерны. (Новогодняя). Серия №181  (2013).avi"
