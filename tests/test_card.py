@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 import web.card as card_page
+from tests.fakes.show_unit import FakeShowUnit
 from tests.fakes.state_store import FakeStateStore
 from tests.usecases.rank.releases import media, track
 from torrcast.domain.config import Config
@@ -380,9 +381,10 @@ def test_a_voices_ask_holds_the_answer_until_the_tracks_arrive(
 
 
 def test_a_picture_showing_on_the_receiver_right_now_marks_the_card_playing(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
 ) -> None:
     """TC-1225: карточка играющей картины помнит об этом - кнопки решают по этому полю."""
+    show_unit.alive = True
     _wired(monkeypatch, [_MOVIE_PLAN])
     fake = FakeStateStore()
     state = fake.load()
@@ -411,6 +413,29 @@ def test_the_card_offers_the_tv_only_on_a_machine_that_has_one(
 
     assert code == 200
     assert body["tv"] is offered
+
+
+def test_a_hash_left_by_a_failed_drop_without_a_live_unit_does_not_lock_the_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Снос раздачи на выходе показа не дошёл до службы: хэш в записи остался, юнита нет.
+
+    Карточка звала такую картину играющей и держала «Подключиться» выключенной навсегда,
+    а «Играть» с закладки не рисовала вовсе (стенд `.104` 15-09-2026, load 17).
+    """
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries[_MOVIE.key] = Entry(
+        "Interstellar", "magnet:interstellar", kind="movie", pos=120.0, dur=8520.0, torrent="abc"
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert code == 200
+    assert body["playing"] is False
 
 
 def test_a_bookmark_without_a_live_receiver_does_not_claim_the_card_is_playing(
@@ -856,9 +881,10 @@ def test_a_waiting_ask_holds_the_answer_until_the_blurb_arrives(
 
 
 def test_a_waiting_ask_sees_the_show_that_began_after_its_first_look(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
 ) -> None:
     """Показ стартует между взглядами: долгий ответ обязан назвать его сразу."""
+    show_unit.alive = True
     _wired(monkeypatch, [_MOVIE_PLAN], related=[])
     fake = FakeStateStore()
     state = fake.load()

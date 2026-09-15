@@ -28,6 +28,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.ports.show_unit.slot import unit
 from torrcast.ports.state_store.slot import store
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.select.plan import Plan
@@ -132,9 +133,9 @@ def _answer(
 
 
 def _playing(key: str) -> bool:
-    """Взять свежий признак показа для каждого взгляда долгого ответа."""
+    """Свежий признак показа; хэш, который не снял оборванный снос, без живого юнита не показ."""
     showing = store().load().showing()
-    return showing is not None and showing[0] == key
+    return showing is not None and showing[0] == key and unit().active()
 
 
 def _body(
