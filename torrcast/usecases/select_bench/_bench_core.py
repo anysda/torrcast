@@ -70,6 +70,8 @@ class _BenchCore:
         self.keep_until: dict[str, float] = {}
         self.keep_wait: Callable[[float], object] = time.sleep
         self._keep_lock = threading.Lock()
+        #: Заведение прогрева и уборка раздачи из разных потоков: скан и снос под одним замком.
+        self._preps_lock = threading.RLock()
 
     @staticmethod
     def _ask(plan: Plan, prep: _Prep, queue: list[int]) -> None:
@@ -79,7 +81,8 @@ class _BenchCore:
 
     def live(self) -> list[_Prep]:
         """Прогревы, за которыми в TorrServer стоит (или вот-вот встанет) наша раздача."""
-        return [prep for prep in self.preps.values() if not prep.dropped]
+        with self._preps_lock:
+            return [prep for prep in self.preps.values() if not prep.dropped]
 
     def _room(self) -> None:
         """Освободить место под новую раздачу: одновременно держим не больше :data:`MAX_LIVE`.
@@ -111,18 +114,22 @@ class _BenchCore:
         (:func:`_held_by_show`), - или её держит кто-то ещё в этом процессе: карточка
         страницы и отбор показа (:data:`~torrcast.usecases.torrent_claims.CLAIMS`).
         """
-        prep.dropped = True
-        torrent_hash = prep.torrent_hash
-        if any(other.torrent_hash == torrent_hash for other in self.live()):
-            return  # та же раздача у живого прогрева: отбор показа завёл её вторым номером
-        adding = (other for other in self.live() if not other.torrent_hash)
-        if any(
-            not other.ready.is_set() and other.release.magnet == prep.release.magnet
-            for other in adding
-        ):
-            return  # свежий прогрев той же раздачи ещё в ``add``: отметка у стенда общая
-        if torrent_hash and CLAIMS.unclaim(torrent_hash, self) and not _held_by_show(torrent_hash):
-            self.torrserver.drop(torrent_hash)
+        # Под замком: прогрев той же раздачи, заведённый между сканом и сносом, иначе теряет её.
+        with self._preps_lock:
+            prep.dropped = True
+            torrent_hash = prep.torrent_hash
+            if any(other.torrent_hash == torrent_hash for other in self.live()):
+                return  # та же раздача у живого прогрева: отбор показа завёл её вторым номером
+            adding = (other for other in self.live() if not other.torrent_hash)
+            if any(
+                not other.ready.is_set() and other.release.magnet == prep.release.magnet
+                for other in adding
+            ):
+                return  # свежий прогрев той же раздачи ещё в ``add``: отметка у стенда общая
+            if not torrent_hash or not CLAIMS.unclaim(torrent_hash, self):
+                return
+            if not _held_by_show(torrent_hash):
+                self.torrserver.drop(torrent_hash)
 
     def drop_all(self) -> None:
         """Показа не будет: всё прогретое убирается из TorrServer.
@@ -132,7 +139,7 @@ class _BenchCore:
         :meth:`keep_only` к тому месту уже прошёл, и живой остаётся ровно она). Раздачи
         при этом уже добавлены и живут не в нашем процессе, поэтому не умирают вместе с ним.
         """
-        for prep in self.preps.values():
+        for prep in list(self.live()):
             if not prep.dropped:  # убранное потолком или keep_only второй раз не трогаем
                 self._forget(prep)
 
@@ -143,9 +150,10 @@ class _BenchCore:
         Всё лишнее обязано исчезнуть до старта показа, иначе оно доедает и кэш в RAM,
         и полосу роя, а показ идёт ровно на них (и tmpfs не должен расти без предела).
         """
-        for prep in self.preps.values():
-            if prep is not chosen:
-                self._forget(prep)
+        with self._preps_lock:
+            others = [prep for prep in self.preps.values() if prep is not chosen]
+        for prep in others:
+            self._forget(prep)
         self._keep_open(chosen)
 
     def _keep_open(self, chosen: _Prep) -> None:

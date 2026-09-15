@@ -58,7 +58,11 @@ class CircleMemory:
             return [] if empty is not None and empty[1] > now else None
 
     def live(self, query: str) -> list[Plan] | None:
-        """Круг, пришедший из сети в свой срок: только его играет показ, запись диска нет."""
+        """Круг, пришедший из сети в свой срок, а не поднятый с диска.
+
+        Показ с карточки играет и круг с диска; сетевой нужен, когда отбор по дисковому
+        кончился ничем (:func:`web.show_stage._card_renewed`), и выдаче HA.
+        """
         with self._lock:
             landed = self._landed.get(self.key(query))
         return landed[0] if landed is not None and landed[1] > self.clock() else None

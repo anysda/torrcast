@@ -168,21 +168,22 @@ class _BenchWork(_BenchCore):
         (:attr:`_Prep.patient`). Обычный прогрев начинает работу сразу, но часы
         отсрочки запускаются только когда релиз действительно дошёл до вопроса.
         """
-        key = (plan.picture.key, number)
-        found = self.preps.get(key)
-        same = found is not None and found.release.magnet == plan.ranked[number - 1].magnet
-        if found is not None and same and not found.dropped:
-            return found
-        # A dropped warm-up already lost its torrent, and a recounted circle has another release
-        if found is not None and not found.dropped:
-            self._forget(found)
-        self._room()
-        prep = _Prep(
-            number=number,
-            release=plan.ranked[number - 1],
-            patient=patient,
-            contact_wait=None if patient else _bench_state._bench_contact_wait(PEER_GRACE),
-        )
-        self.preps[key] = prep
-        threading.Thread(target=self._work, args=(plan, prep), daemon=True).start()
+        with self._preps_lock:
+            key = (plan.picture.key, number)
+            found = self.preps.get(key)
+            same = found is not None and found.release.magnet == plan.ranked[number - 1].magnet
+            if found is not None and same and not found.dropped:
+                return found
+            # A dropped warm-up already lost its torrent, and a recounted circle has another release
+            if found is not None and not found.dropped:
+                self._forget(found)
+            self._room()
+            prep = _Prep(
+                number=number,
+                release=plan.ranked[number - 1],
+                patient=patient,
+                contact_wait=None if patient else _bench_state._bench_contact_wait(PEER_GRACE),
+            )
+            self.preps[key] = prep
+            threading.Thread(target=self._work, args=(plan, prep), daemon=True).start()
         return prep
