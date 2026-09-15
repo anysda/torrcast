@@ -53,6 +53,7 @@ from torrcast.usecases.facts import Facts
 from torrcast.usecases.feed_pack import _state as feed_state
 from torrcast.usecases.playback.hls_root import HLS_ENV
 from torrcast.usecases.torrent_claims import CLAIMS
+from web.series_catalog import SERIES
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -496,6 +497,8 @@ def _silent_facts(
     _configure_known(lambda _title: [])
     if request.node.nodeid != LIVE_BLURBS_PROBE:
         monkeypatch.setattr(FACTS, "blurbs", FakeBlurbSource())
+    # Каталог сериалов карточки: машинная карта имён, индекс серий и TVmaze - та же сеть.
+    monkeypatch.setattr(SERIES, "ids", lambda _title, _original, _year: "")
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
 
 

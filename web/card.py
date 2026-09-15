@@ -46,6 +46,7 @@ from web.rating_score import rating_score
 from web.refusal import refusal
 from web.release_keys import release_keys
 from web.request import Request
+from web.series_catalog import SERIES
 from web.start_related import start_related
 from web.voice_lookup import VoiceLookup
 from web.warm_wiring import RELATED, WARM
@@ -62,8 +63,7 @@ _PARTIAL = "X-Torrcast-Partial"
 WAIT: Final = GRACE + 1.0
 #: Шаг, которым долгий переспрос оглядывается на фоновые доборы.
 _TICK: Final = 0.25
-#: Разбор серий той раздачи, которую играл бы показ - один кэш на весь процесс
-#: (см. :class:`web.episode_lookup.EpisodeLookup`).
+#: Разбор серий раздачи, которую играл бы показ (:class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
 #: Дорожки той раздачи, которую играл бы показ (:class:`web.voice_lookup.VoiceLookup`).
 _voices = VoiceLookup(engines=TorrServer, warms=CARD_WARM)
@@ -153,8 +153,9 @@ def _body(
     title, year, kind = hint or (picture.title, picture.year, picture.kind)
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
+    url, profile = config.torrserver_url, _voices.profile_of(config)
     seasons, seasons_partial, episode_release = card_seasons(
-        plan, entry, config.torrserver_url, _episodes, ask.season, _voices.profile_of(config)
+        plan, entry, url, _episodes, ask.season, profile, SERIES
     )
     series = kind == "tv"
     related = CardDetails.others(

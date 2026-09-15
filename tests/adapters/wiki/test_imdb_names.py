@@ -112,3 +112,23 @@ def test_an_original_name_gives_the_imdb_id_of_the_same_year_and_type(tmp_path: 
     found = _names(tmp_path, rows).original_ids([("Lioness", 2023, "tv")])
 
     assert found == {("Lioness", 2023): ["tt13111078"]}
+
+
+SERIES_MAP = (
+    "Интерны\ttt1647423\ttvSeries\tInterny\t2010\n"
+    "Ван-Пис\ttt0388629\ttvSeries\tOne Piece\t1999\n"
+    "Ван-Пис\ttt11737520\ttvSeries\tOne Piece\t2023\n"
+    "Ван-Пис\ttt0000009\tmovie\tOne Piece\t2000\n"
+    "Укрытие\ttt0000010\tmovie\tShelter\t2023\n"
+    "Бункер\ttt14688458\ttvSeries\tSilo\t2023\n"
+)
+
+
+def test_a_series_id_is_the_one_series_of_the_name_and_the_nearest_year(tmp_path: Path) -> None:
+    catalogue = _names(tmp_path, SERIES_MAP)
+
+    assert catalogue.series_id("Интерны", "", 2011) == "tt1647423", "год раздачи соседний"
+    assert catalogue.series_id("Ван-Пис", "One Piece", 2023) == "tt11737520"
+    assert catalogue.series_id("Ван-Пис", "", None) == "", "два сериала без года"
+    assert catalogue.series_id("Укрытие", "Silo", 2023) == "tt14688458", "по оригиналу"
+    assert catalogue.series_id("Интерны 11", "", 2014) == ""

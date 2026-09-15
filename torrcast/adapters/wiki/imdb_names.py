@@ -121,6 +121,24 @@ class ImdbNames:
                     rows.append(((title, year), name, tconst))
         return rows
 
+    def series_id(self, title: str, original: str, year: int | None) -> str:
+        """IMDb-id сериала по прокатному имени, затем по оригиналу того же года; иначе пусто.
+
+        Год точный, затем соседний: раздачи помнят год первой серии, карта - год выхода, и
+        они расходятся на один. Два сериала под одним именем и годом - не угаданный id.
+        """
+        indexed = rows(self.index_path, title)
+        named = self.names().get(slugify(title), []) if indexed is None else indexed
+        found = {
+            (tconst, raw_year) for tconst, kind, _o, raw_year, _n in named if kind in _TV_KINDS
+        }
+        if not _nearest(found, year) and original and year is not None:
+            for line in self._year(str(year), originals=True).get(slugify(original), ()):
+                _name, tconst, kind = [*line.split("\t"), "", ""][:3]
+                if kind in _TV_KINDS and tconst:
+                    found.add((tconst, str(year)))
+        return _nearest(found, year)
+
     def _year(self, year: str, originals: bool = False) -> dict[str, list[str]]:
         """Строки одного года по сведённому имени; разбираются при первом вопросе."""
         with self._rows_lock:
@@ -130,3 +148,19 @@ class ImdbNames:
             if year not in named:
                 named[year] = _rows_by_name(self._years.get(year, ()), 3 if originals else 0)
             return named[year]
+
+
+def _nearest(found: set[tuple[str, str]], year: int | None) -> str:
+    """Единственный id точного года, затем соседнего; без года - единственный вообще."""
+    spans = (0, 1) if year is not None else (None,)
+    for span in spans:
+        ids = {
+            tconst
+            for tconst, raw in found
+            if span is None or (raw.isdigit() and year is not None and abs(int(raw) - year) <= span)
+        }
+        if len(ids) == 1:
+            return ids.pop()
+        if ids:
+            return ""
+    return ""

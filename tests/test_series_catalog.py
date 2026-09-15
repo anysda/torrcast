@@ -1,0 +1,75 @@
+"""Каталог сериалов карточки: id раз на картину, серии с датой выхода, закладка поверх."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from torrcast.domain.json_value import JsonValue
+from torrcast.domain.picture import Picture
+from torrcast.domain.release import Release
+from web.series_catalog import COLD, SeriesCatalog
+
+SHOW = Picture(title="Show", year=2020, kind="tv", original="Show")
+RELEASE = Release(raw_name="Show S01E01", title="Show", kind="tv", season=1, episode=1)
+
+
+class _Tvmaze:
+    def __init__(self, aired: Mapping[tuple[int, int], tuple[str, str]], pending: bool) -> None:
+        self.answer = (aired, pending)
+        self.waits: list[float] = []
+
+    def __call__(
+        self, _tconst: str, wait: float
+    ) -> tuple[Mapping[tuple[int, int], tuple[str, str]], bool]:
+        self.waits.append(wait)
+        return self.answer
+
+
+def _catalog(ids: list[str], tvmaze: _Tvmaze) -> SeriesCatalog:
+    def series_id(title: str, _original: str, _year: int | None) -> str:
+        ids.append(title)
+        return "tt0000001" if title == "Show" else ""
+
+    return SeriesCatalog(
+        series_id, lambda _t: {1: (1, 2)}, tvmaze, lambda: "2026-09-15T08:00:00+00:00"
+    )
+
+
+def test_every_episode_comes_at_once_and_the_one_to_come_carries_its_date() -> None:
+    asked: list[str] = []
+    tvmaze = _Tvmaze(
+        {(1, 1): ("2020-01-01", "2020-01-01"), (1, 2): ("2026-09-20", "2026-09-20")}, False
+    )
+    catalog = _catalog(asked, tvmaze)
+
+    rows, pending = catalog.rows(SHOW, [RELEASE], {})
+    catalog.rows(SHOW, [RELEASE], {})
+
+    assert pending is False
+    assert rows == {
+        1: [
+            {"n": 1, "dur": 0.0, "watched": False, "pos": 0.0},
+            {"n": 2, "dur": 0.0, "watched": False, "pos": 0.0, "air": "2026-09-20"},
+        ]
+    }
+    assert (asked, tvmaze.waits) == (["Show"], [COLD, COLD]), "id ищется раз на картину"
+
+
+def test_the_bookmark_rows_lie_over_the_catalogue_by_episode_number() -> None:
+    catalog = _catalog([], _Tvmaze({}, True))
+    watched: list[JsonValue] = [{"n": 1, "dur": 1300.0, "watched": True, "pos": 1300.0}]
+    extra: list[JsonValue] = [{"n": 1, "dur": 0.0, "watched": False, "pos": 0.0}]
+
+    rows, pending = catalog.rows(SHOW, [RELEASE], {1: watched, 3: extra})
+
+    assert pending is True, "TVmaze ещё в пути - карточка переспросит"
+    assert rows[1] == [
+        watched[0],
+        {"n": 2, "dur": 0.0, "watched": False, "pos": 0.0},
+    ]
+    assert rows[3] == extra
+
+
+def test_a_series_outside_the_catalogue_has_no_rows() -> None:
+    other = Picture(title="Unknown", year=2020, kind="tv")
+    assert _catalog([], _Tvmaze({}, True)).rows(other, [RELEASE], {}) == ({}, False)

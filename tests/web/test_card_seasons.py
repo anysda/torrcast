@@ -231,3 +231,50 @@ def test_a_bookmark_release_gone_from_the_pool_is_not_swapped_for_the_first_rank
     assert release is not None and release.magnet == kept and release.season == 2
     assert release not in plan.picture.releases
     assert (episodes.asked, partial) == ([kept], False)
+
+
+@dataclass
+class _Catalog:
+    known: dict[int, list[Any]]
+    pending: bool = False
+
+    def rows(
+        self, _picture: Picture, _releases: Any, saved: dict[int, list[Any]]
+    ) -> tuple[dict[int, list[Any]], bool]:
+        return {**self.known, **saved}, self.pending
+
+
+def _blank(*numbers: int) -> list[Any]:
+    return [{"n": n, "dur": 0.0, "watched": False, "pos": 0.0} for n in numbers]
+
+
+def test_a_catalogued_series_shows_every_season_and_episode_without_torrserver() -> None:
+    plan, _first, second = _plan()
+    episodes = _Episodes({}, [])
+    catalog = _Catalog({1: _blank(1, 2), 2: _blank(1, 2, 3), 3: _blank(1)}, pending=True)
+
+    seasons, partial, release = card_seasons(
+        plan, None, "http://torrserver", episodes, 2, catalog=catalog
+    )
+
+    rows = _rows(seasons)
+    assert [(row["n"], len(row["episodes"])) for row in rows] == [(1, 2), (2, 3), (3, 1)]
+    assert (episodes.asked, partial, release) == ([], True, second)
+
+
+def test_a_pool_season_the_catalogue_does_not_know_yet_still_reads_its_files() -> None:
+    first = _release(1, "magnet:first")
+    fresh = _release(4, "magnet:fresh")
+    plan = Plan(
+        picture=Picture(title="Show", year=2022, kind="tv", releases=[first, fresh]),
+        ranked=[first],
+        runtime=1500.0,
+        warn_mbit=12.0,
+    )
+    episodes = _Episodes({fresh.magnet: [[4, 1], [4, 2]]}, [])
+    catalog = _Catalog({1: _blank(1), 2: _blank(1)})
+
+    seasons, partial, _ = card_seasons(plan, None, "http://ts", episodes, 4, catalog=catalog)
+
+    assert [(row["n"], len(row["episodes"])) for row in _rows(seasons)] == [(1, 1), (2, 1), (4, 2)]
+    assert (episodes.asked, partial) == ([fresh.magnet], False)
