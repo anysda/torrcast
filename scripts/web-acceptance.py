@@ -1815,14 +1815,14 @@ def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float]:
     return values, sum(values)
 
 
-def _click_play(ctx: Ctx, limit: float = _CARD_READY_WAIT) -> tuple[float | None, str]:
+def _click_play(ctx: Ctx, limit_ms: float = _CARD_READY_WAIT) -> tuple[float | None, str]:
     """Нажать показ или вернуть человеческий отказ вместо таймаута Playwright."""
     button = ctx.page.locator("[data-tc-play]")
     began = time.monotonic()
     try:
-        button.first.wait_for(state="visible", timeout=int(limit * 1000))
+        button.first.wait_for(state="visible", timeout=int(limit_ms))
     except Exception:
-        return None, f"кнопка показа не появилась за {time.monotonic() - began:.0f} с"
+        return None, f"кнопка показа не появилась за {limit_ms / 1000:.0f} с"
     clicked = time.monotonic()
     try:
         button.first.click()
