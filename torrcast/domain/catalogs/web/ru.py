@@ -82,7 +82,7 @@ def ru() -> dict[str, str]:
         "web.detail.seasons.other": "{n} сезонов",
         "web.player.preparing": "Готовим…",
         "web.player.preparing_in": "начнётся через ~{seconds} с",
-        "web.player.packaging": "Упаковка потока_источник {n} из {m}",
+        "web.player.packaging": "Готовлю видео, источник {n} из {m}",
         "web.player.buffering": "Буферизация_",
         "web.player.packaged": "Упаковано →",
         "web.player.back_minute": "−60 с",

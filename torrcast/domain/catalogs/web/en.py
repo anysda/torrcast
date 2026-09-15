@@ -82,7 +82,7 @@ def en() -> dict[str, str]:
         "web.detail.seasons.other": "{n} seasons",
         "web.player.preparing": "Preparing…",
         "web.player.preparing_in": "starts in ~{seconds} s",
-        "web.player.packaging": "Packaging stream_source {n} of {m}",
+        "web.player.packaging": "Preparing video, source {n} of {m}",
         "web.player.buffering": "Buffering_",
         "web.player.packaged": "Packaged →",
         "web.player.back_minute": "−60 s",
