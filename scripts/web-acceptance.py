@@ -202,6 +202,7 @@ class Ctx:
     screen_title: str = _SERIES_TITLE
     screen_target: str = _SERIES_TARGET
     throttle_after_frame: int = 0
+    stalls_only: bool = False
 
 
 def _get(url: str, timeout: float = 10.0) -> tuple[int, bytes]:
@@ -1783,10 +1784,11 @@ def check_4_playback(ctx: Ctx) -> Result:
             cdp.send("Network.emulateNetworkConditions", _WIDE)
             cdp.detach()
     start = meter.get("start")
-    ok = frame <= _FRAME_BAR and not waits
+    ok = (ctx.stalls_only or frame <= _FRAME_BAR) and not waits
     detail = (
         f"стартовая позиция {start!r}; первый кадр за {frame:.1f} с (порог {_FRAME_BAR:.0f}); "
         f"подгрузы за {_WATCH_SECONDS:.0f} с ({control}): {len(waits)}, сумма {total:.1f} с {waits}"
+        + ("; контроль измеряет только подгрузы" if ctx.stalls_only else "")
     )
     return Result(4, "Показ", ok, None, detail)
 
@@ -4225,6 +4227,11 @@ def main() -> int:
         help="контроль подгрузов: CDP сужает сеть только после первого кадра пункта 4",
     )
     parser.add_argument(
+        "--stalls-only",
+        action="store_true",
+        help="отрицательный контроль п. 4: судить только подгрузы, не порог первого кадра",
+    )
+    parser.add_argument(
         "--only",
         default="",
         help="номера пунктов через запятую; пункт без своего предшественника заблокирован",
@@ -4272,6 +4279,7 @@ def main() -> int:
             screen_title=args.screen_title,
             screen_target=args.screen_episode,
             throttle_after_frame=args.throttle_after_frame,
+            stalls_only=args.stalls_only,
         )
         pick(31, "Главная → карточка", lambda: check_31_home_card(wide))
         pick(28, "Полка → обложка", lambda: check_28_shelf_card(wide))
@@ -4290,6 +4298,7 @@ def main() -> int:
             screen_title=args.screen_title,
             screen_target=args.screen_episode,
             throttle_after_frame=args.throttle_after_frame,
+            stalls_only=args.stalls_only,
         )
         pick(1, "Главная", lambda: check_1_home(ctx))
         pick(17, "Вбок", lambda: check_17_wheel(ctx))
