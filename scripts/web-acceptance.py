@@ -122,6 +122,9 @@ _PARTIAL_WAIT: Final = 30.0
 #: живому замеру у этого имени разбирается первый сезон целиком, 7 серий.
 #: Фильм приёмки: его ищет пункт 2, его же карточку открывают пункты 3 и 6.
 _MOVIE_TITLE: Final = "Интерстеллар"
+#: Холодный фильм положительной пробы кадра и закладки. «Интерстеллар» остаётся
+#: обычной карточкой и отрицательным контролем тёплого показа.
+_PLAY_MOVIE_TITLE: Final = "Оно"
 _SERIES_TITLE: Final = "Рик и Морти"
 _SERIES_TARGET: Final = "s2e1"
 #: Сколько ждать тело карточки, открытой кликом: карточка едет по сети, и нажимать
@@ -1722,10 +1725,9 @@ def check_4_playback(ctx: Ctx, card_ok: bool) -> Result:
     guard = _playback_guard(4, "Показ", ctx, True, "")
     if guard:
         return guard
-    if ctx.page.locator("[data-tc-play]").count() == 0:
-        refusal = _open_card_by_page(ctx, _MOVIE_TITLE)
-        if refusal is not None:
-            return Result(4, "Показ", False, None, refusal)
+    refusal = _open_card_by_page(ctx, _PLAY_MOVIE_TITLE)
+    if refusal is not None:
+        return Result(4, "Показ", False, None, refusal)
     ctx.current_key = _card_key(ctx)
     ctx.page.evaluate(_METER_JS)
     ctx.page.locator("[data-tc-play]").first.click()
