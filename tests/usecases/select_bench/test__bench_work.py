@@ -99,3 +99,19 @@ def test_a_renumbered_pool_does_not_hand_over_the_warm_up_of_another_release() -
 
     assert fresh.release.magnet == second.magnet
     assert old.dropped
+
+
+def test_a_warm_up_already_dropped_is_not_handed_to_the_show() -> None:
+    """🔴 Закладка снесла прогретое под меню, её раздача мертва, и отбор взял снесённое: 404."""
+    one = rel()
+    bench = Bench(Torrents(), prober=probes([one]))
+    old = bench.start(plan([one]), 1)
+    bench._wait(old, Said())
+    bench.drop_all()
+
+    fresh = bench.start(plan([one]), 1)
+    bench._wait(fresh, Said())
+
+    assert fresh is not old
+    assert not fresh.dropped and not fresh.error
+    assert bench.live() == [fresh]

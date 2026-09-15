@@ -168,9 +168,11 @@ class _BenchWork(_BenchCore):
         """
         key = (plan.picture.key, number)
         found = self.preps.get(key)
-        if found is not None and found.release.magnet == plan.ranked[number - 1].magnet:
+        same = found is not None and found.release.magnet == plan.ranked[number - 1].magnet
+        if found is not None and same and not found.dropped:
             return found
-        if found is not None:  # the circle was counted again and this number is another release
+        # A dropped warm-up already lost its torrent, and a recounted circle has another release
+        if found is not None and not found.dropped:
             self._forget(found)
         self._room()
         prep = _Prep(
