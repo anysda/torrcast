@@ -1532,6 +1532,32 @@ def check_22_shelf_cards_open(base: str) -> Result:
     return Result(22, "Полка → карточка", ok, None, detail)
 
 
+#: Снимок выдачи одним вызовом: страница пересобирает `#tc-body` на каждом ответе круга,
+#: и `count()` с последующим `nth(i)` читали бы уже другое тело (ложный FAIL поиска).
+_SEARCH_SCREEN_JS: Final = """() => {
+  const tiles = Array.from(document.querySelectorAll('[data-tc-tile]'))
+    .filter((tile) => !tile.querySelector('.tc-tile-skeleton'));
+  const nothing = document.querySelector('.tc-nothing');
+  return {
+    searching: !!document.querySelector('.tc-searching'),
+    tiles: tiles.map((tile) => ({
+      dim: tile.classList.contains('is-dim'),
+      live: tile.matches('[data-tc-focusable]'),
+      text: tile.innerText || '',
+    })),
+    nothing: nothing ? (nothing.innerText || '').trim() : '',
+  };
+}"""
+
+
+def _search_screen(ctx: Ctx) -> dict[str, Any]:
+    """Выдача поиска как её видит зритель в один момент: строка поиска, плитки, надпись."""
+    screen = ctx.page.evaluate(_SEARCH_SCREEN_JS)
+    if not isinstance(screen, dict):
+        return {"searching": True, "tiles": [], "nothing": ""}
+    return screen
+
+
 def check_2_search(ctx: Ctx) -> Result:
     """Поиск не оставляет зрителя перед погашенными плитками без объяснения."""
     # Главную пункт открывает сам: под `--only 2` страница - `about:blank`, поля нет.
@@ -1547,27 +1573,18 @@ def check_2_search(ctx: Ctx) -> Result:
         field.first.press("Enter")
         began = time.monotonic()
         while time.monotonic() - began < 15.0:
-            settled = ctx.page.locator(".tc-searching").count() == 0
-            tiles = ctx.page.locator("[data-tc-tile]")
-            live = [
-                tiles.nth(i)
-                for i in range(tiles.count())
-                if tiles.nth(i).locator(".tc-tile-skeleton").count() == 0
-            ]
-            if settled and live:
-                dim = sum("is-dim" in (tile.get_attribute("class") or "") for tile in live)
-                nothing = (
-                    ctx.page.locator(".tc-nothing").inner_text()
-                    if ctx.page.locator(".tc-nothing").count()
-                    else ""
-                )
+            screen = _search_screen(ctx)
+            tiles = screen["tiles"]
+            if not screen["searching"] and tiles:
+                dim = sum(1 for tile in tiles if tile["dim"])
+                nothing = screen["nothing"]
                 # Погашенные добавочные плитки могут быть штатным хвостом выдачи:
                 # «Мы» 2019 остаётся открываемым. Красно только когда зрителю не
                 # досталась ни одна открываемая плитка и не объяснили причину.
-                bad = dim == len(live) and not nothing.strip()
+                bad = dim == len(tiles) and not nothing
                 return (
                     not bad,
-                    f"{query!r}: плиток {len(live)}, погашено {dim}, надпись {nothing.strip()!r}",
+                    f"{query!r}: плиток {len(tiles)}, погашено {dim}, надпись {nothing!r}",
                 )
             ctx.page.wait_for_timeout(200)
         return False, f"{query!r}: выдача не установилась за 15 с"

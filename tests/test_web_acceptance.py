@@ -5,8 +5,10 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
+
+import pytest
 
 
 def acceptance() -> ModuleType:
@@ -98,3 +100,119 @@ def test_серия_контроля_не_прибита_к_s2e1() -> None:
 
     assert module._episode_parts("s1e1") == (1, 1)
     assert module._episode_parts("episode 1") is None
+
+
+def _tiles(dim: int, live: int = 0, year: str = "") -> list[dict[str, Any]]:
+    shown = [{"dim": True, "live": False, "text": ""} for _ in range(dim)]
+    return shown + [{"dim": False, "live": True, "text": year} for _ in range(live)]
+
+
+class SearchPage:
+    """Выдача, которую страница пересобирает сразу после того, как её сосчитали."""
+
+    def __init__(self, screens: dict[str, list[dict[str, Any]]]) -> None:
+        self.screens = screens
+        self.shown: list[dict[str, Any]] = []
+        self.clock = 0.0
+
+    def now(self) -> dict[str, Any]:
+        return self.shown[0]
+
+    def rerender(self) -> None:
+        if len(self.shown) > 1:
+            self.shown.pop(0)
+
+    def goto(self, url: str, **_: Any) -> None:
+        del url
+
+    def get_by_placeholder(self, text: str, exact: bool) -> SearchNodes:
+        del text, exact
+        return SearchNodes(self, "field")
+
+    def locator(self, selector: str) -> SearchNodes:
+        return SearchNodes(self, selector)
+
+    def evaluate(self, expression: str) -> dict[str, Any]:
+        del expression
+        screen = self.now()
+        self.rerender()
+        return screen
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        self.clock += timeout / 1000
+
+
+class SearchNodes:
+    def __init__(self, page: SearchPage, selector: str, index: int | None = None) -> None:
+        self.page, self.selector, self.index = page, selector, index
+
+    @property
+    def first(self) -> SearchNodes:
+        return self
+
+    def fill(self, text: str) -> None:
+        self.page.shown = list(self.page.screens[text])
+
+    def press(self, key: str) -> None:
+        del key
+
+    def wait_for(self, **_: Any) -> None:
+        return None
+
+    def nth(self, index: int) -> SearchNodes:
+        return SearchNodes(self.page, self.selector, index)
+
+    def count(self) -> int:
+        if self.selector == "field":
+            return 1
+        screen = self.page.now()
+        if self.selector == ".tc-searching":
+            return int(screen["searching"])
+        if self.selector == ".tc-nothing":
+            return int(bool(screen["nothing"]))
+        tiles = screen["tiles"]
+        if self.selector == ".tc-tile-skeleton":
+            # Playwright ждёт `nth(i)`, которого в пересобранном теле уже нет, до срока
+            # и падает `TimeoutError`; здесь срок наступает сразу.
+            assert self.index is not None
+            if self.index >= len(tiles):
+                raise TimeoutError(f"waiting for locator('[data-tc-tile]').nth({self.index})")
+            return 0
+        if self.selector == "[data-tc-tile]":
+            self.page.rerender()
+            return len(tiles)
+        return sum(1 for tile in tiles if tile["live"])
+
+    def locator(self, selector: str) -> SearchNodes:
+        del selector
+        return SearchNodes(self.page, ".tc-tile-skeleton", self.index)
+
+    def inner_text(self) -> str:
+        return str(self.page.now()["nothing"])
+
+
+def _search(monkeypatch: pytest.MonkeyPatch, screens: dict[str, list[dict[str, Any]]]) -> Any:
+    module = acceptance()
+    page = SearchPage(screens)
+    # Часы страницы вместо настоящих: несошедшийся поиск кончается за 15 с игрушечного времени.
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: page.clock))
+    ctx = module.Ctx("http://example", page, False, Path("/tmp"), {"web.search.placeholder": "q"})
+    return module.check_2_search(ctx)
+
+
+def test_поиск_судит_один_снимок_выдачи_а_не_пересобранное_тело(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settled = {"searching": False, "nothing": ""}
+    result = _search(
+        monkeypatch,
+        {
+            "Мы": [{**settled, "tiles": _tiles(6, 2)}, {**settled, "tiles": _tiles(1, 1)}],
+            "ывапрол": [{**settled, "tiles": _tiles(8)}, {**settled, "tiles": _tiles(3)}],
+            "Интерстеллар": [{**settled, "tiles": _tiles(0, 3, "2014")}],
+        },
+    )
+
+    assert "'Мы': плиток 8, погашено 6" in result.detail
+    assert "'ывапрол': плиток 8, погашено 8, надпись ''" in result.detail
+    assert result.ok is False
