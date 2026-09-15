@@ -1595,9 +1595,19 @@ def check_2_search(ctx: Ctx) -> Result:
     # же путём, а краснота отрицательных запросов не должна блокировать её измерение.
     field.first.fill(_MOVIE_TITLE)
     field.first.press("Enter")
-    ctx.page.locator(_LIVE_TILE).first.wait_for(state="visible", timeout=20_000)
-    regular = ctx.page.locator(_LIVE_TILE).count() > 0
-    detail = "; ".join(text for _, text in controls) + f"; {_MOVIE_TITLE!r}: живая плитка {regular}"
+    # Сам фильм, а не любая открываемая плитка: «2014» в первых трёх, как до этой правки.
+    began = time.monotonic()
+    first_three: list[str] = []
+    while time.monotonic() - began < 15.0:
+        live = [tile for tile in _search_screen(ctx)["tiles"] if tile["live"]]
+        first_three = [str(tile["text"]) for tile in live[:3]]
+        if any("2014" in text for text in first_three):
+            break
+        ctx.page.wait_for_timeout(300)
+    regular = any("2014" in text for text in first_three)
+    detail = "; ".join(text for _, text in controls) + (
+        f"; {_MOVIE_TITLE!r}: 2014 среди первых трёх открываемых {regular}"
+    )
     return Result(2, "Поиск", regular and all(ok for ok, _ in controls), None, detail)
 
 

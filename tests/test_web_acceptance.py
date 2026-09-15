@@ -231,3 +231,18 @@ def test_пустая_выдача_с_надписью_установилась_
 
     assert "'ывапрол': плиток 0, погашено 0, надпись 'Nothing found'" in result.detail
     assert result.ok is True
+
+
+def test_обычный_поиск_требует_сам_фильм_а_не_любую_плитку(monkeypatch: pytest.MonkeyPatch) -> None:
+    settled = {"searching": False, "nothing": ""}
+    result = _search(
+        monkeypatch,
+        {
+            "Мы": [{**settled, "tiles": _tiles(6, 2)}],
+            "ывапрол": [{"searching": False, "tiles": [], "nothing": "Nothing found"}],
+            "Интерстеллар": [{**settled, "tiles": _tiles(0, 3, "2019")}],
+        },
+    )
+
+    assert "'Интерстеллар': 2014 среди первых трёх открываемых False" in result.detail
+    assert result.ok is False
