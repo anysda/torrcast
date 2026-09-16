@@ -29,6 +29,12 @@ def test_a_longer_work_starting_with_the_name_is_not_the_picture() -> None:
     assert not _own("Naruto: Shippuuden (2007) TV 1-500 WEBRip 720p", _NARUTO)
 
 
+def test_a_second_name_of_a_longer_work_takes_the_release_away() -> None:
+    """Раздача зовётся именем картины, а вторым именем - продолжением: она не её."""
+    assert not _own("Наруто / Naruto: Shippuuden (2007) TV 1-500 WEBRip 720p", _NARUTO)
+    assert not _own("Оно / It Chapter Two (2019) BDRip 1080p", _IT)
+
+
 def test_a_namesake_of_another_year_is_not_the_picture() -> None:
     assert not _own("Оно / It (1990) DVDRip", _IT)
     assert _own("Оно / It (2018) WEB-DL 1080p", _IT), "премьера и прокат расходятся на год"
