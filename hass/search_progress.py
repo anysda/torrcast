@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Protocol
 from hass import searching
 from hass.catalog_merge import catalog_merge
 from hass.catalog_tiles import CatalogTiles
+from hass.hit_ask import _about, _name
+from hass.hit_posters import FIELD
 from hass.redress import redress
 from hass.refused_error import RefusedError
 from hass.search_job import POSTERS_BY, SearchJob, _Shared
@@ -188,13 +190,29 @@ def _coming(job: SearchJob, covers: _Covers | None) -> bool:
 
 
 def _shown(results: list[JsonValue], covers: _Covers) -> list[JsonValue]:
-    """Записи для страницы: имя картинки только у тех, чьи байты уже здесь."""
-    return [
-        {name: value for name, value in record.items() if name != "poster"}
-        if isinstance(record, dict) and "poster" in record and not covers.landed(record)
-        else record
-        for record in results
-    ]
+    """Записи для страницы: имя картинки у всех, чьи байты уже здесь, и только у них.
+
+    🔴 Имя не только отнимается, но и ВЫДАЁТСЯ. Приговор пачки отвечает целиком, и
+    тридцать две готовые обложки стояли за сетевым ответом о восьми, которых нет нигде:
+    зритель видел 38 серых плиток из 40 восемь секунд подряд (TC-1268). Полка читается в
+    начале приговора (:meth:`hass.hit_claims.HitClaims._claim`), а байты ложатся частями,
+    и легшая картинка уходит на экран ближайшим опросом, не ожидая всей пачки.
+
+    Имя картинки - это её собственные название, год и род (:func:`hass.hit_ask._name`), а
+    байты под ним положил приговор об этой же картине: чужой картинке взяться неоткуда.
+    Тем же приёмом отдаёт легшее шаг HA, не дождавшийся приговора (:mod:`hass.offer_within`).
+    """
+    return [_covered(record, covers) for record in results]
+
+
+def _covered(record: JsonValue, covers: _Covers) -> JsonValue:
+    """Запись с именем картинки, если её байты здесь, и без имени, если их ещё нет."""
+    if not isinstance(record, dict):
+        return record
+    if covers.landed(record):
+        ask = _about(record)
+        return record if ask is None else {**record, FIELD: _name(ask)}
+    return {name: value for name, value in record.items() if name != FIELD}
 
 
 __all__ = ["JOB_TTL", "PROGRESSIVE_SEARCH", "ProgressiveSearch", "search_progress"]

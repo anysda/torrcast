@@ -11,6 +11,7 @@ import pytest
 
 import hass.search_progress as module
 from hass.catalog_tiles import CatalogTiles
+from hass.hit_ask import _about, _name
 from hass.hit_posters import HitPosters
 from hass.poster_shelf import PosterShelf
 from hass.refused_error import RefusedError
@@ -195,6 +196,63 @@ def test_a_slow_poster_verdict_does_not_hold_the_preview_poll() -> None:
         ):  # results is non-empty here: the loop above filled it
             results, _partial = poll()
         assert [hit.get("poster") for hit in results if isinstance(hit, dict)] == ["p", "p"]
+    finally:
+        verdict.set()
+        gate.set()
+
+
+def test_a_cover_already_on_the_shelf_does_not_wait_for_the_verdict_of_its_batch(
+    tmp_path: Path,
+) -> None:
+    """🔴 38 серых плиток из 40 восемь секунд: готовые обложки ждали ответа о тех, кого нет.
+
+    Приговор пачки отвечает целиком, и восемь картин без обложки нигде держали тридцать
+    две готовые (TC-1268). Полка читается в начале приговора, и её картинка уходит на
+    экран ближайшим опросом.
+    """
+    wire_catalogue()
+    gate, verdict = threading.Event(), threading.Event()
+    client = _PreviewClient(answers={"тачки": _CARS}, raw=_CARS)
+    search = _blocking_search(client, gate)
+
+    class Mute:
+        """Источник, молчащий о незнакомой картине, пока его не отпустят."""
+
+        def wanted(self, _asks: Any, _timeout: float) -> dict[Any, list[str]]:
+            verdict.wait(3.0)
+            return {}
+
+        def bodies(self, wanted: Any, _timeout: float) -> dict[Any, bytes]:
+            return dict.fromkeys(wanted, b"")
+
+    posters = HitPosters(source=Mute(), shelf=PosterShelf(home=lambda: tmp_path))
+    kept = _name(cast(Any, _about({"title": "Тачки", "year": 2006, "kind": "movie"})))
+    posters._shelf.write(kept, b"poster")
+
+    def poll() -> tuple[list[Any], bool]:
+        return search_progress(
+            _CONFIG,
+            "тачки",
+            _detect,
+            _remember,
+            search=search,
+            offer=posters.offer,
+            covers=posters,
+        )
+
+    try:
+        results: list[Any] = []
+        named: list[Any] = []
+        deadline = time.monotonic() + 2.0
+        while not any(named) and time.monotonic() < deadline:
+            results, _partial = poll()
+            named = [hit.get("poster") for hit in results if isinstance(hit, dict)]
+
+        assert not verdict.is_set(), "приговор уже ответил: тест ничего не проверил"
+        assert [(hit["title"], hit.get("poster")) for hit in results] == [
+            ("Тачки", kept),
+            ("Тачки 2", None),
+        ]
     finally:
         verdict.set()
         gate.set()
