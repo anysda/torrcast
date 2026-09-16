@@ -16,6 +16,7 @@ from tests.usecases.rank.releases import media, track
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.release import Release
@@ -280,6 +281,29 @@ def test_a_search_refusal_surfaces_as_409_with_the_products_own_word(
 
     assert code == 409
     assert body["error"] == "nothing_found"
+
+
+def test_a_mute_refusal_is_the_same_404_as_a_picture_the_circle_did_not_bring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-1308: зритель читал строку разбора вместо слов продукта.
+
+    «Ничего не нашлось» круг говорит немо (:class:`...domain.nothing_found_error`), и
+    поиск держит это пустым экраном, а не отказом. Карточка же валила немой отказ в общий
+    род названных и выкладывала зрителю разбор «ничего не нашлось по “...”». Ответ обязан
+    быть тем же, что и у картины, которой в круге не оказалось: 404, а на нём обложка
+    плитки, её имя и «раздач нет».
+    """
+
+    def _mute(*_a: object, **_k: object) -> list[Plan]:
+        raise NothingFoundError("ничего не нашлось по “тачки”")
+
+    _wired(monkeypatch, [])
+    monkeypatch.setattr("web.card.WARM", _warm(_mute))
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert (code, body) == (404, {"error": "not_found"})
 
 
 def test_a_movie_card_lists_every_track_of_the_release_the_show_would_play(

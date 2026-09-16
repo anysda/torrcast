@@ -40,6 +40,7 @@ from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices
 from web.card_warm import CARD_WARM
+from web.circle_refusal import circle_refusal
 from web.episode_lookup import GRACE, EpisodeLookup
 from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
@@ -86,11 +87,10 @@ def card(request: Request) -> Answer:
         return early
     config = load_config()
     try:
-        # Согретый круг отдаётся сразу (:mod:`web.warm_cache`), несогретый считается
-        # тут же и вперёд фона: живой запрос не встаёт в очередь прогрева.
+        # Живой запрос не ждёт за очередью прогрева: несогретый круг он считает сам.
         plans = WARM.take(query)
     except TorrcastError as failed:
-        return refusal(409, str(failed))
+        return circle_refusal(failed)
     plan, pick = card_lookup(plans, key)
     if plan is None:
         return refusal(404, "not_found")
