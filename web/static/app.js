@@ -44,11 +44,16 @@ const TC = {
     return TC.say(key + '.' + form, { n: number });
   },
 
+  // Без языка страница берёт язык самого экземпляра: его называет сервер заголовком
+  // ``Content-Language``, и он же лежит в настройке продукта. Пока страница ставила
+  // язык по СВОЕМУ вопросу, экземпляр с `language: ru` говорил по-русски всюду, кроме
+  // собственной вкладки, и склонения числительных считались по английским правилам.
   async load(lang) {
     const query = lang ? '?lang=' + encodeURIComponent(lang) : '';
     const answer = await fetch('/api/phrases' + query);
     TC.phrases = await answer.json();
-    TC.language = lang === 'ru' ? 'ru' : 'en';
+    TC.language = answer.headers.get('Content-Language') === 'ru' ? 'ru' : 'en';
+    document.documentElement.lang = TC.language;
     return TC.phrases;
   },
 
