@@ -1,13 +1,14 @@
 """Сезоны и серии сериала из каталога: раскладка, которая сходится с раздачами.
 
 Два источника нумеруют один сериал по-разному. IMDb держит «Интернов» четырьмя сезонами
-по 60-98 серий, TVmaze и раздачи - четырнадцатью по 20; «Футураму» русские раздачи зовут
-как IMDb, а TVmaze сезоны 6 и 7 сводит в два по 26. Показанная серия должна включаться,
-поэтому правило одно для всех:
+по 60-98 серий, TVmaze и раздачи - четырнадцатью по 20; «Футураму» IMDb считает
+четырнадцатью сезонами, где шестой - это четыре полнометражных фильма, разрезанные на
+16 серий, а TVmaze и раздачи зовут шестым сезоном 26 серий Comedy Central того же года.
+Показанная серия должна включаться, поэтому правило одно для всех:
 
-1. сезон IMDb дорастает до верхнего номера серии односезонной раздачи, если столько серий
-   в этом сезоне знает TVmaze: «Футурама» s6 и s7 по 26. Обратного нет: IMDb сводит
-   эфирные сезоны в один («Интерны» s1 из 60), и раскладку TVmaze он не раздувает;
+1. показывается раскладка ОДНОГО источника: сложенные вместе, они нумеруют серии, которых
+   нет ни у одного. Сезон фильмов IMDb, дорощенный до сезона Comedy Central у TVmaze,
+   давал «Футураме» 203 строки на 180 серий, и лишние строки сезонов 8-10 не игрались;
 2. берётся раскладка с меньшим числом промахов против имён раздач пула (:func:`_missed`):
    нет названного сезона, номер серии больше сезона, «из N» не равно числу его серий;
    при равенстве - IMDb: она лежит на диске и отвечает без сети;
@@ -56,7 +57,7 @@ def series_layout(
     """
     tvmaze = _by_season(aired)
     pooled = {number for release in releases for number in _named(release)}
-    candidates = [layout for layout in (_grown(imdb, tvmaze, releases), tvmaze) if layout]
+    candidates: list[Numbers] = [layout for layout in (imdb, tvmaze) if layout]
     single = [layout for layout in candidates if set(layout) == {1}]
     if not candidates:
         return {}, False
@@ -149,20 +150,6 @@ def _held(layout: Numbers, seasons: Sequence[int]) -> tuple[int, int]:
     """Верхний номер серии сезона и сколько серий всего держит раскладка в этих сезонах."""
     held = sum(len(layout[season]) for season in seasons)
     return (max(layout[seasons[0]], default=0) if len(seasons) == 1 else held, held)
-
-
-def _grown(
-    layout: Numbers, other: Numbers, releases: Sequence[Release]
-) -> dict[int, tuple[int, ...]]:
-    grown = {season: tuple(numbers) for season, numbers in layout.items()}
-    for release in releases:
-        season = release.season
-        if season in grown and not release.seasons and release.episodes:
-            have = max(grown[season], default=0)
-            top = max(release.episodes)
-            if have < top <= max(other.get(season, ()), default=0):
-                grown[season] = (*grown[season], *range(have + 1, top + 1))
-    return grown
 
 
 def _coming(aired: Aired, season: int, number: int, now: str) -> str:

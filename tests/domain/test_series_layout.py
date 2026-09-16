@@ -30,17 +30,25 @@ def test_the_layout_that_holds_the_releases_wins_interns() -> None:
     assert (_counts(layout), _direct(layout)) == (dict.fromkeys(range(1, 6), 20), True)
 
 
-def test_imdb_wins_a_tie_and_grows_a_season_tvmaze_confirms_futurama() -> None:
-    imdb = {6: tuple(range(1, 17)), 7: tuple(range(1, 14)), 8: tuple(range(1, 14))}
+#: «Футурама» на стенде: у IMDb шестой сезон - четыре фильма, разрезанные на 16 серий,
+#: и сезоны 7-10 режут пополам два сезона Comedy Central, которые TVmaze держит целиком.
+FUTURAMA_IMDB = {1: 9, 2: 20, 3: 15, 4: 12, 5: 16, 6: 16, 7: 13, 8: 13, 9: 13, 10: 13}
+FUTURAMA_TVMAZE = {1: 9, 2: 20, 3: 15, 4: 12, 5: 16, 6: 26, 7: 26}
+
+
+def test_two_catalogues_are_not_mixed_into_seasons_neither_holds_futurama() -> None:
+    """Смесь давала «Футураме» 203 строки на 180 серий: сезоны 8-10 повторяли показанное."""
+    imdb = {s: tuple(range(1, n + 1)) for s, n in FUTURAMA_IMDB.items()}
     releases = [
         parse_release_name("Футурама / Сезон: 6 / Серии: 1-26 из 26"),
-        parse_release_name("Футурама [08x01-05 из 13]"),
+        parse_release_name("Футурама / Сезон: 7 / Серии: 1-26 из 26"),
+        parse_release_name("Футурама / Futurama / S8E1-10 of 10 (2023)"),
     ]
-    tvmaze = _aired({6: 26, 7: 26})
 
-    layout = series_layout(imdb, tvmaze, releases, [], NOW)
+    layout = series_layout(imdb, _aired(FUTURAMA_TVMAZE), releases, [], NOW)
 
-    assert _counts(layout) == {6: 26, 7: 13, 8: 13}, "s7 без раздачи на 26 не растёт"
+    assert _counts(layout) == FUTURAMA_TVMAZE, "сезон фильмов IMDb не дорастает до сезона TVmaze"
+    assert sum(_counts(layout).values()) == 124
 
 
 def test_imdb_placeholders_past_the_releases_are_not_tabs_while_tvmaze_answers() -> None:
