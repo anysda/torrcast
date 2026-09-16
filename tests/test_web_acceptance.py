@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import json
+import os
 import sys
+import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -281,16 +284,191 @@ class StallPage(Page):
         return super().evaluate(expression)
 
 
-def test_подгрузы_на_заглушке_видео_дают_ноль_или_два_замера() -> None:
+def test_сумма_подгрузов_на_заглушке_считается_и_отбрасывает_нули() -> None:
+    """Про арифметику ``_wait_stalls``, и только про неё.
+
+    Прежде эта же проверка кончалась строкой ``"addEventListener('waiting'" in _METER_JS``
+    и звалась проверкой счётчика. Счётчик она не проверяла: строка в исходнике не
+    говорит ни что обработчик навешан, ни что он считает. Поведение самого ``_METER_JS``
+    проверяется ниже настоящим браузером.
+    """
     module = acceptance()
     clean = module.Ctx("http://example", StallPage([]), True, Path("/tmp"), {})
-    broken = module.Ctx("http://example", StallPage([0.4, 1.25]), True, Path("/tmp"), {})
+    broken = module.Ctx("http://example", StallPage([0.4, 0.0, 1.25]), True, Path("/tmp"), {})
 
     assert module._wait_stalls(clean, 0) == ([], 0)
     waits, total = module._wait_stalls(broken, 0)
     assert waits == [0.4, 1.25]
     assert total == pytest.approx(1.65)
-    assert "addEventListener('waiting'" in module._METER_JS
+
+
+#: Страница-пустышка счётчика: настоящий ``<video>``, который настоящим образом рисует
+#: кадры. Картинка берётся с холста (``captureStream``), а не из файла, потому что
+#: ``requestVideoFrameCallback`` внутри ``_METER_JS`` обязан сработать по-настоящему: без
+#: первого кадра счётчик подгрузы не считает вовсе (``if (meter.frame !== null)``).
+_STUB_VIDEO_PAGE = """<!doctype html><meta charset="utf-8">
+<body><video id="v" muted playsinline autoplay></video><script>
+const canvas = document.createElement('canvas');
+canvas.width = canvas.height = 32;
+const paint = canvas.getContext('2d');
+let tick = 0;
+setInterval(() => {
+  tick = (tick + 32) % 256;
+  paint.fillStyle = `rgb(${tick},${255 - tick},128)`;
+  paint.fillRect(0, 0, 32, 32);
+}, 40);
+const video = document.getElementById('v');
+video.srcObject = canvas.captureStream(25);
+video.play();
+</script></body>"""
+
+#: Развести ``waiting`` и ``playing`` руками, с настоящими паузами между ними.
+_DRIVE_STALLS = """async (pauses) => {
+  const video = document.querySelector('video');
+  const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+  for (const ms of pauses) {
+    video.dispatchEvent(new Event('waiting'));
+    await sleep(ms);
+    video.dispatchEvent(new Event('playing'));
+  }
+}"""
+
+#: Допуск на замер подгруза в браузере. Счётчик берёт время из ``performance.now()``, а
+#: паузы ставит ``setTimeout``: тот просыпается не раньше срока, но и не ровно в срок, и
+#: на занятой машине опаздывает. 0.2 с - запас, при котором 0.4 и 1.25 всё ещё
+#: различимы между собой и с нулём, то есть проверка не теряет смысла.
+_STALL_TOLERANCE = 0.2
+
+
+def _meter_over_stub(
+    page: Any, module: ModuleType, meter_js: str, pauses: list[int]
+) -> list[float]:
+    """Прогнать счётчик над страницей-пустышкой и вернуть, что он насчитал."""
+    page.set_content(_STUB_VIDEO_PAGE)
+    page.evaluate(meter_js)
+    # Без первого кадра счётчик молчит по устройству, и ждать его надо честно.
+    page.wait_for_function(
+        "() => window.__tcAcceptanceMeter && window.__tcAcceptanceMeter.frame !== null",
+        timeout=15000,
+    )
+    if pauses:
+        page.evaluate(_DRIVE_STALLS, pauses)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
+    return list(module._wait_stalls(ctx, 0)[0])
+
+
+@pytest.mark.machine
+def test_счётчик_подгрузов_в_настоящем_браузере_считает_разведённые_события() -> None:
+    """``_METER_JS`` исполняется Chromium, а не проверяется грепом по своему исходнику.
+
+    Щуп ставится отдельно от гейта (``pyproject.toml``: playwright в венв гейта не
+    входит), поэтому без него проверка пропускается С НАЗВАННОЙ ПРИЧИНОЙ. Там, где
+    браузер есть, она гоняется целиком, включая отрицательную пробу: со снятым
+    обработчиком ``waiting`` тот же прогон обязан дать пустой список.
+    """
+    sync_api = pytest.importorskip(
+        "playwright.sync_api",
+        reason="playwright ставится рядом с браузером (см. pyproject.toml), в венве гейта его нет",
+    )
+    module = acceptance()
+    # Тот же обход, что у самого прибора: Chromium может лежать не в кэше playwright.
+    executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "") or None
+    with sync_api.sync_playwright() as driver:
+        browser = driver.chromium.launch(headless=True, executable_path=executable)
+        page = browser.new_page()
+        try:
+            none = _meter_over_stub(page, module, module._METER_JS, [])
+            two = _meter_over_stub(page, module, module._METER_JS, [400, 1250])
+            # Отрицательная проба: обработчик не навешивается вовсе (снятие через
+            # `removeEventListener` со свежей стрелкой - законный пустой вызов).
+            stripped = module._METER_JS.replace(
+                "video.addEventListener('waiting'", "video.removeEventListener('waiting'"
+            )
+            assert stripped != module._METER_JS
+            blind = _meter_over_stub(page, module, stripped, [400, 1250])
+        finally:
+            browser.close()
+
+    assert none == []
+    assert len(two) == 2, f"счётчик насчитал {two}"
+    assert two[0] == pytest.approx(0.4, abs=_STALL_TOLERANCE)
+    assert two[1] == pytest.approx(1.25, abs=_STALL_TOLERANCE)
+    assert blind == []
+
+
+def _write_trace(directory: Path, records: list[dict[str, Any]]) -> None:
+    lines = [json.dumps(record, ensure_ascii=False) for record in records]
+    # Оборванный хвост ленты законен: писатель - демон, и последняя запись обрывается
+    # вместе с погашенным показом. Прибор обязан читать ленту и с таким хвостом.
+    (directory / "trace-20260916.jsonl").write_text(
+        "\n".join([*lines, '{"at": 1, "event": "обор']), encoding="utf-8"
+    )
+
+
+def _astray(at: float, slot: int = 0) -> dict[str, Any]:
+    return {
+        "at": at,
+        "phase": "timeline",
+        "event": "нарезка разошлась с манифестом",
+        "слот": slot,
+        "расхождение": 1.82,
+    }
+
+
+def test_след_судит_только_окно_своего_прогона(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Чужой показ соседа по стенду лежит в той же ленте и нашим приговором быть не может."""
+    module = acceptance()
+    # Ждать хвост фонового писателя тут нечего: лента уже лежит на диске целиком.
+    monkeypatch.setattr(module, "_TRACE_SETTLE", 0.0)
+    since = time.time()
+    _write_trace(tmp_path, [_astray(since - 600.0, slot=7), _astray(since + 30.0, slot=3)])
+    ctx = module.Ctx("http://example", Page({}, 0.0), True, Path("/tmp"), {})
+
+    result = module.check_41_astray(ctx, str(tmp_path), since)
+
+    assert result.ok is False
+    assert "«нарезка разошлась с манифестом» 1" in result.detail
+    assert "слот 3 расхождение 1.82 с" in result.detail
+    assert "слот 7" not in result.detail
+
+
+def test_след_без_разъездов_зелёный_и_называет_число(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = acceptance()
+    monkeypatch.setattr(module, "_TRACE_SETTLE", 0.0)
+    since = time.time()
+    _write_trace(tmp_path, [_astray(since - 600.0)])
+    ctx = module.Ctx("http://example", Page({}, 0.0), True, Path("/tmp"), {})
+
+    result = module.check_41_astray(ctx, str(tmp_path), since)
+
+    assert result.ok is True
+    assert "«нарезка разошлась с манифестом» 0" in result.detail
+    assert "склейка не вышла: 0" in result.detail
+
+
+def test_след_без_каталога_заблокирован_а_не_зелёный() -> None:
+    """Прибор, которому ленту не назвали, обязан сказать это, а не промолчать зеленью."""
+    module = acceptance()
+    ctx = module.Ctx("http://example", Page({}, 0.0), True, Path("/tmp"), {})
+
+    result = module.check_41_astray(ctx, "", time.time())
+
+    assert result.ok is False
+    assert result.blocked == "след стенда не назван (--trace-dir)"
+
+
+def test_след_без_показа_заблокирован(tmp_path: Path) -> None:
+    module = acceptance()
+    ctx = module.Ctx("http://example", Page({}, 0.0), False, Path("/tmp"), {})
+
+    result = module.check_41_astray(ctx, str(tmp_path), time.time())
+
+    assert result.ok is False
+    assert result.blocked is not None and "--play" in result.blocked
 
 
 class MissingPlay(Video):
@@ -315,10 +493,59 @@ def test_нет_кнопки_показа_возвращает_приговор_
     module = acceptance()
     ctx = module.Ctx("http://example", MissingPlayPage({}, 0), True, Path("/tmp"), {})
 
-    clicked, detail = module._click_play(ctx, 0)
+    clicked, waited, detail = module._click_play(ctx, 0)
 
     assert clicked is None
+    assert waited >= 0.0
     assert detail.startswith("кнопка показа не появилась за ")
+
+
+class SlowPlay(Video):
+    """Кнопка, которая появляется только через ``delay`` секунд игрушечных часов."""
+
+    def __init__(self, page: SlowPlayPage, delay: float) -> None:
+        super().__init__(0)
+        self.page, self.delay = page, delay
+
+    @property
+    def first(self) -> SlowPlay:
+        return self
+
+    def wait_for(self, **_: Any) -> None:
+        self.page.clock += self.delay
+
+    def click(self) -> None:
+        return None
+
+
+class SlowPlayPage(Page):
+    def __init__(self, delay: float) -> None:
+        super().__init__({}, 0.0)
+        self.clock = 0.0
+        self.delay = delay
+
+    def locator(self, selector: str) -> Video:
+        assert selector == "[data-tc-play]"
+        return SlowPlay(self, self.delay)
+
+
+def test_медленная_кнопка_показа_возвращает_своё_ожидание(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Число ожидания - предмет приговора пп. 4 и 5, а не побочная запись в строке."""
+    module = acceptance()
+    page = SlowPlayPage(27.4)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: page.clock))
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
+
+    clicked, waited, detail = module._click_play(ctx)
+
+    assert clicked == 27.4
+    assert waited == pytest.approx(27.4)
+    assert detail == ""
+    # Порог берётся из цели зрителя, а не из того, что показал стенд: 27.4 с его
+    # перескакивают, и пункт обязан на этом краснеть.
+    assert waited > module._PLAY_READY_BAR
 
 
 def test_обычный_поиск_требует_сам_фильм_а_не_любую_плитку(monkeypatch: pytest.MonkeyPatch) -> None:

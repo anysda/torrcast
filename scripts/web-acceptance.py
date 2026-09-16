@@ -141,6 +141,16 @@ _PLAY_START_WAIT: Final = 90000.0
 _FRAME_BAR: Final = 5.0
 _EPISODES_BAR: Final = 2.0
 _WATCH_SECONDS: Final = 180.0
+#: Сколько зритель ждёт кнопку «Играть» на карточке, которую он уже открыл. Число
+#: взято из цели, а не со стенда: это та же терпимость, что у холодной карточки
+#: (:data:`_COLD_CARD`), и кнопка показа не имеет права приезжать позже описания.
+#: Проход R1 дал тут 25-30 с у карточки сериала, и ровно это `_click_play` пропускал
+#: молча. Ослаблять порог под медленный разбор раздачи нельзя: разбор и есть предмет.
+_PLAY_READY_BAR: Final = 20.0
+#: Окно счёта подгрузов у закладки (цель TC-1279: ноль событий ``waiting`` за первые
+#: 20 с после кадра). Свежий старт и следующая серия меряются шире
+#: (:data:`_WATCH_SECONDS`), а закладка названа в цели отдельно и своим окном.
+_BOOKMARK_WATCH: Final = 20.0
 #: Плитка, которую можно открыть. Пока полка не доехала, страница рисует СКЕЛЕТЫ тем же
 #: `data-tc-tile`, и первый узел в DOM обычно как раз скелет: у него нет ни обработчика,
 #: ни фокуса, и клик по нему не делает ничего (по живому замеру - 14 скелетов).
@@ -1815,20 +1825,33 @@ def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float]:
     return values, sum(values)
 
 
-def _click_play(ctx: Ctx, limit_ms: float = _CARD_READY_WAIT) -> tuple[float | None, str]:
-    """Нажать показ или вернуть человеческий отказ вместо таймаута Playwright."""
+def _click_play(ctx: Ctx, limit_ms: float = _CARD_READY_WAIT) -> tuple[float | None, float, str]:
+    """Нажать показ, вернув и миг нажатия, и СКОЛЬКО ждали кнопку.
+
+    🔴 Время ожидания возвращается отдельным числом нарочно. До этого ответ был
+    «нажал / не нажал», и карточка, отдавшая «Играть» на 27-й секунде, проходила
+    молча: пункты 4, 5 и 13 отсчитывали своё время от клика, то есть от мига, до
+    которого зритель уже прождал полминуты. Судят это число пункты 4 и 5
+    (:data:`_PLAY_READY_BAR`), пункт 13 его печатает: там оно факт, а не предмет.
+    """
     button = ctx.page.locator("[data-tc-play]")
     began = time.monotonic()
     try:
         button.first.wait_for(state="visible", timeout=int(limit_ms))
     except Exception:
-        return None, f"кнопка показа не появилась за {limit_ms / 1000:.0f} с"
+        waited = time.monotonic() - began
+        return None, waited, f"кнопка показа не появилась за {limit_ms / 1000:.0f} с"
+    waited = time.monotonic() - began
     clicked = time.monotonic()
     try:
         button.first.click()
     except Exception as error:
-        return None, f"кнопка показа не нажалась за {time.monotonic() - began:.0f} с: {error!s}"
-    return clicked, ""
+        return (
+            None,
+            waited,
+            f"кнопка показа не нажалась за {time.monotonic() - began:.0f} с: {error!s}",
+        )
+    return clicked, waited, ""
 
 
 def _next_frame_measure(ctx: Ctx, limit: float) -> tuple[float | None, dict[str, Any]]:
@@ -1860,9 +1883,9 @@ def check_4_playback(ctx: Ctx) -> Result:
         return Result(4, "Показ", False, None, refusal)
     ctx.current_key = _card_key(ctx)
     ctx.page.evaluate(_METER_JS)
-    clicked, why = _click_play(ctx)
+    clicked, waited, why = _click_play(ctx)
     if clicked is None:
-        return Result(4, "Показ", False, None, why)
+        return Result(4, "Показ", False, None, f"{why} (ждали {waited:.1f} с)")
     # Кнопка только КЛАДЁТ заказ: продукт ещё ищет раздачу, качает метаданные и пакует
     # первые куски. Судить ровность хода до первого кадра значило бы мерить прогрев, а
     # не показ, поэтому 60 с ровности отсчитываются от `readyState >= 3`, а не от клика.
@@ -1882,9 +1905,11 @@ def check_4_playback(ctx: Ctx) -> Result:
             cdp.send("Network.emulateNetworkConditions", _WIDE)
             cdp.detach()
     start = meter.get("start")
-    ok = (ctx.stalls_only or from_click <= _FRAME_BAR) and not waits
+    ready = waited <= _PLAY_READY_BAR
+    ok = (ctx.stalls_only or (from_click <= _FRAME_BAR and ready)) and not waits
     detail = (
-        f"стартовая позиция {start!r}; первый кадр за {from_click:.1f} с от клика "
+        f"стартовая позиция {start!r}; «Играть» ждали {waited:.1f} с "
+        f"(порог {_PLAY_READY_BAR:.0f}); первый кадр за {from_click:.1f} с от клика "
         f"({frame:.1f} с по счётчику, порог {_FRAME_BAR:.0f}); "
         f"подгрузы за {_WATCH_SECONDS:.0f} с ({control}): {len(waits)}, сумма {total:.1f} с {waits}"
         + ("; контроль измеряет только подгрузы" if ctx.stalls_only else "")
@@ -1919,26 +1944,48 @@ def check_5_bookmark(ctx: Ctx) -> Result:
     continue_tile = ctx.page.locator(f'[data-tc-group="shelf-continue"][data-tc-key="{key}"]')
     fresh = continue_tile.count() > 0
     clicked: float | None = None
+    waited = 0.0
+    waits: list[float] = []
+    total = 0.0
+    from_click: float | None = None
     if fresh:
         continue_tile.first.click()
-        with contextlib.suppress(Exception):
-            ctx.page.locator("[data-tc-play]").first.wait_for(state="visible", timeout=30_000)
+        # 🔴 Отдельного ожидания кнопки тут больше нет. Оно съедало ровно то время,
+        # которое пункт обязан судить: `_click_play` получал готовую кнопку и честно
+        # отвечал «ждали 0.0 с» после тридцати секунд ожидания. Ждёт теперь он сам,
+        # своим сроком `_CARD_READY_WAIT`, и своё же ожидание возвращает числом.
         ctx.page.evaluate(_METER_JS)
-        clicked, why = _click_play(ctx)
+        clicked, waited, why = _click_play(ctx)
         if clicked is None:
-            return Result(5, "Закладка", False, None, why)
+            return Result(5, "Закладка", False, None, f"{why} (ждали {waited:.1f} с)")
         frame, _ = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
+        if frame is not None:
+            # Часы кадра останавливаются ДО счёта подгрузов: иначе двадцать секунд
+            # наблюдения уехали бы в число «кадр с закладки».
+            from_click = time.monotonic() - clicked
+            # Цель TC-1279 названа для закладки отдельно: ноль событий `waiting` за
+            # первые 20 с показа. До этого пункт мерил только время до кадра, и
+            # подгрузы 8.6 с и 5.1 с прохода R1 он пропускал зелёным.
+            waits, total = _wait_stalls(ctx, _BOOKMARK_WATCH)
     else:
         frame = None
-    from_click = time.monotonic() - clicked if clicked is not None and frame is not None else None
-    if from_click is None:
-        ok = False
-    else:
-        ok = position is not None and fresh and frame is not None and from_click <= _FRAME_BAR
+    ready = waited <= _PLAY_READY_BAR
+    ok = (
+        position is not None
+        and fresh
+        and from_click is not None
+        and from_click <= _FRAME_BAR
+        and ready
+        and not waits
+    )
+    shown = f"{from_click:.1f}" if from_click is not None else "нет"
     detail = (
         f"после Esc история {key!r} на {position!r}; «Продолжить» {'есть' if fresh else 'НЕТ'}; "
-        f"кадр с закладки {from_click!r} с от клика "
-        f"({frame!r} с по счётчику, порог {_FRAME_BAR:.0f})"
+        f"«Играть» ждали {waited:.1f} с (порог {_PLAY_READY_BAR:.0f}); "
+        f"кадр с закладки {shown} с от клика "
+        f"({frame!r} с по счётчику, порог {_FRAME_BAR:.0f}); "
+        f"подгрузы за {_BOOKMARK_WATCH:.0f} с после кадра: {len(waits)}, "
+        f"сумма {total:.1f} с {[round(value, 1) for value in waits]}"
     )
     return Result(5, "Закладка", ok, None, detail)
 
@@ -2984,9 +3031,12 @@ def check_13_texts(ctx: Ctx) -> Result:
         screen_path += f" {ctx.screen_target}"
     else:
         ctx.page.evaluate(_METER_JS)
-        clicked, why = _click_play(ctx)
+        clicked, waited, why = _click_play(ctx)
         if clicked is None:
-            return Result(13, "Тексты", False, None, why)
+            return Result(13, "Тексты", False, None, f"{why} (ждали {waited:.1f} с)")
+        # Пункт судит НАДПИСИ, а не скорость: ожидание кнопки он называет фактом рядом
+        # с приговором, а порогом его судят пункты 4 и 5, для которых время и есть цель.
+        screen_path += f" (кнопку ждали {waited:.1f} с)"
     began = time.monotonic()
     screen = ""
     saw_screen = False
@@ -4280,6 +4330,103 @@ def check_37_bot_stop(repo: Path) -> Result:
     return Result(37, "Стоп в боте", ok, None, detail)
 
 
+#: Запись следа, ради которой цель TC-1279 и названа по следу: нарезка прогона уехала
+#: от манифеста, продукт снёс СВОИ ЖЕ куски и перезашёл (``feed_astray.py:79``). Зритель
+#: платит за это подгрузом, а вкладка о причине не знает ничего - её видно только тут.
+_ASTRAY_EVENT: Final = "нарезка разошлась с манифестом"
+#: Соседи по той же беде: усадка куска под потолок приёмника кончается несклеенной
+#: лентой (``_merged_out.py:135``, ``spot_out.py:71``). Они не приговор пункта, но
+#: печатаются рядом: без них «ноль разъездов» читается как «подгрузов не было вовсе».
+_SHRINK_EVENTS: Final = ("склейка не вышла", "склейка точечного не вышла")
+#: Сколько ждать, пока фоновый писатель следа допишет хвост. Лента пишется демоном
+#: пачками (``trace_journal/writer.py``), и спрашивать её в тот же миг, что кончился
+#: показ, значило бы читать ленту без последних записей.
+_TRACE_SETTLE: Final = 3.0
+
+
+def _trace_lines(spec: str) -> tuple[list[str], str]:
+    """Строки ленты стенда. ``spec`` - каталог свой либо чужой, в виде ``[user@]host:путь``.
+
+    Ленту пишет ТОТ ЖЕ узел, что и показ, а прибор живёт рядом с браузером: своего
+    каталога у него нет. Поэтому чужой стенд читается ``ssh`` - ровно тем ключом, каким
+    прибор на стенд и выкатывали, и без единой новой зависимости. Ответ - строки и
+    слово о том, откуда они взяты (или почему их нет).
+    """
+    head, sep, tail = spec.partition(":")
+    if sep and "/" not in head:
+        proc = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                head,
+                f"cat {tail}/trace-*.jsonl",
+            ],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=60,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return [], f"{spec}: ssh сказал rc={proc.returncode} {proc.stderr.strip()[:120]}"
+        return proc.stdout.splitlines(), spec
+    found = sorted(Path(spec).glob("trace-*.jsonl"))
+    if not found:
+        return [], f"{spec}: файлов trace-*.jsonl нет"
+    lines: list[str] = []
+    for path in found:
+        with contextlib.suppress(OSError):
+            lines.extend(path.read_text("utf-8").splitlines())
+    return lines, spec
+
+
+def _trace_events(lines: list[str], since: float, names: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Названные записи ленты не раньше ``since``. Битая строка значит «строки нет»."""
+    found: list[dict[str, Any]] = []
+    for raw in lines:
+        with contextlib.suppress(TypeError, ValueError):
+            record = json.loads(raw)
+            if not isinstance(record, dict) or str(record.get("event")) not in names:
+                continue
+            if float(record.get("at", 0.0)) >= since:
+                found.append(record)
+    return found
+
+
+def check_41_astray(ctx: Ctx, spec: str, since: float) -> Result:
+    """След стенда: за показы пунктов 4, 5 и 8 ноль записей «нарезка разошлась с манифестом».
+
+    🔴 Прибор до этого ленту не читал вовсе, хотя цель TC-1279 названа именно по ней.
+    Вкладка видит подгруз, но не видит его причину: куски снесены и прогон перезашёл, а
+    в браузере это неотличимо от медленной сети. Судится окно ровно этого прогона (от
+    мига перед пунктом 4), а не вся лента суток: чужие показы соседа не наши.
+    """
+    name = "След нарезки"
+    if not spec:
+        return Result(41, name, False, "след стенда не назван (--trace-dir)", "ленту читать негде")
+    if not ctx.allow_play:
+        return Result(41, name, False, "показа в этом прогоне не было (--play не задан)", "")
+    time.sleep(_TRACE_SETTLE)
+    lines, whence = _trace_lines(spec)
+    if not lines:
+        return Result(41, name, False, whence, "лента пуста или недоступна")
+    astray = _trace_events(lines, since, (_ASTRAY_EVENT,))
+    merges = _trace_events(lines, since, _SHRINK_EVENTS)
+    said = ", ".join(
+        f"слот {record.get('слот')} расхождение {record.get('расхождение')} с" for record in astray
+    )
+    detail = (
+        f"лента {whence}, окно прогона {time.time() - since:.0f} с: "
+        f"«{_ASTRAY_EVENT}» {len(astray)}"
+        + (f" ({said})" if astray else "")
+        + f"; склейка не вышла: {len(merges)}"
+    )
+    return Result(41, name, not astray, None, detail)
+
+
 def _print(results: list[Result]) -> int:
     for result in sorted(results, key=lambda r: r.number):
         state = "OK" if result.ok else ("BLOCKED" if result.blocked else "FAIL")
@@ -4356,6 +4503,12 @@ def main() -> int:
         "--stalls-only",
         action="store_true",
         help="отрицательный контроль п. 4: судить только подгрузы, не порог первого кадра",
+    )
+    parser.add_argument(
+        "--trace-dir",
+        default="",
+        metavar="[user@HOST:]КАТАЛОГ",
+        help="лента стенда для пункта 41; чужой узел читается ssh тем же ключом",
     )
     parser.add_argument(
         "--only",
@@ -4438,11 +4591,17 @@ def main() -> int:
         pick(27, "Под мышью", lambda: check_27_under_pointer(ctx))
         pick(2, "Поиск", lambda: check_2_search(ctx))
         pick(3, "Карточка", lambda: check_3_card(ctx, True))
+        # Окно ленты для пункта 41 открывается ровно тут: всё, что стенд написал раньше,
+        # написано не нашими показами.
+        astray_since = time.time()
         ok4 = pick(4, "Показ", lambda: check_4_playback(ctx))
         ok5 = pick(5, "Закладка", lambda: check_5_bookmark(ctx))
         pick(6, "Сначала", lambda: check_6_restart(ctx, ok5))
         ok7 = pick(7, "Сериал", lambda: check_7_series(ctx))
         pick(8, "Автопереход", lambda: check_8_autoplay(ctx))
+        # Сразу за пунктом 8: лента судится за показы 4, 5 и 8, а пункты 9-11 уводят
+        # картину на приёмник, и их разъезды к цели TC-1279 уже не относятся.
+        pick(41, "След нарезки", lambda: check_41_astray(ctx, args.trace_dir, astray_since))
         ok9 = pick(9, "На ТВ", lambda: check_9_on_tv(ctx, ok4 or ok7))
         ok10 = pick(10, "На комп", lambda: check_10_on_pc(ctx, ok9))
         pick(20, "Уход", lambda: check_20_leave_tears_down(ctx, ok10))
