@@ -24,19 +24,29 @@ def redress(job: SearchJob, offer: Offer) -> None:
 
 
 def _redress(job: SearchJob, offer: Offer) -> None:
+    """Дозапрос в своём потоке; флаг приговора снимается, чем бы он ни кончился.
+
+    🔴 Флаг снимается в ``finally``, а не последней строкой. Он держит не только этот
+    дозапрос: пока он поднят, опрос считает обложки захода идущими, второй дозапрос не
+    заводится, и заход не сменяется свежим до :data:`~hass.search_job.POSTERS_BY`. Упади
+    тут что-то неназванное - ответ короче списка роняет ``zip`` ниже, - и страница целую
+    минуту опрашивала бы заход, которому уже никто не принесёт ни одной картинки.
+    """
     before = job.results
     try:
-        judged = offer(before)
-    except (TorrcastError, OSError):
-        judged = before
-    merged = [
-        after if isinstance(after, dict) and after.get("poster") else was
-        for was, after in zip(before, judged, strict=True)
-    ]
-    with job._lock:
-        if job.results is before:
-            job.results = merged
-    job.judging = False
+        try:
+            judged = offer(before)
+        except (TorrcastError, OSError):
+            judged = before
+        merged = [
+            after if isinstance(after, dict) and after.get("poster") else was
+            for was, after in zip(before, judged, strict=True)
+        ]
+        with job._lock:
+            if job.results is before:
+                job.results = merged
+    finally:
+        job.judging = False
 
 
 __all__ = ["redress"]

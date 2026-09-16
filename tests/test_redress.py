@@ -30,3 +30,23 @@ def test_a_redress_ends_the_judging_it_was_started_under() -> None:
     job.judging = True
     _redress(job, lambda records: records)
     assert job.judging is False
+
+
+def test_a_redress_that_fell_still_ends_the_judging_it_was_started_under() -> None:
+    """🔴 Упавший дозапрос снимает флаг: иначе заход минуту стоит без единой картинки.
+
+    Пока флаг поднят, опрос считает обложки идущими, второй дозапрос не заводится, а
+    заход не сменяется свежим до ``POSTERS_BY``. Ответ короче списка роняет ``zip``.
+    """
+    job = SearchJob()
+    job.settle([{"key": "a"}, {"key": "b"}], landed=True)
+    job.judging = True
+
+    try:
+        _redress(job, lambda records: [])
+    except ValueError:
+        pass
+    else:  # pragma: no cover - страховка теста, а не путь работы
+        raise AssertionError("короткий ответ обязан уронить zip: тест ничего не проверил")
+
+    assert job.judging is False, "флаг приговора остался поднят у упавшего дозапроса"
