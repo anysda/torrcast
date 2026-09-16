@@ -132,3 +132,27 @@ def test_a_series_id_is_the_one_series_of_the_name_and_the_nearest_year(tmp_path
     assert catalogue.series_id("Ван-Пис", "", None) == "", "два сериала без года"
     assert catalogue.series_id("Укрытие", "Silo", 2023) == "tt14688458", "по оригиналу"
     assert catalogue.series_id("Интерны 11", "", 2014) == ""
+
+
+PREFIXED_MAP = (
+    "Доктор Кто\ttt0056751\ttvSeries\tDoctor Who\t1963\n"
+    "Доктор Кто\ttt0436992\ttvSeries\tDoctor Who\t2005\n"
+    "Доктор Кто: Конфиденциально\ttt0453422\ttvSeries\tDoctor Who Confidential\t2005\n"
+    "Универ\ttt1409069\ttvSeries\tUniver\t2008\n"
+    "Универ. Новая общага\ttt3752220\ttvSeries\tUniver. Novaya obschaga\t2011\n"
+)
+
+
+def test_a_name_the_releases_put_a_prefix_on_keeps_its_series_classic_doctor_who(
+    tmp_path: Path,
+) -> None:
+    """`tv:классический-доктор-кто:1963` давал пустую карточку: карта знает «Доктор Кто»."""
+    catalogue = _names(tmp_path, PREFIXED_MAP)
+
+    assert catalogue.series_id("Классический Доктор Кто", "", 1963) == "tt0056751"
+    assert catalogue.series_id("Новый Доктор Кто", "", 2005) == "tt0436992", "год выбирает"
+    assert catalogue.series_id("Классический Доктор Кто", "", None) == "", "без года их два"
+    assert catalogue.series_id("Доктор Кто: Конфиденциально", "", 2005) == "tt0453422"
+    assert catalogue.series_id("Универ. Новая общага", "", 2011) == "tt3752220"
+    assert catalogue.series_id("Старый Универ", "", 2008) == "", "имя в одно слово не добыть"
+    assert catalogue.series_id("Ещё один старый Доктор Кто", "", 1963) == "", "не приставка"

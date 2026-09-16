@@ -127,17 +127,36 @@ class ImdbNames:
         Год точный, затем соседний: раздачи помнят год первой серии, карта - год выхода, и
         они расходятся на один. Два сериала под одним именем и годом - не угаданный id.
         """
-        indexed = rows(self.index_path, title)
-        named = self.names().get(slugify(title), []) if indexed is None else indexed
-        found = {
-            (tconst, raw_year) for tconst, kind, _o, raw_year, _n in named if kind in _TV_KINDS
-        }
+        found = self._series_rows(title)
         if not _nearest(found, year) and original and year is not None:
             for line in self._year(str(year), originals=True).get(slugify(original), ()):
                 _name, tconst, kind = [*line.split("\t"), "", ""][:3]
                 if kind in _TV_KINDS and tconst:
                     found.add((tconst, str(year)))
-        return _nearest(found, year)
+        return _nearest(found, year) or ("" if found else self._shorn_id(title, year))
+
+    def _series_rows(self, title: str) -> set[tuple[str, str]]:
+        """Пары «id, год» сериалов карты под точным прокатным именем."""
+        indexed = rows(self.index_path, title)
+        named = self.names().get(slugify(title), []) if indexed is None else indexed
+        return {(tconst, raw) for tconst, kind, _o, raw, _n in named if kind in _TV_KINDS}
+
+    def _shorn_id(self, title: str, year: int | None) -> str:
+        """Тот же сериал под именем с приставкой: «Классический Доктор Кто» - «Доктор Кто».
+
+        Приставку раздачи ставят впереди («Классический», «Новый»), а то, что стоит ПОСЛЕ
+        имени, зовёт другой сериал («Универ. Новая общага», «Доктор Кто: Конфиденциально»),
+        и хвост не отбрасывается. Спрашивается только имя, которого карта не знает целиком:
+        неоднозначное имя так и остаётся неоднозначным. Приставка не длиннее самого имени,
+        имя короче двух слов приставкой не добывается («Пыльная работа» - не «Работа»), и
+        год должен оставить единственный сериал: иначе по-прежнему пусто.
+        """
+        words = title.split()
+        for start in range(1, min(len(words) // 2, len(words) - 2) + 1):
+            shorn = _nearest(self._series_rows(" ".join(words[start:])), year)
+            if shorn:
+                return shorn
+        return ""
 
     def _year(self, year: str, originals: bool = False) -> dict[str, list[str]]:
         """Строки одного года по сведённому имени; разбираются при первом вопросе."""
