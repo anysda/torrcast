@@ -2904,7 +2904,10 @@ def check_13_texts(ctx: Ctx) -> Result:
     ⚠️ Грепом, а не разбором AST (см. шапку модуля).
     """
     base = ctx.base
-    en_code, en_body = _get(base + "/api/phrases")
+    # Язык называется ОБОИМ вопросам. Без ``?lang=`` страница отдаёт язык самого
+    # экземпляра, и на русском экземпляре зеркало сверяло бы русский набор с русским же:
+    # ключ, забытый в одном языке, зеленел бы у сторожа, ради которого пункт и заведён.
+    en_code, en_body = _get(base + "/api/phrases?lang=en")
     ru_code, ru_body = _get(base + "/api/phrases?lang=ru")
     english = json.loads(en_body) if en_code == 200 else {}
     russian = json.loads(ru_body) if ru_code == 200 else {}
