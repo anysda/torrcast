@@ -47,8 +47,23 @@ def test_two_catalogues_are_not_mixed_into_seasons_neither_holds_futurama() -> N
 
     layout = series_layout(imdb, _aired(FUTURAMA_TVMAZE), releases, [], NOW)
 
-    assert _counts(layout) == FUTURAMA_TVMAZE, "сезон фильмов IMDb не дорастает до сезона TVmaze"
-    assert sum(_counts(layout).values()) == 124
+    assert _counts(layout) == {**FUTURAMA_TVMAZE, 8: 10}, "сезон фильмов IMDb не дорастает"
+    assert sum(_counts(layout).values()) == 134, "смесь считала бы 26 + 26 + 13 + 13 + 13"
+
+
+def test_a_season_only_the_releases_know_takes_its_rows_from_their_names_futurama() -> None:
+    """Возрождение «Футурамы» раздачи зовут восьмым сезоном, TVmaze - одиннадцатым."""
+    tvmaze = _aired(dict.fromkeys((11, 12, 13), 10))
+    hulu = [parse_release_name(f"Футурама / Сезон: {n} / Серии: 1-10 из 10") for n in (11, 12, 13)]
+    named = "Футурама / Futurama / Сезон: 8 / Серии: 10 из %d (2023)"
+    eighth = [parse_release_name(named % 10), parse_release_name("Футурама [08x01-10 из 10]")]
+    agreed = [*hulu, *eighth]
+
+    assert _counts(series_layout({}, tvmaze, agreed, [], NOW)) == {8: 10, 11: 10, 12: 10, 13: 10}
+    torn = [*agreed, parse_release_name(named % 20)]
+    assert _counts(series_layout({}, tvmaze, torn, [], NOW))[8] == 10, "«из 20» без десяти серий"
+    blind = [*hulu, parse_release_name("Футурама / Futurama [S08] (2023) WEB-DL")]
+    assert 8 not in _counts(series_layout({}, tvmaze, blind, [], NOW)), "без номеров серий - пусто"
 
 
 def test_imdb_placeholders_past_the_releases_are_not_tabs_while_tvmaze_answers() -> None:

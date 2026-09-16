@@ -14,17 +14,20 @@
    при равенстве - IMDb: она лежит на диске и отвечает без сети;
 3. раздачи пула сезона не называют («След [Серии 1-224]»): номера сквозные, и нумерацией
    раздач бывает только раскладка из одного сезона;
-4. раскладка не нумерация раздач, если ей противоречит больше половины раздач с номерами
+4. сезон, которого каталог не знает, а раздачи зовут числом серий, получает строки из их
+   имён (:func:`_filled`): TVmaze нумерует возрождение «Футурамы» вслед за Hulu сезонами
+   11-14 и сезонов 8-10 не знает, а русские раздачи зовут теми же сезонами те же серии;
+5. раскладка не нумерация раздач, если ей противоречит больше половины раздач с номерами
    или молчит TVmaze, а раздачи зовут сезон, которого у IMDb нет. Список она всё равно
    даёт сразу, а серию строки показ ищет по сквозному номеру
    (:class:`torrcast.domain.episode_ordinal.EpisodeOrdinal`), - но только пока она СВОДИТ
    сезоны раздач. Раздача, которая знает в сезонах каталога больше серий, чем он сам
    («Футурама» S1E1-13 против девяти у IMDb), разложила сериал иначе, а не дробнее:
    сквозной номер попал бы в чужую серию, и каталог молчит, оставляя таблицы раздач;
-5. сезон старше последнего сезона раздач и закладки показывает только серии, которые знает
+6. сезон старше последнего сезона раздач и закладки показывает только серии, которые знает
    TVmaze, если выбранная раскладка совпала с ним на сезонах раздач: пустые заготовки IMDb
    («Рик и Морти» s10-12 по одной серии) не становятся вкладками;
-6. дату серии дают часы TVmaze, если его нумерация сезона совпала с выбранной; серия,
+7. дату серии дают часы TVmaze, если его нумерация сезона совпала с выбранной; серия,
    которая ещё не вышла, несёт дату выхода, вышедшая - пустую строку.
 """
 
@@ -68,6 +71,7 @@ def series_layout(
     )
     if not direct and _splits(chosen, releases):
         return {}, False
+    chosen = {**chosen, **_filled(chosen, releases)} if direct else chosen
     named = pooled | set(saved)
     last = max(named, default=None)
     common = [s for s in chosen.keys() & tvmaze.keys() if last is not None and s <= last]
@@ -144,6 +148,31 @@ def _splits(layout: Numbers, releases: Sequence[Release]) -> bool:
         if _top(release) > top_held or (whole is not None and int(whole.group(1)) > held):
             return True
     return False
+
+
+def _filled(layout: Numbers, releases: Sequence[Release]) -> dict[int, tuple[int, ...]]:
+    """Серии сезона, которого каталог не знает, из имён раздач: «Сезон: 8 / Серии: 1-10 из 10».
+
+    Вкладку такому сезону карточка рисует всё равно - его называют раздачи, - и без строк
+    она ждала бы разбора торрента. Строк столько, сколько серий раздачи в нём называют, и
+    столько, сколько обещает «из N», когда все имена обещают одно: восьмой сезон «Футурамы»
+    зовут и «10 из 10», и «10 из 20», и лишние десять строк ничего бы не сыграли.
+    """
+    tops: dict[int, int] = {}
+    said: dict[int, set[int]] = {}
+    for release in releases:
+        seasons, whole = _named(release), _OF_RE.search(release.raw_name)
+        if len(seasons) != 1 or seasons[0] in layout:
+            continue
+        tops[seasons[0]] = max(tops.get(seasons[0], 0), _top(release))
+        if whole is not None:
+            said.setdefault(seasons[0], set()).add(int(whole.group(1)))
+    sizes: dict[int, int] = {}
+    for season, top in tops.items():
+        stated = said.get(season, set())
+        promised = next(iter(stated)) if len(stated) == 1 else 0
+        sizes[season] = promised if promised >= top else top
+    return {season: tuple(range(1, size + 1)) for season, size in sizes.items() if size}
 
 
 def _held(layout: Numbers, seasons: Sequence[int]) -> tuple[int, int]:
