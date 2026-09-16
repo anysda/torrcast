@@ -37,6 +37,8 @@ TIMEOUT = 5.0
 FRESH = 24 * 3600.0
 #: Неудачу переспрашивать не раньше этого.
 RETRY = 60.0
+#: Потолок кэша: один сериал - один файл (10 КБ), и без вытеснения каталог растёт без края.
+LIMIT = 8 * 1024 * 1024
 #: Условия TVmaze: не больше 20 вопросов за 10 с с одного адреса.
 CALLS = 20
 WINDOW = 10.0
@@ -94,6 +96,7 @@ class TvmazeEpisodes:
     fetch: Fetch = _get
     spawn: Spawn = _daemon
     clock: Callable[[], float] = time.time
+    limit: int = LIMIT
     _memory: dict[str, tuple[Aired, float]] = field(default_factory=dict)
     _failed: dict[str, float] = field(default_factory=dict)
     _pending: dict[str, threading.Event] = field(default_factory=dict)
@@ -164,6 +167,21 @@ class TvmazeEpisodes:
         part = folder / f"{tconst}.json.part"
         part.write_text(json.dumps({"fetched": self.clock(), "episodes": rows}), encoding="utf-8")
         os.replace(part, folder / f"{tconst}.json")
+        _sweep(folder, self.limit)
+
+
+def _sweep(folder: Path, limit: int) -> None:
+    """Давние ответы уносятся, пока кэш не уложится в предел; давность - время записи."""
+    try:
+        kept = sorted((f.stat().st_mtime, f.stat().st_size, f) for f in folder.glob("tt*.json"))
+        held = sum(size for _when, size, _file in kept)
+        for _when, size, file in kept:
+            if held <= limit:
+                return
+            file.unlink(missing_ok=True)
+            held -= size
+    except OSError:
+        return  # a file that vanished under us is one less to evict
 
 
 def _episodes(episodes: list[object]) -> Aired:

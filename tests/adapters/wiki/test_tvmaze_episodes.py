@@ -107,6 +107,23 @@ def test_a_series_tvmaze_does_not_know_is_an_empty_answer_kept_for_a_day(tmp_pat
     assert catalogue.aired("../../etc/passwd") == ({}, False)
 
 
+def test_the_oldest_answers_leave_the_disk_once_the_cache_is_over_its_limit(
+    tmp_path: Path,
+) -> None:
+    """Сотня открытых сериалов оставляла сотню файлов навсегда: предела и уборки не было."""
+    now = [1000.0]
+    for number in range(1, 6):
+        tconst = f"tt000000{number}"
+        asked = f"{SHOW[: SHOW.index('=') + 1]}{tconst}"
+        net = _Net({asked: {"id": 7}, EPISODES: ANSWERS[EPISODES]})
+        TvmazeEpisodes(lambda: tmp_path, net, _sync, _now(now), limit=300).aired(tconst)
+        now[0] += 1
+
+    held = sorted(file.name for file in tmp_path.glob("tt*.json"))
+    assert sum(file.stat().st_size for file in tmp_path.glob("tt*.json")) <= 300
+    assert held == ["tt0000004.json", "tt0000005.json"], "остаются самые свежие"
+
+
 def test_the_twenty_first_question_in_ten_seconds_waits_for_the_window() -> None:
     now, slept = [0.0], list[float]()
 
