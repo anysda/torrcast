@@ -151,6 +151,11 @@ _PLAY_READY_BAR: Final = 20.0
 #: 20 с после кадра). Свежий старт и следующая серия меряются шире
 #: (:data:`_WATCH_SECONDS`), а закладка названа в цели отдельно и своим окном.
 _BOOKMARK_WATCH: Final = 20.0
+#: Сколько прибор ходит на главную за плиткой «Продолжить», прежде чем признать, что её
+#: нет вовсе. Срок не приговор: приговор берёт ПЕРВЫЙ заход (``at_once``), а эти заходы
+#: нужны лишь затем, чтобы дефект «полка собирается со второго раза» не прятал от
+#: замера всё, что за ним, - кнопку, кадр и подгрузы с закладки.
+_CONTINUE_WAIT: Final = 20.0
 #: Плитка, которую можно открыть. Пока полка не доехала, страница рисует СКЕЛЕТЫ тем же
 #: `data-tc-tile`, и первый узел в DOM обычно как раз скелет: у него нет ни обработчика,
 #: ни фокуса, и клик по нему не делает ничего (по живому замеру - 14 скелетов).
@@ -1891,7 +1896,18 @@ def check_4_playback(ctx: Ctx) -> Result:
     # не показ, поэтому 60 с ровности отсчитываются от `readyState >= 3`, а не от клика.
     frame, meter = _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
     if frame is None:
-        return Result(4, "Показ", False, None, f"кадра нет за {_PLAY_START_WAIT / 1000:.0f} с")
+        # Приговор без чисел нечем разбирать: «кадра нет» выглядит одинаково и когда
+        # кнопка приехала мгновенно, и когда её ждали полминуты, и когда показ упал с
+        # плашкой. Называем измеренное ожидание кнопки и то, что осталось на экране,
+        # тем же способом, что и п. 32.
+        return Result(
+            4,
+            "Показ",
+            False,
+            None,
+            f"кадра нет за {_PLAY_START_WAIT / 1000:.0f} с; «Играть» ждали {waited:.1f} с "
+            f"(порог {_PLAY_READY_BAR:.0f}); на экране: {_overlay_text(ctx)!r}",
+        )
     from_click = time.monotonic() - clicked
     cdp = None
     control = "без сужения"
@@ -1942,6 +1958,19 @@ def check_5_bookmark(ctx: Ctx) -> Result:
     ctx.page.wait_for_timeout(500)
     ctx.page.keyboard.press("Escape")
     continue_tile = ctx.page.locator(f'[data-tc-group="shelf-continue"][data-tc-key="{key}"]')
+    # 🔴 Плитки «Продолжить» сразу после Esc может не быть: полка собирается на загрузке
+    # главной, и в проходе R1 зритель увидел себя там лишь со ВТОРОГО захода. Прибор
+    # раньше на этом останавливался и не мерил с закладки ничего - ни кнопку, ни кадр,
+    # ни подгрузы. Теперь он идёт тем же путём, что и человек, но первый заход остаётся
+    # в приговоре: `at_once` - это и есть найденный дефект, а не помеха замеру.
+    at_once = continue_tile.count() > 0
+    began_tile = time.monotonic()
+    revisits = 0
+    while continue_tile.count() == 0 and time.monotonic() - began_tile < _CONTINUE_WAIT:
+        _home(ctx)
+        revisits += 1
+        ctx.page.wait_for_timeout(1000)
+    tile_wait = time.monotonic() - began_tile
     fresh = continue_tile.count() > 0
     clicked: float | None = None
     waited = 0.0
@@ -1972,15 +2001,24 @@ def check_5_bookmark(ctx: Ctx) -> Result:
     ready = waited <= _PLAY_READY_BAR
     ok = (
         position is not None
-        and fresh
+        and at_once
         and from_click is not None
         and from_click <= _FRAME_BAR
         and ready
         and not waits
     )
     shown = f"{from_click:.1f}" if from_click is not None else "нет"
+    where = (
+        "сразу"
+        if at_once
+        else (
+            f"со {revisits + 1}-го захода на главную, через {tile_wait:.1f} с"
+            if fresh
+            else f"НЕТ и после {revisits} заходов на главную за {tile_wait:.0f} с"
+        )
+    )
     detail = (
-        f"после Esc история {key!r} на {position!r}; «Продолжить» {'есть' if fresh else 'НЕТ'}; "
+        f"после Esc история {key!r} на {position!r}; «Продолжить» {where}; "
         f"«Играть» ждали {waited:.1f} с (порог {_PLAY_READY_BAR:.0f}); "
         f"кадр с закладки {shown} с от клика "
         f"({frame!r} с по счётчику, порог {_FRAME_BAR:.0f}); "
@@ -2186,8 +2224,22 @@ def check_8_autoplay(ctx: Ctx) -> Result:
     # s1e1 лежит в первой, уже видимой вкладке. Это именно путь зрителя: карточка,
     # строка серии, клик, а не JS-переход и не результат проверки вкладок выше.
     target = ctx.page.locator('[data-tc-episode="s1e1"]')
+    # 🔴 Строки серий приезжают ПОСЛЕ тела карточки: в проходе R1 это 4.4-5.5 с, а сама
+    # карточка сериала доезжала 25-30 с. Прибор спрашивал строку сразу и отвечал «нет
+    # видимой строки», то есть краснел на своей поспешности вместо перехода. Ждём тем же
+    # сроком, что и тело карточки, и называем ожидание числом.
+    began_rows = time.monotonic()
+    with contextlib.suppress(Exception):
+        target.first.wait_for(state="visible", timeout=int(_CARD_READY_WAIT))
+    rows_waited = time.monotonic() - began_rows
     if target.count() == 0:
-        return Result(8, "Автопереход", False, None, "нет видимой строки s1e1 для перехода")
+        return Result(
+            8,
+            "Автопереход",
+            False,
+            None,
+            f"нет видимой строки s1e1 для перехода за {rows_waited:.0f} с",
+        )
     target.first.click()
     if not _await_playback(ctx):
         return Result(8, "Автопереход", False, None, "первого кадра серии так и не было")
@@ -2232,9 +2284,17 @@ def check_8_autoplay(ctx: Ctx) -> Result:
         ctx.page.wait_for_timeout(1000)
     frame, _ = _next_frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
     waits, total = _wait_stalls(ctx, _WATCH_SECONDS) if frame is not None else ([], 0.0)
-    ok = None not in after_pair and after_pair != before_pair and frame is not None and not waits
+    rows_ready = rows_waited <= _PLAY_READY_BAR
+    ok = (
+        None not in after_pair
+        and after_pair != before_pair
+        and frame is not None
+        and rows_ready
+        and not waits
+    )
     detail = (
-        f"s1e1; плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
+        f"s1e1 (строки серий ждали {rows_waited:.1f} с, порог {_PLAY_READY_BAR:.0f}); "
+        f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
         f"кадр следующей серии {frame!r} с, подгрузы за {_WATCH_SECONDS:.0f} с: "
         f"{len(waits)}, {total:.1f} с"
     )

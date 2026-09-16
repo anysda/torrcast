@@ -306,20 +306,28 @@ def test_сумма_подгрузов_на_заглушке_считается_
 #: кадры. Картинка берётся с холста (``captureStream``), а не из файла, потому что
 #: ``requestVideoFrameCallback`` внутри ``_METER_JS`` обязан сработать по-настоящему: без
 #: первого кадра счётчик подгрузы не считает вовсе (``if (meter.frame !== null)``).
+#:
+#: 🔴 Тело завёрнуто в свою область видимости не для красоты. ``set_content`` меняет
+#: документ, но НЕ окно: второй заход объявлял бы те же ``const`` в том же глобальном
+#: лексическом окружении, весь скрипт падал бы с ошибкой ещё до ``srcObject``, и видео
+#: второй страницы оставалось бы с ``readyState 0``. Кадра нет, счётчик молчит, а тест
+#: краснеет на пустышке вместо предмета.
 _STUB_VIDEO_PAGE = """<!doctype html><meta charset="utf-8">
 <body><video id="v" muted playsinline autoplay></video><script>
-const canvas = document.createElement('canvas');
-canvas.width = canvas.height = 32;
-const paint = canvas.getContext('2d');
-let tick = 0;
-setInterval(() => {
-  tick = (tick + 32) % 256;
-  paint.fillStyle = `rgb(${tick},${255 - tick},128)`;
-  paint.fillRect(0, 0, 32, 32);
-}, 40);
-const video = document.getElementById('v');
-video.srcObject = canvas.captureStream(25);
-video.play();
+(() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const paint = canvas.getContext('2d');
+  let tick = 0;
+  setInterval(() => {
+    tick = (tick + 32) % 256;
+    paint.fillStyle = `rgb(${tick},${255 - tick},128)`;
+    paint.fillRect(0, 0, 32, 32);
+  }, 40);
+  const video = document.getElementById('v');
+  video.srcObject = canvas.captureStream(25);
+  video.play();
+})();
 </script></body>"""
 
 #: Развести ``waiting`` и ``playing`` руками, с настоящими паузами между ними.
