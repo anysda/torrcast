@@ -57,6 +57,17 @@ def test_an_ordinal_past_the_pack_is_an_honest_refusal_naming_the_row() -> None:
     assert _played(Episode(4, 98), _flat(280), FLAT).endswith("Серия №279.avi")
 
 
+def test_an_ordinal_past_a_through_numbered_pack_refuses_instead_of_the_last_file() -> None:
+    """«Ван-Пис» держит 1061-1112: строка 1178 получает отказ, а не последний файл пака."""
+    pack = [TorrFile(n, f"One Piece/[Ohys] One Piece - {1060 + n}.mkv") for n in range(1, 53)]
+    release = parse_release_name("Ван-Пис [TV] [1061-1112 из XX]")
+
+    with pytest.raises(NotFoundError, match="s1e1178"):
+        _Series.asked(Episode(1, 1178), EpisodeOrdinal((1178,))).choose(release, pack)
+    with pytest.raises(NotFoundError, match="s2e30"):
+        _Series.asked(Episode(2, 30), EpisodeOrdinal((1000, 200))).choose(release, pack)
+
+
 def test_a_pack_not_from_the_first_season_or_with_a_gap_plays_no_neighbour() -> None:
     later = [TorrFile(n, f"Show/Show.s03e{n:02}.avi") for n in range(1, 21)]
     gap = [f for f in _tahiy(60) if "s02e05" not in f.name]
