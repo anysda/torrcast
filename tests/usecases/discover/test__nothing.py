@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.discover.world import pictures, row
+from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.usecases.discover._nothing import _nothing
 
 
@@ -23,18 +24,30 @@ _CARS = pictures(
 
 def test_a_living_franchise_without_the_asked_number_lists_what_it_has() -> None:
     """🔴 TC-373. Молчаливого отказа не бывает: строка называет счёт франшизы и её части."""
-    line = _nothing("тачки", 9, _CARS)
+    refusal = _nothing("тачки", 9, _CARS)
+    line = str(refusal)
 
     assert "картин во франшизе 2" in line
     assert "номера 9 нет" in line
     assert "Тачки (2006)" in line and "Тачки 2 (2011)" in line
 
 
+def test_the_franchise_refusal_is_one_the_viewer_is_owed_in_words() -> None:
+    """🔴 TC-1304. Сказать есть что, и немым родом такой отказ не бывает."""
+    assert not isinstance(_nothing("тачки", 9, _CARS), NothingFoundError)
+
+
 def test_without_a_number_the_refusal_is_the_honest_one() -> None:
     """Номера не спрашивали - про франшизу говорить нечего, и строка про сам запрос."""
-    assert _nothing("дети мужчин", None, _CARS) == "по запросу «дети мужчин» ничего не нашлось"
+    refusal = _nothing("дети мужчин", None, _CARS)
+
+    assert str(refusal) == "по запросу «дети мужчин» ничего не нашлось"
+    assert isinstance(refusal, NothingFoundError)
 
 
 def test_a_number_without_a_franchise_behind_it_is_the_same_honest_refusal() -> None:
     """Номер назван, а франшизы под ним нет - отправлять проверять номер было бы враньём."""
-    assert _nothing("дети мужчин", 2, _CARS) == "по запросу «дети мужчин» ничего не нашлось"
+    refusal = _nothing("дети мужчин", 2, _CARS)
+
+    assert str(refusal) == "по запросу «дети мужчин» ничего не нашлось"
+    assert isinstance(refusal, NothingFoundError)

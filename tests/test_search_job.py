@@ -11,6 +11,8 @@ import pytest
 from hass.search_job import SearchJob
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
+from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
@@ -90,6 +92,31 @@ def test_a_deadline_final_does_not_overwrite_a_landed_circle() -> None:
     assert job.results == [{"key": "circle"}]
     job.settle([{"key": "verdict"}], landed=True)
     assert job.results == [{"key": "verdict"}]
+
+
+def _refused(raised: Exception) -> SearchJob:
+    """Заход, чей круг отказал названной ошибкой: что от неё осталось зрителю."""
+
+    def search(*_args: Any, **_kwargs: Any) -> Any:
+        raise raised
+
+    job = SearchJob()
+    job.run(Config(), "Уэнсдэй 9 сезон", _detect, _remember, search, _as_is)
+    return job
+
+
+def test_a_named_refusal_of_the_circle_reaches_the_viewer_in_its_own_words() -> None:
+    """🔴 TC-1304. «Раздач с сезоном 9 нет» круг знал, а зритель читал пустой экран."""
+    job = _refused(NotFoundError("«Уэнсдэй»: раздач с сезоном 9 нет"))
+
+    assert (job.done, job.results, job.error) == (True, [], "«Уэнсдэй»: раздач с сезоном 9 нет")
+
+
+def test_the_refusal_with_nothing_to_add_stays_mute_and_leaves_the_empty_screen() -> None:
+    """Пустой экран поиска и есть эти слова: второй раз их говорить незачем."""
+    job = _refused(NothingFoundError("по запросу «Уэнсдэй» ничего не нашлось"))
+
+    assert (job.done, job.results, job.error) == (True, [], None)
 
 
 def test_a_poster_once_named_is_not_taken_away_by_a_silent_verdict() -> None:

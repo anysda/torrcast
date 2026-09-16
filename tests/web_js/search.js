@@ -151,6 +151,14 @@ const scenarios = {
     return { polls: p.polls, queries: p.queries, screen: screen(p) };
   },
 
+  // Круг отказал своими словами: страница их и показывает, а повторять тут нечего.
+  async refused() {
+    const word = 'раздач с сезоном 9 нет';
+    const p = search(() => ({ status: 409, body: { error: word } }), 'уэнсдэй 9 сезон');
+    await p.time.run(1000);
+    return { word, polls: p.polls, screen: screen(p) };
+  },
+
   async retry() {
     const p = search((n) => n ? { partial: false, results: [], finalBy: 0 } : { status: 500 });
     await p.time.run(1000);

@@ -59,7 +59,14 @@ const TCApi = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, progressive: true }),
       });
-      if (!said.ok) return { results: [], partial: false, finalBy: 0, failed: true };
+      // 409 - не сорванный опрос, а отказ поиска СЛОВОМ продукта («раздач с сезоном 9
+      // нет», «во франшизе столько частей нет»): переспрашивать его нечего, его читают.
+      if (!said.ok) {
+        return {
+          results: [], partial: false, finalBy: 0, failed: true,
+          refused: said.status === 409 ? await TCApi._word(said) : '',
+        };
+      }
       const data = await said.json();
       const results = Array.isArray(data && data.results) ? data.results : [];
       // ``finalBy`` - срок финала сервера в секундах от начала заказа: нет срока - нет и
@@ -73,7 +80,18 @@ const TCApi = {
         postersPending, postersBy, failed: false,
       };
     } catch (error) {
-      return { results: [], partial: false, finalBy: 0, failed: true };
+      return { results: [], partial: false, finalBy: 0, failed: true, refused: '' };
+    }
+  },
+
+  // Слово отказа из тела 409. У поиска и карточки это готовая фраза продукта на языке
+  // экземпляра (`hass.refused_error.RefusedError`), а не ключ договора: её и показывают.
+  async _word(said) {
+    try {
+      const body = await said.json();
+      return typeof (body && body.error) === 'string' ? body.error : '';
+    } catch (error) {
+      return '';
     }
   },
 
@@ -96,11 +114,19 @@ const TCApi = {
     const url = '/api/card/' + encodeURIComponent(key) + (tail ? '?' + tail : '');
     try {
       const said = await fetch(url);
-      if (!said.ok) return { data: null, partial: false, missing: said.status === 404 };
+      if (!said.ok) {
+        return {
+          data: null, partial: false, missing: said.status === 404,
+          refused: said.status === 409 ? await TCApi._word(said) : '',
+        };
+      }
       const data = await said.json();
-      return { data, partial: said.headers.get('X-Torrcast-Partial') === '1', missing: false };
+      return {
+        data, partial: said.headers.get('X-Torrcast-Partial') === '1',
+        missing: false, refused: '',
+      };
     } catch (error) {
-      return { data: null, partial: false, missing: false };
+      return { data: null, partial: false, missing: false, refused: '' };
     }
   },
 

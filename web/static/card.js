@@ -82,6 +82,11 @@ const TCCard = {
       // находит его ключ (раздачи успели смениться), и пустой `{ error }` не должен
       // стирать это тело вместе с заголовком, как было у «Вперёд» на 14.8 с.
       if (said.missing && !data) data = TCCard._fallback(key);
+      // Круг отказал словом (409): карточка читает его тем же текстом, что и выдача, а не
+      // общим «Эта картина не найдена», которое молчит о причине (TC-1304).
+      if (said.refused && !data) {
+        data = { ...TCCard._fallback(key), error: 'not_found', refused: said.refused };
+      }
       // Дорожки доезжают добором после «Играть», а не держат её: отбор раздачи - это рой.
       const voicesLeft = !!(data && data.voices_pending) && Date.now() < voicesUntil;
       const last = !said.partial && !voicesLeft;
@@ -328,7 +333,7 @@ const TCCard = {
   },
 
   _body(data, key, query) {
-    if (data.error === 'not_found') return TCCard._notFound(key, query);
+    if (data.error === 'not_found') return TCCard._notFound(key, query, data.refused);
     const isShow = Array.isArray(data.seasons) && data.seasons.length > 0;
     const body = document.createElement('div');
     body.id = 'tc-card-body';
@@ -368,7 +373,10 @@ const TCCard = {
     return body;
   },
 
-  _notFound(key, query) {
+  // ``word`` - названный отказ круга, если он был: «раздач с сезоном 9 нет» говорит
+  // человеку, что делать, а «Эта картина не найдена» - нет. Повтора у названного отказа
+  // нет нарочно: второй такой же заход ответит то же самое.
+  _notFound(key, query, word) {
     const body = document.createElement('div');
     body.id = 'tc-card-body';
     body.className = 'tc-detail-body';
@@ -381,7 +389,12 @@ const TCCard = {
     title.textContent = hint.title || '';
     const said = document.createElement('div');
     said.className = 'tc-detail-desc tc-body';
-    said.textContent = TC.say('web.detail.not_found');
+    said.textContent = word || TC.say('web.detail.not_found');
+    if (word) {
+      info.append(title, said);
+      body.appendChild(info);
+      return body;
+    }
     const retry = document.createElement('div');
     retry.className = 'tc-secondary';
     retry.textContent = TC.say('web.detail.retry');

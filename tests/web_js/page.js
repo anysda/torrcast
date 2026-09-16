@@ -205,7 +205,7 @@ function page(answer, { latency = 30 } = {}) {
             'X-Torrcast-Final-By': String(said.finalBy ?? 12),
             'X-Torrcast-Posters-Pending': said.postersPending ? '1' : '0',
             'X-Torrcast-Posters-By': String(said.postersBy ?? 60) })[name] ?? null },
-          json: async () => ({ results: said.results }),
+          json: async () => said.body || { results: said.results },
         });
       }, said.delay ?? latency);
     }),

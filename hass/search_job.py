@@ -22,7 +22,7 @@ from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
 from torrcast.domain.goal_spare import GOAL
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import Profile
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
@@ -100,10 +100,14 @@ class SearchJob:
 
         try:
             plans = circle(query) if warm is None else warm.take(query, circle)
-        except NotFoundError:
+        except NothingFoundError:
             # Nothing found is an answer of the search, an empty list, not a failed search.
             plans = []
         except TorrcastError as refusal:
+            # A named refusal is an answer too, and one the viewer is owed in words: the
+            # circle knows WHY there is nothing (no releases with that season, the
+            # franchise has no such part, nothing parsed out), and the empty screen says
+            # none of it. Only the refusal with nothing to add above stays mute.
             plans, self.error = [], str(refusal)
         hits: list[JsonValue] = []
         if plans:

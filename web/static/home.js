@@ -320,6 +320,12 @@ const TCHome = {
       asked = Date.now();
       said = await TCApi.searchProgress(text);
       if (gone()) return;
+      if (said.refused) {
+        // Отказ словом - готовый ответ поиска, а не сорванный опрос: переспрашивать его
+        // нечем, ни сейчас, ни кнопкой. Его читают и зовут картину другими словами.
+        TCHome._swapBody(TCHome._searchRefused(said.refused, known));
+        return;
+      }
       if (said.failed) {
         // Сорванный опрос живого поиска (сервер уже отвечал) не сбой: сервер досчитывает
         // заход, и следующий опрос его застаёт. Сбой - только подряд `_POLL_TRIES` раз.
@@ -484,6 +490,29 @@ const TCHome = {
     retry.textContent = TC.say('web.detail.retry');
     retry.addEventListener('click', () => TCHome._runSearch(text, true));
     body.append(failed, retry);
+    if (known.length) {
+      const shown = TCHome._searchResults(known, true);
+      body.append(...Array.from(shown.children).filter((one) => !one.matches('.tc-searching')));
+    }
+    TCHome._shownHits = ' ';
+    return body;
+  },
+
+  // Названный отказ круга поиска: сервер знает, ПОЧЕМУ ничего нет («раздач с сезоном 9
+  // нет», «во франшизе столько частей нет»), и зритель читает это словами, а не общее
+  // «Ничего для вас». Кнопки повтора тут нет нарочно: второй такой же заход ответит то
+  // же самое, помогает другое название - о нём и подсказка (TC-1304).
+  _searchRefused(word, known = []) {
+    TCHome._syncCount(known.length ? known.length : null);
+    const body = document.createElement('div');
+    body.id = 'tc-body';
+    const said = document.createElement('div');
+    said.className = 'tc-nothing';
+    said.textContent = word;
+    const hint = document.createElement('div');
+    hint.className = 'tc-nothing-hint';
+    hint.textContent = TC.say('web.search.empty_hint');
+    body.append(said, hint);
     if (known.length) {
       const shown = TCHome._searchResults(known, true);
       body.append(...Array.from(shown.children).filter((one) => !one.matches('.tc-searching')));

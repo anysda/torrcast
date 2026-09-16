@@ -2828,7 +2828,7 @@ def test_a_missing_part_answer_lists_what_the_franchise_has() -> None:
         Picture(title="Тачки 3", year=2017, part=3, releases=[rel(name="c3", seeders=26)]),
     ]
 
-    text = _nothing("тачки", 1, pictures)
+    text = str(_nothing("тачки", 1, pictures))
 
     assert "pictures in the franchise: 2, no number 1" in text
     assert "Тачки 2 (2011)" in text and "Тачки 3 (2017)" in text

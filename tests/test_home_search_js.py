@@ -158,6 +158,19 @@ def test_a_failed_search_never_draws_the_empty_result(facts: dict[str, Any], nam
 
 
 @pytest.mark.machine
+def test_a_named_refusal_is_read_on_the_screen_and_not_offered_a_retry(
+    facts: dict[str, Any],
+) -> None:
+    """🔴 TC-1304. Круг знал, почему пусто, и сказал словами: зритель обязан их прочесть."""
+    refused = _scenario(facts, "refused")
+
+    assert refused["word"] in refused["screen"]["text"]
+    assert refused["screen"]["failed"] == 0, "отказу по существу предложили «повторить»"
+    assert "web.search.failed" not in refused["screen"]["text"]
+    assert len(refused["polls"]) == 1, "после отказа страница пошла опрашивать дальше"
+
+
+@pytest.mark.machine
 def test_a_failed_search_retries_the_same_query(facts: dict[str, Any]) -> None:
     retried = _scenario(facts, "retry")
     assert retried["queries"] == ["тачки", "тачки"]

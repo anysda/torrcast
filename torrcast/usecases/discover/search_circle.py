@@ -12,6 +12,7 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.journal.slot import journal
@@ -148,11 +149,11 @@ def search_circle(
     journal().mark("поиск", найдено=len(raw))
     journal().emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
     if not raw:
-        raise NotFoundError(phrase("discover.nothing_found", name=name))
+        raise NothingFoundError(phrase("discover.nothing_found", name=name))
     if not pictures:
         raise NotFoundError(phrase("discover.nothing_parsed", name=name))
     if not found:
-        raise NotFoundError(_nothing(name, index, pictures))
+        raise _nothing(name, index, pictures)
     lead = _leading(found)
     if lead is not None and lead.also:
         # Склейка картин (:func:`~torrcast.domain.glue.glue`) - решение автоматическое, и молчать
