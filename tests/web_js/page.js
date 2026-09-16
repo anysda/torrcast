@@ -165,6 +165,9 @@ function page(answer, { latency = 30 } = {}) {
   const doc = new Document();
   const time = clock();
   const opened = [];
+  // Имя, с которым карточку открыли: плитка выдачи обязана спросить раздачи ПО СВОЕЙ
+  // картине, а не по набранному тексту, иначе круг молчит о половине экрана.
+  const cards = [];
   const polls = [];
   const queries = [];
   const header = doc.createElement('div');
@@ -185,7 +188,7 @@ function page(answer, { latency = 30 } = {}) {
     ResizeObserver: class { observe() {} },
     TC: { say: (key) => key, count: (key, n) => key + ':' + n, header: () => header },
     TCKept: { mark() {}, take: () => null },
-    TCRouter: { card: (key) => opened.push(key) },
+    TCRouter: { card(key, query) { opened.push(key); cards.push([key, query]); } },
     fetch: (url, init) => new Promise((done, fail) => {
       const began = time.now();
       const body = JSON.parse(init.body);
@@ -216,7 +219,7 @@ function page(answer, { latency = 30 } = {}) {
     vm.runInContext(fs.readFileSync(path.join(STATIC, name), 'utf8'), ctx, { filename: name });
   }
   ctx.TCApi.sources = async () => 0;
-  return { doc, time, ctx, opened, polls, queries, home: ctx.TCHome };
+  return { doc, time, ctx, opened, cards, polls, queries, home: ctx.TCHome };
 }
 
 module.exports = { page };

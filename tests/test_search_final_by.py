@@ -36,11 +36,12 @@ def _age(query: str) -> None:
 
 
 def _titles(results: list[Any]) -> list[tuple[str, Any]]:
-    return [(hit["title"], hit.get("dim")) for hit in results]
+    """Имя и «ждёт раздачи»: по сроку финала плитка каталога ждать перестаёт."""
+    return [(hit["title"], hit.get("pending")) for hit in results]
 
 
 def test_a_circle_past_the_deadline_gives_the_poll_a_final_from_what_came() -> None:
-    """Круг не вернулся к сроку: финал из пришедшего, каталог без раздач гаснет, круг дописывает."""
+    """Круг не вернулся к сроку: финал из пришедшего, плитка перестаёт ждать, круг дописывает."""
     wire_catalogue()
     gate = threading.Event()
     client = _PreviewClient(answers={"тачки": _CARS}, raw=_CARS[:1])
@@ -58,11 +59,11 @@ def test_a_circle_past_the_deadline_gives_the_poll_a_final_from_what_came() -> N
         while time.monotonic() < deadline and len(results) < 2:
             results, partial = poll()
         assert partial is True
-        assert _titles(results) == [("Нетакого тачки", None), ("Тачки", None)]
+        assert _titles(results) == [("Нетакого тачки", True), ("Тачки", None)]
         _age("тачки")
         results, partial = poll()
         assert partial is False, "срок прошёл: опрос обязан получить финал, а не ещё одно превью"
-        assert _titles(results) == [("Нетакого тачки", True), ("Тачки", None)]
+        assert _titles(results) == [("Нетакого тачки", None), ("Тачки", None)]
     finally:
         gate.set()
     deadline = time.monotonic() + 3.0

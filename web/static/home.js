@@ -558,7 +558,10 @@ const TCHome = {
       return body;
     }
     if (partial) body.appendChild(TCHome._searchingLine());
-    TCHome._syncCount(results.filter((hit) => !hit.dim && !hit.pending).length);
+    // Счёт - то, что на экране. Прежде он считал только плитки с уже найденными
+    // раздачами и при двенадцати плитках писал «5 results»: погашенных в нём не было,
+    // а стояли они тут же. Неоткрываемых плиток больше нет, и делить экран не на что.
+    TCHome._syncCount(results.length);
     // Отрисованный экран запоминается СТРОКОЙ: следующий равный ответ не повод
     // пересобирать экран.
     TCHome._shownHits = TCHome._screenOf(results, partial);
@@ -587,17 +590,22 @@ const TCHome = {
         poster: hit.poster,
         year: hit.year,
         facts: { title: hit.title, shown: hit.shown || hit.title, year: hit.year, kind: hit.kind },
-        best: firstBest && index === 0 && !hit.dim,
+        best: firstBest && index === 0,
         group: 'search-results',
-        query: TCHome._query,
+        // Раздачи этой плитки круг выдачи уже принёс (`pick` - её место в нём): карточка
+        // берёт их даром, тем же набранным текстом, и открывается мгновенно. Плитке, до
+        // которой круг не дошёл, тот же текст отвечал 404 и отнимал картину - «Атака
+        // клонов» по строке «star wars» 404, по своему имени 57 раздач. Она спрашивает
+        // СВОЁ имя, как полка и «Похожее» (`_tileFrom`, `card-series.js`), и круг этого
+        // имени платится один и только по клику (стенд: 17-39 с вхолодную).
+        query: hit.pick === undefined ? hit.title : TCHome._query,
+        warm: TCHome._query,
         focusId: ids[index],
-        // Картина каталога ждёт раздачи под своей обложкой, а не нашлось их за весь круг -
-        // гаснет и больше не открывается: карточке без раздач нечего играть.
+        // Пока круг идёт, плитка каталога честно ждёт раздачи под своей обложкой. Когда
+        // он кончился, ждать нечего: молчание круга о картине - не приговор ей, и клик
+        // у плитки не отнимается ни в одном случае.
         caption2: hit.pending ? TC.say('web.detail.searching_releases') : '',
-        dim: !!hit.dim,
-        // У всей выдачи запрос ОДИН - тот, что человек написал: весь экран находок
-        // стоит прогреву одного круга, а не одного круга на плитку.
-        onActivate: hit.dim ? null : TCHome._openCard,
+        onActivate: TCHome._openCard,
       }));
     });
     return row;

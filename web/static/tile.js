@@ -5,23 +5,26 @@
 'use strict';
 
 const TCTile = {
-  // shape: {key, title, year, kind, poster, query, caption2, best, progress,
-  //         group, loading, dim, focusId, onActivate}
+  // shape: {key, title, year, kind, poster, query, warm, caption2, best, progress,
+  //         group, loading, focusId, onActivate}
   build(shape) {
     const tile = document.createElement('div');
-    tile.className = shape.dim ? 'tc-tile is-dim' : 'tc-tile';
+    tile.className = 'tc-tile';
     tile.dataset.tcTile = '1';
     if (shape.group) tile.dataset.tcGroup = shape.group;
     if (shape.focusId) tile.dataset.tcFocusId = shape.focusId;
     if (shape.focusId && shape.key) tile.dataset.tcKey = shape.key;
-    // Пометка для прогрева (`warm.js`) - ТОТ ЖЕ запрос, с которым откроется карточка:
-    // другого источника у неё нет, и разойтись им негде. Стоит на самой плитке, потому
-    // что видно на экране именно её, а не строку списка.
-    if (shape.query) tile.dataset.tcWarm = shape.query;
+    // Пометка для прогрева (`warm.js`) - запрос, круг которого этой плитке уже считают.
+    // У полки это её собственный запрос, он же и откроет карточку. У выдачи поиска он
+    // ОДИН на весь экран - набранный текст: греть по имени каждой плитки значило бы
+    // ставить в очередь круг на плитку, а пул индексеров у фона тот же, что у живого
+    // поиска. Карточка спрашивает своё имя сама, и только по клику (`shape.query`).
+    const warm = shape.warm || shape.query;
+    if (warm) tile.dataset.tcWarm = warm;
     // Запись истории: её раздача держится подключённой, пока плитка на странице (`warm.js`).
     if (shape.hold) tile.dataset.tcHold = shape.hold;
-    if (shape.facts && shape.key && shape.query) {
-      tile.dataset.tcWarmFacts = JSON.stringify({ query: shape.query, key: shape.key,
+    if (shape.facts && shape.key && warm) {
+      tile.dataset.tcWarmFacts = JSON.stringify({ query: warm, key: shape.key,
         title: shape.facts.title, year: shape.facts.year, kind: shape.facts.kind });
     }
     if (!shape.loading) {

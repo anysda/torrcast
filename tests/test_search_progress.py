@@ -520,8 +520,8 @@ def test_catalog_tiles_stand_before_the_first_release_and_catch_their_releases()
     ]
 
 
-def test_catalog_tiles_without_releases_dim_only_after_the_whole_circle() -> None:
-    """Запрос без раздач: плитки видны, пока круг идёт, и гаснут после него, а не 409."""
+def test_catalog_tiles_without_releases_wait_only_while_the_circle_runs() -> None:
+    """Запрос без раздач: плитки видны и открываются, а круг молчит без 409 и без пометок."""
     wire_catalogue()
     gate = threading.Event()
     client = _PreviewClient(answers={}, raw=[])
@@ -537,10 +537,12 @@ def test_catalog_tiles_without_releases_dim_only_after_the_whole_circle() -> Non
     assert partial is True
     assert [(hit["title"], hit.get("pending"), hit.get("dim")) for hit in results] == [
         ("Нетакого", True, None)
-    ], "до конца круга плитка ждёт раздачи, а не гаснет"
+    ], "до конца круга плитка ждёт раздачи"
     gate.set()
     deadline = time.monotonic() + 2.0
     while partial and time.monotonic() < deadline:
         results, partial = poll()
     assert partial is False
-    assert [(hit["title"], hit.get("dim")) for hit in results] == [("Нетакого", True)]
+    assert [(hit["title"], hit.get("pending"), hit.get("dim")) for hit in results] == [
+        ("Нетакого", None, None)
+    ], "круг кончился: ждать нечего, а гасить нечему - карточка спросит своё имя сама"

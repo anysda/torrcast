@@ -178,11 +178,25 @@ def test_a_failed_search_retries_the_same_query(facts: dict[str, Any]) -> None:
 
 
 @pytest.mark.machine
-def test_a_catalog_tile_without_releases_dims_and_does_not_open(facts: dict[str, Any]) -> None:
-    dim = _scenario(facts, "dim")
-    assert (dim["during"]["waiting"], dim["during"]["dim"]) == (1, 0)
-    assert (dim["after"]["waiting"], dim["after"]["dim"]) == (0, 1)
-    assert dim["opened"] == ["a"], "погасшая плитка открывает карточку"
+def test_a_catalog_tile_without_releases_waits_and_then_opens_by_its_own_name(
+    facts: dict[str, Any],
+) -> None:
+    """🔴 TC-1312. Экран гасил и лишал клика картины, которые на самом деле играются.
+
+    Круг спрошен по набранному тексту, и его молчание о картине - не приговор ей: «Атаки
+    клонов» по строке «star wars» круг не принёс, а по её собственному имени принёс 57
+    раздач. Поэтому ждёт плитка только пока круг идёт, гасить нечего вовсе, клик остаётся
+    у всех, а карточка плитки без находки спрашивает раздачи по имени своей картины.
+    Находка круга (``pick``) остаётся на набранном тексте: её раздачи уже сосчитаны, и
+    платить за них второй раз нечем. Греется экран по-прежнему одним кругом набранного
+    текста: иначе каждая плитка ставила бы в очередь свой круг к тем же индексерам.
+    """
+    waiting = _scenario(facts, "waiting")
+    assert (waiting["during"]["waiting"], waiting["during"]["dim"]) == (1, 0)
+    assert (waiting["after"]["waiting"], waiting["after"]["dim"]) == (0, 0)
+    assert waiting["opened"] == ["a", "c"], "плитка без раздач потеряла клик"
+    assert waiting["cards"] == [["a", "тачки"], ["c", "T c"]], "карточку просят не тем именем"
+    assert waiting["warm"] == ["тачки", "тачки"], "прогрев экрана стоит круга на каждую плитку"
 
 
 @pytest.mark.machine

@@ -4,9 +4,19 @@
 же картины встаёт В её плитку, а не рядом, и выдача под курсором не прыгает ни во время
 круга, ни в его конце: зритель уже навёл курсор на плитку и жмёт. Картину узнаёт то же
 правило, каким карточка ищет свою картину в круге (:mod:`web.card_lookup`): имя целиком и
-хотя бы одно из «род, год». Плитка, которой после ПОЛНОГО круга раздач не нашлось, гаснет
-на своём месте (``dim``); до конца круга она только ждёт (``pending``). Догадка подсказчика
-(:data:`~hass.catalog_tiles.GUESS`) без раздач после круга уходит совсем.
+хотя бы одно из «род, год». Пока круг идёт, плитка без находки ждёт (``pending``), а к концу
+круга остаётся обычной плиткой каталога.
+
+🔴 Плитка БЕЗ находки не гаснет и клика не теряет. Круг этой выдачи спрошен по набранному
+тексту, и его молчание о картине - не приговор ей: карточка спрашивает раздачи заново, по
+собственному имени картины (``web/static/home.js``), и «Атака клонов», которой тут находки
+не досталось, отвечала 57 раздачами. Серость же говорила «играть нечего» там, где нечего
+было только этому кругу, и отнимала клик у всех таких плиток без исключения. Место в круге
+(``pick``) с такой плитки снимается: она его не занимала, и страница по нему решает, каким
+именем спрашивать раздачи.
+
+Догадка подсказчика (:data:`~hass.catalog_tiles.GUESS`) без раздач после круга уходит
+совсем: про неё мы не знаем даже того, что такая картина есть.
 """
 
 from __future__ import annotations
@@ -20,6 +30,9 @@ from web.card_lookup import _score
 
 #: Сколько должно совпасть: имя и род или имя и год. Опечатку в имени тут не верят.
 _SAME: Final = 2
+
+#: Чего у плитки без находки быть не может: догадки подсказчика и места в круге.
+_NOT_FOUND: Final = frozenset({GUESS, "pick"})
 
 _Record = dict[str, JsonValue]
 
@@ -36,15 +49,19 @@ def catalog_merge(
         if at is not None:
             slots[at] = _text(tile, "key")
     landed = {key: n for n, key in slots.items()}
-    wait = "dim" if done else "pending"
     return [
         *(
-            {**found[landed[key]], "slot": key} if key in landed else {**_bare(tile), wait: True}
+            {**found[landed[key]], "slot": key} if key in landed else _waiting(tile, done)
             for tile in tiles
             if (key := _text(tile, "key")) and (key in landed or not (done and tile.get(GUESS)))
         ),
         *(hit for n, hit in enumerate(found) if n not in slots),
     ]
+
+
+def _waiting(tile: _Record, done: bool) -> _Record:
+    """Плитка, которой находки не досталось: ждёт, пока круг идёт, и не больше того."""
+    return _bare(tile) if done else {**_bare(tile), "pending": True}
 
 
 def _match(tile: _Record, hits: list[_Record], slots: dict[int, str]) -> int | None:
@@ -72,7 +89,13 @@ def _picture(record: _Record, name: str) -> Picture:
 
 
 def _bare(tile: _Record) -> _Record:
-    return {name: value for name, value in tile.items() if name != GUESS}
+    """Плитка каталога без следов круга: места в нём (``pick``) у неё нет.
+
+    Плитки строятся тем же ``_hit``, что и находки, и несут ``pick`` нулём
+    (:mod:`hass.catalog_tiles`). Страница читает его как «раздачи уже принесены» и
+    спрашивает карточку набранным текстом - тем самым, каким круг о картине промолчал.
+    """
+    return {name: value for name, value in tile.items() if name not in _NOT_FOUND}
 
 
 def _text(record: _Record, name: str) -> str:

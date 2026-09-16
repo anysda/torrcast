@@ -167,19 +167,23 @@ const scenarios = {
     return { polls: p.polls, queries: p.queries, screen: screen(p) };
   },
 
-  // Картина каталога ждёт раздач, а в финале гаснет: подпись «ищу раздачи» уходит, клика нет.
-  async dim() {
+  // Картина каталога, которой круг не принёс раздач: пока круг идёт - ждёт под подписью,
+  // в финале становится обычной плиткой. Клик у неё есть и там, и там; карточку она просит
+  // по своему имени, а находка круга (`pick`) - по набранному тексту, раздачи которого ей
+  // уже посчитаны. Греется весь экран одним набранным текстом.
+  async waiting() {
     const p = search((n) => ({
       partial: n < 2,
-      results: [hit('a'), hit('c', n < 2 ? { pending: true } : { dim: true })],
+      results: [hit('a', { pick: 0 }), hit('c', n < 2 ? { pending: true } : {})],
       finalBy: 12,
     }));
     await p.time.run(200);
     const during = screen(p);
     await p.time.run(60000);
     const tiles = p.doc.querySelectorAll(LIVE);
+    const warm = tiles.map((tile) => tile.dataset.tcWarm);
     tiles.forEach((tile) => tile.dispatch('click'));
-    return { during, after: screen(p), opened: p.opened };
+    return { during, after: screen(p), warm, opened: p.opened, cards: p.cards };
   },
 
   // Фокус на плитке второго ряда: дописанное превью и переставленный финал его не уводят.
