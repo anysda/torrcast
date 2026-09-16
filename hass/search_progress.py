@@ -20,19 +20,18 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Protocol
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from hass import searching
 from hass.catalog_merge import catalog_merge
 from hass.catalog_tiles import CatalogTiles
-from hass.hit_ask import _about, _name
-from hass.hit_posters import FIELD
 from hass.redress import redress
 from hass.refused_error import RefusedError
 from hass.search_job import POSTERS_BY, SearchJob, _Shared
 from hass.search_results import _hit
 from hass.searching import Detect, Offer, Remember
+from hass.shown_covers import _Covers, shown_covers
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.menu_order import menu_order
@@ -72,16 +71,6 @@ def _search_with_hook(
 
 
 PROGRESSIVE_SEARCH: ProgressiveSearch = _search_with_hook
-
-
-class _Covers(Protocol):
-    """Что мост знает о картинках записей (:class:`hass.hit_posters.HitPosters`)."""
-
-    def landed(self, record: JsonValue) -> bool: ...
-
-    def pending(self, records: Sequence[JsonValue]) -> bool: ...
-
-    def due(self, records: Sequence[JsonValue]) -> bool: ...
 
 
 #: Заходы поиска по тексту запроса; общий на процесс, как и у прочих слотов моста.
@@ -171,7 +160,7 @@ def search_progress(
         job.settle(_preview(query, job, offer, done=True))
     if not job.done:
         preview = _preview(query, job, offer)
-        return (preview if covers is None else _shown(preview, covers)), True
+        return (preview if covers is None else shown_covers(preview, covers)), True
     if job.error is not None:
         raise RefusedError(job.error)
     if covers is None:
@@ -179,7 +168,7 @@ def search_progress(
     job.promised = job.promised or covers.pending(job.results)
     if _coming(job, covers) and not job.judging and covers.due(job.results):
         redress(job, searching.OFFER if offer is None else offer)
-    return _shown(job.results, covers), False
+    return shown_covers(job.results, covers), False
 
 
 def _coming(job: SearchJob, covers: _Covers | None) -> bool:
@@ -187,32 +176,6 @@ def _coming(job: SearchJob, covers: _Covers | None) -> bool:
     if covers is None or not job.done or time.monotonic() - job.started_at >= POSTERS_BY:
         return False
     return job.promised or job.judging or covers.pending(job.results)
-
-
-def _shown(results: list[JsonValue], covers: _Covers) -> list[JsonValue]:
-    """Записи для страницы: имя картинки у всех, чьи байты уже здесь, и только у них.
-
-    🔴 Имя не только отнимается, но и ВЫДАЁТСЯ. Приговор пачки отвечает целиком, и
-    тридцать две готовые обложки стояли за сетевым ответом о восьми, которых нет нигде:
-    зритель видел 38 серых плиток из 40 восемь секунд подряд (TC-1268). Полка читается в
-    начале приговора (:meth:`hass.hit_claims.HitClaims._claim`), а байты ложатся частями,
-    и легшая картинка уходит на экран ближайшим опросом, не ожидая всей пачки.
-
-    Имя картинки - это её собственные название, год и род (:func:`hass.hit_ask._name`), а
-    байты под ним положил приговор об этой же картине: чужой картинке взяться неоткуда.
-    Тем же приёмом отдаёт легшее шаг HA, не дождавшийся приговора (:mod:`hass.offer_within`).
-    """
-    return [_covered(record, covers) for record in results]
-
-
-def _covered(record: JsonValue, covers: _Covers) -> JsonValue:
-    """Запись с именем картинки, если её байты здесь, и без имени, если их ещё нет."""
-    if not isinstance(record, dict):
-        return record
-    if covers.landed(record):
-        ask = _about(record)
-        return record if ask is None else {**record, FIELD: _name(ask)}
-    return {name: value for name, value in record.items() if name != FIELD}
 
 
 __all__ = ["JOB_TTL", "PROGRESSIVE_SEARCH", "ProgressiveSearch", "search_progress"]
