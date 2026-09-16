@@ -57,6 +57,44 @@ class TelegramApi:
             params["reply_to_message_id"] = reply_to_message_id
         return self._client.call("sendMessage", **params)
 
+    def photo(
+        self,
+        chat_id: str,
+        body: bytes,
+        caption: str,
+        buttons: list[list[dict[str, str]]] | None = None,
+    ) -> _TelegramResult:
+        """Послать картинку с подписью одним сообщением и вернуть весь исход.
+
+        Подпись и кнопки едут той же посылкой: пульту нужна ОДНА карточка, а не
+        картинка отдельно и кнопки под ней (:class:`tgbot.telegram_control.TelegramControl`).
+        """
+        params: dict[str, object] = {
+            "chat_id": chat_id,
+            "caption": caption,
+            "disable_notification": True,
+        }
+        if buttons is not None:
+            params["reply_markup"] = json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
+        return self._client.upload("sendPhoto", {"photo": body}, **params)
+
+    def edit_caption(
+        self,
+        chat_id: str,
+        message_id: int,
+        caption: str,
+        buttons: list[list[dict[str, str]]] | None = None,
+    ) -> _TelegramResult:
+        """Переписать подпись картинки; текстовая правка на ней не работает вовсе."""
+        markup = {"inline_keyboard": buttons or []}
+        return self._client.call(
+            "editMessageCaption",
+            chat_id=chat_id,
+            message_id=message_id,
+            caption=caption,
+            reply_markup=json.dumps(markup, ensure_ascii=False),
+        )
+
     def edit(
         self,
         chat_id: str,

@@ -10,6 +10,7 @@ from typing import Any
 
 from tgbot.command_result import command_result
 from tgbot.config import Config
+from tgbot.dressed_control import dressed_control
 from tgbot.i18n import _failure_detail, i18n
 from tgbot.playback_observer import PlaybackObserver
 from tgbot.playing_title import playing_title
@@ -17,7 +18,6 @@ from tgbot.restore_flag_dashes import restore_flag_dashes
 from tgbot.stop_now import StopNow
 from tgbot.telegram_api import TelegramApi
 from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
-from tgbot.telegram_control import TelegramControl
 from tgbot.telegram_progress import TelegramProgress
 from torrcast.cli.main import main as run_cast
 from torrcast.domain.exit_codes import EXIT_CANCELLED
@@ -48,7 +48,7 @@ class Bot:
         self._title = title
         assemble()
         self._choice = TelegramChoiceEnvironment(self._api, config.chat_id)
-        self._control = TelegramControl(self._api, config.chat_id, remember=not injected_api)
+        self._control = dressed_control(self._api, config.chat_id, remember=not injected_api)
         self._observer = PlaybackObserver(self._control, self._title, self._choice)
         self._progress = TelegramProgress(self._api, config.chat_id)
         install_progress(self._progress.new)

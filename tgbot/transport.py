@@ -38,6 +38,23 @@ class _TelegramClient:
 
     def call(self, method: str, **params: object) -> _TelegramResult:
         """Вызвать Bot API, не раскрывая токен в диагностике исключения."""
+        return self._sent(method, None, params)
+
+    def upload(self, method: str, files: dict[str, bytes], /, **params: object) -> _TelegramResult:
+        """Вызвать Bot API с байтами вложением: обложку пульта берут только телом.
+
+        Полем ``data`` уехало бы текстовое подобие байтов, и Telegram ответил бы
+        отказом про негодную картинку (:meth:`tgbot.telegram_api.TelegramApi.photo`).
+        """
+        return self._sent(method, files, params)
+
+    def _sent(
+        self,
+        method: str,
+        files: dict[str, bytes] | None,
+        params: dict[str, object],
+    ) -> _TelegramResult:
+        """Одна посылка Bot API: общий срок, общий разбор ответа."""
         alarm = threading.current_thread() is threading.main_thread()
         previous = signal.getsignal(signal.SIGALRM)
         try:
@@ -47,6 +64,7 @@ class _TelegramClient:
             response = requests.post(
                 self._base + method,
                 data=params,
+                files=files,
                 proxies=self._proxies,
                 timeout=self._timeout,
             )

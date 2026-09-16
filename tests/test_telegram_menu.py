@@ -17,6 +17,8 @@ class _Api:
         self.edited: list[tuple[str, int, str, object]] = []
         self.replied: list[int | None] = []
         self.deleted: list[int] = []
+        self.photos: list[tuple[str, bytes, str, object]] = []
+        self.captions: list[tuple[str, int, str, object]] = []
 
     def send(
         self,
@@ -39,6 +41,26 @@ class _Api:
         self.replied.append(reply_to_message_id)
         self.sent.append((chat_id, text, buttons))
         return _TelegramResult(200, "", {"message_id": 42})
+
+    def photo(
+        self,
+        chat_id: str,
+        body: bytes,
+        caption: str,
+        buttons: object = None,
+    ) -> _TelegramResult:
+        self.photos.append((chat_id, body, caption, buttons))
+        return _TelegramResult(200, "", {"message_id": 77})
+
+    def edit_caption(
+        self,
+        chat_id: str,
+        message_id: int,
+        caption: str,
+        buttons: object = None,
+    ) -> _TelegramResult:
+        self.captions.append((chat_id, message_id, caption, buttons))
+        return _TelegramResult(200, "", {"message_id": message_id})
 
     def delete(self, _chat_id: str, message_id: int) -> object:
         self.deleted.append(message_id)
