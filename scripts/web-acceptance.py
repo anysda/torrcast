@@ -2007,7 +2007,23 @@ def check_5_bookmark(ctx: Ctx) -> Result:
         and ready
         and not waits
     )
-    shown = f"{from_click:.1f}" if from_click is not None else "нет"
+    # 🔴 Без плитки замера НЕ БЫЛО, и печатать тут нули значит соврать в обе стороны:
+    # «Играть ждали 0.0 с» читается как мгновенная кнопка, «кадр нет» - как сорванный
+    # показ. Дефект пункта в этом случае ровно один, плитка, и остальное честнее назвать
+    # неизмеренным, чем подсунуть разбору цифру, которой никто не снимал.
+    measured = (
+        f"«Играть» ждали {waited:.1f} с (порог {_PLAY_READY_BAR:.0f}); "
+        + (
+            f"кадр с закладки {from_click:.1f} с от клика"
+            if from_click is not None
+            else "кадра с закладки нет"
+        )
+        + f" ({frame!r} с по счётчику, порог {_FRAME_BAR:.0f}); "
+        + (
+            f"подгрузы за {_BOOKMARK_WATCH:.0f} с после кадра: {len(waits)}, "
+            f"сумма {total:.1f} с {[round(value, 1) for value in waits]}"
+        )
+    )
     where = (
         "сразу"
         if at_once
@@ -2017,13 +2033,8 @@ def check_5_bookmark(ctx: Ctx) -> Result:
             else f"НЕТ и после {revisits} заходов на главную за {tile_wait:.0f} с"
         )
     )
-    detail = (
-        f"после Esc история {key!r} на {position!r}; «Продолжить» {where}; "
-        f"«Играть» ждали {waited:.1f} с (порог {_PLAY_READY_BAR:.0f}); "
-        f"кадр с закладки {shown} с от клика "
-        f"({frame!r} с по счётчику, порог {_FRAME_BAR:.0f}); "
-        f"подгрузы за {_BOOKMARK_WATCH:.0f} с после кадра: {len(waits)}, "
-        f"сумма {total:.1f} с {[round(value, 1) for value in waits]}"
+    detail = f"после Esc история {key!r} на {position!r}; «Продолжить» {where}; " + (
+        measured if fresh else "с закладки не мерили ничего: плитки не было"
     )
     return Result(5, "Закладка", ok, None, detail)
 
