@@ -71,3 +71,6 @@ def test_a_typo_the_indexers_do_not_know_finds_the_picture_by_its_names(
 
     assert (plans[0].picture.title, len(plans[0].picture.releases)) == ("Интерстеллар", 2)
     assert "Интерстелар" in indexer.asked
+    # Круг узнанной картины уже спросил то, за чем пошли бы доборы: три строки в индексер,
+    # не больше, иначе они встают в очередь Prowlarr и финал поиска длиннее.
+    assert indexer.asked == ["Интерстелар", "Интерстеллар 2014", "Interstellar 2014"]
