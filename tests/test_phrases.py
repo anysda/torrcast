@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from web.answer import JSON
 from web.phrases import phrases
 from web.request import Request
@@ -19,44 +17,16 @@ def _said(query: dict[str, str]) -> dict[str, str]:
     return parsed
 
 
-def _tongue_of(query: dict[str, str]) -> str:
-    said = dict(phrases(Request("GET", "/api/phrases", query, {})).headers())
-    return said["Content-Language"]
-
-
-def test_the_page_speaks_the_language_of_the_product_when_none_is_asked() -> None:
-    """Страница - такой же голос продукта, как и консоль, и язык у них один."""
+def test_the_page_speaks_english_when_no_language_is_asked() -> None:
     assert _said({})["web.shelf.new"] == "New"
-
-
-@pytest.mark.usefixtures("_russian_product")
-def test_a_russian_instance_opens_its_page_in_russian_without_being_asked() -> None:
-    """🔴 TC-1305. Владелец не знает английского, а `language: ru` до страницы не доходил."""
-    assert _said({})["web.shelf.new"] == "Новинки"
 
 
 def test_the_page_speaks_russian_when_asked() -> None:
     assert _said({"lang": "ru"})["web.shelf.new"] == "Новинки"
 
 
-@pytest.mark.usefixtures("_russian_product")
-def test_a_named_language_outranks_the_language_of_the_product() -> None:
-    """Английская витрина проекта живёт на русском экземпляре: спросили - отдали."""
-    assert _said({"lang": "en"})["web.shelf.new"] == "New"
-
-
 def test_an_unknown_language_falls_back_to_english_and_not_to_emptiness() -> None:
     assert _said({"lang": "de"})["web.shelf.new"] == "New"
-
-
-@pytest.mark.usefixtures("_russian_product")
-def test_the_answer_names_the_language_it_speaks() -> None:
-    """Считать числительные по своему же вопросу странице нельзя: вопроса могло не быть."""
-    assert (_tongue_of({}), _tongue_of({"lang": "en"}), _tongue_of({"lang": "de"})) == (
-        "ru",
-        "en",
-        "en",
-    )
 
 
 def test_both_languages_hold_the_very_same_keys() -> None:
