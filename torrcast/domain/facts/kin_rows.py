@@ -18,13 +18,19 @@ def _kin_key(entity: str) -> str:
     двигать его надо при каждой правке запроса. Пустая полка - законный ряд кэша, а не
     «не спрашивали»: без номера установка, успевшая один раз получить пусто старым
     запросом, держала бы эту пустоту вечно и правки запроса не увидела бы никогда.
+
+    🔴 TC-1321: 2 -> 3 при добавлении ``?itemLabelRu`` в сам запрос - без сдвига диск
+    отдавал бы старые ряды без русского ярлыка вечно, и правка молчала бы на прогретом
+    кэше (тем же способом, каким молчала бы пустая полка старым запросом).
     """
-    return f"kin|2|{entity}"
+    return f"kin|3|{entity}"
 
 
 def _kin_row(found: list[Kin]) -> JsonValue:
     """Список родни в ряд кэша; пустой список - законный ряд «родни нет»."""
-    return [{"entity": one.entity, "name": one.name, "year": one.year} for one in found]
+    return [
+        {"entity": one.entity, "name": one.name, "year": one.year, "ru": one.ru} for one in found
+    ]
 
 
 def _row_kin(row: JsonValue) -> list[Kin] | None:
@@ -41,6 +47,7 @@ def _row_kin(row: JsonValue) -> list[Kin] | None:
                 str(item.get("entity", "")),
                 str(item.get("name", "")),
                 year if isinstance(year, int) else None,
+                str(item.get("ru", "")),
             )
         )
     return out

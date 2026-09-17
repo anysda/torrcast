@@ -6,7 +6,7 @@ from torrcast.domain.facts.kin_rows import _kin_key, _kin_row, _row_kin
 
 def test_the_key_names_the_entity_it_was_asked_about() -> None:
     """Ключ ряда родни отличим от ключей паспортов и справки в том же файле."""
-    assert _kin_key("Q105598") == "kin|2|Q105598"
+    assert _kin_key("Q105598") == "kin|3|Q105598"
     assert _kin_key("Q105598") != _kin_key("Q46717")
 
 
@@ -18,7 +18,7 @@ def test_the_key_carries_the_number_of_the_question_that_filled_it() -> None:
     ряд первым и до сети не доходит. Номер в ключе - единственное, что отличает «пусто
     по старому спросу» от «пусто по нынешнему», и двигается он вместе с запросом.
     """
-    assert _kin_key("Q105598").startswith("kin|2|")
+    assert _kin_key("Q105598").startswith("kin|3|")
 
 
 def test_kin_survives_the_round_trip_through_a_row() -> None:
@@ -27,6 +27,13 @@ def test_kin_survives_the_round_trip_through_a_row() -> None:
         Kin("Q105993", "Крепкий орешек 2", 1990),
         Kin("Q72276", "A Good Day to Die Hard", None),
     ]
+    assert _row_kin(_kin_row(found)) == found
+
+
+def test_a_russian_label_survives_the_round_trip_too() -> None:
+    """TC-1321: без этого поле ``ru`` молчало бы навсегда на прогретом кэше - продукт
+    получил бы русское имя из свежего запроса и тут же потерял его на диске."""
+    found = [Kin("Q165817", "Saving Private Ryan", 1998, ru="Спасти рядового Райана")]
     assert _row_kin(_kin_row(found)) == found
 
 
