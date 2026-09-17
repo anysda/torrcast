@@ -20,6 +20,22 @@ def _reply(*rows: tuple[str, str, str]) -> JsonValue:
     }
 
 
+def _reply_with_ru(*rows: tuple[str, str, str, str]) -> JsonValue:
+    return {
+        "results": {
+            "bindings": [
+                {
+                    "item": {"value": f"http://www.wikidata.org/entity/{entity}"},
+                    "itemLabel": {"value": label},
+                    "itemLabelRu": {"value": ru},
+                    "date": {"value": date},
+                }
+                for entity, label, ru, date in rows
+            ]
+        }
+    }
+
+
 def test_kin_come_back_in_the_order_they_first_appeared() -> None:
     """Полка рода печатается в порядке ответа, а не пересортированной."""
     payload = _reply(
@@ -45,6 +61,22 @@ def test_a_picture_without_any_date_still_carries_its_name() -> None:
     """Год не сверен - полка не молчит вовсе, показывает то, что известно."""
     payload = _reply(("Q121862910", "Джон Уик 5", ""))
     assert read_kin(payload) == [Kin("Q121862910", "Джон Уик 5", None)]
+
+
+def test_a_pure_russian_label_lands_on_kin_ru_next_to_the_fallback_name() -> None:
+    """TC-1321: ``itemLabelRu`` - живой русский ярлык, отдельно от запасного ``itemLabel``
+    (который у «Saving Private Ryan» сползает на английский, хотя ``ru`` у Wikidata есть)."""
+    row = ("Q165817", "Saving Private Ryan", "Спасти рядового Райана", "1998-07-24")
+    assert read_kin(_reply_with_ru(row)) == [
+        Kin("Q165817", "Saving Private Ryan", 1998, ru="Спасти рядового Райана")
+    ]
+
+
+def test_no_russian_wikidata_label_leaves_kin_ru_empty() -> None:
+    """Нет ``itemLabelRu`` в ответе - поле пустое, а не выдуманное: последнее слово
+    за отсевом кириллицей в :func:`web.related_lookup._spoken`."""
+    payload = _reply(("Q9", "Black Panther III", ""))
+    assert read_kin(payload) == [Kin("Q9", "Black Panther III", None, ru="")]
 
 
 def test_an_answer_without_rows_is_an_empty_shelf_and_not_an_error() -> None:

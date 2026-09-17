@@ -321,12 +321,12 @@ def test_the_related_tile_speaks_the_passports_latin_name_under_english(
     assert tile["shown"] == "Harry Potter and the Chamber of Secrets"
 
 
-def test_a_kin_name_without_cyrillic_is_dropped_under_the_russian_tongue(
+def test_a_kin_name_without_cyrillic_and_without_a_russian_label_is_dropped(
     _russian_product: None,
 ) -> None:
-    """TC-1321, дословно владельца: «убрать», а не второй язык (TC-956). Wikidata уже
-    отдаёт русское имя, если оно у статьи есть (``"ru,en"`` в :func:`kin_query`); нет
-    его - плитка не идёт в полку вместо показа чужим языком продукта."""
+    """TC-1321, дословно владельца: «убрать», а не второй язык (TC-956). Wikidata не
+    назвала статью по-русски вовсе (``kin.ru`` пусто) и запасное имя латиницей - плитка
+    не идёт в полку вместо показа чужим языком продукта."""
     latin = Kin("Q9", "Black Panther III", 2028)
     lookup = RelatedLookup(franchise=lambda *_a: [_ONE, latin], offer=_passthrough, spawn=_sync)
 
@@ -337,8 +337,50 @@ def test_a_kin_name_without_cyrillic_is_dropped_under_the_russian_tongue(
     assert names == ["Гарри Поттер и Тайная комната"]
 
 
+def test_a_kin_with_a_real_russian_label_stays_and_speaks_it(_russian_product: None) -> None:
+    """Разбор владельца: «Saving Private Ryan» - у Wikidata (Q165817) РУССКИЙ ярлык
+    есть, но запасное ``itemLabel`` иногда сползает на английский. Плитка не убирается -
+    показывается настоящим русским именем той же самой Wikidata, вторым походом не
+    добывается (:func:`kin_query`, ``?itemLabelRu`` в том же запросе, TC-1321)."""
+    ryan = Kin("Q165817", "Saving Private Ryan", 1998, ru="Спасти рядового Райана")
+    lookup = RelatedLookup(franchise=lambda *_a: [ryan], offer=_passthrough, spawn=_sync)
+
+    related = lookup.of("Список Шиндлера", False)
+
+    assert related is not None and len(related) == 1
+    tile = related[0]
+    assert isinstance(tile, dict)
+    assert tile["title"] == "Спасти рядового Райана"
+    assert tile["shown"] == "Спасти рядового Райана"
+    assert tile["key"] == "movie:спасти-рядового-райана:1998"
+
+
 def test_a_kin_name_without_cyrillic_is_kept_under_the_english_tongue() -> None:
     """Под английским - продукт латинский, и фильтр под русский его не касается."""
+    latin = Kin("Q9", "Black Panther III", 2028)
+    lookup = RelatedLookup(franchise=lambda *_a: [latin], offer=_passthrough, spawn=_sync)
+
+    related = lookup.of("Люди Икс", False)
+
+    assert related is not None and len(related) == 1
+
+
+def test_a_kin_without_any_wikidata_date_is_dropped_regardless_of_tongue() -> None:
+    """TC-1320, бесплатный признак: без срока (P577/P580) играбельной раздачи не бывает
+    - «Войны в доспехах» и подобные анонсы без даты убираются даже с кириллическим
+    именем и без похода в Prowlarr."""
+    announced = Kin("Q1", "Войны в доспехах", None, ru="Войны в доспехах")
+    lookup = RelatedLookup(franchise=lambda *_a: [announced], offer=_passthrough, spawn=_sync)
+
+    related = lookup.of("Люди Икс", False)
+
+    assert related == []
+
+
+def test_a_dated_kin_survives_the_playability_filter_under_english(
+    _english: None,
+) -> None:
+    """Отсев по дате не завязан на язык - живая дата под английским тоже проходит."""
     latin = Kin("Q9", "Black Panther III", 2028)
     lookup = RelatedLookup(franchise=lambda *_a: [latin], offer=_passthrough, spawn=_sync)
 

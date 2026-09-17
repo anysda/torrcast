@@ -25,6 +25,7 @@ def read_kin(payload: JsonValue) -> list[Kin]:
     if not isinstance(payload, dict):
         return []
     names: dict[str, str] = {}
+    ru_names: dict[str, str] = {}
     years: dict[str, set[int]] = {}
     order: list[str] = []
     for row in json_rows(json_map(payload.get("results")).get("bindings")):
@@ -38,7 +39,13 @@ def read_kin(payload: JsonValue) -> list[Kin]:
         label = str(json_map(cell.get("itemLabel")).get("value", ""))
         if label:
             names[item] = label
+        ru_label = str(json_map(cell.get("itemLabelRu")).get("value", ""))
+        if ru_label:
+            ru_names[item] = ru_label
         date = _DATE_RE.match(str(json_map(cell.get("date")).get("value", "")))
         if date:
             years.setdefault(item, set()).add(int(date.group(1)))
-    return [Kin(item, names[item], min(years[item]) if item in years else None) for item in order]
+    return [
+        Kin(item, names[item], min(years[item]) if item in years else None, ru_names.get(item, ""))
+        for item in order
+    ]

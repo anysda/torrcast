@@ -26,3 +26,13 @@ def test_the_pictures_that_point_at_the_franchise_are_asked_too() -> None:
 def test_the_asked_picture_is_filtered_out_of_its_own_kin() -> None:
     """P155/P156 со звёздочкой на нулевом шаге возвращает саму картину - её вычёркивает FILTER."""
     assert "FILTER(?item != wd:Q1)" in kin_query("Q1")
+
+
+def test_a_pure_russian_label_is_asked_in_the_same_request() -> None:
+    """TC-1321: запасной ``?itemLabel`` иногда сползает на английский даже при живом
+    русском ярлыке (владелец, «Saving Private Ryan» / Q165817) - второй, ЧИСТЫЙ русский
+    ярлык едет тем же походом, не вторым запросом на плитку."""
+    query = kin_query("Q165817")
+
+    assert "?itemLabelRu" in query.split("WHERE", 1)[0], "не в SELECT - код его не прочитает"
+    assert "OPTIONAL { ?item rdfs:label ?itemLabelRu . FILTER(lang(?itemLabelRu) = 'ru') }" in query

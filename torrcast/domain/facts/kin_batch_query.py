@@ -13,6 +13,5 @@ def kin_batch_query(entities: list[str]) -> str:
     пачку (замер CT501 14-09-2026), и множества родни у каждой совпали с одиночными.
     """
     values = " ".join(f"wd:{entity}" for entity in entities)
-    return f"SELECT ?src ?item ?itemLabel ?date WHERE {{ VALUES ?src {{ {values} }} " + (
-        _branches("?src")
-    )
+    head = f"SELECT ?src ?item ?itemLabel ?itemLabelRu ?date WHERE {{ VALUES ?src {{ {values} }} "
+    return head + _branches("?src")

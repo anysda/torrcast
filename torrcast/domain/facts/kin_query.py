@@ -30,12 +30,18 @@ def kin_query(entity: str) -> str:
     Имя берётся русским с английским запасным (`SERVICE wikibase:label`): голый
     английский ярлык звучал бы чужим на русской странице, а без запасного часть родни
     осталась бы вовсе без имени.
+
+    🔴 TC-1321. Запасной механизм иногда отдаёт английский ярлык там, где у самой
+    картины по факту ЕСТЬ русский (владелец нашёл «Saving Private Ryan» - у Q165817
+    `rdfs:label` на русском есть, замер живым SPARQL). Поэтому рядом с запасным полем
+    едет ``?itemLabelRu`` - ЧИСТО русский ярлык без подмены, тем же походом (нет второго
+    запроса на плитку): язык продукта решает по НЕМУ, а не по гадающему запасному.
     """
-    return f"SELECT ?item ?itemLabel ?date WHERE {{ {_branches('wd:' + entity)}"
+    return f"SELECT ?item ?itemLabel ?itemLabelRu ?date WHERE {{ {_branches('wd:' + entity)}"
 
 
 def _branches(src: str) -> str:
-    """Тело запроса после ``WHERE {``: три ветки родни, класс фильма и имя."""
+    """Тело запроса после ``WHERE {``: три ветки родни, класс фильма и оба имени."""
     return (
         f"{{ {src} wdt:P179 ?series . ?item wdt:P179 ?series }} "
         f"UNION {{ {src} (wdt:P155|wdt:P156)* ?item }} "
@@ -43,5 +49,6 @@ def _branches(src: str) -> str:
         f"?item wdt:P31/wdt:P279* {_FILM_CLASS} . "
         f"FILTER(?item != {src}) "
         "OPTIONAL { ?item wdt:P577|wdt:P580 ?date } "
+        "OPTIONAL { ?item rdfs:label ?itemLabelRu . FILTER(lang(?itemLabelRu) = 'ru') } "
         'SERVICE wikibase:label { bd:serviceParam wikibase:language "ru,en". } }'
     )

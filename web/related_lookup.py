@@ -61,19 +61,21 @@ def _no_warm(_kin: list[Kin]) -> None:
 
 
 def _spoken(found: list[Kin]) -> list[Kin]:
-    """Без кириллицы под русским - убираем, не переводим (TC-1321, TC-956; заодно TC-1320)."""
-    return found if tongue() == EN else [kin for kin in found if _CYRILLIC.search(kin.name)]
+    """Без срока Wikidata не играбельна - убираем всегда (TC-1320, бесплатный признак).
+    Под русским - живой ``kin.ru`` вместо гадающего запасного (TC-1321); без него и без
+    кириллицы вовсе - тоже убираем, не переводим (TC-956, один путь имени)."""
+    dated = [kin for kin in found if kin.year is not None]
+    if tongue() == EN:
+        return dated
+    kept = [kin._replace(name=kin.ru) if kin.ru else kin for kin in dated]
+    return [kin for kin in kept if _CYRILLIC.search(kin.name)]
 
 
 def _seed(kin: Kin, original: str) -> dict[str, JsonValue]:
-    """Плитка родни до обложки: ``original`` - розыскное поле обложки, а не показа;
-    латиницы у родни без статьи на другом языке тоже нет, и это честно.
-
+    """Плитка родни до обложки: ``original`` - розыскное поле обложки, а не показа.
     🔴 ``query`` - имя САМОЙ родни: карточка ищет ключ в круге этого запроса
-    (:func:`web.card_lookup.card_lookup`). Запрос родительской картины находил соседей
-    только у коротких названий («Терминатор»); у «Гарри Поттер и философский камень» и
-    «Властелин колец: Братство кольца» 12 соседей из 12 отвечали 404 (стенд `.136`).
-    """
+    (:func:`web.card_lookup.card_lookup`); запрос родительской картины отвечал 404 у
+    всех соседей «Гарри Поттера» и «Властелина колец» (стенд `.136`)."""
     return {
         "key": f"movie:{slugify(kin.name)}:{kin.year or 0}",
         "title": kin.name,
@@ -158,12 +160,10 @@ class RelatedLookup:
 
     def _build(self, title: str, series: bool, entity: str = "") -> None:
         """Собрать плитки родни; молчание в кэш не ложится - переспросят после :data:`SILENT`.
-
         🔴 Пустая полка кэшируется только когда она ОТВЕЧЕНА (:meth:`FranchiseKin.of`
-        отдал список): ``None`` - сеть промолчала, и записать его «родни нет» на час
-        (:data:`RETRY`) значило бы гасить полку одной оборванной связью (стенд `.104`
-        10-09-2026). Без ``try/finally`` упавший фон держал имя в ``_pending`` вечно.
-        """
+        отдал список): ``None`` - сеть промолчала, и записать «родни нет» на час
+        (:data:`RETRY`) гасило бы полку одной оборванной связью (стенд `.104`, 10-09-2026).
+        Без ``try/finally`` упавший фон держал имя в ``_pending`` вечно."""
         found: list[Kin] | None = None
         try:
             found = (
