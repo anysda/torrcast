@@ -17,6 +17,7 @@ from hass.hit_posters import hits
 from torrcast.domain.catalogs.tongue import EN, tongue
 from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.patterns import _CYRILLIC
 from torrcast.domain.facts.settings import SPARQL_TIMEOUT
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
@@ -59,18 +60,19 @@ def _no_warm(_kin: list[Kin]) -> None:
     return None
 
 
-def _seed(kin: Kin, original: str) -> dict[str, JsonValue]:
-    """Плитка родни до обложки: ``original`` в ней только на розыск обложки, не на показ.
+def _spoken(found: list[Kin]) -> list[Kin]:
+    """Без кириллицы под русским - убираем, не переводим (TC-1321, TC-956; заодно TC-1320)."""
+    return found if tongue() == EN else [kin for kin in found if _CYRILLIC.search(kin.name)]
 
-    Wikidata не называет род родни - франшизы приёмки (§8) все до одной кино, и это
-    умолчание, а не подпорка под конкретное название. Латиница - паспорт того же имени
-    (:func:`torrcast.usecases.passport.Passport.of`), каким гейт добора проверяет саму
-    картину; нет статьи на другом языке - латиницы у родни тоже нет, и это честно.
+
+def _seed(kin: Kin, original: str) -> dict[str, JsonValue]:
+    """Плитка родни до обложки: ``original`` - розыскное поле обложки, а не показа;
+    латиницы у родни без статьи на другом языке тоже нет, и это честно.
 
     🔴 ``query`` - имя САМОЙ родни: карточка ищет ключ в круге этого запроса
-    (:func:`web.card_lookup.card_lookup`). Запрос родительской картины находил соседей только
-    у коротких названий («Терминатор»); у «Гарри Поттер и философский камень» и «Властелин
-    колец: Братство кольца» 12 соседей из 12 отвечали 404 (стенд `.136` 13-09-2026).
+    (:func:`web.card_lookup.card_lookup`). Запрос родительской картины находил соседей
+    только у коротких названий («Терминатор»); у «Гарри Поттер и философский камень» и
+    «Властелин колец: Братство кольца» 12 соседей из 12 отвечали 404 (стенд `.136`).
     """
     return {
         "key": f"movie:{slugify(kin.name)}:{kin.year or 0}",
@@ -158,12 +160,9 @@ class RelatedLookup:
         """Собрать плитки родни; молчание в кэш не ложится - переспросят после :data:`SILENT`.
 
         🔴 Пустая полка кэшируется только когда она ОТВЕЧЕНА (:meth:`FranchiseKin.of`
-        отдал список). ``None`` - сеть промолчала, и записать его «родни нет» на час
-        (:data:`RETRY`) значило бы гасить полку одной оборванной связью: замер
-        10-09-2026 на стенде `.104` - «Чужой» отвечал пустой полкой при шести частях
-        франшизы в живом ответе Wikidata. Ошибка добора - тоже не ответ: без
-        ``try/finally`` упавший фон держал имя в ``_pending`` вечно, и полка висела
-        недоехавшей до перезапуска процесса.
+        отдал список): ``None`` - сеть промолчала, и записать его «родни нет» на час
+        (:data:`RETRY`) значило бы гасить полку одной оборванной связью (стенд `.104`
+        10-09-2026). Без ``try/finally`` упавший фон держал имя в ``_pending`` вечно.
         """
         found: list[Kin] | None = None
         try:
@@ -174,6 +173,7 @@ class RelatedLookup:
             )
             if found is None:
                 return
+            found = _spoken(found)
             seeds: list[JsonValue] = [_seed(kin, self._latin_of(kin.name)) for kin in found]
             # Названия и годы уже пришли от Wikidata. Приговор постеров - отдельная сеть,
             # и держать правильную полку до его ответа значило бы платить её при клике.

@@ -321,6 +321,32 @@ def test_the_related_tile_speaks_the_passports_latin_name_under_english(
     assert tile["shown"] == "Harry Potter and the Chamber of Secrets"
 
 
+def test_a_kin_name_without_cyrillic_is_dropped_under_the_russian_tongue(
+    _russian_product: None,
+) -> None:
+    """TC-1321, дословно владельца: «убрать», а не второй язык (TC-956). Wikidata уже
+    отдаёт русское имя, если оно у статьи есть (``"ru,en"`` в :func:`kin_query`); нет
+    его - плитка не идёт в полку вместо показа чужим языком продукта."""
+    latin = Kin("Q9", "Black Panther III", 2028)
+    lookup = RelatedLookup(franchise=lambda *_a: [_ONE, latin], offer=_passthrough, spawn=_sync)
+
+    related = lookup.of("Люди Икс", False)
+
+    assert related is not None
+    names = [tile["title"] for tile in related if isinstance(tile, dict)]
+    assert names == ["Гарри Поттер и Тайная комната"]
+
+
+def test_a_kin_name_without_cyrillic_is_kept_under_the_english_tongue() -> None:
+    """Под английским - продукт латинский, и фильтр под русский его не касается."""
+    latin = Kin("Q9", "Black Panther III", 2028)
+    lookup = RelatedLookup(franchise=lambda *_a: [latin], offer=_passthrough, spawn=_sync)
+
+    related = lookup.of("Люди Икс", False)
+
+    assert related is not None and len(related) == 1
+
+
 def test_the_related_tile_keeps_the_recorded_name_under_russian_even_with_a_passport(
     _russian_product: None,
 ) -> None:
