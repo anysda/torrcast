@@ -321,9 +321,15 @@ const TCPlayer = {
     }, 1000);
   },
 
+  //: «Повторить» возвращает СЕРИЮ в игру, не только поток: тот же ключ, та же позиция,
+  //: она не кончилась. `_ending` держится true с последнего `_startNext()` (снимает его
+  //: только `TCPlayerBox.apply()` у НОВОЙ серии) - не снятый тут, он запирает `!_ending`
+  //: у `_onTimeUpdate`/`ended` до конца этой же серии: плашки больше не будет, и вкладка
+  //: никуда не перейдёт сама, даже доиграв до самого конца (найдено 17-09-2026).
   _retry() {
     TCPlayer._retries = 0;
     TCPlayer._framed = false;
+    TCPlayer._ending = false;
     TCPlayer._screenBuffering();
     TCPlayer._attach(TCPlayer._url, TCPlayer._video.currentTime || 0);
   },

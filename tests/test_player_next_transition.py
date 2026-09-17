@@ -155,6 +155,27 @@ def test_a_lost_stream_or_a_retry_cancels_the_running_countdown(
 
 
 @pytest.mark.machine
+def test_a_successful_retry_lets_the_same_episode_reach_its_own_end(
+    facts: dict[str, Any],
+) -> None:
+    """«Повторить» возвращает серию в игру - она снова имеет право на свой финал.
+
+    `_ending` ставится в `_startNext()` и раньше снимался только `TCPlayerBox.apply()`
+    у НОВОЙ серии - успешный перезапуск ТОЙ ЖЕ серии оставлял его запертым навсегда:
+    ``_onTimeUpdate``/``ended`` молчат под ``!_ending``, плашки больше нет, и вкладка
+    никуда не переходит сама, даже доиграв до самого конца (найдено 17-09-2026).
+    """
+    said = _scenario(facts, "retryReopensTheEndingGuard")
+    assert said["firstCardMounted"] is True
+    assert said["cardGoneAfterLost"] is True, "экран потери потока не убрал первую карточку"
+    assert said["endingStillLatched"] is True, "_ending снялся сам по себе до «Повторить»"
+    assert said["endingAfterRetry"] is False, "«Повторить» не сняло _ending - серия заперта"
+    assert said["secondCardMounted"] is True, "после «Повторить» плашка больше не встаёт"
+    assert said["secondCardExpired"] is True, "вторая карточка не истекла сама"
+    assert said["nextCalls"] == 1, "серия, доигранная после «Повторить», не перешла дальше"
+
+
+@pytest.mark.machine
 def test_a_box_arriving_mid_countdown_is_deferred_not_torn_down(
     facts: dict[str, Any],
 ) -> None:

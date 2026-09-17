@@ -154,6 +154,40 @@ const scenarios = {
     return { lost, retry };
   },
 
+  // Поток порвался внутри окна, три попытки исчерпаны (`_screenLost`), зритель нажал
+  // «Повторить» - серия та же самая, не кончилась, и обязана доиграть до своего
+  // собственного финала: новая плашка и переход, а не немой конец (`_ending`, запертый
+  // `_startNext()`, снимался раньше только у НОВОЙ серии - `TCPlayerBox.apply()`).
+  async retryReopensTheEndingGuard() {
+    const { server } = seriesServer();
+    const p = player(server);
+    p.mount();
+    await p.time.run(200);
+    p.video.duration = 100;
+    p.tick(94.5); // внутри окна плашки - первая карточка встаёт
+    const firstCardMounted = !!overlayCard(p);
+
+    p.ctx.TCPlayer._screenLost(4); // три попытки исчерпаны - экран «поток потерян»
+    const cardGoneAfterLost = !overlayCard(p);
+    const endingStillLatched = p.ctx.TCPlayer._ending;
+
+    p.ctx.TCPlayer._retry(); // зритель нажал «Повторить»
+    await p.time.run(700); // hls-заглушка «разбирает манифест» и досаживает <video>
+    const endingAfterRetry = p.ctx.TCPlayer._ending;
+
+    p.tick(94.6); // тот же хвост, доигрывающий после успешного перезапуска
+    const secondCardMounted = !!overlayCard(p);
+
+    await p.time.run(11000); // окно нового счёта на 10 с
+    const secondCardExpired = !overlayCard(p);
+
+    return {
+      firstCardMounted, cardGoneAfterLost, endingStillLatched,
+      endingAfterRetry, secondCardMounted, secondCardExpired,
+      nextCalls: p.calls.next.length,
+    };
+  },
+
   // Ящик следующей серии находится ПОСРЕДИ счёта: карточку рвать нельзя, ящик ждёт в
   // `_pendingBox` и открывается САМ отсчётом, без второго похода за ящиком.
   async midCountdownReboxDefers() {
