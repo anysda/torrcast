@@ -83,3 +83,61 @@ def test_a_fully_silent_poster_source_leaves_the_shelf_untouched() -> None:
 
     assert len(tiles) == 3
     assert all(isinstance(t, dict) and not t.get("poster") for t in tiles)
+
+
+def _mixed(count: int) -> list[Picture]:
+    """count картин, где каждая вторая записана латиницей: Latin 0, Картина 1, ..."""
+    return [
+        Picture(title=f"Картина {index}" if index % 2 else f"Latin {index}", year=2001)
+        for index in range(count)
+    ]
+
+
+def test_under_russian_a_shelf_drops_latin_tiles_and_tops_their_place_up(
+    _russian_product: None,
+) -> None:
+    """Плитка без кириллицы на полку не идёт, а её место добирает следующая картина."""
+    tiles = shelf_tiles(
+        _mixed(8),
+        offer=_with_poster,
+        passport=lambda title, series, timeout: Origin(),
+        limit=3,
+    )
+
+    assert [t["title"] for t in tiles if isinstance(t, dict)] == [
+        "Картина 1",
+        "Картина 3",
+        "Картина 5",
+    ]
+
+
+def test_under_russian_a_latin_tile_never_reaches_the_poster_offer(
+    _russian_product: None,
+) -> None:
+    """Отбор языка стоит ДО добора обложек: выброшенная плитка их не занимает."""
+    asked: list[str] = []
+
+    def _offer(records: list[JsonValue]) -> list[JsonValue]:
+        asked.extend(str(r["title"]) for r in records if isinstance(r, dict))
+        return _with_poster(records)
+
+    shelf_tiles(_mixed(4), offer=_offer, passport=lambda t, s, to: Origin(), limit=2)
+
+    assert asked == ["Картина 1", "Картина 3"], f"до обложек дошли выброшенные: {asked}"
+
+
+def test_under_english_a_latin_tile_stays_on_the_shelf(_english: None) -> None:
+    """Английская сторона не сдвигается ни на плитку: латиница там и есть имя показа."""
+    tiles = shelf_tiles(
+        _mixed(4),
+        offer=_with_poster,
+        passport=lambda title, series, timeout: Origin(),
+        limit=4,
+    )
+
+    assert [t["title"] for t in tiles if isinstance(t, dict)] == [
+        "Latin 0",
+        "Картина 1",
+        "Latin 2",
+        "Картина 3",
+    ]
