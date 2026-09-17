@@ -14,6 +14,8 @@ from torrcast.domain.spoken_title import spoken_title
 
 #: Кто дописывает плиткам обложку; в бою - :data:`hass.hit_posters.hits`.settled.
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
+#: Играет ли плитка (запрос, ключ); в бою - :meth:`web.shelf_playable.ShelfPlayable.of`.
+Playable = Callable[[str, str], bool]
 #: Тот же ``Passport.of``: раздача сама латиницы не назвала - паспорт добирает её фоном
 #: (:func:`web.related_lookup._seed` живёт тем же приёмом).
 PassportOf = Callable[[str, bool, float], Origin]
@@ -40,14 +42,23 @@ def _no_passport(_title: str, _series: bool, _timeout: float) -> Origin:
     return Origin()
 
 
+def _no_playable(_query: str, _key: str) -> bool:
+    """Без проводки отбор играбельности плитку не трогает: она остаётся на полке."""
+    return True
+
+
 def shelf_tiles(
-    pictures: list[Any], offer: Offer, passport: PassportOf, limit: int | None = None
+    pictures: list[Any],
+    offer: Offer,
+    passport: PassportOf,
+    playable: Playable = _no_playable,
+    limit: int | None = None,
 ) -> list[JsonValue]:
     """Плитки картин с предложенной обложкой, ужатые под контракт ``/api/shelves``."""
     seeds: list[JsonValue] = [picture_tile(picture) for picture in pictures]
     offered = offer(_spoken(seeds))
     if limit is not None:
-        offered = _covered(offered, limit)
+        offered = _covered(offered, limit, playable)
     return [_project(record, passport) for record in offered]
 
 
@@ -79,8 +90,10 @@ def _speaks_russian(record: JsonValue) -> bool:
     return isinstance(title, str) and bool(_CYRILLIC.search(title))
 
 
-def _covered(records: list[JsonValue], limit: int) -> list[JsonValue]:
-    """Первые limit записей с обложкой: место выброшенной добирает следующая картина.
+def _covered(
+    records: list[JsonValue], limit: int, playable: Playable = _no_playable
+) -> list[JsonValue]:
+    """Первые limit записей с обложкой И приговором «играет»: выброшенное добирает следующая.
 
     Рекомендация без картинки - не рекомендация: полку листают глазами, а не читают.
     «Обложки нет» тут - ПРИГОВОР источника, а не «обложка ещё едет»: в бою сборка ждёт
@@ -89,12 +102,29 @@ def _covered(records: list[JsonValue], limit: int) -> list[JsonValue]:
 
     🔴 Имени нет НИ У ОДНОЙ записи - приговора не было вовсе: источник картинок молчит,
     и отличить «обложки нет» от «не спросили» нечем. Такую сборку отбор не трогает -
-    полка из заглушек честнее пустой, - а фон переспросит следующим заходом.
+    полка из заглушек честнее пустой, - а фон переспросит следующим заходом. Приговор
+    играбельности в этом случае тоже не спрашивается - незачем платить дорогим отбором
+    (:mod:`web.shelf_playable`) за полку, которую и так не покажут.
+
+    Играбельность стоит дорого (секунды на плитку, TorrServer), а обложка дёшево -
+    поэтому плитку без обложки отбор играбельности вовсе не трогает, и очередь идёт по
+    покрытым записям, пока не наберёт ``limit`` или не кончится сама.
     """
     covered: list[JsonValue] = [
         record for record in records if isinstance(record, dict) and record.get("poster")
     ]
-    return covered[:limit] if covered else records[:limit]
+    if not covered:
+        return records[:limit]
+    kept: list[JsonValue] = []
+    for record in covered:
+        if len(kept) >= limit:
+            break
+        if not isinstance(record, dict):
+            continue
+        query, key = str(record.get("query", "")), str(record.get("key", ""))
+        if playable(query, key):
+            kept.append(record)
+    return kept
 
 
 def _project(record: JsonValue, passport: PassportOf) -> JsonValue:

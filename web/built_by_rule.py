@@ -22,8 +22,9 @@ from torrcast.domain.json_value import JsonValue
 #: Поле тела полок с номером правила; наружу оно идёт вместе с телом
 #: (``GET /api/shelves``), и страница его просто не читает.
 FIELD: Final = "rule"
-#: Нынешнее правило: 1 - отбор плиток по языку имени (TC-1321).
-RULE: Final = 1
+#: Нынешнее правило: 1 - отбор плиток по языку имени (TC-1321); 2 добавил отсев плиток,
+#: которые не запускаются (:mod:`web.shelf_playable`).
+RULE: Final = 2
 
 
 def built_by_rule(body: dict[str, JsonValue]) -> bool:

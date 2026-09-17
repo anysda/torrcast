@@ -30,7 +30,7 @@ from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
 from torrcast.usecases.shelves.popular_shelf import popular_shelf
 from web.built_by_rule import FIELD, RULE, built_by_rule
 from web.min_tiles import FLOOR, min_tiles
-from web.shelf_tiles import Offer, PassportOf, _no_passport, shelf_tiles
+from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable, shelf_tiles
 from web.warm_targets import WarmTarget
 
 #: Кто приносит ленту последних раздач; в бою - :meth:`Prowlarr.feed`.
@@ -69,11 +69,11 @@ class ShelvesCache:
     path: Path = field(default_factory=shelves_cache_path)
     limit: int = 300
     every: float = 3600.0
-    #: Сколько заходов добора делает одна сборка, пока полки короче планки ТЗ §9
-    #: (:data:`web.min_tiles.FLOOR`), и пауза между заходами.
+    #: Заходов добора, пока полки короче планки ТЗ §9 (:data:`web.min_tiles.FLOOR`), и их пауза.
     attempts: int = 3
     retry_pause: float = 10.0
     passport: PassportOf = _no_passport
+    playable: Playable = _no_playable
     warm: Warm = _no_warm
     spawn: Spawn = _daemon
     sleep: Callable[[float], None] = time.sleep
@@ -156,7 +156,7 @@ class ShelvesCache:
 
     def _tiles(self, pictures: list[Any]) -> list[JsonValue]:
         """Видимые плитки полки: только картины с обложкой, в числе видимых ТЗ §9."""
-        return shelf_tiles(pictures, self.offer, self.passport, limit=SHELF_LIMIT)
+        return shelf_tiles(pictures, self.offer, self.passport, self.playable, limit=SHELF_LIMIT)
 
     def _load(self) -> dict[str, JsonValue]:
         try:
@@ -197,4 +197,4 @@ def _empty() -> dict[str, JsonValue]:
     return {FIELD: RULE, "fresh": [], "popular": [], "built_at": None}
 
 
-__all__ = ["Feed", "Offer", "PassportOf", "ShelvesCache", "Spawn", "Warm"]
+__all__ = ["Feed", "Offer", "PassportOf", "Playable", "ShelvesCache", "Spawn", "Warm"]

@@ -126,6 +126,45 @@ def test_under_russian_a_latin_tile_never_reaches_the_poster_offer(
     assert asked == ["Картина 1", "Картина 3"], f"до обложек дошли выброшенные: {asked}"
 
 
+def test_an_unplayable_tile_is_dropped_and_its_place_is_topped_up() -> None:
+    """Плитка, которую отбор не смог запустить, на полку не идёт - место добирает следующая."""
+
+    def _playable(_query: str, key: str) -> bool:
+        return "-1:" not in key and "-3:" not in key
+
+    tiles = shelf_tiles(
+        _pictures(6),
+        offer=_with_poster,
+        passport=lambda title, series, timeout: Origin(),
+        playable=_playable,
+        limit=4,
+    )
+
+    titles = [t["title"] for t in tiles if isinstance(t, dict)]
+    assert "Картина 1" not in titles and "Картина 3" not in titles
+    assert len(titles) == 4
+
+
+def test_a_tile_without_a_poster_never_asks_whether_it_plays() -> None:
+    """Играбельность дорогая - отбор без обложки её вовсе не спрашивает."""
+    asked: list[str] = []
+
+    def _playable(query: str, _key: str) -> bool:
+        asked.append(query)
+        return True
+
+    shelf_tiles(_pictures(4), offer=_odd_posters, passport=lambda t, s, to: Origin(), limit=2)
+    shelf_tiles(
+        _pictures(4),
+        offer=_odd_posters,
+        passport=lambda t, s, to: Origin(),
+        playable=_playable,
+        limit=2,
+    )
+
+    assert asked == ["Картина 1", "Картина 3"], f"плитку без обложки отбор всё же спросил: {asked}"
+
+
 def test_under_english_a_latin_tile_stays_on_the_shelf(_english: None) -> None:
     """Английская сторона не сдвигается ни на плитку: латиница там и есть имя показа."""
     tiles = shelf_tiles(

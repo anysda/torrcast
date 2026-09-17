@@ -12,8 +12,14 @@ from torrcast.domain.feed_row import FeedRow
 from torrcast.runtime.facts_wiring import FACTS
 from web.answer import Answer
 from web.request import Request
+from web.shelf_playable import PLAYABLE
 from web.shelves_cache import ShelvesCache
 from web.warm_wiring import TARGETS
+
+
+def _playable(query: str, key: str) -> bool:
+    """Плитка играет, если фоновый отбор раздачи нашёл рабочую дорожку (TC-1343)."""
+    return PLAYABLE.of(query, key, load_config())
 
 
 def _feed(limit: int) -> list[FeedRow]:
@@ -35,6 +41,7 @@ _cache = ShelvesCache(
     catalogue=torrent_catalogue,
     offer=hits.settled,
     passport=FACTS.passport.of,
+    playable=_playable,
     warm=TARGETS.prepare,
 )
 
