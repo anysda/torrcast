@@ -16,7 +16,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from web.built_by_rule import FIELD, RULE
-from web.shelves_cache import Feed, Offer, PassportOf, ShelvesCache, Spawn
+from web.shelves_cache import Feed, Offer, PassportOf, Playable, ShelvesCache, Spawn
 from web.warm_targets import WarmTarget
 
 _MOMENT = datetime(2026, 9, 6, tzinfo=UTC)
@@ -59,6 +59,7 @@ def _cache(
     feed: Feed | None = None,
     offer: Offer | None = None,
     passport: PassportOf | None = None,
+    playable: Playable | None = None,
     spawn: Spawn | None = None,
     attempts: int = 1,
     sleep: Callable[[float], None] = _still,
@@ -71,6 +72,7 @@ def _cache(
         attempts=attempts,
         sleep=sleep,
         passport=passport or (lambda title, series, timeout: Origin()),
+        playable=playable or (lambda query, key: True),
         spawn=spawn or (lambda job: None),
         clock=lambda: _MOMENT,
     )
@@ -326,14 +328,38 @@ def test_the_loop_rebuilds_then_sleeps_for_the_configured_period(tmp_path: Path)
     assert slept == [3600.0]
 
 
-def test_a_short_build_is_topped_up_until_the_shelves_meet_the_floor(tmp_path: Path) -> None:
-    """ТЗ §9: короче 20 плиток полка человеку не отдаётся - фон спрашивает ленту ещё."""
-    answers = [_many_rows(18), _many_rows(25)]
+def test_a_short_build_is_topped_up_while_the_feed_keeps_growing(tmp_path: Path) -> None:
+    """Добор не мерит снятую планку (TC-1353): пока лента приносит новое, заходы длятся."""
+    answers = [_many_rows(10), _many_rows(18), _many_rows(25)]
     calls = 0
 
     def feed(_limit: int) -> list[FeedRow]:
         nonlocal calls
-        answer = answers[min(calls, len(answers) - 1)]
+        answer = answers[calls]
+        calls += 1
+        return answer
+
+    slept: list[float] = []
+    cache = _cache(tmp_path, feed=feed, attempts=3, sleep=slept.append)
+
+    cache._rebuild()
+
+    assert calls == 3
+    assert slept == [cache.retry_pause, cache.retry_pause]
+    body = cache._body
+    assert body is not None
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 25
+    assert isinstance(body["popular"], list) and len(body["popular"]) == 25
+
+
+def test_a_rebuild_stops_early_once_the_feed_stops_growing(tmp_path: Path) -> None:
+    """Заход без новых строк и без более полной полки не звонит зря третий раз (TC-1343)."""
+    answers = [_many_rows(25), _many_rows(25), _many_rows(60)]
+    calls = 0
+
+    def feed(_limit: int) -> list[FeedRow]:
+        nonlocal calls
+        answer = answers[calls]
         calls += 1
         return answer
 
@@ -344,10 +370,6 @@ def test_a_short_build_is_topped_up_until_the_shelves_meet_the_floor(tmp_path: P
 
     assert calls == 2
     assert slept == [cache.retry_pause]
-    body = cache._body
-    assert body is not None
-    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 25
-    assert isinstance(body["popular"], list) and len(body["popular"]) == 25
 
 
 def test_a_failed_attempt_is_retried_inside_the_same_rebuild(tmp_path: Path) -> None:
@@ -371,17 +393,56 @@ def test_a_failed_attempt_is_retried_inside_the_same_rebuild(tmp_path: Path) -> 
     assert isinstance(body["fresh"], list) and len(body["fresh"]) == 25
 
 
-def test_a_full_shelf_is_not_replaced_by_a_short_build(tmp_path: Path) -> None:
-    """Полная полка остаётся на месте, когда свежая сборка планку не взяла."""
+def test_a_full_shelf_is_not_replaced_by_a_drastically_shrunk_build(tmp_path: Path) -> None:
+    """Полная полка остаётся на месте, когда свежая сборка усохла больше чем вдвое (TC-1343).
+
+    Планка тут не абсолютная ``FLOOR`` (снята - TC-1353), а относительная половина
+    прежнего тела того же правила (:data:`web.worth_publishing.SHRINK_FLOOR`).
+    """
+    answers = iter([_many_rows(25), _many_rows(10)])
+    cache = _cache(tmp_path, feed=lambda limit: next(answers))
+
+    cache._rebuild()
+    old = cache._body
+    cache._rebuild()
+
+    assert cache._body is old
+    body = cache._body
+    assert body is not None
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 25
+
+
+def test_a_full_shelf_is_replaced_by_a_moderately_shorter_build(tmp_path: Path) -> None:
+    """Небольшая усушка (не половина) - честный отсев, а не поломка стенда, и публикуется."""
     answers = iter([_many_rows(25), _many_rows(18)])
     cache = _cache(tmp_path, feed=lambda limit: next(answers))
 
     cache._rebuild()
+    old = cache._body
     cache._rebuild()
 
+    assert cache._body is not old
     body = cache._body
     assert body is not None
-    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 25
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 18
+
+
+def test_a_high_drop_ratio_blocks_publishing_without_touching_the_live_body(
+    tmp_path: Path,
+) -> None:
+    """Половина проверенных картин честно «не играет» - заход подозрителен, тело не трогается."""
+
+    def half_playable(query: str, _key: str) -> bool:
+        index = int(query.rsplit(" ", 1)[-1])
+        return index % 2 == 1
+
+    cache = _cache(tmp_path, feed=lambda limit: _many_rows(60), playable=half_playable)
+
+    cache._rebuild()
+    old = cache._body
+    cache._rebuild()
+
+    assert cache._body is old
 
 
 def test_all_short_attempts_publish_their_fullest_build(tmp_path: Path) -> None:

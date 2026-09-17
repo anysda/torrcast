@@ -14,8 +14,9 @@ from torrcast.domain.spoken_title import spoken_title
 
 #: Кто дописывает плиткам обложку; в бою - :data:`hass.hit_posters.hits`.settled.
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
-#: Играет ли плитка (запрос, ключ); в бою - :meth:`web.shelf_playable.ShelfPlayable.of`.
-Playable = Callable[[str, str], bool]
+#: Играет ли плитка (запрос, ключ): ``True``/``False`` - честный приговор, ``None`` -
+#: не знаем (плитка остаётся); в бою - :meth:`web.shelf_playable.ShelfPlayable.of`.
+Playable = Callable[[str, str], bool | None]
 #: Тот же ``Passport.of``: раздача сама латиницы не назвала - паспорт добирает её фоном
 #: (:func:`web.related_lookup._seed` живёт тем же приёмом).
 PassportOf = Callable[[str, bool, float], Origin]
@@ -109,6 +110,11 @@ def _covered(
     Играбельность стоит дорого (секунды на плитку, TorrServer), а обложка дёшево -
     поэтому плитку без обложки отбор играбельности вовсе не трогает, и очередь идёт по
     покрытым записям, пока не наберёт ``limit`` или не кончится сама.
+
+    Приговор трёхсоставный (:data:`web.shelf_playable.Verdict`): ``False`` - честно не
+    играет, место отдаётся следующему кандидату; ``None`` («не знаем» - сеть легла, стенд
+    не ответил, отбор не дочитал) плитку не трогает и остаётся на полке ровно как при
+    честном «играет» - выбрасывать картину за чужую поломку стенда нельзя.
     """
     covered: list[JsonValue] = [
         record for record in records if isinstance(record, dict) and record.get("poster")
@@ -122,7 +128,7 @@ def _covered(
         if not isinstance(record, dict):
             continue
         query, key = str(record.get("query", "")), str(record.get("key", ""))
-        if playable(query, key):
+        if playable(query, key) is not False:
             kept.append(record)
     return kept
 

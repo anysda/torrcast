@@ -17,8 +17,12 @@ from web.shelves_cache import ShelvesCache
 from web.warm_wiring import TARGETS
 
 
-def _playable(query: str, key: str) -> bool:
-    """Плитка играет, если фоновый отбор раздачи нашёл рабочую дорожку (TC-1343)."""
+def _playable(query: str, key: str) -> bool | None:
+    """Плитка играет, если фоновый отбор раздачи нашёл рабочую дорожку (TC-1343).
+
+    Трёхсоставный приговор (:data:`web.shelf_playable.Verdict`) идёт наружу как есть -
+    «не знаю» решает :func:`web.shelf_tiles._covered`, не эта проводка.
+    """
     return PLAYABLE.of(query, key, load_config())
 
 

@@ -29,9 +29,12 @@ from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
 from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
 from torrcast.usecases.shelves.popular_shelf import popular_shelf
 from web.built_by_rule import FIELD, RULE, built_by_rule
-from web.min_tiles import FLOOR, min_tiles
+from web.drop_count import DropCount
+from web.min_tiles import min_tiles
 from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable, shelf_tiles
+from web.shelf_warm_targets import shelf_warm_targets
 from web.warm_targets import WarmTarget
+from web.worth_publishing import worth_publishing
 
 #: Кто приносит ленту последних раздач; в бою - :meth:`Prowlarr.feed`.
 Feed = Callable[[int], list[FeedRow]]
@@ -42,7 +45,6 @@ Warm = Callable[[list[WarmTarget], list[WarmTarget]], object]
 #: на полку не попадают, а их места добираются следующими картинами с обложкой
 #: (:func:`web.shelf_tiles._covered`), и запас кандидатов - это из чего добирать.
 _CANDIDATES: Final = SHELF_LIMIT * 3
-_VISIBLE: Final = 8
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -69,7 +71,8 @@ class ShelvesCache:
     path: Path = field(default_factory=shelves_cache_path)
     limit: int = 300
     every: float = 3600.0
-    #: Заходов добора, пока полки короче планки ТЗ §9 (:data:`web.min_tiles.FLOOR`), и их пауза.
+    #: Потолок заходов добора ленты (:meth:`_rebuild` бросает раньше, если заход не
+    #: принёс ни новых строк, ни полки полнее прежнего захода), и их пауза.
     attempts: int = 3
     retry_pause: float = 10.0
     passport: PassportOf = _no_passport
@@ -110,53 +113,68 @@ class ShelvesCache:
     def _rebuild(self) -> None:
         """Собрать обе полки заново; отказ ленты не роняет цикл - следующий час свой.
 
-        Медленный круг отдаёт не всю ленту (молчащий индексер не приносит строк), и
-        сборка выходит короче планки ТЗ §9 (:data:`web.min_tiles.FLOOR`). Такую
-        полку человеку не отдают: фон добирает ленту ещё заходами, склеивая строки по
-        хэшу раздачи, и берёт самую полную из попыток; а собранную полную полку
-        короткая сборка не заменяет вовсе. Тем же счётом меряется и отбор плиток без
-        обложки: полка после него не вправе стать короче, чем была бы без него.
+        Молчащий индексер не приносит строк, и сборка выходит короче, чем могла бы: фон
+        добирает ленту ещё заходами, склеивая строки по хэшу раздачи, и берёт самую
+        полную попытку. Добор останавливается САМ, не по снятой планке ТЗ §9
+        (:data:`web.min_tiles.FLOOR` - карта TC-1353, прогресс добора не мерит): заход
+        без новых строк и без более полной полки следующего добавить уже не может.
+
+        Публикация - отдельный вопрос: даже самая полная попытка может оказаться хуже
+        уже опубликованной (:func:`web.worth_publishing.worth_publishing`), и
+        тогда фон отступает молча, до следующего часа.
         """
         rows: dict[str, FeedRow] = {}
         best: dict[str, JsonValue] | None = None
+        best_drops = DropCount()
         for attempt in range(self.attempts):
             if attempt:
                 self.sleep(self.retry_pause)
+            before = len(rows)
             try:
                 for row in self.feed(self.limit):
                     rows.setdefault(row.raw.info_hash.lower(), row)
-                body = self._build(list(rows.values()))
+                drops = DropCount()
+                body = self._build(list(rows.values()), drops.wrap(self.playable))
             except TorrcastError:
                 continue
-            if best is None or min_tiles(body) > min_tiles(best):
-                best = body
-            if min_tiles(best) >= FLOOR:
+            grew = best is None or min_tiles(body) > min_tiles(best)
+            if grew:
+                best, best_drops = body, drops
+            if len(rows) == before and not grew:
                 break
         if best is None:
             return
         # Сначала факты плиток, затем публикация: клик по уже видимой полке не ждёт
         # единственного рабочего поиска раздач.
-        self.warm(_targets(best), _targets(best, later=True))
+        self.warm(shelf_warm_targets(best), shelf_warm_targets(best, later=True))
         with self._lock:
             current = self._body or _empty()
-            if built_by_rule(current) and min_tiles(current) >= FLOOR > min_tiles(best):
+            if not worth_publishing(current, best, best_drops):
                 return
             self._body = best
         self._save(best)
 
-    def _build(self, rows: list[FeedRow]) -> dict[str, JsonValue]:
-        """Тело ответа из строк ленты: обе полки, отметка времени и клеймо отбора."""
+    def _build(self, rows: list[FeedRow], playable: Playable) -> dict[str, JsonValue]:
+        """Тело ответа из строк ленты: обе полки, отметка времени и клеймо отбора.
+
+        ``playable`` приходит явно от :meth:`_rebuild`, а не из :attr:`playable` предмета -
+        так один заход считает свой :class:`~web.drop_count.DropCount`, не мешая с чужим.
+        """
         now = self.clock()
         return {
             FIELD: RULE,
-            "fresh": self._tiles(fresh_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES)),
-            "popular": self._tiles(popular_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES)),
+            "fresh": self._tiles(
+                fresh_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES), playable
+            ),
+            "popular": self._tiles(
+                popular_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES), playable
+            ),
             "built_at": now.isoformat(),
         }
 
-    def _tiles(self, pictures: list[Any]) -> list[JsonValue]:
+    def _tiles(self, pictures: list[Any], playable: Playable) -> list[JsonValue]:
         """Видимые плитки полки: только картины с обложкой, в числе видимых ТЗ §9."""
-        return shelf_tiles(pictures, self.offer, self.passport, self.playable, limit=SHELF_LIMIT)
+        return shelf_tiles(pictures, self.offer, self.passport, playable, limit=SHELF_LIMIT)
 
     def _load(self) -> dict[str, JsonValue]:
         try:
@@ -169,27 +187,6 @@ class ShelvesCache:
         # диск лёг - полки просто не переживут рестарт, показу до этого дела нет
         with contextlib.suppress(TorrcastError):
             _write_atomic(self.path, body)
-
-
-def _targets(body: dict[str, JsonValue], later: bool = False) -> list[WarmTarget]:
-    """Первые видимые плитки обеих полок; ``later`` - плитки за ними, ближние первыми."""
-    shelves = [
-        rows if isinstance(rows := body.get(shelf), list) else [] for shelf in ("fresh", "popular")
-    ]
-    if later:
-        depth = max(map(len, shelves))
-        tiles = [rows[at] for at in range(_VISIBLE, depth) for rows in shelves if at < len(rows)]
-    else:
-        tiles = [tile for rows in shelves for tile in rows[:_VISIBLE]]
-    targets: list[WarmTarget] = []
-    for tile in tiles:
-        if not isinstance(tile, dict):
-            continue
-        title, year, kind = tile.get("title"), tile.get("year"), tile.get("kind")
-        if not isinstance(title, str) or not isinstance(year, int) or not isinstance(kind, str):
-            continue
-        targets.append((str(tile.get("query", "")), str(tile.get("key", "")), title, year, kind))
-    return targets
 
 
 def _empty() -> dict[str, JsonValue]:

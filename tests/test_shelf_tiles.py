@@ -145,6 +145,26 @@ def test_an_unplayable_tile_is_dropped_and_its_place_is_topped_up() -> None:
     assert len(titles) == 4
 
 
+def test_an_unknown_verdict_tile_stays_on_the_shelf() -> None:
+    """«Не знаю» (сеть легла, TorrServer не ответил) не выбрасывает картину - она остаётся,
+    ровно как при честном «играет» (:data:`web.shelf_playable.Verdict`)."""
+
+    def _unknown(_query: str, key: str) -> bool | None:
+        return None if "-1:" in key or "-3:" in key else True
+
+    tiles = shelf_tiles(
+        _pictures(6),
+        offer=_with_poster,
+        passport=lambda title, series, timeout: Origin(),
+        playable=_unknown,
+        limit=6,
+    )
+
+    titles = [t["title"] for t in tiles if isinstance(t, dict)]
+    assert "Картина 1" in titles and "Картина 3" in titles
+    assert len(titles) == 6
+
+
 def test_a_tile_without_a_poster_never_asks_whether_it_plays() -> None:
     """Играбельность дорогая - отбор без обложки её вовсе не спрашивает."""
     asked: list[str] = []

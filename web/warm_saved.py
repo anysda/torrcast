@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from torrcast.ports.state_store.slot import store
+from web.shelf_warm_targets import shelf_warm_targets
 from web.shelves import _cache
-from web.shelves_cache import _targets
 from web.warm_targets import WarmTarget
 
 
@@ -12,7 +12,8 @@ def warm_saved() -> None:
     """Start disk-cached visible tiles, then Continue and later tiles, before a request."""
     saved = _cache._load()
     if saved.get("built_at") is not None:
-        _cache.warm(_targets(saved), _continued() + _targets(saved, later=True))
+        later = _continued() + shelf_warm_targets(saved, later=True)
+        _cache.warm(shelf_warm_targets(saved), later)
 
 
 def _continued() -> list[WarmTarget]:
