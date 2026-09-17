@@ -28,6 +28,7 @@ from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
 from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
 from torrcast.usecases.shelves.popular_shelf import popular_shelf
+from web.built_by_rule import FIELD, RULE, built_by_rule
 from web.min_tiles import FLOOR, min_tiles
 from web.shelf_tiles import Offer, PassportOf, _no_passport, shelf_tiles
 from web.warm_targets import WarmTarget
@@ -137,16 +138,17 @@ class ShelvesCache:
         # единственного рабочего поиска раздач.
         self.warm(_targets(best), _targets(best, later=True))
         with self._lock:
-            current = self._body
-            if current is not None and min_tiles(current) >= FLOOR > min_tiles(best):
+            current = self._body or _empty()
+            if built_by_rule(current) and min_tiles(current) >= FLOOR > min_tiles(best):
                 return
             self._body = best
         self._save(best)
 
     def _build(self, rows: list[FeedRow]) -> dict[str, JsonValue]:
-        """Тело ответа из строк ленты: обе полки и отметка времени сборки."""
+        """Тело ответа из строк ленты: обе полки, отметка времени и клеймо отбора."""
         now = self.clock()
         return {
+            FIELD: RULE,
             "fresh": self._tiles(fresh_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES)),
             "popular": self._tiles(popular_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES)),
             "built_at": now.isoformat(),
@@ -161,7 +163,7 @@ class ShelvesCache:
             raw: Any = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return _empty()
-        return raw if isinstance(raw, dict) else _empty()
+        return raw if isinstance(raw, dict) and built_by_rule(raw) else _empty()
 
     def _save(self, body: dict[str, JsonValue]) -> None:
         # диск лёг - полки просто не переживут рестарт, показу до этого дела нет
@@ -192,7 +194,7 @@ def _targets(body: dict[str, JsonValue], later: bool = False) -> list[WarmTarget
 
 def _empty() -> dict[str, JsonValue]:
     """Полки до первой сборки: пустой список, а не выдуманная картина."""
-    return {"fresh": [], "popular": [], "built_at": None}
+    return {FIELD: RULE, "fresh": [], "popular": [], "built_at": None}
 
 
 __all__ = ["Feed", "Offer", "PassportOf", "ShelvesCache", "Spawn", "Warm"]

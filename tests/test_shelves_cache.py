@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
+from web.built_by_rule import FIELD, RULE
 from web.shelves_cache import Feed, Offer, PassportOf, ShelvesCache, Spawn
 from web.warm_targets import WarmTarget
 
@@ -86,7 +88,7 @@ def test_before_the_first_build_the_shelves_are_empty_not_blocking(tmp_path: Pat
     """Фон ещё не бегал и диска нет - полки честно пусты, а не выдуманы."""
     body = _cache(tmp_path).get()
 
-    assert body == {"fresh": [], "popular": [], "built_at": None}
+    assert body == {FIELD: RULE, "fresh": [], "popular": [], "built_at": None}
 
 
 def test_rebuild_fills_both_shelves_with_projected_tiles(tmp_path: Path) -> None:
@@ -421,3 +423,39 @@ def test_a_picture_without_a_poster_is_replaced_by_the_next_covered_one(
         assert all(isinstance(tile, dict) and tile.get("poster") for tile in shelf), (
             f"полка {key} несёт плитку без обложки"
         )
+
+
+def _alien(count: int) -> dict[str, JsonValue]:
+    """Полное тело полок, собранное ПРЕЖНИМ правилом отбора: клеймо чужое."""
+    tiles: list[JsonValue] = [
+        {"title": f"Картина {index:02d}", "poster": "abc"} for index in range(count)
+    ]
+    return {
+        FIELD: RULE - 1,
+        "fresh": tiles,
+        "popular": list(tiles),
+        "built_at": "2026-09-01T00:00:00+00:00",
+    }
+
+
+def test_a_body_from_another_rule_is_not_read_back_from_disk(tmp_path: Path) -> None:
+    """Диск помнит сборку прежнего отбора - её не поднимают: в ней выброшенные плитки."""
+    path = tmp_path / "shelves.json"
+    path.write_text(json.dumps(_alien(25), ensure_ascii=False), encoding="utf-8")
+
+    body = _cache(tmp_path).get()
+
+    assert body == {FIELD: RULE, "fresh": [], "popular": [], "built_at": None}
+
+
+def test_a_full_shelf_from_another_rule_does_not_block_a_short_build(tmp_path: Path) -> None:
+    """Планка держит своё тело против короткого, но не чужое: правило сменилось."""
+    cache = _cache(tmp_path, feed=lambda limit: _many_rows(18))
+    cache._body = _alien(25)
+
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    assert body[FIELD] == RULE
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 18
