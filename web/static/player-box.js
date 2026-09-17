@@ -49,6 +49,13 @@ const TCPlayerBox = {
 
   // Перецепиться на ящик, если показ в нём другой; отвечает, случилось ли это.
   // Пустой ящик - не отказ, а «показ ещё не готов» (§7.3): зовущий спросит снова.
+  //
+  // 🔴 Пока плеер сам досчитывает плашку автоперехода (`player._advanced`, `player-
+  // next.js`), кадр СЕЙЧАС не ставим: `_screenBuffering()` стирает оверлей целиком
+  // (`overlay.replaceChildren()`) и рвала карточку отсчёта на середине счёта (замер
+  // CT510+CT511 17-09-2026: плашка обрывалась на «7» из 10). Ящик найден - копим его в
+  // `_pendingBox`, открывает его сама плашка по своей "Смотреть"/истечению
+  // (`TCPlayer._playNext`).
   async rebox(player) {
     const box = await TCApi.box();
     if (!box) return false;
@@ -58,6 +65,18 @@ const TCPlayerBox = {
     // Ящик по заказу ЭТОЙ вкладки: уход до его первого кадра снимает показ (`_callOff`).
     player._ordered = sessionStorage.getItem(TCPlayerBox.STALE) !== null;
     TCPlayerBox.dropStale();
+    if (player._advanced) {
+      player._pendingBox = box;
+      return true;
+    }
+    TCPlayerBox.apply(player, box);
+    return true;
+  },
+
+  //: Поставить ящик игроку прямо сейчас: новый ключ/адрес, кадр под «буферизацией» -
+  //: тем же экраном, что и у первого кадра показа, вынесенным сюда из `rebox()`, чтобы
+  //: `_playNext()` (`player.js`) открывала уже найденный ящик тем же путём.
+  apply(player, box) {
     player._key = box.key;
     player._url = TCPlayerBox.near(box.url);
     // Новая серия имеет право на свою плашку отсчёта: она уже не та, что доигралa.
@@ -65,7 +84,6 @@ const TCPlayerBox = {
     player._framed = false;  // кадра этого ящика ещё не было: панели нечего делать
     player._screenBuffering();
     player._attach(player._url, box.at || 0);
-    return true;
   },
 
   // Адрес потока в ящике собран для ТВ: наш адрес В СТОРОНУ ТЕЛЕВИЗОРА

@@ -41,6 +41,7 @@ const TCPlayer = {
     TCPlayer._ordered = false;
     TCPlayer._seeking = false;
     TCPlayer._seekTimer = null;
+    TCPlayer._pendingBox = null;
 
     const wrap = document.createElement('div');
     wrap.className = 'tc-player';
@@ -176,7 +177,11 @@ const TCPlayer = {
     // Three failures across a whole film are not a dead stream: half a minute of real
     // playback after a retry gives the attempts back.
     if (TCPlayer._retries && video.currentTime - TCPlayer._retryFrom > 30) TCPlayer._retries = 0;
-    if (!TCPlayer._advanced && video.duration > 0 && video.duration - video.currentTime <= 1) {
+    // Плашка обещает `TCPlayerNext.SECONDS` (10) секунд до перехода - триггер должен
+    // сработать НА ТОЙ ЖЕ метке, а не позже: секунда в секунду с прошлым порогом (1)
+    // плашка врала «10» при 0.74 с до конца и обрывала свой же счёт (замер CT510+CT511
+    // 17-09-2026, `results-a.md`).
+    if (!TCPlayer._advanced && video.duration > 0 && video.duration - video.currentTime <= TCPlayerNext.SECONDS) {
       TCPlayer._startNext();
     }
   },
@@ -199,7 +204,7 @@ const TCPlayer = {
     TCPlayer._overlay.replaceChildren();
     TCPlayerNext.mount(
       TCPlayer._overlay,
-      () => TCApi.next(ended),
+      () => TCPlayer._playNext(ended),
       () => TCPlayer._clearOverlay(),
     );
   },
@@ -209,6 +214,25 @@ const TCPlayer = {
   _endedMark() {
     const state = TCPlayer._last || {};
     return state.season && state.episode ? { season: state.season, episode: state.episode } : {};
+  },
+
+  //: Единственная дверь к следующему кадру (счётчик догорел или нажато «Смотреть»,
+  //: `player-next.js` зовёт ровно один раз). Пока карточка отсчёта висела, `rebox()`
+  //: (`player-box.js`) НЕ трогала оверлей и не подменяла видео - придержала ящик в
+  //: `_pendingBox`, чтобы не рвать счёт на середине (замер CT510+CT511 17-09-2026).
+  //: Тут этот ящик и открывается: экран «грузится» - та же панель, что у первого кадра
+  //: показа, а не голый чёрный `<video>`.
+  _playNext(ended) {
+    const box = TCPlayer._pendingBox;
+    TCPlayer._pendingBox = null;
+    TCPlayer._advanced = false;
+    if (box) {
+      TCPlayerBox.apply(TCPlayer, box);
+    } else {
+      TCPlayer._framed = false;
+      TCPlayer._screenBuffering();
+    }
+    TCApi.next(ended);
   },
   // ------------------------------------------------------------------ hls.js
 
