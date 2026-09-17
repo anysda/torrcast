@@ -50,12 +50,14 @@ const TCPlayerBox = {
   // Перецепиться на ящик, если показ в нём другой; отвечает, случилось ли это.
   // Пустой ящик - не отказ, а «показ ещё не готов» (§7.3): зовущий спросит снова.
   //
-  // 🔴 Пока плеер сам досчитывает плашку автоперехода (`player._advanced`, `player-
+  // 🔴 Пока плеер сам досчитывает плашку автоперехода (`player._counting`, `player-
   // next.js`), кадр СЕЙЧАС не ставим: `_screenBuffering()` стирает оверлей целиком
   // (`overlay.replaceChildren()`) и рвала карточку отсчёта на середине счёта (замер
   // CT510+CT511 17-09-2026: плашка обрывалась на «7» из 10). Ящик найден - копим его в
   // `_pendingBox`, открывает его сама плашка по своей "Смотреть"/истечению
-  // (`TCPlayer._playNext`).
+  // (`TCPlayer._playNext`) ИЛИ следующий `rebox()`, если досчитать не дали («Отмена»,
+  // `TCPlayer._cancelNext`, дефект мержера 17-09-2026 - раньше `_pendingBox` копился
+  // и не открывался никогда, вкладка висела на замёрзшем кадре навеки).
   async rebox(player) {
     const box = await TCApi.box();
     if (!box) return false;
@@ -65,7 +67,7 @@ const TCPlayerBox = {
     // Ящик по заказу ЭТОЙ вкладки: уход до его первого кадра снимает показ (`_callOff`).
     player._ordered = sessionStorage.getItem(TCPlayerBox.STALE) !== null;
     TCPlayerBox.dropStale();
-    if (player._advanced) {
+    if (player._counting) {
       player._pendingBox = box;
       return true;
     }
@@ -80,7 +82,13 @@ const TCPlayerBox = {
     player._key = box.key;
     player._url = TCPlayerBox.near(box.url);
     // Новая серия имеет право на свою плашку отсчёта: она уже не та, что доигралa.
-    player._advanced = false;
+    // `_ending` снимается ЗДЕСЬ, а не раньше в `_playNext()` (`player.js`): до этой
+    // строки видео могло ещё стоять на старой, уже прошедшей длительности, и снятый
+    // раньше флаг пускал бы `_onTimeUpdate` по ней второй раз (дефект мержера
+    // 17-09-2026). `_counting` снимаем тут же для ящиков, пришедших не через
+    // `_playNext()` (первая посадка, чужой заказ из другой вкладки).
+    player._counting = false;
+    player._ending = false;
     player._framed = false;  // кадра этого ящика ещё не было: панели нечего делать
     player._screenBuffering();
     player._attach(player._url, box.at || 0);

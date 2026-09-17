@@ -30,6 +30,9 @@ function compound(el, part) {
 }
 
 function matches(el, selector) {
+  // Текстовый узел (``TextNode``) не тег - ни один селектор не берёт его тем же
+  // путём, каким браузер обходит стороной обычный текст в ``querySelectorAll``.
+  if (!el.tagName) return false;
   return selector.split(',').some((one) => {
     const parts = one.trim().split(/\s+/);
     if (!compound(el, parts[parts.length - 1])) return false;
@@ -64,6 +67,23 @@ class Element {
   get id() { return this.getAttribute('id') || ''; }
   set id(value) { this.setAttribute('id', value); }
   get firstElementChild() { return this.children[0] || null; }
+  get firstChild() { return this.children[0] || null; }
+  // Минимальный ``classList``: читает/пишет через тот же ``className``, второго
+  // источника правды не заводит - `player-panel.js`/`player.js` дёргают его на
+  // готовых узлах (``toggle('is-paused', …)``), а не при постройке разметки.
+  get classList() {
+    const el = this;
+    const names = () => el.className.split(/\s+/).filter(Boolean);
+    return {
+      add: (name) => { const set = new Set(names()); set.add(name); el.className = [...set].join(' '); },
+      remove: (name) => { const set = new Set(names()); set.delete(name); el.className = [...set].join(' '); },
+      contains: (name) => names().includes(name),
+      toggle(name, on) {
+        const want = on === undefined ? !this.contains(name) : !!on;
+        if (want) this.add(name); else this.remove(name);
+      },
+    };
+  }
   get textContent() { return this.text + this.children.map((c) => c.textContent).join(''); }
   set textContent(value) { this.children = []; this.text = String(value); }
   setAttribute(name, value) { this.attrs.set(name, String(value)); }
@@ -77,6 +97,13 @@ class Element {
     if (node.parentNode) node.remove();
     node.parentNode = this;
     this.children.push(node);
+    return node;
+  }
+
+  prepend(node) {
+    if (node.parentNode) node.remove();
+    node.parentNode = this;
+    this.children.unshift(node);
     return node;
   }
 
@@ -123,6 +150,19 @@ class Element {
   }
 }
 
+// Текстовый узел: у ``player-panel.js`` секунда идёт первым ребёнком без тега
+// (``time.appendChild(document.createTextNode(''))``), а не атрибутом соседнего span.
+class TextNode {
+  constructor(text) { this.text = text; this.parentNode = null; this.children = []; }
+  get textContent() { return this.text; }
+  set textContent(value) { this.text = String(value); }
+  remove() {
+    if (!this.parentNode) return;
+    this.parentNode.children = this.parentNode.children.filter((c) => c !== this);
+    this.parentNode = null;
+  }
+}
+
 class Document {
   constructor() {
     this.documentElement = new Element(this, 'html');
@@ -130,30 +170,64 @@ class Document {
     this.activeElement = this.body;
   }
 
-  createElement(tag) { return new Element(this, tag); }
+  // ``<video>`` - единственный тег со своим поведением: остальные разметке всё равно
+  // какой ``Element`` держать (`player.js` ставит `currentTime`/зовёт `play()`, ни
+  // одна карточка поиска так не делает - отсюда особый случай тут, а не отдельный класс).
+  createElement(tag) {
+    const el = new Element(this, tag);
+    if (tag === 'video') {
+      el.currentTime = 0;
+      el.duration = 0;
+      el.paused = true;
+      el.ended = false;
+      el.muted = false;
+      el.volume = 1;
+      el.playbackRate = 1;
+      el.readyState = 4;
+      el.buffered = { length: 0, start: () => 0, end: () => 0 };
+      el.play = () => { el.paused = false; return Promise.resolve(); };
+      el.pause = () => { el.paused = true; };
+    }
+    return el;
+  }
+  createTextNode(text) { return new TextNode(text); }
   getElementById(id) { return this.documentElement.querySelector('#' + id); }
   querySelector(selector) { return this.documentElement.querySelector(selector); }
   querySelectorAll(selector) { return this.documentElement.querySelectorAll(selector); }
+  addEventListener() {}
 }
 
 // Часы и таймеры страницы: время идёт только тогда, когда его двигает сценарий.
+// ``setInterval``/``clearInterval`` живут в той же очереди, что и ``setTimeout`` -
+// повторный таймер просто сам кладёт себя обратно после срабатывания
+// (`player-next.js` считает свою плашку через ``setInterval``, поиск на главной
+// таких вовсе не заводит - отсюда раньше очередь знала только один вид таймера).
 function clock() {
   const timers = [];
   let now = 0;
   let seq = 0;
+  const schedule = (fn, ms, repeat) => {
+    seq += 1;
+    timers.push({ id: seq, at: now + (ms || 0), ms: ms || 0, repeat, fn });
+    return seq;
+  };
+  const cancel = (id) => { const at = timers.findIndex((t) => t.id === id); if (at >= 0) timers.splice(at, 1); };
   return {
     now: () => now,
-    setTimeout: (fn, ms) => { seq += 1; timers.push({ at: now + (ms || 0), seq, fn }); return seq; },
-    clearTimeout: (id) => { const at = timers.findIndex((t) => t.seq === id); if (at >= 0) timers.splice(at, 1); },
+    setTimeout: (fn, ms) => schedule(fn, ms, false),
+    clearTimeout: cancel,
+    setInterval: (fn, ms) => schedule(fn, ms, true),
+    clearInterval: cancel,
     // Двигать время до `limit`, отдавая промисам ход после каждого таймера; `steps` - предохранитель
     // от страницы, которая заводит таймеры без конца.
     async run(limit, steps = 20000) {
       for (let n = 0; n < steps; n += 1) {
         for (let i = 0; i < 20; i += 1) await new Promise((done) => setImmediate(done));
-        timers.sort((a, b) => a.at - b.at || a.seq - b.seq);
+        timers.sort((a, b) => a.at - b.at || a.id - b.id);
         if (!timers.length || timers[0].at > limit) { now = Math.max(now, limit); return; }
         const timer = timers.shift();
         now = Math.max(now, timer.at);
+        if (timer.repeat) { timer.at = now + timer.ms; timers.push(timer); }
         timer.fn();
       }
     },
@@ -222,4 +296,4 @@ function page(answer, { latency = 30 } = {}) {
   return { doc, time, ctx, opened, cards, polls, queries, home: ctx.TCHome };
 }
 
-module.exports = { page };
+module.exports = { page, Element, TextNode, Document, clock, matches };

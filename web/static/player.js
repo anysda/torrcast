@@ -30,7 +30,12 @@ const TCPlayer = {
     TCPlayer._retries = 0;
     TCPlayer._retryTimer = null;
     TCPlayer._retryFrom = 0;
-    TCPlayer._advanced = false;
+    //: Два разных смысла, разведены после дефекта мержера 17-09-2026: `_counting` -
+    //: плашка отсчёта на экране, оверлей и ящик трогать нельзя; `_ending` - переход
+    //: уже запущен (кадром счётчика или без него), второй раз `_startNext` не заводить.
+    //: Слиты в одном поле - «Отмена» оставляла оба навеки true (`_cancelNext`).
+    TCPlayer._counting = false;
+    TCPlayer._ending = false;
     TCPlayer._hasNext = false;
     TCPlayer._last = null;
     TCPlayer._tvMark = null;
@@ -60,10 +65,14 @@ const TCPlayer = {
     video.addEventListener('playing', () => {
       TCPlayer._framed = true;
       TCPlayer._ordered = false;
-      TCPlayer._clearOverlay();
+      // Заминка-и-возобновление ПОСРЕДИ отсчёта не должна стирать плашку из DOM
+      // (`_clearOverlay` - это `overlay.replaceChildren()`): таймер `player-next.js`
+      // всё равно досчитает и заведёт переход, но теперь от невидимой карточки
+      // (мержер 17-09-2026, `player.js:60-65`). Охрана та же, что у `waiting` ниже.
+      if (!TCPlayer._counting) TCPlayer._clearOverlay();
       TCPlayer._sendPosition();
     });
-    video.addEventListener('waiting', () => { if (!TCPlayer._advanced) TCPlayer._screenBuffering(); });
+    video.addEventListener('waiting', () => { if (!TCPlayer._counting) TCPlayer._screenBuffering(); });
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
     video.addEventListener('ended', () => TCPlayer._startNext());
     // hls.js recovers most short gaps itself, but a broken MediaSource can finish as the
@@ -177,11 +186,13 @@ const TCPlayer = {
     // Three failures across a whole film are not a dead stream: half a minute of real
     // playback after a retry gives the attempts back.
     if (TCPlayer._retries && video.currentTime - TCPlayer._retryFrom > 30) TCPlayer._retries = 0;
-    // Плашка обещает `TCPlayerNext.SECONDS` (10) секунд до перехода - триггер должен
-    // сработать НА ТОЙ ЖЕ метке, а не позже: секунда в секунду с прошлым порогом (1)
-    // плашка врала «10» при 0.74 с до конца и обрывала свой же счёт (замер CT510+CT511
-    // 17-09-2026, `results-a.md`).
-    if (!TCPlayer._advanced && video.duration > 0 && video.duration - video.currentTime <= TCPlayerNext.SECONDS) {
+    // Порог должен совпадать с тем, что обещает плашка (`TCPlayerNext.SECONDS`, 10 с),
+    // а не с прошлой зашитой 1 с (замер CT510+CT511 17-09-2026: плашка врала «10» при
+    // 0.74 с до конца). 🔴 Без `_hasNext` карточки нет вовсе - фильм и финал сезона
+    // уходят на старой 1 с: дефект мержера 17-09-2026 ставил общий 10-секундный порог
+    // на оба пути, и вкладка уезжала за 10 с до титров.
+    const lead = TCPlayer._hasNext ? TCPlayerNext.SECONDS : 1;
+    if (!TCPlayer._ending && video.duration > 0 && video.duration - video.currentTime <= lead) {
       TCPlayer._startNext();
     }
   },
@@ -189,8 +200,8 @@ const TCPlayer = {
   //: Автопереход (§4.5): плашка с отсчётом у сериалов, прямой возврат в карточку у
   //: фильмов - там переходить некуда, ``has_next`` это и называет.
   _startNext() {
-    if (TCPlayer._advanced) return;
-    TCPlayer._advanced = true;
+    if (TCPlayer._ending) return;
+    TCPlayer._ending = true;
     if (!TCPlayer._hasNext) {
       TCPlayer._leave();
       return;
@@ -201,12 +212,32 @@ const TCPlayer = {
     // и показ перепрыгивал серию, уезжая со вкладки на телевизор (замер на стенде
     // `.104` 10-09-2026: s1e2 кончилась, вкладка получила s1e4 на ТВ и чёрный экран).
     const ended = TCPlayer._endedMark();
+    TCPlayer._counting = true;
     TCPlayer._overlay.replaceChildren();
     TCPlayerNext.mount(
       TCPlayer._overlay,
       () => TCPlayer._playNext(ended),
-      () => TCPlayer._clearOverlay(),
+      () => TCPlayer._cancelNext(),
     );
+  },
+
+  //: «Отмена» снимает МЕСТНЫЙ автопереход, не сам показ: сторож юнита досмотрит
+  //: серию сам, и ящик рано или поздно сменится под ЭТИМ же ключом. Не сбрось тут
+  //: `_pendingBox` - вкладка виснет на замёрзшем кадре навеки: `rebox()` копит новые
+  //: ящики в `_pendingBox`, не применяя их, пока `_counting` не снят (мержер
+  //: 17-09-2026, `player-box.js:68`, было воспроизведено на CT510+CT511).
+  //:
+  //: 🔴 `_ending` тут держим true, а НЕ снимаем: плашка встаёт на пороге
+  //: `TCPlayerNext.SECONDS` (10 с) до конца, а не на 1 с - старое видео после
+  //: «Отмена» ещё играет все эти секунды, и `timeupdate` идёт по нему ~4 раза в
+  //: секунду. Снятый тут `_ending` открывал `_onTimeUpdate()`/`ended` тем же
+  //: условием заново - плашка возвращалась на «10» через четверть секунды после
+  //: своей же «Отмена» (найдено ревью мержера 17-09-2026, до выката не дошло).
+  //: Снимает флаг только `TCPlayerBox.apply()`, когда ящик правда сменится.
+  _cancelNext() {
+    TCPlayer._counting = false;
+    TCPlayer._pendingBox = null;
+    TCPlayer._clearOverlay();
   },
 
   //: Серия, которая играет в эту секунду, поимённо - тело ``POST /api/next``; снимок её
@@ -225,10 +256,18 @@ const TCPlayer = {
   _playNext(ended) {
     const box = TCPlayer._pendingBox;
     TCPlayer._pendingBox = null;
-    TCPlayer._advanced = false;
+    TCPlayer._counting = false;
     if (box) {
+      // Новый ящик несёт свою длительность - `_ending` снимает `TCPlayerBox.apply()`
+      // (`player-box.js:83`), уже ПОСЛЕ того, как видео перецепилось на него. Тут его
+      // не трогаем: снять его раньше значило бы пустить `_onTimeUpdate` по ЕЩЁ старому
+      // видео на долю секунды - тот самый двойной `_startNext` (мержер 17-09-2026).
       TCPlayerBox.apply(TCPlayer, box);
     } else {
+      // Ящика ещё нет: старое видео остаётся на экране со своей старой длительностью.
+      // `_ending` держим true до тех пор, пока `rebox()` не найдёт и не применит
+      // следующий ящик - иначе тот же `timeupdate` на том же хвосте заводит переход
+      // второй раз (§`_onTimeUpdate`, порог посчитан по ЕЩЁ прежней длительности).
       TCPlayer._framed = false;
       TCPlayer._screenBuffering();
     }

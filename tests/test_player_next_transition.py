@@ -1,73 +1,177 @@
-"""Сторож перехода между сериями (TC-1336): плашка честная, кадр без чёрного экрана.
+"""Сторож перехода между сериями (TC-1336) как поведение, не как грепанье строк.
 
-Требование: за ``TCPlayerNext.SECONDS`` до конца - плашка «Смотреть»/«Отмена»; счёт либо
-честно доходит до нуля, либо снимается кнопкой - обрыва на середине счёта не бывает
-(живой замер до и после правки - в ``results-a.md`` полосы A).
+Мержер прогнал шесть отрицательных проб по прежнему, греповому виду этого файла - все
+семь его тестов остались зелёными на каждой из них, плюс не заметили дефект фильма
+(ранний уход за 10 с до конца картины). Греп держит присутствие строк, а не поведение.
+
+Тут - настоящие ``player.js``/``player-box.js``/``player-next.js``/``player-panel.js``/
+``player-screens.js`` в node без браузера (``tests/web_js/player_page.js``, тем же
+приёмом, что и у поиска на главной: ``tests/web_js/page.js`` + ``tests/test_home_search_
+js.py``), время виртуальное, сервер отвечает по сценарию. Сценарии и таблица «поломка -
+какой тест упал» - в ``results-a.md`` полосы A.
 """
 
 from __future__ import annotations
 
-import re
+import json
+import shutil
+import subprocess
 from pathlib import Path
+from typing import Any
 
-STATIC = Path(__file__).resolve().parents[1] / "web" / "static"
+import pytest
 
-
-def _block(text: str, header: str, next_marker: str = "\n  },") -> str:
-    found = text.split(header, 1)
-    assert len(found) == 2, f"в файле нет {header!r}"
-    return found[1].split(next_marker, 1)[0]
+RUNNER = Path(__file__).resolve().parent / "web_js" / "player.js"
 
 
-def test_the_countdown_trigger_uses_the_promised_seconds_not_a_hardcoded_one() -> None:
-    """Плашка обещает ``TCPlayerNext.SECONDS`` - триггер обязан читать то же число.
+@pytest.fixture(scope="module")
+def facts() -> dict[str, Any]:
+    node = shutil.which("node")
+    if node is None:
+        pytest.fail(
+            "node не найден: сторож перехода исполняет player.js в node, поставь nodejs",
+            pytrace=False,
+        )
+    done = subprocess.run(
+        [node, str(RUNNER)], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert done.returncode == 0, done.stderr
+    said: dict[str, Any] = json.loads(done.stdout)
+    return said
 
-    Прежний порог (``<= 1``) звал плашку за 1 с до конца, а она сама считала 10 - врала
-    «10» при 0.74 с реального остатка (замер CT510+CT511 17-09-2026).
+
+def _scenario(facts: dict[str, Any], name: str) -> dict[str, Any]:
+    one: dict[str, Any] = facts[name]
+    assert "crashed" not in one, one.get("crashed")
+    assert one["errors"] == [], f"сценарий упал посреди прогона: {one['errors']}"
+    return one
+
+
+@pytest.mark.machine
+def test_the_countdown_appears_at_the_promised_threshold_and_not_earlier(
+    facts: dict[str, Any],
+) -> None:
+    """Плашка встаёт на 10-й секунде обещания, а не на старой зашитой 1-й.
+
+    До правки лишний порог ``<= 1`` держал бы её немой при 5.5 с остатка - именно это
+    ловит отрицательная проба (б) («дописать вторым условием ``<= 1.0``»).
     """
-    body = _block((STATIC / "player.js").read_text("utf-8"), "_onTimeUpdate() {")
-    assert "TCPlayerNext.SECONDS" in body, "триггер не смотрит на срок плашки"
-    assert not re.search(r"<=\s*1\)", body), "порог всё ещё зашитая 1 секунда"
+    said = _scenario(facts, "seriesCountdown")
+    assert said["beforeThreshold"] is False, "плашка встала раньше своих 10 секунд"
+    assert said["atThreshold"] is True, "плашка не встала на 5.5 с остатка (порог 10)"
 
 
-def test_the_countdown_card_is_removed_on_natural_expiry_too() -> None:
-    """Досчитала сама - карточка уходит тем же путём, что и по кнопке (``stop()``).
+@pytest.mark.machine
+def test_the_countdown_expires_naturally_removes_its_card_and_calls_next_once(
+    facts: dict[str, Any],
+) -> None:
+    """Досчитала сама - карточка уходит из DOM и переход зовётся ровно один раз.
 
-    Раньше ветка истечения звала только ``clearInterval``, минуя ``card.remove()`` -
-    карточка висела на «0» до следующей перерисовки.
+    Ловит пробу (д) («убрать ``TCApi.next(ended)`` из ветки без ящика» - перехода не
+    было бы вовсе). Пробу (г) («убрать ``card.remove()`` из ``stop()``») в СБОРКЕ не
+    ловит ничто - следующий же ``_playNext()``/``_cancelNext()`` сам заменяет весь
+    оверлей (``overlay.replaceChildren()`` у любого экрана ``player-screens.js``), и
+    дефект замаскирован; поэтому вторая половина этой проверки берёт ``player-next.js``
+    в одиночку (``standaloneNextExpiry``, без остального плеера) - там рисовать после
+    неё некому, карточка обязана снять себя сама.
     """
-    text = (STATIC / "player-next.js").read_text("utf-8")
-    timer_body = _block(text, "setInterval(() => {", "\n    }, 1000);")
-    expiry = _block(timer_body, "if (left <= 0) {", "\n      }")
-    assert "stop();" in expiry, "истечение счёта не убирает карточку через stop()"
+    said = _scenario(facts, "seriesCountdown")
+    assert said["beforeExpiry"] is True, "карточка пропала до истечения счёта"
+    assert said["afterExpiry"] is False, "карточка осталась в DOM после «0» (виснет)"
+    assert said["nextCalls"] == 1, f"TCApi.next зовётся {said['nextCalls']} раз, не 1"
+    assert said["nextArg"] == {"season": 1, "episode": 2}
+
+    alone = _scenario(facts, "standaloneNextExpiry")
+    assert alone["mounted"] is True
+    assert alone["beforeExpiry"] is True, "карточка сама себя убрала до истечения счёта"
+    assert alone["afterExpiry"] is False, "card.remove() не сработал - карточка виснет на «0»"
+    assert alone["played"] == 1
 
 
-def test_rebox_defers_to_a_pending_box_while_the_countdown_is_up() -> None:
-    """Пока плеер досчитывает плашку (``player._advanced``), ``rebox()`` не трогает оверлей.
+@pytest.mark.machine
+def test_a_stale_video_after_expiry_does_not_fire_a_second_transition(
+    facts: dict[str, Any],
+) -> None:
+    """Старое видео, доигрывающее тот же хвост ПОСЛЕ перехода, второй раз не переводит.
 
-    Прежде ``rebox()`` звала ``_screenBuffering()``/``_attach()`` сразу по новому ключу -
-    ``overlay.replaceChildren()`` внутри стирала карточку отсчёта на середине счёта.
+    ``_ending`` обязан остаться true через всю ветку без готового ящика: иначе тот же
+    ``timeupdate`` на ещё старой длительности зовёт ``_startNext`` второй раз."""
+    said = _scenario(facts, "seriesCountdown")
+    assert said["afterStaleTick"] is False, "карточка вернулась на доигрывающем видео"
+    assert said["nextCalls"] == 1, "переход завёлся второй раз на том же хвосте"
+
+
+@pytest.mark.machine
+def test_cancel_removes_the_card_and_holds_off_the_transition(
+    facts: dict[str, Any],
+) -> None:
+    """«Отмена» снимает карточку немедленно и не заводит переход даже потом.
+
+    Регрессия мержера 17-09-2026: «Отмена» снимала и ``_ending`` - плашка возвращалась
+    на «10» через четверть секунды после своей же «Отмена» на том же доигрывающем
+    видео. Тут этот же хвост докармливается ПОСЛЕ клика - карточка обязана не вернуться.
     """
-    text = (STATIC / "player-box.js").read_text("utf-8")
-    rebox = _block(text, "async rebox(player) {")
-    assert "player._advanced" in rebox, "rebox() больше не смотрит на отсчёт плеера"
-    assert "player._pendingBox = box;" in rebox, "новый ящик негде придержать на время счёта"
-    assert "_screenBuffering()" not in rebox, "rebox() всё ещё меняет кадр немедленно"
-    assert "_attach(" not in rebox, "rebox() всё ещё меняет кадр немедленно"
-    assert "TCPlayerBox.apply(player, box);" in rebox, "готовый ящик не открывается через apply()"
-
-    apply_body = _block(text, "apply(player, box) {")
-    assert "_screenBuffering()" in apply_body
-    assert "_attach(" in apply_body
+    said = _scenario(facts, "seriesCancelHolds")
+    assert said["mounted"] is True
+    assert said["goneRightAfter"] is True, "«Отмена» не убрала карточку из DOM"
+    assert said["stillGone"] is True, "карточка вернулась на доигрывающем видео после «Отмена»"
+    assert said["nextCalls"] == 0, "«Отмена» всё равно завела переход"
 
 
-def test_playing_next_opens_a_pending_box_without_a_second_round_trip() -> None:
-    """``_playNext`` (истечение счёта/«Смотреть») открывает уже найденный ящик сама.
+@pytest.mark.machine
+def test_a_box_arriving_mid_countdown_is_deferred_not_torn_down(
+    facts: dict[str, Any],
+) -> None:
+    """Ящик следующей серии, найденный ПОСРЕДИ счёта, не рвёт карточку на середине.
 
-    Не через ``TCApi.box()`` заново - тот самый, что ``rebox()`` придержала в
-    ``_pendingBox`` пока шёл счёт: это и убирает чёрный экран между сериями.
+    Ловит пробы (а) («убрать ``_counting = true``») и (в) («инвертировать охрану
+    ``if (!player._counting)`` в rebox») - под любой из них тот же ``rebox()`` тут же
+    подменил бы кадр вместо того, чтобы придержать ящик."""
+    said = _scenario(facts, "midCountdownReboxDefers")
+    assert said["mountedBefore"] is True
+    assert said["survivedPlayingBlip"] is True, "заминка-и-возобновление стёрла карточку"
+    assert said["reboxResult"] is True, "rebox() не увидела новый ящик вовсе"
+    assert said["survivedRebox"] is True, "новый ящик посреди счёта сорвал карточку"
+    assert said["pendingKey"] == "k2", "новый ящик не лёг в _pendingBox"
+
+
+@pytest.mark.machine
+def test_the_deferred_box_opens_without_a_second_round_trip_and_calls_next_once(
+    facts: dict[str, Any],
+) -> None:
+    """Досчитав, плашка открывает уже НАЙДЕННЫЙ ящик сама - не спрашивает его заново.
+
+    Открытая серия обязана получить СВОЙ собственный автопереход: ``apply()``
+    (`player-box.js`) обязан снять ``_ending`` синхронно, иначе новый ``timeupdate`` у
+    следующей серии молчит навсегда под тем же условием ``!TCPlayer._ending``.
     """
-    body = _block((STATIC / "player.js").read_text("utf-8"), "_playNext(ended) {")
-    assert "TCPlayer._pendingBox" in body
-    assert "TCPlayerBox.apply(TCPlayer, box)" in body
-    assert "TCApi.next(ended)" in body
+    said = _scenario(facts, "midCountdownReboxDefers")
+    assert said["afterExpiry"] is False, "карточка не убралась по истечении"
+    assert said["appliedKey"] == "k2", "истечение счёта не открыло придержанный ящик"
+    assert said["boxPolls"] == 2, (
+        f"поход за ящиком случился {said['boxPolls']} раз - первый (посадка) и второй "
+        "(находка посреди счёта); третьего быть не должно"
+    )
+    assert said["nextCalls"] == 1
+    assert said["noCardMidway"] is False, "карточка новой серии встала посреди неё"
+    assert said["secondCountdownAppears"] is True, (
+        "открытая серия осталась без своего автоперехода - apply() не снял _ending"
+    )
+
+
+@pytest.mark.machine
+def test_a_movie_does_not_leave_before_its_own_last_second(facts: dict[str, Any]) -> None:
+    """Фильм и финал сезона (``has_next: false``) уходят у САМОГО конца, как на ``dev``.
+
+    Владелец 17-09-2026: «плашка идёт поверх последних 10 секунд СЕРИИ», ранний выход
+    из фильма в это не входит. До правки поднятый порог ``TCPlayerNext.SECONDS`` (10)
+    стоял на ОБОИХ путях ``_startNext()`` - вкладка уезжала со страницы показа за 10 с
+    до титров у каждого фильма и финала сезона (``hass/following.py``: ``None`` -
+    фильм, последняя серия или тишина; ``hass/bridge.py:103`` кормит этим ``has_next``).
+    """
+    said = _scenario(facts, "movieDoesNotLeaveEarly")
+    assert said["goneAt11"] == 0, "вкладка ушла за 11 с до конца фильма"
+    assert said["goneAt9_5"] == 0, "вкладка ушла за 9.5 с до конца - это порог СЕРИИ, не фильма"
+    assert said["cardAt9_5"] is False, "у фильма встала плашка перехода - переходить некуда"
+    assert said["goneAt0_7"] == 1, "вкладка не ушла и на 0.7 с до конца (порог dev - 1 с)"
+    assert said["path"] == "/"
