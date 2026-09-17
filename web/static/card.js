@@ -464,8 +464,13 @@ const TCCard = {
   _movieMeta(data) {
     const bits = [];
     if (data.year) bits.push({ text: String(data.year) });
-    const runtime = TCTime.runtimeWords(data.runtime);
-    if (runtime) bits.push({ text: data.runtime_estimated ? '~' + runtime : runtime });
+    // ``0`` - скелет карточки (:mod:`web.preview`) ещё без ответа круга, не длительность
+    // «ноль минут»: `runtimeWords(0)` сама по себе непустая строка «0 min», значит смотрим
+    // на исходное число, а не на её текст (TC-1321).
+    if (data.runtime) {
+      const runtime = TCTime.runtimeWords(data.runtime);
+      bits.push({ text: data.runtime_estimated ? '~' + runtime : runtime });
+    }
     if (data.rating !== null && data.rating !== undefined) {
       bits.push({ text: TC.say('web.detail.rating', { rating: data.rating }), rating: true });
     }
