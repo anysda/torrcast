@@ -65,8 +65,14 @@ const scenarios = {
 
   // «Отмена» снимает карточку и не заводит переход; старое видео, доигрывающее тот же
   // самый хвост дальше, не поднимает карточку заново (регрессия мержера 17-09-2026).
+  //
+  // Ящик, найденный ПОСРЕДИ счёта (тем же путём, что и `midCountdownReboxDefers`),
+  // копится в `_pendingBox`, не применяясь, пока карточка висит. «Отмена» обязана
+  // сбросить его вместе со счётом - иначе он остаётся сидеть в поле навсегда и позже
+  // (`_playNext()`, следующая карточка) применится вместо свежего, замораживая кадр
+  // (находка мержера: удалённая строка `_pendingBox = null;` в `_cancelNext()`).
   async seriesCancelHolds() {
-    const { server } = seriesServer();
+    const { server, setBox } = seriesServer();
     const p = player(server);
     p.mount();
     await p.time.run(200);
@@ -74,19 +80,78 @@ const scenarios = {
     p.tick(94.5);
     const mounted = !!overlayCard(p);
 
+    setBox({ key: 'k2', url: 'http://stand/b.m3u8', at: 0 });
+    p.ctx.TCPlayerBox.rebox(p.ctx.TCPlayer);
+    await p.time.run(700); // ящик найден и лёг в _pendingBox, счёт ещё не дотикал
+    const pendingKeyBeforeCancel = p.ctx.TCPlayer._pendingBox && p.ctx.TCPlayer._pendingBox.key;
+
     const cancel = buttons(p)[1];
     cancel.dispatch('click');
     const goneRightAfter = !overlayCard(p);
+    const pendingBoxAfterCancel = p.ctx.TCPlayer._pendingBox;
 
-    await p.time.run(20200); // окно, за которое настоящий счётчик уже бы истёк
+    await p.time.run(20900); // окно, за которое настоящий счётчик уже бы истёк
     p.tick(94.6);
     p.tick(94.7);
     const stillGone = !overlayCard(p);
 
+    // Свежий ящик после «Отмена» находится и применяется как обычно - вкладка не
+    // обязана виснуть на замёрзшем кадре навеки.
+    setBox({ key: 'k3', url: 'http://stand/c.m3u8', at: 0 });
+    let reboxResult = null;
+    p.ctx.TCPlayerBox.rebox(p.ctx.TCPlayer).then((said) => { reboxResult = said; });
+    await p.time.run(21200); // время у часов уже 20900 - лимит абсолютный, не длительность
+    const reboxedKey = p.ctx.TCPlayer._key;
+
     return {
       mounted, goneRightAfter, stillGone,
       nextCalls: p.calls.next.length,
+      pendingKeyBeforeCancel, pendingBoxAfterCancel,
+      reboxResult, reboxedKey,
     };
+  },
+
+  // Экран потери потока и перезапуск подменяют весь оверлей МИМО `_playNext`/
+  // `_cancelNext` - живая плашка отсчёта обязана уйти вместе со своим счётом, а не
+  // тикать невидимо и не увезти зрителя без его участия (дефект мержера 17-09-2026,
+  // окно выросло с 1 с до 10 с вместе с поднятым порогом плашки).
+  async countdownDiesWithScreenReplace() {
+    const lost = await (async () => {
+      const { server } = seriesServer();
+      const p = player(server);
+      p.mount();
+      await p.time.run(200);
+      p.video.duration = 100;
+      p.tick(94.5);
+      const mounted = !!overlayCard(p);
+      const countingBefore = p.ctx.TCPlayer._counting;
+
+      p.ctx.TCPlayer._screenLost(4); // путь `_onStreamError()` после исчерпанных попыток
+      const goneRightAfter = !overlayCard(p);
+      const countingAfter = p.ctx.TCPlayer._counting;
+
+      await p.time.run(10300); // окно, за которое живой счётчик уже бы истёк и увёз зрителя
+      return { mounted, countingBefore, goneRightAfter, countingAfter, nextCalls: p.calls.next.length };
+    })();
+
+    const retry = await (async () => {
+      const { server } = seriesServer();
+      const p = player(server);
+      p.mount();
+      await p.time.run(200);
+      p.video.duration = 100;
+      p.tick(94.5);
+      const mounted = !!overlayCard(p);
+
+      p.ctx.TCPlayer._retry(); // «Повторить» -> `_screenBuffering()`
+      const goneRightAfter = !overlayCard(p);
+      const countingAfter = p.ctx.TCPlayer._counting;
+
+      await p.time.run(10300);
+      return { mounted, goneRightAfter, countingAfter, nextCalls: p.calls.next.length };
+    })();
+
+    return { lost, retry };
   },
 
   // Ящик следующей серии находится ПОСРЕДИ счёта: карточку рвать нельзя, ящик ждёт в

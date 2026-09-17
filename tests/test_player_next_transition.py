@@ -1,14 +1,11 @@
 """Сторож перехода между сериями (TC-1336) как поведение, не как грепанье строк.
 
-Мержер прогнал шесть отрицательных проб по прежнему, греповому виду этого файла - все
-семь его тестов остались зелёными на каждой из них, плюс не заметили дефект фильма
-(ранний уход за 10 с до конца картины). Греп держит присутствие строк, а не поведение.
+Греп держит присутствие строк, а не поведение продукта.
 
 Тут - настоящие ``player.js``/``player-box.js``/``player-next.js``/``player-panel.js``/
 ``player-screens.js`` в node без браузера (``tests/web_js/player_page.js``, тем же
 приёмом, что и у поиска на главной: ``tests/web_js/page.js`` + ``tests/test_home_search_
-js.py``), время виртуальное, сервер отвечает по сценарию. Сценарии и таблица «поломка -
-какой тест упал» - в ``results-a.md`` полосы A.
+js.py``), время виртуальное, сервер отвечает по сценарию.
 """
 
 from __future__ import annotations
@@ -116,6 +113,45 @@ def test_cancel_removes_the_card_and_holds_off_the_transition(
     assert said["goneRightAfter"] is True, "«Отмена» не убрала карточку из DOM"
     assert said["stillGone"] is True, "карточка вернулась на доигрывающем видео после «Отмена»"
     assert said["nextCalls"] == 0, "«Отмена» всё равно завела переход"
+
+    # Находка мержера: без `_pendingBox = null` в `_cancelNext()` вкладка виснет на
+    # замёрзшем кадре навеки - ящик, найденный ПОСРЕДИ счёта и придержанный в
+    # `_pendingBox`, остаётся сидеть в поле и после «Отмена» вместо того, чтобы
+    # уйти вместе с ней.
+    assert said["pendingKeyBeforeCancel"] == "k2", "ящик посреди счёта не лёг в _pendingBox"
+    assert said["pendingBoxAfterCancel"] is None, "«Отмена» не сбросила _pendingBox - ящик застрял"
+
+    # Свежий ящик после «Отмена» находится и применяется как обычно.
+    assert said["reboxResult"] is True, "rebox() после «Отмена» не нашла новый ящик"
+    assert said["reboxedKey"] == "k3", "новый ящик после «Отмена» не применился"
+
+
+@pytest.mark.machine
+def test_a_lost_stream_or_a_retry_cancels_the_running_countdown(
+    facts: dict[str, Any],
+) -> None:
+    """Экран потери потока и «Повторить» снимают плашку вместе с её отсчётом.
+
+    Обе замены оверлея (`_screenLost()` после исчерпанных попыток, `_screenBuffering()`
+    из `_retry()`) подменяют экран МИМО `_playNext`/`_cancelNext` - до правки плашка
+    оставалась в DOM только видимо снятой (следующий `overlay.replaceChildren()` её не
+    трогал сразу), а `setInterval` внутри `player-next.js` продолжал невидимо тикать и
+    сам заводил `TCApi.next()` без участия зрителя. Порог поднят с 1 с до 10 с - окно
+    выросло вдесятеро.
+    """
+    said = _scenario(facts, "countdownDiesWithScreenReplace")
+    lost, retry = said["lost"], said["retry"]
+
+    assert lost["mounted"] is True
+    assert lost["countingBefore"] is True
+    assert lost["goneRightAfter"] is True, "экран потери потока не убрал карточку из DOM"
+    assert lost["countingAfter"] is False, "_counting не снят - waiting/playing блокирует экраны"
+    assert lost["nextCalls"] == 0, "невидимый счётчик всё равно завёл переход после потери потока"
+
+    assert retry["mounted"] is True
+    assert retry["goneRightAfter"] is True, "«Повторить» не убрал карточку из DOM"
+    assert retry["countingAfter"] is False, "_counting не снят вместе с карточкой после «Повторить»"
+    assert retry["nextCalls"] == 0, "невидимый счётчик всё равно завёл переход после «Повторить»"
 
 
 @pytest.mark.machine

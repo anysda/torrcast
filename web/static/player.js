@@ -47,6 +47,7 @@ const TCPlayer = {
     TCPlayer._seeking = false;
     TCPlayer._seekTimer = null;
     TCPlayer._pendingBox = null;
+    TCPlayer._nextStop = null;
 
     const wrap = document.createElement('div');
     wrap.className = 'tc-player';
@@ -214,7 +215,7 @@ const TCPlayer = {
     const ended = TCPlayer._endedMark();
     TCPlayer._counting = true;
     TCPlayer._overlay.replaceChildren();
-    TCPlayerNext.mount(
+    TCPlayer._nextStop = TCPlayerNext.mount(
       TCPlayer._overlay,
       () => TCPlayer._playNext(ended),
       () => TCPlayer._cancelNext(),
@@ -499,7 +500,21 @@ const TCPlayer = {
   //: Плёнки нет (подготовка, отказ, потеря потока) - панель прячется целиком: экран
   //: лежал поверх неё, и её кнопки были видны, но не нажимались ни одна (стенд `.104`,
   //: 11-09-2026: шесть кнопок отказа, каждая «не нажимается»). Выход - кнопка экрана.
+  //:
+  //: 🔴 Все пять экранов зовут этот метод первым делом, до подмены оверлея - ровно та
+  //: точка, где живая плашка отсчёта (`_startNext`) обязана быть остановлена, если её
+  //: снимают не своей же дверью (`_playNext`/`_cancelNext`): экран потери потока и
+  //: перезапуск подменяли оверлей мимо них, а `setInterval` плашки (`player-next.js`)
+  //: продолжал невидимо тикать и сам заводил переход через свои секунды - зритель
+  //: смотрел на «поток потерян» и уезжал на следующую серию без своего участия (дефект
+  //: мержера 17-09-2026, окно выросло с 1 с до 10 с вместе с поднятым порогом).
+  //: `stop()` (возврат `TCPlayerNext.mount`) идемпотентен - двойной зов не вредит.
   _halt(on) {
+    if (TCPlayer._nextStop) {
+      TCPlayer._nextStop();
+      TCPlayer._nextStop = null;
+      TCPlayer._counting = false;
+    }
     TCPlayer._halted = on;
     if (TCPlayer._nodes) TCPlayer._nodes.frame.classList.toggle('is-halted', on);
   },
