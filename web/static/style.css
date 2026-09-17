@@ -183,8 +183,8 @@ body {
    сверху и по бокам - место под обводку горящей плитки, иначе край обводки срезан. */
 .tc-row { display: flex; gap: var(--tc-gap); overflow-x: auto; overflow-y: hidden;
           scroll-behavior: smooth; scrollbar-width: none;
-          padding: var(--tc-focus-ring) var(--tc-focus-ring) 0;
-          margin: calc(-1 * var(--tc-focus-ring)) calc(-1 * var(--tc-focus-ring)) 0;
+          padding: var(--tc-focus-ring);
+          margin: calc(-1 * var(--tc-focus-ring));
           scroll-padding-inline: var(--tc-focus-ring); }
 .tc-row::-webkit-scrollbar { display: none; }
 .tc-row > * { flex: 0 0 var(--tc-tile-rest); width: var(--tc-tile-rest); }
@@ -266,8 +266,11 @@ body {
 /* Выделение = ровно одно место на кадре, и какое - решает последнее действие человека
    (класс ставит `nav.js`). Рисует его только обводка: плитка не растёт и не сдвигается,
    иначе толкала бы соседей и полку ниже, и под неподвижной мышью вставала бы другая. */
-.tc-tile.is-lit { z-index: 2; }
-.tc-tile.is-lit .tc-tile-frame { outline: var(--tc-focus-ring) solid var(--tc-acid); }
+/* Обводка идёт по ВСЕЙ плитке - обложке вместе с подписью, одним прямоугольником:
+   рамка вокруг одной обложки оставляла подпись снаружи, и выделение читалось
+   двумя фигурами вместо одной. */
+.tc-tile.is-lit { z-index: 2;
+                  outline: var(--tc-focus-ring) solid var(--tc-acid); outline-offset: 0; }
 .tc-tile.is-lit .tc-tile-cap { background: var(--tc-acid); }
 .tc-tile.is-lit .tc-tile-cap .tc-caption { color: var(--tc-bg); white-space: normal;
   /* Слово без пробелов длиннее самой плитки: `normal` ему ломаться не даёт, и без
@@ -385,7 +388,10 @@ body {
 .tc-ep.is-resume.is-lit { background: var(--tc-acid); }
 .tc-drop-row.is-lit { background: var(--tc-hair-dim); }
 .tc-drop-row.is-selected.is-lit { background: var(--tc-acid); }
-.tc-tile:focus, .tc-tab:focus, .tc-ep:focus, .tc-drop-row:focus { outline: none; }
+/* Горящую плитку этот сброс обойти обязан: своя обводка у неё теперь на самой плитке, и
+   с равной силой селектора `:focus` гасил её ровно под клавиатурой - там, где выделение
+   и нужно. Браузерное кольцо снимается со всех остальных. */
+.tc-tile:focus:not(.is-lit), .tc-tab:focus, .tc-ep:focus, .tc-drop-row:focus { outline: none; }
 
 /* --- Плеер: нижняя панель ------------------------------------------------ */
 .tc-player { background: var(--tc-bg-player); color: var(--tc-text); }
