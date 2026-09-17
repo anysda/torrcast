@@ -897,4 +897,13 @@ const TCCard = {
   },
 };
 
+// Esc на карточке - тот же выход, что кнопка «Назад» (TC-1335): одна дверь, а не две
+// разные. Слушатель глобальный, но живёт только на `/card/...` - на `/play` Esc уже
+// занят своей клавишей (`player.js`), и здесь ей на пути становиться незачем.
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (!location.pathname.startsWith('/card/')) return;
+  history.back();
+});
+
 window.TCCard = TCCard;
