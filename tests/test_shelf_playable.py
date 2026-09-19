@@ -176,3 +176,24 @@ def test_an_unknown_verdict_is_never_written_to_disk(tmp_path: Path) -> None:
     playable.of("film", _PICTURE.key, _CONFIG)
 
     assert disk.get(_PICTURE.key, RULE) is None
+
+
+def test_a_negative_verdict_stays_in_the_process_but_is_reasked_after_a_restart(
+    tmp_path: Path,
+) -> None:
+    """TC-1343: ``False`` на живой сети шумный - диск бы закрепил один шум навсегда."""
+    disk = VerdictDisk(path=lambda: tmp_path / "shelf_verdicts.json")
+    voices = _Voices(heard=None)
+    playable = ShelfPlayable(circle=_circle([_PLAN]), voices=voices, alive=_alive, disk=disk)
+
+    assert playable.of("film", _PICTURE.key, _CONFIG) is False
+    assert playable.of("film", _PICTURE.key, _CONFIG) is False
+    assert voices.calls == ["film"], "процесс сам не перепрашивает свой же приговор"
+    assert disk.get(_PICTURE.key, RULE) is None, "отрицательный приговор не идёт на диск"
+
+    restarted_voices = _Voices(heard=object())
+    restarted = ShelfPlayable(
+        circle=_circle([_PLAN]), voices=restarted_voices, alive=_alive, disk=disk
+    )
+    assert restarted.of("film", _PICTURE.key, _CONFIG) is True
+    assert restarted_voices.calls == ["film"], "рестарт обязан спросить шумный приговор заново"

@@ -109,6 +109,13 @@ class ShelfPlayable:
         («не знаю») наружу тоже отдаётся честно - место действия оставляет принять
         :func:`web.shelf_tiles._covered`, а не эта функция, - и ни в память процесса,
         ни на диск никогда не пишется.
+
+        Диск асимметричен (TC-1343): ``True`` дорогой и почти всегда стабильный, ``False``
+        дешёвый (одна плитка из тридцати) и на живой сети шумный - отказ TorrServer,
+        просевший индексер, временная дыра между :func:`_alive` и разбором дорожек читаются
+        снаружи как честное «не играет» и раньше запоминались НАВСЕГДА. ``False`` на диск
+        поэтому не идёт - только в память процесса, и следующая пересборка спросит стенд
+        снова; ``True`` по-прежнему кладётся на диск и рестарт его не стирает.
         """
         cached = self._verdicts.get(key)
         if cached is not None and cached[0] == RULE:
@@ -122,7 +129,7 @@ class ShelfPlayable:
         if verdict is None:
             return None
         self._verdicts[key] = (RULE, verdict)
-        if self.disk is not None:
+        if self.disk is not None and verdict:
             self.disk.keep(key, RULE, verdict)
         return verdict
 

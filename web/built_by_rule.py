@@ -23,8 +23,10 @@ from torrcast.domain.json_value import JsonValue
 #: (``GET /api/shelves``), и страница его просто не читает.
 FIELD: Final = "rule"
 #: Нынешнее правило: 1 - отбор плиток по языку имени (TC-1321); 2 добавил отсев плиток,
-#: которые не запускаются (:mod:`web.shelf_playable`).
-RULE: Final = 2
+#: которые не запускаются (:mod:`web.shelf_playable`); 3 перестал класть отрицательный
+#: приговор играбельности на диск (TC-1343) - старые записи ``False`` правила 2 иначе
+#: врали бы вечно, раз диск больше их не перезаписывает.
+RULE: Final = 3
 
 
 def built_by_rule(body: dict[str, JsonValue]) -> bool:
