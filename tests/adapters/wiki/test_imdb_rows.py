@@ -39,6 +39,28 @@ def test_image_reads_the_picture_address_only() -> None:
     assert _image({"l": "Mimi"}) == ""
 
 
+def test_image_refuses_a_picture_wider_than_it_is_tall() -> None:
+    """🔴 Живой подсказчик: «Desperate Housewives: Oprah Winfrey Is the New Neighbor»
+    (``tt2336247``) отдаёт 1242x866 - кадр шоу, а не обложка. Wikipedia такую картинку
+    уже отсеивает (:mod:`torrcast.domain.facts.poster_address`); IMDb - второй источник,
+    и пустой адрес тут читается зовущим как «картинки нет», а не как готовый постер.
+    """
+    row = {**_row(), "i": {"imageUrl": RAW, "width": 1242, "height": 866}}
+    assert _image(row) == ""
+
+
+def test_image_keeps_an_upright_or_square_picture() -> None:
+    upright = {**_row(), "i": {"imageUrl": RAW, "width": 1708, "height": 2562}}
+    square = {**_row(), "i": {"imageUrl": RAW, "width": 500, "height": 500}}
+    assert _image(upright) == RAW
+    assert _image(square) == RAW
+
+
+def test_image_lets_a_picture_of_unknown_sides_through() -> None:
+    """Стороны у подсказчика молчат не всегда - см. :func:`_row`, ответ без них тоже живой."""
+    assert _image(_row()) == RAW
+
+
 def test_sized_offers_the_narrowed_address_first() -> None:
     assert _sized(RAW) == [
         f"https://m.media-amazon.com/images/M/MV5BNWI5OTEzMzE@._V1_UX{POSTER_WIDTH}_.jpg",

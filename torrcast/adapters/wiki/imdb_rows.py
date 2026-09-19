@@ -12,6 +12,7 @@ from typing import Any, Final
 
 from torrcast.adapters.wiki.poster_files import POSTER_WIDTH
 from torrcast.domain.facts.ask import Ask
+from torrcast.domain.facts.lying_down import lying_down
 from torrcast.domain.slugify import slugify
 
 #: Какие роды IMDb считаются нашими двумя. Серия сериала, игра и клип - не картины вовсе,
@@ -38,10 +39,22 @@ def _fits(ask: Ask, row: dict[str, Any]) -> bool:
 
 
 def _image(row: dict[str, Any] | None) -> str:
-    """Адрес картинки этой картины; её у IMDb нет - пустая строка."""
+    """Адрес картинки этой картины; её нет или она лежачая - пустая строка.
+
+    🔴 Подсказчик отдаёт стороны картинки тем же полем: у «Desperate Housewives:
+    Oprah Winfrey Is the New Neighbor» это 1242x866, кадр шоу, а не обложка. Wikipedia
+    такую лежачую картинку уже отсеивала (:mod:`torrcast.domain.facts.poster_address`),
+    а IMDb, второй источник, - нет; пустота тут читается зовущим как «картинки нет»,
+    и он пробует второй путь, каким находит постер без картинки по id
+    (:meth:`~torrcast.adapters.wiki.imdb_poster.ImdbPoster._by_id`).
+    """
     picture = row.get("i") if isinstance(row, dict) else None
     found = picture.get("imageUrl") if isinstance(picture, dict) else None
-    return found if isinstance(found, str) else ""
+    if not isinstance(found, str) or not found:
+        return ""
+    if isinstance(picture, dict) and lying_down(picture.get("width"), picture.get("height")):
+        return ""
+    return found
 
 
 def _sized(address: str) -> list[str]:

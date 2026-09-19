@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.facts.lying_down import lying_down
 from torrcast.domain.json_map import json_map
 from torrcast.domain.json_rows import json_rows
 from torrcast.domain.json_value import JsonValue
@@ -40,19 +41,11 @@ def _lying_down(row: dict[str, JsonValue]) -> bool:
 
     Меряется уменьшенная копия, а не оригинал: именно её адрес и уезжает в карточку.
     Пропорцию ``iiurlwidth`` не искажает, так что судить по любой из пар можно одинаково.
-
-    🔴 Неизвестный размер значит «пропустить», а не «отказать». Стороны приезжают полями
-    ответа, и откажи мы по их отсутствию - смена формата ответа Википедии оставила бы без
-    постеров ВСЕ картины разом, а выглядело бы это как честное «постера не нашлось».
-    Квадрат проходит: лежачесть - это строгое превышение, а не «не выше».
+    Приговор - :func:`~torrcast.domain.facts.lying_down.lying_down`, общий со вторым
+    источником картинок; неизвестная пара сторон отдаёт слово следующей, а не отказу.
     """
     for across, down in (("thumbwidth", "thumbheight"), ("width", "height")):
-        wide, high = _side(row.get(across)), _side(row.get(down))
-        if wide and high:
-            return wide > high
+        verdict = lying_down(row.get(across), row.get(down))
+        if verdict is not None:
+            return verdict
     return False
-
-
-def _side(value: JsonValue) -> int:
-    """Сторона картинки числом; поля нет или там не число - ноль."""
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
