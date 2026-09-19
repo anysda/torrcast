@@ -101,9 +101,7 @@ def test_a_query_that_finds_someone_elses_circle_without_erroring_still_falls_th
     """Строка не пуста и круг непуст, но своей картины среди них нет - пробуем дальше."""
     other = Picture(title="Матрица", year=1999, kind="movie")
     other_plan = Plan(picture=other, ranked=[], runtime=1.0, warn_mbit=12.0)
-    asked, circle = _circle(
-        {"матрица": [other_plan], "призрак в доспехах": [_PLAN]}
-    )
+    asked, circle = _circle({"матрица": [other_plan], "призрак в доспехах": [_PLAN]})
 
     plan, pick, found = own_plan(_KEY, "матрица", "призрак в доспехах", circle)
 
