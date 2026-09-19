@@ -1746,20 +1746,34 @@ def _await_playback(ctx: Ctx) -> bool:
     return _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)[0] is not None
 
 
-_METER_JS: Final = """() => {
+#: Адрес потока, что играет прямо сейчас - `TCPlayer._url` (`web/static/player-box.js:83`
+#: меняет его, ТОЛЬКО когда прицепляется следующий ящик; `player.js` его не трогает на
+#: рестарте той же серии). ``null``, пока `player.js` ещё не отдал показ странице.
+_METER_STREAM_JS: Final = "(window.TCPlayer && window.TCPlayer._url) || null"
+
+_METER_JS: Final = (
+    """() => {
   const old = window.__tcAcceptanceMeter;
   if (old) old.stop();
   const meter = {
     born: performance.now(), frame: null, start: null, playing: [], waits: [], waiting: null,
-    armed: null, nextPlaying: null, nextFrame: null,
+    armed: null, armedStream: null, nextPlaying: null, nextFrame: null,
   };
+  const stream = () => """
+    + _METER_STREAM_JS
+    + """;
   const watch = (video) => {
     if (meter.video === video) return;
     meter.video = video; meter.start = video.currentTime;
     const at = () => (performance.now() - meter.born) / 1000;
     video.addEventListener('playing', () => {
       meter.playing.push(at());
-      if (meter.armed !== null && meter.nextPlaying === null) meter.nextPlaying = at();
+      // Планка приёмки - смена СЕРИИ, а не любой `playing` на том же адресе: подгруз на
+      // хвосте ЕЩЁ старой серии тоже даёт `waiting -> playing`, и без сверки адреса
+      // прибор принимал бы её последний кадр за первый кадр следующей (TC-1341).
+      if (meter.armed !== null && meter.nextPlaying === null && stream() !== meter.armedStream) {
+        meter.nextPlaying = at();
+      }
       if (meter.waiting !== null) { meter.waits.push(at() - meter.waiting); meter.waiting = null; }
     });
     video.addEventListener('waiting', () => {
@@ -1779,10 +1793,12 @@ _METER_JS: Final = """() => {
   document.querySelectorAll('video').forEach(watch);
   meter.arm = () => {
     meter.armed = (performance.now() - meter.born) / 1000;
+    meter.armedStream = stream();
     meter.nextPlaying = null; meter.nextFrame = null; meter.waits = []; meter.waiting = null;
   };
   meter.stop = () => observer.disconnect(); window.__tcAcceptanceMeter = meter;
 }"""
+)
 
 #: Сериализованный снимок счётчика. Незакрытый ``waiting`` получает настоящую
 #: длительность на миг чтения, а не условную тысячную секунды.
@@ -3220,16 +3236,25 @@ _CARD_LOOK: Final = """() => {
 #: плитка; нет такой - пустая строка. Середина, а не вся плитка: ряд полки обрезан краем окна, и
 #: правило «целиком» оставляло три плитки полки истории, уже согретые. Проверка попадания:
 #: крайнюю плитку ряда накрывает поле у края полки (``tc-shelf-safe``), и клик уходил в него.
+#: 🔴 Найденная плитка ещё и МЕЧЕНА (`data-tc-picked`), а не только названа ключом: та же
+#: картина легально стоит на двух полках сразу («Новинки» и «Популярное»), ключ у обеих
+#: одинаковый, и `_tile_by_key` без пометки брала ПЕРВУЮ по разметке - не ту, что под
+#: курсором, а вторую, часто вовсе за краем окна (замер CT511, «Позвоните моему агенту»).
 _PICK_TILE: Final = """sel => {
   let last = '';
+  let picked = null;
+  document.querySelectorAll(sel).forEach((tile) => tile.removeAttribute('data-tc-picked'));
   document.querySelectorAll(sel).forEach(tile => {
     const b = tile.getBoundingClientRect();
     const x = b.left + b.width / 2;
     const y = b.top + b.height / 2;
     if (!(b.width > 0 && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)) return;
     const e = document.elementFromPoint(x, y);
-    if (e && e.closest('[data-tc-tile]') === tile) last = tile.dataset.tcKey || '';
+    if (e && e.closest('[data-tc-tile]') === tile) {
+      picked = tile; last = tile.dataset.tcKey || '';
+    }
   });
+  if (picked) picked.dataset.tcPicked = '1';
   return last;
 }"""
 #: Точка плитки, ближайшая к её середине, в которую клик попадёт в саму плитку; ``null``,
@@ -3255,6 +3280,10 @@ _HIT_POINT: Final = """tile => {
 #: Запросы плиток с картинкой, чья середина за краем окна: их не грел никто, как у
 #: владельца, долиставшего полку. Берутся первая, средняя и последняя - врозь, чтобы
 #: прогрев соседей одной, пока до неё листали, не согрел следующую.
+#: 🔴 `group` едет вместе с ключом: та же картина легально лежит на двух полках сразу
+#: («Новинки» и «Популярное»), и после перезагрузки (каждая проверка листает `_home()`
+#: заново) один ключ без полки находил ПЕРВУЮ попавшуюся плитку в разметке - не ЭТУ,
+#: холодную, а её тёплого двойника с другой полки (замер CT511, «Беги, прячься, бей»).
 _COLD_TILES: Final = """sel => {
   const out = [];
   document.querySelectorAll(sel).forEach(tile => {
@@ -3264,8 +3293,9 @@ _COLD_TILES: Final = """sel => {
     const off = b.width > 0 && (x < 0 || y < 0 || x > innerWidth || y > innerHeight);
     const q = tile.dataset.tcWarm || '';
     const key = tile.dataset.tcKey || '';
+    const group = tile.dataset.tcGroup || '';
     if (off && q && key && tile.querySelector('img.tc-tile-art-img')
-      && !out.some(item => item.key === key)) out.push({key, query: q});
+      && !out.some(item => item.key === key)) out.push({key, query: q, group});
   });
   return out.length <= 3 ? out : [out[0], out[out.length >> 1], out[out.length - 1]];
 }"""
@@ -3407,12 +3437,30 @@ def _home_tile(ctx: Ctx) -> Any:
     ctx.page.evaluate("() => window.scrollBy(0, innerHeight / 2)")
     ctx.page.wait_for_timeout(1000)
     key = ctx.page.evaluate(_PICK_TILE, _LIVE_TILE)
-    return _tile_by_key(ctx, str(key)) if key else None
+    # Пометка (`data-tc-picked`), а не `_tile_by_key`: ту же картину легально несут ДВЕ
+    # полки, ключ у обеих одинаковый, а под курсором стоит только ОДНА из них - страница
+    # тут не перезагружалась, и пометка ещё жива на своём узле.
+    return ctx.page.locator(f"{_LIVE_TILE}[data-tc-picked='1']") if key else None
 
 
-def _tile_by_key(ctx: Ctx, key: str) -> Any:
-    """Живая плитка по её постоянному ключу, а не по протухшему индексу DOM."""
-    return ctx.page.locator(f"{_LIVE_TILE}[data-tc-key={json.dumps(key)}]")
+def _tile_by_key(ctx: Ctx, key: str, group: str = "") -> Any:
+    """Живая плитка по её постоянному ключу (и полке, если она известна).
+
+    🔴 `json.dumps` тут не годится: ключ несёт русское имя картины, а CSS-селектор
+    читает `\\uXXXX` не как экранирование Юникода (то запись JS), а как литеральные
+    буквы «u0431...» - селектор искал `\\u0431...` вместо «б», плитка не находилась
+    никогда (замер CT511: 0 совпадений против 2 у той же плитки без `json.dumps`).
+    Кавычки и обратный слеш ключ не несёт (формат ``вид:имя:год``), экранировать нечего.
+    Та же картина легально стоит на ДВУХ полках сразу («Новинки» и «Популярное») с
+    одинаковым ключом: без полки `Locator` падает строгим режимом на двух узлах (замер
+    CT511: `strict mode violation` на «Позвоните моему агенту»), а `.first` без разбора
+    иногда брал ТЁПЛОГО двойника вместо именно той холодной плитки, что искал вызывающий
+    (замер CT511: «Беги, прячься, бей»). Полка снимает разночтение; без неё - `.first`.
+    """
+    selector = f'{_LIVE_TILE}[data-tc-key="{key}"]'
+    if group:
+        selector += f'[data-tc-group="{group}"]'
+    return ctx.page.locator(selector).first
 
 
 def _middle(ctx: Ctx, tile: Any) -> tuple[float, float]:
@@ -3456,12 +3504,13 @@ def check_28_shelf_card(ctx: Ctx) -> Result:
             said.append("снимок холодной плитки испорчен")
             continue
         key, query = str(picked.get("key") or ""), str(picked.get("query") or "")
+        group = str(picked.get("group") or "")
         _home(ctx)
         if not key:
             ok = False
             said.append(f"{query!r}: плитки на свежей главной нет")
             continue
-        tile = _tile_by_key(ctx, key)
+        tile = _tile_by_key(ctx, key, group)
         tile.scroll_into_view_if_needed()
         loaded_by = time.monotonic() + 10.0
         while not tile.evaluate(_TILE_ART) and time.monotonic() < loaded_by:

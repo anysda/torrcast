@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import inspect
 import json
@@ -402,6 +403,80 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
     assert two[0] == pytest.approx(0.4, abs=_STALL_TOLERANCE)
     assert two[1] == pytest.approx(1.25, abs=_STALL_TOLERANCE)
     assert blind == []
+
+
+def _meter_over_transition(page: Any, module: ModuleType, meter_js: str) -> tuple[Any, Any]:
+    """Вооружить счётчик, подать подгруз на ТОМ ЖЕ адресе потока, затем сменить адрес.
+
+    Возвращает ``(stale, real)``: ``stale`` - что счётчик записал в ``nextFrame`` после
+    подгруза без смены адреса (хвост ЕЩЁ старой серии), ``real`` - после настоящей смены
+    адреса (следующая серия). Живой автопереход роняет `<video>` на тот же элемент и
+    рестартует упаковку у самого хвоста - подгруз там штатное дело (TC-1341), и синтетика
+    тут воспроизводит именно эту пару событий, а не выдуманную форму.
+    """
+    page.set_content(_STUB_VIDEO_PAGE)
+    page.evaluate(meter_js)
+    page.wait_for_function(
+        "() => window.__tcAcceptanceMeter && window.__tcAcceptanceMeter.frame !== null",
+        timeout=15000,
+    )
+    page.evaluate("() => { window.TCPlayer = { _url: 'ep-1' }; window.__tcAcceptanceMeter.arm(); }")
+    page.evaluate(_DRIVE_STALLS, [250])
+    # rVFC ставит кадр не в тот же тик, что событие ``playing``: даём ему тот же срок,
+    # что и настоящему переходу ниже, иначе наивная версия читалась бы как починенная
+    # просто потому, что кадр после подгруза ещё не успел прийти.
+    with contextlib.suppress(Exception):
+        page.wait_for_function("() => window.__tcAcceptanceMeter.nextFrame !== null", timeout=1000)
+    stale = page.evaluate("() => window.__tcAcceptanceMeter.nextFrame")
+    page.evaluate("() => { window.TCPlayer._url = 'ep-2'; }")
+    page.evaluate(_DRIVE_STALLS, [250])
+    with contextlib.suppress(Exception):
+        page.wait_for_function("() => window.__tcAcceptanceMeter.nextFrame !== null", timeout=3000)
+    real = page.evaluate("() => window.__tcAcceptanceMeter.nextFrame")
+    return stale, real
+
+
+@pytest.mark.machine
+def test_автопереход_не_принимает_playing_с_тем_же_адресом_потока() -> None:
+    """TC-1341: хвост ЕЩЁ старой серии не сходит за первый кадр следующей.
+
+    ``_METER_JS`` до правки принимал ЛЮБОЙ ``playing`` после ``arm()`` - вооружение
+    ставится, пока старая серия ещё играет (`web-acceptance.py:2280`), и подгруз на её
+    хвосте (`waiting -> playing`) сам по себе выглядел точь-в-точь как переход. Наивная
+    версия ниже воссоздаёт ИМЕННО этот старый код (условие без сверки адреса) - тем же
+    приёмом, каким выше устроена `stripped`: строкой из настоящего ``_METER_JS``, а не
+    сочинённым текстом.
+    """
+    sync_api = pytest.importorskip(
+        "playwright.sync_api",
+        reason="playwright ставится рядом с браузером (см. pyproject.toml), в венве гейта его нет",
+    )
+    module = acceptance()
+    naive = module._METER_JS.replace(
+        "meter.nextPlaying === null && stream() !== meter.armedStream) {",
+        "meter.nextPlaying === null) {",
+    )
+    assert naive != module._METER_JS
+    executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "") or None
+    with sync_api.sync_playwright() as driver:
+        browser = driver.chromium.launch(headless=True, executable_path=executable)
+        page = browser.new_page()
+        try:
+            naive_stale, naive_real = _meter_over_transition(page, module, naive)
+            fixed_stale, fixed_real = _meter_over_transition(page, module, module._METER_JS)
+        finally:
+            browser.close()
+
+    assert isinstance(naive_stale, int | float), (
+        f"наивный счётчик обязан принять хвост старой серии как переход, взял {naive_stale!r}"
+    )
+    assert isinstance(naive_real, int | float)
+    assert fixed_stale is None, (
+        f"починенный счётчик принял хвост старой серии за переход: nextFrame={fixed_stale!r}"
+    )
+    assert isinstance(fixed_real, int | float), (
+        f"починенный счётчик обязан дождаться кадра НОВОГО адреса, взял {fixed_real!r}"
+    )
 
 
 def _write_trace(directory: Path, records: list[dict[str, Any]]) -> None:
