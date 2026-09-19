@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.torrcast_error import TorrcastError
@@ -85,6 +87,42 @@ def test_a_named_refusal_is_not_retried_with_another_string() -> None:
 
     with pytest.raises(TorrcastError, match="не настроен Prowlarr"):
         own_plan(_KEY, "призрак-в-доспехах-202", "призрак в доспехах", circle)
+
+
+def test_a_fallen_infrastructure_is_not_retried_with_another_string() -> None:
+    """Лёг Prowlarr - это отказ на все три довода разом, а не ответ про строку."""
+    asked: list[str] = []
+
+    def circle(query: str) -> list[Plan]:
+        asked.append(query)
+        raise InfraError("не настроен Prowlarr")
+
+    with pytest.raises(InfraError, match="не настроен Prowlarr"):
+        own_plan(_KEY, "призрак-в-доспехах-202", "призрак в доспехах", circle)
+    assert asked == ["призрак-в-доспехах-202"]
+
+
+def test_a_refusal_about_the_query_string_does_not_close_the_picture() -> None:
+    """Названный отказ ПРО СТРОКУ не закрывает картину, которую этой строкой открыли.
+
+    Снято на стенде 19-09-2026 одним ключом, двумя строками: немая строка доходила до
+    имени картины и отдавала ``200``, а «Терминатор 12» той же карточке - ``409`` с
+    чужим текстом, и своё имя картины не пробовалось вовсе. Строку карточке приносят
+    родня, история и недописанный набор, номер части в ней - обычное дело, а память
+    круга потом отдавала этот отказ всем ещё минуту (``1.5 мс`` на повторе).
+    """
+    asked: list[str] = []
+
+    def circle(query: str) -> list[Plan]:
+        asked.append(query)
+        if query == "призрак в доспехах":
+            return [_PLAN]
+        raise NotFoundError("«Терминатор»: картин во франшизе 10, номера 12 нет")
+
+    plan, pick, found = own_plan(_KEY, "терминатор 12", "призрак в доспехах", circle)
+
+    assert (plan, pick, found) == (_PLAN, 1, "призрак в доспехах")
+    assert asked == ["терминатор 12", "призрак в доспехах"]
 
 
 def test_nothing_found_by_any_string_raises_the_last_silent_refusal() -> None:

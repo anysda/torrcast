@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.domain.nothing_found_error import NothingFoundError
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.select.plan import Plan
 from web.card_lookup import card_lookup
 
@@ -26,20 +26,24 @@ Circle = Callable[[str], "list[Plan]"]
 def own_plan(key: str, query: str, title: str, circle: Circle) -> tuple[Plan | None, int, str]:
     """Картина по своему имени, а не по строке, которой её нашли; строка, что сработала.
 
-    «Ничего не нашлось» (:class:`NothingFoundError`) одной строки не закрывает дорогу
-    следующей: круг честно ответил пусто на конкретный текст, а не на картину. Именной
-    же отказ круга (Prowlarr не настроен и т.п.) общий на все три попытки и уходит
-    наверх сразу - переспрашивать им нечего.
+    Отказ круга ПРО СТРОКУ дорогу следующей не закрывает, и немой он или названный -
+    дела не меняет: и «ничего не нашлось», и «во франшизе столько частей нет», и «ничего
+    не разобралось», и «раздач с сезоном 9 нет» сказаны про конкретный текст, а не про
+    картину, а текст этот карточке принесла родня, история или недописанный набор. Отказ
+    инфраструктуры (:class:`~torrcast.domain.infra_error.InfraError`: Prowlarr не
+    настроен, лёг TorrServer) - другое дело: он общий на все три попытки и уходит наверх
+    сразу, переспрашивать им нечего. Наверх идёт отказ ПОСЛЕДНЕГО довода: зритель читает
+    слова про картину, которую открывал, а не про чужую строку.
     """
     tried: set[str] = set()
-    failure: NothingFoundError | None = None
+    failure: NotFoundError | None = None
     for candidate in (query.strip(), title.strip(), _key_name(key)):
         if not candidate or candidate in tried:
             continue
         tried.add(candidate)
         try:
             plans = circle(candidate)
-        except NothingFoundError as nothing:
+        except NotFoundError as nothing:
             failure = nothing
             continue
         plan, pick = card_lookup(plans, key)
