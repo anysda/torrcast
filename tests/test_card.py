@@ -191,6 +191,87 @@ def test_no_query_is_refused_before_any_search_runs(monkeypatch: pytest.MonkeyPa
     assert json.loads(answer.body) == {"error": "no_query"}
 
 
+def _by_query(by: dict[str, list[Plan]]) -> Any:
+    """Круг-подмена: разные строки находят разное, как настоящий Prowlarr - не одно и то же."""
+
+    def circle(query: str, **_k: object) -> list[Plan]:
+        if query in by:
+            return by[query]
+        raise NothingFoundError(f"ничего не нашлось по «{query}»")
+
+    return circle
+
+
+#: Своя, не пересекающаяся с другими пробами связка facts (title, year, kind): кэш
+#: справки и родни (:mod:`web.preview`) - общий процесс, и общая с соседним тестом
+#: тройка тихо подменяла бы им запущенный поиск.
+_PROBE_FACTS = {"title": "Own Title Probe", "year": "2099", "kind": "movie"}
+
+
+def test_a_truncated_search_string_still_finds_the_picture_by_its_own_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Случай владельца TC-1334: набор оборвался («...-202» вместо «...-2026»)."""
+    _wired(monkeypatch, [])
+    monkeypatch.setattr("web.card.WARM", _warm(_by_query({"Own Title Probe": [_MOVIE_PLAN]})))
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(_MOVIE.key, query="own titl", extra_query=_PROBE_FACTS)
+
+    assert code == 200
+    assert body["picture"] == _MOVIE.key
+
+
+def test_reloading_the_same_stale_address_gives_the_same_card_not_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F5: тот же адрес со старой строкой поиска отвечает картиной, а не «No releases»."""
+    _wired(monkeypatch, [])
+    monkeypatch.setattr("web.card.WARM", _warm(_by_query({"Own Title Probe": [_MOVIE_PLAN]})))
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    state_slot.install(FakeStateStore())
+
+    first = _asked(_MOVIE.key, query="own titl", extra_query=_PROBE_FACTS)
+    second = _asked(_MOVIE.key, query="own titl", extra_query=_PROBE_FACTS)
+
+    assert first[0] == second[0] == 200
+    assert first[1]["picture"] == second[1]["picture"] == _MOVIE.key
+
+
+def test_a_strangers_search_string_still_finds_the_right_picture_by_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Родня или история завели карточку чужой строкой - своё имя всё равно находит."""
+    _wired(monkeypatch, [])
+    monkeypatch.setattr(
+        "web.card.WARM",
+        _warm(_by_query({"matrix": [_SHOW_PLAN], "Own Title Probe": [_MOVIE_PLAN]})),
+    )
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(_MOVIE.key, query="matrix", extra_query=_PROBE_FACTS)
+
+    assert code == 200
+    assert body["picture"] == _MOVIE.key
+
+
+def test_a_bare_link_with_no_query_at_all_resolves_by_its_own_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Прямая ссылка на карточку с фактами, но без ``query``, - не 400 и не 404."""
+    _wired(monkeypatch, [])
+    monkeypatch.setattr("web.card.WARM", _warm(_by_query({"Own Title Probe": [_MOVIE_PLAN]})))
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(_MOVIE.key, query="", extra_query=_PROBE_FACTS)
+
+    assert code == 200
+    assert body["picture"] == _MOVIE.key
+
+
 def test_a_shelf_card_answers_its_ready_facts_without_waiting_for_the_circle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

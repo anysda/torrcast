@@ -1,23 +1,24 @@
 """Карточка одной картины: ``GET /api/card/{key}?query=...``.
 
-Ключ адресует картину в круге, который **тем же поиском**, что и ``/api/search``,
-находит запрос из строки доводов - карточка не хранит своего пула раздач, а спрашивает
-его заново, как и обещает договор (ключ без запроса ничей). Описание и рейтинг едут
-фоновым добором (:class:`torrcast.usecases.facts.Facts`) и не задерживают ответ: не
-приехало - поле ``null`` и заголовок ``X-Torrcast-Partial``, страница переспросит сама.
-
-Пустое поле недоездом НЕ считается: у картины без статьи описания не будет никогда, и
-заголовок стоит только там, где переспрашивать есть смысл (:func:`_answer`).
+Ключ адресует картину в круге, который **тем же поиском**, что и ``/api/search``, находит
+запрос из строки доводов - карточка не хранит своего пула раздач, а спрашивает его заново.
+Строке доводов доверия нет как ЕДИНСТВЕННОМУ доводу - это то, чем плитку открыли, а не имя
+картины, - и картину ищет своим именем (:func:`web.card_own_plan.own_plan`). Описание и
+рейтинг едут фоновым добором (:class:`torrcast.usecases.facts.Facts`) и не задерживают
+ответ: не приехало - поле ``null`` и заголовок ``X-Torrcast-Partial``, страница переспросит
+сама. Пустое поле недоездом НЕ считается: заголовок стоит только там, где переспрашивать
+есть смысл (:func:`_answer`).
 
 Переспрос с ``wait=1`` - долгий: ответ держится, пока тело не изменится или не доедет
-целиком, но не дольше :data:`WAIT`. Короткий опрос раз в две секунды бросал страницу
-после пятого захода со скелетом вместо описания и слал по 4-6 GET на картину.
+целиком, но не дольше :data:`WAIT`. Короткий опрос раз в две секунды бросал страницу после
+пятого захода со скелетом вместо описания и слал по 4-6 GET на картину.
 """
 
 from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from typing import Final
 
 from hass.hit_posters import hits
@@ -35,7 +36,7 @@ from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
 from web.card_ask import NO_ASK, CardAsk
 from web.card_details import CardDetails
-from web.card_lookup import card_lookup
+from web.card_own_plan import own_plan
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices
@@ -58,12 +59,10 @@ _PREFIX = "/api/card/"
 _related = RELATED
 #: Заголовок, которым карточка метит недоехавшее описание, рейтинг, родню или серии.
 _PARTIAL = "X-Torrcast-Partial"
-#: Потолок долгого переспроса: переживает первый контакт разбора серий с роем, который
-#: завёл ещё первый GET. Равные 8 с кончали заход раньше разбора, и мёртвый рой сериала
-#: стоил странице третьего запроса (стенд `.104`: Knightfall, серии ответили на 8.19 с).
+#: Потолок долгого переспроса: переживает первый контакт разбора серий с роем, который завёл
+#: ещё первый GET. Равные 8 с кончали заход раньше разбора (стенд `.104`: Knightfall, 8.19 с).
 WAIT: Final = GRACE + 1.0
-#: Шаг, которым долгий переспрос оглядывается на фоновые доборы.
-_TICK: Final = 0.25
+_TICK: Final = 0.25  # Шаг, которым долгий переспрос оглядывается на фоновые доборы.
 #: Разбор серий раздачи, которую играл бы показ (:class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
 #: Дорожки той раздачи, которую играл бы показ (:class:`web.voice_lookup.VoiceLookup`).
@@ -71,15 +70,15 @@ _voices = VoiceLookup(engines=TorrServer, warms=CARD_WARM)
 #: Приговор обложки - тот же, что у выдачи поиска и полки (:mod:`web.card_poster`).
 _poster = CardPoster(offer=hits.urgent, pending=hits.pending)
 #: Сколько долгий заход досиживает после первой перемены, пока доезжает остальное: части
-#: приходят порознь (стенд `.104`: родня и серии через 2.1 с, приговор обложки через 2.7 с),
-#: и ответ на каждую перемену стоил странице лишнего запроса.
+#: приходят порознь (стенд `.104`: родня и серии через 2.1 с, обложка через 2.7 с).
 _SETTLE: Final = 1.0
 
 
 def card(request: Request) -> Answer:
     """Собрать карточку по ключу картины, найденной тем же кругом, что и поиск."""
     query = request.query.get("query", "")
-    if not query.strip():
+    title = request.query.get("title", "").strip()
+    if not query.strip() and not title:
         return refusal(400, "no_query")
     key = request.path[len(_PREFIX) :]
     hint = start_related(request, _facts, _related)
@@ -88,14 +87,15 @@ def card(request: Request) -> Answer:
     config = load_config()
     try:
         # Живой запрос не ждёт за очередью прогрева: несогретый круг он считает сам.
-        plans = WARM.take(query)
+        plan, pick, found = own_plan(key, query, title, WARM.take)
     except TorrcastError as failed:
         return circle_refusal(failed)
-    plan, pick = card_lookup(plans, key)
     if plan is None:
         return refusal(404, "not_found")
     wait = WAIT if request.query.get("wait") == "1" else 0.0
-    return _answer(plan, config, pick, wait, hint, CardAsk.of(request.query))
+    # Дорожки (:func:`_body`) спрашивают по строке, что и нашла картину, не по адресной.
+    ask = replace(CardAsk.of(request.query), query=found)
+    return _answer(plan, config, pick, wait, hint, ask)
 
 
 def _answer(
