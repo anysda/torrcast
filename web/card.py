@@ -36,13 +36,13 @@ from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
 from web.card_ask import NO_ASK, CardAsk
 from web.card_details import CardDetails
-from web.own_plan import own_plan
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices
 from web.card_warm import CARD_WARM
 from web.circle_refusal import circle_refusal
 from web.episode_lookup import GRACE, EpisodeLookup
+from web.own_plan import own_plan
 from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
 from web.refusal import refusal
