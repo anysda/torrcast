@@ -16,7 +16,9 @@
    раздач бывает только раскладка из одного сезона;
 4. сезон, которого каталог не знает, а раздачи зовут числом серий, получает строки из их
    имён (:func:`_filled`): TVmaze нумерует возрождение «Футурамы» вслед за Hulu сезонами
-   11-14 и сезонов 8-10 не знает, а русские раздачи зовут теми же сезонами те же серии;
+   11-14 и сезонов 8-10 не знает, а русские раздачи зовут теми же сезонами те же серии.
+   Молчит TVmaze - так же берётся сезон, в котором раздачи единогласно обещают больше
+   серий, чем держит одинокая IMDb: «из 26» Comedy Central против её шестнадцати;
 5. раскладка не нумерация раздач, если ей противоречит больше половины раздач с номерами
    или молчит TVmaze, а раздачи зовут сезон, которого у IMDb нет. Список она всё равно
    даёт сразу, а серию строки показ ищет по сквозному номеру
@@ -71,6 +73,7 @@ def series_layout(
     )
     if not direct and _splits(chosen, releases):
         return {}, False
+    chosen = _kept(chosen, releases) if direct and not tvmaze else chosen
     chosen = {**chosen, **_filled(chosen, releases)} if direct else chosen
     named = pooled | set(saved)
     last = max(named, default=None)
@@ -150,28 +153,36 @@ def _splits(layout: Numbers, releases: Sequence[Release]) -> bool:
     return False
 
 
+def _whole(releases: Sequence[Release]) -> dict[int, int]:
+    """Сезон -> число серий его «из N», когда все звавшие его имена обещают одно."""
+    said: dict[int, set[int]] = {}
+    for release in releases:
+        seasons, whole = _named(release), _OF_RE.search(release.raw_name)
+        if len(seasons) == 1 and whole is not None:
+            said.setdefault(seasons[0], set()).add(int(whole.group(1)))
+    return {season: min(sizes) for season, sizes in said.items() if len(sizes) == 1}
+
+
+def _kept(layout: Numbers, releases: Sequence[Release]) -> Numbers:
+    """Раскладка без сезонов, где раздачи единогласно обещают больше серий, чем она держит."""
+    promised = _whole(releases)
+    return {s: numbers for s, numbers in layout.items() if promised.get(s, 0) <= len(numbers)}
+
+
 def _filled(layout: Numbers, releases: Sequence[Release]) -> dict[int, tuple[int, ...]]:
     """Серии сезона, которого каталог не знает, из имён раздач: «Сезон: 8 / Серии: 1-10 из 10».
 
     Вкладку такому сезону карточка рисует всё равно - его называют раздачи, - и без строк
-    она ждала бы разбора торрента. Строк столько, сколько серий раздачи в нём называют, и
-    столько, сколько обещает «из N», когда все имена обещают одно: восьмой сезон «Футурамы»
-    зовут и «10 из 10», и «10 из 20», и лишние десять строк ничего бы не сыграли.
+    она ждала бы разбора торрента. Строк столько, сколько серий называют сами имена, и
+    столько, сколько обещает единогласное «из N»: восьмой сезон «Футурамы» зовут и
+    «10 из 10», и «10 из 20», и лишние десять строк ничего бы не сыграли.
     """
-    tops: dict[int, int] = {}
-    said: dict[int, set[int]] = {}
+    promised, tops = _whole(releases), dict[int, int]()
     for release in releases:
-        seasons, whole = _named(release), _OF_RE.search(release.raw_name)
-        if len(seasons) != 1 or seasons[0] in layout:
-            continue
-        tops[seasons[0]] = max(tops.get(seasons[0], 0), _top(release))
-        if whole is not None:
-            said.setdefault(seasons[0], set()).add(int(whole.group(1)))
-    sizes: dict[int, int] = {}
-    for season, top in tops.items():
-        stated = said.get(season, set())
-        promised = next(iter(stated)) if len(stated) == 1 else 0
-        sizes[season] = promised if promised >= top else top
+        seasons = _named(release)
+        if len(seasons) == 1 and seasons[0] not in layout:
+            tops[seasons[0]] = max(tops.get(seasons[0], 0), _top(release))
+    sizes = {season: max(top, promised.get(season, 0)) for season, top in tops.items()}
     return {season: tuple(range(1, size + 1)) for season, size in sizes.items() if size}
 
 

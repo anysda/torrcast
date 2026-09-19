@@ -166,3 +166,31 @@ def test_a_catalogue_that_splits_the_show_its_own_way_stays_silent_futurama() ->
 
 def test_a_series_no_catalogue_knows_has_no_layout() -> None:
     assert series_layout({}, {}, [parse_release_name("Show S01E01")], [], NOW) == ({}, False)
+
+
+def test_without_tvmaze_a_season_the_releases_agree_is_bigger_is_numbered_by_them_futurama() -> (
+    None
+):
+    """Молчит TVmaze: раздачи единогласно зовут шестой сезон 26 сериями, у IMDb их 16."""
+    imdb = {s: tuple(range(1, n + 1)) for s, n in FUTURAMA_IMDB.items()}
+    fitting = [parse_release_name(f"Футурама / Futurama s0{n}e05 BDRip") for n in range(1, 6)]
+    releases = [*fitting, parse_release_name("Футурама / Сезон: 6 / Серии: 1-26 из 26")]
+
+    silent = series_layout(imdb, {}, releases, [], NOW)
+
+    assert _direct(silent) is True, "список раздач, а не отказ от каталога"
+    assert _counts(silent)[6] == 26, "шестнадцать строк IMDb не нумеруют 26 серий раздач"
+    assert _counts(silent)[5] == 16, "сезон, с которым раздачи не спорят, остаётся за IMDb"
+    live = series_layout(imdb, _aired(FUTURAMA_TVMAZE), releases, [], NOW)
+    assert _counts(live)[6] == 26, "живой TVmaze выбирает раскладку сам, по промахам"
+
+
+def test_a_season_the_releases_count_differently_keeps_the_catalogue_numbering_futurama() -> None:
+    """«Из N» врозь: «Рик и Морти» зовут первый сезон и 21 серией, и 11, и 10."""
+    imdb = {s: tuple(range(1, n + 1)) for s, n in FUTURAMA_IMDB.items()}
+    torn = [
+        parse_release_name("Футурама / Сезон: 6 / Серии: 1-26 из 26"),
+        parse_release_name("Футурама / Сезон: 6 / Серии: 1-16 из 16"),
+    ]
+
+    assert _counts(series_layout(imdb, {}, torn, [], NOW))[6] == 16, "разнобою «из N» веры нет"
