@@ -4,16 +4,29 @@ set -eu
 # Сторожа прибора веб-приёмки (tests/test_web_acceptance.py, машинный набор) не бегают
 # в scripts/test-gate: playwright и Chromium намеренно не входят в венв гейта (см.
 # pyproject.toml), а тащить их туда - лишний вес под потолком 6G ради того, что уже
-# есть готовым на щупе. Эта команда гоняет ровно те же два теста РЕАЛЬНЫМ Chromium на
-# щупе CT511, где playwright и браузер уже стоят (тот же venv, что у web-acceptance.py
-# и decodebench.py). Копируются только два файла - сам тест и прибор, который он
-# грузит: остального дерева (torrcast, conftest.py) машинным тестам не нужно, они не
-# читают ничего, кроме playwright и стандартной библиотеки.
+# есть готовым на отдельной машине. Эта команда гоняет ровно те же два теста РЕАЛЬНЫМ
+# Chromium на машине с установленным playwright и браузером (тот же принцип, что у
+# web-acceptance.py и decodebench.py - см. их шапки). Копируются только два файла -
+# сам тест и прибор, который он грузит: остального дерева (torrcast, conftest.py)
+# машинным тестам не нужно, они не читают ничего, кроме playwright и стандартной
+# библиотеки.
+#
+# Адрес такой машины и её окружение - деталь СРЕДЫ, а не продукта, и в отслеживаемом
+# дереве не живёт (репозиторий публичный). Задаются снаружи:
+#
+#   TORRCAST_PROBE_HOST=user@host TORRCAST_PROBE_PYTHON=/путь/до/python3 \
+#       TORRCAST_PROBE_BROWSERS_PATH=/путь/до/браузеров scripts/probe-gate
+#
+# TORRCAST_PROBE_HOST - обязательный, адреса по умолчанию нет и не будет.
+# TORRCAST_PROBE_PYTHON - интерпретатор с playwright на той машине, по умолчанию `python3`.
+# TORRCAST_PROBE_BROWSERS_PATH - не обязателен: нужен, только если браузер playwright
+# на той машине лежит не в его дефолтном кэше.
 #
 # Красный этой команды означает то же, что красный test-gate: приёмка не объявляется.
 
-probe_host="root@192.168.1.132"
-probe_python=/opt/pwenv/bin/python3
+: "${TORRCAST_PROBE_HOST:?адрес щупа не задан - экспортируй TORRCAST_PROBE_HOST=user@host}"
+probe_host=$TORRCAST_PROBE_HOST
+probe_python=${TORRCAST_PROBE_PYTHON:-python3}
 lane_root=$(cd "$(dirname "$0")/.." && pwd)
 
 remote_dir=$(ssh "$probe_host" mktemp -d)
@@ -30,5 +43,8 @@ printf '[pytest]\nmarkers =\n    machine: тест с настоящими ча�
     > "$local_ini"
 scp -q "$local_ini" "$probe_host:$remote_dir/pytest.ini"
 
-ssh "$probe_host" "cd '$remote_dir' && PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+browsers_env=
+[ -n "${TORRCAST_PROBE_BROWSERS_PATH:-}" ] &&
+    browsers_env="PLAYWRIGHT_BROWSERS_PATH='$TORRCAST_PROBE_BROWSERS_PATH'"
+ssh "$probe_host" "cd '$remote_dir' && $browsers_env \
     $probe_python -m pytest tests/test_web_acceptance.py -m machine -q -rs"
