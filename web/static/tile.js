@@ -13,7 +13,10 @@ const TCTile = {
     tile.dataset.tcTile = '1';
     if (shape.group) tile.dataset.tcGroup = shape.group;
     if (shape.focusId) tile.dataset.tcFocusId = shape.focusId;
-    if (shape.focusId && shape.key) tile.dataset.tcKey = shape.key;
+    // Личность картины - у ЛЮБОЙ плитки со своим ключом, не только у выдачи поиска:
+    // `_swapBody` читает её как запасной ориентир фокуса лишь на экране поиска, но
+    // полки и карточка-приёмник опознают плитку по тому же ключу (щуп приёмки, TC-1345).
+    if (shape.key) tile.dataset.tcKey = shape.key;
     // Пометка для прогрева (`warm.js`) - запрос, круг которого этой плитке уже считают.
     // У полки это её собственный запрос, он же и откроет карточку. У выдачи поиска он
     // ОДИН на весь экран - набранный текст: греть по имени каждой плитки значило бы
