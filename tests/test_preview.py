@@ -169,6 +169,43 @@ def test_a_confirmed_missing_article_still_asks_the_page_to_wait_for_the_circle(
     assert ("X-Torrcast-Partial", "1") in answer.extra
 
 
+def test_a_blank_query_does_not_crash_a_preview_with_real_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Прямая ссылка шлёт пустое ``query=``: разбор строки роняет его из ``request.query``
+    вовсе (``urllib.parse.parse_qs`` без ``keep_blank_values``), и подстрочник с ``[...]``
+    на его месте валил страницу ``KeyError`` вместо честного скелета."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"title": "Лука", "year": "2021", "kind": "movie"},
+        body={},
+    )
+
+    answer = preview(request, "movie:luca:2021", _Warm(), _Related())
+
+    assert answer is not None
+    assert json.loads(answer.body)["searching"] is True
+
+
+def test_a_blank_query_does_not_crash_a_long_poll_either(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тот же обрыв, но во втором чтении ``query`` - на долгом опросе (``wait=1``)."""
+    monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
+    monkeypatch.setattr(web.preview, "PATIENCE", 0.0)
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"title": "Лука", "year": "2021", "kind": "movie", "wait": "1"},
+        body={},
+    )
+
+    answer = preview(request, "movie:luca:2021", _Warm(), _Related())
+
+    assert answer is not None
+    assert json.loads(answer.body)["searching"] is True
+
+
 def test_a_waiting_preview_gives_way_as_soon_as_the_circle_lands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

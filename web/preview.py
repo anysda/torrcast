@@ -101,7 +101,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     if not title or kind not in {"movie", "tv"} or year is None:
         return None
     hint = getattr(warm, "hint", warm.ask)
-    hint(request.query["query"])
+    hint(request.query.get("query", ""))
     series = kind == "tv"
     facts = _facts.of(title, year, kind)
     fact = facts.ready(title, year)
@@ -112,7 +112,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         until = time.monotonic() + PATIENCE
         while time.monotonic() < until:
             _sleep(_TICK)
-            if warm.ready(request.query["query"]) is not None:
+            if warm.ready(request.query.get("query", "")) is not None:
                 return None  # the circle landed: the full card answers now, not after PATIENCE
             fact = facts.ready(title, year)
             told = facts.answered(title, year)
