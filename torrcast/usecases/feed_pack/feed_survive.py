@@ -35,6 +35,8 @@ def _mute(state: _State) -> None:
         # Без прогретого «молчит» неотличимо от «медленный рой на старте», а идти
         # показу всё равно некуда: тут работает прежний счёт обрывов, а не часы.
         return
+    if _warming(state):
+        return  # источник читается прямо сейчас, просто не этим прогоном
     if _state.clock_port.monotonic() - state.moved <= MUTE_SECONDS:
         return
     state.offline = phrase("feed.source_mute_reason", secs=f"{MUTE_SECONDS:.0f}")
@@ -68,6 +70,42 @@ def _doubts(state: _State) -> None:
     if state.doubted:
         state.skipped -= state.doubted
         state.doubted.clear()
+
+
+def _warming(state: _State) -> bool:
+    """Полка прогрева выросла с прошлого осмотра, значит источник читается; ``True`` - растёт.
+
+    🔴 TC-1332. Свидетель у часов молчания (:attr:`_State.moved`) был ровно один - байты,
+    которые отдал ЖИВОЙ прогон упаковки. Но пока показ идёт с полки
+    (:func:`torrcast.usecases.feed_pack.feed_segment._warm`), к упаковке не обращается
+    никто: прогон стоит на чтении и байт не даёт, а прогрев в это же время тянет тот же
+    самый источник и кладёт куски на диск. Часы при этом старели на ровном месте, и на
+    45-й секунде показ объявлял обрыв источнику, который в тот же миг исправно читался.
+
+    Ложный обрыв дорог именно на перемотке: он запирает подъём упаковки по часам показа
+    (:func:`torrcast.usecases.feed_pack.feed_sweep._sweep`) и держит защёлку перезапуска
+    впятеро дольше (:func:`torrcast.usecases.feed_pack.feed_steer._steer`). Живой замер
+    19-09 («Обнажённый город», показ с полки, прогрев на темпе 4.0): `offline` на 46.7 с,
+    прыжок на 2500 с, заход упаковки на нужное место через 80 с вместо мгновения, один
+    сегмент за 230 с и `session_end {watched: false}` - кадр не вернулся вовсе. Тот же
+    прыжок до 45-й секунды, когда часы ещё свежие, возвращал кадр за 4.3 с.
+
+    Свидетельство тут - время изменения каталога полки: положенный прогревом кусок двигает
+    его, а стоит такое чтение одного ``stat``. Первый осмотр не доказывает ничего и часов
+    не двигает: он только запоминает отметку, чтобы следующему было с чем сравнивать.
+    """
+    vault = state.vault
+    if vault is None:
+        return False
+    try:
+        mark = vault.head().parent.stat().st_mtime
+    except OSError:
+        return False  # полки не видно: судить о ней нечем, работают прежние часы
+    seen, state.shelf = state.shelf, mark
+    if not seen or mark == seen:
+        return False
+    state.moved = _state.clock_port.monotonic()
+    return True
 
 
 def _reread(state: _State) -> None:

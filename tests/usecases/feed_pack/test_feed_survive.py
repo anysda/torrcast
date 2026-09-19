@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from tests.usecases.feed_pack.world import FakeProc, feed, lay, packer, tract, vault
@@ -69,6 +70,38 @@ def test_warmed_pieces_do_not_move_the_source_silence_clock(tmp_path: Path) -> N
     assert show.offline == "" and said == []
 
     fake.now += 1.0
+    _sweep(show, lambda _slot: None)
+    assert show.offline == phrase("feed.source_mute_reason", secs=f"{MUTE_SECONDS:.0f}")
+
+
+def test_a_growing_warm_shelf_means_the_source_reads_and_the_clock_is_not_stale(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-1332. Показ идёт с полки, прогон байт не даёт, а источник читается прогревом.
+
+    Живой замер 19-09 («Обнажённый город», показ с полки): ложный `offline` на 46.7 с, и
+    после него перемотка на 2500 с не вернула кадр вовсе за 221 с.
+    """
+    fake = tract(now=900.0)
+    said: list[str] = []
+    shelf = vault(tmp_path)
+    show = feed(tmp_path, vault=shelf, log=said.append)
+    show.packer = packer(tmp_path, first=7, out=show.out)
+    lay(show.packer.run, 7, size=100)
+
+    fake.now = 1000.0
+    _sweep(show, lambda _slot: None)
+    assert show.moved == 1000.0
+
+    for step in range(1, 4):
+        lay(shelf.dir, step)  # прогрев положил кусок: тот же источник читается и сейчас
+        # Отметка каталога выставляется явно: зернистость времени у файловых систем разная.
+        os.utime(shelf.dir, (1000.0 + step, 1000.0 + step))
+        fake.now = 1000.0 + step * (MUTE_SECONDS - 1.0)
+        _sweep(show, lambda _slot: None)
+        assert show.offline == "" and said == [], "полка растёт - источник не молчит"
+
+    fake.now += MUTE_SECONDS + 1.0  # полка встала: вот теперь источник и правда молчит
     _sweep(show, lambda _slot: None)
     assert show.offline == phrase("feed.source_mute_reason", secs=f"{MUTE_SECONDS:.0f}")
 
