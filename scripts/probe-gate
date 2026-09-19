@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+# Сторожа прибора веб-приёмки (tests/test_web_acceptance.py, машинный набор) не бегают
+# в scripts/test-gate: playwright и Chromium намеренно не входят в венв гейта (см.
+# pyproject.toml), а тащить их туда - лишний вес под потолком 6G ради того, что уже
+# есть готовым на щупе. Эта команда гоняет ровно те же два теста РЕАЛЬНЫМ Chromium на
+# щупе CT511, где playwright и браузер уже стоят (тот же venv, что у web-acceptance.py
+# и decodebench.py). Копируются только два файла - сам тест и прибор, который он
+# грузит: остального дерева (torrcast, conftest.py) машинным тестам не нужно, они не
+# читают ничего, кроме playwright и стандартной библиотеки.
+#
+# Красный этой команды означает то же, что красный test-gate: приёмка не объявляется.
+
+probe_host="root@192.168.1.132"
+probe_python=/opt/pwenv/bin/python3
+lane_root=$(cd "$(dirname "$0")/.." && pwd)
+
+remote_dir=$(ssh "$probe_host" mktemp -d)
+[ -n "$remote_dir" ] && [ "$remote_dir" != "/" ] || exit 1
+local_ini=$(mktemp)
+trap 'rm -f "$local_ini"; ssh "$probe_host" "rm -rf \"$remote_dir\""' EXIT
+
+ssh "$probe_host" "mkdir -p '$remote_dir/tests' '$remote_dir/scripts'"
+scp -q "$lane_root/tests/test_web_acceptance.py" "$probe_host:$remote_dir/tests/"
+scp -q "$lane_root/scripts/web-acceptance.py" "$probe_host:$remote_dir/scripts/"
+# Маркер регистрируем на месте: без него pytest на щупе не видит pyproject.toml дерева
+# и честно, но зря предупреждает про незнакомый `machine` при каждом прогоне.
+printf '[pytest]\nmarkers =\n    machine: тест с настоящими часами, сокетом или подпроцессом\n' \
+    > "$local_ini"
+scp -q "$local_ini" "$probe_host:$remote_dir/pytest.ini"
+
+ssh "$probe_host" "cd '$remote_dir' && PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+    $probe_python -m pytest tests/test_web_acceptance.py -m machine -q -rs"
