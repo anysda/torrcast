@@ -78,6 +78,9 @@ class WarmCache:
 
         Один круг на запрос для поиска, прогрева, карточки и «похожих»: идущий дожидаются,
         второй веер делил бы пул с первым. ``circle`` - тот же круг с ходом внутрь (превью).
+
+        Запомненный отказ круг с диска не отменяет: плитку полки зритель видит именно по
+        записи, и холодный путь ниже её сети и так предпочитает.
         """
         key = query.strip()
         with self._cond:
@@ -86,13 +89,18 @@ class WarmCache:
             self._cond.wait_for(
                 lambda: key not in self._busy or self.ready(query) is not None, BUSY_WAIT
             )
-            if (refused := self._memory.refusal(query)) is not None:
-                raise refused
-            ready = self.ready(query)
+            refused = self._memory.refusal(query)
+            ready = None if refused is not None else self.ready(query)
             if ready is not None and not self._memory.revived(query):
                 return ready
-            if ready is None:
+            if ready is None and refused is None:
                 self._busy.add(key)
+        if refused is not None:
+            # Запись круга на диске старше молчания сети: холодный путь ниже уже
+            # предпочитает её сети, и отказ этой минуты её не отменяет.
+            if (kept := self._memory.revive(query)) is None:
+                raise refused
+            return kept
         if ready is not None:
             _hint(self, key, stale=True)  # shown from disk: the network refreshes it behind
             return ready

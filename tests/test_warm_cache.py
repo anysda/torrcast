@@ -385,6 +385,36 @@ def test_after_a_restart_a_repeat_is_served_from_disk_and_refreshed_by_one_backg
     assert (circle.asked, replayed) == (["Interstellar", "Interstellar"], ["Interstellar "])
 
 
+def test_a_remembered_refusal_does_not_outrank_the_circle_kept_on_disk(tmp_path: Path) -> None:
+    """Плитка стоит на полке по записи круга, а карточка по ней отдавала 404.
+
+    Стенд 19-09-2026: `movie:мата:2026` стояла на полке, `circles.json` держал круг
+    «Мата», фоновый прогрев обновлял его по сети (`web.warm_pump` при `stale` диск
+    минует), сеть промолчала - и отказ этой минуты закрывал карточку на 60 с. Холодный
+    же путь той же `take` запись с диска сети ПРЕДПОЧИТАЕТ: отказ был единственным
+    местом, где молчание сети перевешивало её записанный ответ.
+    """
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
+    cache, replayed = _restarted(tmp_path, circle, _sync)
+    cache._memory.refuse("Interstellar", NotFoundError("ничего не нашлось"))
+
+    assert cache.take("Interstellar") == [_PLAN]
+    assert replayed == ["Interstellar"]
+
+
+def test_a_remembered_refusal_still_goes_up_when_the_disk_kept_nothing(tmp_path: Path) -> None:
+    """Записи нет - отказ остаётся отказом, и сеть вторым кругом не тревожится."""
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    cache, replayed = _restarted(tmp_path, circle, _sync)
+    cache._memory.refuse("Interstellar", NotFoundError("ничего не нашлось"))
+
+    with pytest.raises(NotFoundError, match="ничего не нашлось"):
+        cache.take("Interstellar")
+
+    assert (circle.asked, replayed) == ([], [])
+
+
 def test_a_cut_circle_is_not_written_to_disk(tmp_path: Path) -> None:
     circle = _Circle(answer=CutCircle([_PLAN], _TOLD))
     _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
