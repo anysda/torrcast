@@ -1,4 +1,4 @@
-"""Своя строка картины, а не та, которой её открыли: :func:`web.card_own_plan.own_plan`."""
+"""Своя строка картины, а не та, которой её открыли: :func:`web.own_plan.own_plan`."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.select.plan import Plan
-from web.card_own_plan import Circle, own_plan
+from web.own_plan import Circle, own_plan
 
 _PICTURE = Picture(title="Призрак в доспехах", year=2026, kind="tv")
 _PLAN = Plan(picture=_PICTURE, ranked=[], runtime=1.0, warn_mbit=12.0)

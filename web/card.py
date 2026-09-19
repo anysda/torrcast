@@ -3,7 +3,7 @@
 Ключ адресует картину в круге, который **тем же поиском**, что и ``/api/search``, находит
 запрос из строки доводов - карточка не хранит своего пула раздач, а спрашивает его заново.
 Строке доводов доверия нет как ЕДИНСТВЕННОМУ доводу - это то, чем плитку открыли, а не имя
-картины, - и картину ищет своим именем (:func:`web.card_own_plan.own_plan`). Описание и
+картины, - и картину ищет своим именем (:func:`web.own_plan.own_plan`). Описание и
 рейтинг едут фоновым добором (:class:`torrcast.usecases.facts.Facts`) и не задерживают
 ответ: не приехало - поле ``null`` и заголовок ``X-Torrcast-Partial``, страница переспросит
 сама. Пустое поле недоездом НЕ считается: заголовок стоит только там, где переспрашивать
@@ -36,7 +36,7 @@ from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
 from web.card_ask import NO_ASK, CardAsk
 from web.card_details import CardDetails
-from web.card_own_plan import own_plan
+from web.own_plan import own_plan
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices

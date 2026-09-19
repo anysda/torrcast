@@ -209,7 +209,7 @@ def test_a_blank_query_does_not_crash_a_long_poll_either(monkeypatch: pytest.Mon
 def test_an_empty_query_warms_and_checks_the_circle_by_the_own_title() -> None:
     """Прямая ссылка без строки поиска грела бы пустоту вечно: пустой довод молчит
     (:func:`web.warm_priority._hint`), и скелет не сменился бы карточкой никогда.
-    Свой запасной довод тот же, что у :func:`web.card_own_plan.own_plan`."""
+    Свой запасной довод тот же, что у :func:`web.own_plan.own_plan`."""
     asked: list[str] = []
 
     class _TitleWarm(_Warm):
