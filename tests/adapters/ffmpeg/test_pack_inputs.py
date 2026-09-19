@@ -44,3 +44,16 @@ def test_readrate_and_burst_stand_before_the_inputs() -> None:
 def test_no_readrate_means_no_throttle_at_all() -> None:
     """Нулевой темп - это не «читай медленно», а «не придерживай вовсе»."""
     assert "-readrate" not in pack_inputs("http://raz/video", 0, None, readrate=0.0)
+
+
+def test_the_copying_run_is_not_trimmed_by_its_seek() -> None:
+    """Копия просит не обрезать её по заходу: обрезать картинку всё равно нечем."""
+    command = pack_inputs("http://raz/video", 0, 20.0, landed=18.5)
+    assert command.index("-noaccurate_seek") < command.index("-ss")
+    assert command[command.index("-ss") + 1] == "20.000"
+
+
+def test_the_second_input_enters_where_the_copy_landed() -> None:
+    """Отдельная дорожка заходит туда, где встала копия, а не туда, куда просили."""
+    command = pack_inputs("http://raz/video", 0, 20.0, voice_url="http://raz/voice", landed=18.5)
+    assert command[command.index("-i") + 2 : command.index("-i") + 4] == ["-ss", "18.500"]

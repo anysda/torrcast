@@ -144,7 +144,8 @@ def pack_command(
         # сетки, и резать внутри него нечего по построению.
         times = f"{tail - at:.3f}"
     head = entry if slot > 0 else None
-    command = pack_inputs(source_url, audio_index, head, readrate, burst, voice_url, tail)
+    landed = None if encode is not None else at
+    command = pack_inputs(source_url, audio_index, head, readrate, burst, voice_url, tail, landed)
     command += ["-c:v", "copy"] if encode is None else encode.args(grid, slot, upto - 2)
     if video_tag:
         command += ["-tag:v", video_tag]

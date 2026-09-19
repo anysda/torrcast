@@ -10,12 +10,13 @@
 from __future__ import annotations
 
 import csv
+import math
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS, band_db
+from tests.conftest import CLIP_KEY_SECONDS, CLIP_SECONDS, band_db
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.hls_settings import PACK_LIST
@@ -23,17 +24,30 @@ from torrcast.domain.hls_settings import PACK_LIST
 #: Тик ленты mpegts: 90 кГц. Стык меряется в них, а не «на глаз».
 _TICK = 90_000
 
+#: Отсчётов в кадре AAC. Мельче кадра звук не режется вовсе, поэтому дыра тоньше него -
+#: это округление сетки кодировщика, а не потеря звука.
+_AUDIO_FRAME = 1024
+
 
 def _grid() -> Grid:
     return Grid.uniform(float(CLIP_SECONDS))
 
 
 def _pack(source: str, run: Path, slot: int, until: int, voice: str = "") -> list[list[str]]:
-    """Один прогон упаковки и его список резов; ``at`` равен границе - вход ровный."""
+    """Один прогон упаковки и его список резов.
+
+    🔴 ``at`` - не граница слота, а опорный кадр перед ней: прогон просят зайти на
+    границу, а встаёт он там, где ближайший опорный кадр, и у этого ролика на границах
+    их нет вовсе (шаг :data:`CLIP_KEY_SECONDS` = 2.0854 с). Пока сюда шла граница,
+    прогон объявлял себя на 0.8 с позже своего первого пакета, и весь его набор кусков
+    уезжал на эти 0.8 с назад - ровно они и мерились тут стыком звука.
+    """
     run.mkdir(parents=True, exist_ok=True)
     grid = _grid()
+    entry = grid.start(slot)
+    at = CLIP_KEY_SECONDS * math.floor(entry / CLIP_KEY_SECONDS)
     command = ffmpeg_pack_command(
-        source, 0, str(run), grid, slot, grid.start(slot), readrate=0.0, until=until, voice=voice
+        source, 0, str(run), grid, slot, at, readrate=0.0, until=until, voice=voice, seek=entry
     )
     subprocess.run(command, check=True, capture_output=True, timeout=300)
     with (run / PACK_LIST).open(encoding="utf-8") as rows:
@@ -123,20 +137,32 @@ def test_a_second_run_starts_the_sound_exactly_where_the_first_stopped(
     единственное место, где дыра в звуке может родиться сама. Приёмнику она стоит не
     миллисекунд: через 3.3 с сухого демуксера приставка сносит звуковой тракт и платит
     секундами. Второй вход обязан не добавить к этому стыку ничего.
+
+    🔴 Меряется дыра, а не совпадение тик в тик. Совпадение держалось ровно на том, что
+    обоим входам резали звук по одному и тому же ``-ss``, - то есть на дефекте: копии
+    картинку обрезать нечем, она приходит с опорного кадра раньше, и обрезанный по
+    ``-ss`` звук в первом куске показа молчал. Свой звук видеофайла теперь начинается
+    там же, где картинка, то есть с начала кластера контейнера, а отдельная дорожка -
+    ровно на посадке; между этими двумя началами и лежат те 3.3 мс, которых равенству
+    не хватает. Мера здесь - вред: дыра меньше одного звукового кадра неслышима и
+    демуксер не сушит, а второй вход не вправе сделать стык шире, чем он на одном входе.
     """
     seam = 2
 
-    def gap(where: Path, voice: str) -> int:
+    def gap(where: Path, voice: str) -> tuple[int, int]:
         head = _pack(clip, where / "head", 0, seam, voice=voice)
         _pack(clip, where / "tail", seam + 1, -1, voice=voice)
-        _, ended, _ = _audio_edges(where / "head" / head[seam][0])
+        _, ended, rate = _audio_edges(where / "head" / head[seam][0])
         began, _, _ = _audio_edges(where / "tail" / f"v{seam + 1}.ts")
-        return began - ended
+        return began - ended, round(_AUDIO_FRAME * _TICK / rate)
 
-    alone = gap(tmp_path / "alone", "")
-    together = gap(tmp_path / "together", clip_voice)
+    alone, frame = gap(tmp_path / "alone", "")
+    together, _ = gap(tmp_path / "together", clip_voice)
 
-    assert together == alone, (
-        f"второй вход изменил стык прогонов: {together} тик против {alone} "
+    assert together <= alone, (
+        f"второй вход расширил стык прогонов: {together} тик против {alone} "
         f"({(together - alone) * 1000 / _TICK:+.2f} мс)"
+    )
+    assert max(alone, together) < frame, (
+        f"стык прогонов разошёлся на звуковой кадр: {alone} и {together} тик при кадре {frame} тик"
     )
