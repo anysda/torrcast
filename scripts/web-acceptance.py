@@ -132,6 +132,9 @@ _SERIES_TARGET: Final = "s2e1"
 #: стрелки по скелету значит мерить скорость сети, а не навигацию. По живому замеру у
 #: сериала разбор раздачи в TorrServer доезжает за 25-30 с, у фильма - сразу.
 _CARD_READY_WAIT: Final = 45000.0
+#: Сколько ждать вкладки сезонов после тела карточки. Они рисуются отдельным заходом и
+#: отстают от описания: на живой «Футураме» - на секунду.
+_SEASONS_WAIT: Final = 30000.0
 #: Сколько ждать первый кадр после «Играть». Продукт успевает найти раздачу, снять
 #: метаданные роя и упаковать первые куски: по живому замеру это заняло 10 с до
 #: `readyState 4`, порог взят с запасом на холодный рой.
@@ -204,6 +207,20 @@ def _seasons(ctx: Ctx) -> list[str]:
     return [str(tab.get("name") or "") for tab in shot if isinstance(tab, dict)]
 
 
+def _await_seasons(ctx: Ctx) -> list[str]:
+    """Дождаться вкладок сезонов и только потом снимать их имена.
+
+    Тело карточки доезжает раньше вкладок: на «Футураме» 19-09 описание и строки серий
+    были на месте сразу, а `.tc-tab` появились секундой позже. Снимок без ожидания читал
+    пустой список и отвечал «нет вкладки сезона N» на карточке, где сезонов четырнадцать.
+    """
+    with contextlib.suppress(Exception):
+        ctx.page.wait_for_function(
+            "() => document.querySelectorAll('.tc-tab').length > 0", timeout=_SEASONS_WAIT
+        )
+    return _seasons(ctx)
+
+
 def _click_season(ctx: Ctx, name: str) -> bool:
     """Нажать названный в снимке сезон в том же обращении к текущему DOM."""
     return bool(ctx.page.evaluate(_CLICK_SEASON_JS, name))
@@ -259,6 +276,9 @@ class Ctx:
     shots: Path
     english: dict[str, str]
     current_key: str = ""
+    #: Секунды от клика по СТРОКЕ серии до кадра - последний замер :func:`_plant_place`.
+    #: Зритель кликает строку чаще, чем «Играть», и цена этого клика обязана быть числом.
+    row_click_secs: float = 0.0
     play_title: str = _PLAY_MOVIE_TITLE
     series_title: str = _SERIES_TITLE
     series_target: str = _SERIES_TARGET
@@ -2133,7 +2153,7 @@ def _episode_season(ctx: Ctx, target: str) -> str | None:
     if parts is None:
         return f"некорректная серия {target!r}"
     season, _episode = parts
-    name = next((tab for tab in _seasons(ctx) if re.search(rf"\b{season}\b", tab)), None)
+    name = next((tab for tab in _await_seasons(ctx) if re.search(rf"\b{season}\b", tab)), None)
     if name is None:
         return f"нет вкладки сезона {season} для {target}"
     if not _click_season(ctx, name):
@@ -2151,7 +2171,7 @@ def check_7_series(ctx: Ctx) -> Result:
     if refusal is not None:
         return Result(7, "Сериал", False, None, refusal)
     tab_times: list[str] = []
-    tab_names = _seasons(ctx)
+    tab_names = _await_seasons(ctx)
     tabs_ok = bool(tab_names)
     for index, name in enumerate(tab_names):
         began = time.monotonic()
@@ -3102,7 +3122,11 @@ def check_13_texts(ctx: Ctx) -> Result:
             return Result(13, "Тексты", False, None, f"некорректная серия {ctx.screen_target!r}")
         season_number = season_match.group(1)
         tab_name = next(
-            (name for name in _seasons(ctx) if re.search(rf"\b{re.escape(season_number)}\b", name)),
+            (
+                name
+                for name in _await_seasons(ctx)
+                if re.search(rf"\b{re.escape(season_number)}\b", name)
+            ),
             None,
         )
         if tab_name is None:
@@ -3860,8 +3884,10 @@ def _plant_place(ctx: Ctx) -> tuple[str | None, float | None, str]:
         target.first.wait_for(state="visible", timeout=30000)
     if target.count() == 0:
         return None, None, f"серии {_PLACE_EPISODE} нет в карточке {ctx.series_title!r}"
+    clicked = time.monotonic()
     target.first.click()
     pair, why = _await_shown(ctx)
+    ctx.row_click_secs = time.monotonic() - clicked
     if pair != _PLACE_EPISODE:
         _stop_show(ctx)
         return None, None, why or f"играет {pair!r}, а не {_PLACE_EPISODE}"
@@ -3940,6 +3966,7 @@ def check_33_series_place(ctx: Ctx) -> Result:
     ok = pair == _PLACE_EPISODE and abs(times[0] - planted) <= _PLACE_SLACK and _growing(times)
     shown = " -> ".join(f"{t:.1f}" for t in times)
     detail = (
+        f"клик по строке {_PLACE_EPISODE} -> кадр за {ctx.row_click_secs:.1f} с; "
         f"место {_PLACE_EPISODE} на {planted:.1f} с; «Играть» за {took:.1f} с -> {pair}, "
         f"ход {shown}"
     )
