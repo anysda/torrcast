@@ -92,16 +92,22 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     ``wait=1`` остаётся в preview, пока круг занят фоном. Иначе второй GET попадал в
     :meth:`WarmCache.take` и стоял за раздачами, хотя Wikipedia и Wikidata уже ехали
     отдельно. Как только круг готов, следующий GET соберёт полную карточку.
+
+    Прогревает круг СТРОКОЙ, а не пустотой: прямая ссылка на карточку несёт пустой
+    ``query`` (владелец, TC-1334), и грея пустую строку, никто её и не разгревал бы -
+    ``_hint`` молчит на пустой довод, а :func:`web.card.card` спрашивает по имени
+    картины. Своё имя - тот же запасной довод, что и там.
     """
-    if warm.ready(request.query.get("query", "")) is not None:
-        return None
     title = request.query.get("title", "").strip()
+    probe = request.query.get("query", "").strip() or title
+    if warm.ready(probe) is not None:
+        return None
     kind = request.query.get("kind", "")
     year = _year(request.query.get("year", ""))
     if not title or kind not in {"movie", "tv"} or year is None:
         return None
     hint = getattr(warm, "hint", warm.ask)
-    hint(request.query.get("query", ""))
+    hint(probe)
     series = kind == "tv"
     facts = _facts.of(title, year, kind)
     fact = facts.ready(title, year)
@@ -112,7 +118,7 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         until = time.monotonic() + PATIENCE
         while time.monotonic() < until:
             _sleep(_TICK)
-            if warm.ready(request.query.get("query", "")) is not None:
+            if warm.ready(probe) is not None:
                 return None  # the circle landed: the full card answers now, not after PATIENCE
             fact = facts.ready(title, year)
             told = facts.answered(title, year)

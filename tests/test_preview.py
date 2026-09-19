@@ -206,6 +206,33 @@ def test_a_blank_query_does_not_crash_a_long_poll_either(monkeypatch: pytest.Mon
     assert json.loads(answer.body)["searching"] is True
 
 
+def test_an_empty_query_warms_and_checks_the_circle_by_the_own_title() -> None:
+    """Прямая ссылка без строки поиска грела бы пустоту вечно: пустой довод молчит
+    (:func:`web.warm_priority._hint`), и скелет не сменился бы карточкой никогда.
+    Свой запасной довод тот же, что у :func:`web.card_own_plan.own_plan`."""
+    asked: list[str] = []
+
+    class _TitleWarm(_Warm):
+        def ready(self, query: str) -> object | None:  # type: ignore[override]
+            return ["plan"] if query == "Лука" else None
+
+        def ask(self, screen: Sequence[str]) -> int:
+            asked.extend(screen)
+            return 1
+
+    request = Request(
+        method="GET",
+        path="/api/card/movie:luca:2021",
+        query={"title": "Лука", "year": "2021", "kind": "movie"},
+        body={},
+    )
+
+    answer = preview(request, "movie:luca:2021", _TitleWarm(), _Related())
+
+    assert answer is None  # круг по имени уже готов - полная карточка собирает её сама
+    assert asked == []  # готовый круг не просит прогрева повторно
+
+
 def test_a_waiting_preview_gives_way_as_soon_as_the_circle_lands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
