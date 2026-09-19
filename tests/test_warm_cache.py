@@ -254,6 +254,25 @@ def test_a_refused_circle_of_a_live_card_reaches_the_caller() -> None:
         cache.take("Ludwig")
 
 
+def test_a_circle_broken_by_the_infrastructure_ends_the_wait_instead_of_hanging() -> None:
+    """🔴 Сорванный круг не оставлял ни находки, ни отказа, и согретого круга не появлялось
+    никогда: карточка, открытая ссылкой, держала «ищем раздачи» до закрытия вкладки."""
+    asked: list[str] = []
+
+    def _circle(query: str) -> list[Plan]:
+        asked.append(query)
+        raise ServerDownError("prowlarr_down")
+
+    cache = _cache(_circle)
+    cache.ask(["Ludwig"])
+
+    assert cache.ready("Ludwig") == [], "круг кончился - ждать его больше нечего"
+    with pytest.raises(ServerDownError, match="prowlarr_down"):
+        cache.take("Ludwig")
+    cache.ask(["Ludwig"])
+    assert asked == ["Ludwig"]
+
+
 def test_an_open_card_does_not_queue_behind_a_background_circle_of_another_tile(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
 from web.warm_priority import _hint
@@ -66,7 +67,11 @@ def _pump(cache: _Cache) -> None:
             except NotFoundError as nothing:
                 cache._memory.refuse(query, nothing)
                 plans = []
-            except (TorrcastError, OSError):
+            except (TorrcastError, OSError) as broke:
+                # Сорванный круг - тоже конец круга, и он помнится наравне с пустым. Пока
+                # он не оставлял ни находки, ни отказа, согретого круга не появлялось
+                # никогда, и карточка держала «ищем раздачи» до закрытия вкладки.
+                cache._memory.refuse(query, _named(broke))
                 plans = []
             cache._remember(query, plans, revived=kept is not None)
             with cache._cond:
@@ -77,6 +82,11 @@ def _pump(cache: _Cache) -> None:
     finally:
         with cache._cond:
             cache._running -= 1
+
+
+def _named(broke: TorrcastError | OSError) -> TorrcastError:
+    """Сорвавшая круг беда словами продукта: у сети своих слов для зрителя нет."""
+    return broke if isinstance(broke, TorrcastError) else InfraError(str(broke))
 
 
 __all__ = ["_pump"]

@@ -1,8 +1,12 @@
-"""Память кругов раздач: найденное на срок, отказ «ничего не нашлось» на минуту, диск на сутки.
+"""Память кругов раздач: найденное на срок, отказ круга на минуту, диск на сутки.
 
 Пустой ответ помнится коротко, по образцу Torrentio (``addon/lib/cache.js``, Apache-2.0,
 github.com/TheBeastLT/torrentio-scraper): без памяти отказа каждый переспрос карточки
 картины без раздач заново гнал круг по индексерам, раз в секунду, пока открыта страница.
+
+Отказ тут любой, каким круг кончился: и «ничего не нашлось», и сорванный инфраструктурой.
+Помнилось только первое, а второе не оставляло ни находки, ни отказа - и тогда круг для
+всех, кто его ждёт, навсегда оставался «ещё считается».
 """
 
 from __future__ import annotations
@@ -12,7 +16,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
-from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.discover.cut_circle import CutCircle
 from torrcast.usecases.discover.told_circle import ToldCircle
@@ -36,7 +39,8 @@ class CircleMemory:
     disk: CircleDisk | None = None
     replay: Callable[[str, list[Told]], list[Plan]] | None = None
     _found: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
-    _empty: dict[str, tuple[NotFoundError, float]] = field(default_factory=dict, repr=False)
+    #: Чем круг кончился, если не раздачами: отказ поиска или сорвавшая его инфраструктура.
+    _empty: dict[str, tuple[TorrcastError, float]] = field(default_factory=dict, repr=False)
     #: Last circle that came from the network, poorer or not, and keys shown from disk only.
     _landed: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
     _revived: set[str] = field(default_factory=set, repr=False)
@@ -72,7 +76,7 @@ class CircleMemory:
         with self._lock:
             return self.key(query) in self._revived
 
-    def refusal(self, query: str) -> NotFoundError | None:
+    def refusal(self, query: str) -> TorrcastError | None:
         """Свежий отказ этого запроса, если он есть."""
         with self._lock:
             empty = self._empty.get(self.key(query))
@@ -131,8 +135,12 @@ class CircleMemory:
         if not self.poorer(query, plans):
             self.disk.keep(self.key(query), told)
 
-    def refuse(self, query: str, error: NotFoundError) -> None:
-        """Запомнить «ничего не нашлось» на :data:`EMPTY_TTL`."""
+    def refuse(self, query: str, error: TorrcastError) -> None:
+        """Запомнить, чем кончился круг, на :data:`EMPTY_TTL`.
+
+        Не только «ничего не нашлось»: сорванный круг тоже кончился, и ждущим его надо
+        сказать об этом словами, а не держать их на «ещё считается» без конца.
+        """
         with self._lock:
             self._empty[self.key(query)] = (error, self.clock() + EMPTY_TTL)
 
