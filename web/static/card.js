@@ -645,6 +645,14 @@ const TCCard = {
         resumes.textContent = TC.say('web.detail.resumes', { label: data.label, time });
         row.appendChild(resumes);
       }
+    } else if (data.resumable && !data.label && data.pos) {
+      // TC-1281. Фильм не несёт `label` (он только у серии): место продолжения тут
+      // говорит голый час:мин:сек, тем же ключом, каким уже подписана серия в списке
+      // серий (`card-series.js`, «Отсюда · {time}») - слово это не новое.
+      const movieResumes = document.createElement('div');
+      movieResumes.className = 'tc-resumes';
+      movieResumes.textContent = TC.say('web.detail.resumes_here', { time: TCTime.clock(data.pos) });
+      row.appendChild(movieResumes);
     }
     return row;
   },

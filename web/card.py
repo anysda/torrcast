@@ -182,6 +182,7 @@ def _body(
         "voices_pending": hearing,
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
+        "pos": entry.pos if entry else 0.0,  # Место закладки в секундах (TC-1281).
         # Картина идёт НА ТЕЛЕВИЗОРЕ (:func:`web.playing_on_tv.playing_on_tv`): кнопки
         # «Подключиться»/«Завершить» вместо «PLAY ON TV» (:mod:`web.static.card.js`).
         # Показ в самой вкладке сюда не годится: приёмника, к которому подключаются, нет.

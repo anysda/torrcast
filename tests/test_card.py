@@ -729,6 +729,28 @@ def test_a_series_with_a_bookmark_marks_earlier_episodes_watched(
     assert by_episode[2]["pos"] == 30.0
 
 
+def test_a_started_movie_carries_its_bookmark_position_in_the_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TC-1281. Фильм не несёт `label` (он только у серии): без числовой позиции в теле
+    странице продолжить фильм нечем, ровно как сериалу нечем без `seasons[].episodes[].pos`."""
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries[_MOVIE.key] = Entry(
+        "Interstellar", "magnet:interstellar", kind="movie", pos=612.0, dur=8520.0
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert code == 200
+    assert body["label"] == ""
+    assert body["resumable"] is True
+    assert body["pos"] == 612.0
+
+
 def test_a_never_opened_series_shows_episodes_once_the_release_is_parsed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
