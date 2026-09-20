@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import Any, cast
 
 from hass.search_results import search_results
+from tests.fakes.state_store import FakeStateStore
+from torrcast.domain.entry import Entry
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.kind import Kind
 from torrcast.domain.numbered_line import _numbered_line
 from torrcast.domain.picture import Picture
+from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.choice.head_line import head_line
 from torrcast.usecases.select.plan import Plan
 
@@ -231,3 +234,45 @@ def test_an_empty_menu_is_an_empty_list_not_a_refusal() -> None:
     """Отказ - забота круга поиска (:mod:`torrcast.usecases.discover.search_circle`);
     пустой список плана этот шаг не сочиняет и не превращает во что-то другое."""
     assert search_results([], 0) == []
+
+
+def test_a_picture_already_watched_through_torrcast_lands_on_the_first_screen() -> None:
+    """TC-1329: «Призрак в доспехах» смотрели раньше - она встаёт первой, а не семнадцатой.
+
+    Номер ``pick`` остаётся тем, что был бы без записи в истории: он адрес картины в
+    запомненном порядке (:mod:`hass.searching`), а не место в этом списке.
+    """
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries["tv:призрак-в-доспехах:2026"] = Entry(
+        "Призрак в доспехах",
+        "magnet:ghost",
+        kind="tv",
+        season=1,
+        pos=1443.9,
+        dur=1500.0,
+        updated="2026-09-01",
+    )
+    fake.save(state)
+    state_slot.install(fake)
+    plans = [_plan(f"Картина {n}", 2000 + n) for n in range(16)]
+    plans.append(_plan("Призрак в доспехах", 2026, kind="tv"))
+
+    records = _records(search_results(plans, 1))
+
+    assert records[0]["key"] == "tv:призрак-в-доспехах:2026"
+    assert records[0]["pick"] == 17, "адрес картины в запомненном порядке не сдвинулся"
+
+
+def test_without_a_matching_history_entry_the_order_is_untouched() -> None:
+    """Отдельная проверка ограждения: история есть, но не про эту картину - порядок цел."""
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries["movie:другая-картина:2019"] = Entry(
+        "Другая картина", "magnet:other", kind="movie", pos=10.0, dur=100.0, updated="2026-01-01"
+    )
+    fake.save(state)
+    state_slot.install(fake)
+    plans = [_plan("Тачки", 2006), _plan("Тачки 2", 2011), _plan("Тачки 3", 2017)]
+
+    assert [r["key"] for r in _records(search_results(plans, 1))] == [p.picture.key for p in plans]

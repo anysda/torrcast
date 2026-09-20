@@ -9,13 +9,16 @@
 (:func:`torrcast.usecases.choice.enter_take.enter_take`), и читает его
 :func:`custom_components.torrcast.search_media.search_media`: она ставит эту запись первой,
 потому что штатный обработчик Home Assistant играет ``results[0]``. Порядок самих
-записей продуктовый и остаётся продуктовым - взятый пункт называет поле, а не место.
+записей продуктовый - взятый пункт называет поле, а не место, - и одна перестановка
+сверх него всё же есть, названная поимённо (:func:`hass.watched_first.watched_first`,
+TC-1329): номер ``pick`` она не трогает.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hass.watched_first import watched_first
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture import Picture
 from torrcast.domain.spoken_title import spoken_title
@@ -84,8 +87,15 @@ def search_results(plans: list[Plan], taken: int) -> list[JsonValue]:
     не украшение, а различитель тёзок. Больше в строке ничего и нет: строка карточки и
     строка меню сходятся буква в букву, и стеречь их сходство есть чем
     (``tests/hass_integration/test_search_media.py``).
+
+    🔴 TC-1329. Единственная перестановка сверх продуктового порядка -
+    :func:`hass.watched_first.watched_first`: запись, которую зритель уже смотрел через
+    torrcast, встаёт первой. Номер ``pick`` и метка ``default`` у неё не меняются -
+    переставляется только сама запись в списке.
     """
-    return [
-        _hit(plan.picture, number, default=number == taken)
-        for number, plan in enumerate(plans, start=1)
-    ]
+    return watched_first(
+        [
+            _hit(plan.picture, number, default=number == taken)
+            for number, plan in enumerate(plans, start=1)
+        ]
+    )

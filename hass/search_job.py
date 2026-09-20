@@ -3,6 +3,10 @@
 Круг идёт через общий кэш кругов (:class:`web.warm_cache.WarmCache`), если он назван: тогда
 поиск, прогрев выдачи, карточка и «похожие» платят за запрос ОДИН круг. Раньше выдача
 считала свой круг мимо кэша, и первая же плитка той же выдачи гнала его второй раз.
+
+Готовые записи собирает :func:`hass.search_results.search_results` - тем же вызовом, что
+и у :func:`hass.searching.searching`: своей копии сборки записей заход раньше не звал
+(TC-1329), а без общего вызова перестановка смотренного доехала бы только до одной дороги.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 from hass import searching
 from hass.catalog_merge import catalog_merge
 from hass.catalog_tiles import CatalogTiles
-from hass.search_results import _hit
+from hass.search_results import search_results
 from hass.searching import Detect, Offer, Remember
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
@@ -114,7 +118,7 @@ class SearchJob:
             named = [(plan.picture.key, _named(plan.picture)) for plan in plans]
             remember(args.title_query, named)
             taken = enter_take(plans, args.title_query).number
-            hits = [_hit(plan.picture, n, default=n == taken) for n, plan in enumerate(plans, 1)]
+            hits = search_results(plans, taken)
         # Картины каталога без раздач гаснут только теперь, после полного круга.
         shown = (
             hits if self.catalog is None else catalog_merge(self.catalog.tiles(), hits, done=True)
