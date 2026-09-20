@@ -156,3 +156,17 @@ def test_a_name_the_releases_put_a_prefix_on_keeps_its_series_classic_doctor_who
     assert catalogue.series_id("Универ. Новая общага", "", 2011) == "tt3752220"
     assert catalogue.series_id("Старый Универ", "", 2008) == "", "имя в одно слово не добыть"
     assert catalogue.series_id("Ещё один старый Доктор Кто", "", 1963) == "", "не приставка"
+
+
+def test_a_prefix_glued_by_punctuation_is_shorn_like_one_written_apart_doctor_who(
+    tmp_path: Path,
+) -> None:
+    """Все четыре имени сводятся в `классический-доктор-кто`, а отвечала карта на два."""
+    catalogue = _names(tmp_path, PREFIXED_MAP)
+
+    assert catalogue.series_id("Классический-Доктор Кто", "", 1963) == "tt0056751"
+    assert catalogue.series_id("Классический/Доктор Кто", "", 1963) == "tt0056751"
+    assert catalogue.series_id("Классический,Доктор Кто", "", 1963) == "tt0056751"
+    assert catalogue.series_id("Классический. Доктор Кто", "", 1963) == "tt0056751", "и с пробелом"
+    assert catalogue.series_id("Старый-Универ", "", 2008) == "", "имя в одно слово не добыть"
+    assert catalogue.series_id("Универ.Новая общага", "", 2011) == "tt3752220", "хвост не режем"
