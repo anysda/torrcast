@@ -690,6 +690,6 @@ def test_the_episode_table_belongs_to_the_release_being_played() -> None:
     with pytest.raises(NotFoundError, match="episode s1e1 is not in this swarm"):
         series.choose(other, numbered("Rick/Rick.and.Morty.S09E{n:02d}.1080p.WEB-DL.mkv", 10))
 
-    table = series.table(played, pack.season)
+    table = series.table(played, pack)
     assert len(table) == 11, "в состоянии серии сыгранной раздачи, а не соседней"
     assert table[0] == [1, 1, 1, 1024**3] and table[-1] == [1, 11, 11, 1024**3]

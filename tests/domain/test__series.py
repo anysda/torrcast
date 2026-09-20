@@ -84,7 +84,9 @@ def test_two_releases_asked_in_turn_answer_independently_of_each_other() -> None
 
     assert lookup.choose(season_release(1), long_pack).name.endswith("E02.mkv")
     assert lookup.choose(season_release(1), short_pack).name.endswith("E02.mkv")
-    assert _Series.table(long_pack, 1) != _Series.table(short_pack, 1)
+    assert _Series.table(long_pack, season_release(1)) != _Series.table(
+        short_pack, season_release(1)
+    )
 
 
 def test_a_missing_episode_is_refused_with_a_list_and_a_way_out() -> None:
@@ -131,7 +133,7 @@ def test_the_episode_table_is_a_plain_list_of_numbers_for_the_state() -> None:
     файл на диске, и класть в него объекты разбора нельзя, а номер и размер обязаны быть
     от того же файла раздачи.
     """
-    table = _Series.table(season_files(1, 3), 1)
+    table = _Series.table(season_files(1, 3), season_release(1))
 
     assert table == [
         [1, 1, 1, 1024**3],
@@ -224,3 +226,30 @@ def test_a_release_that_listed_its_seasons_is_never_accused_of_counting_straight
         _Series(want=Episode(5, 1)).choose(pack_of_seasons, crosswise_files())
 
     assert "нумерации разные" not in str(refusal.value)
+
+
+def test_the_table_hides_rows_the_show_would_refuse_to_play_classic_doctor_who() -> None:
+    """Раздача назвала 43 серии, а по порядку набралось 38: строк нет ни одной.
+
+    «Классический Доктор Кто / S1E1-43 of 43» разложен по историям: «01x01 x01a», «01x01
+    x02», и номера серии из них не читается. Карточка размечала файлы по порядку и рисовала
+    38 строк, а показ такой нумерации не верит и на каждую отвечал «серии s1e1 в этой
+    раздаче нет (серий не нашлось)». Строка, которой показ не сыграет, не рисуется.
+    """
+    serials = Release(
+        raw_name="Классический Доктор Кто / Classic Doctor Who / S1E1-43 of 43",
+        title="Классический Доктор Кто",
+        kind="tv",
+        season=1,
+        episodes=tuple(range(1, 44)),
+    )
+    parts = [
+        TorrFile(index, f"Season 01/01x{serial:02d} История/01x{serial:02d} x{part:02d}.mkv", GB)
+        for index, (serial, part) in enumerate(
+            ((serial, part) for serial in range(1, 20) for part in range(1, 3)), start=1
+        )
+    ]
+
+    assert _Series.table(parts, serials) == [], "38 строк по порядку показ не сыграет"
+    with pytest.raises(NotFoundError, match="серий не нашлось"):
+        _Series(want=Episode(1, 1)).choose(serials, parts)

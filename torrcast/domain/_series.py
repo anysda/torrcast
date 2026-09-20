@@ -50,9 +50,7 @@ class _Series:
         «Рик и Морти» (21 серия) в состояние уезжал пустой список от запасной раздачи, и
         сериал переставал быть сериалом: автоперехода на следующую серию не было вовсе.
         """
-        found_files = map_episodes(files, release.season, by_order=False) or _in_order(
-            release, files
-        )
+        found_files = self.found(release, files)
         if self.layout is not None:
             found = self.layout.find(found_files, self.want.episode)
         else:
@@ -98,13 +96,21 @@ class _Series:
         return phrase("series.episode_absent", want=self.want, summary=self.summary(files))
 
     @staticmethod
-    def table(files: list[TorrFile], season: int | None) -> list[list[int]]:
-        """Список серий раздачи для состояния: по нему идут автопереход и прыжки.
+    def found(release: Release, files: list[TorrFile]) -> list[EpisodeFile]:
+        """Серии раздачи так, как их видит ПОКАЗ: без нумерации, которой он не поверит."""
+        return map_episodes(files, release.season, by_order=False) or _in_order(release, files)
+
+    @staticmethod
+    def table(files: list[TorrFile], release: Release) -> list[list[int]]:
+        """Список серий раздачи для состояния и для строк карточки.
 
         Спрашивается у той раздачи, которую играют, и разбирается заново - держать его
-        на объекте нельзя (см. :meth:`choose`).
+        на объекте нельзя (см. :meth:`choose`). Разбор ТОТ ЖЕ, которым показ выбирает
+        файл: строка, которой показ не сыграет, не должна рисоваться вовсе. «Классический
+        Доктор Кто» S1E1-43 отдавал 38 строк, размеченных по порядку файлов, и каждая
+        кончалась «серии s1e1 в этой раздаче нет (серий не нашлось)».
         """
-        return [[f.season, f.episode, f.index, f.size] for f in map_episodes(files, season)]
+        return [[f.season, f.episode, f.index, f.size] for f in _Series.found(release, files)]
 
     @staticmethod
     def summary(files: list[EpisodeFile]) -> str:

@@ -93,7 +93,7 @@ class EpisodeLookup:
         try:
             torrent_hash = CLAIMS.adding(release.magnet, self, engine.add)
             files = engine.wait_files(torrent_hash, timeout=TIMEOUT, grace=GRACE)
-            table = _Series.table(files, release.season)
+            table = _Series.table(files, release)
             parsed = True
         except TorrcastError:
             table = None  # not an answer: the card stays partial until RETRY asks again
