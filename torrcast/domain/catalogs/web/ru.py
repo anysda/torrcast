@@ -66,6 +66,11 @@ def ru() -> dict[str, str]:
         "web.detail.from": "из",
         "web.detail.no_releases": "Раздач не нашлось",
         "web.detail.bookmark_gone": "Раздачи закладки нет в выдаче: сперва она, молчит - другая",
+        # 🔴 TC-1303. Слова тут - решение продукта: показ, которому пришлось уйти с
+        # выбранной озвучки, говорит об этом до нажатия «Играть», а не после подмены звука.
+        "web.detail.voice_fallback_note": (
+            "Живых раздач с выбранной озвучкой нет - играет оригинальная дорожка"
+        ),
         "web.detail.searching_releases": "Ищем раздачи…",
         "web.detail.resumes": "Продолжит {label} · {time}",
         "web.detail.season": "Сезон {n}",

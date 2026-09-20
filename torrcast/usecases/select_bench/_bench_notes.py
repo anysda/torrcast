@@ -98,5 +98,9 @@ class _BenchNotes(_BenchHonest):
         lang = heard(mute.found)
         journal().emit("select", "mute", release=mute.number, lang=lang, checked=tried)
         print(phrase("select_bench.mute_fallback_note", tried=tried, number=mute.number, lang=lang))
+        # 🔴 TC-1303. Помечаем ход, а не только печатаем строку в stdout: карточка веба
+        # печатное слово не читает, и без этого признака зритель молча получал бы чужой
+        # звук (см. :class:`web.heard.Heard`, :func:`web.release_keys.release_keys`).
+        mute.voice_fallback = True
         self._announce(plan, mute, queue, judged, reached)
         return mute

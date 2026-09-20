@@ -19,7 +19,14 @@ def release_keys(
     найдя её в выдаче, сыграет другую раздачу и запишет закладку на неё.
     """
     gone = live and episodes is not None and episodes not in plan.picture.releases
-    return {"release": card_release(episodes, heard), "bookmark_gone": gone}
+    return {
+        "release": card_release(episodes, heard),
+        "bookmark_gone": gone,
+        # 🔴 TC-1303. Языка зрителя не нашлось ни у кого - страница обязана сказать это
+        # явной строкой (каталог ``web``, ключ ``web.detail.voice_fallback_note``),
+        # а не оставить смену звука молчаливой подменой.
+        "voice_fallback": heard.fallback if heard is not None else False,
+    }
 
 
 __all__ = ["release_keys"]

@@ -34,6 +34,7 @@ _MEDIA = media(tracks=(track(0, "rus", "Dub"), track(1, "eng", "Original")))
 class _Prep:
     found: Any
     release: Release = _RELEASE
+    voice_fallback: bool = False
 
 
 @dataclass

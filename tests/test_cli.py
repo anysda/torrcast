@@ -3415,6 +3415,9 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
     assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
     assert "включаю релиз 2, звук английский" in printed
     assert "playing it" not in printed, "второй строки под тот же случай не заводится"
+    # 🔴 TC-1303. Запасной ход помечен полем, а не только строкой в stdout: карточка веба
+    # печатное слово не читает (:attr:`torrcast.usecases.select._prep._Prep.voice_fallback`).
+    assert prep.voice_fallback is True
 
 
 def test_an_english_original_is_a_find_not_a_missing_dub(
@@ -3466,6 +3469,11 @@ def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
+    # Под английской ручкой (умолчание теста без _russian_product) искомая - английская, и
+    # русская дорожка ей не отвечает ни у кого: релиз пришёл запасным ходом (:meth:`_Tally.
+    # hold`, :meth:`Bench._mute_fallback`), а не прямым совпадением - вопросов и правда не
+    # было, но звук всё равно чужой, и карточка обязана сказать это словами (TC-1303).
+    assert prep.voice_fallback is True, "искомой (английской) дорожки нет ни у кого - запасной ход"
 
     promised = [
         rel(name="Аниме [TV] [RUS(int), JAP+Sub] [1080p] a", seeders=140),
@@ -3478,6 +3486,10 @@ def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str
     )
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), promised)
     assert prep.number == 2, "обещание имени русской дорожкой не становится"
+    # Та же причина, что и выше: под английской ручкой ни UNNAMED, ни RUSSIAN не отвечают
+    # искомому языку, и вторая раздача выигрывает как единственный НАЗВАННЫЙ паспорт - тем
+    # же запасным ходом, а не прямым совпадением.
+    assert prep.voice_fallback is True, "искомой (английской) дорожки нет ни у кого - запасной ход"
 
 
 def test_the_passport_has_three_answers_about_the_language(_russian_product: None) -> None:

@@ -17,6 +17,11 @@ class Heard:
     studios: tuple[Studio, ...]
     #: Инфохэш этой раздачи: «Играть» зовёт показ ею, и номера дорожек относятся к ней.
     release: str = ""
+    #: 🔴 TC-1303. Раздача - запасной ход: языка зрителя не нашлось ни у кого, играет то,
+    #: что есть (:attr:`torrcast.usecases.select._prep._Prep.voice_fallback`). Карточка
+    #: обязана сказать это явной строкой (:func:`web.release_keys.release_keys`), а не
+    #: оставить звук неожиданностью.
+    fallback: bool = False
 
     @property
     def default(self) -> int:

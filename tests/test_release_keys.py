@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from tests.usecases.rank.releases import media
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.select.plan import Plan
+from web.heard import Heard
 from web.release_keys import release_keys
 
 
@@ -21,7 +23,7 @@ def test_a_bookmark_release_missing_from_a_live_pool_is_said_before_play() -> No
 
     keys = release_keys(plan, kept, None, live=True)
 
-    assert keys == {"release": "e" * 40, "bookmark_gone": True}
+    assert keys == {"release": "e" * 40, "bookmark_gone": True, "voice_fallback": False}
     assert release_keys(plan, plan.ranked[0], None, live=True)["bookmark_gone"] is False
 
 
@@ -30,3 +32,21 @@ def test_a_pool_from_disk_does_not_call_the_bookmark_release_gone() -> None:
     plan, kept = _gone_card()
 
     assert release_keys(plan, kept, None, live=False)["bookmark_gone"] is False
+
+
+def test_a_voiceless_fallback_is_said_before_play() -> None:
+    """🔴 TC-1303. Языка зрителя не нашлось ни у кого - карточка говорит это явно.
+
+    Тихой подмены звука не бывает: то же самое поле, которым карточка предупреждает про
+    пропавшую раздачу закладки (:func:`test_a_bookmark_release_missing_from_a_live_pool_
+    is_said_before_play`), несёт и признак запасного хода (:attr:`web.heard.Heard.
+    fallback`), взятый прямо из отбора (:attr:`torrcast.usecases.select._prep._Prep.
+    voice_fallback`).
+    """
+    plan, kept = _gone_card()
+    fallen = Heard(media(), native=False, studios=(), fallback=True)
+    quiet = Heard(media(), native=False, studios=(), fallback=False)
+
+    assert release_keys(plan, kept, fallen, live=False)["voice_fallback"] is True
+    assert release_keys(plan, kept, quiet, live=False)["voice_fallback"] is False
+    assert release_keys(plan, kept, None, live=False)["voice_fallback"] is False

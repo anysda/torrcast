@@ -135,7 +135,13 @@ class VoiceLookup:
                 self.warms.finish(warm, None if foreign else prep)
             if prep is not None and not foreign:
                 release = info_hash(prep.release)
-                heard = Heard(prep.found, plan.picture.native, prep.release.studios, release)
+                heard = Heard(
+                    prep.found,
+                    plan.picture.native,
+                    prep.release.studios,
+                    release,
+                    prep.voice_fallback,
+                )
             with self._lock:
                 if not left:  # ушедшая карточка ответа не узнала, и «дорожек нет» не пишется
                     self._heard[plan.picture.key] = (heard, self.clock() + RETRY)

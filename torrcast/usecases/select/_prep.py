@@ -70,6 +70,11 @@ class _Prep:
     ready: threading.Event = field(default_factory=threading.Event)
     #: Карта опорных кадров снята или отказана; ``None`` - прогрев карты о себе не сказал.
     mapped: threading.Event | None = None
+    #: 🔴 TC-1303. Дорожки на языке зрителя не нашлось ни у кого - сыграл запасной ход
+    #: (:meth:`~torrcast.usecases.select_bench._bench_notes._BenchNotes._mute_fallback`).
+    #: Строка на экране обязана сказать это словами до старта, а не молчать про звук,
+    #: который зритель не просил.
+    voice_fallback: bool = False
 
     @property
     def want(self) -> TorrFile:

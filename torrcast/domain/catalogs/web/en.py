@@ -66,6 +66,11 @@ def en() -> dict[str, str]:
         "web.detail.from": "from",
         "web.detail.no_releases": "No releases found",
         "web.detail.bookmark_gone": "Bookmarked release left the pool: tried first, then another",
+        # 🔴 TC-1303. The exact wording is a product call: a show that had to leave the
+        # chosen voice says so before the viewer presses Play, not after the sound changes.
+        "web.detail.voice_fallback_note": (
+            "No live release with the chosen voice - playing the original audio"
+        ),
         "web.detail.searching_releases": "Searching releases…",
         "web.detail.resumes": "Resumes {label} · {time}",
         "web.detail.season": "Season {n}",

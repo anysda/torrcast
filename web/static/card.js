@@ -630,6 +630,13 @@ const TCCard = {
       gone.className = 'tc-resumes';
       gone.textContent = TC.say('web.detail.bookmark_gone');
       row.appendChild(gone);
+    } else if (data.voice_fallback) {
+      // TC-1303. Языка зрителя не нашлось ни у кого - сказать это словами до «Играть»,
+      // а не оставить смену звука тихой подменой.
+      const fallback = document.createElement('div');
+      fallback.className = 'tc-resumes';
+      fallback.textContent = TC.say('web.detail.voice_fallback_note');
+      row.appendChild(fallback);
     } else if (data.resumable && data.label) {
       const time = TCCard._resumeTime(data);
       if (time) {
