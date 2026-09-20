@@ -194,3 +194,28 @@ def test_a_season_the_releases_count_differently_keeps_the_catalogue_numbering_f
     ]
 
     assert _counts(series_layout(imdb, {}, torn, [], NOW))[6] == 16, "разнобою «из N» веры нет"
+
+
+def test_a_season_only_the_releases_know_takes_the_size_their_of_n_promises_futurama() -> None:
+    """Имена зовут одну серию восьмого сезона, а «из 10» обещает десять: строк десять."""
+    tvmaze = _aired(dict.fromkeys((11, 12, 13), 10))
+    hulu = [parse_release_name(f"Футурама / Сезон: {n} / Серии: 1-10 из 10") for n in (11, 12, 13)]
+    scarce = parse_release_name("Футурама / Futurama / Сезон: 8 / Серии: 3 из 10 (2023)")
+
+    layout = series_layout({}, tvmaze, [*hulu, scarce], [], NOW)
+
+    assert _counts(layout)[8] == 10, "три названных серии, а обещано десять"
+
+
+def test_packs_that_name_no_season_at_all_get_no_multi_season_list_doctor_who() -> None:
+    """Пара паков «Часть 01 из 02 + Допы (1963-2013)» несла 695 строк, не игравших ни одной."""
+    imdb = {season: tuple(range(1, 15)) for season in range(1, 27)}
+    packs = [
+        parse_release_name(f"Доктор Кто / Doctor Who. Часть 0{n} из 02 + Допы (1963-2013) HDTV")
+        for n in (1, 2)
+    ]
+
+    aired = _aired(dict.fromkeys(range(1, 27), 14))
+    assert series_layout(imdb, aired, packs, [], NOW) == ({}, False)
+    named = [*packs, parse_release_name("Доктор Кто / Doctor Who S20E01-26 of 26")]
+    assert _counts(series_layout(imdb, {}, named, [], NOW)), "сезон назван - список каталога есть"

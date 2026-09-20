@@ -12,8 +12,8 @@
 2. берётся раскладка с меньшим числом промахов против имён раздач пула (:func:`_missed`):
    нет названного сезона, номер серии больше сезона, «из N» не равно числу его серий;
    при равенстве - IMDb: она лежит на диске и отвечает без сети;
-3. раздачи пула сезона не называют («След [Серии 1-224]»): номера сквозные, и нумерацией
-   раздач бывает только раскладка из одного сезона;
+3. раздачи пула сезона не называют («След [Серии 1-224]»): номера сквозные, нумерацией
+   раздач бывает только раскладка из одного сезона, а многосезонную каталог не даёт вовсе;
 4. сезон, которого каталог не знает, а раздачи зовут числом серий, получает строки из их
    имён (:func:`_filled`): TVmaze нумерует возрождение «Футурамы» вслед за Hulu сезонами
    11-14 и сезонов 8-10 не знает, а русские раздачи зовут теми же сезонами те же серии.
@@ -71,7 +71,7 @@ def series_layout(
     direct = (bool(pooled) or set(chosen) == {1}) and not (
         2 * _misses(chosen, releases) > counted or (not tvmaze and not pooled <= imdb.keys())
     )
-    if not direct and _splits(chosen, releases):
+    if not direct and (not pooled or _splits(chosen, releases)):
         return {}, False
     chosen = _kept(chosen, releases) if direct and not tvmaze else chosen
     chosen = {**chosen, **_filled(chosen, releases)} if direct else chosen
