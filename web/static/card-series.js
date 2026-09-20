@@ -76,6 +76,16 @@ const TCCardSeries = {
     // приезжает ПОЗЖЕ тела карточки, и до него строка здесь обычная: перебор раздач идёт
     // секундами, а нажатие, сделанное до гашения, обязано открыть поиск раздачи.
     const absent = new Set(Array.isArray(season.absent) ? season.absent : []);
+    // Вкладка, за которой разбор раздач не нашёл ни одной серии (`web/mark_empty.py`).
+    // Пустая и молчащая читается как поломка страницы, а ответ честный: играть нечего.
+    if (!season.episodes.length && season.empty) {
+      const none = document.createElement('div');
+      none.className = 'tc-ep is-unreleased';
+      none.dataset.tcSeasonEmpty = '1';
+      none.setAttribute('aria-disabled', 'true');
+      none.textContent = TC.say('web.detail.season_absent');
+      list.appendChild(none);
+    }
     const hold = Math.max(0, TCCardSeries.GREY_AFTER - TCCardSeries._sinceOpen());
     for (const episode of season.episodes) {
       const row = document.createElement('div');

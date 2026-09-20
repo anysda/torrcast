@@ -19,6 +19,7 @@ from torrcast.usecases.rank.last_hope import last_hope
 from torrcast.usecases.rank.rank_releases import rank_releases
 from torrcast.usecases.select.plan import Plan
 from web.episode_absent import ABSENT
+from web.mark_empty import mark_empty
 from web.seasons_from_entry import seasons_from_entry
 
 
@@ -55,7 +56,8 @@ def card_seasons(
     Вышедшие серии открытого сезона, которых нет ни в одной раздаче, называет
     :class:`web.episode_absent.EpisodeAbsent` полем ``absent`` сезона. Перебор раздач
     ответ не держит: не договорил - тело помечено недоехавшим, и приговор приезжает
-    следующим добором, а до него строка обычная и нажимается.
+    следующим добором, а до него строка обычная и нажимается. Сезон, за которым не нашлось
+    ни одной серии, несёт поле ``empty`` (:mod:`web.mark_empty`).
     """
     picture = plan.picture
     if picture.kind != "tv":
@@ -81,7 +83,8 @@ def card_seasons(
     )
     release = _release_for(plan, releases, target, entry, profile)
     if release is None or target in known:
-        return fallback, pending or hunting, release, layout
+        later = pending or hunting
+        return mark_empty(fallback, target, not later), later, release, layout
     table = episodes.table(release, base_url)
     if table is None:
         return fallback, True, release, []
@@ -95,10 +98,10 @@ def card_seasons(
         if named is not None and table is None:
             return fallback, True, named, []
         files, release = _seasons_from_table(table or []), named or release
-    # Полный пак без сезона в имени называет сезоны только своими файлами.
-    numbers.update(files)
+    numbers.update(files)  # Полный пак без сезона в имени называет сезоны своими файлами.
     # Закладка хранит просмотренное состояние и старше безличной таблицы файлов.
-    return _joined_seasons(numbers, {**files, **(known or saved)}), False, release, []
+    rows = _joined_seasons(numbers, {**files, **(known or saved)})
+    return mark_empty(rows, target, True), False, release, []
 
 
 def _named_seasons(release: Release) -> tuple[int, ...]:

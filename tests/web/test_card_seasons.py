@@ -366,3 +366,50 @@ def test_a_catalogued_aired_episode_goes_grey_only_after_the_releases_answer() -
     assert all("absent" not in row for row in _rows(early)), "строка погасла до ответа раздач"
     assert [row.get("absent") for row in _rows(late) if row["n"] == 2] == [[3]]
     assert [len(row["episodes"]) for row in _rows(late) if row["n"] == 2] == [3]
+
+
+def test_a_tab_whose_releases_hold_no_episode_says_so_instead_of_showing_nothing() -> None:
+    """Разбор договорил и не нашёл ни одной серии: вкладка помечена, а не молчит.
+
+    «Классический Доктор Кто» рисовал тринадцать вкладок, за девятью из них не было ни
+    строки, ни слова. Метку получает только открытый сезон: остальные пусты потому, что
+    их никто не разбирал, и «не знаю» выдавать за «нет» нельзя.
+    """
+    plan, _first, second = _plan()
+    episodes = _Episodes({second.magnet: []}, [])
+
+    seasons, partial, release, _layout = card_seasons(
+        plan, None, "http://torrserver", episodes, season=2
+    )
+
+    assert (partial, release) == (False, second)
+    assert [row.get("empty") for row in _rows(seasons) if row["n"] == 2] == [True]
+    assert [row.get("empty") for row in _rows(seasons) if row["n"] == 1] == [None], "чужой сезон"
+
+
+def test_a_tab_still_being_parsed_is_not_called_empty() -> None:
+    """Таблица раздачи не доехала: это «не знаю», и слова «серий не нашлось» тут нет."""
+    plan, _first, second = _plan()
+    episodes = _Episodes({}, [])
+
+    seasons, partial, release, _layout = card_seasons(
+        plan, None, "http://torrserver", episodes, season=2
+    )
+
+    assert (partial, release) == (True, second)
+    assert all(row.get("empty") is None for row in _rows(seasons))
+
+
+def test_the_page_draws_the_empty_season_note_and_both_catalogs_carry_the_word() -> None:
+    """Слово пустой вкладки есть на странице и в обоих языках: молчащая метка не метка."""
+    from pathlib import Path
+
+    from torrcast.domain.catalogs.web.en import en
+    from torrcast.domain.catalogs.web.ru import ru
+
+    page = Path(__file__).resolve().parents[2] / "web" / "static" / "card-series.js"
+    body = page.read_text(encoding="utf-8")
+
+    assert "if (!season.episodes.length && season.empty) {" in body
+    assert "none.textContent = TC.say('web.detail.season_absent');" in body
+    assert {"web.detail.season_absent"} <= set(ru()) & set(en())

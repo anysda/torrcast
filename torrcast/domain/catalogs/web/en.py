@@ -77,6 +77,7 @@ def en() -> dict[str, str]:
         "web.detail.watched": "✓ Watched",
         "web.detail.airs": "Out {date}",
         "web.detail.episode_absent": "Not in any release",
+        "web.detail.season_absent": "No episodes found in the releases",
         "web.detail.resumes_here": "▶ Resumes here · {time}",
         "web.detail.runtime_hm": "{h} h {m} min",
         "web.detail.runtime_m": "{m} min",
