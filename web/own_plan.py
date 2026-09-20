@@ -18,6 +18,7 @@ from collections.abc import Callable
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.select.plan import Plan
 from web.card_lookup import card_lookup
+from web.key_name import key_name
 
 #: Круг раздач по одной строке; в бою это :meth:`web.warm_cache.WarmCache.take`.
 Circle = Callable[[str], "list[Plan]"]
@@ -37,7 +38,7 @@ def own_plan(key: str, query: str, title: str, circle: Circle) -> tuple[Plan | N
     """
     tried: set[str] = set()
     failure: NotFoundError | None = None
-    for candidate in (query.strip(), title.strip(), _key_name(key)):
+    for candidate in (query.strip(), title.strip(), key_name(key)):
         if not candidate or candidate in tried:
             continue
         tried.add(candidate)
@@ -52,13 +53,6 @@ def own_plan(key: str, query: str, title: str, circle: Circle) -> tuple[Plan | N
     if failure is not None:
         raise failure
     return None, 0, ""
-
-
-def _key_name(key: str) -> str:
-    """Имя картины из ключа: последний довод, когда её собственное имя не пришло вовсе."""
-    _, _, tail = key.partition(":")
-    slug, _, _ = tail.rpartition(":")
-    return slug.replace("-", " ")
 
 
 __all__ = ["Circle", "own_plan"]

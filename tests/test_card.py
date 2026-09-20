@@ -178,14 +178,39 @@ def _asked(
     return answer.code, body, tuple(name for name, _ in answer.extra)
 
 
-def test_no_query_is_refused_before_any_search_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_link_that_carries_nothing_but_the_key_asks_the_circle_by_the_name_in_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ссылка, набранная руками: карточка говорит про раздачи, а не «их нет».
+
+    Отказ ``no_query`` доставался странице неразличимым от пустого тела, и она рисовала
+    его словами «раздач не нашлось» у картины, раздачи у которой есть (TC-1365).
+    """
+    _wired(monkeypatch, [])
+    monkeypatch.setattr("web.card.WARM", _warm(_by_query({"interstellar": [_MOVIE_PLAN]})))
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    state_slot.install(FakeStateStore())
+
+    answer = card(Request("GET", f"/api/card/{_MOVIE.key}", {}, {}))
+
+    assert answer.code == 200
+    body: dict[str, Any] = json.loads(answer.body)
+    assert body["picture"] == _MOVIE.key
+    assert body["releases_count"] == 2
+
+
+def test_a_key_without_a_name_in_it_is_refused_before_any_search_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Спрашивать нечем вовсе: ни строки, ни своего имени, ни имени в ключе."""
+
     def _boom(*_a: object, **_k: object) -> list[Plan]:
-        raise AssertionError("поиск не должен звать при пустом query")
+        raise AssertionError("поиск не должен звать, когда имени нет нигде")
 
     _wired(monkeypatch, [])
     monkeypatch.setattr("web.card.WARM", _warm(_boom))
 
-    answer = card(Request("GET", f"/api/card/{_MOVIE.key}", {}, {}))
+    answer = card(Request("GET", "/api/card/movie::2014", {}, {}))
 
     assert answer.code == 400
     assert json.loads(answer.body) == {"error": "no_query"}

@@ -1,13 +1,12 @@
 """Карточка одной картины: ``GET /api/card/{key}?query=...``.
 
-Ключ адресует картину в круге, который **тем же поиском**, что и ``/api/search``, находит
-запрос из строки доводов - карточка не хранит своего пула раздач, а спрашивает его заново.
-Строке доводов доверия нет как ЕДИНСТВЕННОМУ доводу - это то, чем плитку открыли, а не имя
-картины, - и картину ищет своим именем (:func:`web.own_plan.own_plan`). Описание и
-рейтинг едут фоновым добором (:class:`torrcast.usecases.facts.Facts`) и не задерживают
-ответ: не приехало - поле ``null`` и заголовок ``X-Torrcast-Partial``, страница переспросит
-сама. Пустое поле недоездом НЕ считается: заголовок стоит только там, где переспрашивать
-есть смысл (:func:`_answer`).
+Ключ адресует картину в круге, который **тем же поиском**, что и ``/api/search``, находит запрос из
+строки доводов - карточка не хранит своего пула раздач, а спрашивает его заново. Строке доводов
+доверия нет как ЕДИНСТВЕННОМУ доводу: это то, чем плитку открыли, а не имя картины, а в ссылке,
+набранной руками, её нет вовсе (:func:`web.own_plan.own_plan`). Описание и рейтинг едут фоновым
+добором (:class:`torrcast.usecases.facts.Facts`) и не задерживают ответ: не приехало - поле
+``null`` и заголовок ``X-Torrcast-Partial``, страница переспросит сама. Пустое поле недоездом НЕ
+считается: заголовок стоит только там, где переспрашивать есть смысл (:func:`_answer`).
 
 Переспрос с ``wait=1`` - долгий: ответ держится, пока тело не изменится или не доедет
 целиком, но не дольше :data:`WAIT`. Короткий опрос раз в две секунды бросал страницу после
@@ -42,6 +41,7 @@ from web.card_voices import card_voices
 from web.card_warm import CARD_WARM
 from web.circle_refusal import circle_refusal
 from web.episode_lookup import GRACE, EpisodeLookup
+from web.key_name import key_name
 from web.own_plan import own_plan
 from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
@@ -78,9 +78,9 @@ def card(request: Request) -> Answer:
     """Собрать карточку по ключу картины, найденной тем же кругом, что и поиск."""
     query = request.query.get("query", "")
     title = request.query.get("title", "").strip()
-    if not query.strip() and not title:
-        return refusal(400, "no_query")
     key = request.path[len(_PREFIX) :]
+    if not query.strip() and not title and not key_name(key):
+        return refusal(400, "no_query")
     hint = start_related(request, _facts, _related)
     if early := preview(request, key, WARM, _related):
         return early
