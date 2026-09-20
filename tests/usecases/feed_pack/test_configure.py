@@ -33,6 +33,7 @@ def _world() -> dict[str, Any]:
         "spawn": raised.append,
         "map_trusted": lambda url: url == "своя",
         "map_lied": lambda url: raised.append(("соврала", url)),
+        "map_entry": lambda url, at: at + 0.5,
     }
 
 
@@ -56,6 +57,7 @@ def test_every_slot_takes_its_value_from_the_composition() -> None:
     assert _state.spawn is world["spawn"]
     assert _state.map_trusted is world["map_trusted"]
     assert _state.map_lied is world["map_lied"]
+    assert _state.map_entry("своя", 10.0) == 10.5
 
 
 def test_a_second_call_replaces_the_world_and_does_not_mix_two() -> None:

@@ -50,6 +50,12 @@ segment_paths: Callable[[Path], list[Path]]
 #: (:func:`torrcast.usecases.feed_pack.feed_astray._astray`).
 map_trusted: Callable[[str], bool]
 map_lied: Callable[[str], None]
+#: Дала ли карта место ЭТОМУ заходу и какое; ``nan`` - не давала
+#: (:func:`torrcast.adapters.stream_pack.map_entry.map_entry`). Спрашивается отдельно от
+#: :data:`map_trusted`: доверять карте и спросить её - разные вещи, и у головы файла её не
+#: спрашивают никогда. Лента одна видит факт нарезки, и ей одной нужно знать, кому этот
+#: факт предъявлять (:func:`torrcast.usecases.feed_pack.feed_astray._astray`).
+map_entry: Callable[[str, float], float]
 
 #: Часы ленты - слот, как и всё остальное здесь; заполняет его та же :func:`configure`.
 #:

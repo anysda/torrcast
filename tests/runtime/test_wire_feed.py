@@ -12,6 +12,7 @@ from torrcast.adapters.stream_pack._segment_files import _paths
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.lay_head import lay_head
+from torrcast.adapters.stream_pack.map_entry import map_entry
 from torrcast.adapters.stream_pack.map_lied import map_lied
 from torrcast.adapters.stream_pack.map_trusted import map_trusted
 from torrcast.adapters.stream_pack.packer import Packer
@@ -54,3 +55,4 @@ def test_the_feed_gets_the_real_packer_and_the_real_chores() -> None:
     assert _state.spawn is side_thread
     assert _state.map_trusted is map_trusted
     assert _state.map_lied is map_lied
+    assert _state.map_entry is map_entry

@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import contextlib
 import math
 from collections.abc import Callable
 
-from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack._pilot_start import _pilot_start
-from torrcast.adapters.stream_pack.map_trusted import map_trusted
-from torrcast.adapters.stream_pack.mapped_start import mapped_start
-from torrcast.adapters.stream_pack.read_keys import read_keys
+from torrcast.adapters.stream_pack.map_entry import map_entry
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
 from torrcast.ports.journal.slot import journal
@@ -56,17 +52,14 @@ def pack_start(
     ffmpeg и ffprobe на живом файле, а здесь меряется правило выбора - когда прогон зовут
     вовсе, а когда место захода берётся из карты даром.
     """
+    # 🔴 Голова файла - единственное место, где карту не спрашивают вовсе: ниже нуля ffmpeg
+    # dts не пускает, и заход там встаёт сам. Сторож разъезда обязан знать про это молчание
+    # ровно столько же, сколько знает заход, - поэтому правило у них одно на двоих
+    # (:func:`map_entry`), а не по копии на слой.
     if at <= 0:
         return 0.0
-    # Карту не ищем, а берём готовую: к первому заходу она уже снята и лежит в кэше (по ней
-    # построена сетка). Нет её там - нет и предсказания, и работает прежний пробный прогон;
-    # лезть за картой в рой ради экономии на пробном прогоне было бы обменом секунды на
-    # секунды.
-    if keys is None:
-        with contextlib.suppress(Exception):
-            keys = read_keys(_keys_cache(source_url))
-    guess = mapped_start(keys, at)
-    if not math.isnan(guess) and map_trusted(source_url):
+    guess = map_entry(source_url, at, keys)
+    if not math.isnan(guess):
         journal().mark("заход по карте", просили=round(at, 3), встали=round(guess, 3))
         return guess
     stood = pilot(source_url, at, timeout)

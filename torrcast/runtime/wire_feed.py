@@ -11,6 +11,7 @@ from torrcast.adapters.stream_pack._segment_files import _paths
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.lay_head import lay_head
+from torrcast.adapters.stream_pack.map_entry import map_entry
 from torrcast.adapters.stream_pack.map_lied import map_lied
 from torrcast.adapters.stream_pack.map_trusted import map_trusted
 from torrcast.adapters.stream_pack.packer import Packer
@@ -48,4 +49,5 @@ def wire_feed() -> None:
         side_thread,
         map_trusted,
         map_lied,
+        map_entry,
     )
