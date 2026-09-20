@@ -569,7 +569,12 @@ const TCCard = {
     play.textContent = TC.say('web.detail.play');
     play.disabled = noPlay;
     play.tabIndex = noPlay ? -1 : 0;
-    play.dataset.tcFocusable = noPlay ? undefined : '1';
+    // 🔴 `dataset.x = undefined` ставит атрибут СТРОКОЙ «undefined», а не снимает его, и
+    // мёртвая кнопка оставалась в кольце пульта (`nav.js` берёт всё по `[data-tc-focusable]`).
+    // Сфокусировать `disabled` кнопку нельзя, поэтому стрелка с «Назад» на карточке без
+    // раздач не уезжала никуда вовсе: уйти с неё пультом было не на что.
+    if (noPlay) delete play.dataset.tcFocusable;
+    else play.dataset.tcFocusable = '1';
     play.dataset.tcGroup = 'buttons';
     if (!noPlay) {
       play.addEventListener('click', () => TCCard._play(data, key, query, voices, false));

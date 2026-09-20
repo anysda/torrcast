@@ -58,7 +58,14 @@ class Element {
     this.text = '';
     this.dataset = new Proxy({}, {
       get: (_, key) => (typeof key === 'string' ? this.getAttribute('data-' + kebab(key)) ?? undefined : undefined),
+      // `String(value)` тут не описка, а сам браузер: `dataset.x = undefined` ставит
+      // атрибут СТРОКОЙ «undefined», и признак остаётся на месте. Снимается он только
+      // `delete`, и без этой ловушки снос уходил бы в пустышку Proxy, оставляя атрибут.
       set: (_, key, value) => { this.setAttribute('data-' + kebab(key), String(value)); return true; },
+      deleteProperty: (_, key) => {
+        if (typeof key === 'string') this.attrs.delete('data-' + kebab(key));
+        return true;
+      },
     });
   }
 
@@ -143,7 +150,11 @@ class Element {
 
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 
+  // Погашенную кнопку браузер не фокусирует вовсе: `focus()` по ней не делает ничего,
+  // и фокус остаётся там, где был. Без этого мёртвая кнопка в кольце пульта читалась
+  // бы тут как проходимая, а на живой странице стрелка упиралась бы в неё насмерть.
   focus() {
+    if (this.disabled) return;
     if (this.getAttribute('data-tc-focusable') !== null && this.ownerDocument.body.contains(this)) {
       this.ownerDocument.activeElement = this;
     }
