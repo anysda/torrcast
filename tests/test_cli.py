@@ -3334,7 +3334,7 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
     английской ручкой искомая дорожка английская (:func:`voice_unproven`).
     """
     ranked = [
-        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
+        rel(name="Кино [WEB-DL 1080p] тихий | D", voices=(), seeders=140),
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(
@@ -3369,7 +3369,7 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
     подтверждённый русский, а честным ответом - названный английский или отказ.
     """
     ranked = [
-        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
+        rel(name="Кино [WEB-DL 1080p] тихий | D", voices=(), seeders=140),
         rel(name="Кино [BDRip 1080p] обещал | D", seeders=121),
     ]
     prober = _reads(

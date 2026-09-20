@@ -17,6 +17,7 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.rank.is_candidate import is_candidate
 from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.select._plan_fields import _PlanFields
+from torrcast.usecases.select._voice_first import _voice_first
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -115,7 +116,7 @@ class Plan(_PlanFields):
             )
             and not self._elsewhere(r)
         ]
-        queue += self._dubbed_tail(queue)
+        queue = _voice_first(self.picture, self.ranked, queue) + self._dubbed_tail(queue)
         # Раздача, которую человек видел на карточке, спрашивается первой - если ворота её
         # пускают. Мимо ворот она не проходит: это была бы подмена, а не выбор карточки.
         card = [n for n in queue if args.card_release == (info_hash(self.ranked[n - 1]) or None)]
