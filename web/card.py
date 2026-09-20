@@ -39,6 +39,7 @@ from web.card_seasons import card_seasons
 from web.card_voices import card_voices
 from web.card_warm import CARD_WARM
 from web.circle_refusal import circle_refusal
+from web.display_runtime import display_runtime
 from web.episode_lookup import GRACE, EpisodeLookup
 from web.key_name import key_name
 from web.own_plan import own_plan
@@ -160,6 +161,7 @@ def _body(
     coming = related is None and _related.waiting(title, series)
     poster, judging = _poster.of(picture)
     heard, hearing = _voices.of(plan, ask.query, config, entry) if plan.ranked else (None, False)
+    runtime, runtime_estimated = display_runtime(plan, fact)
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
         # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
@@ -171,8 +173,8 @@ def _body(
         "original": picture.original or None,
         "year": picture.year,
         "kind": picture.kind,
-        "runtime": plan.runtime,
-        "runtime_estimated": plan.runtime_estimated,
+        "runtime": runtime,
+        "runtime_estimated": runtime_estimated,
         "rating": rating_score(fact.rating),
         "blurb": fact.about if told else None,
         "poster": poster,
