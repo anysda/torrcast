@@ -25,7 +25,7 @@ import pytest
 
 from tests.articles import UTENA, page
 from tests.fakes.media_probe import FakeMediaProbe
-from tests.test_cli import _FakeTorrServer, _resolve, rel
+from tests.test_cli import _FakeTorrServer, _reads, _resolve, rel
 from torrcast.adapters.console.console.progress import Progress
 from torrcast.adapters.filesystem.trace_journal.records import records
 from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
@@ -1159,24 +1159,43 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
     """🔴 TC-492. Переигровка сеанса «Эксперименты Лэйн» (11-08, очередь из восьми).
 
     Как было: релизы 1 и 3 забракованы паспортом («без русской озвучки»), у четвёртого
-    язык звука не назван - и он игрался, потому что незнание засчитывалось за русскую
-    дорожку. В очереди при этом оставались нетронутыми ещё четыре раздачи, и в одной из
-    них русская дорожка есть. Зритель услышал нерусский звук при живом соседе.
+    паспорт был НЕПОЛОН (вторая дорожка названа японской) - и он игрался, потому что
+    незнание засчитывалось за русскую дорожку. В очереди при этом оставались нетронутыми
+    ещё четыре раздачи, и в одной из них русская дорожка есть. Зритель услышал нерусский
+    звук при живом соседе.
 
     Как стало: незнание не годность. Очередь идёт дальше и доходит до подтверждённой
     русской. Лишнего ffprobe это не стоит - спрашивается тот же уже прочитанный паспорт,
     - а от бесконечного перебора выдачу защищают прежние потолки (:data:`MAX_TRIES`,
     :data:`VERDICT_BUDGET`), а не согласие играть неизвестно что. Сеанс - про русский
     гейт, поэтому и говорит продукт тут по-русски.
+
+    🔴 TC-1288 тут ни при чём: у четвёртого релиза дорожек ДВЕ, а не одна. Единственную
+    безымянную дорожку теперь просто играют (см. ``test_cli.py``,
+    ``test_a_lone_unnamed_track_plays_without_waiting_for_the_rest_of_the_queue``), а
+    неполный паспорт годностью по-прежнему не считается - это и проверяет этот сеанс.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(8)]
-    probe = _tracks(ranked, "jpn", "jpn", "jpn", "und", "jpn", "rus", "jpn", "jpn")
+    lone_japanese = (AudioTrack(0, "jpn"),)
+    ambiguous = (AudioTrack(0, "und", None), AudioTrack(1, "jpn", "Original"))
+    lone_russian = (AudioTrack(0, "rus"),)
+    media = [
+        Media(3600.0, lone_japanese, "h264", 1080, 1920),
+        Media(3600.0, lone_japanese, "h264", 1080, 1920),
+        Media(3600.0, lone_japanese, "h264", 1080, 1920),
+        Media(3600.0, ambiguous, "h264", 1080, 1920),
+        Media(3600.0, lone_japanese, "h264", 1080, 1920),
+        Media(3600.0, lone_russian, "h264", 1080, 1920),
+        Media(3600.0, lone_japanese, "h264", 1080, 1920),
+        Media(3600.0, lone_japanese, "h264", 1080, 1920),
+    ]
+    probe = _reads(ranked, *media)
 
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 6, "русская дорожка нашлась ниже по очереди - её и играем"
-    assert "релиз 4 без русской озвучки (не назван) - беру 5" in printed
+    assert "релиз 4 без русской озвучки (японский) - беру 5" in printed
     assert "nothing more honest nearby, playing it" not in printed, (
         "«не назван, играю его» больше не бывает"
     )
@@ -1243,9 +1262,18 @@ def test_a_foreign_picture_whose_original_is_hieroglyphs_keeps_the_voice_gate(
     пустым полем, что у отечественного кино. Прежде отбор читал эту пустоту как паспорт
     происхождения, засчитывал безымянную дорожку за русскую и отдавал зрителю японский
     звук - при живой раздаче с русским прямо в следующей строке очереди.
+
+    Паспорт верха тут НЕПОЛНЫЙ - вторая дорожка названа японской, а не одинокая
+    безымянная: ту теперь играют сама по себе при любом происхождении (🔴 TC-1288), и
+    точку про иероглифы этим случаем было бы не проверить - гейт вообще не спросили бы.
     """
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
-    probe = _tracks(ranked, "und", "rus")
+    ambiguous = (AudioTrack(0, "und", None), AudioTrack(1, "jpn", "Original"))
+    probe = _reads(
+        ranked,
+        Media(3600.0, ambiguous, "h264", 1080, 1920),
+        Media(3600.0, (AudioTrack(0, "rus"),), "h264", 1080, 1920),
+    )
     picture = Picture(title="Юная революционерка Утэна", year=1997, releases=ranked)
     native_picture(
         picture,
@@ -1262,8 +1290,8 @@ def test_a_foreign_picture_whose_original_is_hieroglyphs_keeps_the_voice_gate(
         )
 
     assert not picture.native, "иероглифы в скобке - это названное имя, а не его отсутствие"
-    assert prep.number == 2, "безымянная дорожка чужой картины русской не становится"
-    assert "релиз 1 без русской озвучки (не назван) - беру 2" in capsys.readouterr().out
+    assert prep.number == 2, "неполный паспорт чужой картины русской не становится"
+    assert "релиз 1 без русской озвучки (японский) - беру 2" in capsys.readouterr().out
 
 
 def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
@@ -1295,7 +1323,7 @@ def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
 def test_a_release_name_promising_russian_does_not_save_an_unnamed_passport(
     capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
-    """🔴 TC-741. Имя раздачи не паспорт: «| D» безымянную дорожку русской не делает.
+    """🔴 TC-741. Имя раздачи не паспорт: «| D» неполную дорожку русской не делает.
 
     Судьёй имя тут не бывает ни в одну сторону (TC-191). Прежде оно покупало верху и
     запасной ход, и собственную мягкую строку - «имя релиза обещает русский», - хотя про
@@ -1303,12 +1331,21 @@ def test_a_release_name_promising_russian_does_not_save_an_unnamed_passport(
     ступень кадра, которой это стоило, зритель читает отдельной строкой: озвучка выше
     чёткости, но молчаливым размен не бывает. Сценарий русского гейта: под английской
     ручкой релиз с английской дорожкой прошёл бы гейт сразу (TC-958).
+
+    Паспорт верха тут НЕПОЛНЫЙ - вторая дорожка названа английской, а не одинокая
+    безымянная: ту теперь играют саму по себе, и её судьбу имя уже не решает вовсе
+    (🔴 TC-1288) - точку этого сеанса пришлось бы проверять другим паспортом.
     """
     ranked = [
         rel(name="Кино 1080p | D", seeders=120),
         rel(name="Кино 720p", quality="720p", seeders=80),
     ]
-    probe = _tracks(ranked, "und", "eng")
+    ambiguous = (AudioTrack(0, "und", None), AudioTrack(1, "eng", "Original"))
+    probe = _reads(
+        ranked,
+        Media(3600.0, ambiguous, "h264", 1080, 1920),
+        Media(3600.0, (AudioTrack(0, "eng"),), "h264", 1080, 1920),
+    )
 
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
