@@ -17,6 +17,11 @@ from web.box import box
 from web.request import Request
 from web.tv_session import SESSION
 
+#: Потолок запаса вкладки в ответе ящика. Умолчания продукта равны умолчаниям hls.js
+#: (``maxBufferLength`` 30 с, ``maxBufferSize`` 60 МБ), поэтому ненастроенная машина
+#: играет ровно как до появления ключей.
+_TAB = {"seconds": 30.0, "bytes": 60_000_000}
+
 
 def _get() -> Request:
     return Request("GET", "/api/web/box", {}, {})
@@ -30,7 +35,7 @@ def test_nothing_to_show_answers_an_empty_object(
     answer = box(_get())
 
     assert answer.code == 200
-    assert json.loads(answer.body) == {"tv": False}
+    assert json.loads(answer.body) == {"tv": False, "tab": _TAB}
 
 
 def test_a_pending_task_is_handed_to_the_tab(
@@ -49,6 +54,7 @@ def test_a_pending_task_is_handed_to_the_tab(
         "profile": "",
         "container": "",
         "tv": False,
+        "tab": _TAB,
     }
 
 

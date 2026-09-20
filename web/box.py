@@ -26,7 +26,8 @@ def box(request: Request) -> Answer:
     меняется на ходу и кэша не стоит.
     """
     del request  # ящик один на процесс - доводов запроса ему спрашивать нечем
-    out = hls_root(load_config().hls_dir)
+    settings = load_config()
+    out = hls_root(settings.hls_dir)
     seen = read_web_box(out)
     # ``tv`` - не про показ, а про то, где его слышно: вкладка, зашедшая на страницу уже
     # во время каста (перезагрузка, переход из карточки), иначе включила бы свою плёнку со
@@ -49,4 +50,8 @@ def box(request: Request) -> Answer:
     #
     # Сам ответ на «идёт ли каст на ТВ» живёт теперь отдельно (:func:`web.tv_live.tv_live`):
     # его же спрашивает карточка, и второй копии этой формулы быть не должно.
-    return Answer(200, json.dumps({**seen, "tv": tv_live(seen)}).encode())
+    # Потолок запаса ВКЛАДКИ едет тем же ящиком: страница создаёт `Hls` в тот же миг,
+    # что применяет ящик (`web/static/player-box.js`), и второго похода на сервер ради
+    # двух чисел заводить незачем.
+    tab = {"seconds": settings.hls_tab_buffer, "bytes": int(settings.hls_tab_bytes * 1_000_000)}
+    return Answer(200, json.dumps({**seen, "tv": tv_live(seen), "tab": tab}).encode())

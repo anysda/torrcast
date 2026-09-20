@@ -276,6 +276,13 @@ const TCPlayer = {
   },
   // ------------------------------------------------------------------ hls.js
 
+  //: Потолок запаса ВКЛАДКИ, когда ящик своего не назвал. Числа те же, что у умолчаний
+  //: hls.js: без них страница молча держала тридцать секунд, сколько бы ни было готово
+  //: на раздаче, и запас у зрителя не рос никогда (замер: 300 с готовой упаковки - 34 с
+  //: у вкладки). Настраивается ключами ``hls_tab_buffer`` и ``hls_tab_bytes``.
+  TAB_SECONDS: 30,
+  TAB_BYTES: 60 * 1000 * 1000,
+
   //: Поток - ОДНА полоса упаковки на всю машину (замер 06-09-2026): тут ровно один
   //: ``Hls``, старый уничтожается ДО создания нового, второго читателя не заводим.
   _attach(url, at) {
@@ -290,7 +297,14 @@ const TCPlayer = {
       // `onReady` тронет `currentTime`, и с закладки уходит за `v0.m4s`, уводя головку
       // единственной полосы упаковки в начало (стенд `.104`: 95 с, ноль байт картинки).
       // Первый кусок просится вместе с подключением `<video>`, а не после открытия MSE.
-      const hls = new Hls({ startPosition: at > 0 ? at : -1, startFragPrefetch: true });
+      const tab = TCPlayer._tab || {};
+      const seconds = tab.seconds > 0 ? tab.seconds : TCPlayer.TAB_SECONDS;
+      const bytes = tab.bytes > 0 ? tab.bytes : TCPlayer.TAB_BYTES;
+      const hls = new Hls({
+        startPosition: at > 0 ? at : -1, startFragPrefetch: true,
+        maxBufferLength: seconds, maxMaxBufferLength: Math.max(seconds, 600),
+        maxBufferSize: bytes,
+      });
       TCPlayer._hls = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, onReady);
       hls.on(Hls.Events.ERROR, (event, data) => { if (data.fatal) TCPlayer._onStreamError(); });
