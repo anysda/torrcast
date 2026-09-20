@@ -91,3 +91,29 @@ def test_an_unnamed_language_is_not_called_original_and_an_unknown_code_stays_a_
 
 def test_no_heard_release_gives_no_rows() -> None:
     assert card_voices(None, "ru") == []
+
+
+def test_a_lone_unnamed_track_of_a_foreign_picture_says_language_not_stated() -> None:
+    """🔴 TC-1288. Иностранная картина, одна дорожка без тега - «язык не назван», не номер."""
+    heard = Heard(media(tracks=(track(0, None, None),)), native=False, studios=())
+
+    rows = card_voices(heard, "ru")
+
+    assert _field(rows, "label") == ["язык не назван"]
+
+
+def test_a_lone_unnamed_track_of_a_native_picture_says_russian() -> None:
+    """🔴 TC-1288. Отечественный сериал, дорожка без тега - «Русский», не номер."""
+    heard = Heard(media(tracks=(track(0, None, None),)), native=True, studios=())
+
+    rows = card_voices(heard, "ru")
+
+    assert _field(rows, "label") == ["Русский"]
+
+
+def test_the_english_page_names_a_lone_unnamed_track_in_english() -> None:
+    foreign = Heard(media(tracks=(track(0, None, None),)), native=False, studios=())
+    native = Heard(media(tracks=(track(0, None, None),)), native=True, studios=())
+
+    assert _field(card_voices(foreign, "en"), "label") == ["language not stated"]
+    assert _field(card_voices(native, "en"), "label") == ["Russian"]

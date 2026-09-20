@@ -29,4 +29,10 @@ def ru() -> dict[str, str]:
         "select.other_menu": "выбрать другое: --menu",
         "select.track_number": "дорожка {number}",
         "select.from_position": "с {pos}",
+        # 🔴 TC-1288. Единственная дорожка без тега языка играет (:func:`torrcast.usecases.
+        # rank.voice_unproven.voice_unproven`), а меню озвучки называет её по решению
+        # владельца, а не номером файла: отечественная картина звучит по-русски и так,
+        # иностранная - дорожкой без имени языка.
+        "select.track_native_unnamed": "Русский",
+        "select.track_foreign_unnamed": "язык не назван",
     }

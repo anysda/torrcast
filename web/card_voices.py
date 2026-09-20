@@ -35,9 +35,10 @@ def card_voices(heard: Heard | None, lang: str) -> list[JsonValue]:
     names = [studio.name.casefold() for studio in studios if studio is not None]
     codes = [_code(track) for track in media.tracks]
     labels = [track.label.casefold() for track in media.tracks]
+    lone = len(media.tracks) == 1
     rows: list[JsonValue] = []
     for track, studio in zip(media.tracks, studios, strict=True):
-        label = _label(track, catalog)
+        label = _label(track, catalog, native=heard.native, lone=lone)
         if studio is not None and studio.name.casefold() not in label.casefold():
             label = f"{label} ({studio.name})"
         rows.append(
@@ -70,8 +71,16 @@ def _code(track: AudioTrack) -> str:
     return (track.language or "").strip().casefold() if track.named else ""
 
 
-def _label(track: AudioTrack, catalog: dict[str, str]) -> str:
-    """Язык словом каталога и заголовок раздачи; код вне каталога остаётся кодом."""
+def _label(track: AudioTrack, catalog: dict[str, str], *, native: bool, lone: bool) -> str:
+    """Язык словом каталога и заголовок раздачи; код вне каталога остаётся кодом.
+
+    🔴 TC-1288. Единственная дорожка без тега языка отбором уже сыграна
+    (:func:`torrcast.usecases.rank.voice_unproven.voice_unproven`), и меню называет её по
+    решению владельца, а не файловым номером: «Русский» у отечественной картины, «язык не
+    назван» у иностранной. Дорожка без имени среди НЕСКОЛЬКИХ (паспорт неполон, а не
+    единственный) под это решение не попадает - там играет другая, названная, и «дорожка
+    N» остаётся честной подписью её соседки.
+    """
     key = spoken_key(track)
     language = ""
     if track.named:
@@ -79,6 +88,8 @@ def _label(track: AudioTrack, catalog: dict[str, str]) -> str:
     parts = [part for part in (language, track.clean_title) if part]
     if parts:
         return " · ".join(parts)
+    if lone:
+        return catalog["select.track_native_unnamed" if native else "select.track_foreign_unnamed"]
     return catalog["select.track_number"].format(number=track.index + 1)
 
 

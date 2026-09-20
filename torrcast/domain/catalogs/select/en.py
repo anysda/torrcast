@@ -30,4 +30,9 @@ def en() -> dict[str, str]:
         "select.other_menu": "pick another: --menu",
         "select.track_number": "track {number}",
         "select.from_position": "from {pos}",
+        # 🔴 TC-1288. A lone track without a language tag plays (:func:`torrcast.usecases.
+        # rank.voice_unproven.voice_unproven`); the voice menu names it by decision, not
+        # by file number.
+        "select.track_native_unnamed": "Russian",
+        "select.track_foreign_unnamed": "language not stated",
     }
