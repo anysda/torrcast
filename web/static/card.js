@@ -211,12 +211,17 @@ const TCCard = {
 
   // Что плитка знала о картине в миг клика (`tile.js`): обложка и имя рисуются сразу, а
   // не после круга поиска (холодная карточка на стенде `.104` ждала его 5.4 с).
+  // След плитки, с которой пришли. Прямая ссылка его не оставляет, и отказ на ней читался
+  // безымянным: причина есть, а какой картины - нет. Имя и год тогда берутся из адреса.
   _hint(key) {
+    const facts = TCCard._facts();
+    const own = facts ? { title: facts.title, year: facts.year } : {};
     try {
       const kept = JSON.parse(sessionStorage.getItem('tc-art:' + key) || 'null');
-      return kept && typeof kept === 'object' ? kept : {};
+      if (!kept || typeof kept !== 'object') return own;
+      return { ...own, ...kept, title: kept.title || own.title, year: kept.year || own.year };
     } catch (_) {
-      return {};
+      return own;
     }
   },
 

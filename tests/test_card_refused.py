@@ -41,6 +41,9 @@ def test_a_refusal_after_a_preview_skeleton_replaces_the_word_with_the_reason(
     )
     assert stood["onSkeleton"]["refused"] == "Prowlarr не отвечает", stood["onSkeleton"]
     assert stood["onSkeleton"]["searching"] is False, "слово «ищем раздачи» осталось на экране"
+    assert stood["onSkeleton"]["title"] == "Престиж", (
+        f"отказ по прямой ссылке стёр имя картины: {stood['onSkeleton']}"
+    )
 
 
 def test_a_refusal_on_an_empty_body_still_speaks_the_same_reason(stood: dict[str, Any]) -> None:

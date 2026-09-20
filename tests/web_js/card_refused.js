@@ -50,6 +50,7 @@ function told(data) {
     error: (data && data.error) || null,
     refused: (data && data.refused) || null,
     searching: (data && data.searching) || false,
+    title: (data && data.title) || null,
   };
 }
 
