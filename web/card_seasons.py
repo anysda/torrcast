@@ -18,6 +18,8 @@ from torrcast.usecases.rank.gate_open import gate_open
 from torrcast.usecases.rank.last_hope import last_hope
 from torrcast.usecases.rank.rank_releases import rank_releases
 from torrcast.usecases.select.plan import Plan
+from web.episode_absent import ABSENT
+from web.seasons_from_entry import seasons_from_entry
 
 
 class _Catalog(Protocol):
@@ -49,23 +51,37 @@ def card_seasons(
     ``None``, и карточка честно показывает только счётчик сезонов из имён раздач, помечая
     тело недоехавшим (второй элемент), совсем как справку. Четвёртый - числа серий сезонов
     списка каталога, который нумерует сериал не как раздачи: вкладки тогда только его.
+
+    Вышедшие серии открытого сезона, которых нет ни в одной раздаче, называет
+    :class:`web.episode_absent.EpisodeAbsent` полем ``absent`` сезона. Перебор раздач
+    ответ не держит: не договорил - тело помечено недоехавшим, и приговор приезжает
+    следующим добором, а до него строка обычная и нажимается.
     """
     picture = plan.picture
     if picture.kind != "tv":
         return [], False, None, []
     releases = _picture_releases(plan)
     numbers = {number for release in releases for number in _named_seasons(release)}
-    saved = _seasons_from_entry(entry) if entry is not None and entry.episodes else {}
+    saved = seasons_from_entry(entry) if entry is not None and entry.episodes else {}
     known, pending, layout = catalog.rows(picture, releases, saved) if catalog else ({}, False, [])
     numbers = set(known) if layout else numbers | set(known) | set(saved)
     # Без выбранной вкладки открыт сезон закладки, как у стримингов: таблица нужна ему.
     bookmark = entry.season if entry is not None else None
     default = bookmark if bookmark in numbers else (1 if 1 in numbers else min(numbers, default=0))
     target = season if season in numbers else default
-    fallback = _joined_seasons(numbers, known or saved)
+    fallback, hunting = ABSENT.of(
+        _joined_seasons(numbers, known or saved),
+        picture.key,
+        target,
+        releases,
+        episodes,
+        base_url,
+        saved,
+        bool(layout),
+    )
     release = _release_for(plan, releases, target, entry, profile)
     if release is None or target in known:
-        return fallback, pending, release, layout
+        return fallback, pending or hunting, release, layout
     table = episodes.table(release, base_url)
     if table is None:
         return fallback, True, release, []
@@ -162,23 +178,6 @@ def _bookmark_release(entry: Entry) -> Release:
         seasons=() if single else seasons,
         magnet=entry.magnet,
     )
-
-
-def _seasons_from_entry(entry: Entry) -> dict[int, list[JsonValue]]:
-    at = entry.where(entry.season or 0, entry.episode or 0)
-    seasons: dict[int, list[JsonValue]] = {}
-    for index, row in enumerate(entry.episodes):
-        season, episode = row[0], row[1]
-        current = index == at
-        seasons.setdefault(season, []).append(
-            {
-                "n": episode,
-                "dur": entry.dur if current else 0.0,
-                "watched": entry.watched if current else index < at,
-                "pos": entry.pos if current else 0.0,
-            }
-        )
-    return seasons
 
 
 def _seasons_from_table(table: list[list[int]]) -> dict[int, list[JsonValue]]:

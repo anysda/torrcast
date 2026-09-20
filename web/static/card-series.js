@@ -4,6 +4,45 @@
 'use strict';
 
 const TCCardSeries = {
+  // Сколько строка вышедшей серии остаётся нажимаемой после открытия карточки, чем бы ни
+  // ответил перебор раздач. Приговор `absent` бывает и бесплатным (раздачи называют свои
+  // серии именем, сеть не нужна), и тогда он приезжает уже в первом теле - на четвёртой
+  // секунде. Гашение в этот момент съедает нажатие, сделанное человеком по строке, которую
+  // он видел живой. Порог держит окно нажатия ровно там, где его обещали: первые 10 с.
+  GREY_AFTER: 10000,
+  _opened: { visit: 0, at: 0 },
+
+  // Сколько миллисекунд карточка на экране. Визит считает `TCCard._visit`: он растёт на
+  // каждом открытии и НЕ растёт на доборах, поэтому окно не продлевается опросом.
+  _sinceOpen() {
+    if (TCCardSeries._opened.visit !== TCCard._visit) {
+      TCCardSeries._opened = { visit: TCCard._visit, at: Date.now() };
+    }
+    return Date.now() - TCCardSeries._opened.at;
+  },
+
+  // Погасить строку, когда окно нажатия кончилось: вид, фокус, обработчик и слова.
+  _fade(row, play) {
+    if (!row.isConnected || row.classList.contains('is-unreleased')) return;
+    row.removeEventListener('click', play);
+    row.classList.add('is-unreleased');
+    row.setAttribute('aria-disabled', 'true');
+    row.removeAttribute('tabindex');
+    row.removeAttribute('role');
+    delete row.dataset.tcFocusable;
+    delete row.dataset.tcGroup;
+    const meta = row.querySelector('.tc-ep-meta');
+    if (meta && !meta.querySelector('[data-tc-absent]')) meta.prepend(TCCardSeries._why());
+  },
+
+  // Строка обязана объяснить себя словами: погасшая молча читается как поломка.
+  _why() {
+    const none = document.createElement('div');
+    none.dataset.tcAbsent = '1';
+    none.textContent = TC.say('web.detail.episode_absent');
+    return none;
+  },
+
   tabs(data, key, query, selected) {
     const tabs = document.createElement('div');
     tabs.className = 'tc-tabs';
@@ -33,15 +72,22 @@ const TCCardSeries = {
     list.className = 'tc-episodes';
     const season = data.seasons[seasonIndex];
     const resumeEpisode = TCCardSeries._resumeEpisodeNumber(data);
+    // Вышедшие серии, которых нет ни в одной раздаче (`web/episode_absent.py`). Приговор
+    // приезжает ПОЗЖЕ тела карточки, и до него строка здесь обычная: перебор раздач идёт
+    // секундами, а нажатие, сделанное до гашения, обязано открыть поиск раздачи.
+    const absent = new Set(Array.isArray(season.absent) ? season.absent : []);
+    const hold = Math.max(0, TCCardSeries.GREY_AFTER - TCCardSeries._sinceOpen());
     for (const episode of season.episodes) {
       const row = document.createElement('div');
       const isResume = season.n === resumeEpisode.season && episode.n === resumeEpisode.episode;
       // Серия ещё не вышла: серая строка с датой выхода, фокус и нажатие её обходят.
       const coming = Boolean(episode.air);
+      const gone = !coming && absent.has(episode.n);
+      const grey = coming || (gone && hold === 0);
       row.className = 'tc-ep' + (episode.watched ? ' is-watched' : '') + (isResume ? ' is-resume' : '')
-        + (coming ? ' is-unreleased' : '');
+        + (grey ? ' is-unreleased' : '');
       row.dataset.tcEpisode = 's' + season.n + 'e' + episode.n;
-      if (coming) {
+      if (grey) {
         row.setAttribute('aria-disabled', 'true');
       } else {
         row.tabIndex = 0;
@@ -61,6 +107,8 @@ const TCCardSeries = {
         const air = document.createElement('div');
         air.textContent = TC.say('web.detail.airs', { date: TCCardSeries._date(episode.air) });
         meta.appendChild(air);
+      } else if (gone && !hold) {
+        meta.appendChild(TCCardSeries._why());
       } else if (episode.watched) {
         const watched = document.createElement('div');
         watched.textContent = TC.say('web.detail.watched');
@@ -81,10 +129,11 @@ const TCCardSeries = {
         bar.style.width = Math.max(0, Math.min(1, episode.pos / episode.dur)) * 100 + '%';
         row.appendChild(bar);
       }
-      if (!coming) {
-        row.addEventListener('click', () => TCCard._play(data, key, query,
-          data.voices || [], false, season.n, episode.n));
-      }
+      const play = () => TCCard._play(data, key, query,
+        data.voices || [], false, season.n, episode.n);
+      if (!grey) row.addEventListener('click', play);
+      // Приговор уже есть, но окно нажатия ещё идёт: строка живая, и гаснет по будильнику.
+      if (gone && hold) setTimeout(() => TCCardSeries._fade(row, play), hold);
       list.appendChild(row);
     }
     return list;

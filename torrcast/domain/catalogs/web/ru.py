@@ -71,6 +71,7 @@ def ru() -> dict[str, str]:
         "web.detail.season": "Сезон {n}",
         "web.detail.watched": "✓ Просмотрено",
         "web.detail.airs": "Выйдет {date}",
+        "web.detail.episode_absent": "Нет в раздачах",
         "web.detail.resumes_here": "▶ Отсюда · {time}",
         "web.detail.runtime_hm": "{h} ч {m} мин",
         "web.detail.runtime_m": "{m} мин",

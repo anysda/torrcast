@@ -20,8 +20,9 @@ class _Episodes:
     asked: list[str]
 
     def table(self, release: Release, _base_url: str) -> list[list[int]] | None:
+        """Как живой кэш: неизвестная раздача - это «разбор ещё идёт», а не отказ."""
         self.asked.append(release.magnet)
-        return self.tables[release.magnet]
+        return self.tables.get(release.magnet)
 
 
 def _release(number: int, magnet: str) -> Release:
@@ -272,7 +273,11 @@ def test_a_catalogued_series_shows_every_season_and_episode_without_torrserver()
 
     rows = _rows(seasons)
     assert [(row["n"], len(row["episodes"])) for row in rows] == [(1, 2), (2, 3), (3, 1)]
-    assert (episodes.asked, partial, release) == ([], True, second)
+    # Раздачу открытого сезона карточка всё же спрашивает - но не ради строк, а ради
+    # приговора «серии нет ни в одной раздаче» (:mod:`web.episode_absent`), и ответа
+    # не ждёт: строки уже целые, а приговор приедет следующим добором.
+    assert (episodes.asked, partial, release) == ([second.magnet], True, second)
+    assert all("absent" not in row for row in rows)
 
 
 def test_a_list_numbered_unlike_the_releases_keeps_only_its_own_tabs_interns() -> None:
@@ -337,3 +342,27 @@ def test_a_season_the_ranked_pack_holds_no_files_for_lists_the_release_that_name
 
     assert (partial, release, again, chosen) == (True, fifth, False, fifth)
     assert [len(row["episodes"]) for row in _rows(seasons) if row["n"] == 5] == [2]
+
+
+def test_a_catalogued_aired_episode_goes_grey_only_after_the_releases_answer() -> None:
+    """Серия каталога, которой нет в раздаче: сначала обычная строка, приговор - позже.
+
+    Перебор раздач карточку не держит (TC-1250): первый ответ приходит с целыми строками
+    и пометкой недоехавшего тела, а ``absent`` приезжает следующим добором страницы.
+    """
+    plan, _first, second = _plan()
+    episodes = _Episodes({}, [])
+    catalog = _Catalog({2: _blank(1, 2, 3)})
+
+    early, looking, _release, _layout = card_seasons(
+        plan, None, "http://ts", episodes, 2, catalog=catalog
+    )
+    episodes.tables[second.magnet] = [[2, 1], [2, 2]]
+    late, settled, _chosen, _rest = card_seasons(
+        plan, None, "http://ts", episodes, 2, catalog=catalog
+    )
+
+    assert (looking, settled) == (True, False)
+    assert all("absent" not in row for row in _rows(early)), "строка погасла до ответа раздач"
+    assert [row.get("absent") for row in _rows(late) if row["n"] == 2] == [[3]]
+    assert [len(row["episodes"]) for row in _rows(late) if row["n"] == 2] == [3]

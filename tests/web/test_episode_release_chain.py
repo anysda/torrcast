@@ -158,12 +158,15 @@ def _page_sends_the_tab_release() -> bool:
 
     Список не как у раздач (``layout``) раздачи вкладки не шлёт: строку ищут сквозным номером.
     """
-    row = "row.addEventListener('click', () => TCCard._play(data, key, query,"
+    # Обработчик строки назван, потому что гашение по приговору его снимает
+    # (:mod:`web.episode_absent`); тело `_play` у него прежнее.
+    row = "const play = () => TCCard._play(data, key, query,"
+    bound = "if (!grey) row.addEventListener('click', play);" in SERIES_JS
     play = CARD_JS.split("  _play(data, key, query, voices, fromStart, season, episode) {", 1)[1]
     play = play.split("\n  },", 1)[0]
     keys = re.search(r"_keys\(data, key\) \{\s*return \{[^}]*release: data\.release", CARD_JS)
     sends = "release: layout ? undefined : keys.release," in play
-    return row in SERIES_JS and sends and keys is not None
+    return row in SERIES_JS and bound and sends and keys is not None
 
 
 def _show_plays(monkeypatch: pytest.MonkeyPatch, release: str) -> tuple[str | None, str]:
