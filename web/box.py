@@ -12,11 +12,10 @@ import json
 
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.filesystem.state.load_config import load_config
-from torrcast.ports.state_store.slot import store
 from torrcast.usecases.playback.hls_root import hls_root
 from web.answer import Answer
 from web.request import Request
-from web.tv_session import SESSION
+from web.tv_live import tv_live
 
 
 def box(request: Request) -> Answer:
@@ -47,8 +46,7 @@ def box(request: Request) -> Answer:
     # «Вернуть на компьютер», а ему неоткуда взяться без нового показа. Раз ничего не
     # играет вовсе (:meth:`torrcast.domain.watch_state.WatchState.showing`, тот же
     # признак, каким живут кнопки карточки, TC-1225), сырому слову ящика веры нет.
-    live = bool(seen.get("tv", False)) and store().load().showing() is not None
-    return Answer(
-        200,
-        json.dumps({**seen, "tv": live or SESSION.settle(str(seen.get("key", "")))}).encode(),
-    )
+    #
+    # Сам ответ на «идёт ли каст на ТВ» живёт теперь отдельно (:func:`web.tv_live.tv_live`):
+    # его же спрашивает карточка, и второй копии этой формулы быть не должно.
+    return Answer(200, json.dumps({**seen, "tv": tv_live(seen)}).encode())

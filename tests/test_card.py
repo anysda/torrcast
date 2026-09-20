@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ import web.card as card_page
 from tests.fakes.show_unit import FakeShowUnit
 from tests.fakes.state_store import FakeStateStore
 from tests.usecases.rank.releases import media, track
+from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.fact import Fact
@@ -510,10 +512,14 @@ def test_a_voices_ask_holds_the_answer_until_the_tracks_arrive(
     assert late.looks == 3
 
 
-def test_a_picture_showing_on_the_receiver_right_now_marks_the_card_playing(
-    monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
+def test_a_picture_showing_on_the_tv_right_now_marks_the_card_playing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
 ) -> None:
-    """TC-1225: карточка играющей картины помнит об этом - кнопки решают по этому полю."""
+    """TC-1225: карточка играющей НА ТВ картины помнит об этом - кнопки по этому полю."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(
+        tmp_path, url="http://x/out.m3u8", title="Interstellar", at=120.0, key="k1", tv=True
+    )
     show_unit.alive = True
     _wired(monkeypatch, [_MOVIE_PLAN])
     fake = FakeStateStore()
@@ -528,6 +534,32 @@ def test_a_picture_showing_on_the_receiver_right_now_marks_the_card_playing(
 
     assert code == 200
     assert body["playing"] is True
+
+
+def test_a_picture_playing_in_the_tab_itself_leaves_the_card_its_usual_buttons(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
+) -> None:
+    """TC-1318: показ идёт во вкладке, каста на ТВ нет - приёмнику взяться неоткуда.
+
+    Карточка ставила такому показу «Подключиться»/«Завершить»: зритель, вышедший из
+    плеера и вернувшийся на карточку, читал их вместо «Играть» (стенд 20-09-2026).
+    """
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=120.0, key="k1")
+    show_unit.alive = True
+    _wired(monkeypatch, [_MOVIE_PLAN])
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries[_MOVIE.key] = Entry(
+        "Interstellar", "magnet:interstellar", kind="movie", pos=120.0, dur=8520.0, torrent="abc"
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert code == 200
+    assert body["playing"] is False
 
 
 @pytest.mark.parametrize(("tv", "offered"), [("", False), ("192.168.1.90", True)])
@@ -1011,9 +1043,17 @@ def test_a_waiting_ask_holds_the_answer_until_the_blurb_arrives(
 
 
 def test_a_waiting_ask_sees_the_show_that_began_after_its_first_look(
-    monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, show_unit: FakeShowUnit
 ) -> None:
-    """Показ стартует между взглядами: долгий ответ обязан назвать его сразу."""
+    """Показ стартует между взглядами: долгий ответ обязан назвать его сразу.
+
+    Показ тут поднят на ТВ (``tv`` ящика): иначе поле ``playing`` карточки не про эту
+    картину вовсе (:mod:`web.playing_on_tv`), и перечитывать между взглядами нечего.
+    """
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(
+        tmp_path, url="http://x/out.m3u8", title="Interstellar", at=0.0, key="k1", tv=True
+    )
     show_unit.alive = True
     _wired(monkeypatch, [_MOVIE_PLAN], related=[])
     fake = FakeStateStore()

@@ -28,7 +28,6 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.show_unit.slot import unit
 from torrcast.ports.state_store.slot import store
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.select.plan import Plan
@@ -43,6 +42,7 @@ from web.circle_refusal import circle_refusal
 from web.episode_lookup import GRACE, EpisodeLookup
 from web.key_name import key_name
 from web.own_plan import own_plan
+from web.playing_on_tv import playing_on_tv
 from web.preview import _facts, _related_of, preview
 from web.rating_score import rating_score
 from web.refusal import refusal
@@ -121,21 +121,16 @@ def _answer(
         facts.foreground = True
         facts.start()
     until = time.monotonic() + wait
-    first, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint, ask)
+    first, partial = _body(plan, config, pick, entry, facts, playing_on_tv(picture.key), hint, ask)
     body = first
     while (partial or (ask.voices and body.get("voices_pending"))) and time.monotonic() < until:
         time.sleep(_TICK)
-        body, partial = _body(plan, config, pick, entry, facts, _playing(picture.key), hint, ask)
+        on_tv = playing_on_tv(picture.key)
+        body, partial = _body(plan, config, pick, entry, facts, on_tv, hint, ask)
         if body != first:
             until = min(until, time.monotonic() + _SETTLE)
     extra = ((_PARTIAL, "1"),) if partial else ()
     return Answer(200, json.dumps(body, ensure_ascii=False).encode("utf-8"), extra=extra)
-
-
-def _playing(key: str) -> bool:
-    """Свежий признак показа; хэш, который не снял оборванный снос, без живого юнита не показ."""
-    showing = store().load().showing()
-    return showing is not None and showing[0] == key and unit().active()
 
 
 def _body(
@@ -185,8 +180,9 @@ def _body(
         "voices_pending": hearing,
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",
-        # Картина идёт на приёмнике (:meth:`torrcast.domain.watch_state.WatchState.showing`):
-        # кнопки «Подключиться»/«Завершить» вместо «PLAY ON TV» (:mod:`web.static.card.js`).
+        # Картина идёт НА ТЕЛЕВИЗОРЕ (:func:`web.playing_on_tv.playing_on_tv`): кнопки
+        # «Подключиться»/«Завершить» вместо «PLAY ON TV» (:mod:`web.static.card.js`).
+        # Показ в самой вкладке сюда не годится: приёмника, к которому подключаются, нет.
         "playing": playing,
         # Машина без ТВ (``config.tv`` пуст) не предлагает показ на ТВ вовсе.
         "tv": bool(config.tv),
