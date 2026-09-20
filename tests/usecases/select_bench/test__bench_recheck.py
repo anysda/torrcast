@@ -115,3 +115,33 @@ def test_a_revived_release_whose_language_is_named_still_plays(
 
     assert revived is not None and revived.number == 1
     assert "включаю релиз 1, звук японский" in capsys.readouterr().out
+
+
+def test_a_revived_release_whose_passport_stays_ambiguous_does_not_play(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Бесплатный проход даёт только ЕДИНСТВЕННАЯ безымянная дорожка (TC-1288), не любая.
+
+    Тут дорожек две, и одна из них молчит про язык - паспорт файла целиком не назван, и
+    второй спрос отпускает раздачу, как и раньше: незнание не покупает показ само по
+    себе, оно лишь освобождает от него дорожку-одиночку.
+    """
+    pool = [rel(name="r0 | Дубляж", seeders=100)]
+    built = plan(pool)
+    ambiguous = Media(
+        RUNTIME,
+        (AudioTrack(index=0), AudioTrack(index=1, language="eng", title="Original")),
+        "h264",
+        height=1080,
+        width=1920,
+    )
+    bench = Bench(Torrents(), prober=probes(pool, ambiguous), meta_budget=1.0, probe_budget=1.0)
+    silent = bench.start(built, 1)
+    bench._wait(silent, Said())
+    silent.media = None
+    silent.error = "раздача не отдала метаданные за 1 с - нет пиров"
+
+    revived = bench._recheck(built, [1], _ASKED, Said(), {}, deadline=bench.clock() + 100.0)
+
+    assert revived is None, "не все дорожки паспорта названы - второй спрос не спасает"
+    assert "релиз 1 ответил в одиночку, но без русской озвучки" in capsys.readouterr().out
