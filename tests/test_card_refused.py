@@ -49,3 +49,11 @@ def test_a_refusal_after_a_preview_skeleton_replaces_the_word_with_the_reason(
 def test_a_refusal_on_an_empty_body_still_speaks_the_same_reason(stood: dict[str, Any]) -> None:
     assert stood["onEmpty"]["error"] == "not_found", stood["onEmpty"]
     assert stood["onEmpty"]["refused"] == "Prowlarr не отвечает", stood["onEmpty"]
+
+
+def test_a_picture_without_any_releases_stops_waiting_for_them(stood: dict[str, Any]) -> None:
+    """Раздач у картины правда нет: слово обязано смениться честным счётом, а не висеть."""
+    assert stood["onNothing"]["searching"] is False, (
+        f"404 на скелете отброшен, «ищем раздачи» осталось навсегда: {stood['onNothing']}"
+    )
+    assert stood["onNothing"]["title"] == "Престиж", stood["onNothing"]

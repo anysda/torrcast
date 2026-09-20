@@ -13,6 +13,7 @@ const SKELETON = {
   partial: true, missing: false, refused: '',
 };
 const REFUSAL = { data: null, partial: false, missing: false, refused: 'Prowlarr не отвечает' };
+const NOTHING = { data: null, partial: false, missing: true, refused: '' };
 
 async function lastShown(answers) {
   const shown = [];
@@ -57,7 +58,10 @@ function told(data) {
 async function main() {
   const onSkeleton = await lastShown([SKELETON, REFUSAL]);
   const onEmpty = await lastShown([REFUSAL]);
-  process.stdout.write(JSON.stringify({ onSkeleton: told(onSkeleton), onEmpty: told(onEmpty) }) + '\n');
+  const onNothing = await lastShown([SKELETON, NOTHING]);
+  process.stdout.write(JSON.stringify({
+    onSkeleton: told(onSkeleton), onEmpty: told(onEmpty), onNothing: told(onNothing),
+  }) + '\n');
 }
 
 main();
