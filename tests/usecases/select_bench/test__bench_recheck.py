@@ -68,15 +68,16 @@ def test_the_second_ask_never_takes_the_phase_past_its_ceiling() -> None:
     assert bench._recheck(built, [1], _ASKED, Said(), {}, deadline=bench.clock() + 1.0) is None
 
 
-def test_a_revived_release_whose_language_is_unnamed_does_not_play(
+def test_a_revived_release_whose_language_is_unnamed_plays(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """🔴 TC-741. Второй спрос оживил раздачу, а язык её звука так и не назван - не играем.
+    """🔴 TC-1288. Второй спрос оживил раздачу с одной безымянной дорожкой - играем.
 
-    Правило тут ровно то же, что в обходе очереди: подтверждённый русский - годен,
-    названный чужой - последний ход с честной строкой, а незнание не ход вовсе. Прежде
-    ожившая безымянная раздача уезжала запасным ходом под строку «звук не назван», то
-    есть терпение покупало зрителю ровно то, чего гейт и не пропускал.
+    Правило тут ровно то же, что в обходе очереди (:func:`voice_unproven`): единственная
+    дорожка без тега языка - это весь паспорт файла, и играет она при любом ``native``.
+    Прежде ожившая безымянная раздача уезжала запасным ходом под строку «звук не назван»
+    вместо того, чтобы просто сыграть, - терпение покупало зрителю ровно то, чего сам гейт
+    больше не бракует.
     """
     pool = [rel(name="r0 | Дубляж", seeders=100)]
     built = plan(pool)
@@ -90,9 +91,9 @@ def test_a_revived_release_whose_language_is_unnamed_does_not_play(
     revived = bench._recheck(built, [1], _ASKED, Said(), {}, deadline=bench.clock() + 100.0)
 
     printed = capsys.readouterr().out
-    assert revived is None, "незнание запасным ходом не становится и на втором спросе"
-    assert "релиз 1 ответил в одиночку, но без русской озвучки" in printed
-    assert "включаю релиз" not in printed
+    assert revived is not None and revived.number == 1, "дорожка одна - второй спрос играет её"
+    assert "релиз 1 ответил в одиночку, но без русской озвучки" not in printed
+    assert "звук не назван" not in printed
 
 
 def test_a_revived_release_whose_language_is_named_still_plays(

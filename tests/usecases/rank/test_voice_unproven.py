@@ -24,11 +24,29 @@ def test_a_foreign_passport_sends_the_release_to_the_bench() -> None:
     assert voice_unproven(foreign, native=True), "чужой язык назван прямо - справка не спасает"
 
 
-def test_an_unnamed_track_is_not_a_yes() -> None:
-    """🔴 TC-492. Незнание - это не «сойдёт»: «Лэйн» уехала с нерусской дорожкой."""
+def test_a_lone_unnamed_track_is_proven_regardless_of_origin() -> None:
+    """🔴 TC-1288. Единственная безымянная дорожка играет: и у своей картины, и у чужой.
+
+    Решение владельца («1 и 1»): «Универ. Новая общага» и «Ван-Пис» отказывали ровно
+    потому, что их единственная дорожка не несла тега языка, а правило TC-741 бракует
+    такую раздачу наравне с явно чужой. Здесь оно отменяется - гейт про одну дорожку
+    без имени годность больше не спрашивает у ``native`` вовсе.
+    """
     unnamed = media(tracks=(track(0, None, None),))
-    assert voice_unproven(unnamed)
+    assert not voice_unproven(unnamed), "иностранная картина - играем, дорожка одна"
     assert not voice_unproven(unnamed, native=True), "«Бригаду» никто не озвучивал"
+
+
+def test_an_unnamed_track_among_several_is_still_not_a_yes() -> None:
+    """🔴 TC-492. Незнание - это не «сойдёт», когда дорожек больше одной.
+
+    Скидка TC-1288 - про ОДНУ дорожку без тега: она и есть весь паспорт файла.
+    Когда дорожек несколько, безымянная - лишь одна из версий, и молчание об остальных
+    ничего не доказывает; «Лэйн» уехала с нерусской дорожкой ровно по этой причине.
+    """
+    unnamed_among_others = media(tracks=(track(0, None, None), track(1, "eng", "Original")))
+    assert voice_unproven(unnamed_among_others)
+    assert not voice_unproven(unnamed_among_others, native=True), "«Бригаду» никто не озвучивал"
 
 
 def test_a_passport_without_a_single_track_judges_our_haste_not_the_release() -> None:

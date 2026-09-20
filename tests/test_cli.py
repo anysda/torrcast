@@ -3318,20 +3318,21 @@ UNNAMED = (AudioTrack(0, "und", None, "ac3", 6),)
 RUSSIAN = (AudioTrack(0, "rus", "Дубляж (Jaskier)", "ac3", 6),)
 #: ...и с чужой: имя обещало русскую, а внутри английская.
 FOREIGN = (AudioTrack(0, "eng", "Original", "ac3", 6),)
+#: Дорожек несколько, и одна из них так и осталась без тега языка - паспорт неполон, а
+#: не молчит целиком, и это другой случай, чем :data:`UNNAMED` (TC-1288 его не трогает).
+AMBIGUOUS = (AudioTrack(0, "und", None, "ac3", 6), AudioTrack(1, "eng", "Original", "ac3", 2))
 
 
-def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
+def test_a_lone_unnamed_track_plays_without_waiting_for_the_rest_of_the_queue(
     capsys: pytest.CaptureFixture[str], _russian_product: None
 ) -> None:
-    """🔴 TC-492. Верх про язык звука не сказал ничего - идём дальше по очереди.
+    """🔴 TC-1288. Единственная дорожка без тега языка - весь паспорт файла. Играем её.
 
-    Живой случай: «Оставленные» уезжают с единственной дорожкой без тега языка, а ниже в
-    той же очереди стоит нетронутая раздача «от Scarabey» с двумя русскими дорожками. До
-    правки гейт такой верх пропускал - и очередь до подтверждённой русской не доходила
-    вовсе, потому что показ уже начался. Незнание годностью не считается, и очередь
-    доходит сама: ни одного лишнего ffprobe это не стоит, спрашивается уже прочитанный
-    паспорт. Сценарий - про русский гейт, поэтому продукт тут говорит по-русски; под
-    английской ручкой искомая дорожка английская (:func:`voice_unproven`).
+    Живой случай: «Оставленные», «Зона интересов», «Жить», «В поисках Сахарного Человека» -
+    у всех одна дорожка без тега языка на весь файл. Решением владельца («1 и 1») правило
+    TC-741, бравшее такую раздачу наравне с явно чужой, отменено для случая одной дорожки:
+    очередь до соседа «от Scarabey» с двумя подтверждёнными русскими дорожками теперь не
+    доходит - и это не догадка по звуку, а сама дорожка, которая и играла бы.
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] тихий | D", voices=(), seeders=140),
@@ -3347,10 +3348,38 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
     prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
+    assert prep.number == 1, "дорожка одна без тега - берём верх очереди, а не идём дальше"
+    assert "без русской озвучки" not in printed
+
+
+def test_an_unnamed_language_among_several_does_not_stop_the_queue_at_the_top(
+    capsys: pytest.CaptureFixture[str], _russian_product: None
+) -> None:
+    """🔴 TC-492. Верх, чей паспорт неполон, - не голос, идём дальше по очереди.
+
+    В отличие от :func:`test_a_lone_unnamed_track_plays_without_waiting_for_the_rest_of_the_queue`
+    тут дорожек несколько: одна без тега, вторая прямо названа английской. Паспорт неполон,
+    а не молчит целиком, и «русской не нашли» от «нашли, но не назвали» этим не отличить -
+    незнание годностью не считается, и очередь доходит до подтверждённой русской сама.
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] тихий | D", voices=(), seeders=140),
+        rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
+    ]
+    prober = _reads(
+        ranked,
+        Media(5977.0, AMBIGUOUS, "h264", 1080, 1920),
+        Media(5977.0, RUSSIAN, "h264", 1080, 1920),
+    )
+    torrserver = _FakeTorrServer()
+
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
+
+    printed = capsys.readouterr().out
     assert prep.number == 2, "незнание меняем на знание, а не на догадку"
-    assert "релиз 1 без русской озвучки (не назван) - беру 2" in printed
+    assert "релиз 1 без русской озвучки (английский) - беру 2" in printed
     assert torrserver.dropped, (
-        "запасным ходом безымянный паспорт не станет (TC-741), а держать раздачу под ход, "
+        "запасным ходом неполный паспорт не станет (TC-741), а держать раздачу под ход, "
         "которого не будет, значит доедать полосу роя у того, кого мы и играем"
     )
 
@@ -3360,13 +3389,12 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
 ) -> None:
     """🔴 TC-741. Русской не нашлось ни у кого - играет тот, чей язык назван вслух.
 
-    Хода тут не заводится нового: работает тот же
-    :meth:`~torrcast.usecases.select_bench.bench.Bench._mute_fallback`, что и всегда, одной
-    строкой на всё решение. А выбирает он не «того, про кого меньше известно плохого»:
-    безымянный паспорт играл под строку «звук не назван», то есть отбор возвращался ровно
-    к тому релизу, который сам же забраковал, и зритель узнавал о дорожке одно - что она
-    первая в файле. Незнание запасным ходом не бывает; годным остаётся только
-    подтверждённый русский, а честным ответом - названный английский или отказ.
+    Верх тут - раздача с НЕПОЛНЫМ паспортом (:data:`AMBIGUOUS`), а не с единственной
+    безымянной дорожкой: ту теперь просто играют (TC-1288), а запасной ход остаётся
+    прежним ходом :meth:`~torrcast.usecases.select_bench.bench.Bench._mute_fallback` для
+    случая, когда паспорт верха неполон, а не молчит целиком. Незнание запасным ходом не
+    бывает; годным остаётся только подтверждённый русский, а честным ответом - названный
+    английский или отказ.
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] тихий | D", voices=(), seeders=140),
@@ -3374,7 +3402,7 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
     ]
     prober = _reads(
         ranked,
-        Media(5977.0, UNNAMED, "h264", 1080, 1920),
+        Media(5977.0, AMBIGUOUS, "h264", 1080, 1920),
         Media(5977.0, FOREIGN, "h264", 1080, 1920),
     )
 
@@ -3382,7 +3410,7 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
 
     printed = capsys.readouterr().out
     assert prep.number == 2
-    assert "релиз 1 без русской озвучки (не назван) - беру 2" in printed
+    assert "релиз 1 без русской озвучки (английский) - беру 2" in printed
     assert "релиз 2 без русской озвучки (английский)" in printed
     assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
     assert "включаю релиз 2, звук английский" in printed
@@ -3456,11 +3484,14 @@ def test_the_passport_has_three_answers_about_the_language(_russian_product: Non
     """«Да», «нет» и «не знаю» - и годен только первый (:func:`voice_unproven`).
 
     Сценарий русского гейта: под английской ручкой «да» - это английская дорожка
-    (см. :mod:`tests.usecases.rank.test_voice_unproven`).
+    (см. :mod:`tests.usecases.rank.test_voice_unproven`). «Не знаю» тут - паспорт с
+    НЕСКОЛЬКИМИ дорожками, одна из которых без тега: единственная безымянная дорожка
+    (:data:`UNNAMED`) с TC-1288 - это уже «да», не «не знаю» (у неё свой тест выше).
     """
     assert not voice_unproven(Media(5977.0, RUSSIAN, "h264", 1080, 1920)), "паспорт: да"
     assert voice_unproven(Media(5977.0, FOREIGN, "h264", 1080, 1920)), "паспорт: нет"
-    assert voice_unproven(Media(5977.0, UNNAMED, "h264", 1080, 1920)), "паспорт: не знаю"
+    assert voice_unproven(Media(5977.0, AMBIGUOUS, "h264", 1080, 1920)), "паспорт: не знаю"
+    assert not voice_unproven(Media(5977.0, UNNAMED, "h264", 1080, 1920)), "дорожка одна - да"
     assert not voice_unproven(Media(5977.0, (), "h264", 1080, 1920)), "звук не прочитан вовсе"
 
 
