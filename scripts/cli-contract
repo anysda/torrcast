@@ -42,6 +42,23 @@ TORRCAST_STATE="$work/state.json"
 TORRCAST_LOG="$work/log"
 export TORRCAST_STATE TORRCAST_LOG
 
+# Команды ниже доходят до проверки статуса и doctor, а те по боевому договору
+# спрашивают менеджер служб. Контракту принадлежит только его временный каталог:
+# настоящий systemd/launchd хозяина не является частью эталона командной строки.
+mkdir "$work/bin"
+SERVICE_MANAGER_CALLS="$work/service-manager.calls"
+export SERVICE_MANAGER_CALLS
+for tool in systemctl journalctl launchctl; do
+    cat >"$work/bin/$tool" <<SH
+#!/bin/sh
+printf '$tool %s\n' "\$*" >>"\$SERVICE_MANAGER_CALLS"
+case '$tool' in launchctl) exit 113 ;; *) exit 3 ;; esac
+SH
+    chmod +x "$work/bin/$tool"
+done
+PATH="$work/bin:$PATH"
+export PATH
+
 # Команды без внешнего мира: справка, версия, состояние и осмотр хозяйства. Показа тут
 # нет намеренно - он ходит в сеть и к телевизору, его держат тесты и живой стенд.
 #
@@ -60,7 +77,13 @@ run() {
 
 for tongue in en ru; do
     mkdir -p "$work/$tongue"
-    printf '{"language": "%s"}\n' "$tongue" > "$work/$tongue/config.json"
+    # Doctor тоже идёт в этом наборе: его службы и дисковые полки не должны случайно
+    # оказаться живыми хозяйскими. Нулевой порт всегда отказывает, каталоги свои.
+    printf '{"language":"%s","torrserver_url":"http://127.0.0.1:0",' "$tongue" \
+        > "$work/$tongue/config.json"
+    printf '"prowlarr_url":"http://127.0.0.1:0","warm_dir":"%s/warm",' "$work" \
+        >> "$work/$tongue/config.json"
+    printf '"hls_dir":"%s/hls"}\n' "$work" >> "$work/$tongue/config.json"
     run "$tongue" help --help
     run "$tongue" version --version
     run "$tongue" status status

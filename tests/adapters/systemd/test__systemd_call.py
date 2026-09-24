@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -51,11 +52,27 @@ def test_the_call_carries_the_scope_and_never_raises_on_a_bad_return_code(
     assert kwargs["timeout"] > 0, "без потолка повисший systemctl вешает команду навсегда"
 
 
-def test_the_plumbing_answers_about_a_unit_that_does_not_exist() -> None:
-    """Разговор с systemd тут настоящий: несуществующий юнит - не «активен» и не исключение.
+def test_the_plumbing_answers_about_a_unit_that_does_not_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Разговор с командами тут настоящий, а менеджер служб принадлежит тесту.
 
-    Соседи выше меряют разбор ответа на подделке, и подделка не докажет, что
-    ``systemctl`` вообще зовётся тем именем и с теми ключами, какие он понимает.
+    Соседи выше меряют разбор ответа на подделке ``subprocess.run``. Здесь настоящий
+    подпроцесс доказывает имена и ключи команд, но не читает systemd хозяина.
     """
+    calls = tmp_path / "calls"
+    for tool in ("systemctl", "journalctl"):
+        executable = tmp_path / tool
+        executable.write_text(
+            f'#!/bin/sh\nprintf \'{tool} %s\\n\' "$*" >>"$SERVICE_CALLS"\nexit 3\n',
+            encoding="utf-8",
+        )
+        executable.chmod(0o755)
+    monkeypatch.setenv("SERVICE_CALLS", str(calls))
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
     assert unit_active("torrcast-not-a-unit") is False
     assert isinstance(unit_why("torrcast-not-a-unit"), str)
+    asked = calls.read_text(encoding="utf-8")
+    assert "systemctl " in asked and " is-active torrcast-not-a-unit" in asked
+    assert "journalctl " in asked and " -u torrcast-not-a-unit" in asked

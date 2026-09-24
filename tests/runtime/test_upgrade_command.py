@@ -19,6 +19,7 @@ from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_INFRA
+from torrcast.ports.show_unit import slot as unit_slot
 from torrcast.runtime.upgrade_command import upgrade_command
 from torrcast.runtime.wire import wire
 
@@ -36,6 +37,9 @@ def test_the_refusal_speaks_the_remembered_tongue(
     """Обновление разговаривает на языке настройки, как установщик и ``cast --help``."""
     save_config(Config(tv="10.0.0.2", language="ru"))
     wire()
+    # Повторная сборка ставит боевой unit поверх общей фикстуры. Вернуть подделку надо
+    # после неё: иначе зелень зависит от живого systemd и состояния показа хозяина.
+    unit_slot.install(show_unit)
     show_unit.alive = False
 
     assert upgrade_command() == EXIT_INFRA

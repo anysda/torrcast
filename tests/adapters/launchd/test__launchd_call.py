@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -55,13 +55,24 @@ def test_only_the_top_level_state_counts(monkeypatch: pytest.MonkeyPatch) -> Non
     assert _launchd_call._running("\tstate = running\n") is True
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="launchctl есть только на macOS")
-def test_the_plumbing_answers_about_a_job_that_does_not_exist() -> None:
-    """Разговор с launchd тут настоящий: несуществующее задание - не «идёт» и не исключение.
+def test_the_plumbing_answers_about_a_job_that_does_not_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Разговор с командой настоящий, а launchctl принадлежит тесту.
 
-    Соседи выше меряют разбор ответа на подделке, и подделка не докажет, что
-    ``launchctl`` вообще зовётся тем именем и с теми доводами, какие он понимает. На
-    Linux ``launchctl`` нет вовсе - там мерить нечего, и проба отказывается, а не
-    зеленеет.
+    Соседи выше меряют подменённый ``subprocess.run``. Здесь настоящий подпроцесс
+    доказывает имя и доводы команды, не читая launchd хозяина; поэтому та же проба
+    осмысленно работает и на Linux.
     """
+    calls = tmp_path / "calls"
+    launchctl = tmp_path / "launchctl"
+    launchctl.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' "$*" >>"$LAUNCHD_CALLS"\nexit 113\n',
+        encoding="utf-8",
+    )
+    launchctl.chmod(0o755)
+    monkeypatch.setenv("LAUNCHD_CALLS", str(calls))
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
     assert job_active("torrcast.not-a-job") is False
+    assert calls.read_text(encoding="utf-8").endswith("/torrcast.not-a-job\n")
