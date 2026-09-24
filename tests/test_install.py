@@ -1390,6 +1390,20 @@ def _assert_memory_overhead_contract(source: str, family: str) -> None:
         )
 
 
+def test_torrserver_starts_without_waiting_for_a_public_address_service() -> None:
+    """The playback port must not wait for optional public-IP discovery.
+
+    MatriX.143 accepts the unspecified address as "unknown" and then opens its HTTP
+    port without calling OpenDNS or icanhazip.  A loopback placeholder is not
+    equivalent: the binary rejects it and falls back to discovery.
+    """
+    body = _body("install_torrserver")
+    command = body.split('run_service torrserver "TorrServer для torrcast"', 1)[1]
+    command = command.split('"$memory_knobs"', 1)[0]
+
+    assert "--pubipv4 0.0.0.0" in command
+
+
 @pytest.mark.parametrize("family", ["linux", "macos"])
 def test_the_service_is_told_the_overhead_its_cache_was_sized_by(family: str) -> None:
     """🔴 TC-1060. Делитель, которым размерен кэш, обязан быть СКАЗАН самой службе.

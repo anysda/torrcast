@@ -2095,8 +2095,13 @@ Environment=GOMEMLIMIT=${budget}B"
 MemoryMax=$(( budget + 256 * 1024 * 1024 ))
 MemorySwapMax=0"
     fi
+    # MatriX.143 races OpenDNS with icanhazip before opening the HTTP port, and neither
+    # path has a startup deadline.  An unavailable address service must not take the
+    # whole playback path down.  The unspecified address is accepted by TorrServer as
+    # "unknown", skips discovery, and unlike a detected value never goes stale behind
+    # a dynamic NAT address.
     run_service torrserver "TorrServer для torrcast" \
-        "$PREFIX/bin/TorrServer --port $TS_PORT --ip $TS_HOST --path $PREFIX/torrserver" \
+        "$PREFIX/bin/TorrServer --port $TS_PORT --ip $TS_HOST --path $PREFIX/torrserver --pubipv4 0.0.0.0" \
         "$memory_knobs"
     wait_http "$TS_URL/echo" 60 || die "TorrServer did not start at $TS_URL" "TorrServer не поднялся на $TS_URL"
 
