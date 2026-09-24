@@ -22,9 +22,9 @@ def test_a_lane_instance_gets_a_marked_unit_name(monkeypatch: pytest.MonkeyPatch
     Общее имя значило, что ``systemd-run`` одной полосы гасил идущий показ другой:
     запуск во вкладке снимал показ на ТВ соседнего экземпляра.
     """
-    monkeypatch.setenv(STATE_ENV, "/root/полоса-а-state.json")
+    monkeypatch.setenv(STATE_ENV, "/var/lib/torrcast/полоса-а-state.json")
     first = unit_name()
-    monkeypatch.setenv(STATE_ENV, "/root/полоса-б-state.json")
+    monkeypatch.setenv(STATE_ENV, "/var/lib/torrcast/полоса-б-state.json")
     second = unit_name()
 
     assert first != _UNIT_NAME and second != _UNIT_NAME

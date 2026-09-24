@@ -482,7 +482,7 @@ def main() -> int:
     parser.add_argument("--file", type=Path, help="источник - локальный файл (Range-раздача сама)")
     parser.add_argument("--slot", type=int, default=0)
     parser.add_argument("--count", type=int, default=4)
-    parser.add_argument("--where", type=Path, default=Path("/root/bench/seg"))
+    parser.add_argument("--where", type=Path, default=Path("/tmp/torrcast-recodebench"))
     parser.add_argument("--step", type=float, default=10.0)
     parser.add_argument("--threshold", type=float, default=15.0)
     parser.add_argument("--extra", type=float, default=0.0, help="поправка «контейнер → ТВ»")

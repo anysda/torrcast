@@ -234,14 +234,20 @@ def _args() -> argparse.Namespace:
         "--config", default=os.environ.get("TORRCAST_CONFIG", "/etc/torrcast/config.json")
     )
     ap.add_argument("--cast", default="/opt/torrcast/venv/bin/cast")
-    ap.add_argument("--line", default="/root/framebench.jsonl", help="куда писать ленту меток")
+    ap.add_argument(
+        "--line", default="/tmp/torrcast-framebench.jsonl", help="куда писать ленту меток"
+    )
     ap.add_argument("--answers", default="\n\n\n\n\n")
     ap.add_argument("--poll", type=float, default=0.2, help="пауза между взглядами, с")
     ap.add_argument("--timeout", type=float, default=240.0, help="сколько ждать сам cast, с")
     ap.add_argument("--wait", type=float, default=90.0, help="сколько ждать движения после cast, с")
     ap.add_argument("--forget", action="store_true", help="убрать запись состояния: игра ВПЕРВЫЕ")
     ap.add_argument("--state", default="/var/lib/torrcast/state.json")
-    ap.add_argument("--trace", default="/root/framebench-looks.jsonl", help="куда класть след")
+    ap.add_argument(
+        "--trace",
+        default="/tmp/torrcast-framebench-looks.jsonl",
+        help="куда класть след",
+    )
     ap.add_argument("--settle", type=float, default=6.0, help="дать приёмнику осесть, с")
     ap.add_argument("--card", help="карточка замера; без неё местом станет дата прогона")
     return ap.parse_args()

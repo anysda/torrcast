@@ -34,7 +34,7 @@ from torrcast.adapters.filesystem.stopwatch.mark import mark
 from torrcast.adapters.filesystem.stopwatch.read import read
 from torrcast.adapters.filesystem.stopwatch_report import stopwatch_report as report
 
-BENCH = Path("/root/bench")
+BENCH = Path("/tmp/torrcast-startbench")
 CAST = "/opt/torrcast/venv/bin/cast"
 
 

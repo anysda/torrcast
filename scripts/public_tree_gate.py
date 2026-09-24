@@ -21,6 +21,10 @@ TRACES = (
     Trace("адрес домашней сети", re.compile(r"192[._]168[._]")),
     Trace("номер контейнера", re.compile(r"\bCT[0-9]{3}\b")),
     Trace("домашний каталог разработчика", re.compile("/home/" + "claude")),
+    Trace(
+        "рабочий путь суперпользователя",
+        re.compile("/" + r"root/(?!(?:[.]cache/pip|Library/Caches/pip)\b)"),
+    ),
     Trace("окружение браузерного щупа", re.compile("/opt/" + "pwenv")),
     Trace("внутреннее имя", re.compile(r"\b(?:agent" + r"-ops|caff" + r"eine)\b")),
     Trace("короткий номер машины", re.compile(r"`{1,2}[.][0-9]{1,3}`{1,2}"), True),

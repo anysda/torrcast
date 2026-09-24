@@ -23,9 +23,9 @@ def test_each_lane_state_path_gets_its_own_mark(monkeypatch: pytest.MonkeyPatch)
     Без неё обе делили юнит ``torrcast-play`` и каталог ``/dev/shm/torrcast``, и показ
     одной гасил показ другой.
     """
-    monkeypatch.setenv(STATE_ENV, "/root/полоса-а-state.json")
+    monkeypatch.setenv(STATE_ENV, "/var/lib/torrcast/полоса-а-state.json")
     first = instance_slug()
-    monkeypatch.setenv(STATE_ENV, "/root/полоса-б-state.json")
+    monkeypatch.setenv(STATE_ENV, "/var/lib/torrcast/полоса-б-state.json")
     second = instance_slug()
 
     assert first and second
@@ -35,6 +35,6 @@ def test_each_lane_state_path_gets_its_own_mark(monkeypatch: pytest.MonkeyPatch)
 
 def test_the_mark_is_stable_for_the_same_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Запускающий и юнит считают метку по одной строке и обязаны сойтись на ней."""
-    monkeypatch.setenv(STATE_ENV, "/root/полоса-а-state.json")
+    monkeypatch.setenv(STATE_ENV, "/var/lib/torrcast/полоса-а-state.json")
 
     assert instance_slug() == instance_slug()
