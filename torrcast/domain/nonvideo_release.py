@@ -77,6 +77,14 @@ _PLATFORM_RE = re.compile(
     rf"(?<!{_LETTER})(?:pc|рс)(?!{_LETTER})\s*$|"
     r"^\s*\[(?:cd|dl|ps\d|xbox)[^\]]*\])"
 )
+#: Консоль без скобок берётся только хвостом СРАЗУ после года. Голое слово опасно:
+#: ``Switch`` бывает названием фильма и частью релиз-группы. На 359 свежих именах
+#: шести запросов более широкая хвостовая форма и эта узкая дают одни и те же четыре
+#: игры (PSP и три PS3); на корпусе-655 обе не меняют ни одной строки.
+_CONSOLE_TAIL_RE = re.compile(
+    r"(?i)\(\d{4}(?:-\d{4})?\)\s+"
+    r"(?:psp|ps[234]|nds|3ds|ps\s?vita|wii\s?u?|(?:nintendo\s+)?switch|nsw|xbox\s+one)\s*$"
+)
 
 
 #: Кириллические двойники латинских букв, по месту: `Р` в `МР3`, `К` в `4К`, `В` в
@@ -117,7 +125,7 @@ def _is_nonvideo_release(name: str) -> bool:
     полку картин.
     """
     name = _latinise(name)
-    if _PLATFORM_RE.search(name):
+    if _PLATFORM_RE.search(name) or _CONSOLE_TAIL_RE.search(name):
         return True
     if _VIDEO_RE.search(name):
         return False
