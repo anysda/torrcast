@@ -656,12 +656,21 @@ def test_a_command_is_allowed_to_install_a_signal_handler_the_way_cast_does() ->
 
 def test_the_command_loop_leaves_when_it_is_asked_to() -> None:
     # 🔴 Уход проверяется тем же вызовом, которым мост живёт: не «поток кончился», а
-    # цикл сказал «больше не зовите». Иначе юнит не отпускал бы SIGTERM.
-    bridge = _bridge(FakePlaybackSession())
+    # цикл исполнил штатную остановку и сказал «больше не зовите». Иначе SIGTERM
+    # отпускал бы мост, но оставлял его показ и прогрев жить отдельно.
+    asked: list[list[str]] = []
+
+    def command(argv: Sequence[str] | None) -> int:
+        asked.append(list(argv or []))
+        return 0
+
+    bridge = _bridge(FakePlaybackSession(), command=command)
 
     bridge.stop()
 
-    assert bridge.run_one() is False
+    assert bridge.run_one() is True, "штатная остановка не дошла до продукта"
+    assert bridge.run_one() is False, "мост не вышел после остановки"
+    assert asked == [[STOP]]
 
 
 def test_the_remote_word_goes_into_the_file_the_show_reads(

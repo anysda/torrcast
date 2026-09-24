@@ -12,6 +12,7 @@ from tgbot.command_lane import CommandLane, QueuedCommand
 from tgbot.command_result import command_result
 from tgbot.config import Config
 from tgbot.dressed_control import dressed_control
+from tgbot.exit_on_sigterm import exit_on_sigterm
 from tgbot.i18n import _failure_detail, i18n
 from tgbot.playback_observer import PlaybackObserver
 from tgbot.playing_title import playing_title
@@ -197,4 +198,5 @@ class Bot:
 
 def _bot() -> None:
     """Прочитать проверенную настройку и запустить polling."""
+    exit_on_sigterm()
     Bot(Config.load()).run()

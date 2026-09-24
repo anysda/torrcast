@@ -134,6 +134,28 @@ def test_sigterm_is_named_on_the_screen_and_in_the_trace(
     assert tape.closed == 1
 
 
+def test_sigterm_returns_to_the_service_handler_after_command_cleanup() -> None:
+    """Долгоживущая служба получает SIGTERM после того, как команда закрыла свой след."""
+    tape = _ClosingTape()
+    install(tape)
+    called: list[tuple[int, bool]] = []
+
+    def leave(number: int, _frame: object) -> None:
+        called.append((number, tape.closed == 1))
+
+    def terminated() -> int:
+        os.kill(os.getpid(), signal.SIGTERM)
+        return EXIT_OK
+
+    outer = signal.signal(signal.SIGTERM, leave)
+    try:
+        assert answered(terminated) == EXIT_INFRA
+    finally:
+        signal.signal(signal.SIGTERM, outer)
+
+    assert called == [(signal.SIGTERM, True)], "служба не получила сигнал после уборки команды"
+
+
 @pytest.mark.machine
 def test_cast_process_still_catches_sigterm() -> None:
     """Обычный процесс CLI ловит SIGTERM; бот не покупается ослаблением сторожа."""

@@ -64,6 +64,7 @@ def answered(run: Callable[[], int]) -> int:
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(line_buffering=True)
     previous = signal.signal(signal.SIGTERM, _on_term)
+    terminated = False
     # 🔴 `result` - тег события для журнала (:func:`torrcast.ports.journal.slot.journal`),
     # а не надпись человеку: сосед по тому же вызову (``"error"``, ``"finished"``) уже
     # английский литерал, а не переключается языком показа. Запись в журнал не помнит,
@@ -104,6 +105,7 @@ def answered(run: Callable[[], int]) -> int:
         result = "stopped"
         return EXIT_OK
     except _Terminated:
+        terminated = True
         code = EXIT_INFRA
         result = "sigterm"
         print(phrase("cli.terminated_by_sigterm"), file=sys.stderr)
@@ -124,3 +126,8 @@ def answered(run: Callable[[], int]) -> int:
         journal().emit("command", "finished", result=result, code=code)
         # Дожать хвост следа: фоновый писатель - демон, штатный выход обязан его дождаться.
         journal().shutdown()
+        # Служба ставит свой обработчик СНАРУЖИ команды. Сигнал сперва раскручивает
+        # уборку показа выше, а затем обязан вывести и вечный цикл службы; иначе мост
+        # и бот возвращались в ожидание следующего поручения и жили до SIGKILL.
+        if terminated and callable(previous):
+            previous(signal.SIGTERM, None)

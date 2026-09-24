@@ -180,7 +180,8 @@ class Bridge:
         return self._orders.run_one()
 
     def stop(self) -> None:
-        """Вывести цикл команд из ожидания: мост уходит."""
+        """Штатно снять показ и вывести цикл команд из ожидания: мост уходит."""
+        stopping(self._orders, self._session)
         self._orders.leave()
 
     def _volume_of(self, config: Config) -> Volume:
