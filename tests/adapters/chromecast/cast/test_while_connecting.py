@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pychromecast.error import NotConnected
 
-from tests.adapters.chromecast.cast.wired import Device, Status, Wired
+from tests.adapters.chromecast.cast.wired import Controller, Device, Status, Wired
 from tests.fakes.clock import FakeClock
 from torrcast.adapters.chromecast.cast.receiver_link import _Link
 from torrcast.adapters.chromecast.cast.receiver_settings import _Settings
@@ -23,7 +23,7 @@ from torrcast.ports.journal.slot import install
 CONNECTING = "Chromecast 192.0.2.90:8009 is connecting..."
 
 
-class _Connecting:
+class _Connecting(Controller):
     """Медиаконтроллер приёмника, чей сокет 8009 переподключается ``refuses`` раз."""
 
     def __init__(self, refuses: int, status: Status | None = None) -> None:
@@ -40,9 +40,6 @@ class _Connecting:
 
     def block_until_active(self, timeout: float = 0.0) -> None:
         del timeout
-
-    def update_status(self) -> None:
-        return None
 
 
 def _receiver(refuses: int, clock: FakeClock | None = None) -> Wired:

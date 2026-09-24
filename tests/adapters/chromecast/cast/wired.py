@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
@@ -49,6 +50,12 @@ class Controller:
 
     def play(self) -> None:
         self.said.append("play")
+
+    def update_status(
+        self, *, callback_function: Callable[[bool, dict[str, Any] | None], None] | None = None
+    ) -> None:
+        if callback_function is not None:
+            callback_function(True, {})
 
 
 class Device:

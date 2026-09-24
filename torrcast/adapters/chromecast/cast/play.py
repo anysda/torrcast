@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.adapters.chromecast.cast.reclaim import reclaim
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.start_refused_error import StartRefusedError
 
@@ -25,6 +26,7 @@ def _play(rcv: _Talk, url: str, title: str = "", at: float = 0.0) -> None:
     Зовётся один раз за показ. Перемотка сюда больше не приходит: приёмник видит весь
     фильм и мотает сам, а упаковка идёт следом за его запросами.
     """
+    reclaim(rcv, url)
     rcv._url, rcv._title = url, title or "torrcast"
     # Смерти считаются по кускам ЭТОГО фильма: следующей серии они не наследуются -
     # приёмник один на весь юнит, а сетка у каждой серии своя
