@@ -11,7 +11,7 @@ from torrcast.domain.release import Release
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.torrent_claims import CLAIMS
-from web.episode_lookup import RETRY, EpisodeLookup
+from web.episode_lookup import ATTEMPTS, RETRY, REVIVE, UNAVAILABLE, EpisodeLookup
 
 _RELEASE = Release(raw_name="Show s01 WEB-DL 1080p LostFilm", title="Show", magnet="magnet:show")
 _FILES = [
@@ -26,6 +26,19 @@ class _BoomEngine(FakeTorrentEngine):
 
     def add(self, magnet: str) -> str:
         raise ServerDownError("torrserver_down")
+
+
+@dataclass
+class _FlakyEngine(FakeTorrentEngine):
+    """Первые добавления падают, затем тот же рой отвечает файлами."""
+
+    failures: int = 1
+
+    def add(self, magnet: str) -> str:
+        if self.failures:
+            self.failures -= 1
+            raise ServerDownError("torrserver_down")
+        return super().add(magnet)
 
 
 def _sync(job: Callable[[], None]) -> None:
@@ -126,6 +139,48 @@ def test_a_parsed_release_is_never_asked_again_but_a_failed_one_is() -> None:
 
     assert len(whole.asked) == 1, "разобранное не протухает: содержимое раздачи не меняется"
     assert len(down.asked) == 2, "неудачу спрашивают заново - рой мог ожить"
+
+
+def test_one_network_failure_does_not_condemn_a_release_that_answers_the_retry() -> None:
+    """Один обрыв - не приговор: после минутной паузы живая раздача возвращается."""
+    clock = _Clock()
+    engine = _FlakyEngine(torrent_files=_FILES)
+    engines = FakeTorrentEngines(engine)
+    lookup = EpisodeLookup(engines=engines, spawn=_sync, clock=clock)
+
+    assert lookup.table(_RELEASE, "http://torrserver") is None
+    clock.now += RETRY + 1
+    table = lookup.table(_RELEASE, "http://torrserver")
+
+    assert table is not None and table is not UNAVAILABLE
+    assert len(engines.asked) == ATTEMPTS
+
+
+def test_two_failed_attempts_end_the_wait_but_the_release_is_retried_after_cooldown() -> None:
+    """Приговор конечен и сам не вечен: новый визит через :data:`REVIVE` проверит рой."""
+    clock = _Clock()
+    engine = _FlakyEngine(torrent_files=_FILES, failures=ATTEMPTS)
+    engines = FakeTorrentEngines(engine)
+    lookup = EpisodeLookup(engines=engines, spawn=_sync, clock=clock)
+
+    assert lookup.table(_RELEASE, "http://torrserver") is None
+    clock.now += RETRY + 1
+    assert lookup.table(_RELEASE, "http://torrserver") is UNAVAILABLE
+    assert lookup.unavailable(_RELEASE)
+    assert lookup.table(_RELEASE, "http://torrserver") is UNAVAILABLE
+    assert len(engines.asked) == ATTEMPTS
+
+    jobs: list[Callable[[], None]] = []
+    lookup.spawn = jobs.append
+    clock.now += REVIVE + 1
+    assert lookup.table(_RELEASE, "http://torrserver") is None
+    assert not lookup.unavailable(_RELEASE)
+    assert len(engines.asked) == ATTEMPTS
+    jobs.pop()()
+    table = lookup.table(_RELEASE, "http://torrserver")
+
+    assert table is not None and table is not UNAVAILABLE
+    assert len(engines.asked) == ATTEMPTS + 1
 
 
 def test_the_series_read_does_not_drop_a_release_the_show_is_choosing() -> None:

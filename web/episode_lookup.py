@@ -15,6 +15,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Final
 
 from torrcast.domain._series import _Series
 from torrcast.domain.release import Release
@@ -34,6 +35,15 @@ TIMEOUT = 20.0
 #: стенда - подняться заново. Разобранная раздача сюда не попадает: её ответ окончателен
 #: (в том числе честное «раздача без нумерации»), и срока у него нет (:meth:`_build`).
 RETRY = 60.0
+#: Два последовательных отказа отличают мёртвый рой от одного сетевого сбоя. Между
+#: ними уже есть :data:`RETRY`, поэтому карточка даёт раздаче второй независимый шанс.
+ATTEMPTS: Final = 2
+#: Приговор не вечный: после четверти часа новый визит снова проверит рой. Открытая
+#: карточка при этом не опрашивает его в фоне бесконечно.
+REVIVE: Final = 15 * 60.0
+#: Третье состояние таблицы: раздача дважды не ответила. Отдельный объект отличает его
+#: от честной пустой таблицы («файлы есть, но нумерации в них нет»).
+UNAVAILABLE: Final[list[list[int]]] = []
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -54,15 +64,16 @@ class EpisodeLookup:
     spawn: Spawn = _daemon
     clock: Callable[[], float] = time.monotonic
     _table: dict[str, tuple[list[list[int]] | None, float]] = field(default_factory=dict)
+    _failures: dict[str, int] = field(default_factory=dict)
     _pending: set[str] = field(default_factory=set)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def table(self, release: Release, base_url: str) -> list[list[int]] | None:
         """Таблица серий, если уже разобрана; иначе завести разбор фоном и вернуть ``None``.
 
-        ``None`` значит «спроси ещё раз» - карточка в этом случае показывает только
-        счётчик сезонов и метит тело недоехавшим, а вёрстка переспрашивает сама. Упавший
-        разбор - тоже ``None``, а не пустая таблица: «серий нет» он не знает.
+        ``None`` значит «спроси ещё раз», ``UNAVAILABLE`` - две попытки исчерпаны,
+        список (включая пустой) - разбор ответил. Только ``None`` метит карточку
+        недоехавшей; пустота не выдаётся за «серий нет».
         """
         magnet = release.magnet
         now = self.clock()
@@ -75,10 +86,18 @@ class EpisodeLookup:
             self._pending.add(magnet)
         self.spawn(lambda: self._build(release, base_url))
         # Синхронная подделка (тесты) успевает заполнить кэш до этой строки - живой
-        # поток ещё бежит, и следующая же строка честно отдаёт ``None``.
+        # поток ещё бежит. Просроченный приговор во время новой проверки не ответ.
         with self._lock:
             cached = self._table.get(magnet)
-            return cached[0] if cached is not None else None
+            return cached[0] if cached is not None and cached[1] > self.clock() else None
+
+    def unavailable(self, release: Release | None) -> bool:
+        """Сейчас действует конечный приговор «раздача не отвечает»."""
+        if release is None:
+            return False
+        with self._lock:
+            cached = self._table.get(release.magnet)
+            return cached is not None and cached[0] is UNAVAILABLE and cached[1] > self.clock()
 
     def _build(self, release: Release, base_url: str) -> None:
         """Разобрать файлы РАЗДАЧИ, которую играл бы показ, и убрать её за собой.
@@ -103,19 +122,29 @@ class EpisodeLookup:
             if free and not _held_by_show(torrent_hash):
                 engine.drop(torrent_hash)
             with self._lock:
-                self._table[release.magnet] = (table, self._until(parsed))
+                table, until = self._remember(release.magnet, table, parsed)
+                self._table[release.magnet] = (table, until)
                 self._pending.discard(release.magnet)
 
-    def _until(self, parsed: bool) -> float:
-        """Докуда ряд годен: разобранное - навсегда, неудача - до :data:`RETRY`.
+    def _remember(
+        self, magnet: str, table: list[list[int]] | None, parsed: bool
+    ) -> tuple[list[list[int]] | None, float]:
+        """Запомнить ответ навсегда, первый отказ до повтора, второй до :data:`REVIVE`.
 
         🔴 Раздача без нумерации и лежащий TorrServer давали ОДНУ пустую таблицу с одним
-        сроком, и по его выходе карточка снова метилась недоехавшей: замер 10-09-2026 на
-        на живом приёмнике - налитая карточка `tv:пассажиры-2:2022` раз в минуту опять просила
-        страницу переспросить, и та жгла свои пять доборов на уже готовом ответе. Разбор
+        сроком, и по его выходе карточка снова метилась недоехавшей: налитая карточка
+        `tv:пассажиры-2:2022` раз в минуту опять просила страницу переспросить, и та
+        жгла свои пять доборов на уже готовом ответе. Разбор
         ответил - переспрашивать нечего: содержимое раздачи не меняется.
         """
-        return math.inf if parsed else self.clock() + RETRY
+        if parsed:
+            self._failures.pop(magnet, None)
+            return table, math.inf
+        failures = self._failures.get(magnet, 0) + 1
+        self._failures[magnet] = failures
+        if failures >= ATTEMPTS:
+            return UNAVAILABLE, self.clock() + REVIVE
+        return None, self.clock() + RETRY
 
 
-__all__ = ["EpisodeLookup", "Spawn"]
+__all__ = ["ATTEMPTS", "REVIVE", "UNAVAILABLE", "EpisodeLookup", "Spawn"]

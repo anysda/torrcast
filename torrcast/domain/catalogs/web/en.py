@@ -72,6 +72,7 @@ def en() -> dict[str, str]:
             "No live release with the chosen voice - playing the original audio"
         ),
         "web.detail.searching_releases": "Searching releases…",
+        "web.detail.release_unavailable": "The release is not responding",
         "web.detail.resumes": "Resumes {label} · {time}",
         "web.detail.season": "Season {n}",
         "web.detail.watched": "✓ Watched",

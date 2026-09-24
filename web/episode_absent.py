@@ -23,14 +23,14 @@ from typing import Final, Protocol
 
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.release import Release
+from web.episode_lookup import UNAVAILABLE
 
 #: Сколько разборов раздач заводить за один ответ карточки. Каждый разбор - это добавление
 #: раздачи в TorrServer и ожидание роя, и веер на весь пул положил бы и рой, и саму
 #: машину показа. Пул проходится волнами: следующий добор страницы заводит следующие.
 WAVE: Final = 4
-#: Сколько карточка вообще держит сезон «в поиске». Дальше приговора нет и не будет:
-#: упавший разбор переспрашивается раз в минуту (:data:`web.episode_lookup.RETRY`), и без
-#: этого предела страница переспрашивала бы карточку до закрытия вкладки.
+#: Сколько карточка вообще держит сезон «в поиске». Это общий предел волнового перебора:
+#: даже чужая реализация таблиц, вечно отвечающая ``None``, страницу не удержит.
 HUNT: Final = 90.0
 
 
@@ -100,6 +100,7 @@ class EpisodeAbsent:
         named = {number for release in covering for number in _named(release)}
         left = [number for number in aired if number not in named]
         unknown = 0
+        unavailable = False
         for release in covering:
             if not left or unknown >= WAVE:
                 break
@@ -109,10 +110,15 @@ class EpisodeAbsent:
             if table is None:
                 unknown += 1  # разбор в пути или упал: раздача ещё ничего не сказала
                 continue
+            if table is UNAVAILABLE:
+                unavailable = True
+                continue
             if not table:
                 return [], False  # раздача без нумерации: «серий нет» она не знает
             left = [number for number in left if not _holds(table, season, number)]
-        return ([], True) if unknown else (left, False)
+        if unknown:
+            return [], True
+        return ([], False) if unavailable else (left, False)
 
     def _left(self, key: str, season: int) -> bool:
         """Ещё ищем или уже сдались: перебор не держит страницу дольше :data:`HUNT`."""

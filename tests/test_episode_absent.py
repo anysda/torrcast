@@ -11,6 +11,7 @@ from torrcast.domain.catalogs.web.ru import ru
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.release import Release
 from web.episode_absent import HUNT, WAVE, EpisodeAbsent
+from web.episode_lookup import UNAVAILABLE
 
 
 @dataclass
@@ -116,8 +117,19 @@ def test_a_release_without_numbering_never_becomes_a_verdict() -> None:
     assert (_absent(rows, 5), hunting) == (None, False)
 
 
+def test_a_release_that_stopped_answering_ends_the_hunt_without_a_false_verdict() -> None:
+    """Третье состояние кончает Partial, но не выдаёт неизвестное за отсутствие серии."""
+    episodes = _Episodes({"magnet:fifth": UNAVAILABLE})
+
+    rows, hunting = EpisodeAbsent().of(
+        _rows(5, 1), "tv:show", 5, [_pack(5, "magnet:fifth")], episodes, "http://ts"
+    )
+
+    assert (_absent(rows, 5), hunting) == (None, False)
+
+
 def test_a_search_that_never_answers_stops_holding_the_page_after_the_deadline() -> None:
-    """Упавший разбор переспрашивается вечно: страницу он держит не дольше :data:`HUNT`."""
+    """Даже вечно молчащий порт таблиц держит страницу не дольше :data:`HUNT`."""
     clock, episodes = _Clock(), _Episodes()
     absent = EpisodeAbsent(clock=clock)
     pool = [_pack(5, "magnet:fifth")]

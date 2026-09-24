@@ -32,6 +32,7 @@ from torrcast.ports.state_store.slot import store
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.usecases.select.plan import Plan
 from web.answer import Answer
+from web.answered_episode import _episodes_unavailable
 from web.card_ask import NO_ASK, CardAsk
 from web.card_details import CardDetails
 from web.card_poster import CardPoster
@@ -190,6 +191,7 @@ def _body(
         # Машина без ТВ (``config.tv`` пуст) не предлагает показ на ТВ вовсе.
         "tv": bool(config.tv),
         "seasons": seasons,
+        "episodes_unavailable": _episodes_unavailable(_episodes, episode_release),
         # Числа серий сезонов списка не как у раздач: строка просит серию сквозным номером.
         "layout": [*layout],
         "related": related,

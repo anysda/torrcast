@@ -919,6 +919,10 @@ const TCCard = {
       line.textContent = TC.say('web.detail.searching_releases');
       return line;
     }
+    if (data.episodes_unavailable) {
+      line.textContent = TC.say('web.detail.release_unavailable');
+      return line;
+    }
     const releases = TC.count('web.detail.release', data.releases_count || 0);
     line.textContent = data.sources_count
       ? releases + ' ' + TC.say('web.detail.from') + ' '

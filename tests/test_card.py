@@ -27,7 +27,7 @@ from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.select.plan import Plan
 from web.answer import JSON
 from web.card import WAIT, card
-from web.episode_lookup import GRACE
+from web.episode_lookup import GRACE, UNAVAILABLE
 from web.heard import Heard
 from web.request import Request
 from web.warm_cache import WarmCache
@@ -81,6 +81,9 @@ class _StubEpisodes:
 
     def table(self, _release: Release, _base_url: str) -> list[list[int]] | None:
         return self.result
+
+    def unavailable(self, _release: Release | None) -> bool:
+        return self.result is UNAVAILABLE
 
 
 @dataclass
@@ -799,6 +802,32 @@ def test_a_never_opened_series_is_marked_partial_while_the_release_still_parses(
 
     assert body["seasons"] == [{"n": 1, "episodes": []}, {"n": 2, "episodes": []}]
     assert "X-Torrcast-Partial" in extra
+
+
+def test_a_release_that_twice_failed_finishes_the_card_with_a_named_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Сшитый путь: третий ответ снимает Partial и несёт странице дословное объяснение."""
+    from torrcast.domain.catalogs.web.en import en
+    from torrcast.domain.catalogs.web.ru import ru
+
+    _wired(
+        monkeypatch,
+        [replace(_SHOW_PLAN, runtime_estimated=False)],
+        episodes=UNAVAILABLE,
+        related=[],
+    )
+    monkeypatch.setattr("web.card.MenuFacts", lambda *a, **k: _ReadyFacts())
+    state_slot.install(FakeStateStore())
+
+    _code, body, extra = _asked(_SHOW.key, query="show")
+
+    assert body["episodes_unavailable"] is True
+    assert "X-Torrcast-Partial" not in extra
+    page = (Path(__file__).parents[1] / "web/static/card.js").read_text(encoding="utf-8")
+    assert "TC.say('web.detail.release_unavailable')" in page
+    assert ru()["web.detail.release_unavailable"] == "Раздача не отвечает"
+    assert en()["web.detail.release_unavailable"] == "The release is not responding"
 
 
 def test_a_franchise_picture_shows_the_related_tiles_wikidata_already_answered(

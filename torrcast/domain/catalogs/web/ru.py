@@ -72,6 +72,7 @@ def ru() -> dict[str, str]:
             "Живых раздач с выбранной озвучкой нет - играет оригинальная дорожка"
         ),
         "web.detail.searching_releases": "Ищем раздачи…",
+        "web.detail.release_unavailable": "Раздача не отвечает",
         "web.detail.resumes": "Продолжит {label} · {time}",
         "web.detail.season": "Сезон {n}",
         "web.detail.watched": "✓ Просмотрено",

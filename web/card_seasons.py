@@ -18,7 +18,9 @@ from torrcast.usecases.rank.gate_open import gate_open
 from torrcast.usecases.rank.last_hope import last_hope
 from torrcast.usecases.rank.rank_releases import rank_releases
 from torrcast.usecases.select.plan import Plan
+from web.answered_episode import _EpisodeTables, answered_episode
 from web.episode_absent import ABSENT
+from web.episode_lookup import UNAVAILABLE
 from web.mark_empty import mark_empty
 from web.seasons_from_entry import seasons_from_entry
 
@@ -27,12 +29,6 @@ class _Catalog(Protocol):
     def rows(
         self, picture: Picture, releases: Sequence[Release], saved: dict[int, list[JsonValue]]
     ) -> tuple[dict[int, list[JsonValue]], bool, list[int]]: ...
-
-
-class _EpisodeTables(Protocol):
-    """Кэш таблиц серий, достаточный карточке."""
-
-    def table(self, release: Release, base_url: str) -> list[list[int]] | None: ...
 
 
 def card_seasons(
@@ -45,19 +41,9 @@ def card_seasons(
     catalog: _Catalog | None = None,
 ) -> tuple[list[JsonValue], bool, Release | None, list[int]]:
     """Все вкладки и серии: из каталога сериала, иначе из покрывающей сезон раздачи.
-
-    Сериал из каталога (:class:`web.series_catalog.SeriesCatalog`) получает все сезоны и
-    серии сразу; закладка накладывается на них по номеру серии и главнее каталога.
-    Разбор раздачи фоновый (:class:`web.episode_lookup.EpisodeLookup`): не готов - вернулась
-    ``None``, и карточка честно показывает только счётчик сезонов из имён раздач, помечая
-    тело недоехавшим (второй элемент), совсем как справку. Четвёртый - числа серий сезонов
-    списка каталога, который нумерует сериал не как раздачи: вкладки тогда только его.
-
-    Вышедшие серии открытого сезона, которых нет ни в одной раздаче, называет
-    :class:`web.episode_absent.EpisodeAbsent` полем ``absent`` сезона. Перебор раздач
-    ответ не держит: не договорил - тело помечено недоехавшим, и приговор приезжает
-    следующим добором, а до него строка обычная и нажимается. Сезон, за которым не нашлось
-    ни одной серии, несёт поле ``empty`` (:mod:`web.mark_empty`).
+    ``None`` от :class:`web.episode_lookup.EpisodeLookup` метит недоезд вторым элементом.
+    Четвёртый - числа серий каталога; поздний приговор ``absent`` даёт
+    :class:`web.episode_absent.EpisodeAbsent`, не задерживая первый ответ.
     """
     picture = plan.picture
     if picture.kind != "tv":
@@ -67,7 +53,6 @@ def card_seasons(
     saved = seasons_from_entry(entry) if entry is not None and entry.episodes else {}
     known, pending, layout = catalog.rows(picture, releases, saved) if catalog else ({}, False, [])
     numbers = set(known) if layout else numbers | set(known) | set(saved)
-    # Без выбранной вкладки открыт сезон закладки, как у стримингов: таблица нужна ему.
     bookmark = entry.season if entry is not None else None
     default = bookmark if bookmark in numbers else (1 if 1 in numbers else min(numbers, default=0))
     target = season if season in numbers else default
@@ -85,21 +70,35 @@ def card_seasons(
     if release is None or target in known:
         later = pending or hunting
         return mark_empty(fallback, target, not later), later, release, layout
-    table = episodes.table(release, base_url)
+    table, release = answered_episode(
+        releases,
+        episodes,
+        base_url,
+        lambda left: _release_for(plan, left, target, entry, profile),
+        release,
+    )
     if table is None:
         return fallback, True, release, []
+    if table is UNAVAILABLE:
+        return fallback, False, release, []
     files = _seasons_from_table(table)
     if target not in files and target not in _named_seasons(release):
-        # Пак без сезона «покрывает» любой, но файлы «Универа» кончаются на s04: сезон 5 играет
-        # раздача, которая его называет, первая тем же порядком отбора.
         naming = [other for other in releases if target in _named_seasons(other)]
         named = _release_for(plan, naming, target, entry, profile) if naming else None
-        table = episodes.table(named, base_url) if named is not None else table
+        if named is not None:
+            table, named = answered_episode(
+                naming,
+                episodes,
+                base_url,
+                lambda left: _release_for(plan, left, target, entry, profile),
+                named,
+            )
         if named is not None and table is None:
             return fallback, True, named, []
+        if named is not None and table is UNAVAILABLE:
+            return fallback, False, named, []
         files, release = _seasons_from_table(table or []), named or release
     numbers.update(files)  # Полный пак без сезона в имени называет сезоны своими файлами.
-    # Закладка хранит просмотренное состояние и старше безличной таблицы файлов.
     rows = _joined_seasons(numbers, {**files, **(known or saved)})
     return mark_empty(rows, target, True), False, release, []
 

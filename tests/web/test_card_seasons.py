@@ -12,6 +12,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.select.plan import Plan
 from web.card_seasons import card_seasons
+from web.episode_lookup import UNAVAILABLE
 
 
 @dataclass
@@ -398,6 +399,48 @@ def test_a_tab_still_being_parsed_is_not_called_empty() -> None:
 
     assert (partial, release) == (True, second)
     assert all(row.get("empty") is None for row in _rows(seasons))
+
+
+def test_a_dead_release_does_not_hide_the_answer_of_the_next_live_release() -> None:
+    """Одна мёртвая и одна живая: порядок сохраняется, но первая не держит карточку."""
+    dead = _release(1, "magnet:dead")
+    live = _release(1, "magnet:live")
+    plan = Plan(
+        picture=Picture(title="Show", year=2022, kind="tv", releases=[dead, live]),
+        ranked=[dead, live],
+        runtime=1500.0,
+        warn_mbit=12.0,
+    )
+    episodes = _Episodes({dead.magnet: UNAVAILABLE, live.magnet: [[1, 1], [1, 2]]}, [])
+
+    seasons, partial, release, _layout = card_seasons(plan, None, "http://torrserver", episodes)
+
+    assert (partial, release, episodes.asked) == (False, live, [dead.magnet, live.magnet])
+    assert [row["n"] for row in _rows(seasons)[0]["episodes"]] == [1, 2]
+
+
+def test_a_dead_named_release_does_not_hide_a_live_one_after_a_pack_ends() -> None:
+    """Соседний шов: полный пак кончился, первая раздача нужного сезона мертва."""
+    pack = Release(raw_name="Show Complete", title="Show", kind="tv", magnet="magnet:pack")
+    dead = _release(5, "magnet:dead")
+    live = _release(5, "magnet:live")
+    plan = Plan(
+        picture=Picture(title="Show", year=2022, kind="tv", releases=[pack, dead, live]),
+        ranked=[pack, dead, live],
+        runtime=1500.0,
+        warn_mbit=12.0,
+    )
+    episodes = _Episodes(
+        {pack.magnet: [[1, 1]], dead.magnet: UNAVAILABLE, live.magnet: [[5, 1]]}, []
+    )
+
+    seasons, partial, release, _layout = card_seasons(
+        plan, None, "http://torrserver", episodes, season=5
+    )
+
+    assert (partial, release) == (False, live)
+    assert episodes.asked == [pack.magnet, dead.magnet, live.magnet]
+    assert [row["n"] for row in _rows(seasons)[-1]["episodes"]] == [1]
 
 
 def test_the_page_draws_the_empty_season_note_and_both_catalogs_carry_the_word() -> None:
