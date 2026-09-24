@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from inspect import getdoc
 
 from torrcast.domain.facts.kin import Kin
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import SPARQL_TIMEOUT
 from torrcast.domain.json_value import JsonValue
+from web import related_lookup
 from web.prime import prime
 from web.related_lookup import SILENT, TIMEOUT, RelatedLookup
 
@@ -21,6 +23,15 @@ def _sync(job: Callable[[], None]) -> None:
 
 def _passthrough(records: list[JsonValue]) -> list[JsonValue]:
     return records
+
+
+def test_the_seed_keeps_the_measured_reason_for_asking_by_its_own_name() -> None:
+    """The long-title failure and absent Latin title explain the per-relative query."""
+    reason = getdoc(related_lookup._seed) or ""
+
+    assert "латиницы у родни без статьи на другом языке тоже нет" in reason
+    assert "только у коротких названий («Терминатор»)" in reason
+    assert "12 соседей из 12 отвечали 404" in reason
 
 
 def test_the_first_ask_starts_the_background_build_and_answers_none_when_still_slow() -> None:

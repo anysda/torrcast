@@ -16,20 +16,19 @@ from dataclasses import dataclass, field
 from hass.hit_posters import hits
 from torrcast.domain.catalogs.tongue import EN, tongue
 from torrcast.domain.facts.kin import Kin
-from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.patterns import _CYRILLIC
 from torrcast.domain.facts.settings import SPARQL_TIMEOUT
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.usecases.facts import FactPicture
+from web.shelf_tiles import PassportOf, _no_passport
 
 #: Тот же ``FranchiseKin.of``: имя, серия ли картина, срок сети - родня; ``None`` -
 #: сеть промолчала, и это НЕ законченный ответ: в кэш ему нельзя, следующий вопрос
 #: заводит новый добор (:meth:`RelatedLookup._build`).
 Franchise = Callable[[str, bool, float], list[Kin] | None]
 #: Тот же ``Passport.of``: паспорт родни латиницей, которого Wikidata не называет (:func:`_seed`).
-PassportOf = Callable[[str, bool, float], Origin]
 #: Тот же ``HitPosters.offer``: те же записи, с обложкой у тех, кому она нашлась.
 Offer = Callable[[list[JsonValue]], list[JsonValue]]
 Spawn = Callable[[Callable[[], None]], None]
@@ -50,11 +49,6 @@ def _daemon(job: Callable[[], None]) -> None:
     threading.Thread(target=job, daemon=True, name="related-lookup").start()
 
 
-def _no_passport(_title: str, _series: bool, _timeout: float) -> Origin:
-    """Паспорт по умолчанию: без проводки родня остаётся под записанным именем."""
-    return Origin()
-
-
 def _no_warm(_kin: list[Kin]) -> None:
     """Пустая проводка: тестовый добор родни не трогает очередь поиска."""
     return None
@@ -72,10 +66,14 @@ def _spoken(found: list[Kin]) -> list[Kin]:
 
 
 def _seed(kin: Kin, original: str) -> dict[str, JsonValue]:
-    """Плитка родни до обложки: ``original`` - розыскное поле обложки, а не показа.
+    """Плитка родни до обложки: ``original`` - розыскное поле обложки, а не показа;
+    латиницы у родни без статьи на другом языке тоже нет, и это честно.
+
     🔴 ``query`` - имя САМОЙ родни: карточка ищет ключ в круге этого запроса
-    (:func:`web.card_lookup.card_lookup`); запрос родительской картины отвечал 404 у
-    всех соседей «Гарри Поттера» и «Властелина колец» (живой приёмник)."""
+    (:func:`web.card_lookup.card_lookup`). Запрос родительской картины находил соседей
+    только у коротких названий («Терминатор»); у «Гарри Поттер и философский камень» и
+    «Властелин колец: Братство кольца» 12 соседей из 12 отвечали 404 (живой приёмник).
+    """
     return {
         "key": f"movie:{slugify(kin.name)}:{kin.year or 0}",
         "title": kin.name,

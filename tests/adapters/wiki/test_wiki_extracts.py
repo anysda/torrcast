@@ -5,6 +5,14 @@ from tests.fakes.json_client import FakeJsonClient
 from torrcast.adapters.wiki.wiki_extracts import _LANES, wiki_extracts
 
 
+def test_the_wave_keeps_the_measurement_that_bought_parallel_batches() -> None:
+    reason = wiki_extracts.__doc__ or ""
+
+    assert "503 картины" in reason and "49%" in reason and "14%" in reason
+    assert "один пакет 0.78 с, три очередью 2.14 с, три разом 0.83 с" in reason
+    assert "не успели спросить" in reason and "статьи нет" in reason
+
+
 def test_the_wave_names_the_picture_whose_whole_request_answered() -> None:
     key = ("Тачки", 2006)
 
