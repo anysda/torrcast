@@ -59,6 +59,16 @@ def test_an_empty_answer_is_remembered_with_an_expiry() -> None:
     assert stale.blurbs([("Тачки", 2006)]), "у найденной справки срока нет"
 
 
+def test_a_blurb_keeps_the_exact_entity_that_its_year_confirmed() -> None:
+    """The card must not fall back from an exact article to a name-only passport."""
+    cache = FactsFileCache(FakeJsonStore())
+    exact = Fact(about="о фильме", entity="Q105598")
+
+    cache.remember({("Крепкий орешек", 1988): exact})
+
+    assert cache.blurbs([("Крепкий орешек", 1988)]) == {("Крепкий орешек", 1988): exact}
+
+
 def test_kin_is_written_once_and_read_back_by_its_entity() -> None:
     """Родня лежит в своём ряду и не путается с паспортами того же файла."""
     cache = FactsFileCache(FakeJsonStore())

@@ -8,13 +8,21 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Final
 
 from torrcast.domain.catalogs.tongue import RU
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.minutes_of import minutes_of
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.facts.settings import EMPTY_TTL, FACTS_RULES, RUNTIME_CAP_MINUTES
+from torrcast.domain.facts.settings import (
+    EMPTY_TTL,
+    FACTS_RULES,
+    RUNTIME_CAP_MINUTES,
+)
 from torrcast.domain.json_value import JsonValue
+
+#: Версия бессрочного паспорта: новый номер пересуживает ряды старого алгоритма один раз.
+ORIGIN_RULES: Final = 1
 
 
 def _key(title: str, year: int | None, language: str = RU) -> str:
@@ -37,7 +45,7 @@ def _origin_key(title: str, series: bool | None) -> str:
 
 def _row_origin(row: JsonValue) -> Origin | None:
     """Ряд кэша в паспорт. ``None`` — не спрашивали; пустой паспорт — спрашивали, нет его."""
-    if not isinstance(row, dict):
+    if not isinstance(row, dict) or row.get("rules") != ORIGIN_RULES:
         return None
     shown = row.get("year")
     return Origin(
@@ -59,6 +67,7 @@ def _row_origin(row: JsonValue) -> Origin | None:
 def _origin_row(found: Origin) -> dict[str, JsonValue]:
     """Паспорт в ряд кэша: на диск едет всё, чего второму показу иначе не узнать."""
     return {
+        "rules": ORIGIN_RULES,
         "title": found.title,
         "year": found.year,
         "name": found.name,
@@ -119,8 +128,9 @@ def _cached_facts(
             rating=str(row.get("rating", "")),
             runtime="" if minutes_of(runtime) > RUNTIME_CAP_MINUTES else runtime,
             missing=isinstance(blank, int | float),
+            entity=str(row.get("entity", "")),
         )
-        if not fact and not isinstance(blank, int | float):
+        if not fact and not fact.entity and not isinstance(blank, int | float):
             continue
         out[key] = fact
     return out
@@ -149,6 +159,7 @@ def _fact_rows(
             "about": fact.about,
             "rating": fact.rating,
             "runtime": fact.runtime,
+            "entity": fact.entity,
             **({"empty": now} if fact.missing else {}),
             "rules": FACTS_RULES,
         }

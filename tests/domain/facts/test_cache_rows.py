@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from torrcast.domain.facts.cache_rows import (
+    ORIGIN_RULES,
     _cached_facts,
     _fact_rows,
     _key,
@@ -40,13 +41,17 @@ def test_a_passport_survives_the_round_trip_with_every_field_that_matters() -> N
     assert _row_origin(_origin_row(paper)) == paper
 
 
-def test_a_row_written_before_the_source_mark_means_unknown_not_wikipedia() -> None:
-    """Догадка вместо числа - та самая болезнь, от которой отметку и завели."""
+def test_a_passport_written_before_namesake_ranking_is_judged_again() -> None:
+    """Бессрочный старый паспорт не переживает починку выбора омонима."""
     old: dict[str, Any] = {"title": "Dune", "year": 2021}
-    found = _row_origin(old)
-    assert found is not None
-    assert (found.title, found.year, found.source) == ("Dune", 2021, "")
+    assert _row_origin(old) is None
     assert _row_origin(None) is None, "ряда нет вовсе - значит не спрашивали"
+
+
+def test_a_current_passport_row_names_the_rules_that_selected_it() -> None:
+    row = _origin_row(Origin(title="Die Hard", year=1988, entity="Q105598"))
+
+    assert row["rules"] == ORIGIN_RULES
 
 
 def test_a_broken_row_is_the_same_as_no_row() -> None:
@@ -146,6 +151,7 @@ def test_the_walk_writes_both_what_it_found_and_what_it_did_not() -> None:
         "about": "",
         "rating": "IMDb 7.2",
         "runtime": "",
+        "entity": "",
         "rules": FACTS_RULES,
     }
     miss = json_map(rows["Моана|2016"])
