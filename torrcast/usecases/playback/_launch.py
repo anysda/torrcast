@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import contextlib
-
 import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.catalogs.phrase import phrase
@@ -23,7 +21,7 @@ from torrcast.ports.show_unit.slot import unit as show_unit
 from torrcast.ports.state_store.slot import store
 from torrcast.usecases.playback._refuse_hopeless import _refuse_hopeless
 from torrcast.usecases.playback.hls_root import hls_root
-from torrcast.usecases.playback.launch_owner import LaunchOwner
+from torrcast.usecases.playback.launch_owner import LaunchOwner, _new_segment
 from torrcast.usecases.playback.place_kept import place_kept
 from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.select._about import _about
@@ -69,6 +67,7 @@ def _launch(
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
     # SIGTERM дописывает СВОЮ позицию, и записанный раньше прыжок на s1e5 он бы затёр.
     show_unit().stop()
+    owner = owner.separate_segments()
     state = store().load()
     before = state.get(key)  # место, которое не поднявшийся показ обязан вернуть (place_kept)
     # Темнота прошлого показа новому не наследуется. Снимает отметку тот же сторож, что
@@ -167,8 +166,7 @@ def _await_playing(
             progress.phase("")
             return
         if not packed:
-            with contextlib.suppress(OSError):
-                packed = any(out.glob("v*.ts")) or any(out.glob("v*.m4s"))
+            packed = _new_segment(out, owner)
             if packed:
                 journal().mark("первый сегмент")
         progress.phase(phrase("playback.waiting_tv") if packed else phrase("playback.packing"))

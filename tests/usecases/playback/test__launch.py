@@ -11,6 +11,7 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
+from tests.fakes.journal import Tape
 from tests.fakes.show_unit import FakeShowUnit
 from tests.usecases.playback.world import FakeProgress, FakeShow, touch_segment
 from torrcast.adapters.browser.read_web_box import read_web_box
@@ -27,6 +28,7 @@ from torrcast.domain.hls_settings import PLAYING_FLAG
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.abandon import slot as abandon_slot
+from torrcast.ports.journal import slot as journal_slot
 from torrcast.ports.show_unit.show_unit import ShowUnit
 from torrcast.ports.state_store.slot import store
 from torrcast.usecases.playback import _show_state
@@ -63,6 +65,67 @@ def test_the_flag_of_the_picture_ends_the_waiting(
     )
 
     assert progress.phases[-1] == ""
+
+
+@pytest.mark.parametrize(("stale", "fresh"), [("v0.ts", "v0.ts"), ("v7.ts", "v0.m4s")])
+def test_the_first_segment_mark_waits_for_this_launchs_segment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    show_unit: FakeShowUnit,
+    _russian_product: None,
+    stale: str,
+    fresh: str,
+) -> None:
+    """Остаток прошлого показа не становится первым сегментом следующего.
+
+    Старый кусок лежит под тем же именем, что положит новый показ. Времена событий
+    доказывают именно порядок: отметка обязана прийти не раньше записи своего куска,
+    а не просто когда-нибудь встретиться в журнале.
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    (out / stale).write_bytes(b"old")  # прошлый показ не успел убрать каталог
+    clock = FakeClock(now=100.0)
+    events: list[tuple[str, float]] = []
+    tape = Tape()
+    original_mark = tape.mark
+
+    def marked(name: str, **facts: object) -> None:
+        original_mark(name, **facts)
+        events.append((name, clock.monotonic()))
+
+    tape.mark = marked  # type: ignore[method-assign]
+    journal_slot.install(tape)
+    real_sleep = clock.sleep
+
+    def sleep(seconds: float) -> None:
+        real_sleep(seconds)
+        if len(clock.sleeps) == 1:
+            (out / fresh).write_bytes(b"new-segment")
+            events.append(("свой кусок записан", clock.monotonic()))
+        elif len(clock.sleeps) == 2:
+            (out / PLAYING_FLAG).write_text("")
+
+    monkeypatch.setattr(clock, "sleep", sleep)
+    monkeypatch.setattr(_show_state, "CLOCK", clock)
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
+
+    def start_unit(key: str, here: bool = False) -> None:
+        del key, here
+        show_unit.alive = True
+
+    monkeypatch.setattr(_show_state, "start_play_unit", start_unit)
+
+    _launch(
+        Config(hls_dir=str(out)),
+        "movie:кино",
+        Entry(title="Кино", magnet="magnet:?xt=1"),
+        "«Кино»",
+        _Clock(),
+    )
+
+    at = dict(events)
+    assert at["первый сегмент"] >= at["свой кусок записан"], events
 
 
 def test_a_dead_unit_ends_the_waiting_with_its_own_reason(

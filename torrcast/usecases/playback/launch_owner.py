@@ -17,6 +17,29 @@ from pathlib import Path
 #: сегменты, плейлисты и заголовки (:func:`torrcast.adapters.stream_pack.hls_dir._paths`).
 OWNER_FILE = "launch.owner"
 
+type SegmentMarks = frozenset[tuple[str, int, int, int, int, int]]
+
+
+def _segment_marks(out: Path) -> SegmentMarks:
+    """Идентичности сегментов, а не только общие для всех показов имена."""
+    marks: set[tuple[str, int, int, int, int, int]] = set()
+    for pattern in ("v*.ts", "v*.m4s"):
+        with contextlib.suppress(OSError):
+            for path in out.glob(pattern):
+                with contextlib.suppress(OSError):
+                    stat = path.stat()
+                    marks.add(
+                        (
+                            path.name,
+                            stat.st_dev,
+                            stat.st_ino,
+                            stat.st_size,
+                            stat.st_mtime_ns,
+                            stat.st_ctime_ns,
+                        )
+                    )
+    return frozenset(marks)
+
 
 @dataclass(frozen=True)
 class LaunchOwner:
@@ -30,6 +53,7 @@ class LaunchOwner:
 
     out: Path
     token: str = ""
+    segments: SegmentMarks = frozenset()
 
     @classmethod
     def claim(cls, out: Path) -> LaunchOwner:
@@ -52,3 +76,16 @@ class LaunchOwner:
         with contextlib.suppress(OSError):
             return (self.out / OWNER_FILE).read_text() != self.token
         return False
+
+    def separate_segments(self) -> LaunchOwner:
+        """Запомнить остаток до подъёма юнита, чтобы не назвать его своей готовностью."""
+        return LaunchOwner(self.out, self.token, _segment_marks(self.out))
+
+    def has_new_segment(self) -> bool:
+        """Появился ли сегмент, которого не было после остановки прошлого юнита."""
+        return bool(_segment_marks(self.out) - self.segments)
+
+
+def _new_segment(out: Path, owner: LaunchOwner | None) -> bool:
+    """Свежий сегмент этого подъёма; без метки сохранить прежний прямой договор."""
+    return owner.has_new_segment() if owner is not None else bool(_segment_marks(out))
