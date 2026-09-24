@@ -15,7 +15,9 @@ def en() -> dict[str, str]:
         "warm.waiting_slot": "waiting for playback headroom",
         "warm.warming_why": "{head} - still warming ({why})",
         "warm.budget_exhausted": "disk budget of {budget} GB is used up",
-        "warm.floor_reached": "the partition has {free} GB free - that's the last reserve",
+        "warm.floor_reached": (
+            "not enough disk space: the partition has {free} GB free - that's the last reserve"
+        ),
         "warm.fit": "fits",
         "warm.skew": "off grid",
         "warm.blind": "unchecked",

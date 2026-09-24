@@ -7,10 +7,10 @@ import time
 from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import lay, world
-from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm._vault_disk import _weigh
 from torrcast.usecases.warm.key_form import KEY_FORM
 from torrcast.usecases.warm.settings import META
+from torrcast.usecases.warm.strip_forms import strip_forms
 from torrcast.usecases.warm.vault import Vault
 
 if TYPE_CHECKING:
@@ -59,12 +59,12 @@ def test_the_floor_gives_back_the_room_held_by_a_previous_key_form(tmp_path: Pat
     assert said[0]["freed"] == 900
 
 
-def test_the_floor_never_takes_a_shelf_this_build_can_still_find(tmp_path: Path) -> None:
-    """Отдаётся только то, что не найдётся больше ни по одному ключу этой сборки.
+def test_the_form_stripper_never_takes_a_shelf_this_build_can_still_find(tmp_path: Path) -> None:
+    """Сборщик прежних форм отдаёт только то, что эта сборка уже не найдёт.
 
-    Полка, заведённая этой же сборкой, не трогается даже тогда, когда она одна стоит
-    между прогревом и местом: под ней может идти живой показ, и его прогретое дороже
-    нашего прогрева. Соседнюю серию (:attr:`Vault.keep`) не трогаем тем более.
+    Право пола отдать ненужную полку текущей формы проверяет отдельное зеркало
+    :mod:`test_reclaim_floor`; здесь граница именно ``strip_forms``. Соседнюю серию
+    (:attr:`Vault.keep`) он не трогает тем более.
     """
     sky = world()
     root = tmp_path / "warm"
@@ -79,10 +79,9 @@ def test_the_floor_never_takes_a_shelf_this_build_can_still_find(tmp_path: Path)
         free_of=_room(2500),
     )
     mine.open()
-    refusal = mine.fit(200)
+    freed = strip_forms(mine, 200)
 
-    floor_head = phrase("warm.floor_reached", free="FREE-MARK").split("FREE-MARK")[0]
-    assert floor_head in refusal, "отказ по полу свободного места не назван"
-    assert (root / "чужой-живой-показ").exists(), "вытеснена полка живого показа этой сборки"
+    assert freed == 0, "сборщик прежних форм присвоил право нового вытеснителя пола"
+    assert (root / "чужой-живой-показ").exists(), "сборщик прежних форм взял нынешнюю полку"
     assert (root / "соседняя-серия").exists(), "вытеснена соседняя серия того же показа"
-    assert sky.removed == [], "под полом отдано то, что эта сборка ещё найдёт"
+    assert sky.removed == [], "сборщиком прежних форм отдано то, что сборка ещё найдёт"

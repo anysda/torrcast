@@ -15,7 +15,9 @@ def ru() -> dict[str, str]:
         "warm.waiting_slot": "жду запаса показа",
         "warm.warming_why": "{head} - грею дальше ({why})",
         "warm.budget_exhausted": "бюджет диска {budget} ГБ исчерпан",
-        "warm.floor_reached": "на разделе свободно {free} ГБ - это последний запас",
+        "warm.floor_reached": (
+            "на диске не хватает места: на разделе свободно {free} ГБ - это последний запас"
+        ),
         "warm.fit": "годен",
         "warm.skew": "мимо сетки",
         "warm.blind": "не сверен",

@@ -24,6 +24,7 @@ from torrcast.usecases.warm._vault_disk import (
     _weigh,
 )
 from torrcast.usecases.warm.key_form import KEY_FORM
+from torrcast.usecases.warm.reclaim_floor import reclaim_floor as _reclaim_floor
 from torrcast.usecases.warm.reject import reject as _reject
 from torrcast.usecases.warm.relay import relay as _relay
 from torrcast.usecases.warm.served_spots import ServedSpots
@@ -162,8 +163,9 @@ class Vault:
         Рядом живут и состояние, и раздача, и система — упереть раздел в ноль прогревом
         не имеет права ни один бюджет.
 
-        Перед вторым отказом место отдают наши же полки прежних форм ключа
-        (:func:`strip_forms`): бюджет их не достаёт, а найти их некому.
+        Перед вторым отказом место отдают наши же полки: сначала прежних форм ключа
+        (:func:`strip_forms`), затем ненужные нынешней формы (:func:`reclaim_floor`).
+        Своя и соседняя полки остаются неприкосновенны.
         """
         mine = {self.key, *self.keep}
         others = sorted(
@@ -183,6 +185,9 @@ class Vault:
         # Место раздела отдают наши же полки прежних форм ключа: под бюджет они не
         # подпадают (легче него), а найти их некому - и прогрев вставал навсегда.
         _strip_forms(self, need)
+        # Тесный раздел упирается в пол раньше постоянного бюджета. Оставшиеся полки
+        # нынешней формы - те же отдаваемые чужие, которых бюджет вытеснил бы позже.
+        _reclaim_floor(self, need)
         if need + self.floor > self.free():
             return phrase("warm.floor_reached", free=f"{self.free() / 1e9:.1f}")
         return ""
