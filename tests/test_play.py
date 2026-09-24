@@ -1364,8 +1364,11 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven() -> None
         def block_until_active(self, timeout: float = 30.0) -> None:
             pass
 
-        def update_status(self) -> None:
-            pass
+        def update_status(
+            self, *, callback_function: Callable[[bool, dict[str, Any] | None], None] | None = None
+        ) -> None:
+            if callback_function is not None:
+                callback_function(True, {"status": []})
 
         def quit_app(self, timeout: float = 10.0) -> None:
             pass
