@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+# Минимум объявляет установщик: второе число рядом с ним здесь быстро разойдётся.
+ffmpeg_min=$(
+    sed -n 's/^FFMPEG_MIN="${TORRCAST_FFMPEG_MIN:-\([^"]*\)}"$/\1/p' install.sh
+)
+if [ -z "$ffmpeg_min" ]; then
+    echo "гейт: не прочитан минимум ffmpeg из install.sh; восстанови FFMPEG_MIN" >&2
+    exit 1
+fi
+
+binary_version() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        printf 'нет'
+        return
+    fi
+    line=$("$1" -version 2>/dev/null | sed -n '1p') || true
+    set -- $line
+    version=$(printf '%s' "${3:-}" | sed 's/^[^0-9]*//')
+    if [ -n "$version" ]; then
+        printf '%s' "$version"
+    else
+        printf 'версия не распознана'
+    fi
+}
+
+version_ge() {
+    .venv/bin/python - "$1" "$2" <<'PY'
+import re
+import sys
+
+
+def parts(value: str) -> tuple[int, ...]:
+    return tuple(int(item) for item in re.findall(r"\d+", value))
+
+
+have = parts(sys.argv[1])
+need = parts(sys.argv[2])
+raise SystemExit(0 if have and have >= need else 1)
+PY
+}
+
+ffmpeg_have=$(binary_version ffmpeg)
+ffprobe_have=$(binary_version ffprobe)
+if ! version_ge "$ffmpeg_have" "$ffmpeg_min" \
+    || ! version_ge "$ffprobe_have" "$ffmpeg_min"; then
+    echo "гейт: нужны ffmpeg и ffprobe ≥ $ffmpeg_min (-readrate_initial_burst); найдено: ffmpeg $ffmpeg_have, ffprobe $ffprobe_have; установи через ./install.sh" >&2
+    exit 1
+fi

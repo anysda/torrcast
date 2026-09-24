@@ -137,6 +137,7 @@ if [ "${1:-}" = --quick ] && [ "$#" -eq 1 ]; then
     exit 0
 fi
 
+scripts/ffmpeg-gate
 stage "installer language contract"
 scripts/installer-language-contract
 stage "публичное дерево"
