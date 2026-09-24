@@ -46,15 +46,26 @@ class StopNow:
         """Остановить: через исполнителя, если он свободен, иначе на месте."""
         if self._enqueue(["stop"]):
             return
+        self.call_off()
+
+    def call_off(self) -> threading.Event:
+        """Снять идущий подъём и вернуть признак законченной остановки."""
         self._asked.set()
         self._choice.drop()
-        threading.Thread(target=self._put_out, daemon=True, name="telegram-stop").start()
+        done = threading.Event()
+        threading.Thread(
+            target=self._put_out, args=(done,), daemon=True, name="telegram-stop"
+        ).start()
+        return done
 
     def forget(self) -> None:
         """Новая команда принята: отказ был от ПРОШЛОГО подъёма, а не от неё."""
         self._asked.clear()
 
-    def _put_out(self) -> None:
-        with suppress(Exception):
-            self._stop()
-        self._control.clean()
+    def _put_out(self, done: threading.Event) -> None:
+        try:
+            with suppress(Exception):
+                self._stop()
+            self._control.clean()
+        finally:
+            done.set()

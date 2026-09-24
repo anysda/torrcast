@@ -5,9 +5,10 @@ from __future__ import annotations
 import shlex
 import threading
 from collections.abc import Callable, Sequence
-from queue import Queue
 from typing import Any
 
+from tgbot.command_journal import incoming, refused, replaced
+from tgbot.command_lane import CommandLane, QueuedCommand
 from tgbot.command_result import command_result
 from tgbot.config import Config
 from tgbot.dressed_control import dressed_control
@@ -54,9 +55,7 @@ class Bot:
         install_progress(self._progress.new)
         configure_choice(self._choice)
         self._offset = 0
-        self._commands: Queue[list[str]] = Queue()
-        self._busy = False
-        self._busy_lock = threading.Lock()
+        self._commands = CommandLane()
         self._halt = StopNow(self._enqueue, self._choice, self._control, stop)
 
     def run(self) -> None:
@@ -68,13 +67,17 @@ class Bot:
 
     def run_one(self) -> None:
         """Исполнить следующую команду там, откуда вызван цикл команд."""
-        args = self._commands.get()
+        command = self._commands.take()
         try:
-            self._run(args)
+            if command.barrier is not None:
+                command.barrier.wait()
+            if command.begin_choice:
+                self._halt.forget()
+                self._choice.begin(command.command_id)
+                self._progress.begin()
+            self._run(command.args, command.text)
         finally:
-            with self._busy_lock:
-                self._busy = False
-            self._commands.task_done()
+            self._commands.finish(command)
 
     def poll(self) -> None:
         """Получать обновления бесконечно; каждый offset подтверждать один раз."""
@@ -102,11 +105,7 @@ class Bot:
             text.casefold() != "cast" and not text.casefold().startswith("cast ")
         ):
             return
-        # Язык - настройка продукта, а не свойство клиента чата: по `language_code`
-        # у владельца один ответ выходил двумя языками разом. Спрашивает его сама
-        # надпись у единого держателя, при каждом ответе заново: бот живёт долго, и
-        # `cast --ru`, посланный из этого же чата или с консоли, обязан подействовать
-        # со следующей же команды, а не после рестарта юнита (:mod:`tgbot.i18n`).
+        incoming(text)
         try:
             args = shlex.split(restore_flag_dashes(text))[1:]
         except ValueError as error:
@@ -115,9 +114,17 @@ class Bot:
         message_id = message.get("message_id")
         command_id = int(message_id) if isinstance(message_id, int) else 0
         if args == ["stop"]:
+            occupied = self._commands.occupied()
             self._halt()
-        elif not self._enqueue(args, begin_choice=True, command_id=command_id):
-            self._api.send(self._config.chat_id, i18n("busy"))
+            if occupied:
+                replaced(restore_flag_dashes(text), occupied)
+        else:
+            shown = restore_flag_dashes(text)
+            command = QueuedCommand(args, shown, command_id, begin_choice=True)
+            occupied = self._commands.replace(command, self._halt.call_off)
+            if occupied:
+                replaced(shown, occupied)
+                self._api.send(self._config.chat_id, i18n("replaced"))
 
     def _callback(self, callback: dict[str, Any]) -> None:
         message = callback.get("message")
@@ -129,27 +136,31 @@ class Bot:
         callback_id, data = callback.get("id"), callback.get("data")
         if not isinstance(callback_id, str) or not isinstance(data, str):
             return
+        incoming("button")
         controlled = self._control.command(data)
         if controlled is not None:
             if controlled == "stop":
+                occupied = self._commands.occupied()
                 self._halt()
+                if occupied:
+                    replaced("button stop", occupied)
             self._api.answer(callback_id, i18n("control_done"))
             return
         message_id = int(message.get("message_id", 0))
         if self._choice.cancel(data, message_id):
-            # 🔴 TC-926. Отмена отвечается ВСПЛЫВАЮЩЕЙ подсказкой, а не сообщением: сам
-            # диалог сейчас будет убран целиком (:meth:`_run`), и новое сообщение в чате
-            # пережило бы уборку мусором. Подсказка следа за собой не оставляет.
             self._api.answer(callback_id, i18n("cancelled"))
             return
         accepted = self._choice.accept(data, message_id)
+        if not accepted:
+            refused("button", self._commands.occupied())
         self._api.answer(callback_id, i18n("chosen" if accepted else "choice_expired"))
 
-    def _run(self, args: list[str]) -> None:
+    def _run(self, args: list[str], shown: str) -> None:
         """Исполнить настоящую команду torrcast и назвать отказ в чате."""
         try:
             result = command_result(self._command, args)
         except Exception as error:
+            refused(shown, shown, _failure_detail(error))
             self._choice.clean_search()
             self._progress.finish(i18n("failed", detail=_failure_detail(error)))
             return
@@ -157,12 +168,10 @@ class Bot:
         if not code:
             self._progress.finish()
         if code == EXIT_CANCELLED:
-            # 🔴 TC-926. Человек передумал - в чат не летит ничего, а весь предпоказный
-            # диалог убирается целиком, тем же порядком, что и по ⏹. Код назван ПОИМЁННО:
-            # промолчи бот на любой ненулевой - и настоящий отказ ушёл бы в ту же тишину.
             self._progress.finish()
             self._choice.clean()
         elif code:
+            refused(shown, shown, result.detail)
             self._choice.clean_search()
             self._progress.finish(i18n("failed", detail=result.detail))
         elif args == ["stop"]:
@@ -182,16 +191,8 @@ class Bot:
         command_id: int = 0,
     ) -> bool:
         """Занять единственный исполнитель и передать ему команду без гонки."""
-        with self._busy_lock:
-            if self._busy:
-                return False
-            self._busy = True
-            if begin_choice:
-                self._halt.forget()
-                self._choice.begin(command_id)
-                self._progress.begin()
-        self._commands.put(args)
-        return True
+        shown = " ".join(["cast", *args])
+        return self._commands.offer(QueuedCommand(args, shown, command_id, begin_choice))
 
 
 def _bot() -> None:

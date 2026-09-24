@@ -44,6 +44,7 @@ def ru() -> dict[str, str]:
         "choice_expired": "Это меню картин уже не действует.",
         "help": "cast <фильм> s1e1 [-2] · cast stop / pause / resume / status",
         "busy": "Предыдущий запрос cast ещё выполняется.",
+        "replaced": "Предыдущий запрос остановлен. Запускаю новый.",
         "failed": "Каст не начался: {detail}",
         "invalid_config_object": "битая настройка {path}: ожидался объект JSON",
         "unavailable": "Телевизор недоступен.",

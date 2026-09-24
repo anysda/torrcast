@@ -42,6 +42,7 @@ def en() -> dict[str, str]:
         "choice_expired": "This picture menu is no longer active.",
         "help": "cast <title> s1e1 [-2] · cast stop / pause / resume / status",
         "busy": "Another cast request is still being handled.",
+        "replaced": "The previous request was stopped. Starting the new one.",
         "failed": "The cast did not start: {detail}",
         "invalid_config_object": "invalid configuration {path}: expected a JSON object",
         "unavailable": "The TV is unavailable.",
