@@ -14,6 +14,7 @@ import pytest
 
 from torrcast.domain._series import _Series
 from torrcast.domain.episode import Episode
+from torrcast.domain.episode_absent_error import EpisodeAbsentError
 from torrcast.domain.episode_file import EpisodeFile
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
@@ -102,6 +103,25 @@ def test_a_missing_episode_is_refused_with_a_list_and_a_way_out() -> None:
     assert "s1e9" in said
     assert "серий 3: s1e1...s1e3" in said
     assert "--release" in said
+
+
+def test_a_complete_pack_proves_that_an_episode_is_past_the_end_of_its_season() -> None:
+    """Полный пак знает границы сезона до перебора остальных раздач."""
+    release = Release(
+        raw_name="Сериал S01-03 [01-27]",
+        title="Сериал",
+        kind="tv",
+        seasons=(1, 2, 3),
+        episodes=tuple(range(1, 28)),
+    )
+    files = season_files(1, 2) + season_files(2, 2) + season_files(3, 23)
+
+    with pytest.raises(EpisodeAbsentError) as refusal:
+        _Series(want=Episode(3, 24)).choose(release, files)
+
+    assert refusal.value.season == 3
+    assert refusal.value.last == 23
+    assert "сезоны 1-3 · серий 27: s1e1...s3e23" in str(refusal.value)
 
 
 def test_the_summary_of_a_pack_names_the_span_of_its_seasons() -> None:

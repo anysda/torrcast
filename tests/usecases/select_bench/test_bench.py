@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 import pytest
 
 from tests.usecases.select_bench.world import GB, RUNTIME, Said, Torrents, plan, probes, rel
+from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.episode import Episode
+from torrcast.domain.episode_absent_error import EpisodeAbsentError
 from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torr_file import TorrFile
@@ -58,6 +62,34 @@ def test_a_queue_of_nothing_but_verdicts_ends_with_an_honest_refusal() -> None:
 
     with pytest.raises(NotFoundError, match="годного релиза нет"):
         bench.resolve(plan(pool, recode_at=0.0), _ASKED, Said())
+
+
+def test_a_complete_pack_ends_an_impossible_episode_search_before_the_release_walk() -> None:
+    """s3e24 после полного сезона из 23 серий не стоит обхода ещё 24 раздач."""
+    pool = [
+        replace(
+            rel(name=f"Сериал S01-03 [01-27] r{number} | Дубляж", seeders=100 - number),
+            kind="tv",
+            seasons=(1, 2, 3),
+            episodes=tuple(range(1, 28)),
+        )
+        for number in range(25)
+    ]
+    files = [
+        *[TorrFile(n, f"s01e{n:02d}.mkv", GB) for n in range(1, 3)],
+        *[TorrFile(n + 2, f"s02e{n:02d}.mkv", GB) for n in range(1, 3)],
+        *[TorrFile(n + 4, f"s03e{n:02d}.mkv", GB) for n in range(1, 24)],
+    ]
+    torrents = Torrents(files)
+    built = plan(pool)
+    built.picture.kind = "tv"
+    built.series = _Series(want=Episode(3, 24))
+    bench = Bench(torrents)
+
+    with pytest.raises(EpisodeAbsentError, match="s3e24"):
+        bench.resolve(built, Args(query=["сериал", "s3e24"]), Said())
+
+    assert len(torrents.read) <= 2, "фронт мог прогреться, но очередь из 25 не перебрана"
 
 
 def test_a_queue_that_only_kept_silent_names_the_swarm_not_the_choice() -> None:

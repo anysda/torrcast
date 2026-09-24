@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.episode_absent_error import EpisodeAbsentError
 from torrcast.domain.profile import COPY, REFUSE
 from torrcast.domain.recode_settings import RECODE_HEIGHT
 from torrcast.usecases.select._prep import _Prep
@@ -59,6 +60,8 @@ class _BenchTrouble(_BenchWork):
         надо ровно столько, сколько весит исходник. Рост кадра тут знает ffprobe, а не имя
         раздачи, поэтому 4K-ремукс с молчаливым именем ловится именно на этой ступени.
         """
+        if isinstance(prep.failure, EpisodeAbsentError):
+            raise prep.failure
         if prep.error:
             return prep.error
         if prep.media is None or prep.video is None:

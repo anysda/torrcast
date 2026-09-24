@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
+from torrcast.domain.episode_absent_error import EpisodeAbsentError
 from torrcast.domain.episode_file import EpisodeFile
 from torrcast.domain.episode_ordinal import EpisodeOrdinal
 from torrcast.domain.map_episodes import map_episodes
@@ -56,7 +57,13 @@ class _Series:
         else:
             found = next((f for f in found_files if f.at == self.want), None)
         if found is None:
-            raise NotFoundError(self._miss_reason(release, found_files))
+            reason = self._miss_reason(release, found_files)
+            seasons = {file.season for file in found_files}
+            in_season = [file.episode for file in found_files if file.season == self.want.season]
+            complete_pack = len(release.seasons) > 1 and set(release.seasons) <= seasons
+            if complete_pack and in_season and self.want.episode > max(in_season):
+                raise EpisodeAbsentError(reason, self.want.season, max(in_season))
+            raise NotFoundError(reason)
         return next(f for f in files if f.index == found.index)
 
     def _miss_reason(self, release: Release, files: list[EpisodeFile]) -> str:
