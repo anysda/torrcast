@@ -33,6 +33,7 @@ from pathlib import Path
 import pyte
 import pytest
 
+from tests.install_source import positive_integer_constant
 from tests.test_install import fake_venv
 
 REPO = Path(__file__).parents[1]
@@ -612,10 +613,9 @@ def test_the_declared_help_width_equals_the_widest_row(
     `FIN_W_M=20` при факте 21).
     """
     head, tail = SCRIPT.split('if [ "$LANGUAGE" = en ]; then', 1)
-    chunk = head if language == "ru" else tail
+    chunk = head if language == "ru" else tail.split("\nfi\n", 1)[0]
     rows = [len(c) + len(t) for c, t in zip(_column(cmd, chunk), _column(txt, chunk), strict=True)]
-    declared = re.search(rf"^\s*{width}=(\d+)$", chunk, re.M)
-    assert declared, f"ширина {width} не найдена"
-    assert max(rows) == int(declared.group(1)), (
-        f"{language} {width}={declared.group(1)}, а самая широкая строка {max(rows)}: {rows}"
+    declared = positive_integer_constant(chunk, width, f"install.sh ({language})")
+    assert max(rows) == declared, (
+        f"{language} {width}={declared}, а самая широкая строка {max(rows)}: {rows}"
     )

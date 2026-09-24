@@ -11,7 +11,6 @@ import hashlib
 import io
 import json
 import os
-import re
 import subprocess
 import tarfile
 import threading
@@ -21,6 +20,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
+
+from tests.install_source import positive_integer_constant
 
 REPO = Path(__file__).parents[1]
 BOOTSTRAP = REPO / "install"
@@ -501,11 +502,10 @@ def test_a_language_nobody_knows_is_refused_by_a_code_that_means_only_that(
     числом: иначе непонятое значение TORRCAST_LANGUAGE доехало бы до человека словом
     «обновлено», хотя не тронуто ничего. Значение читается из install.sh формой.
     """
-    cut = re.findall(r"^EXIT_CATALOG_CUT=([0-9]+)$", INSTALLER, re.M)
-    assert len(cut) == 1, "EXIT_CATALOG_CUT в install.sh нет или он не один"
+    cut = positive_integer_constant(INSTALLER, "EXIT_CATALOG_CUT")
 
     done = _run_bootstrap(tmp_path, 1, {"TORRCAST_LANGUAGE": "de"}, sealed=True)
 
     assert "TORRCAST_LANGUAGE must be en or ru" in done.stderr
-    assert done.returncode != int(cut[0]), "отказ разбора звучит кодом урезанного каталога"
+    assert done.returncode != cut, "отказ разбора звучит кодом урезанного каталога"
     assert done.returncode == 1, done.returncode

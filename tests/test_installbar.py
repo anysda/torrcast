@@ -50,6 +50,8 @@ from typing import NamedTuple
 
 import pytest
 
+from tests.install_source import positive_integer_constant
+
 REPO = Path(__file__).parents[1]
 SCRIPT = (REPO / "install.sh").read_text(encoding="utf-8")
 
@@ -57,7 +59,7 @@ SCRIPT = (REPO / "install.sh").read_text(encoding="utf-8")
 #: Читается из самого `install.sh`: вписанная руками копия молча разъезжается с
 #: источником, и тогда мера переводит время в кадры по числу, которого в
 #: продукте уже нет.
-FRAME_MS = int(re.search(r"^FRAME_MS=(\d+)$", SCRIPT, re.M).group(1))  # type: ignore[union-attr]
+FRAME_MS = positive_integer_constant(SCRIPT, "FRAME_MS")
 #: Допуск абсолютных сверок: сдвиг следа на кадр плюс запас на лаг планировщика.
 #: Он вчетверо меньше самого короткого опережения, которое мера обязана поймать
 #: (1.0 с у `источников`), поэтому ослабить сторож не может.

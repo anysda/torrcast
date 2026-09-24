@@ -24,6 +24,8 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from tests.install_source import positive_integer_constant
+
 REPO = Path(__file__).parents[1]
 SCRIPT = (REPO / "install.sh").read_text(encoding="utf-8")
 #: Адреса, поднятые на петле по умолчанию и в Linux, и в macOS. Больше на `lo0`
@@ -32,8 +34,8 @@ SCRIPT = (REPO / "install.sh").read_text(encoding="utf-8")
 LOOPBACK_EVERYWHERE = ("127.0.0.1", "::1")
 
 
-def _body(name: str) -> str:
-    return SCRIPT.split(f"{name}() {{", 1)[1].split("\n}", 1)[0]
+def _body(name: str, source: str = SCRIPT) -> str:
+    return source.split(f"{name}() {{", 1)[1].split("\n}", 1)[0]
 
 
 def _install_indexers() -> str:
@@ -1340,25 +1342,23 @@ def test_a_shim_knob_with_a_space_reaches_the_process_whole() -> None:
     assert env["TORRCAST_PROBE_UA"] == agent
 
 
-def _constant(name: str) -> int:
-    found = re.search(rf"^{name}=(\d+)$", SCRIPT, re.M)
-    assert found is not None, f"в установщике нет константы {name}"
-    return int(found.group(1))
+def _constant(name: str, source: str = SCRIPT) -> int:
+    return positive_integer_constant(source, name)
 
 
-def _memory_knobs(budget: int, family: str) -> dict[str, str]:
+def _memory_knobs(budget: int, family: str, source: str = SCRIPT) -> dict[str, str]:
     """Ручки памяти службы раздачи, собранные текстом самого установщика.
 
     Берётся кусок ``install_torrserver`` от сборки ручек до ``run_service`` и гоняется
     как есть: меряется то, что доедет до юнита, а не то, что написано рядом.
     """
-    body = _body("install_torrserver")
+    body = _body("install_torrserver", source)
     tail = body.split("local memory_knobs=", 1)[1].split("\n    run_service", 1)[0]
     script = "\n".join(
         [
             "set -euo pipefail",
             "loud() { :; }",
-            f"TS_GOGC={_constant('TS_GOGC')}",
+            f"TS_GOGC={_constant('TS_GOGC', source)}",
             f"OS_FAMILY={family}",
             f"budget={budget}",
             f"memory_knobs={tail}",
@@ -1374,6 +1374,20 @@ def _memory_knobs(budget: int, family: str) -> dict[str, str]:
             name, _, value = assignment.partition("=")
             env[name] = value
     return env
+
+
+def _assert_memory_overhead_contract(source: str, family: str) -> None:
+    overhead = _constant("TS_MEM_OVERHEAD", source)
+    env = _memory_knobs(6 * 1024**3, family, source)
+
+    if "GOGC" not in env:
+        raise AssertionError("служба не знает, каким перерасходом ей размерили кэш")
+    growth = 1 + int(env["GOGC"]) / 100
+    if growth >= overhead:
+        raise AssertionError(
+            f"GOGC={env['GOGC']} разрешает куче перерасход {growth}, "
+            f"а делитель кэша {overhead} - запаса машине не остаётся"
+        )
 
 
 @pytest.mark.parametrize("family", ["linux", "macos"])
@@ -1394,14 +1408,66 @@ def test_the_service_is_told_the_overhead_its_cache_was_sized_by(family: str) ->
     Обе семьи проверяются нарочно - у launchd жёсткого потолка нет вовсе, и там эта
     ручка единственная.
     """
-    overhead = _constant("TS_MEM_OVERHEAD")
-    env = _memory_knobs(6 * 1024**3, family)
+    _assert_memory_overhead_contract(SCRIPT, family)
 
-    assert "GOGC" in env, "служба не знает, каким перерасходом ей размерили кэш"
-    assert 1 + int(env["GOGC"]) / 100 < overhead, (
-        f"GOGC={env['GOGC']} разрешает куче перерасход {1 + int(env['GOGC']) / 100}, "
-        f"а делитель кэша {overhead} - запаса машине не остаётся"
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        (
+            SCRIPT.replace("TS_MEM_OVERHEAD=2", "TS_MEM_OVERHEAD=1.25", 1),
+            "install.sh: константа TS_MEM_OVERHEAD имеет неподдерживаемую форму '1.25': "
+            "нужен целый числовой литерал (можно в кавычках), потому что $((...)) в bash "
+            "не считает дроби; shell-выражения сторож не вычисляет",
+        ),
+        (
+            SCRIPT.replace("TS_MEM_OVERHEAD=2\n", "", 1),
+            "install.sh: константа TS_MEM_OVERHEAD не объявлена",
+        ),
+        (
+            SCRIPT.replace("TS_GOGC=25", "TS_GOGC=100", 1),
+            "GOGC=100 разрешает куче перерасход 2.0, а делитель кэша 2 - запаса машине не остаётся",
+        ),
+    ],
+    ids=("fractional-overhead", "missing-overhead", "spent-headroom"),
+)
+def test_the_memory_guard_distinguishes_bad_installer_copies(source: str, message: str) -> None:
+    """Три разных поломки исходника обязаны называться человеку тремя причинами."""
+    assert source != SCRIPT, "подменённая копия обязана отличаться от установщика"
+    with pytest.raises(AssertionError) as failed:
+        _assert_memory_overhead_contract(source, "linux")
+    assert str(failed.value) == message
+
+
+def test_the_constant_reader_understands_shell_literal_forms_without_executing_them() -> None:
+    quoted = SCRIPT.replace("TS_MEM_OVERHEAD=2", 'TS_MEM_OVERHEAD="2"', 1)
+    negative = SCRIPT.replace("TS_MEM_OVERHEAD=2", "TS_MEM_OVERHEAD=-2", 1)
+    expression = SCRIPT.replace("TS_MEM_OVERHEAD=2", "TS_MEM_OVERHEAD=$((1 + 1))", 1)
+
+    assert _constant("TS_MEM_OVERHEAD", quoted) == 2
+    with pytest.raises(AssertionError) as failed:
+        _constant("TS_MEM_OVERHEAD", negative)
+    assert str(failed.value) == (
+        "install.sh: константа TS_MEM_OVERHEAD должна быть больше нуля, получено -2"
     )
+    with pytest.raises(AssertionError) as failed:
+        _constant("TS_MEM_OVERHEAD", expression)
+    assert str(failed.value) == (
+        "install.sh: константа TS_MEM_OVERHEAD имеет неподдерживаемую форму '$((1 + 1))': "
+        "нужен целый числовой литерал (можно в кавычках), потому что $((...)) в bash "
+        "не считает дроби; shell-выражения сторож не вычисляет"
+    )
+
+
+@pytest.mark.machine
+def test_bash_arithmetic_rejects_a_fractional_memory_overhead() -> None:
+    done = subprocess.run(
+        ["bash", "-c", "TS_MEM_OVERHEAD=1.25; printf '%s' $((8 / TS_MEM_OVERHEAD))"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode != 0, "bash unexpectedly accepted a fractional arithmetic operand"
 
 
 def _quoted_knobs(knobs: str) -> list[str]:

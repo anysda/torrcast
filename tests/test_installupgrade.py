@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.install_source import positive_integer_constant
 from tests.test_installfinal import (
     NARROW,
     SCRIPT,
@@ -233,6 +234,4 @@ def test_the_code_that_means_a_trimmed_catalog_is_one_number_and_not_two() -> No
     и разъедутся они молча: обновление начнёт звать провалом штатный исход установки.
     Значение читается из install.sh ФОРМОЙ, а не повторяется тут числом.
     """
-    found = re.findall(r"^EXIT_CATALOG_CUT=([0-9]+)$", SCRIPT, re.M)
-    assert len(found) == 1, "EXIT_CATALOG_CUT в install.sh нет или он не один"
-    assert int(found[0]) == CATALOG_CUT
+    assert positive_integer_constant(SCRIPT, "EXIT_CATALOG_CUT") == CATALOG_CUT
