@@ -107,3 +107,13 @@ def test_revival_needs_the_next_segment_even_when_the_service_answers(
 
     (feed.out / "v9.ts").write_bytes(b"next segment")
     assert _may(state, feed, None, 89.552858)
+
+
+def test_revival_uses_the_receivers_start_buffer(tmp_path: Path) -> None:
+    state = _RevivalState(clock=FakeClock(), buffer=20.0)
+    feed = feed_with_segments(tmp_path, slots=1)
+
+    assert not _may(state, feed, None, 0.0)
+
+    (feed.out / "v1.ts").write_bytes(b"enough for this receiver")
+    assert _may(state, feed, None, 0.0)

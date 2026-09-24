@@ -528,17 +528,19 @@ class _FakeReceiver:
         return Position(pos, 0.0, state in {"PLAYING", "BUFFERING"}, state)
 
 
-def _feed_with_segments(tmp_path: Path, kind: type[Feed] = Feed) -> Feed:
+def _feed_with_segments(tmp_path: Path, kind: type[Feed] = Feed, at: float = 0.0) -> Feed:
     """Упаковка на 60 готовых сегментов ровной сетки; ffmpeg за ней настоящий не стоит.
 
     ``kind`` - какой раздачей притвориться: наследник нужен там, где проверяется решение
     показа, а перезапуск упаковки должен остаться записью, а не ffmpeg.
     """
     out = hls_dir(str(tmp_path / "hls"))
-    for slot in range(60):
+    grid = Grid.uniform(7200.0)
+    first = grid.slot_at(at)
+    for slot in range(first, first + 60):
         (out / f"v{slot}.ts").write_bytes(b"x")
-    feed = kind(source="", audio=0, out=out, grid=Grid.uniform(7200.0), keep=40.0, wait=0.0)
-    feed.packer = fake_packer(out, first=0)
+    feed = kind(source="", audio=0, out=out, grid=grid, keep=40.0, wait=0.0)
+    feed.packer = fake_packer(out, first=first)
     return feed
 
 
@@ -729,7 +731,7 @@ def _dark(
 ) -> tuple[_Ticker, Feed, _Warm, _Fading]:
     """Общий вход всех сценариев: смотрели 20-ю минуту, сеть оборвалась, экран погас."""
     clock = _Ticker()
-    feed = _feed_with_segments(tmp_path)
+    feed = _feed_with_segments(tmp_path, at=1200.0)
     feed.offline = offline
     warmer = _Warm(warmed=kwargs.pop("warmed", 600.0), done=kwargs.pop("done", False))
     return clock, feed, warmer, _Fading(clock, feed, warmer, **kwargs)
@@ -878,7 +880,7 @@ def test_a_resumed_show_that_never_gave_a_frame_goes_back_to_its_own_middle(
     """
 
     clock = _Ticker()
-    feed = _feed_with_segments(tmp_path)
+    feed = _feed_with_segments(tmp_path, at=1200.0)
     receiver = _Stillborn(clock, back=1200.0)
 
     _hold(receiver, feed, None, None, clock=clock, start=1200.0)
@@ -1125,6 +1127,10 @@ class _Nudged:
         if self.back_at and self.clock.now - self.began >= self.back_at:
             self.feed.offline = ""
             self.warmer.warmed += 10.0
+            for slot in range(
+                self.feed.grid.slot_at(self.seen), self.feed.grid.slot_at(self.seen) + 2
+            ):
+                (self.feed.out / segment_name(slot)).write_bytes(b"returned source")
         if self.shown:  # один опрос картинка ещё идёт - его и обязана запомнить закладка
             self.shown = False
             return Position(self.seen, 7200.0, True, "PLAYING")
@@ -1251,7 +1257,7 @@ def test_a_receiver_that_dropped_the_show_gets_it_back_in_seconds_not_in_a_minut
     """
 
     clock = _Ticker()
-    feed = _feed_with_segments(tmp_path)
+    feed = _feed_with_segments(tmp_path, at=1200.0)
     feed.offline = ""  # упаковка на обрыв не жаловалась: рвался не источник
     warmer = _Warm()
     receiver = _Blinking(clock, warmer)
@@ -1284,7 +1290,7 @@ def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
     """
 
     clock = _Ticker()
-    feed = _feed_with_segments(tmp_path)
+    feed = _feed_with_segments(tmp_path, at=1200.0)
     feed.offline = ""
     warmer = _Warm()
     receiver = _Blinking(clock, warmer, refuses=1, revives=2)
@@ -1561,7 +1567,7 @@ def _blinking(
     исход не зависит от того, чем занята машина.
     """
     clock = _Ticker()
-    feed = _feed_with_segments(tmp_path)
+    feed = _feed_with_segments(tmp_path, at=1200.0)
     warmer = _Warm(warmed=600.0)
     receiver = _Piped(patience=patience, clock=clock)
     source = receiver.source = _Source(clock, receiver, feed, warmer, **kwargs)

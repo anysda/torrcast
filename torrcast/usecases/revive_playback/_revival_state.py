@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import torrcast.usecases.revive_playback._revive_state as _state
+from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.revive_settings import REVIVE_DROP, REVIVE_LIVED, REVIVE_PAUSE
 from torrcast.ports.clock import Clock
 from torrcast.ports.stream_source import StreamSource
@@ -79,6 +80,8 @@ class _RevivalState:
     #: Сколько показ должен идти живым, чтобы запас попыток снова считался полным.
     #: Меньше :attr:`pause` брать нельзя - см. :data:`REVIVE_LIVED`.
     lived: float = REVIVE_LIVED
+    #: The receiver's existing start buffer, required before sending another LOAD.
+    buffer: float = CAUTIOUS.start_buffer
     #: Чем меряется темнота и выдержка между попытками. Умолчание - часы боевого пути,
     #: которые положил композиционный корень; сухой прогон подаёт свои
     #: (:class:`torrcast.ports.clock.Clock`).

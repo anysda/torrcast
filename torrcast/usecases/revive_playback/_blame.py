@@ -89,7 +89,7 @@ def _may(state: _RevivalState, feed: Feed, warmer: Warmer | None, pos: float) ->
     и сделать это надо ДО того, как приёмник попросит поток по голому хэшу.
     """
     front = feed.front(pos)
-    ready = front > pos and front >= feed.grid.end(feed.grid.slot_at(pos) + 1)
+    ready = front > pos and front - pos >= min(state.buffer, feed.duration - pos)
     if warmer is not None:
         if warmer.done:
             return ready

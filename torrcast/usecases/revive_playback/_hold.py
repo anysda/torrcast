@@ -81,7 +81,7 @@ def _hold(
     show_trace = bool(os.environ.get(TRACE_ENV))
     #: Всё, что показ помнит между двумя опросами приёмника (:class:`_Screen`).
     screen = _Screen(raised=raised)
-    source_wait = _SourceWait()
+    source_wait = _SourceWait(buffer=profile.start_buffer)
     # Обе выдержки воскрешения - мера молчания ПРИЁМНИКА, поэтому приходят из его профиля,
     # а не из общей константы: приставка после отказа берёт LOAD не так, как телевизор.
     revival = _Revival(
@@ -90,6 +90,7 @@ def _hold(
         lived=profile.revive_pause,
         drop=profile.revive_drop,
         clock=clock,
+        buffer=profile.start_buffer,
     )
     while True:
         _ctl(receiver)
