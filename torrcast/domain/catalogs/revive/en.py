@@ -50,6 +50,10 @@ def en() -> dict[str, str]:
             "I will bring the show back myself"
         ),
         "revive.pack_broke": "the pack broke off: {trouble}",
+        "revive.source_wait_ended": (
+            "the stream has not supplied the next segment for {secs} s - "
+            "stopping at {pos}; cast will resume here"
+        ),
         "revive.fully_warm_switch_disk": (
             "fully warmed - stopping the live pack, playing from disk"
         ),

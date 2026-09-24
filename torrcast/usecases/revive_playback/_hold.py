@@ -35,6 +35,7 @@ from torrcast.usecases.revive_playback._screen import (
     _trace_line,
 )
 from torrcast.usecases.revive_playback._screen_state import _Screen
+from torrcast.usecases.revive_playback._source_wait import _SourceWait
 from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
@@ -55,14 +56,6 @@ def _hold(
     """Держим показ: опрос приёмника раз в 2 с (между словом ``PLAYING`` и первым
     кадром - раз в :data:`FIRST_FRAME_POLL`), упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
-
-    Перемотку здесь ловить больше нечем и незачем: приёмник видит весь фильм и на seek
-    просто просит сегмент нужного места, а :class:`Feed` пакует оттуда.
-    Показу остаётся то, о чём раздача не знает: пауза на пульте и конец показа.
-
-    Придерживать ffmpeg сигналом (SIGSTOP) здесь больше нечем и незачем: темп держит
-    сам ffmpeg (``-readrate`` + ``-readrate_initial_burst``), а под паузой процесс
-    именно завершается — под SIGSTOP'ом приёмник намертво вис в BUFFERING.
 
     ``clock`` - чем меряются все выдержки показа (:class:`torrcast.ports.clock.Clock`).
     Боевой путь молчит и берёт часы, которые положил композиционный корень; сухому
@@ -88,6 +81,7 @@ def _hold(
     show_trace = bool(os.environ.get(TRACE_ENV))
     #: Всё, что показ помнит между двумя опросами приёмника (:class:`_Screen`).
     screen = _Screen(raised=raised)
+    source_wait = _SourceWait()
     # Обе выдержки воскрешения - мера молчания ПРИЁМНИКА, поэтому приходят из его профиля,
     # а не из общей константы: приставка после отказа берёт LOAD не так, как телевизор.
     revival = _Revival(
@@ -134,6 +128,7 @@ def _hold(
         # Слово о паузе наружу - то самое, по которому показ решает ниже.
         alive = position.state == "PAUSED"
         paused = alive or (bool(screen.paused) and not position.playing)
+        source_wait.check(feed, feed_at, paused or not position.playing, clock.monotonic())
         if watch is not None:
             _note_watch(watch, warmer, screen.held, revival, paused)
         # 🔴 Страховка перехода. Конец потока приёмник называет не всегда: залипший на
