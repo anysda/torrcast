@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
+from collections.abc import Sequence
 
 from torrcast.adapters.wiki.closed_wave import closed_wave
 from torrcast.adapters.wiki.endpoints import WIKI_HOST, WIKI_PATH
@@ -20,6 +21,7 @@ from torrcast.domain.facts.titles_for import titles_for
 from torrcast.domain.facts.wiki_pages import wiki_pages
 from torrcast.domain.facts.wiki_ranked import wiki_ranked
 from torrcast.domain.facts.wiki_reply import _article
+from torrcast.domain.json_value import JsonValue
 from torrcast.ports.json_client import JsonClient
 from torrcast.ports.name_catalogue import NameCatalogue
 
@@ -48,9 +50,9 @@ class WikiArticles:
         статья. Он идёт не следом за поиском, а ВМЕСТЕ с ним, одной волной
         (:meth:`_asked_otherwise`): очереди из трёх кругов по сети бюджет справки не вмещает.
 
-        Последний шаг (:attr:`catalogue`) - офлайн-карта русских прокатных имён IMDb, для
-        картины без русской статьи вовсе: сеть тут уже ответила «не знаю», и дальше слово за
-        файлом.
+        Последний шаг (:attr:`catalogue`) - офлайн-карта русских прокатных имён IMDb. Она
+        идёт в одной волне с запасным поиском: отвечает за картину без русской статьи и
+        разводит несколько точных омонимов по измеренной известности.
         """
         kind = "сериал" if series else "фильм"
         names = titles_for(title, None)
@@ -89,30 +91,68 @@ class WikiArticles:
         УЖЕ промахнулась (счастливый путь сюда не заходит вовсе), а на нём поиск и так
         собирается на второй круг по индексерам.
 
-        Молчание любого из двух - не беда всей справки: ошибка одного шага не должна отнимать
+        Молчание любого пути - не беда всей справки: ошибка одного шага не должна отнимать
         ответ у другого, поэтому каждый идёт своим потоком и своё исключение глотает сам.
 
-        Обе нитки подняты здесь, значит и закрыты будут здесь (:func:`closed_wave`): срок
+        Все нитки подняты здесь, значит и закрыты будут здесь (:func:`closed_wave`): срок
         отдаёт ответ спрашивающему, а брошенная нитка доживала бы своё уже в чужой работе.
         Платит закрытие фоновая нитка паспорта, которая сюда и позвала, - не человек:
         его потолок держит :meth:`~torrcast.usecases.passport.Passport._typed`.
         """
         box: dict[str, Origin] = {}
+        searched: list[JsonValue] = []
 
         def by_search() -> None:
             with contextlib.suppress(Exception):
                 params = search_params(f"{title} {kind}")
                 payload = self.client.get(WIKI_HOST, WIKI_PATH, params, {}, timeout)
-                box["search"] = read_origin(wiki_ranked(payload), title, series=series)
+                searched.extend(wiki_ranked(payload))
 
         def by_spelling() -> None:
             with contextlib.suppress(Exception):
                 box["spelling"] = self.spelling.look(title, series, timeout)
 
+        def by_map() -> None:
+            with contextlib.suppress(Exception):
+                box["map"] = self.catalogue.look(title, series)
+
         deadline = time.monotonic() + timeout
-        wave = [threading.Thread(target=work, daemon=True) for work in (by_search, by_spelling)]
+        wave = [
+            threading.Thread(target=work, daemon=True) for work in (by_search, by_spelling, by_map)
+        ]
         for thread in wave:
             thread.start()
-        return closed_wave(
-            wave, deadline, lambda: box.get("search") or box.get("spelling") or Origin()
+        return closed_wave(wave, deadline, lambda: self._wave_answer(searched, box, title, series))
+
+    def _wave_answer(
+        self, pages: Sequence[JsonValue], box: dict[str, Origin], title: str, series: bool
+    ) -> Origin:
+        """Take the strongest answer that reached the shared deadline."""
+        searched = self._ranked_origin(pages, title, series, box.get("map", Origin()))
+        return searched or box.get("spelling") or box.get("map") or Origin()
+
+    def _ranked_origin(
+        self, pages: Sequence[JsonValue], title: str, series: bool, known: Origin
+    ) -> Origin:
+        """Prefer the best-known exact namesake, while keeping Wikipedia's identity.
+
+        Search rank is allowed to change and has put a little-known same-titled film
+        above the famous one.  The offline map already resolves exact Russian names by
+        IMDb vote count.  Its year selects among accepted Wikipedia articles; the
+        article still supplies the title and QID.  With no map match, search order stays
+        authoritative rather than turning absence of evidence into a guess.
+        """
+        found = [read_origin([page], title, series=series) for page in pages]
+        candidates = [origin for origin in found if origin]
+        if len(candidates) < 2:
+            return candidates[0] if candidates else Origin()
+        if known.year is None:
+            return candidates[0]
+        return next(
+            (
+                origin
+                for origin in candidates
+                if origin.year is not None and abs(origin.year - known.year) <= 1
+            ),
+            candidates[0],
         )

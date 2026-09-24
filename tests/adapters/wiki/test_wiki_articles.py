@@ -52,6 +52,57 @@ def test_the_map_answers_when_wikipedia_does_not_know_the_name() -> None:
     assert catalogue.asked == ["Американская фабрика"]
 
 
+def test_the_best_known_exact_namesake_wins_without_losing_its_wikidata_id() -> None:
+    """Search rank may put a little-known namesake first; IMDb renown breaks that tie."""
+    tough_nut = page(
+        "Крепкий орешек (фильм, 1967)",
+        "«Крепкий орешек» (англ. Tough Nut) — советский художественный фильм 1967 года.",
+    )
+    tough_nut.update({"index": 1, "pageprops": {"wikibase_item": "Q1965342"}})
+    die_hard = page(
+        "Крепкий орешек (фильм, 1988)",
+        "«Крепкий орешек» (англ. Die Hard) — американский боевик 1988 года.",
+    )
+    die_hard.update({"index": 2, "pageprops": {"wikibase_item": "Q105598"}})
+
+    def wiki(_host: str, _path: str, params: dict[str, str]) -> Any:
+        if params.get("generator") == "search":
+            return {"query": {"pages": [tough_nut, die_hard]}}
+        return {"query": {"pages": []}}
+
+    catalogue = FakeNameCatalogue(
+        lambda title, series: Origin(title="Die Hard", year=1988, guessed=True)
+    )
+    found = _articles(FakeJsonClient(wiki), catalogue).look("Крепкий орешек", False, 1.0)
+
+    assert (found.title, found.entity, found.year) == ("Die Hard", "Q105598", 1988)
+    assert catalogue.asked == ["Крепкий орешек"]
+
+
+def test_a_nearby_release_year_keeps_the_right_namesake() -> None:
+    """Festival and general-release years differ by one; that is still one picture."""
+    climbers = page(
+        "Восхождение (фильм, 2019)",
+        "«Восхождение» (англ. The Climbers) — китайский фильм 2019 года.",
+    )
+    climbers.update({"index": 1, "pageprops": {"wikibase_item": "Q66701049"}})
+    ascent = page(
+        "Восхождение (фильм, 1976)",
+        "«Восхождение» (англ. The Ascent) — советский военный фильм 1976 года.",
+    )
+    ascent.update({"index": 2, "pageprops": {"wikibase_item": "Q760053"}})
+
+    def wiki(_host: str, _path: str, params: dict[str, str]) -> Any:
+        if params.get("generator") == "search":
+            return {"query": {"pages": [climbers, ascent]}}
+        return {"query": {"pages": []}}
+
+    catalogue = FakeNameCatalogue(lambda _t, _s: Origin(year=1977, guessed=True))
+    found = _articles(FakeJsonClient(wiki), catalogue).look("Восхождение", False, 1.0)
+
+    assert (found.title, found.entity, found.year) == ("The Ascent", "Q760053", 1976)
+
+
 def test_a_series_asks_for_its_own_qualified_article_first() -> None:
     """У сериала своя статья, и лежит она под своим уточнением - его и спрашиваем раньше."""
     client = FakeJsonClient(lambda host, path, params: {"query": {"pages": []}})
