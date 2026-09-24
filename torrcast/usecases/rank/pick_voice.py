@@ -134,5 +134,5 @@ def _ask_voice(media: Media, native: bool = False, studios: Sequence[Studio] = (
     default = media.default_track(native)
     if len(media.tracks) == 1:  # выбора нет - вопроса тоже
         return default
-    _console_port().write(voices_table(media, default, studios=studios))
+    _console_port().write(voices_table(media, default, studios=studios, native=native))
     return _console_port().choose(phrase("rank.voice_question"), len(media.tracks), default + 1) - 1

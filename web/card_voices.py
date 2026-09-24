@@ -16,6 +16,7 @@ from torrcast.domain.catalogs.tongue import RU
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.studio import Studio
 from torrcast.domain.track_studio import track_studio
+from torrcast.domain.unnamed_track_origin import UNNAMED_TRACK_KEYS, unnamed_track_origin
 from torrcast.usecases.rank.spoken_key import ORIGINAL_KEY, spoken_key
 from web.heard import Heard
 
@@ -88,8 +89,9 @@ def _label(track: AudioTrack, catalog: dict[str, str], *, native: bool, lone: bo
     parts = [part for part in (language, track.clean_title) if part]
     if parts:
         return " · ".join(parts)
-    if lone:
-        return catalog["select.track_native_unnamed" if native else "select.track_foreign_unnamed"]
+    origin = unnamed_track_origin(track, native=native, lone=lone)
+    if fallback_key := UNNAMED_TRACK_KEYS.get(origin):
+        return catalog[fallback_key]
     return catalog["select.track_number"].format(number=track.index + 1)
 
 

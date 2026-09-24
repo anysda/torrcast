@@ -22,7 +22,9 @@ def _about(entry: Entry) -> str:
     (:attr:`torrcast.domain.args.Args.menu`): играет тут записанный выбор, и другого
     места сказать о выборе нет.
     """
-    voice = spoken_voice(entry.voice) or phrase("select.track_number", number=entry.audio + 1)
+    voice = spoken_voice(entry.voice, origin=entry.voice_origin) or phrase(
+        "select.track_number", number=entry.audio + 1
+    )
     studio = entry.heard or entry.studio
     if studio and studio.casefold() not in voice.casefold():
         voice = f"{voice} ({studio})"

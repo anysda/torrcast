@@ -12,7 +12,12 @@ from torrcast.usecases.rank.spoken_label import spoken_label
 
 
 def voices_table(
-    media: Media, default: int, remembered: str = "", studios: Sequence[Studio] = ()
+    media: Media,
+    default: int,
+    remembered: str = "",
+    studios: Sequence[Studio] = (),
+    *,
+    native: bool = False,
 ) -> str:
     """Список озвучек с пометками «дефолт» и «запомнено» — для меню и ``cast voices``."""
     found = media.find_voice(remembered) if remembered else None
@@ -24,7 +29,7 @@ def voices_table(
         )
         note = [word for word, on in marks if on]
         tail = f"   [{', '.join(note)}]" if note else ""
-        label = spoken_label(track)
+        label = spoken_label(track, native=native, lone=len(media.tracks) == 1)
         studio = track_studio(media, track.index, studios)
         named = f" ({studio.name})" if studio is not None else ""
         if studio is not None and studio.name.casefold() in label.casefold():

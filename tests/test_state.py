@@ -30,7 +30,7 @@ def test_roundtrip_creates_parent_dirs_and_keeps_utf8(
     monkeypatch.setenv("TORRCAST_STATE", str(nested))
 
     state = State()
-    entry = Entry(title="Матрица", magnet="magnet:?xt=1", pos=2467, dur=8160)
+    entry = Entry(title="Матрица", magnet="magnet:?xt=1", pos=2467, dur=8160, voice_origin="native")
     state.put("movie:матрица:1999", entry)
     state.save()
 
@@ -38,6 +38,7 @@ def test_roundtrip_creates_parent_dirs_and_keeps_utf8(
     reloaded = State.load().get("movie:матрица:1999")
     assert reloaded is not None
     assert reloaded.pos == 2467
+    assert reloaded.voice_origin == "native"
     assert reloaded.updated  # метку времени ставит put()
 
 

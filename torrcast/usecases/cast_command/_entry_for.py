@@ -15,6 +15,7 @@ from torrcast.domain.slugify import slugify
 from torrcast.domain.studio import Studio
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.track_studio import track_studio
+from torrcast.domain.unnamed_track_origin import unnamed_track_origin
 from torrcast.usecases.select._prep import _Prep
 
 if TYPE_CHECKING:
@@ -47,6 +48,14 @@ def _entry_for(
     # подготовка спрашивает соседние раздачи параллельно, и общего места, где список
     # мог бы полежать, у них нет (:meth:`torrcast.domain._series._Series.choose`).
     episodes = series.table(prep.files, release) if series else []
+    sound = prep.voiced
+    voice_origin = (
+        unnamed_track_origin(
+            sound.tracks[audio], native=plan.picture.native, lone=len(sound.tracks) == 1
+        )
+        if audio < len(sound.tracks)
+        else ""
+    )
     # 🔴 TC-807. Сезон и серия пишутся по ТОМУ файлу, который играет, а не по запросу:
     # запрос мог звать «s1e1» серию, которая в этой раздаче - s5e1, и подпись на экране
     # обязана совпадать с записью. Файл вне таблицы серий (ручка ``--file N``) - серии
@@ -69,6 +78,7 @@ def _entry_for(
         # у каждой серии свой файл звука, а список серий про него не знает.
         voiced_apart=prep.apart,
         voice=voice,
+        voice_origin=voice_origin,
         # Чья это озвучка - спрашивается у дорожки и у имени раздачи: следующий сезон
         # будет другим релизом, и одна эта строка - всё, чем он узнает, чем сериал
         # смотрели (:func:`track_studio`).

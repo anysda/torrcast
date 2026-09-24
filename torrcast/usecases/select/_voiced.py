@@ -14,6 +14,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.track_studio import track_studio
+from torrcast.domain.unnamed_track_origin import unnamed_track_origin
 from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.usecases.rank.pick_voice import pick_voice
 from torrcast.usecases.torrent_claims import CLAIMS
@@ -111,6 +112,14 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
         progress.phase("")
     played = entry.audio
     entry.audio, entry.voice = pick_voice(media, args, entry.voice)
+    track = media.tracks[entry.audio]
+    origin = unnamed_track_origin(
+        track, native=entry.voice_origin == "native", lone=len(media.tracks) == 1
+    )
+    if not origin:
+        # Происхождение картины уже записано первым запуском. Перечитанный паспорт
+        # вправе лишь снять отметку, когда дорожка больше не одна или получила имя.
+        entry.voice_origin = ""
     # Дорожку назвал человек - вынужденной подмены после этого нет ни в каком виде, и
     # строке про неё на экране взяться неоткуда (:attr:`Entry.heard`).
     entry.heard = ""

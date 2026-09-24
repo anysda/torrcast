@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -449,6 +449,50 @@ def test_the_place_of_a_dead_recording_moves_onto_the_release_found_instead(
     assert code == EXIT_OK
     tail = phrase("cmd_play.resumed_from", pos="1:00:00")
     assert tail in capsys.readouterr().out, "час просмотра переехал на новую раздачу"
+
+
+def test_dry_run_names_a_lone_unnamed_native_track_russian(
+    capsys: pytest.CaptureFixture[str], _russian_product: None
+) -> None:
+    """Продуктовая строка CLI совпадает с вебом для отечественного сериала."""
+    pack = release("Универ. Новая общага S01 WEB-DL 1080p")
+    one = Plan(
+        picture=Picture(
+            title="Универ. Новая общага", year=2011, kind="tv", native=True, releases=[pack]
+        ),
+        ranked=[pack],
+        runtime=1440.0,
+        warn_mbit=16.0,
+        series=_Series(want=Episode(1, 1)),
+    )
+    files = [
+        TorrFile(index=0, name="Универ. Новая общага/S01E01.mkv", size=GB),
+        TorrFile(index=1, name="Универ. Новая общага/S01E02.mkv", size=GB),
+    ]
+    prep = _Prep(number=1, release=pack)
+    prep.video, prep.files = files[0], files
+    prep.media = Media(
+        duration=1440.0,
+        tracks=(AudioTrack(index=0),),
+        video="h264",
+        height=1080,
+        video_bps=8.0 * 1e6,
+    )
+
+    code = _cmd_play(
+        Args(query=["Универ Новая общага", "s1e1"], dry=True),
+        restart=_never,
+        resume=_never,
+        choose=cast(
+            Any,
+            lambda *args, **rest: ([one], one, prep, _OneBench(prep), _OnePassport()),
+        ),
+    )
+
+    assert code == EXIT_OK
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        "(--dry) «Универ. Новая общага» s1e1 · 1080p · Русский · файл «S01E01.mkv» - каста нет"
+    )
 
 
 def test_a_voice_taken_from_a_file_beside_the_video_names_that_file(

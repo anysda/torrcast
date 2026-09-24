@@ -117,3 +117,14 @@ def test_the_english_page_names_a_lone_unnamed_track_in_english() -> None:
 
     assert _field(card_voices(foreign, "en"), "label") == ["language not stated"]
     assert _field(card_voices(native, "en"), "label") == ["Russian"]
+
+
+def test_two_unnamed_native_tracks_stay_numbered() -> None:
+    """Происхождение говорит язык картины, но не различает две дорожки между собой."""
+    heard = Heard(
+        media(tracks=(track(0, None, None), track(1, None, None))),
+        native=True,
+        studios=(),
+    )
+
+    assert _field(card_voices(heard, "ru"), "label") == ["дорожка 1", "дорожка 2"]

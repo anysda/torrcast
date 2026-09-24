@@ -35,6 +35,19 @@ def test_a_nameless_voice_is_named_by_its_number() -> None:
     assert _about(entry(pos=0.0, audio=1)) == "«Кино» · дорожка 2 · выбрать другое: --menu"
 
 
+def test_a_saved_lone_unnamed_native_voice_stays_russian() -> None:
+    """Продолжение обходится состоянием, но говорит тем же правилом, что свежий запуск."""
+    saved = entry(pos=0.0, audio=0, voice_origin="native")
+
+    assert _about(saved) == "«Кино» · Русский · выбрать другое: --menu"
+
+
+def test_a_saved_lone_unnamed_foreign_voice_says_the_language_was_not_stated() -> None:
+    saved = entry(pos=0.0, audio=0, voice_origin="foreign")
+
+    assert _about(saved) == "«Кино» · язык не назван · выбрать другое: --menu"
+
+
 def test_the_start_of_the_film_is_not_a_place_worth_naming() -> None:
     """Показ с нуля - говорить «с 0:00:00» незачем."""
     assert "с " not in _about(entry(pos=0.0, voice="Дубляж"))

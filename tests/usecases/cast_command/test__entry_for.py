@@ -54,6 +54,21 @@ def test_the_chosen_file_and_track_reach_the_record() -> None:
     assert (entry.file_idx, entry.audio, entry.voice) == (7, 0, "Дубляж")
 
 
+def test_the_origin_of_a_lone_unnamed_track_reaches_the_record() -> None:
+    one = plan()
+    one.picture.native = True
+    video = TorrFile(index=0, name="кино.mkv", size=8 * 1024**3)
+    prep = _Prep(number=1, release=release())
+    sound = Media(duration=7200.0, tracks=(AudioTrack(index=0),), video="h264", height=1080)
+    prep.video, prep.files, prep.media = video, [video], sound
+
+    entry = _entry_for(
+        cast(Any, one), prep, release(), video, sound, 0, "", "", Args(query=["кино"])
+    )
+
+    assert entry.voice_origin == "native"
+
+
 def test_missing_video_weight_is_estimated_from_the_chosen_file() -> None:
     """Молчание паспорта не оставляет ровный профиль без целей."""
     video = TorrFile(index=7, name="кино/film.mkv", size=30_000_000_000)

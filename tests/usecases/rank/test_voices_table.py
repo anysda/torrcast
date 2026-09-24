@@ -50,6 +50,22 @@ def test_the_fallback_row_speaks_english_when_the_product_does() -> None:
     """TC-942: запасная подпись - наше слово, и под английским она обязана звучать
     по-английски (:mod:`torrcast.usecases.rank.spoken_voice`)."""
     _choose_tongue(EN)
+    blanks = (track(0, None, None), track(1, None, None))
+    lines = voices_table(media(tracks=blanks), default=0).splitlines()
+    assert lines == ["Voice tracks:", "  1. track 1   [default]", "  2. track 2"]
+
+
+def test_two_unnamed_native_tracks_stay_numbered_because_origin_cannot_tell_them_apart() -> None:
+    tracks = (track(0, None, None), track(1, None, None))
+
+    lines = voices_table(media(tracks=tracks), default=0, native=True).splitlines()
+
+    assert lines == ["Озвучка:", "  1. дорожка 1   [дефолт]", "  2. дорожка 2"]
+
+
+def test_a_lone_unnamed_native_track_is_named_russian() -> None:
     blank = track(0, None, None)
-    lines = voices_table(media(tracks=(blank,)), default=0).splitlines()
-    assert lines == ["Voice tracks:", "  1. track 1   [default]"]
+
+    lines = voices_table(media(tracks=(blank,)), default=0, native=True).splitlines()
+
+    assert lines == ["Озвучка:", "  1. Русский   [дефолт]"]

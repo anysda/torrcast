@@ -29,7 +29,7 @@ from torrcast.usecases.playback._launch import _launch
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.rank.pick_voice import pick_voice
 from torrcast.usecases.rank.quality_text import quality_text
-from torrcast.usecases.rank.spoken_label import spoken_label
+from torrcast.usecases.rank.spoken_label import _spoken_media_label
 from torrcast.usecases.say_showing import _say_showing
 from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.select._remembered import _remembered
@@ -148,7 +148,7 @@ def _cmd_play(
             release.studios,
         )
         journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
-        label = spoken_label(sound.tracks[audio]) if audio < len(sound.tracks) else "-"
+        label = _spoken_media_label(sound, audio, native=plan.picture.native)
         if prep.apart and prep.voice_file is not None:
             print(phrase("cmd_play.voice_apart", base=prep.voice_file.base))
         # Чья это озвучка - в подписи дорожки бывает не написано: пак подписывает дорожки

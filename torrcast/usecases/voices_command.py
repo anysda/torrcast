@@ -99,7 +99,11 @@ def _cmd_voices(args: Args, search: Search | None = None) -> int:
     )
     print(
         voices_table(
-            media, media.default_track(plan.picture.native), remembered, prep.release.studios
+            media,
+            media.default_track(plan.picture.native),
+            remembered,
+            prep.release.studios,
+            native=plan.picture.native,
         )
     )
     print()
