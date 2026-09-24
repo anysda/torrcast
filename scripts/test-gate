@@ -123,6 +123,8 @@ if [ "${1:-}" = --quick ] && [ "$#" -eq 1 ]; then
     echo "    Зелень здесь НИЧЕГО не доказывает - перед сдачей гони scripts/test-gate без аргументов."
     stage "installer language contract"
     scripts/installer-language-contract
+    stage "публичное дерево"
+    .venv/bin/python scripts/public_tree_gate.py
     stage "структурный гейт"
     scripts/structure-gate --strict
     stage "ruff"
@@ -137,6 +139,8 @@ fi
 
 stage "installer language contract"
 scripts/installer-language-contract
+stage "публичное дерево"
+.venv/bin/python scripts/public_tree_gate.py
 
 
 # Разрез на слои закончен, нарушений ноль по всем правилам: сторож блокирует и с
