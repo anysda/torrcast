@@ -27,10 +27,12 @@ def test_warm_facts_reads_the_map_in_a_background_thread(monkeypatch: pytest.Mon
     monkeypatch.setattr(FACTS.catalogue, "names", slow_names)
     monkeypatch.setattr(INDEX, "warm", finished.set)
     before = time.monotonic()
-    warm_facts()
+    worker = warm_facts()
     # Звавший не ждёт: разбор карты живёт своим потоком, и вызов возвращается тут же.
     assert time.monotonic() - before < 0.1
     assert started.wait(1.0)
     release.set()
-    assert finished.wait(1.0), "фоновый прогрев завершён до выхода из теста"
+    worker.join(5.0)
+    assert not worker.is_alive(), "проба обязана дождаться поднятого ею прогрева"
+    assert finished.is_set(), "фоновый прогрев обязан собрать указатель каталога"
     assert calls == [1]
