@@ -63,6 +63,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from web.min_tiles import FLOOR
+
 #: Три полки главной страницы - ключи каталога `torrcast/domain/catalogs/web/en.py`.
 _SHELF_KEYS: Final = (
     "web.shelf.continue_watching",
@@ -440,8 +442,8 @@ def check_1_home(ctx: Ctx) -> Result:
     # Первое обещание человеку - не готовая выдача, а честная заглушка. Полки могут
     # собираться десятки секунд, но скелет и ``Loading_`` обязаны появиться к отдельному
     # названному потолку, иначе пустой экран маскируется более долгим ожиданием плиток.
-    # Второе обещание - настоящая выдача. Ждём её состава, а не единственной живой
-    # плитки: один случайный ответ не делает обе полки пригодными человеку. Обе меры
+    # Второе обещание - настоящая выдача. Ждём обе непустые полки, но не судим их
+    # длину: отменённая планка полноты не превращает короткую полку в отсутствие. Обе меры
     # идут одновременно: на тёплой выдаче, успевшей до первого кадра, ожидания нет и
     # заглушку зрителю показывать незачем; на долгой - к 10 с уже обязана быть заглушка.
     loading_at: float | None = None
@@ -467,7 +469,7 @@ def check_1_home(ctx: Ctx) -> Result:
                     counts = _shelf_tile_counts(payload)
                     shelves_detail += f", полок {len(counts)}, плиток {counts}"
                     if set(counts) == {"fresh", "popular"} and all(
-                        count >= 20 for count in counts.values()
+                        count >= FLOOR for count in counts.values()
                     ):
                         tiles_at = time.monotonic() - began
                         break
@@ -525,7 +527,7 @@ def check_1_home(ctx: Ctx) -> Result:
     tiles_detail = (
         f"настоящие плитки за {tiles_at:.1f} с (потолок {_HOME_TILES_WAIT:.0f} с)"
         if tiles_at is not None
-        else f"настоящие плитки не собрались за {_HOME_TILES_WAIT:.0f} с"
+        else f"полка пустая или не приехала за {_HOME_TILES_WAIT:.0f} с"
     )
     detail = (
         f"GET / -> {code}; {loading_detail}; {tiles_detail}; "

@@ -6,10 +6,9 @@ set -eu
 # pyproject.toml), а тащить их туда - лишний вес под потолком 6G ради того, что уже
 # есть готовым на отдельной машине. Эта команда гоняет ровно те же два теста РЕАЛЬНЫМ
 # Chromium на машине с установленным playwright и браузером (тот же принцип, что у
-# web-acceptance.py и decodebench.py - см. их шапки). Копируются только два файла -
-# сам тест и прибор, который он грузит: остального дерева (torrcast, conftest.py)
-# машинным тестам не нужно, они не читают ничего, кроме playwright и стандартной
-# библиотеки.
+# web-acceptance.py и decodebench.py - см. их шапки). Копируются тест, прибор и его
+# единая планка наличия полок; остального дерева (torrcast, conftest.py) машинным
+# тестам не нужно.
 #
 # Адрес такой машины и её окружение - деталь СРЕДЫ, а не продукта, и в отслеживаемом
 # дереве не живёт (репозиторий публичный). Задаются снаружи:
@@ -34,9 +33,10 @@ remote_dir=$(ssh "$probe_host" mktemp -d)
 local_ini=$(mktemp)
 trap 'rm -f "$local_ini"; ssh "$probe_host" "rm -rf \"$remote_dir\""' EXIT
 
-ssh "$probe_host" "mkdir -p '$remote_dir/tests' '$remote_dir/scripts'"
+ssh "$probe_host" "mkdir -p '$remote_dir/tests' '$remote_dir/scripts' '$remote_dir/web'"
 scp -q "$lane_root/tests/test_web_acceptance.py" "$probe_host:$remote_dir/tests/"
 scp -q "$lane_root/scripts/web-acceptance.py" "$probe_host:$remote_dir/scripts/"
+scp -q "$lane_root/web/min_tiles.py" "$probe_host:$remote_dir/web/"
 # Маркер регистрируем на месте: без него pytest на щупе не видит pyproject.toml дерева
 # и честно, но зря предупреждает про незнакомый `machine` при каждом прогоне.
 printf '[pytest]\nmarkers =\n    machine: тест с настоящими часами, сокетом или подпроцессом\n' \

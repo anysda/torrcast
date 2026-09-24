@@ -396,8 +396,8 @@ def test_a_failed_attempt_is_retried_inside_the_same_rebuild(tmp_path: Path) -> 
 def test_a_full_shelf_is_not_replaced_by_a_drastically_shrunk_build(tmp_path: Path) -> None:
     """Полная полка остаётся на месте, когда свежая сборка усохла больше чем вдвое (TC-1343).
 
-    Планка тут не абсолютная ``FLOOR`` (снята - TC-1353), а относительная половина
-    прежнего тела того же правила (:data:`web.worth_publishing.SHRINK_FLOOR`).
+    Планка тут не абсолютная длина, а относительная половина прежнего тела того же
+    правила (:data:`web.worth_publishing.SHRINK_FLOOR`).
     """
     answers = iter([_many_rows(25), _many_rows(10)])
     cache = _cache(tmp_path, feed=lambda limit: next(answers))

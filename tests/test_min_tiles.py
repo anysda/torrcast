@@ -1,4 +1,4 @@
-"""Проверяет min_tiles: планку полноты полок (ТЗ §9) роняет любая из двух."""
+"""Проверяет меру и планку наличия двух полок главной."""
 
 from web.min_tiles import FLOOR, min_tiles
 
@@ -13,6 +13,6 @@ def test_a_missing_or_empty_shelf_counts_as_zero() -> None:
     assert min_tiles({"fresh": list(range(30))}) == 0
 
 
-def test_the_floor_is_the_twenty_tiles_of_the_spec() -> None:
-    """Планка - дословные «не меньше 20 плиток» приёмки ТЗ §9."""
-    assert FLOOR == 20
+def test_the_floor_only_distinguishes_an_arrived_shelf_from_an_empty_one() -> None:
+    """Одна плитка уже означает «полка приехала»; полнота отдельной планки не имеет."""
+    assert FLOOR == 1

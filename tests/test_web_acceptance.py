@@ -27,6 +27,104 @@ def acceptance() -> ModuleType:
     return module
 
 
+class HomeNode:
+    """Минимальный locator для заглушки, заголовков и пустой истории главной."""
+
+    def __init__(self, amount: int) -> None:
+        self.amount = amount
+
+    @property
+    def first(self) -> HomeNode:
+        return self
+
+    def count(self) -> int:
+        return self.amount
+
+    def is_visible(self) -> bool:
+        return bool(self.amount)
+
+    def locator(self, _selector: str) -> HomeNode:
+        return HomeNode(self.amount)
+
+
+class HomePage:
+    """Главная с честной заглушкой и двумя названными полками в DOM."""
+
+    def __init__(self) -> None:
+        self.clock = 0.0
+
+    def goto(self, _url: str, **_: Any) -> None:
+        return None
+
+    def locator(self, selector: str) -> HomeNode:
+        return HomeNode(1 if selector == ".tc-tile-skeleton" else 0)
+
+    def get_by_text(self, text: str, exact: bool) -> HomeNode:
+        assert exact
+        return HomeNode(1 if text in {"Loading_", "New", "Popular"} else 0)
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        # Пустую полку доводим до минутного приговора шестью шагами вместо 600.
+        self.clock += timeout / 10 if timeout == 100 else timeout / 1000
+
+
+@pytest.mark.parametrize(
+    ("tiles", "state", "arrival"),
+    (
+        (14, "OK", "настоящие плитки за 0.0 с (потолок 60 с)"),
+        (0, "FAIL", "полка пустая или не приехала за 60 с"),
+        (20, "OK", "настоящие плитки за 0.0 с (потолок 60 с)"),
+    ),
+)
+def test_главная_отличает_короткую_полку_от_неприехавшей(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tiles: int,
+    state: str,
+    arrival: str,
+) -> None:
+    module = acceptance()
+    page = HomePage()
+    body = json.dumps({"fresh": list(range(tiles)), "popular": list(range(tiles))}).encode()
+
+    def get(url: str, timeout: float = 10.0) -> tuple[int, bytes]:
+        del timeout
+        if url == "http://example/":
+            return 200, b""
+        if url.endswith("/api/shelves"):
+            return 200, body
+        if url.endswith("/api/history"):
+            return 200, b'{"items": []}'
+        raise AssertionError(url)
+
+    monkeypatch.setattr(module, "_get", get)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: page.clock))
+    ctx = module.Ctx(
+        "http://example",
+        page,
+        False,
+        Path("/tmp"),
+        {
+            "web.shelf.loading": "Loading_",
+            "web.shelf.continue_watching": "Continue",
+            "web.shelf.new": "New",
+            "web.shelf.popular": "Popular",
+        },
+    )
+
+    result = module.check_1_home(ctx)
+    module._print([result])
+
+    assert result.ok is (state == "OK")
+    assert capsys.readouterr().out.splitlines()[0] == (
+        f"[ 1] Главная    {state:<8} GET / -> 200; "
+        f"скелет и Loading_ за 0.0 с (потолок 10 с); {arrival}; "
+        "полки выдачи в DOM по тексту 2/2 (new=1, popular=1); "
+        "continue_watching=0, плиток 0; GET /api/history -> 200, записей 0; "
+        f"GET /api/shelves -> 200, полок 2, плиток {{'fresh': {tiles}, 'popular': {tiles}}}"
+    )
+
+
 class Video:
     def __init__(self, current: float) -> None:
         self.current = current
