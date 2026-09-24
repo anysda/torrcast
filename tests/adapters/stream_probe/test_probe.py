@@ -68,6 +68,21 @@ def test_the_whole_passport_is_taken_by_one_request(
     assert media.tracks[0].language == "rus" and media.tracks[0].channels == 6
 
 
+def test_the_http_probe_cannot_jump_to_the_torrent_tail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cues/Tags в конце mkv не нужны дорожкам, а холодный хвост стоит отдельного куска роя."""
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    seen: list[list[str]] = []
+    url = "http://torr/stream/hash-tail/2"
+
+    probe(url, run=_asked(seen))
+
+    seek = seen[0].index("-seekable")
+    assert seen[0][seek : seek + 2] == ["-seekable", "0"]
+    assert seek < seen[0].index(url), "это опция входа, после URL она его уже не ограничит"
+
+
 def test_the_second_ask_comes_from_the_shelf(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
