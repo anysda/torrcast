@@ -48,6 +48,8 @@ from torrcast.ports.show_unit import slot as unit_slot
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.wire import wire
+from torrcast.usecases.choice.configure import _environment_port
+from torrcast.usecases.choice.configure import configure as configure_choice
 from torrcast.usecases.discover._search_state import (
     _configure_known,
     _configure_recognize,
@@ -742,12 +744,14 @@ def _ports_restored() -> Iterator[None]:
     снова.
     """
     saved_abandon = abandon_slot.asking()
+    saved_choice = _environment_port()
     saved_journal = journal_slot.journal()
     saved_progress = progress_slot.factory()
     saved_state = state_slot.store()
     saved_unit = unit_slot.unit()
     yield
     abandon_slot.install(saved_abandon)
+    configure_choice(saved_choice)
     journal_slot.install(saved_journal)
     progress_slot.install(saved_progress)
     state_slot.install(saved_state)
