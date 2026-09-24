@@ -24,7 +24,7 @@ from torrcast.domain.release import Release
 from torrcast.domain.series_layout import series_layout
 from torrcast.runtime.facts_wiring import FACTS
 
-#: Сколько первый вопрос сериала ждёт TVmaze: живой отвечает за 0.2-0.5 с (стенд `.104`),
+#: Сколько первый вопрос сериала ждёт TVmaze: живой отвечает за 0.2-0.5 с (живой приёмник),
 #: а весь ответ карточки обещан за 2 с.
 COLD: Final = 0.8
 #: Сериал без id переспрашивается не раньше этого: индекс имён мог достроиться после однострока.

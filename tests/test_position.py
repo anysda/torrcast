@@ -90,7 +90,7 @@ def _casting(monkeypatch: pytest.MonkeyPatch, key: str) -> None:
     monkeypatch.setattr(SESSION, "factory", lambda address, profile: tv)
     monkeypatch.setattr(SESSION, "poll_seconds", 0.01)
     monkeypatch.setattr(SESSION, "_receiver", None)
-    SESSION.start("192.168.1.90", "t", "u", 0.0, key=key)
+    SESSION.start("192.0.2.90", "t", "u", 0.0, key=key)
 
 
 def test_while_the_show_is_on_tv_the_tab_no_longer_moves_the_bookmark(

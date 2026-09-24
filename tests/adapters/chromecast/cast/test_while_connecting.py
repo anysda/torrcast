@@ -20,7 +20,7 @@ from torrcast.ports.journal.slot import install
 
 #: Дословно то, чем отвечает pychromecast на команду в переподключающийся сокет
 #: (``socket_client.py``); замер на стенде 30-08-2026 - этой строкой юнит показа и умер.
-CONNECTING = "Chromecast 192.168.1.90:8009 is connecting..."
+CONNECTING = "Chromecast 192.0.2.90:8009 is connecting..."
 
 
 class _Connecting:
@@ -172,7 +172,7 @@ def test_a_reconnecting_socket_does_not_end_the_session_with_an_unhandled_error(
 
     Дословно из журнала стенда 30-08-2026::
 
-        pychromecast.error.NotConnected: Chromecast 192.168.1.90:8009 is connecting...
+        pychromecast.error.NotConnected: Chromecast 192.0.2.90:8009 is connecting...
         torrcast-play.service: Main process exited, code=exited, status=1/FAILURE
 
     ``NotConnected`` командной строке не родня (:class:`TorrcastError`), поэтому она его

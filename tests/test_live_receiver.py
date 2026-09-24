@@ -24,9 +24,9 @@ def test_the_page_does_not_pull_pychromecast_until_someone_casts() -> None:
 
 
 def test_the_live_receiver_is_the_chromecast_with_the_given_profile() -> None:
-    made = live_receiver("192.168.1.90", CAUTIOUS)
+    made = live_receiver("192.0.2.90", CAUTIOUS)
 
     assert isinstance(made, ChromecastReceiver)
-    assert made.address == "192.168.1.90"
+    assert made.address == "192.0.2.90"
     assert made.profile is CAUTIOUS
     assert POLL_SECONDS == 2.0

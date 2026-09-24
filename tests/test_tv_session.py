@@ -25,7 +25,7 @@ def test_start_calls_play_with_the_given_url_title_and_position() -> None:
     receiver = FakeReceiver(Position(0.0, 0.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
 
-    session.start("192.168.1.104", "Interstellar", "http://x/out.m3u8", 42.0)
+    session.start("192.0.2.104", "Interstellar", "http://x/out.m3u8", 42.0)
 
     assert receiver.plays == [("http://x/out.m3u8", "Interstellar", 42.0)]
     assert session.active()
@@ -42,8 +42,8 @@ def test_start_calls_the_tv_with_the_given_profile_and_the_cautious_one_without(
         return FakeReceiver(Position(0.0, 0.0))
 
     session = TvSession(factory=made, poll_seconds=0.01)
-    session.start("192.168.1.90", "t", "u", 0.0, profile=ANDROID_TV)
-    session.start("192.168.1.90", "t", "u", 0.0)
+    session.start("192.0.2.90", "t", "u", 0.0, profile=ANDROID_TV)
+    session.start("192.0.2.90", "t", "u", 0.0)
     session.stop()
 
     assert given == [ANDROID_TV, CAUTIOUS]
@@ -52,7 +52,7 @@ def test_start_calls_the_tv_with_the_given_profile_and_the_cautious_one_without(
 def test_stop_reads_the_position_before_stopping_and_forgets_the_receiver() -> None:
     receiver = FakeReceiver(Position(88.0, 120.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
-    session.start("192.168.1.104", "t", "u", 0.0)
+    session.start("192.0.2.104", "t", "u", 0.0)
 
     at = session.stop()
 
@@ -63,12 +63,12 @@ def test_stop_reads_the_position_before_stopping_and_forgets_the_receiver() -> N
 
 @pytest.mark.machine
 def test_stop_answers_with_the_last_polled_position_not_a_stale_reread() -> None:
-    """Чтение на излёте бывает СТАРШЕ последнего доклада опроса (замер на стенде `.104`
+    """Чтение на излёте бывает СТАРШЕ последнего доклада опроса (замер на живом приёмнике
     10-09-2026: приставка на стопе отдала 4.8 с там, где опрос секунду назад слышал ~14).
     Ответ «на какой секунде стоял каст» - последний услышанный доклад."""
     receiver = FakeReceiver(Position(0.0, 120.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
-    session.start("192.168.1.104", "t", "u", 0.0)
+    session.start("192.0.2.104", "t", "u", 0.0)
     for _ in range(200):
         if receiver.fronts:
             break
@@ -89,7 +89,7 @@ def test_stop_answers_with_the_last_polled_position_not_a_stale_reread() -> None
 def test_settle_keeps_the_cast_that_belongs_to_the_asked_box() -> None:
     receiver = FakeReceiver(Position(0.0, 0.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
-    session.start("192.168.1.90", "t", "u", 0.0, key="k1")
+    session.start("192.0.2.90", "t", "u", 0.0, key="k1")
 
     assert session.settle("k1") is True
     assert session.active()
@@ -101,7 +101,7 @@ def test_settle_takes_down_a_cast_whose_show_is_gone() -> None:
     """Ящик уехал под другую картину - каст первой снимается, а не живёт вечно."""
     receiver = FakeReceiver(Position(0.0, 0.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
-    session.start("192.168.1.90", "t", "u", 0.0, key="k1")
+    session.start("192.0.2.90", "t", "u", 0.0, key="k1")
 
     assert session.settle("k2") is False
     assert receiver.stops == [True]
@@ -124,8 +124,8 @@ def test_starting_again_releases_the_previous_connection_first() -> None:
     receivers = iter([first, second])
     session = TvSession(factory=lambda address, profile: next(receivers), poll_seconds=0.01)
 
-    session.start("192.168.1.104", "t", "u1", 0.0)
-    session.start("192.168.1.104", "t", "u2", 10.0)
+    session.start("192.0.2.104", "t", "u1", 0.0)
+    session.start("192.0.2.104", "t", "u2", 10.0)
 
     assert first.stops == [True]
     assert second.plays == [("u2", "t", 10.0)]
@@ -136,12 +136,12 @@ def test_starting_again_releases_the_previous_connection_first() -> None:
 @pytest.mark.machine
 def test_the_live_cast_is_polled_periodically_so_the_position_stays_fresh() -> None:
     """Без опроса ``current_time`` у pychromecast застревает на месте первой картинки
-    (замерено на стенде ``.104``, см. докстроку :data:`web.live_receiver.POLL_SECONDS`)."""
+    (замерено на живом приёмнике, см. докстроку :data:`web.live_receiver.POLL_SECONDS`)."""
     receiver = FakeReceiver(Position(0.0, 120.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
     heard: list[Position] = []
 
-    session.start("192.168.1.104", "t", "u", 0.0, echo=heard.append)
+    session.start("192.0.2.104", "t", "u", 0.0, echo=heard.append)
 
     for _ in range(200):
         if receiver.fronts:
@@ -158,11 +158,11 @@ def test_the_live_cast_is_polled_periodically_so_the_position_stays_fresh() -> N
 @pytest.mark.machine
 def test_the_cast_is_taken_down_once_its_show_is_gone_and_is_not_asked_again() -> None:
     """Опрос места у ТВ с погасшим потоком поднимал LOAD заново («retrying LOAD»,
-    «reloading»; стенд `.104` 11-09-2026): показ снят - каст снимается, ТВ не спрашивается."""
+    «reloading»; живой приёмник 11-09-2026): показ снят - каст снимается, ТВ не спрашивается."""
     receiver = FakeReceiver(Position(10.0, 120.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
     alive = [True]
-    session.start("192.168.1.90", "t", "u", 0.0, key="k1", alive=lambda: alive[0])
+    session.start("192.0.2.90", "t", "u", 0.0, key="k1", alive=lambda: alive[0])
     _until(lambda: bool(receiver.fronts))
 
     alive[0] = False
@@ -177,14 +177,14 @@ def test_the_cast_is_taken_down_once_its_show_is_gone_and_is_not_asked_again() -
 
 @pytest.mark.machine
 def test_a_report_that_steps_backwards_never_reaches_the_listener() -> None:
-    """Приёмник на прогреве отдаёт место рывком назад (стенд `.104` 10-09-2026: 5.4,
+    """Приёмник на прогреве отдаёт место рывком назад (живой приёмник 10-09-2026: 5.4,
     следом 3.6), и вкладка, ведущая свою плёнку по этому числу, прыгала с 15.9 на 4.5.
     Назад секунда каста не ходит: меньший доклад - излёт, и слушателю он не уходит."""
     receiver = FakeReceiver(Position(5.4, 120.0))
     session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
     heard: list[Position] = []
 
-    session.start("192.168.1.104", "t", "u", 0.0, echo=heard.append)
+    session.start("192.0.2.104", "t", "u", 0.0, echo=heard.append)
     _until(lambda: bool(heard))
     receiver.current = Position(3.6, 120.0)
     _until(lambda: len(receiver.fronts) >= 4)

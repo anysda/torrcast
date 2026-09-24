@@ -35,8 +35,8 @@ HOST = "192.0.2.11"
 PORT = 8479
 BASE = f"http://{HOST}:{PORT}"
 DOMAIN = "torrcast"
-#: Entity id, в который скатывается приёмник записанного снимка ("192.168.1.90").
-PLAYER = "media_player.torrcast_192_168_1_90"
+#: Entity id, в который скатывается приёмник записанного снимка ("192.0.2.90").
+PLAYER = "media_player.torrcast_192_0_2_90"
 #: Часы, по которым координатор метит закладку: круг опроса в тесте отмеряется ими.
 CLOCK = "custom_components.torrcast.coordinator.dt_util"
 

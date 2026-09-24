@@ -115,7 +115,7 @@ class WarmTargets:
 
         A visible shelf has eight tiles. Its passport can make two parallel Wikipedia
         calls; a hovered card's blurb makes three. Six concurrent calls receive 429
-        from Wikipedia on CT501, so the visible lane has exactly one active item.
+        from Wikipedia during a live run, so the visible lane has exactly one active item.
         """
         wanted: list[FactPicture] = []
         for picture in pictures[:8]:

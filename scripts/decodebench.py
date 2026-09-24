@@ -2,7 +2,7 @@
 """Потолок разбора у вкладки-приёмника: где именно декодер начинает отставать.
 
 Инструмент разработчика: в устанавливаемый пакет не входит. Гоняется НА СТЕНДЕ рядом
-с реальным браузером (у CT502 - ``PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`` и
+с реальным браузером (на машине с Playwright - ``PLAYWRIGHT_BROWSERS_PATH=/path/to/browsers`` и
 ``chromium_headless_shell``), потому что мерит живой разбор кадра, а не серверный
 перекод (тот меряет :mod:`recodebench` - вопрос другой стороны провода).
 
@@ -14,7 +14,7 @@
 Два шага, порознь:
 
     python3 scripts/decodebench.py pack --src in.ts --out /srv/tiers --tiers 10,20,30,40,50,60
-    /opt/pwenv/bin/python3 scripts/decodebench.py probe --base http://host:8098 \\
+    /path/to/python3 scripts/decodebench.py probe --base http://host:8098 \\
         --tiers 10,20,30,40,50,60 --card TC-1108
 
 ``pack`` нарезает fMP4-HLS по ступеням Мбит/с из уже готового исходника (нужен только
@@ -148,7 +148,7 @@ def _probe(args: argparse.Namespace) -> int:
         print(
             "playwright не поставлен в этом интерпретаторе - "
             "pip install playwright && playwright install chromium\n"
-            "гоняй той же командой, что и на CT502: /opt/pwenv/bin/python3 ...",
+            "гоняй командой из примера выше: /path/to/python3 ...",
             file=sys.stderr,
         )
         return 1
@@ -255,7 +255,7 @@ def _weigh(args: argparse.Namespace) -> int:
 
     Мера тут не «доиграл ли», а «за сколько настенных секунд прошло столько-то плёнки»:
     декодер, который не тянет, отстаёт по темпу, не роняя ни кадра (это уже ловилось на
-    ступени 60 Мбит/с: headless Chromium на CT502 за 60 с настенных дошёл до 39.7 с из
+    ступени 60 Мбит/с: headless Chromium на машине с Playwright за 60 с настенных дошёл до 39.7 с из
     40.87, а 10-50 Мбит/с доиграли в реальном темпе).
     """
     try:

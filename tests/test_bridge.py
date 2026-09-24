@@ -430,7 +430,7 @@ def test_a_next_call_the_shows_own_watch_already_did_starts_nothing() -> None:
 
     Сторож юнита доигрывает сериал сам (:mod:`torrcast.usecases.worker`), и запоздалый
     зов вкладки, отвеченный запуском, перепрыгивал серию и снимал идущий показ (замер
-    на стенде `.104` 10-09-2026: вкладка получила s1e4 на телевизоре и чёрный экран).
+    на живом приёмнике 10-09-2026: вкладка получила s1e4 на телевизоре и чёрный экран).
     """
     state_slot.install(FakeStateStore())
     store = state_slot.store()

@@ -4,7 +4,7 @@
 Инструмент разработчика: в устанавливаемый пакет не входит. Сети не трогает вовсе -
 корпус сохранённых выдач прогоняется тем же офлайновым трактом, что и :mod:`poolreplay`.
 
-    python scripts/warmseam.py /home/claude/homelab/tmp/tc770/pools-both.jsonl
+    python scripts/warmseam.py /path/to/pools-both.jsonl
 
 Меряется ровно шов TC-829. Под меню греется голова :func:`warm_order`
 (:data:`~torrcast.domain.prewarm_settings.PREWARM` картин плюс запасной релиз у первой),

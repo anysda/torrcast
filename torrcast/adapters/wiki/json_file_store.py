@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 #: Разобранный файл по пути и его отметке ``(mtime_ns, size)``. Кэш справки читают на
-#: каждый заход карточки и каждую плитку; разбор 0.9 МБ стоил 15 мс под GIL (CT501).
+#: каждый заход карточки и каждую плитку; разбор 0.9 МБ стоил 15 мс под GIL (живой экземпляр).
 _PARSED: dict[Path, tuple[tuple[int, int], dict[str, Any]]] = {}
 _LOCK = threading.Lock()
 

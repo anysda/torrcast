@@ -1,9 +1,9 @@
 #!/bin/sh
 # Раскладка интеграции Home Assistant на стенд из рабочего дерева, воспроизводимо.
 #
-#   scripts/hass-deploy root@192.168.1.30:/mnt/data/supervisor/homeassistant
-#   scripts/hass-deploy --port 22222 root@192.168.1.30:/config
-#   scripts/hass-deploy --port 22222 --check root@192.168.1.30:/config
+#   scripts/hass-deploy root@192.0.2.30:/mnt/data/supervisor/homeassistant
+#   scripts/hass-deploy --port 22222 root@192.0.2.30:/config
+#   scripts/hass-deploy --port 22222 --check root@192.0.2.30:/config
 #
 # Выпуск на живой Home Assistant кладёт HACS, и это остаётся его делом. Здесь другое:
 # на стенд надо положить РАБОЧЕЕ ДЕРЕВО, которое ещё не выпущено, - иначе HA-правку
@@ -19,7 +19,7 @@
 #
 # ⚠️ `__pycache__` в сверке не участвует. Его пишет сам Home Assistant при импорте, и
 # после первого же подъёма он появится снова: считать его расхождением значит объявить
-# стенд битым навсегда. На .30 он датируется той же минутой, что и `.py`.
+# стенд битым навсегда. На живом узле он датируется той же минутой, что и `.py`.
 #
 # 🔴 Файлы - это ещё не служба. Python держит уже импортированные модули в памяти, и
 # новый код доедет до человека только с подъёмом Home Assistant заново: `--restart`.

@@ -68,7 +68,7 @@ def test_a_live_cast_is_told_to_the_tab_so_it_does_not_play_aloud_too(
     monkeypatch.setattr(SESSION, "poll_seconds", 0.01)
     monkeypatch.setattr(SESSION, "_receiver", None)
     write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
-    SESSION.start("192.168.1.90", "Interstellar", "http://x/out.m3u8", 12.0, key="k1")
+    SESSION.start("192.0.2.90", "Interstellar", "http://x/out.m3u8", 12.0, key="k1")
     try:
         assert json.loads(box(_get()).body)["tv"] is True
     finally:
@@ -79,7 +79,7 @@ def test_a_show_started_straight_on_tv_and_ended_without_finish_stops_being_told
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Показ, поднятый сразу на ТВ, снят «cast stop» или сам кончился: ``tv`` в ящике не
-    самолечится, как каст от ``SESSION`` (стенд `.104` 13-09-2026) - раз нигде ничего не
+    самолечится, как каст от ``SESSION`` (живой приёмник 13-09-2026) - раз нигде ничего не
     идёт (:meth:`torrcast.domain.watch_state.WatchState.showing`), слову ящика веры нет."""
     monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
     write_web_box(tmp_path, url="http://x/out.m3u8", title="Matrix", at=340.7, key="k1", tv=True)
@@ -111,7 +111,7 @@ def test_a_cast_of_another_show_is_no_cast_for_this_tab_and_is_taken_down(
 
     Вкладке про него говорить нельзя - она бы заглушила себя и тянула свою секунду к
     чужой картине, - а телевизору нечего играть: показа, из которого каст поднят, больше
-    нет (замер на стенде `.104` 07-09-2026).
+    нет (замер на живом приёмнике 07-09-2026).
     """
     monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
     tv = FakeReceiver(Position(0.0, 0.0))
@@ -119,7 +119,7 @@ def test_a_cast_of_another_show_is_no_cast_for_this_tab_and_is_taken_down(
     monkeypatch.setattr(SESSION, "poll_seconds", 0.01)
     monkeypatch.setattr(SESSION, "_receiver", None)
     write_web_box(tmp_path, url="http://x/one.m3u8", title="Interstellar", at=12.0, key="k1")
-    SESSION.start("192.168.1.90", "Interstellar", "http://x/one.m3u8", 12.0, key="k1")
+    SESSION.start("192.0.2.90", "Interstellar", "http://x/one.m3u8", 12.0, key="k1")
     write_web_box(tmp_path, url="http://x/two.m3u8", title="Dune", at=0.0, key="k2")
 
     try:

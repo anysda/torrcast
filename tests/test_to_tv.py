@@ -38,7 +38,7 @@ def _post() -> Request:
 
 
 def _wired(
-    monkeypatch: pytest.MonkeyPatch, tv: str = "192.168.1.104", clock: FakeClock | None = None
+    monkeypatch: pytest.MonkeyPatch, tv: str = "192.0.2.104", clock: FakeClock | None = None
 ) -> FakeReceiver:
     monkeypatch.setattr("web.to_tv.load_config", lambda: Config(tv=tv))
     # Часы держим на нуле умолчанием: записи места в этом файле пишут ``wall=0.0`` не
@@ -147,7 +147,7 @@ def test_a_playing_record_is_carried_forward_to_the_click_not_frozen_at_its_repo
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """TC-1224: вкладка не встаёт на паузу, пока каст поднимается - секунда LOAD обязана
-    догнать нажатие, а не отставать от него на цикл доклада (замер стенда `.104` 12-09-2026,
+    догнать нажатие, а не отставать от него на цикл доклада (замер живого приёмника 12-09-2026,
     докстрока :func:`web.to_tv._extrapolated`)."""
     monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
     clock = FakeClock(now=9.0, wall_origin=0.0)  # запрос пришёл на 9-й секунде часов

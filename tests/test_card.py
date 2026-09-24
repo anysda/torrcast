@@ -562,7 +562,7 @@ def test_a_picture_playing_in_the_tab_itself_leaves_the_card_its_usual_buttons(
     assert body["playing"] is False
 
 
-@pytest.mark.parametrize(("tv", "offered"), [("", False), ("192.168.1.90", True)])
+@pytest.mark.parametrize(("tv", "offered"), [("", False), ("192.0.2.90", True)])
 def test_the_card_offers_the_tv_only_on_a_machine_that_has_one(
     monkeypatch: pytest.MonkeyPatch, tv: str, offered: bool
 ) -> None:
@@ -583,7 +583,7 @@ def test_a_hash_left_by_a_failed_drop_without_a_live_unit_does_not_lock_the_card
     """Снос раздачи на выходе показа не дошёл до службы: хэш в записи остался, юнита нет.
 
     Карточка звала такую картину играющей и держала «Подключиться» выключенной навсегда,
-    а «Играть» с закладки не рисовала вовсе (стенд `.104` 15-09-2026, load 17).
+    а «Играть» с закладки не рисовала вовсе (живой приёмник 15-09-2026, load 17).
     """
     _wired(monkeypatch, [_MOVIE_PLAN])
     fake = FakeStateStore()
@@ -651,7 +651,7 @@ def test_a_picture_the_source_answered_nothing_about_is_not_marked_partial(
 ) -> None:
     """Статьи нет - описания не будет никогда, и переспрашивать карточку незачем.
 
-    Замер 10-09-2026 на стенде `.104`: у `tv:пассажиры-2:2022` (ни статьи, ни родни)
+    Замер 10-09-2026 на живом приёмнике: у `tv:пассажиры-2:2022` (ни статьи, ни родни)
     страница делала шесть ходов в `/api/card` и останавливалась только своим потолком
     в пять доборов, а не потому, что карточка налилась.
     """
@@ -670,7 +670,7 @@ def test_a_franchise_the_source_went_silent_on_does_not_hold_the_card_partial(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """🔴 Родня без идущего похода - молчание источника: у картины без статьи её не будет,
-    а карточка висела недоехавшей, и страница спрашивала её пять раз (стенд `.104`,
+    а карточка висела недоехавшей, и страница спрашивала её пять раз (живой приёмник,
     11-09-2026: четыре фильма полки из пяти)."""
     _wired(monkeypatch, [_MOVIE_PLAN])
     monkeypatch.setattr("web.card._related", _StubRelated(None, pending=False))
@@ -844,7 +844,7 @@ def test_the_open_picture_is_never_a_tile_in_its_own_franchise_shelf(
     """🔴 Полка родни - ДРУГИЕ части франшизы (§8), и плитки на саму себя в ней нет.
 
     Голое имя серии паспорт отдаёт статьёй франшизы, и родня приезжает вместе с первой
-    картиной: замер 10-09-2026 на стенде `.104` - под `movie:джон-уик:2014` пятой
+    картиной: замер 10-09-2026 на живом приёмнике - под `movie:джон-уик:2014` пятой
     плиткой стоял «Джон Уик» 2014 года, ведущий на эту же страницу.
     """
     mine = {"key": _MOVIE.key, "title": "Interstellar", "year": 2014, "kind": "movie"}
@@ -931,8 +931,8 @@ def test_a_shelf_key_named_in_the_original_opens_the_same_picture(
     """Плитка полки зовёт картину именем раздачи, круг - прокатным: ключи расходятся.
 
     До этого всякая плитка «Новинок» и «Популярного» открывала пустую карточку: ключ
-    ленты не совпадал ни с одним ключом круга, и ответом был 404 (замер на стенде
-    `.104` 07-09-2026).
+    ленты не совпадал ни с одним ключом круга, и ответом был 404 (замер на живом
+    приёмнике 07-09-2026).
     """
     _wired(monkeypatch, [_RUSSIAN_PLAN])
     state_slot.install(FakeStateStore())

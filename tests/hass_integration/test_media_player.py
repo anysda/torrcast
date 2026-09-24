@@ -20,7 +20,7 @@ async def test_one_entry_raises_exactly_one_entity(
     Всё, что показывает и умеет сама сущность, спрашивается с её собственных зеркал:
     `test_player.py`, `test_remote.py`, `test_browsing.py`.
     """
-    idle = {"version": "0.99.99", "tv": "192.168.1.90", "state": "idle"}
+    idle = {"version": "0.99.99", "tv": "192.0.2.90", "state": "idle"}
     await added(hass, aioclient_mock, idle)
     players = list(hass.states.async_entity_ids("media_player"))
 

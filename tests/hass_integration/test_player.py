@@ -54,19 +54,19 @@ async def test_entity_is_named_after_torrcast_and_its_receiver(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
     """§4.1/§4.2: два стенда обязаны звучать по-разному, и оба - словом torrcast."""
-    await added(hass, aioclient_mock, snapshot(tv="192.168.1.90"))
-    state = hass.states.get("media_player.torrcast_192_168_1_90")
+    await added(hass, aioclient_mock, snapshot(tv="192.0.2.90"))
+    state = hass.states.get("media_player.torrcast_192_0_2_90")
     assert state is not None, "entity_id без приёмника в имени - сущность не найдена"
-    assert state.name == "torrcast 192.168.1.90"
+    assert state.name == "torrcast 192.0.2.90"
 
 
 async def test_a_second_receiver_gets_its_own_entity(
     hass: HomeAssistant, aioclient_mock: Any
 ) -> None:
     """Другой приёмник в сети - другая сущность, не переезд той же карточки."""
-    await added(hass, aioclient_mock, snapshot(tv="192.168.1.91"))
-    assert hass.states.get("media_player.torrcast_192_168_1_91") is not None
-    assert hass.states.get("media_player.torrcast_192_168_1_90") is None
+    await added(hass, aioclient_mock, snapshot(tv="192.0.2.91"))
+    assert hass.states.get("media_player.torrcast_192_0_2_91") is not None
+    assert hass.states.get("media_player.torrcast_192_0_2_90") is None
 
 
 async def test_a_missing_receiver_does_not_spell_out_none(
@@ -164,7 +164,7 @@ async def test_the_power_button_bit_stays_while_the_snapshot_is_still_empty(
     не «ничего не идёт». Снятый тут бит спрятал бы кнопку раньше, чем серв вообще
     ответил, что показывать нечего.
     """
-    await added(hass, aioclient_mock, {"version": "0.99.99", "tv": "192.168.1.90"})
+    await added(hass, aioclient_mock, {"version": "0.99.99", "tv": "192.0.2.90"})
     features = MediaPlayerEntityFeature(hass.states.get(PLAYER).attributes["supported_features"])
 
     assert MediaPlayerEntityFeature.TURN_OFF in features

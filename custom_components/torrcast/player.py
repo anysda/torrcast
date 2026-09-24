@@ -44,7 +44,7 @@ def _device_name(tv: Any) -> str:
 
     HA turns this into both the card's title and the entity_id (``has_entity_name``
     with no entity-level name falls back to the device name); a bare receiver here
-    is how ``media_player.192_168_1_90`` slipped past the spec.
+    is how ``media_player.192_0_2_90`` slipped past the spec.
     """
     return f"torrcast {tv}" if tv else "torrcast"
 

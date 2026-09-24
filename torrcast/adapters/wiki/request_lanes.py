@@ -4,7 +4,7 @@ import threading
 import time
 from typing import Final
 
-#: Wikimedia accepts five simultaneous requests from CT501; the sixth returns 429.
+#: Wikimedia accepted five simultaneous requests during a live run; the sixth returns 429.
 #: The cap is per host: ru.wikipedia and query.wikidata.org answered 16 and 4 at once side by side.
 REQUEST_LANES: Final = 5
 
