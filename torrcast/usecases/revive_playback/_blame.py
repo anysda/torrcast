@@ -83,17 +83,18 @@ def _may(state: _RevivalState, feed: Feed, warmer: Warmer | None, pos: float) ->
     Прогретое сильнее любого признака сети: лежащий на диске фильм смотрится и без
     интернета вовсе, и ждать его возврата было бы враньём.
 
-    Когда погасли из-за источника, спрашиваем ровно его же: :attr:`Feed.offline` в
-    этом случае снимает только выложенный кусок, а выкладывать некому - упаковка ждёт
-    запроса приёмника, а приёмник тёмен. Заодно это единственное место, где раздача
+    Когда погасли из-за источника, спрашиваем ровно его же. Часы упаковки продолжают
+    открывать чтение и без запросов погасшего приёмника. Здесь раздача
     возвращается магнитом: служба ответила - значит, самое время вернуть ей трекеры,
     и сделать это надо ДО того, как приёмник попросит поток по голому хэшу.
     """
+    front = feed.front(pos)
+    ready = front > pos and front >= feed.grid.end(feed.grid.slot_at(pos) + 1)
     if warmer is not None:
         if warmer.done:
-            return True
+            return ready
         if warmer.warmed > state.warmed:
-            return True
+            return ready
     if state.blamed and state.supply is not None:
         if _asked(state.supply):
             return False  # источник всё ещё лежит - жечь терпение приёмника незачем
@@ -102,5 +103,5 @@ def _may(state: _RevivalState, feed: Feed, warmer: Warmer | None, pos: float) ->
         # Ответ службы доказывает возврат источника, но не готовность потока. После
         # повторного добавления раздача ещё собирает метаданные и пиров; LOAD имеет
         # смысл лишь тогда, когда упаковка уже отдала кусок у сохранённой позиции.
-        return feed.front(pos) > pos
-    return not feed.offline
+        return ready
+    return ready and not feed.offline

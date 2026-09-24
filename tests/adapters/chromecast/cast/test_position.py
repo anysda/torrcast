@@ -62,7 +62,7 @@ def test_a_dead_session_zero_is_not_a_rewind_to_the_beginning() -> None:
     receiver = _Scripted(Status(pos=0.0, state="IDLE", idle_reason="ERROR"))
     receiver._peak = 4355.0
 
-    where = _position(receiver)
+    where = _position(receiver, front=4415.0)
 
     assert receiver._peak == 4355.0
     assert where.pos == 4355.0, "повтор LOAD возвращает туда, где человек смотрел"

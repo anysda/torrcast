@@ -73,7 +73,12 @@ def _position(rcv: _Talk, front: float = 0.0) -> Position:
         _nudge(rcv, pos, front)
     else:
         rcv._stall_at, rcv._stall_since = -1.0, 0.0
-    if state == "IDLE" and st.idle_reason == "ERROR" and _reload(rcv):
+    if (
+        state == "IDLE"
+        and st.idle_reason == "ERROR"
+        and front - rcv._peak >= rcv.profile.start_buffer
+        and _reload(rcv)
+    ):
         return Position(rcv._peak, st.duration or 0.0, True, "BUFFERING", closed, rcv._stale)
     if rcv._gone:
         # 🔴 Сторож своё отработал и передаёт эстафету воскрешению: живым такой показ

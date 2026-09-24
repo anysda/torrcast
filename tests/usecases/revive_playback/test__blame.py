@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import FakeSupply, feed_with_segments
 from torrcast.domain.catalogs.phrase import phrase
@@ -91,3 +93,17 @@ def test_a_returned_source_still_waits_for_the_stream_to_be_ready(tmp_path: Path
     assert str(feed.offline) == ""
     assert state.why == phrase("revive.source_back_waiting")
     assert ready is (feed.front(0.0) > 0.0)
+
+
+@pytest.mark.parametrize("blamed", [False, True])
+def test_revival_needs_the_next_segment_even_when_the_service_answers(
+    tmp_path: Path, blamed: bool
+) -> None:
+    supply = FakeSupply()
+    state = _RevivalState(clock=FakeClock(), supply=cast(StreamSource, supply), blamed=blamed)
+    feed = feed_with_segments(tmp_path, slots=9)
+
+    assert not _may(state, feed, None, 89.552858)
+
+    (feed.out / "v9.ts").write_bytes(b"next segment")
+    assert _may(state, feed, None, 89.552858)
