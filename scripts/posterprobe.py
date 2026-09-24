@@ -45,7 +45,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import subprocess
 import sys
@@ -154,7 +153,9 @@ def _shelved(shelf: str, name: str) -> bool:
     """
     if not shelf:
         return False
-    return (Path(shelf) / hashlib.sha256(name.encode("utf-8")).hexdigest()[:24]).exists()
+    from hass.poster_shelf import PosterShelf
+
+    return PosterShelf(home=lambda: Path(shelf)).read(name) is not None
 
 
 class Burst(NamedTuple):

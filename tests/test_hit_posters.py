@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import struct
 import threading
 import time
 from collections.abc import Sequence
@@ -79,6 +81,16 @@ def _card_name(title: str, year: int) -> str:
     )
 
 
+def _png(width: int, height: int) -> bytes:
+    return b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", width, height)
+
+
+def _put_unstamped(home: Path, identity: str, body: bytes) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    name = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    (home / name).write_bytes(body)
+
+
 def _named(hits: HitPosters, record: dict[str, JsonValue]) -> str:
     offered = hits.offer([record])[0]
     assert isinstance(offered, dict)
@@ -154,6 +166,22 @@ def test_a_poster_already_on_the_shelf_is_taken_without_the_network(tmp_path: Pa
     name = _named(hits, _row())
     assert hits.read(name) == (KEPT, "image/png")
     assert source.judged == [], "за приговором пошли, хотя картинка лежит на полке"
+
+
+def test_an_old_shelf_reasks_only_its_lying_poster(tmp_path: Path) -> None:
+    """An unstamped shelf keeps its portrait, while an obsolete wide cover gets no name."""
+    upright = _row("Портрет", 2001)
+    lying = _row("Логотип", 2002)
+    _put_unstamped(tmp_path, _card_name("Портрет", 2001), _png(500, 750))
+    _put_unstamped(tmp_path, _card_name("Логотип", 2002), _png(750, 500))
+    source = FakeSource(pages={})  # the old wide picture is no longer offered by its source
+    hits = _hits(tmp_path, source)
+
+    offered = hits.offer([lying, upright])
+
+    assert source.judged == [Ask("Логотип", 2002, "movie")]
+    assert isinstance(offered[0], dict) and FIELD not in offered[0]
+    assert isinstance(offered[1], dict) and FIELD in offered[1]
 
 
 def test_the_shelf_of_the_card_is_the_shelf_of_the_list(tmp_path: Path) -> None:

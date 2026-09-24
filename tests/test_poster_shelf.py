@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import struct
 from pathlib import Path
 
 import pytest
@@ -9,6 +11,14 @@ import pytest
 from hass.poster_shelf import PosterShelf
 
 POSTER = b"\xff\xd8\xff\xe0poster"
+
+
+def _png(width: int, height: int) -> bytes:
+    return b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", width, height)
+
+
+def _legacy(shelf: PosterShelf, identity: str) -> Path:
+    return shelf.home() / hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
 
 
 @pytest.fixture
@@ -58,3 +68,34 @@ def test_a_shelf_that_cannot_be_written_stays_silent(tmp_path: Path) -> None:
     closed.write("Тачки|2006|movie", POSTER)
 
     assert closed.read("Тачки|2006|movie") is None
+
+
+def test_an_unstamped_upright_poster_is_kept_under_the_current_rule(shelf: PosterShelf) -> None:
+    """An old shelf is judged once by its bytes; a valid poster stays available."""
+    old = _legacy(shelf, "upright")
+    old.parent.mkdir(parents=True)
+    old.write_bytes(_png(500, 750))
+
+    assert shelf.read("upright") == _png(500, 750)
+    assert not old.exists(), "the accepted old file was not stamped by migration"
+    assert shelf.read("upright") == _png(500, 750)
+
+
+def test_an_unstamped_lying_poster_is_a_shelf_miss(shelf: PosterShelf) -> None:
+    """The current shape rule rejects old wide bytes so their source is asked again."""
+    old = _legacy(shelf, "lying")
+    old.parent.mkdir(parents=True)
+    old.write_bytes(_png(750, 500))
+
+    assert shelf.read("lying") is None
+
+
+def test_a_poster_stamped_by_the_current_rule_is_not_rejudged(shelf: PosterShelf) -> None:
+    """The stamp is the verdict: current files are read byte-for-byte without migration."""
+    shelf.write("current", POSTER)
+    written = next(shelf.home().iterdir())
+    before = written.stat().st_mtime_ns
+
+    assert shelf.read("current") == POSTER
+    assert list(shelf.home().iterdir()) == [written]
+    assert written.stat().st_mtime_ns == before
