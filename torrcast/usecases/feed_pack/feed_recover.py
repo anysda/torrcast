@@ -32,6 +32,8 @@ def _recover(state: _State, lift: Callable[[int], None]) -> None:
         return
     handed = False
     try:
+        if state.packer is not packer or now - max(state.moved, state.restarted) <= MUTE_SECONDS:
+            return  # a concurrent request already supplied bytes or replaced the reader
         slot = packer.edge + 1
         state.restarted = now
         journal().mark("повтор чтения молчащего источника", слот=slot)
