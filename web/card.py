@@ -188,7 +188,6 @@ def _body(
         # «Подключиться»/«Завершить» вместо «PLAY ON TV» (:mod:`web.static.card.js`).
         # Показ в самой вкладке сюда не годится: приёмника, к которому подключаются, нет.
         "playing": playing,
-        # Машина без ТВ (``config.tv`` пуст) не предлагает показ на ТВ вовсе.
         "tv": bool(config.tv),
         "seasons": seasons,
         "episodes_unavailable": _episodes_unavailable(_episodes, episode_release),
