@@ -4230,7 +4230,7 @@ def check_36_place_survives(ctx: Ctx) -> Result:
         time.sleep(0.2)
     if written is None:
         _stop_show(ctx)
-        why = f"стартовая запись s1e1 не легла за {_PLAY_START_WAIT / 1000:.0f} с"
+        why = f"стартовая запись s1e1 не легла за {_SHOW_UP_WAIT:.0f} с"
         return Result(36, "Место цело", False, None, why)
     at_stop = _state(ctx).get("state")
     _stop_show(ctx)

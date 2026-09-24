@@ -125,6 +125,33 @@ def test_главная_отличает_короткую_полку_от_неп
     )
 
 
+def test_таймаут_стартовой_записи_называет_фактическое_окно(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = acceptance()
+    row = SimpleNamespace(first=SimpleNamespace(click=lambda: None), count=lambda: 1)
+    page = SimpleNamespace(locator=lambda _selector: row)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
+    clock = iter((0.0, module._SHOW_UP_WAIT + 1.0))
+
+    monkeypatch.setattr(module, "_playback_guard", lambda *_args: None)
+    monkeypatch.setattr(module, "_open_card_by_page", lambda *_args: None)
+    monkeypatch.setattr(module, "_card_key", lambda _ctx: "key")
+    monkeypatch.setattr(module, "_place_of", lambda *_args: ("s1e2", 300.0))
+    monkeypatch.setattr(module, "_episode_season", lambda *_args: None)
+    monkeypatch.setattr(module, "_stop_show", lambda _ctx: None)
+    monkeypatch.setattr(
+        module,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda _seconds: None),
+    )
+
+    result = module.check_36_place_survives(ctx)
+
+    assert not result.ok
+    assert result.detail == "стартовая запись s1e1 не легла за 360 с"
+
+
 class Video:
     def __init__(self, current: float) -> None:
         self.current = current
