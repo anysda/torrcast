@@ -46,10 +46,10 @@ def test_the_bridge_unit_runs_the_same_way_the_bot_unit_does() -> None:
     assert "User=" not in _body("write_unit")
     assert "User=" not in bridge and "User=" not in bot
     # Включается сразу: мастера у моста нет и настраивать в нём нечего.
-    assert "systemctl enable --now torrcast-ha.service" in bridge
+    assert '"$SYSTEMCTL" enable --now torrcast-ha.service' in bridge
     # Но не вслепую: юнита на диске нет - включать нечего. Живьём эту ветку меряет
-    # стадия `installer language contract`, ставящая установщик без прав на /etc/systemd.
-    assert "[ -f /etc/systemd/system/torrcast-ha.service ] || return 0" in bridge
+    # стадия `installer language contract`, ставящая установщик в свой каталог юнитов.
+    assert '[ -f "$SYSTEMD_UNIT_DIR/torrcast-ha.service" ] || return 0' in bridge
     assert "setup_bot_unit; setup_ha_unit;" in INSTALL
 
 

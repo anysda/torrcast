@@ -24,15 +24,15 @@ def test_macos_services_use_persistent_launchd_jobs() -> None:
     write = _body("write_unit")
     bot = _body("setup_bot_unit")
 
-    assert 'launchctl bootstrap system "/Library/LaunchDaemons/$label.plist"' in run
+    assert '"$LAUNCHCTL" bootstrap system "$LAUNCHD_UNIT_DIR/$label.plist"' in run
     assert 'launchd_bootout "org.torrcast.$1"' in stop
     # bootout is asynchronous: bootstrap of the same label right after it races the
     # teardown and the fresh registration is removed. Wait until the domain forgets.
     bootout = _body("launchd_bootout")
     assert 'launchd_bootout "$label"' in run
-    assert 'launchctl print "system/$1"' in bootout
+    assert '"$LAUNCHCTL" print "system/$1"' in bootout
     assert '[ "$i" -ge 180 ]' in bootout
-    assert 'path="/Library/LaunchDaemons/org.torrcast.$1.plist"' in write
+    assert 'path="$LAUNCHD_UNIT_DIR/org.torrcast.$1.plist"' in write
     assert "<key>RunAtLoad</key><true/>" in write
     assert "<key>KeepAlive</key>" in write
     assert "<key>EnvironmentVariables</key>" in write
@@ -44,8 +44,8 @@ def test_macos_services_use_persistent_launchd_jobs() -> None:
     # launchd refuses the job with a bare "Input/output error".
     plist = write.split("<<PLIST", 1)[1].split("\nPLIST", 1)[0]
     assert '\\"' not in plist
-    bot_plist = "/Library/LaunchDaemons/org.torrcast.torrcast-bot.plist"
-    assert f"launchctl bootstrap system {bot_plist}" in bot
+    bot_plist = '"$LAUNCHD_UNIT_DIR/org.torrcast.torrcast-bot.plist"'
+    assert f'"$LAUNCHCTL" bootstrap system {bot_plist}' in bot
 
 
 @pytest.mark.machine
@@ -87,7 +87,9 @@ PATH={shlex.quote(str(tmp_path))}:$PATH
 LAUNCHD_STATE={shlex.quote(str(tmp_path))}
 OS_FAMILY=macos
 PREFIX={shlex.quote(str(tmp_path))}
-export PATH LAUNCHD_STATE OS_FAMILY PREFIX
+LAUNCHD_UNIT_DIR={shlex.quote(str(tmp_path))}
+LAUNCHCTL={shlex.quote(str(launchctl))}
+export PATH LAUNCHD_STATE OS_FAMILY PREFIX LAUNCHD_UNIT_DIR LAUNCHCTL
 quoted_knobs() {{ printf '%s' "$1"; }}
 write_unit() {{ return 1; }}
 skip() {{ printf 'already in place: %s\n' "$1"; }}

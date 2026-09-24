@@ -82,6 +82,13 @@ PREFIX="${TORRCAST_PREFIX:-/opt/torrcast}"
 CONFIG_DIR="${TORRCAST_CONFIG_DIR:-/etc/torrcast}"
 STATE_DIR="${TORRCAST_STATE_DIR:-/var/lib/torrcast}"
 BIN_DIR="${TORRCAST_BIN_DIR:-/usr/local/bin}"
+#: Каталоги юнитов и команды менеджеров служб переопределяются проверкой установщика.
+#: Боевые умолчания остаются прежними; тестовый заход не вправе ни читать юниты
+#: хозяина, ни звать его systemd/launchd, даже когда сам гейт запущен от root.
+SYSTEMD_UNIT_DIR="${TORRCAST_SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+LAUNCHD_UNIT_DIR="${TORRCAST_LAUNCHD_UNIT_DIR:-/Library/LaunchDaemons}"
+SYSTEMCTL="${TORRCAST_SYSTEMCTL:-systemctl}"
+LAUNCHCTL="${TORRCAST_LAUNCHCTL:-launchctl}"
 #: Чем поднимаются права (:func:`become_root`). Переопределение - для стенда, и оно там
 #: обязательно: настоящий sudo в проверке поднятия участвовать не может, он запустил бы
 #: настоящую установку на машине, которая её не просила.
@@ -973,9 +980,9 @@ EOF
         # Здесь сообщение об идемпотентности зависит не только от plist: задание,
         # которого нет в области, ещё предстоит поднять, даже если файл совпадает.
         write_unit "$1" "$2" "$3" "$quoted" quiet && fresh=1
-        if [ "$fresh" = 1 ] || ! launchctl print "system/$label" >/dev/null 2>&1; then
+        if [ "$fresh" = 1 ] || ! "$LAUNCHCTL" print "system/$label" >/dev/null 2>&1; then
             launchd_bootout "$label"
-            launchctl bootstrap system "/Library/LaunchDaemons/$label.plist"
+            "$LAUNCHCTL" bootstrap system "$LAUNCHD_UNIT_DIR/$label.plist"
         else
             skip "$1 launchd job" "задание launchd $1"
         fi
@@ -990,10 +997,10 @@ EOF
     # этот момент раскатывает свою базу и на SIGTERM не отзывается - замер на чистой
     # машине: 90 секунд установки ровно тут, на ожидании SIGKILL.
     local fresh=0 was_up=0
-    systemctl is-active --quiet "$1.service" && was_up=1
+    "$SYSTEMCTL" is-active --quiet "$1.service" && was_up=1
     write_unit "$1" "$2" "$3" "$quoted" && fresh=1
-    systemctl enable --now "$1.service"
-    [ "$fresh" = 1 ] && [ "$was_up" = 1 ] && systemctl restart "$1.service"
+    "$SYSTEMCTL" enable --now "$1.service"
+    [ "$fresh" = 1 ] && [ "$was_up" = 1 ] && "$SYSTEMCTL" restart "$1.service"
     return 0
 }
 
@@ -1003,9 +1010,9 @@ EOF
 # (`launchctl print`: Could not find service). Поэтому ждём, пока области не
 # перестанет его видеть.
 launchd_bootout() {  # $1 - label; снимает задание и ждёт, пока область его держит
-    launchctl bootout "system/$1" >/dev/null 2>&1 || true
+    "$LAUNCHCTL" bootout "system/$1" >/dev/null 2>&1 || true
     local i=0
-    while launchctl print "system/$1" >/dev/null 2>&1; do
+    while "$LAUNCHCTL" print "system/$1" >/dev/null 2>&1; do
         i=$((i + 1))
         [ "$i" -ge 180 ] && return 1
         sleep 1
@@ -1024,7 +1031,7 @@ stop_service() {  # $1 имя, $2 начало строки запуска дл�
         # bootout - это в худшем случае служба со старым кодом, а не отказ.
         launchd_bootout "org.torrcast.$1" || true
     else
-        systemctl stop "$1.service" >/dev/null 2>&1 || true
+        "$SYSTEMCTL" stop "$1.service" >/dev/null 2>&1 || true
     fi
 }
 
@@ -2237,11 +2244,11 @@ probe_whole() {  # $1 имя, $2 путь, $3 тело POST (пусто - GET), 
 # Прежний шим умел ровно один трекер и звался по нему. Общий садится на тот же порт,
 # так что старую службу гасим - иначе он просто не встанет.
 retire_old_shim() {
-    [ -e /etc/systemd/system/knaben-shim.service ] || [ -d /etc/knaben-shim ] || return 0
-    systemctl disable --now knaben-shim.service >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/knaben-shim.service /usr/local/share/ca-certificates/knaben-shim.crt
+    [ -e "$SYSTEMD_UNIT_DIR/knaben-shim.service" ] || [ -d /etc/knaben-shim ] || return 0
+    "$SYSTEMCTL" disable --now knaben-shim.service >/dev/null 2>&1 || true
+    rm -f "$SYSTEMD_UNIT_DIR/knaben-shim.service" /usr/local/share/ca-certificates/knaben-shim.crt
     rm -rf /etc/knaben-shim
-    systemctl daemon-reload >/dev/null 2>&1 || true
+    "$SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
     update-ca-certificates --fresh >/dev/null 2>&1 || true
     info "old single-host shim removed - the shared shim replaces it" "прежний одиночный шим убран - его место занимает общий"
 }
@@ -2353,7 +2360,7 @@ Environment=TORRCAST_LISTEN_IPV6=1"
     # Socket-unit владеет портом независимо от процесса: во время рестарта входящие
     # соединения ждут новый шим в backlog, а не получают Connection refused.
     if [ -z "${TORRCAST_NO_SYSTEMD:-}" ] && [ "${OS_FAMILY:-linux}" != macos ]; then
-        local socket_unit=/etc/systemd/system/torrcast-shim.socket socket_body
+        local socket_unit="$SYSTEMD_UNIT_DIR/torrcast-shim.socket" socket_body
         socket_body="[Unit]
 Description=Сокет TLS-шима
 
@@ -2366,11 +2373,11 @@ WantedBy=sockets.target"
         if [ ! -f "$socket_unit" ] || [ "$(cat "$socket_unit")" != "$socket_body" ]; then
             stop_service torrcast-shim "$PYTHON $SHIM_DIR/sni-shim.py"
             printf '%s\n' "$socket_body" >"$socket_unit"
-            systemctl daemon-reload
+            "$SYSTEMCTL" daemon-reload
             # daemon-reload подхватывает новое тело юнита, но не трогает уже открытый
             # слушатель: переприбитый адрес (TORRCAST_SHIM_PORT) подхватывает только
             # перезапуск. На неактивном сокете try-restart - пустая ходка с нулём.
-            systemctl try-restart torrcast-shim.socket
+            "$SYSTEMCTL" try-restart torrcast-shim.socket
         fi
     fi
     run_service torrcast-shim-guard "Сторож аренды имён TLS-шима" \
@@ -2388,7 +2395,7 @@ WantedBy=sockets.target"
     # невозможен, и стража не нужна: падение может значить только чужой процесс на
     # порту, а такое проглатывать нельзя.
     if [ -z "${TORRCAST_NO_SYSTEMD:-}" ] && [ "${OS_FAMILY:-linux}" != macos ]; then
-        systemctl enable --now torrcast-shim.socket
+        "$SYSTEMCTL" enable --now torrcast-shim.socket
     fi
 }
 
@@ -3411,9 +3418,9 @@ setup_bot_unit() {
     # службу не перезапустит, и бот остался бы жить со старым кодом после обновления.
     local was_up=0
     if [ "${OS_FAMILY:-linux}" = macos ]; then
-        launchctl print system/org.torrcast.torrcast-bot >/dev/null 2>&1 && was_up=1
+        "$LAUNCHCTL" print system/org.torrcast.torrcast-bot >/dev/null 2>&1 && was_up=1
     else
-        systemctl is-active --quiet torrcast-bot.service && was_up=1
+        "$SYSTEMCTL" is-active --quiet torrcast-bot.service && was_up=1
     fi
     write_unit torrcast-bot "Telegram-бот torrcast" "$PREFIX/venv/bin/torrcast-bot" || true
     local bot_ready=''
@@ -3425,10 +3432,10 @@ setup_bot_unit() {
     fi
     if [ "${OS_FAMILY:-linux}" = macos ]; then
         [ "$was_up" = 0 ] || launchd_bootout org.torrcast.torrcast-bot
-        launchctl bootstrap system /Library/LaunchDaemons/org.torrcast.torrcast-bot.plist
+        "$LAUNCHCTL" bootstrap system "$LAUNCHD_UNIT_DIR/org.torrcast.torrcast-bot.plist"
     else
-        systemctl enable --now torrcast-bot.service
-        [ "$was_up" = 1 ] && systemctl restart torrcast-bot.service
+        "$SYSTEMCTL" enable --now torrcast-bot.service
+        [ "$was_up" = 1 ] && "$SYSTEMCTL" restart torrcast-bot.service
     fi
     info "Telegram bot service is up" "служба Telegram-бота поднята"
     return 0
@@ -3450,9 +3457,9 @@ setup_ha_unit() {
     # перезапустит, и мост остался бы жить со старым кодом после обновления.
     local was_up=0
     if [ "${OS_FAMILY:-linux}" = macos ]; then
-        launchctl print system/org.torrcast.torrcast-ha >/dev/null 2>&1 && was_up=1
+        "$LAUNCHCTL" print system/org.torrcast.torrcast-ha >/dev/null 2>&1 && was_up=1
     else
-        systemctl is-active --quiet torrcast-ha.service && was_up=1
+        "$SYSTEMCTL" is-active --quiet torrcast-ha.service && was_up=1
     fi
     write_unit torrcast-ha "мост torrcast для Home Assistant" "$PREFIX/venv/bin/torrcast-ha" || true
     # Юнита на диске нет - поднимать нечего. Так выглядит установка без прав на
@@ -3460,13 +3467,13 @@ setup_ha_unit() {
     # по ненастроенному токену. Мосту настраивать нечего, и без этой развилки песочница
     # ловила бы отказ `enable` на несуществующей службе.
     if [ "${OS_FAMILY:-linux}" = macos ]; then
-        [ -f /Library/LaunchDaemons/org.torrcast.torrcast-ha.plist ] || return 0
+        [ -f "$LAUNCHD_UNIT_DIR/org.torrcast.torrcast-ha.plist" ] || return 0
         [ "$was_up" = 0 ] || launchd_bootout org.torrcast.torrcast-ha
-        launchctl bootstrap system /Library/LaunchDaemons/org.torrcast.torrcast-ha.plist
+        "$LAUNCHCTL" bootstrap system "$LAUNCHD_UNIT_DIR/org.torrcast.torrcast-ha.plist"
     else
-        [ -f /etc/systemd/system/torrcast-ha.service ] || return 0
-        systemctl enable --now torrcast-ha.service
-        [ "$was_up" = 1 ] && systemctl restart torrcast-ha.service
+        [ -f "$SYSTEMD_UNIT_DIR/torrcast-ha.service" ] || return 0
+        "$SYSTEMCTL" enable --now torrcast-ha.service
+        [ "$was_up" = 1 ] && "$SYSTEMCTL" restart torrcast-ha.service
     fi
     info "Home Assistant bridge service is up on port 8479" \
          "служба моста Home Assistant поднята на порту 8479"
@@ -3589,7 +3596,7 @@ setup_receiver() {
 # выбрала фаза `locale`.
 write_unit() {  # $1 имя, $2 описание, $3 команда, $4 - строки [Service], $5 - не писать skip
     if [ "${OS_FAMILY:-linux}" = macos ]; then
-        local label="org.torrcast.$1" path="/Library/LaunchDaemons/org.torrcast.$1.plist"
+        local label="org.torrcast.$1" path="$LAUNCHD_UNIT_DIR/org.torrcast.$1.plist"
         local env_xml="" line knob name value
         while IFS= read -r line; do
             case "$line" in Environment=*) knob="${line#Environment=}" ;; *) continue ;; esac
@@ -3635,7 +3642,7 @@ PLIST
         chmod 0644 "$path"
         return 0
     fi
-    local path="/etc/systemd/system/$1.service"
+    local path="$SYSTEMD_UNIT_DIR/$1.service"
     local body
     body="$(cat <<UNIT
 [Unit]
@@ -3660,7 +3667,7 @@ UNIT
         return 1
     fi
     printf '%s\n' "$body" >"$path"
-    systemctl daemon-reload
+    "$SYSTEMCTL" daemon-reload
 }
 
 # Своего демона раздачи нет: сервер живёт внутри процесса `cast` ровно на время

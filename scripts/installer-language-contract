@@ -40,6 +40,22 @@ grep -Fq "LANG='\$LOCALE'" install.sh \
 grep -Fq "LC_ALL='\$LOCALE'" install.sh \
     || fail 'cast wrapper does not pin every locale category'
 
+# Пути и команды служб у настоящей установки остаются прежними умолчаниями, но
+# контракт обязан подставлять свои. Жёсткий путь ловим ДО запуска: от root поздняя
+# проверка уже не спасла бы хозяйский юнит от перезаписи.
+grep -Fq 'SYSTEMD_UNIT_DIR="${TORRCAST_SYSTEMD_UNIT_DIR:-/etc/systemd/system}"' install.sh \
+    || fail 'systemd unit directory is not configurable'
+grep -Fq 'SYSTEMCTL="${TORRCAST_SYSTEMCTL:-systemctl}"' install.sh \
+    || fail 'systemctl command is not configurable'
+grep -Fq 'LAUNCHD_UNIT_DIR="${TORRCAST_LAUNCHD_UNIT_DIR:-/Library/LaunchDaemons}"' install.sh \
+    || fail 'launchd unit directory is not configurable'
+grep -Fq 'LAUNCHCTL="${TORRCAST_LAUNCHCTL:-launchctl}"' install.sh \
+    || fail 'launchctl command is not configurable'
+grep -Fq '/etc/systemd/system/' install.sh \
+    && fail 'installer still uses a hard-coded systemd unit path'
+grep -Fq '/Library/LaunchDaemons/' install.sh \
+    && fail 'installer still uses a hard-coded launchd unit path'
+
 box=$(mktemp -d)
 trap 'rm -rf "$box"' EXIT HUP INT TERM
 
@@ -78,7 +94,7 @@ mkdir -p "$box/p/prowlarr-data"
 printf '<Config><ApiKey>sandboxkey</ApiKey></Config>\n' >"$box/p/prowlarr-data/config.xml"
 
 run_config() {  # $@ - ключи install.sh
-    TORRCAST_NO_ROOT=1 TORRCAST_PHASES=config \
+    TORRCAST_NO_ROOT=1 TORRCAST_NO_SYSTEMD=1 TORRCAST_PHASES=config \
         TORRCAST_PREFIX="$box/p" TORRCAST_CONFIG_DIR="$box/etc" \
         TORRCAST_STATE_DIR="$box/state" TORRCAST_BIN_DIR="$box/bin" \
         TORRCAST_MOTD="$box/motd" TORRCAST_MOTD_D="$box/motd.d" \
@@ -101,19 +117,115 @@ run_config -en || fail 'reinstall with -en failed'
 [ "$(jq -r .language "$box/etc/config.json")" = en ] \
     || fail 'a named -en key did not change the language'
 
-# --- язык собственного вывода установщика --------------------------------------
+# --- службы и язык собственного вывода установщика -----------------------------
+# Первый PATH ловит всякий забытый голый вызов. Настроенные менеджеры лежат в другом
+# каталоге и пишут отдельную ленту: зелень тем самым доказывает не просто «команда
+# ответила», а что установщик дошёл именно до подставленного менеджера.
+mkdir -p "$box/path-spy" "$box/service-bin"
+cat >"$box/path-spy/systemctl" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >>"$box/host-systemctl.calls"
+exit 97
+SH
+cat >"$box/path-spy/launchctl" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >>"$box/host-launchctl.calls"
+exit 97
+SH
+cat >"$box/service-bin/systemctl" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >>"$box/sandbox-systemctl.calls"
+[ "\${1:-}" != is-active ]
+SH
+cat >"$box/service-bin/launchctl" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >>"$box/sandbox-launchctl.calls"
+[ "\${1:-}" != print ]
+SH
+chmod +x "$box/path-spy/systemctl" "$box/path-spy/launchctl" \
+    "$box/service-bin/systemctl" "$box/service-bin/launchctl"
+: >"$box/host-systemctl.calls"
+: >"$box/host-launchctl.calls"
+: >"$box/sandbox-systemctl.calls"
+: >"$box/sandbox-launchctl.calls"
+PATH="$box/path-spy:$PATH"
+export PATH
+
+mkdir -p "$box/service/etc" "$box/service/prowlarr-data" \
+    "$box/systemd-absent" "$box/systemd-present" "$box/launchd"
+printf '<Config><ApiKey>sandboxkey</ApiKey></Config>\n' \
+    >"$box/service/prowlarr-data/config.xml"
+
+run_units() {  # $1 каталог systemd, $2 вывод
+    unit_dir=$1
+    output=$2
+    shift 2
+    rm -f "$box/service/etc/config.json"
+    TORRCAST_NO_ROOT=1 TORRCAST_PHASES=config \
+        TORRCAST_PREFIX="$box/service" TORRCAST_CONFIG_DIR="$box/service/etc" \
+        TORRCAST_STATE_DIR="$box/service/state" TORRCAST_BIN_DIR="$box/service/bin" \
+        TORRCAST_MOTD="$box/service/motd" TORRCAST_MOTD_D="$box/service/motd.d" \
+        TORRCAST_SYSTEMD_UNIT_DIR="$unit_dir" \
+        TORRCAST_SYSTEMCTL="$box/service-bin/systemctl" \
+        TORRCAST_LAUNCHD_UNIT_DIR="$box/launchd" \
+        TORRCAST_LAUNCHCTL="$box/service-bin/launchctl" \
+        ./install.sh "$@" >"$output" 2>&1
+}
+
+# Одинаковый пользовательский заход при пустом каталоге и при двух старых юнитах.
+run_units "$box/systemd-absent" "$box/absent.out" \
+    || fail 'service install with an empty unit directory failed'
+printf 'old bot unit\n' >"$box/systemd-present/torrcast-bot.service"
+printf 'old bridge unit\n' >"$box/systemd-present/torrcast-ha.service"
+run_units "$box/systemd-present" "$box/present.out" \
+    || fail 'service install with existing units failed'
+cmp -s "$box/absent.out" "$box/present.out" \
+    || fail 'service result depends on units already present in the configured directory'
+for units in "$box/systemd-absent" "$box/systemd-present"; do
+    grep -Fq 'ExecStart=' "$units/torrcast-bot.service" \
+        || fail 'bot unit was not written to the configured directory'
+    grep -Fq 'ExecStart=' "$units/torrcast-ha.service" \
+        || fail 'bridge unit was not written to the configured directory'
+done
+grep -Fq 'enable --now torrcast-ha.service' "$box/sandbox-systemctl.calls" \
+    || fail 'configured systemctl was not used to enable the bridge'
+[ ! -s "$box/host-systemctl.calls" ] \
+    || fail 'installer called systemctl from the host PATH'
+
+# Та же граница для macOS: поддельный uname проводит ровно ветку launchd, а каталог
+# plist и launchctl остаются внутри той же песочницы.
+cat >"$box/path-spy/uname" <<'SH'
+#!/bin/sh
+case "${1:-}" in -m) printf 'arm64\n' ;; *) printf 'Darwin\n' ;; esac
+SH
+chmod +x "$box/path-spy/uname"
+run_units "$box/systemd-absent" "$box/macos.out" \
+    || fail 'service install through the launchd branch failed'
+grep -Fq 'ExecStart=' "$box/systemd-absent/torrcast-ha.service" \
+    || fail 'Linux unit changed while probing launchd'
+grep -Fq '<key>ProgramArguments</key>' "$box/launchd/org.torrcast.torrcast-bot.plist" \
+    || fail 'bot plist was not written to the configured directory'
+grep -Fq '<key>ProgramArguments</key>' "$box/launchd/org.torrcast.torrcast-ha.plist" \
+    || fail 'bridge plist was not written to the configured directory'
+grep -Fq 'bootstrap system' "$box/sandbox-launchctl.calls" \
+    || fail 'configured launchctl was not used to bootstrap the bridge'
+[ ! -s "$box/host-launchctl.calls" ] \
+    || fail 'installer called launchctl from the host PATH'
+
+# Языковые стороны отключают службы явно: их договор только о словах приёмника.
+mv "$box/path-spy/uname" "$box/path-spy/uname.macos"
 mkdir -p "$box/en/etc" "$box/en/bin" "$box/ru/etc" "$box/ru/bin"
 printf '{"tv": null}\n' >"$box/en/etc/config.json"
 printf '{"tv": null}\n' >"$box/ru/etc/config.json"
 printf '#!/bin/sh\nexit 1\n' >"$box/en/bin/cast"
 cp "$box/en/bin/cast" "$box/ru/bin/cast"
 chmod +x "$box/en/bin/cast" "$box/ru/bin/cast"
-TORRCAST_NO_ROOT=1 TORRCAST_PHASES=receiver \
+TORRCAST_NO_ROOT=1 TORRCAST_NO_SYSTEMD=1 TORRCAST_PHASES=receiver \
     TORRCAST_PREFIX="$box/en" TORRCAST_CONFIG_DIR="$box/en/etc" \
     TORRCAST_STATE_DIR="$box/en/state" TORRCAST_BIN_DIR="$box/en/bin" \
     TORRCAST_MOTD="$box/en/motd" TORRCAST_MOTD_D="$box/en/motd.d" \
     ./install.sh >"$box/en.out" 2>&1
-TORRCAST_NO_ROOT=1 TORRCAST_PHASES=receiver \
+TORRCAST_NO_ROOT=1 TORRCAST_NO_SYSTEMD=1 TORRCAST_PHASES=receiver \
     TORRCAST_PREFIX="$box/ru" TORRCAST_CONFIG_DIR="$box/ru/etc" \
     TORRCAST_STATE_DIR="$box/ru/state" TORRCAST_BIN_DIR="$box/ru/bin" \
     TORRCAST_MOTD="$box/ru/motd" TORRCAST_MOTD_D="$box/ru/motd.d" \
@@ -129,4 +241,4 @@ else
     code=$?
 fi
 [ "$code" -eq 2 ] || fail "unknown option returned $code instead of 2"
-printf 'installer language contract: existing config keeps its language, a named key may change it, silence survives sudo\n'
+printf 'installer language contract: language and sudo are preserved; service units and managers stay in the sandbox\n'
