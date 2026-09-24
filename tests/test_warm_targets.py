@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
+import pytest
+
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.facts import FactPicture
@@ -213,3 +215,33 @@ def test_a_visible_screen_finishes_one_franchise_at_a_time_before_a_hover() -> N
         job()
 
     assert related == [("Вверх", 2009, "movie"), ("Лука", 2021, "movie")]
+
+
+def test_a_failed_visible_franchise_releases_its_background_lane() -> None:
+    """One unexpected source failure must not leave the visible queue permanently running."""
+    jobs: list[Callable[[], None]] = []
+    failed = True
+
+    def kin(_picture: FactPicture) -> None:
+        nonlocal failed
+        if failed:
+            failed = False
+            raise RuntimeError("facts fell")
+
+    targets = WarmTargets(
+        circle=lambda _query: [],
+        prime=lambda _pictures: None,
+        kin=lambda _picture: None,
+        background_kin=kin,
+        ask=lambda _queries: 0,
+        spawn=jobs.append,
+    )
+    first = [("Up", "movie:up:2009", "Вверх", 2009, "movie")]
+    second = [("Luca", "movie:luca:2021", "Лука", 2021, "movie")]
+
+    targets.observe(first, source=False)
+    with pytest.raises(RuntimeError, match="facts fell"):
+        jobs.pop()()
+    targets.observe(second, source=False)
+
+    assert len(jobs) == 1, "failed background work kept the lane marked as running"

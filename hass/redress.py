@@ -18,15 +18,21 @@ if TYPE_CHECKING:
 
 
 def redress(job: SearchJob, offer: Offer) -> None:
-    """Завести дозапрос фоном под флагом приговора: опрос его не ждёт."""
-    job.judging = True
-    threading.Thread(target=_redress, args=(job, offer), daemon=True, name="redress").start()
+    """Завести один дозапрос фоном под замком приговора: опрос его не ждёт."""
+    if not job._claim_verdict():
+        return
+    worker = threading.Thread(target=_redress, args=(job, offer), daemon=True, name="redress")
+    try:
+        worker.start()
+    except BaseException:
+        job._finish_verdict()
+        raise
 
 
 def _redress(job: SearchJob, offer: Offer) -> None:
-    """Дозапрос в своём потоке; флаг приговора снимается, чем бы он ни кончился.
+    """Дозапрос в своём потоке; владение замком снимается, чем бы он ни кончился.
 
-    🔴 Флаг снимается в ``finally``, а не последней строкой. Он держит не только этот
+    🔴 Замок снимается в ``finally``, а не последней строкой. Он держит не только этот
     дозапрос: пока он поднят, опрос считает обложки захода идущими, второй дозапрос не
     заводится, и заход не сменяется свежим до :data:`~hass.search_job.POSTERS_BY`. Упади
     тут что-то неназванное - ответ короче списка роняет ``zip`` ниже, - и страница целую
@@ -46,7 +52,7 @@ def _redress(job: SearchJob, offer: Offer) -> None:
             if job.results is before:
                 job.results = merged
     finally:
-        job.judging = False
+        job._finish_verdict()
 
 
 __all__ = ["redress"]

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 from hass import searching
 from hass.catalog_merge import catalog_merge
 from hass.catalog_tiles import CatalogTiles
+from hass.search_poster_verdict import SearchPosterVerdict
 from hass.search_results import search_results
 from hass.searching import Detect, Offer, Remember
 from torrcast.cli.parse_args import parse_args
@@ -63,7 +64,7 @@ class _Shared(Protocol):
 
 
 @dataclass
-class SearchJob:
+class SearchJob(SearchPosterVerdict):
     """Один фоновый поиск: клиент индексеров, как только он появился, и итог."""
 
     client: IndexerClient | None = None
@@ -72,7 +73,6 @@ class SearchJob:
     results: list[JsonValue] = field(default_factory=list)
     finished_at: float = 0.0
     posters: dict[str, JsonValue] = field(default_factory=dict)
-    judging: bool = False
     #: A poll has seen this job's covers coming: the job then stays until the poster cap.
     promised: bool = False
     #: The finished circle's list before its poster verdict: previews show it at once.
@@ -127,15 +127,20 @@ class SearchJob:
             self.settle([], landed=True)
             return
         self.error = None
-        self.judging, self.hits = True, shown  # previews wait for this verdict, not a second one
-        # Имя обложки даёт тот же приговор, что и обычному поиску (:data:`hass.searching.OFFER`):
-        # без этого шага веб-выдача шла совсем без обложек. Отказ приговора выдачу не роняет.
-        with self._verdict:  # a preview verdict under way is waited out, not asked again
+        # Publish the list only under the same lock that owns its poster verdict: a preview
+        # either finished before this point or sees the final verdict already in progress.
+        self._verdict.acquire()
+        self.hits = shown
+        try:
+            # Имя обложки даёт тот же приговор, что и обычному поиску
+            # (:data:`hass.searching.OFFER`): без этого шага веб-выдача шла совсем без
+            # обложек. Отказ приговора выдачу не роняет.
             try:
                 judged = (searching.OFFER if offer is None else offer)(shown)
             except (TorrcastError, OSError):
                 judged = shown
-        self.judging = False
+        finally:
+            self._finish_verdict()
         self.settle(judged, landed=True)
 
     def overdue(self) -> bool:
@@ -156,45 +161,8 @@ class SearchJob:
             self.finished_at = time.monotonic()
             self.done = True
 
-    def dress(self, hits: list[JsonValue], offer: Offer) -> list[JsonValue]:
-        """Превью с уже вынесенными обложками; приговор новым идёт фоном, опрос не ждёт.
-
-        Приговор - поход к источнику картинок до 8 с, и опрос, который его ждал, стоял
-        1.2-3.9 с против 1-150 мс у прочих: обложка доезжает следующим опросом.
-        """
-        if not self.judging and any(_key(hit) not in self.posters for hit in hits):
-            self.judging = True
-            threading.Thread(target=self._judge_alone, args=(hits, offer), daemon=True).start()
-        return [
-            {**hit, "poster": self.posters[_key(hit)]}
-            if isinstance(hit, dict) and self.posters.get(_key(hit)) is not None
-            else hit
-            for hit in hits
-        ]
-
-    def _judge_alone(self, hits: list[JsonValue], offer: Offer) -> None:
-        with self._verdict:
-            self._judge(hits, offer)
-
-    def _judge(self, hits: list[JsonValue], offer: Offer) -> None:
-        try:
-            judged = offer(hits)
-        except (TorrcastError, OSError):
-            judged = []
-        for before, after in zip(hits, judged, strict=False):
-            # Имя не отнимается: приговор в минуту 429 молчит, а найденная обложка остаётся.
-            if isinstance(after, dict) and (
-                after.get("poster") or _key(before) not in self.posters
-            ):
-                self.posters[_key(before)] = after.get("poster")
-        self.judging = False
-
     def _capture(self, client: IndexerClient) -> None:
         self.client = client
-
-
-def _key(hit: JsonValue) -> str:
-    return str(hit.get("key", "")) if isinstance(hit, dict) else ""
 
 
 __all__ = ["FINAL_BY", "POSTERS_BY", "SearchJob"]

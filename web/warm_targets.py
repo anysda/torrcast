@@ -126,22 +126,33 @@ class WarmTargets:
             if self._kin_running or not wanted:
                 return
             self._kin_running = True
-        self.spawn(self._pump_kin)
+        try:
+            self.spawn(self._pump_kin)
+        except BaseException:
+            with self._lock:
+                self._kin_running = False
+            raise
 
     def _pump_kin(self) -> None:
         """Run one visible passport/franchise build at a time outside the HTTP handler."""
+        try:
+            self._pump_kin_queue()
+        finally:
+            with self._lock:
+                self._kin_active = None
+                self._kin_running = False
+
+    def _pump_kin_queue(self) -> None:
+        """Consume the visible queue; :meth:`_pump_kin` owns cleanup on every exit."""
         while True:
             with self._lock:
                 if not self._kin_queue:
-                    self._kin_running = False
                     return
                 picture = self._kin_queue.pop(0)
                 self._kin_active = picture
-            try:
-                (self.background_kin or self.kin)(picture)
-            finally:
-                with self._lock:
-                    self._kin_active = None
+            (self.background_kin or self.kin)(picture)
+            with self._lock:
+                self._kin_active = None
 
 
 __all__ = ["WarmTarget", "WarmTargets"]

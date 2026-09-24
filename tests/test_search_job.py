@@ -126,3 +126,19 @@ def test_a_poster_once_named_is_not_taken_away_by_a_silent_verdict() -> None:
     job._judge(hits, lambda records: [{"key": "cars", "poster": "p"} for _ in records])
     job._judge(hits, lambda records: records)
     assert job.dress(hits, _as_is) == [{"key": "cars", "poster": "p"}]
+
+
+def test_a_failed_final_poster_verdict_releases_the_job() -> None:
+    """An unnamed failure must not leave every later poll believing covers are coming."""
+
+    def search(*_args: Any, **_kwargs: Any) -> list[Plan]:
+        return [_PLAN]
+
+    def fail(_records: list[Any]) -> list[Any]:
+        raise RuntimeError("poster verdict fell")
+
+    job = SearchJob()
+    with pytest.raises(RuntimeError, match="poster verdict fell"):
+        job.run(Config(), "Interstellar", _detect, _remember, search, fail)
+
+    assert job.judging is False
