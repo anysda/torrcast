@@ -84,6 +84,7 @@ class _Reply(Controller):
         super().__init__()
         self.device, self.url = device, url
         self.fail, self.changed = fail, changed
+        self.response: dict[str, Any] = {"status": [{"media": {"contentId": url}}]}
         self.status.content_id = URL
 
     def update_status(
@@ -93,7 +94,7 @@ class _Reply(Controller):
         if self.changed:
             self.device.status.session_id = "another-sender"
         assert callback_function is not None
-        callback_function(not self.fail, {})
+        callback_function(not self.fail, self.response)
 
 
 @pytest.mark.parametrize("changed", [False, True])
@@ -129,3 +130,16 @@ def test_initially_empty_media_cache_is_filled_before_ownership_is_checked() -> 
     receiver.play(URL)
 
     assert device.said == ["quit_app", "disconnect", "load"]
+
+
+@pytest.mark.parametrize("response", [{}, {"status": []}, {"status": [{"playerState": "IDLE"}]}])
+def test_a_reply_without_media_cannot_claim_the_cached_url(response: dict[str, Any]) -> None:
+    device = _Previous()
+    controller = _Reply(device, URL)
+    controller.response = response
+    device.media_controller = controller
+    receiver = _NewSender(device=device, clock=FakeClock())
+
+    receiver.play(URL)
+
+    assert device.said == ["load"]

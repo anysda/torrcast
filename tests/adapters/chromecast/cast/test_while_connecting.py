@@ -44,7 +44,7 @@ class _Connecting(Controller):
 
 def _receiver(refuses: int, clock: FakeClock | None = None) -> Wired:
     device = Device()
-    device.media_controller = _Connecting(refuses)  # type: ignore[assignment]
+    device.media_controller = _Connecting(refuses)
     made = Wired(device=device, clock=clock if clock is not None else FakeClock())
     made._url, made._title = "http://дом/поток.m3u8", "Моана"
     return made

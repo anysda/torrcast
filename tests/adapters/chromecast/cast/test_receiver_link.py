@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -18,8 +19,11 @@ class _Counting(Controller):
         super().__init__()
         self.refreshed = 0
 
-    def update_status(self) -> None:
+    def update_status(
+        self, *, callback_function: Callable[[bool, dict[str, Any] | None], None] | None = None
+    ) -> None:
         self.refreshed += 1
+        super().update_status(callback_function=callback_function)
 
 
 def _device(app: str = "CC1AD845") -> Device:
@@ -132,7 +136,9 @@ def test_a_load_failure_without_a_code_does_not_erase_the_one_already_taken() ->
 class _Deaf(Controller):
     """Медиаконтроллер с мёртвым сокетом: на просьбу о свежем статусе он отказывает."""
 
-    def update_status(self) -> None:
+    def update_status(
+        self, *, callback_function: Callable[[bool, dict[str, Any] | None], None] | None = None
+    ) -> None:
         raise ConnectionResetError("NotConnected")
 
 

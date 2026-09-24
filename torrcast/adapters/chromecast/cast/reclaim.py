@@ -51,9 +51,15 @@ def reclaim(rcv: _Talk, url: str) -> None:
         raise InfraError(
             phrase("chromecast_talk.tv_rejected_cast", address=rcv.address, reason=why(exc))
         ) from exc
+    # pychromecast preserves cached media fields when a reply has no status/media.
+    # Such a reply does not identify the current stream, even after waiting for it.
+    statuses = (reply.response or {}).get("status") or []
+    current = statuses[0] if statuses else {}
+    media = current.get("media") or (current.get("extendedStatus") or {}).get("media") or {}
     if (
         device.status.app_id == rcv.MEDIA_APP
         and device.status.session_id == session
-        and device.media_controller.status.content_id == url
+        and bool(url)
+        and media.get("contentId") == url
     ):
         rcv._restart_app()

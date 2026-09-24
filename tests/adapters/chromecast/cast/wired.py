@@ -55,7 +55,7 @@ class Controller:
         self, *, callback_function: Callable[[bool, dict[str, Any] | None], None] | None = None
     ) -> None:
         if callback_function is not None:
-            callback_function(True, {})
+            callback_function(True, {"status": [{"media": {"contentId": self.status.content_id}}]})
 
 
 class Device:
