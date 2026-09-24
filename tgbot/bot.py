@@ -191,12 +191,10 @@ class Bot:
         begin_choice: bool = False,
         command_id: int = 0,
     ) -> bool:
-        """Занять единственный исполнитель и передать ему команду без гонки."""
         shown = " ".join(["cast", *args])
         return self._commands.offer(QueuedCommand(args, shown, command_id, begin_choice))
 
 
 def _bot() -> None:
-    """Прочитать проверенную настройку и запустить polling."""
     exit_on_sigterm()
     Bot(Config.load()).run()
