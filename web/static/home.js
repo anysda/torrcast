@@ -3,6 +3,7 @@
 'use strict';
 
 const TCHome = {
+  STATE_POLL_MS: 2000,
   _query: '',
   _timer: null,
   _token: 0,
@@ -131,13 +132,23 @@ const TCHome = {
   },
 
   // Плашка «сейчас идёт» доезжает позже полок и пересобирает шапку сама: ждать снимок
-  // ДО отрисовки значило бы запереть готовые полки за опросом телевизора.
+  // ДО отрисовки значило бы запереть готовые полки за опросом телевизора. Пока экран
+  // жив, состояние переспросится тем же циклом, что у плеера и карточки: начатый в
+  // другой вкладке показ появится, а снятый уйдёт. Скрытая вкладка сервер не опрашивает.
   async _stateLater(root) {
-    const [state, box] = await Promise.all([TCApi.state(), TCApi.box()]);
-    if (!document.body.contains(root) || location.pathname !== '/') return;
-    TCHome._state = state;
-    TCHome._box = box;
-    TCHome._wear();
+    const mine = TCHome._shelfPoll;
+    while (mine === TCHome._shelfPoll && document.body.contains(root)
+      && location.pathname === '/') {
+      if (!document.hidden) {
+        const [state, box] = await Promise.all([TCApi.state(), TCApi.box()]);
+        if (mine !== TCHome._shelfPoll || !document.body.contains(root)
+          || location.pathname !== '/') return;
+        TCHome._state = state;
+        TCHome._box = box;
+        TCHome._wear();
+      }
+      await new Promise((done) => setTimeout(done, TCHome.STATE_POLL_MS));
+    }
   },
 
   // История известна с первого ответа, а полки собираются минуту: держать «Продолжить»
