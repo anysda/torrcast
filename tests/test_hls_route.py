@@ -14,8 +14,6 @@ import pytest
 from hass.serve import serve
 from torrcast.domain.config import Config
 
-pytestmark = pytest.mark.machine
-
 MANIFEST = b"#EXTM3U\n#EXTINF:10,\nv0.ts\n"
 SEGMENT = bytes(range(256)) * 4096
 
@@ -70,6 +68,7 @@ def page(hls_port: int, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         server.server_close()
 
 
+@pytest.mark.machine
 def test_the_page_serves_the_manifest_and_segment_from_its_own_origin(page: str) -> None:
     with urllib.request.urlopen(f"{page}/hls/index.m3u8", timeout=5) as manifest:
         assert (manifest.status, manifest.read(), manifest.headers["Content-Type"]) == (
@@ -81,6 +80,7 @@ def test_the_page_serves_the_manifest_and_segment_from_its_own_origin(page: str)
         assert (segment.status, len(segment.read())) == (200, len(SEGMENT))
 
 
+@pytest.mark.machine
 def test_a_byte_range_reaches_the_show_server_and_returns_as_a_range(page: str) -> None:
     request = urllib.request.Request(f"{page}/hls/v0.ts", headers={"Range": "bytes=10-19"})
     with urllib.request.urlopen(request, timeout=5) as answer:
@@ -91,12 +91,14 @@ def test_a_byte_range_reaches_the_show_server_and_returns_as_a_range(page: str) 
 @pytest.mark.parametrize(
     "path", ["state.json", "../state.json", "%2e%2e/state.json", "v0.ts/../../state.json"]
 )
+@pytest.mark.machine
 def test_the_hls_door_never_exposes_another_file(page: str, path: str) -> None:
     with pytest.raises(urllib.error.HTTPError) as refusal:
         urllib.request.urlopen(f"{page}/hls/{path}", timeout=5)
     assert refusal.value.code == 404
 
 
+@pytest.mark.machine
 def test_a_stopped_show_server_is_a_gateway_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     held = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Hls)
     port = int(held.server_address[1])
