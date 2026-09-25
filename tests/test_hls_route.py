@@ -18,8 +18,13 @@ MANIFEST = b"#EXTM3U\n#EXTINF:10,\nv0.ts\n"
 SEGMENT = bytes(range(256)) * 4096
 
 
+#: Что дошло до сервера показа: дверь страницы обязана отсечь чужое имя сама.
+ASKED: list[str] = []
+
+
 class _Hls(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        ASKED.append(self.path)
         bodies = {"/index.m3u8": MANIFEST, "/v0.ts": SEGMENT}
         body = bodies.get(self.path)
         if body is None:
@@ -93,9 +98,11 @@ def test_a_byte_range_reaches_the_show_server_and_returns_as_a_range(page: str) 
 )
 @pytest.mark.machine
 def test_the_hls_door_never_exposes_another_file(page: str, path: str) -> None:
+    ASKED.clear()
     with pytest.raises(urllib.error.HTTPError) as refusal:
         urllib.request.urlopen(f"{page}/hls/{path}", timeout=5)
     assert refusal.value.code == 404
+    assert ASKED == [], "чужое имя ушло серверу показа мимо двери страницы"
 
 
 @pytest.mark.machine
