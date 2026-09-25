@@ -115,6 +115,7 @@ def en() -> dict[str, str]:
         "web.keys.volume": "Volume",
         "web.keys.back": "Back",
         "web.player.refused": "Could not start playback",
+        "web.player.already_starting": "Playback is already starting",
         "web.player.refused_receiver_did_not_answer": "the receiver did not answer",
         "web.player.refused_source_did_not_answer": "the source did not answer",
         "web.player.refused_source_could_not_be_read": "the source could not be read",

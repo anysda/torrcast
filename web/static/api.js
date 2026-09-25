@@ -136,8 +136,8 @@ const TCApi = {
     // Ящик, лежащий в эту секунду, заказу не принадлежит: показ перепишет его сам,
     // когда поднимется (`player-box.js`), а до тех пор вкладке играть нечего.
     await TCPlayerBox.holdStale();
-    const said = await TCApi._post('/api/play', body);
-    if (said) TCRouter.go('/play');
+    const said = await TCApi._postReasoned('/api/play', body);
+    if (said.ok) TCRouter.go('/play');
     else TCPlayerBox.dropStale();
     return said;
   },
@@ -145,7 +145,7 @@ const TCApi = {
   // Показ на ТВ из карточки (`card.js`): тот же ``/api/play``, но без ``here`` - его берёт
   // приёмник машины, и страница остаётся на карточке, а не уходит в плеер вкладки.
   async cast(body) {
-    return TCApi._post('/api/play', body);
+    return TCApi._postReasoned('/api/play', body);
   },
 
   // Что человек видит на экране (`warm.js`). Ответ странице не нужен: эти плитки она

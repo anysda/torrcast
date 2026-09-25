@@ -577,7 +577,9 @@ const TCCard = {
     else play.dataset.tcFocusable = '1';
     play.dataset.tcGroup = 'buttons';
     if (!noPlay) {
-      play.addEventListener('click', () => TCCard._play(data, key, query, voices, false));
+      play.addEventListener('click', () => TCCard._playFrom(
+        play, data, key, query, voices, false
+      ));
     }
     row.appendChild(play);
 
@@ -589,7 +591,9 @@ const TCCard = {
       again.tabIndex = 0;
       again.dataset.tcFocusable = '1';
       again.dataset.tcGroup = 'buttons';
-      again.addEventListener('click', () => TCCard._play(data, key, query, voices, true));
+      again.addEventListener('click', () => TCCard._playFrom(
+        again, data, key, query, voices, true
+      ));
       row.appendChild(again);
     }
 
@@ -752,8 +756,9 @@ const TCCard = {
       voice: picked,
       from_start: false,
     });
-    if (!said) {
-      TCCard._tvSay(key, 'web.player.refused', true);
+    if (!said.ok) {
+      const phrase = said.error === 'busy' ? 'web.player.already_starting' : 'web.player.refused';
+      TCCard._tvSay(key, phrase, true);
       return;
     }
     const until = Date.now() + TCCard._CAST_WAIT;
@@ -867,6 +872,19 @@ const TCCard = {
   // track in this release» (замерено на живом приёмнике, показ не поднялся ни разу).
   // Выбор читается прямо в клике: сделанный ПОСЛЕ отрисовки кнопки, в замыкании он
   // остался бы прежним.
+  async _playFrom(button, data, key, query, voices, fromStart, season, episode) {
+    const said = await TCCard._play(data, key, query, voices, fromStart, season, episode);
+    TCCard._showPlayRefusal(button, said);
+  },
+
+  _showPlayRefusal(button, said) {
+    if (!said.ok) {
+      button.textContent = TC.say(
+        said.error === 'busy' ? 'web.player.already_starting' : 'web.player.refused'
+      );
+    }
+  },
+
   _play(data, key, query, voices, fromStart, season, episode) {
     const kept = sessionStorage.getItem(TCCard._voiceKey);
     const known = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
@@ -877,7 +895,7 @@ const TCCard = {
     // Список не как у раздач («Интерны» IMDb: 60, 60, 61, 98) несёт числа серий сезонов:
     // показ ищет строку сквозным номером в любой раздаче, а не в раздаче вкладки.
     const layout = season && (data.layout || []).length ? data.layout.join(',') : undefined;
-    TCApi.play({
+    return TCApi.play({
       query: query || data.title || data.original || key,
       // 🔴 Картина обязана быть названа: без неё показ брал бы ту, которую круг
       // считает главной по запросу, а не ту, которую человек открыл. Карточка второй

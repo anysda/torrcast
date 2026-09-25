@@ -140,7 +140,8 @@ const TCCardSeries = {
         row.appendChild(bar);
       }
       const play = () => TCCard._play(data, key, query,
-        data.voices || [], false, season.n, episode.n);
+        data.voices || [], false, season.n, episode.n)
+        .then((said) => TCCard._showPlayRefusal(row, said));
       if (!grey) row.addEventListener('click', play);
       // Приговор уже есть, но окно нажатия ещё идёт: строка живая, и гаснет по будильнику.
       if (gone && hold) setTimeout(() => TCCardSeries._fade(row, play), hold);
