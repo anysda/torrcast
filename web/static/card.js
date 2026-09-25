@@ -67,6 +67,9 @@ const TCCard = {
     // Перезагрузка без номера (возврат, повтор, показ на ТВ) спрашивает вкладку зрителя:
     // иначе сервер разбирал первый сезон, и серии открытой вкладки приходили пустыми.
     const picked = TCCard._picked && TCCard._picked.key === key ? TCCard._picked.n : undefined;
+    // Вкладка сезона уже сняла прежние строки (`card-series.js`): её ответ встаёт даже
+    // равным телу, иначе раздача на все сезоны оставляла вместо серий пустой список.
+    let redraw = !!season;
     season = season || picked;
     const mine = TCCard._visit;
     const load = ++TCCard._loadId;
@@ -117,8 +120,9 @@ const TCCard = {
         if (last && !busy && !waiting) return;
       } else {
         const shown = TCCard._keepKnown(key, query, data || TCCard._fallback(key));
-        if (!TCCard._same(key, query, shown)) {
+        if (redraw || !TCCard._same(key, query, shown)) {
           TCCard._show(root, key, query, shown);
+          redraw = false;
         }
         if (last && !busy && !waiting) return;
       }
