@@ -11,7 +11,12 @@ from web.request import Request
 from web.routes import routes
 
 
-def answer_for(method: str, target: str, body: Mapping[str, JsonValue] | None) -> Answer | None:
+def answer_for(
+    method: str,
+    target: str,
+    body: Mapping[str, JsonValue] | None,
+    headers: Mapping[str, str] | None = None,
+) -> Answer | None:
     """Ответ страницы на запрос или ``None``, если путь не её.
 
     ``None`` тут не ошибка, а слово «не моё»: сервер моста отвечает на такой путь ровно
@@ -20,7 +25,7 @@ def answer_for(method: str, target: str, body: Mapping[str, JsonValue] | None) -
     """
     path, _, asked = target.partition("?")
     path = unquote(path)
-    request = Request(method, path, _query(asked), body or {})
+    request = Request(method, path, _query(asked), body or {}, headers or {})
     for route in routes():
         if route.takes(method, path):
             return route.answer(request)

@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import pytest
 
-from torrcast.adapters.http_server._handler import _ASSET_RE, _RANGE_RE, _TYPES, _Handler, _tracing
+from torrcast.adapters.http_server._handler import _RANGE_RE, _TYPES, _Handler, _tracing
 from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.trace_sources import PACKED, WARMED_COPY, WARMED_RECODE
 
@@ -45,19 +45,6 @@ def _handler(
     ready.root = root or Path()
     ready.warm_recodes = warm_recodes if warm_recodes is not None else set()
     return cast(_Handler, ready)
-
-
-@pytest.mark.parametrize("name", ["v0.ts", "v137.ts", "index.m3u8"])
-def test_the_grid_of_the_show_is_served(name: str) -> None:
-    assert _ASSET_RE.fullmatch(name), f"{name} - это манифест или сегмент сетки"
-
-
-@pytest.mark.parametrize(
-    "name", ["../state.json", "v1.ts/../../etc/passwd", "index.m3u8?x=1", "", "v.ts", "source.mp4"]
-)
-def test_nothing_but_the_grid_is_served(name: str) -> None:
-    """Каталог наружу не открыт: имя вне сетки - 404, а не файл с диска."""
-    assert not _ASSET_RE.fullmatch(name), f"{name} уехал бы наружу"
 
 
 def test_the_content_types_are_the_ones_the_receiver_expects() -> None:

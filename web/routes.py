@@ -6,6 +6,7 @@ from web.box import box
 from web.card import card
 from web.card_left import card_left
 from web.history import history
+from web.hls import hls
 from web.hold import hold
 from web.phrases import phrases
 from web.position import position
@@ -45,5 +46,6 @@ def routes() -> tuple[Route, ...]:
         Route("GET", "/api/card/", card, prefix=True),
         Route("GET", "/card/", serve_shell, prefix=True),
         Route("GET", "/play", serve_shell),
+        Route("GET", "/hls/", hls, prefix=True),
         Route("GET", "/static/", serve_static, prefix=True),
     )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from torrcast.domain.json_value import JsonValue
 
@@ -16,3 +16,4 @@ class Request:
     path: str
     query: Mapping[str, str]
     body: Mapping[str, JsonValue]
+    headers: Mapping[str, str] = field(default_factory=dict)

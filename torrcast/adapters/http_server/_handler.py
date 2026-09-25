@@ -10,14 +10,13 @@ from pathlib import Path
 from typing import Any, ClassVar, Final
 
 from torrcast.adapters.http_server._feed import _Feed
+from torrcast.adapters.http_server.hls_asset import HLS_ASSET
 from torrcast.adapters.http_server.log_segment import log_segment
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.trace_sources import PACKED, WARMED_COPY, WARMED_RECODE
 
-#: Отдаём ровно манифест и сегменты сетки, и ничего больше: каталог наружу не открыт.
-_ASSET_RE: Final = re.compile(r"^(?:v\d+\.(?:ts|m4s)|init\.mp4|(?:index|stream)\.m3u8)$")
 _TYPES: Final = {
     ".m3u8": "application/vnd.apple.mpegurl",
     ".ts": "video/mp2t",
@@ -73,7 +72,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def _serve(self, body: bool) -> None:
         began = time.monotonic()
         name = self.path.split("?")[0].lstrip("/")
-        if not _ASSET_RE.fullmatch(name):
+        if not HLS_ASSET.fullmatch(name):
             self._head(404, 0, "text/plain")
             return
         data = self._read(name)

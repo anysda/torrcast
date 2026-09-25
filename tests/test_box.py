@@ -9,7 +9,9 @@ import pytest
 
 from tests.fakes.receiver import FakeReceiver
 from tests.fakes.state_store import FakeStateStore
+from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.write_web_box import write_web_box
+from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.position import Position
 from torrcast.ports.state_store import slot as state_slot
@@ -56,6 +58,39 @@ def test_a_pending_task_is_handed_to_the_tab(
         "tv": False,
         "tab": _TAB,
     }
+
+
+def test_the_tab_gets_the_show_through_the_pages_origin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Дисковый URL остаётся годным ТВ, но наружу не уводит вкладку на отдельный порт."""
+    monkeypatch.setattr("web.box.load_config", lambda: Config(hls_dir=str(tmp_path)))
+    write_web_box(
+        tmp_path,
+        url="http://192.0.2.50:8080/index.m3u8",
+        title="Interstellar",
+        at=12.0,
+        key="k1",
+    )
+
+    answer = box(_get())
+
+    assert json.loads(answer.body)["url"] == "/hls/index.m3u8"
+    assert read_web_box(tmp_path)["url"] == "http://192.0.2.50:8080/index.m3u8"
+
+
+def test_a_manually_configured_hls_base_is_handed_to_the_tab_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manual = "https://media.example.test/hls"
+    monkeypatch.setattr(
+        "web.box.load_config", lambda: Config(hls_dir=str(tmp_path), hls_base_url=manual)
+    )
+    write_web_box(tmp_path, url=f"{manual}/index.m3u8", title="Interstellar", at=12.0, key="k1")
+
+    answer = box(_get())
+
+    assert json.loads(answer.body)["url"] == f"{manual}/index.m3u8"
 
 
 def test_a_live_cast_is_told_to_the_tab_so_it_does_not_play_aloud_too(

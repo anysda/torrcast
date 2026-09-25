@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -28,7 +29,7 @@ def box(request: Request) -> Answer:
     del request  # ящик один на процесс - доводов запроса ему спрашивать нечем
     settings = load_config()
     out = hls_root(settings.hls_dir)
-    seen = read_web_box(out)
+    seen = _tab_stream(read_web_box(out), settings.hls_base_url)
     # ``tv`` - не про показ, а про то, где его слышно: вкладка, зашедшая на страницу уже
     # во время каста (перезагрузка, переход из карточки), иначе включила бы свою плёнку со
     # звуком поверх ТВ, потому что режим «на ТВ» до сих пор жил ТОЛЬКО в её памяти и на
@@ -55,3 +56,13 @@ def box(request: Request) -> Answer:
     # двух чисел заводить незачем.
     tab = {"seconds": settings.hls_tab_buffer, "bytes": int(settings.hls_tab_bytes * 1_000_000)}
     return Answer(200, json.dumps({**seen, "tv": tv_live(seen), "tab": tab}).encode())
+
+
+def _tab_stream(seen: dict[str, object], configured_base: str) -> dict[str, object]:
+    """Назвать вкладке same-origin дверь, сохранив дисковый абсолютный URL для ТВ."""
+    url = seen.get("url")
+    if configured_base or not isinstance(url, str):
+        return seen
+    if urlsplit(url).path.rsplit("/", 1)[-1] != "index.m3u8":
+        return seen
+    return {**seen, "url": "/hls/index.m3u8"}

@@ -142,7 +142,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _offer(self, body: dict[str, JsonValue]) -> None:
         """Спросить таблицу страницы последней; не её путь остаётся прежним 404."""
-        found = answer_for(self.command, self.path, body)
+        found = answer_for(self.command, self.path, body, dict(self.headers.items()))
         if found is None:
             self._answer(404, {"error": "not_found"})
             return
