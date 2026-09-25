@@ -2395,14 +2395,16 @@ def check_9_on_tv(ctx: Ctx, play_ok: bool) -> Result:
 
 
 def _cast_url_matches(ctx: Ctx) -> tuple[bool, str]:
-    """Приёмник обязан играть ТОТ ЖЕ url, что играет вкладка - сверка обоих концов.
+    """Приёмник обязан играть тот же показ, что и вкладка - сверка вкладки с ящиком.
 
     🔴 До этой правки url не сверялся НИ РАЗУ: планка `muted and tv_running and
     volume_ok` зеленела и на касте чужой картины - позиция растёт и громкость
     слушается у любого показа. Вкладка называет свой поток ``TCPlayer._url``
-    (``web/static/player.js``), а каст уходит приёмнику из ящика вкладки как есть
-    (:func:`web.to_tv.to_tv` отдаёт ``SESSION.start`` тот ``url``, что лежит в
-    ``/api/web/box``): равенство этих двух концов и есть «тот же url».
+    (``web/static/player.js``) и обязана играть ровно то, что ей назвал
+    ``/api/web/box``. Сам url у концов разный: вкладке ящик отдаёт дверь её же
+    origin (``/hls/index.m3u8``, :mod:`web.box`), а :func:`web.to_tv.to_tv` отдаёт
+    ``SESSION.start`` абсолютный LAN-адрес из той же дисковой записи ящика. Одна запись
+    на оба конца и есть «тот же показ»; равенство url вкладки и ящика - его сверка.
     """
     page_url = ctx.page.evaluate("() => (window.TCPlayer && TCPlayer._url) || ''")
     if not isinstance(page_url, str) or not page_url:
@@ -2415,8 +2417,8 @@ def _cast_url_matches(ctx: Ctx) -> tuple[bool, str]:
     if not box_url:
         return False, f"GET /api/web/box -> {box_code}, url в ящике пуст"
     if page_url != box_url:
-        return False, f"вкладка играет {page_url!r}, а на ТВ ушёл {box_url!r}"
-    return True, f"вкладка и ТВ на одном url ({page_url[:80]})"
+        return False, f"вкладка играет {page_url!r}, а ящик назвал {box_url!r}"
+    return True, f"вкладка играет url ящика ({page_url[:80]})"
 
 
 #: Сколько ждать, пока продукт назовёт каст своим: рукопожатие, LOAD и первый кадр.
