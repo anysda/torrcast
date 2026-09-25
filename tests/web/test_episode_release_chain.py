@@ -170,6 +170,15 @@ def _page_sends_the_tab_release() -> bool:
     return row in SERIES_JS and bound and sends and keys is not None
 
 
+def _page_waits_for_the_tab_release_before_drawing_rows() -> bool:
+    """У новой вкладки нет нажимаемых строк, пока не приехало её тело с release."""
+    clicked = SERIES_JS.split("tab.addEventListener('click', () => {", 1)[1]
+    clicked = clicked.split("\n      });", 1)[0]
+    waits = "tabs.nextSibling.replaceWith(TCCardSeries.waiting());"
+    loads = "TCCard._season(key, query, season.n);"
+    return waits in clicked and loads in clicked and clicked.index(waits) < clicked.index(loads)
+
+
 def _show_plays(monkeypatch: pytest.MonkeyPatch, release: str) -> tuple[str | None, str]:
     """Раздача, которую показ строки s2e1 спросит первой, и ``--card-release`` его ``argv``."""
     argv = play_argv("show", None, None, 2, 1, False, True, picture=PICTURE.key, release=release)
@@ -223,3 +232,7 @@ def test_a_layout_row_carries_its_release_together_with_the_numbering() -> None:
     )
 
     assert (args.card_release, args.layout) == (info_hash(AVC), "8,8")
+
+
+def test_a_season_tab_does_not_draw_rows_with_the_previous_tabs_release() -> None:
+    assert _page_waits_for_the_tab_release_before_drawing_rows()

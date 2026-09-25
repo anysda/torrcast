@@ -59,12 +59,22 @@ const TCCardSeries = {
         tab.classList.add('is-active');
         // Выбор зрителя помнится на карточке: подмена тела добором не сбрасывает его.
         TCCard._picked = { key, n: season.n };
-        tabs.nextSibling.replaceWith(TCCardSeries.episodes(data, index, key, query));
+        // Строки нового сезона принадлежат раздаче НОВОГО ответа. Старое тело знает
+        // release прежней вкладки, поэтому не рисуем из него нажимаемые строки даже
+        // на короткое время между кликом по вкладке и ответом карточки.
+        tabs.nextSibling.replaceWith(TCCardSeries.waiting());
         TCCard._season(key, query, season.n);
       });
       tabs.appendChild(tab);
     });
     return tabs;
+  },
+
+  waiting() {
+    const list = document.createElement('div');
+    list.className = 'tc-episodes';
+    list.setAttribute('aria-busy', 'true');
+    return list;
   },
 
   episodes(data, seasonIndex, key, query) {
