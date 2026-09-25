@@ -114,6 +114,7 @@ def test_круг_уходит_по_опорным_а_опоздавший_не_
     assert elapsed < 0.4, "опоздавшего круг не ждёт"
     assert circle.lost == []
     assert circle.waiting() == ("Nyaa.si",)
+    assert [row.indexer for row in circle.late(wait=2.0)] == ["idx.3", "idx.3"]
 
 
 @pytest.mark.machine
@@ -134,6 +135,7 @@ def test_долив_без_ожидания_ничего_не_обещает() -
     circle.run([_KNABEN, _NYAA], "Naruto [TV]", 100)
     assert circle.late() == []
     assert circle.waiting() == ("Nyaa.si",)
+    assert [row.indexer for row in circle.late(wait=2.0)] == ["idx.3", "idx.3"]
     del http
 
 
@@ -163,6 +165,7 @@ def test_inflight_отдаёт_ответившего_опорного_не_до
     circle, _http = _circle(rows=2, delay={3: 0.4})
     circle.run([_KNABEN, _NYAA], "Naruto [TV]", 100)
     assert sorted(row.title for row in circle.inflight()) == ["picture.1.0", "picture.1.1"]
+    assert [row.indexer for row in circle.late(wait=2.0)] == ["idx.3", "idx.3"]
 
 
 def test_inflight_пуст_до_первого_ответа_и_ноль_не_путает_с_пустотой() -> None:
