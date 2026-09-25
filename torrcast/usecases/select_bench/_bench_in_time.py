@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Final
 
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
+from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
@@ -61,6 +62,7 @@ def _in_time(
     while bench.clock() < limit:
         if prep.ready.wait(_STEP):
             return prep
+        refuse_called_off()
         progress.phase(prefix + prep.phase)
         for number in front[1:]:
             ready = bench.preps.get((plan.picture.key, number))

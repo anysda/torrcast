@@ -8,6 +8,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.progress.progress import Progress
+from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
@@ -34,7 +35,6 @@ class Bench(_BenchPrewarm):
 
         Осечки бывают двух разных сортов, и до сих пор они стоили одинаково — попытки из
         трёх:
-
         * **приговор** — ffprobe раздачу прочитал и она не годится (av1, vc1, тяжёлая),
           либо сам осмотр раздачи ответил за неё («нужной серии нет», «отдельного
           видеофайла нет»). Про релиз узнали всё, второй раз спрашивать нечего;
@@ -104,6 +104,7 @@ class Bench(_BenchPrewarm):
             entered = self.clock()
             prefix = "" if args.pinned else _bench_asking(attempt, len(queue))
             prep = _in_time(self, plan, args, prep, front, progress, prefix, tally, deadline)
+            refuse_called_off()
             # Ошибка самой службы раздачи относится ко всей очереди, а не к одному
             # рою. Перебирать остальные релизы бессмысленно: они пойдут через тот же
             # мёртвый порт и лишь размножат одну строку, после чего итог ещё и свалит

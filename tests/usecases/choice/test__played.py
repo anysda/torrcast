@@ -14,6 +14,7 @@ import torrcast.usecases.choice._played as played_module
 from tests.usecases.choice.world import Outside, film, outside, parts, plan
 from tests.usecases.rank.releases import media, track
 from torrcast.domain.args import Args
+from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.config import Config
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
@@ -168,6 +169,51 @@ class VoicelessBench(SwitchBench):
         return _Prep(
             number=1, release=plan.ranked[0], media=media(tracks=(track(0, "jpn", "Original"),))
         )
+
+
+class CancelledBench(SwitchBench):
+    """Стенд позднего круга, который увидел отмену уже внутри отбора."""
+
+    def resolve(self, plan: Plan, args: Args, progress: Progress) -> _Prep:
+        raise CancelledError("показ отменён")
+
+
+def test_cancellation_is_not_mistaken_for_a_failed_late_voice_circle() -> None:
+    """Отмена позднего отбора завершает весь запуск, а не возвращает старый релиз."""
+    original = plan("Врата Штейна", 2011)
+    late = plan("Врата Штейна дубль", 2011)
+
+    with outside(Outside()), pytest.MonkeyPatch.context() as patch:
+        patch.setattr(played_module, "late_voice", lambda *_args, **_kw: late)
+        with pytest.raises(CancelledError, match="показ отменён"):
+            played_module._late(
+                CancelledBench(),
+                [original],
+                original,
+                Args(query=["врата", "штейна"]),
+                Quiet(),
+                Config(),
+                CAUTIOUS,
+            )
+
+
+def test_cancellation_is_not_mistaken_for_a_failed_pool_renewal() -> None:
+    """Отмена отбора обновлённого пула не должна вести к следующему запасному ходу."""
+    original = plan()
+    fresh = plan(pool=[replace(original.ranked[0], magnet="magnet-из сети")])
+
+    with outside(Outside()), pytest.MonkeyPatch.context() as patch:
+        patch.setattr(played_module, "renewed_plan", lambda *_args, **_kw: fresh)
+        with pytest.raises(CancelledError, match="показ отменён"):
+            played_module._renew(
+                CancelledBench(),
+                original,
+                Args(query=["кино"]),
+                Quiet(),
+                Config(),
+                CAUTIOUS,
+                lambda _args: fresh,
+            )
 
 
 def _steins(brought: list[Plan] | None) -> tuple[VoicelessBench, list[str]]:

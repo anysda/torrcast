@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.profile import Profile
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.understudy import understudy
@@ -46,6 +47,8 @@ def _late(
             return None
         bench.keep_plan(late)
         return late, bench.resolve(late, args, progress)
+    except CancelledError:
+        raise
     except Exception:  # см. докстроку: путь отказа тут шире одной беды
         return None
 
@@ -73,6 +76,8 @@ def _renew(
         _environment_port().emit("select", "renewed", fresh=len(fresh.picture.releases))
         bench.keep_plan(fresh)
         return fresh, bench.resolve(fresh, args, progress)
+    except CancelledError:
+        raise
     except Exception:  # см. докстроку: путь отказа тут шире одной беды
         return None
 

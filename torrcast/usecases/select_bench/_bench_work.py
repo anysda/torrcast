@@ -15,6 +15,7 @@ from torrcast.domain.voice_beside import voice_beside
 from torrcast.domain.voice_folder import voice_folder
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
+from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
@@ -142,6 +143,7 @@ class _BenchWork(_BenchCore):
         if limit:
             deadline = min(deadline, limit)
         while not prep.ready.wait(0.2):
+            refuse_called_off()
             progress.phase(f"{prefix}{prep.phase}")
             if self.clock() > deadline:  # поток сам не уложился - не ждём вечно
                 prep.error = prep.error or phrase(
@@ -157,6 +159,7 @@ class _BenchWork(_BenchCore):
         подглядывание за соседом молча делало бы его негодным.
         """
         while not prep.ready.wait(0.2):
+            refuse_called_off()
             progress.phase(phase)
             if self.clock() > deadline:
                 return False

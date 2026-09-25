@@ -22,6 +22,7 @@ from torrcast.usecases.choice._played import _played
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.choice.warm_order import warm_order
 from torrcast.usecases.playback.file_picker import file_picker
+from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce._topup import _topup
 from torrcast.usecases.select._prep import _Prep
@@ -69,6 +70,7 @@ def _choose(
     with progress_bar() as progress:
         stage = _play_stage()
         plans = (circle or stage.circle)(config, args, progress, chosen.profile)
+        refuse_called_off()
         if args.picture:  # картину называет карточка: её ключ в этом круге, а не номер
             args.pick = _card_number(plans, args, stage.picture)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
@@ -179,6 +181,7 @@ def _choose(
                 # кэш - СЛЕДУЮЩЕЕ меню этой франшизы будет полным. Ко времени до меню это
                 # отношения не имеет, а к моменту ответа поток обычно давно закончил.
                 facts.finish()
+            refuse_called_off()
             plan, prep = _played(
                 bench, plans, plan, args, progress, facts, config, chosen.profile, stage.renewed
             )
