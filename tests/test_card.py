@@ -121,7 +121,7 @@ class _StubRelated:
     def of(self, _title: str, _series: bool) -> list[Any] | None:
         return self.result
 
-    def retry(self, title: str, series: bool) -> list[Any] | None:
+    def retry(self, title: str, series: bool, _entity: str = "") -> list[Any] | None:
         return self.of(title, series)
 
     def waiting(self, _title: str, _series: bool) -> bool:
@@ -337,6 +337,14 @@ def test_an_open_card_starts_its_related_shelf_outside_the_seen_limit(
     related = _RememberingRelated([])
     _wired(monkeypatch, [_MOVIE_PLAN])
     monkeypatch.setattr("web.card._related", related)
+    monkeypatch.setattr(
+        "web.card._facts",
+        type(
+            "_Facts",
+            (),
+            {"of": lambda *_args: _ReadyFactsWithEntity()},
+        )(),
+    )
     state_slot.install(FakeStateStore())
 
     _asked(
@@ -916,6 +924,13 @@ class _ReadyFacts:
 
     def answered(self, _title: str, _year: int | None) -> bool:
         return True
+
+
+class _ReadyFactsWithEntity(_ReadyFacts):
+    """Справка с доказанной сущностью для запуска связанной полки."""
+
+    def ready(self, _title: str, _year: int | None) -> Fact:
+        return Fact(entity="Q104905")
 
 
 class _AnsweredEmptyFacts:
