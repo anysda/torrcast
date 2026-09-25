@@ -72,7 +72,10 @@ def search_circle(
     """
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
         raise InfraError(phrase("discover.prowlarr_not_configured"))
-    query = args.title_query
+    # Строка каталога и выбор после круга обязаны спросить Enter ОДНИМИ словами.
+    # Локальный ``args`` ниже может стать сезонным (``имя 2`` → ``имя s2e1``), но
+    # вызывающий выбор по-прежнему держит исходный объект и спросит именно эту строку.
+    asked = query = args.title_query
     name, index = split_franchise_index(query)
 
     def spawn() -> IndexerClient:
@@ -162,7 +165,7 @@ def search_circle(
         if _different_display_names(lead):
             count = len(lead.releases)
             progress.note(phrase("discover.glued_pictures", also=also, title=title, count=count))
-    found, plans = _plans(found, pictures, args, config, profile, name, client, progress)
+    found, plans = _plans(found, pictures, args, config, profile, name, asked, client, progress)
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
         raise NotFoundError(

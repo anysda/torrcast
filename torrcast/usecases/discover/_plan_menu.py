@@ -32,6 +32,7 @@ def _plans(
     config: Config,
     profile: Profile,
     name: str,
+    asked: str,
     client: IndexerClient,
     progress: Progress,
 ) -> tuple[list[Picture], list[Plan]]:
@@ -72,7 +73,7 @@ def _plans(
         )
         if plan.ranked:
             plans.append(plan)
-    if plans and (note := _catalog_note(name, plans, args)):
+    if plans and (note := _catalog_note(name, plans, args, asked)):
         progress.note(note)
     for line in season_gaps(found, {plan.picture.key for plan in plans}, args.episode):
         progress.note(line)
