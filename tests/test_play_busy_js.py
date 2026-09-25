@@ -31,6 +31,14 @@ def test_play_busy_is_written_on_the_button_instead_of_being_dropped(
     assert screen["dropped"] == 1, "старый ящик вкладки остался взведён после отказа"
 
 
+def test_the_refusal_word_gives_the_button_and_the_episode_row_back(
+    screen: dict[str, Any],
+) -> None:
+    assert screen["buttonLater"] == "Играть", "кнопка навсегда осталась словом отказа"
+    assert screen["rowSaid"] == "Показ уже запускается"
+    assert screen["rowLater"] == ["3", "Сезон 1 · 3", "0:42:00"], "строка серии стёрта отказом"
+
+
 def test_cast_busy_is_written_on_its_button_too(screen: dict[str, Any]) -> None:
     assert screen["cast"] == {"ok": False, "error": "busy"}
     assert screen["castWord"] == "Показ уже запускается"

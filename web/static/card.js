@@ -13,6 +13,8 @@ const TCCard = {
   // Идущий показ меняет карточку и после первых доборов: не крутить пустой круг
   // запросов, но и не оставить «Завершить» после того, как вкладка ушла.
   _PLAY_POLL: 1000,
+  // Сколько слово отказа «Играть» стоит на месте кнопки или строки серии.
+  _REFUSAL_SHOWN: 4000,
   // Сколько карточка доспрашивает дорожки раздачи: потолок отбора у продукта 180 с.
   _VOICES_WAIT: 200000,
   // Номер живого захода на экран: возврат на карточку гасит опросы прошлого визита,
@@ -877,12 +879,15 @@ const TCCard = {
     TCCard._showPlayRefusal(button, said);
   },
 
-  _showPlayRefusal(button, said) {
-    if (!said.ok) {
-      button.textContent = TC.say(
-        said.error === 'busy' ? 'web.player.already_starting' : 'web.player.refused'
-      );
-    }
+  // Отказ виден словами, но на время: строка серии - это номер, название и полоса
+  // досмотра, и навсегда подменить их одной фразой значило бы стереть саму строку.
+  _showPlayRefusal(target, said) {
+    if (said.ok) return;
+    const was = Array.from(target.childNodes);
+    target.textContent = TC.say(
+      said.error === 'busy' ? 'web.player.already_starting' : 'web.player.refused'
+    );
+    setTimeout(() => target.replaceChildren(...was), TCCard._REFUSAL_SHOWN);
   },
 
   _play(data, key, query, voices, fromStart, season, episode) {

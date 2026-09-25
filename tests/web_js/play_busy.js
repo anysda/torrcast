@@ -8,6 +8,7 @@ const vm = require('vm');
 async function main() {
   const routes = [];
   let dropped = 0;
+  const timers = [];
   const context = {
     fetch: async () => ({
       ok: false,
@@ -20,6 +21,7 @@ async function main() {
     sessionStorage: { getItem: () => null },
     window: {},
     URLSearchParams, JSON, Date, Blob, Promise, console,
+    setTimeout: (fire) => { timers.push(fire); },
     TCPlayerBox: {
       holdStale: async () => {},
       dropStale: () => { dropped += 1; },
@@ -34,16 +36,32 @@ async function main() {
   }
   const api = vm.runInContext('TCApi', context);
   const card = vm.runInContext('TCCard', context);
-  const button = { textContent: 'Играть' };
+  const button = fakeNode(['Играть']);
   await card._playFrom(button, { title: 'Тест' }, 'movie:test:2000', 'Тест', [], false);
+  const said = button.textContent;
+  const row = fakeNode(['3', 'Сезон 1 · 3', '0:42:00']);
+  card._showPlayRefusal(row, { ok: false, error: 'busy' });
+  const rowSaid = row.textContent;
+  for (const fire of timers.splice(0)) fire();
   const cast = await api.cast({ query: 'Тест' });
   let castWord = '';
   card._tvSay = (_key, phrase) => { castWord = context.TC.say(phrase); };
   api.state = async () => ({ state: 'idle' });
   await card._cast({ title: 'Тест' }, 'movie:test:2000', 'Тест', []);
   process.stdout.write(JSON.stringify({
-    button: button.textContent, cast, castWord, routes, dropped,
+    button: said, buttonLater: button.textContent, rowSaid, rowLater: row.childNodes,
+    cast, castWord, routes, dropped,
   }) + '\n');
+}
+
+// Узел ровно настолько, насколько его трогает карточка: текст и дети.
+function fakeNode(texts) {
+  return {
+    childNodes: texts.slice(),
+    get textContent() { return this.childNodes.join(''); },
+    set textContent(text) { this.childNodes = [text]; },
+    replaceChildren(...kids) { this.childNodes = kids; },
+  };
 }
 
 main();
