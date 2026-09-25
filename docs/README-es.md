@@ -6,7 +6,7 @@
 
 **Pon una película en el televisor con solo escribir su título.**
 
-Alguien te recomienda Matrix durante el día. Lo que viene después suele ser un engorro: recorrer el catálogo de una plataforma de streaming, descargar la película de antemano o escribir el título en el navegador del televisor con el mando. torrcast es para cuando ya sabes qué quieres ver. Esa noche escribes `cast matrix` y la película empieza en el televisor, sin pelearte con la interfaz.
+Alguien te recomienda La noche de los muertos vivientes durante el día. Lo que viene después suele ser un engorro: recorrer el catálogo de una plataforma de streaming, descargar la película de antemano o escribir el título en el navegador del televisor con el mando. torrcast es para cuando ya sabes qué quieres ver. Esa noche escribes `cast night of the living dead` y la película empieza en el televisor, sin pelearte con la interfaz.
 
 torrcast busca películas, series y anime, elige una versión que se pueda reproducir y una pista de audio, y transmite el vídeo a Chromecast. Puedes iniciar la reproducción desde la terminal, Telegram o Home Assistant.
 
@@ -43,7 +43,7 @@ El instalador descarga la última versión, comprueba su suma de verificación S
 Ahora pon una película:
 
 ```sh
-cast matrix
+cast night of the living dead
 ```
 
 Si se han encontrado varios receptores, elige uno con `cast --tv` y vuelve a ejecutar el comando de la película. También puedes indicar una dirección directamente con `cast --tv <ip>`.
@@ -53,7 +53,7 @@ Si se han encontrado varios receptores, elige uno con `cast --tv` y vuelve a eje
 
 El mismo comando de una línea permite instalar torrcast de forma nativa en macOS. Ejecútalo desde tu cuenta habitual con permisos de administrador. El instalador se ocupa de instalar Homebrew si hace falta y utiliza launchd para los servicios en segundo plano.
 
-La reproducción se ejecuta como root para acceder a la red local desde un servicio en segundo plano. El instalador añade para el usuario que realiza la instalación una regla de sudo sin contraseña, limitada al comando `cast`. Puedes seguir poniendo películas con `cast matrix`.
+La reproducción se ejecuta como root para acceder a la red local desde un servicio en segundo plano. El instalador añade para el usuario que realiza la instalación una regla de sudo sin contraseña, limitada al comando `cast`. Puedes seguir poniendo películas con `cast night of the living dead`.
 
 El script inicial necesita `sha256sum` antes de llegar a la instalación de Homebrew. Si se detiene con el mensaje `sha256sum is required but is not in PATH`, utiliza la instalación desde el repositorio que se describe a continuación: ejecuta `install.sh` directamente. Si macOS pregunta si quieres permitir conexiones entrantes, acéptalas para que el receptor pueda acceder al flujo de vídeo.
 
@@ -77,14 +77,14 @@ Aquí el instalador también se encarga de las dependencias y los permisos de ad
 Normalmente basta con el título. Añade `--menu` para elegir tú la película, por ejemplo, cuando la búsqueda encuentre varias entregas de una saga:
 
 ```console
-$ cast matrix --menu
-  1. Matrix (1999) · IMDb 8.7 · 2 h 16 min
-     Película de acción y ciencia ficción escrita y dirigida por las Wachowski.
-  2. Matrix Reloaded (2003) · IMDb 7.2 · 2 h 18 min
-     Película de acción y ciencia ficción, segunda entrega de la saga Matrix.
-  3. Matrix Revolutions (2003) · IMDb 6.7 · 2 h 9 min
-     Película de acción y ciencia ficción, tercera entrega de la saga Matrix.
-Enter - «Matrix (1999)», opción 1 de 3
+$ cast night of the living dead --menu
+  1. La noche de los muertos vivientes (1968) · IMDb 7.8 · 1 h 36 min
+     Película de terror independiente dirigida por George A. Romero.
+  2. Zombi (1978) · IMDb 7.8 · 2 h 7 min
+     Película de terror de George A. Romero, segunda entrega de su saga de los muertos vivientes.
+  3. El día de los muertos (1985) · IMDb 7.1 · 1 h 41 min
+     Película de terror de George A. Romero, tercera entrega de su saga de los muertos vivientes.
+Enter - «La noche de los muertos vivientes (1968)», opción 1 de 3
 ¿Qué vamos a ver? [1]:
 ```
 
@@ -114,7 +114,7 @@ Assist también puede controlar la reproducción. Iniciar una película por su t
 
 ## Telegram
 
-Envía `cast matrix` desde el sofá y controla la reproducción con los botones del chat. El bot muestra el progreso mientras se inicia la película y después ofrece controles de pausa, parada, volumen y saltos de 30 segundos hacia delante o hacia atrás. También controla la reproducción iniciada desde la terminal o Home Assistant.
+Envía `cast night of the living dead` desde el sofá y controla la reproducción con los botones del chat. El bot muestra el progreso mientras se inicia la película y después ofrece controles de pausa, parada, volumen y saltos de 30 segundos hacia delante o hacia atrás. También controla la reproducción iniciada desde la terminal o Home Assistant.
 
 Configúralo en el ordenador donde está instalado torrcast:
 
@@ -134,7 +134,7 @@ Antes de activar el servicio del bot, envía un mensaje a tu nuevo bot. Abre `ht
 Envía estos comandos como mensajes normales:
 
 ```text
-cast matrix
+cast night of the living dead
 cast kim possible s1e1
 cast
 cast stop

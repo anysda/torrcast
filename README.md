@@ -6,7 +6,7 @@
 
 **Play a film on your TV by name.**
 
-Someone recommends The Matrix during the day. What usually follows is a chore: scrolling a streaming service's feed, downloading the film in advance, or typing its name into the TV browser with a remote. torrcast is for when you already know what you want to watch. That evening you type `cast the matrix` and the film plays on your TV, with no interface to fight.
+Someone recommends Night of the Living Dead during the day. What usually follows is a chore: scrolling a streaming service's feed, downloading the film in advance, or typing its name into the TV browser with a remote. torrcast is for when you already know what you want to watch. That evening you type `cast night of the living dead` and the film plays on your TV, with no interface to fight.
 
 torrcast finds films, series and anime, chooses a playable version and an audio track, and streams to Chromecast. Start watching from the terminal, Telegram or Home Assistant.
 
@@ -43,7 +43,7 @@ The installer downloads the latest release, checks its SHA-256 checksum, install
 Then put a film on:
 
 ```sh
-cast the matrix
+cast night of the living dead
 ```
 
 If several receivers were found, choose one with `cast --tv`, then run the film command again. You can also set an address directly with `cast --tv <ip>`.
@@ -53,7 +53,7 @@ If several receivers were found, choose one with `cast --tv`, then run the film 
 
 The same one-line install works natively on macOS. Run it from your usual administrator account. The installer sets up Homebrew if needed and uses launchd for background services.
 
-Playback runs as root to reach the local network from a background service. The installer adds a passwordless sudo rule for the installing user, limited to the `cast` command. You still launch films with `cast the matrix`.
+Playback runs as root to reach the local network from a background service. The installer adds a passwordless sudo rule for the installing user, limited to the `cast` command. You still launch films with `cast night of the living dead`.
 
 The bootstrap requires `sha256sum` before it reaches Homebrew setup. If it stops with `sha256sum is required but is not in PATH`, use the repository installation below, which starts `install.sh` directly. If macOS asks whether to allow incoming connections, allow them so the receiver can reach the video stream.
 
@@ -77,14 +77,14 @@ The installer handles dependencies and administrator privileges here too. On ARM
 Usually, the title is enough. Add `--menu` to choose a film yourself, for example when a search finds several parts of a series:
 
 ```console
-$ cast the matrix --menu
-  1. The Matrix (1999) · IMDb 8.7 · 2 h 16 min
-     A science fiction action film written and directed by the Wachowskis.
-  2. The Matrix Reloaded (2003) · IMDb 7.2 · 2 h 18 min
-     A science fiction action film, the second in The Matrix series.
-  3. The Matrix Revolutions (2003) · IMDb 6.7 · 2 h 9 min
-     A science fiction action film, the third in The Matrix series.
-Enter - “The Matrix (1999)”, item 1 of 3
+$ cast night of the living dead --menu
+  1. Night of the Living Dead (1968) · IMDb 7.8 · 1 h 36 min
+     An independent horror film directed by George A. Romero.
+  2. Dawn of the Dead (1978) · IMDb 7.8 · 2 h 7 min
+     A horror film directed by George A. Romero, the second in his Living Dead series.
+  3. Day of the Dead (1985) · IMDb 7.1 · 1 h 41 min
+     A horror film directed by George A. Romero, the third in his Living Dead series.
+Enter - “Night of the Living Dead (1968)”, item 1 of 3
 What are we watching? [1]:
 ```
 
@@ -114,7 +114,7 @@ Assist can control playback too. Starting a film by name depends on the assistan
 
 ## Telegram
 
-Send `cast the matrix` from the sofa and use the playback buttons in the chat. The bot shows progress while the film starts, then gives you pause, stop, volume and 30-second seek controls. It also controls playback started from the terminal or Home Assistant.
+Send `cast night of the living dead` from the sofa and use the playback buttons in the chat. The bot shows progress while the film starts, then gives you pause, stop, volume and 30-second seek controls. It also controls playback started from the terminal or Home Assistant.
 
 Set it up on the torrcast computer:
 
@@ -134,7 +134,7 @@ Before enabling the bot service, send your new bot a message. Open `https://api.
 Send these as ordinary messages:
 
 ```text
-cast the matrix
+cast night of the living dead
 cast kim possible s1e1
 cast
 cast stop
