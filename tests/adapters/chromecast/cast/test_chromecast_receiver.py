@@ -41,8 +41,8 @@ def test_the_thresholds_are_reachable_from_the_receiver_itself() -> None:
     assert ChromecastReceiver.CUT_SLACK == _Settings.CUT_SLACK
 
 
-def test_the_remote_commands_do_not_touch_the_watchdog_state() -> None:
-    """Перемотка проверяется ВМЕСТЕ со сторожем: подчищать его вход значило бы проверять не то.
+def test_the_remote_commands_do_not_reset_the_stall_watchdog() -> None:
+    """Перемотка проверяется ВМЕСТЕ со сторожем: сбросить его значило бы проверить не то.
 
     Существует она ради диагностики: автотест кнопку нажать не может, а вторым
     pychromecast её не подать вовсе - приёмник считает второе соединение тем же сендером.

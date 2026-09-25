@@ -17,9 +17,16 @@ if TYPE_CHECKING:
 def _watch_seek(rcv: _State, pos: float, state: str) -> None:
     """Заметить перемотку и померить, через сколько после неё вернулась КАРТИНКА.
 
-    Перемотка видна только по позиции: приёмник мотает сам, никакой команды нам при
-    этом не приходит. Отличаем её от хода показа по прыжку, а от собственного нуджа -
-    по тому, куда прыгнули: сторож только что назвал это место сам (:attr:`_nudged_to`).
+    Перемотка видна только по позиции: ``MEDIA_STATUS`` не называет отправителя команды.
+    Отличаем её от хода показа по прыжку, а от собственного нуджа - по тому, куда
+    прыгнули: сторож только что назвал это место сам (:attr:`_nudged_to`). Команда нашего
+    владеющего сендера тоже помечена целью (:attr:`_viewer_seek_to`) и остаётся
+    зрительской даже из ``BUFFERING``.
+
+    🔴 Собственный скачок приёмника вперёд после ребуфера отличается порядком снимков:
+    прежняя позиция уже была в ``BUFFERING``. Без этого правила прыжки 9:53 -> 10:26 и
+    11:38 -> 12:25 тяжёлого показа дали в итоге «перемоток 2», хотя пульта никто не
+    касался. Назад это правило не действует: обычный ход показа назад не идёт.
 
     🔴 Вперёд запас на прыжок - БОЛЬШИЙ из двух: жёсткий :attr:`SEEK_JUMP` и плёнка,
     которую показ успел бы проиграть с прошлого опроса. Пока запасом был один только
@@ -53,11 +60,12 @@ def _watch_seek(rcv: _State, pos: float, state: str) -> None:
     now = rcv.clock.monotonic()
     seen, rcv._seen = rcv._seen, pos
     was_at, rcv._seen_at = rcv._seen_at, now
+    was_state, rcv._seen_state = rcv._seen_state, state
     if state == "IDLE":
         # Позиции не было - и сравнивать в следующий раз не с чем. Момент снятия
         # возвращается вместе с ней: пара «где и когда» врозь не живёт, а мёртвая сессия
         # длится сколько угодно, и время под ней идёт.
-        rcv._seen, rcv._seen_at = seen, was_at
+        rcv._seen, rcv._seen_at, rcv._seen_state = seen, was_at, was_state
         _drop_seek(rcv, phrase("chromecast_talk.session_broke"))
         return
     gone = pos - seen
@@ -72,8 +80,12 @@ def _watch_seek(rcv: _State, pos: float, state: str) -> None:
     if not jumped:
         return
     nudged, rcv._nudged_to = rcv._nudged_to, -1.0
-    if nudged >= 0.0 and abs(pos - nudged) <= rcv.SEEK_JUMP:
+    viewer, rcv._viewer_seek_to = rcv._viewer_seek_to, -1.0
+    viewer_jump = viewer >= 0.0 and abs(pos - viewer) <= rcv.SEEK_JUMP
+    if not viewer_jump and nudged >= 0.0 and abs(pos - nudged) <= rcv.SEEK_JUMP:
         return  # прыжок наш: сторож уже записал его как нудж
+    if not viewer_jump and gone > 0.0 and was_state == "BUFFERING":
+        return  # приёмник сам уехал вперёд, возвращаясь после ребуфера
     _drop_seek(rcv, phrase("chromecast_talk.another_seek_arrived"))
     rcv._seek_from, rcv._seek_to = seen, pos
     rcv._seek_since = now
