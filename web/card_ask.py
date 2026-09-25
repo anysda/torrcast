@@ -9,12 +9,13 @@ from typing import Final
 
 @dataclass(frozen=True, slots=True)
 class CardAsk:
-    """Запрос круга, язык подписей дорожек, вкладка сезона и добор одних дорожек."""
+    """Запрос круга, принесённое имя, язык дорожек, вкладка и их долгий добор."""
 
     query: str = ""
     lang: str = ""
     season: int | None = None
     voices: bool = False
+    shown: str = ""
 
     @classmethod
     def of(cls, query: Mapping[str, str]) -> CardAsk:
@@ -22,7 +23,13 @@ class CardAsk:
         tab = query.get("season", "")
         season = int(tab) if tab.isdigit() and 0 < int(tab) <= 40 else None
         voices = query.get("voices") == "1"
-        return cls(query.get("query", ""), query.get("lang", ""), season, voices)
+        return cls(
+            query.get("query", ""),
+            query.get("lang", ""),
+            season,
+            voices,
+            query.get("shown", "").strip(),
+        )
 
 
 #: Карточка, у которой страница ничего сверх ключа не спросила.

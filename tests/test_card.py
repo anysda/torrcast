@@ -18,6 +18,7 @@ from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.kind import Kind
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
@@ -1014,6 +1015,83 @@ def test_the_shown_name_stays_recorded_under_russian_even_with_an_original(
     assert code == 200
     assert body["title"] == "Целиком и полностью"
     assert body["shown"] == "Целиком и полностью"
+
+
+def _plan_without_original(title: str, year: int, kind: Kind = "movie") -> Plan:
+    picture = Picture(title=title, year=year, kind=kind)
+    return Plan(picture=picture, ranked=[], runtime=0.0, warn_mbit=0.0)
+
+
+def test_the_full_card_keeps_the_passport_name_carried_by_an_english_search_tile(
+    monkeypatch: pytest.MonkeyPatch, _english: None
+) -> None:
+    """The complete REST body must not replace the tile's proven name with Cyrillic."""
+    plan = _plan_without_original("Матрица", 1999)
+    _wired(monkeypatch, [plan])
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(
+        plan.picture.key,
+        query="Матрица",
+        extra_query={"title": "Матрица", "shown": "The Matrix", "year": "1999", "kind": "movie"},
+    )
+
+    assert code == 200
+    assert body["title"] == "Матрица"
+    assert body["original"] == "The Matrix"
+    assert body["shown"] == "The Matrix"
+
+
+def test_the_same_carried_name_does_not_change_a_russian_cards_title(
+    monkeypatch: pytest.MonkeyPatch, _russian_product: None
+) -> None:
+    """The carried passport name is only the English side of the shared naming rule."""
+    plan = _plan_without_original("Матрица", 1999)
+    _wired(monkeypatch, [plan])
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(
+        plan.picture.key,
+        query="Матрица",
+        extra_query={"title": "Матрица", "shown": "The Matrix", "year": "1999", "kind": "movie"},
+    )
+
+    assert code == 200
+    assert body["shown"] == "Матрица"
+
+
+@pytest.mark.parametrize(
+    ("title", "year", "kind", "carried", "expected"),
+    [
+        ("Ёлки", 2010, "movie", "Ёлки", "Ёлки"),
+        ("Чернобыль", 2019, "tv", "Chernobyl", "Chernobyl"),
+    ],
+)
+def test_a_carried_name_keeps_its_honest_boundary_on_the_full_english_card(
+    monkeypatch: pytest.MonkeyPatch,
+    _english: None,
+    title: str,
+    year: int,
+    kind: Kind,
+    carried: str,
+    expected: str,
+) -> None:
+    """No Latin name stays Cyrillic; a series follows the same route as a movie."""
+    plan = _plan_without_original(title, year, kind)
+    _wired(monkeypatch, [plan])
+    monkeypatch.setattr("web.card.preview", lambda *_args: None)
+    state_slot.install(FakeStateStore())
+
+    code, body, _extra = _asked(
+        plan.picture.key,
+        query=title,
+        extra_query={"title": title, "shown": carried, "year": str(year), "kind": kind},
+    )
+
+    assert code == 200
+    assert body["shown"] == expected
 
 
 def test_a_namesake_in_another_year_is_not_taken_for_the_asked_picture(

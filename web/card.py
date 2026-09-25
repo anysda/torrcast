@@ -163,15 +163,15 @@ def _body(
     poster, judging = _poster.of(picture)
     heard, hearing = _voices.of(plan, ask.query, config, entry) if plan.ranked else (None, False)
     runtime, runtime_estimated = display_runtime(plan, fact)
+    original = picture.original or (ask.shown if ask.shown != picture.title else "")
     body: dict[str, JsonValue] = {
-        # Номер картины В КРУГЕ: им «Играть» просит показ ровно ту, которую человек
-        # видит, а не ту, что круг взял бы по умолчанию (ТЗ §4.3).
+        # Номер картины В КРУГЕ: им «Играть» просит ровно видимую картину, не умолчание (§4.3).
         "pick": pick,
         "picture": picture.key,
         **release_keys(plan, episode_release, heard, WARM.live(ask.query) is not None),
         "title": picture.title,
-        "shown": spoken_title(picture.title, picture.original or ""),
-        "original": picture.original or None,
+        "shown": spoken_title(picture.title, original),
+        "original": original or None,
         "year": picture.year,
         "kind": picture.kind,
         "runtime": runtime,
