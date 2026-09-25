@@ -12,11 +12,30 @@ from torrcast.domain.cluster import cluster
 from torrcast.domain.raw_result import RawResult
 
 PAIRS = json.loads((Path(__file__).parents[1] / "fixtures/katalog/subtitles.json").read_text())
+NUMBERED_SUBTITLE = next(row for row in PAIRS if row[0] == "pirates3")
+SHARED_PARSED_IDENTITY = [row for row in PAIRS if row[0] != "pirates3"]
 
 
-@pytest.mark.parametrize(("case", "first", "second"), PAIRS, ids=[row[0] for row in PAIRS])
-def test_live_number_and_subtitle_share_one_pool(case: str, first: str, second: str) -> None:
+def test_live_number_and_subtitle_share_one_pool() -> None:
+    case, first, second = NUMBERED_SUBTITLE
     pictures = cluster(to_releases([RawResult(first, "a" * 40), RawResult(second, "b" * 40)]))
+    assert len(pictures) == 1, case
+    assert {r.raw_name for r in pictures[0].releases} == {first, second}
+
+
+@pytest.mark.parametrize(
+    ("case", "first", "second"),
+    SHARED_PARSED_IDENTITY,
+    ids=[row[0] for row in SHARED_PARSED_IDENTITY],
+)
+def test_pairs_with_a_shared_parsed_identity_need_no_subtitle_glue(
+    case: str, first: str, second: str
+) -> None:
+    """Регрессные пары уже сходятся по общему оригиналу или русскому имени."""
+    pictures = cluster(
+        to_releases([RawResult(first, "a" * 40), RawResult(second, "b" * 40)]),
+        glue_rule=lambda candidates: candidates,
+    )
     assert len(pictures) == 1, case
     assert {r.raw_name for r in pictures[0].releases} == {first, second}
 

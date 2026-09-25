@@ -541,6 +541,9 @@ def test_a_yearless_fan_edit_does_not_outweigh_the_living_part() -> None:
     часть, номером каталог её не подписал, - и прежний разбор отдавал запрос «матрица 4»
     сборке на двух раздачах: явный номер был сильнее всех прочих признаков.
     """
+    # Склейка теперь объединяет две спорящие картины. Здесь она намеренно выключена:
+    # этот тест сторожит следующий отдельный шаг — выбор настоящей части между двумя
+    # кандидатами, разобранными из живых имён. Саму склейку держит test_numbered_subtitle.
     pictures = cluster(
         [
             parse_release_name(name)
@@ -559,9 +562,12 @@ def test_a_yearless_fan_edit_does_not_outweigh_the_living_part() -> None:
                 "Матрица 4 / Matrix 4 - As It Should Be (2021/2022) HDRip 1080p | P | "
                 "Фанатская версия",
             )
-        ]
+        ],
+        glue_rule=lambda candidates: candidates,
     )
 
+    fourth = {p.title for p in pictures if p.part == 4 or p.title == "Матрица: Воскрешение"}
+    assert fourth == {"Матрица 4", "Матрица: Воскрешение"}, "ранжировать нужно двух кандидатов"
     found = [p.title for p in pick_franchise("матрица 4", pictures)]
     assert found == ["Матрица: Воскрешение"], "безгодовая сборка живой части не соперник"
     # Названные каталогом номера с годом отвечают как прежде - явный номер не ослаблен.
