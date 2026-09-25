@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -23,11 +24,17 @@ def test_the_tape_is_cut_by_days_so_a_week_can_be_kept_and_dropped_by_file(
     записи в один файл - и «держим неделю» превратилось бы в вычитание строк из растущего
     файла на каждом запуске показа.
     """
-    monkeypatch.setenv("TORRCAST_LOG", str(tmp_path))
+    try:
+        with monkeypatch.context() as fixed:
+            fixed.setenv("TZ", "UTC")
+            time.tzset()
+            fixed.setenv("TORRCAST_LOG", str(tmp_path))
 
-    assert log_path(NOON) == log_path(EVENING)
-    assert log_path(NOON) != log_path(NEXT_DAY)
-    assert log_path(NOON).parent == tmp_path
+            assert log_path(NOON) == log_path(EVENING)
+            assert log_path(NOON) != log_path(NEXT_DAY)
+            assert log_path(NOON).parent == tmp_path
+    finally:
+        time.tzset()
 
 
 def test_the_day_is_written_so_that_sorting_by_name_sorts_by_time(
