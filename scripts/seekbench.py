@@ -105,7 +105,7 @@ def leap(feed: Feed, base: str, to: float, window: float, timeout: float) -> dic
     feed.restart(slot)
     film, first_at, gave = 0.0, 0.0, 0
     while time.monotonic() - began < window and slot < grid.count - 1:
-        code, size, waited = get(f"{base}/{segment_name(slot)}", timeout)
+        code, size, waited = get(f"{base}/{segment_name(slot, feed.container)}", timeout)
         spent = time.monotonic() - began
         if code != 200 or not size:
             print(f"  v{slot:<4} · 🔴 код {code} на {spent:5.1f} с - плёнки не будет")

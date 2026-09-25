@@ -56,6 +56,7 @@ from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.codec_tag import codec_tag
 from torrcast.domain.segment_container import MPEGTS
+from torrcast.domain.segment_suffix import segment_suffix
 from torrcast.runtime.wire import wire
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.playback.layout import layout
@@ -187,7 +188,9 @@ class Consumer:
 
     def take(self, slot: int, note: str = "") -> float:
         """Забрать сегмент, отчитаться и подвинуть позицию показа (с уборкой, как в _hold)."""
-        code, size, waited = get(f"{self.base}/{segment_name(slot)}", self.timeout)
+        code, size, waited = get(
+            f"{self.base}/{segment_name(slot, self.feed.container)}", self.timeout
+        )
         self.worst = max(self.worst, waited)
         if code == 404:
             self.misses += 1
@@ -266,7 +269,8 @@ def case_fwd(user: Consumer) -> None:
 def _slots(feed: Feed) -> list[int]:
     from torrcast.adapters.stream_probe.segment_slot import segment_slot
 
-    return [s for s in (segment_slot(p.name) for p in feed.out.glob("v*.ts")) if s >= 0]
+    pieces = feed.out.glob(f"v*{segment_suffix(feed.container)}")
+    return [s for s in (segment_slot(p.name) for p in pieces) if s >= 0]
 
 
 def trace_steer() -> None:
