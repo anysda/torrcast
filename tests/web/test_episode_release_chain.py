@@ -156,7 +156,8 @@ def _card_body(
 def _page_sends_the_tab_release() -> bool:
     """Строка серии шлёт ``release`` тела, отрисовавшего вкладку, и для сериала тоже.
 
-    Список не как у раздач (``layout``) раздачи вкладки не шлёт: строку ищут сквозным номером.
+    Список не как у раздач (``layout``) меняет только нумерацию серии: раздача всё равно
+    остаётся той, по которой строка была нарисована.
     """
     # Обработчик строки назван, потому что гашение по приговору его снимает
     # (:mod:`web.episode_absent`); тело `_play` у него прежнее.
@@ -165,7 +166,7 @@ def _page_sends_the_tab_release() -> bool:
     play = CARD_JS.split("  _play(data, key, query, voices, fromStart, season, episode) {", 1)[1]
     play = play.split("\n  },", 1)[0]
     keys = re.search(r"_keys\(data, key\) \{\s*return \{[^}]*release: data\.release", CARD_JS)
-    sends = "release: layout ? undefined : keys.release," in play
+    sends = "release: keys.release," in play
     return row in SERIES_JS and bound and sends and keys is not None
 
 
@@ -205,3 +206,20 @@ def test_a_bookmark_season_row_plays_the_bookmark_release(monkeypatch: pytest.Mo
     assert sent == body["release"]
     assert plays == body["release"], "показ сыграл не раздачу закладки, которую назвала вкладка"
     assert _show_plays(monkeypatch, "")[0] != body["release"], "без --card-release звено не мерится"
+
+
+def test_a_layout_row_carries_its_release_together_with_the_numbering() -> None:
+    """Layout меняет адрес серии внутри раздачи, но не выбрасывает адрес самой раздачи."""
+    args = parse_args(
+        play_argv(
+            "show",
+            None,
+            season=2,
+            episode=1,
+            picture=PICTURE.key,
+            release=info_hash(AVC) or "",
+            layout="8,8",
+        )
+    )
+
+    assert (args.card_release, args.layout) == (info_hash(AVC), "8,8")

@@ -134,6 +134,28 @@ def test_an_asked_episode_jumps_by_the_cache_of_the_torrent() -> None:
     assert [label for label, _about in shown.launched] == ["s1e3"]
 
 
+def test_a_card_row_does_not_jump_inside_another_release_from_the_bookmark() -> None:
+    """Раздача строки сильнее сохранённой: чужая таблица файлов не отвечает за клик."""
+    saved, shown = entry(magnet="magnet:?xt=urn:btih:" + "a" * 40, **_SERIES), _Shown()
+    asked = Args(query=["кино", "s1e3"], card_release="b" * 40)
+
+    code = _continue(Config(), "tv:кино", saved, asked, _Clock(), **shown.calls)
+
+    assert code is None, "строка карточки должна дойти до отбора своей раздачи"
+    assert shown.launched == [], "файл сохранённой раздачи строке карточки не принадлежит"
+
+
+def test_a_card_row_keeps_the_bookmark_shortcut_for_the_same_release() -> None:
+    """Та же раздача вправе досматривать сезон по сохранённой таблице без нового поиска."""
+    saved, shown = entry(magnet="magnet:?xt=urn:btih:" + "a" * 40, **_SERIES), _Shown()
+    asked = Args(query=["кино", "s1e3"], card_release="a" * 40)
+
+    code = _continue(Config(), "tv:кино", saved, asked, _Clock(), **shown.calls)
+
+    assert code == EXIT_OK
+    assert [label for label, _about in shown.launched] == ["s1e3"]
+
+
 def test_an_episode_the_torrent_does_not_have_goes_looking_for_a_release() -> None:
     """Серии в этой раздаче нет - честно идём искать релиз сезона, а не врём отказом."""
     saved, shown = entry(**_SERIES), _Shown()

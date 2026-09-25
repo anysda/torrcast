@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.magnet_hash import magnet_hash
 from torrcast.usecases.playback._launch import _launch, _resume
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.select._about import _about
@@ -58,6 +59,15 @@ def _continue(
     этой единицы - решить, какой из них зовут и с какой записью, и зеркалу надо мерить
     именно решение, а не показ, systemd и рой за каждым из них.
     """
+    # Строка карточки названа конкретной раздачей, по которой её нарисовали. Закладка
+    # вправе быстро прыгнуть внутри своих файлов только когда это та же раздача: иначе
+    # глобальный номер серии прикладывался к старой таблице файлов, пережившей рестарт.
+    if (
+        args.episode is not None
+        and args.card_release
+        and magnet_hash(entry.magnet) != args.card_release
+    ):
+        return None
     own = _Voiced()
     try:
         if not entry.serial:  # фильм (в том числе ошибочно записанный сериалом)

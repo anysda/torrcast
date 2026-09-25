@@ -893,12 +893,12 @@ const TCCard = {
   _play(data, key, query, voices, fromStart, season, episode) {
     const kept = sessionStorage.getItem(TCCard._voiceKey);
     const known = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
-    // Серию сезона показ отбирает сам, как отбирал её вкладке: раздача карточки взята без
-    // сезона, и её номер дорожки в чужой раздаче значит другое.
+    // Номер дорожки из прежней вкладки не прикладывается к серии: вкладка могла выбрать
+    // другую раздачу сезона, а одинаковый номер дорожки там значит другое.
     const picked = season && /^\d+$/.test(known || '') ? undefined : known;
     const keys = TCCard._keys(data, key);
     // Список не как у раздач («Интерны» IMDb: 60, 60, 61, 98) несёт числа серий сезонов:
-    // показ ищет строку сквозным номером в любой раздаче, а не в раздаче вкладки.
+    // показ переводит строку в сквозной номер, но начинает с раздачи этой вкладки.
     const layout = season && (data.layout || []).length ? data.layout.join(',') : undefined;
     return TCApi.play({
       query: query || data.title || data.original || key,
@@ -911,7 +911,7 @@ const TCCard = {
       original: keys.original,
       // У сериала ``release`` - раздача, чей список серий открыт во вкладке: строка серии
       // играет её, иначе показ отбирал бы сезон заново и мог взять другую.
-      release: layout ? undefined : keys.release,
+      release: keys.release,
       layout,
       voice: picked,
       from_start: fromStart,
