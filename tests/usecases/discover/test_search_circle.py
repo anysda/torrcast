@@ -17,6 +17,7 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.state_store.slot import install
 from torrcast.usecases.choice.enter_take import enter_take
+from torrcast.usecases.discover._catalog_note import _catalog_note
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
 
@@ -281,3 +282,37 @@ def test_the_catalogue_line_is_silent_when_the_taken_picture_is_named_as_asked()
     # молчание строки это решение, а не пустота выдачи.
     assert "Константин: Повелитель тьмы" in [plan.picture.title for plan in plans]
     assert [note for note in said.notes if "каталоге" in note] == []
+
+
+def test_a_season_reread_hands_the_catalogue_line_the_callers_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Сезонное перечтение меняет запрос круга, но строка каталога спрашивает Enter исходным.
+
+    Выбор после круга держит исходные ``args`` и зовёт Enter строкой «кухня 6»; строка
+    каталога, спросившая «кухня», сверялась бы с другим номером.
+    """
+    asked: list[str] = []
+
+    def spy(name: str, plans: list[Plan], args: Args, query: str) -> str:
+        asked.append(query)
+        return _catalog_note(name, plans, args, query)
+
+    monkeypatch.setattr("torrcast.usecases.discover._plan_menu._catalog_note", spy)
+    wire_catalogue()
+    kitchen = [
+        row("Кухня / Kuhnya (2017) WEB-DL 1080p | 6 сезон, 1-20 из 20", "a", seeders=60),
+        row("Кухня / Kuhnya (2016) WEB-DL 1080p | 5 сезон, 1-20 из 20", "b", seeders=50),
+    ]
+    said = Said()
+
+    search_circle(
+        _CONFIG,
+        Args(query=["кухня", "6"]),
+        said,
+        indexer=lambda *_a, **_k: Indexer(answers={"кухня 6": kitchen, "кухня": kitchen}),
+        passport=lambda *_a, **_k: Origin(),
+    )
+
+    assert phrase("discover.season_not_part", name="кухня", index=6) in said.notes
+    assert asked == ["кухня 6"]
