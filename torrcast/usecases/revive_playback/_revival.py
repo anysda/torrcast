@@ -91,6 +91,7 @@ class _Revival(_RevivalState):
         if self.why and shown:
             self.since, self.blamed, self.dropped = 0.0, False, False
             self.began, self.why = 0.0, ""  # темноты нет - и отметки о ней тоже
+            self.resume_at = 0.0  # новый живой экран снова сам называет место показа
             self.back = now  # темнота кончилась - засекаем прожитое
         if not self.back:
             return  # обрыва не было вовсе - и возвращать нечего

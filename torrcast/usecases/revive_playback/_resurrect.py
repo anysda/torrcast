@@ -97,6 +97,7 @@ def _resurrect(
     now = state.clock.monotonic()
     if not isinstance(receiver, _Revivable) or pos < 0:
         return False  # поднимать нечем или неоткуда - это обычный конец показа
+    pos = max(pos, state.resume_at)
     if ending_reached(pos, feed.duration):
         if sure:
             state.will_since = -1.0
@@ -153,6 +154,10 @@ def _resurrect(
     # (:data:`torrcast.domain.not_raised.NOT_RAISED`).
     back = receiver.replay(pos)
     raised = back >= 0
+    if raised and back > pos:
+        # Приёмник вправе поднять показ уже ЗА невоспроизводимым куском. Это решение
+        # переживает мёртвую сессию: её следующий ноль не возвращает нас в тот же кусок.
+        state.resume_at = max(state.resume_at, back)
     # 🔴 Причину неудачи называет приёмник, а не догадка зовущего. Прежде эта строка
     # перечисляла версии через «или», а лента писала голое ``ok=False``, - и «нельзя»
     # (на экране чужой показ) было неотличимо от «упал» (соединение легло). Замер
