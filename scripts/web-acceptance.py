@@ -578,7 +578,10 @@ _SHELF_JS: Final = """
     boxes: () => [...[...document.querySelectorAll(LIVE)].slice(0, 60), ...S.rows()]
       .map((el) => { const b = box(el); return [b.left, b.top, b.width, b.height]; }),
     ring() {
-      const f = lit() && lit().querySelector('.tc-tile-frame');
+      // Контур горящей плитки рисует сама `.tc-tile.is-lit` (533a7d5f переносит его
+      // с `.tc-tile-frame`): старый зонд читал дочерний узел и не видел обводки,
+      // сколько бы её ни рисовали.
+      const f = lit();
       if (!f) return false;
       const s = getComputedStyle(f);
       return s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0;
