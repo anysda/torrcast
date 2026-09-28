@@ -146,10 +146,10 @@ def test_the_shown_name_stays_recorded_under_russian_even_with_an_original(
     assert item["shown"] == "Матрица"
 
 
-def test_history_keeps_only_tiles_the_poster_verdict_covered(
+def test_history_keeps_a_new_bookmark_without_a_poster(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Continue watching проходит тот же приговор, что поиск, и не обещает битую картинку."""
+    """Новая закладка не ждёт обложку среди уже покрытых старых записей."""
     fake = FakeStateStore()
     state = fake.load()
     for number, title in enumerate(("Есть", "Нет", "Тоже есть"), 1):
@@ -178,8 +178,10 @@ def test_history_keeps_only_tiles_the_poster_verdict_covered(
 
     items = _asked()["items"]
 
-    assert [item["title"] for item in items] == ["Тоже есть", "Есть"]
-    assert all(item["poster"] == "abc" for item in items)
+    assert [item["title"] for item in items] == ["Тоже есть", "Нет", "Есть"]
+    assert items[0]["poster"] == "abc"
+    assert "poster" not in items[1]
+    assert items[2]["poster"] == "abc"
     assert [record["original"] for record in seen] == [None, None, None]
 
 

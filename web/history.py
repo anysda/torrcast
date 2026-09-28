@@ -10,7 +10,6 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.ports.state_store.slot import store
 from web.answer import Answer
 from web.request import Request
-from web.shelf_tiles import _covered
 
 
 def history(_request: Request) -> Answer:
@@ -22,7 +21,12 @@ def history(_request: Request) -> Answer:
     entries = store().load().entries
     fresh = sorted(entries.items(), key=lambda kv: kv[1].updated, reverse=True)
     items: list[JsonValue] = [_item(key, entry) for key, entry in fresh if not entry.watched]
-    offered = _covered(hits.offer(items), len(items))
+    # «Продолжить» не витрина рекомендаций: новая запись обязана вернуться сразу,
+    # даже когда у старых уже есть обложки, а у неё приговор картинки отрицательный.
+    # Клиент честно рисует такую плитку типографским блоком. `_covered` годится для
+    # ограниченных рекомендаций, где следующая обложка может занять её место, но тут
+    # он выбрасывал ровно только что начатую картину из полного списка истории.
+    offered = hits.offer(items)
     public = [_public(item) for item in offered if isinstance(item, dict)]
     return Answer(200, json.dumps({"items": public}, ensure_ascii=False).encode("utf-8"))
 
