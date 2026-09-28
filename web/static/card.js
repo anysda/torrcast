@@ -287,7 +287,7 @@ const TCCard = {
     body.id = 'tc-card-body';
     body.className = 'tc-detail-body';
     body.appendChild(TCCard._posterBlock([hint.poster], false, !hint.poster, hint.title));
-    body.appendChild(TCCard._loadingInfo(hint.title));
+    body.appendChild(TCCard._loadingInfo(hint.title, hint.year));
 
     frame.append(top, body);
     wrap.append(blur, shade, scan, frame);
@@ -300,7 +300,10 @@ const TCCard = {
     return sum;
   },
 
-  _loadingInfo(named) {
+  // Год плитки встаёт в скелет вместе с именем: первый ответ по согретой картине
+  // собирает тело целиком (разбор серий, справка по эфиру), и год, ждавший его,
+  // приходил через 0.8 с после клика, хотя плитка знала его в миг клика.
+  _loadingInfo(named, year) {
     const info = document.createElement('div');
     info.className = 'tc-detail-info';
     const title = document.createElement('div');
@@ -312,6 +315,16 @@ const TCCard = {
       title.style.height = '5.5rem';
       title.style.width = '60%';
     }
+    info.appendChild(title);
+    if (year) {
+      const meta = document.createElement('div');
+      meta.className = 'tc-detail-meta';
+      const line = document.createElement('div');
+      line.className = 'tc-meta';
+      line.textContent = String(year);
+      meta.appendChild(line);
+      info.appendChild(meta);
+    }
     const skel = document.createElement('div');
     skel.className = 'tc-detail-skel';
     for (const width of ['100%', '93%', '56%']) {
@@ -320,7 +333,7 @@ const TCCard = {
       line.style.width = width;
       skel.appendChild(line);
     }
-    info.append(title, skel);
+    info.appendChild(skel);
     return info;
   },
 
