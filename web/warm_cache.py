@@ -21,7 +21,7 @@ from web.circle_disk import CircleDisk
 from web.circle_memory import CircleMemory
 from web.warm_live import _take_live
 from web.warm_priority import _hint, _unasked, _warm_blurbs
-from web.warm_pump import _pump
+from web.warm_pump import _pump, _rush
 
 if TYPE_CHECKING:
     from torrcast.usecases.discover.told_indexer import Told
@@ -32,7 +32,8 @@ if TYPE_CHECKING:
 #: до клика, а час полки (:mod:`web.shelves_cache`) велик - по этим раздачам жмут «Играть».
 TTL: Final = 300.0
 #: Сколько кругов идёт фоном разом: пул индексеров у фона тот же, что у живого поиска, и
-#: два фоновых круга растянули живой поиск на стенде с 8.3 с до 22.5 с, один - до 8.8 с.
+#: два фоновых круга растянули живой поиск с 8.3 с до 22.5 с, один - до 8.8 с. Карточка
+#: считает свой круг своей рукой (:func:`web.warm_pump._rush`), не за фоном.
 WORKERS: Final = 1
 #: Потолок экрана: сорока плиток человек за раз не видит.
 LIMIT: Final = 40
@@ -67,6 +68,7 @@ class WarmCache:
     _stale: set[str] = field(default_factory=set, repr=False)
     _told: set[tuple[str, int | None]] = field(default_factory=set, repr=False)
     _running: int = field(default=0, repr=False)
+    _rushing: bool = field(default=False, repr=False)
     _live: int = field(default=0, repr=False)
     _cond: threading.Condition = field(default_factory=threading.Condition, repr=False)
 
@@ -96,8 +98,6 @@ class WarmCache:
             if ready is None and refused is None:
                 self._busy.add(key)
         if refused is not None:
-            # Запись круга на диске старше молчания сети: холодный путь ниже уже
-            # предпочитает её сети, и отказ этой минуты её не отменяет.
             if (kept := self._memory.revive(query)) is None:
                 raise refused
             return kept
@@ -148,8 +148,8 @@ class WarmCache:
     def hint(self, query: str) -> int:
         return _hint(self, query)
 
-    def _pump(self) -> None:
-        _pump(self)
+    _pump = _pump
+    _rush = _rush
 
     def _quiet(self) -> None:
         """Дождаться, пока живой запрос отпустит сеть: фон второй в очереди, а не первый."""

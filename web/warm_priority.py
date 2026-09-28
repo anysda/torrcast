@@ -23,10 +23,14 @@ def _hint(cache: Any, query: str, stale: bool = False) -> int:
             cache._stale.add(query)
         cache._queue = [queued for queued in cache._queue if queued != query]
         cache._urgent.append(query)
-        hands = max(0, min(cache.workers - cache._running, 1))
+        # A card with nothing to show gets its own hand instead of waiting for the background
+        # circle in flight; a refresh of what the card already shows waits for a free one.
+        rush = not stale and not cache._rushing
+        cache._rushing = cache._rushing or rush
+        hands = 0 if rush else max(0, min(cache.workers - cache._running, 1))
         cache._running += hands
-    for _ in range(hands):
-        cache.spawn(cache._pump)
+    for hand in [cache._rush] * rush + [cache._pump] * hands:
+        cache.spawn(hand)
     return 1
 
 

@@ -37,3 +37,27 @@ def test_an_open_card_runs_before_but_does_not_drop_the_visible_screen() -> None
     jobs.pop(0)()
 
     assert asked == ["card", "one", "two"]
+
+
+def test_an_open_card_counts_its_circle_while_the_background_is_still_counting() -> None:
+    """The card does not wait for the background circle already in flight: it gets its own hand."""
+    jobs: list[Callable[[], None]] = []
+    asked: list[str] = []
+    cache = WarmCache(
+        circle=lambda query: [_plan()], blurbs=lambda _pictures: None, spawn=jobs.append
+    )
+
+    def circle(query: str) -> list[Plan]:
+        asked.append(query)
+        if query == "screen":
+            cache.hint("card")  # the click lands while the only background hand is busy
+            while jobs:
+                jobs.pop(0)()
+            asked.append("screen done")
+        return [_plan()]
+
+    cache.circle = circle
+    cache.ask(["screen"])
+    jobs.pop(0)()
+
+    assert asked == ["screen", "card", "screen done"]
