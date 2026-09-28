@@ -85,6 +85,10 @@ class CardWarm:
         with self._lock:
             warm.out.set()
             if warm.taken:  # стенд уже у показа, и убирать с него нечего
+                if prep is not None:
+                    prep.card_warmed = True
+                    warm.prep = prep
+                warm.chosen.set()
                 return
             keep = prep is not None and self._current is warm and not warm.stop.is_set()
             if keep and prep is not None:
@@ -119,7 +123,6 @@ class CardWarm:
             warm = self._current
             if warm is not None and warm.key == key and not warm.taken:
                 warm.taken = True
-                warm.stop.set()
             else:
                 old = warm
                 warm = None
@@ -128,11 +131,10 @@ class CardWarm:
             if old is not None and old.key != key:
                 self._release(old)
             return fresh
-        # Клик забрал тот же стенд и попросил отбор карточки остановиться.  Переход на
-        # ``fresh`` после произвольных пяти секунд начинал второй отбор тех же релизов,
-        # а затем оба спорили за метаданные и карту кадров.  Ждём исход уже начатой
-        # работы: он либо отдаст готовый стенд, либо закончит ошибкой, которую покажет
-        # обычный путь выбора. Ждём не дольше потолка отбора: зависший круг не держит клик вечно.
+        # Клик забрал тот же стенд. Переход на ``fresh`` после произвольных пяти секунд
+        # начинал второй отбор тех же релизов, а остановка первого выбрасывала именно
+        # тот результат, за которым карточка уже сходила в рой. Ждём исход начатой
+        # работы и берём её результат целиком, но не дольше потолка отбора.
         if not warm.out.wait(LET_GO):
             with self._lock:
                 if not warm.out.is_set():  # отбор карточки завис: уберёт за собой сам

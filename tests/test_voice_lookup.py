@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
-import web.card_warm
 from tests.fakes.torrent_engine import FakeTorrentEngine
 from tests.fakes.torrent_engines import FakeTorrentEngines
 from tests.usecases.rank.releases import media, track
@@ -249,31 +247,31 @@ def test_a_release_other_than_the_bookmark_one_is_not_left_warm(
 
 @dataclass
 class _Choosing(_Bench):
-    """Отбор карточки, который идёт, пока его не снимут: спрашивает индикатор по кругу."""
+    """Отбор карточки, который идёт, пока тест его не отпустит: спрашивает индикатор по кругу."""
 
     profile: Any = None
     choose: Any = None
     preps: dict[Any, Any] = field(default_factory=dict)
     entered: threading.Event = field(default_factory=threading.Event)
+    done: threading.Event = field(default_factory=threading.Event)
 
     def resolve(self, plan: Plan, args: Any, progress: Any) -> _Prep:
         self.asked.append((plan, args))
         self.entered.set()
-        while True:
+        while not self.done.wait(0.01):
             progress.phase("метаданные")
-            time.sleep(0.01)
+        return _Prep(self.answer, self.release)
 
 
 @pytest.mark.machine
-def test_a_show_clicked_while_the_card_chooses_gets_the_card_bench_at_once(
+def test_a_show_clicked_while_the_card_chooses_takes_the_card_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Снятый показом отбор карточки отпускает стенд сразу, а ответ ждёт уже от показа.
+    """Клик во время отбора карточки ждёт его итога и берёт тот же стенд, второго не заводит.
 
-    Раньше карточка ждала ответа показа, не отпустив стенд, а показ ждал стенд: оба
-    стояли весь ``LET_GO``, и показ уходил отбирать заново рядом с греющимся стендом.
+    Снятый отбор карточки терял то, за чем она уже сходила в рой, а показ начинал тот же
+    отбор заново рядом с греющимся стендом.
     """
-    monkeypatch.setattr(web.card_warm, "LET_GO", 3.0)
     bench = _Choosing(_MEDIA)
     threads: list[threading.Thread] = []
 
@@ -285,16 +283,19 @@ def test_a_show_clicked_while_the_card_chooses_gets_the_card_bench_at_once(
     lookup.of(_PLAN, "film", _CONFIG)
     assert bench.entered.wait(5.0)
 
-    began = time.monotonic()
     fresh: Any = _Choosing(_MEDIA)
-    got: Any = lookup.warms.take(_PICTURE.key, fresh)
-    waited = time.monotonic() - began
+    taken: list[Any] = []
+    caller = threading.Thread(
+        target=lambda: taken.append(lookup.warms.take(_PICTURE.key, fresh)), daemon=True
+    )
+    caller.start()
+    caller.join(0.2)
+    assert caller.is_alive() and taken == [], "клик снял отбор карточки или завёл второй стенд"
 
-    assert got is bench, f"показ отбирал бы вторым стендом после {waited:.2f} с"
-    assert waited < 1.0
-    ready: Any = _Prep(_MEDIA)
-    lookup.warms.settled(cast(Any, got), ready)
+    bench.done.set()
+    caller.join(5.0)
     threads[0].join(5.0)
+    assert taken == [bench] and fresh.asked == [], "показ берёт стенд карточки, а не свой"
     lookup.spawn = lambda _job: None  # карточка открыта заново: прогрев уже не про этот тест
-    assert lookup.of(_PLAN, "film", _CONFIG)[0] is not None, "дорожки - от раздачи показа"
+    assert lookup.of(_PLAN, "film", _CONFIG)[0] is not None, "дорожки - от итога карточки"
     assert bench.dropped == [] and bench.kept == [], "стенд у показа: карточка его не трогает"

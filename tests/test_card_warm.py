@@ -112,7 +112,7 @@ class _Out(threading.Event):
         return self.is_set()
 
 
-def test_a_card_still_choosing_is_stopped_and_its_bench_goes_to_the_show() -> None:
+def test_a_card_still_choosing_finishes_before_its_bench_goes_to_the_show() -> None:
     warms = CardWarm()
     bench: Any = _Bench()
     warm, _fresh = warms.open("movie:тачки:2006", lambda: bench)
@@ -121,11 +121,10 @@ def test_a_card_still_choosing_is_stopped_and_its_bench_goes_to_the_show() -> No
     stopped: list[bool] = []
 
     def card_choosing() -> None:
-        try:
-            line.phase("дорожки")
-        except warms.stopped():
-            stopped.append(True)
-        warms.finish(warm, None)
+        line.phase("дорожки")
+        ready: Any = _Prep()
+        warms.finish(warm, ready)
+        stopped.append(warm.prep is ready)
 
     warm.out = _Out(card_choosing)
 
