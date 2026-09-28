@@ -6,6 +6,7 @@ import pytest
 
 from tests.usecases.discover.world import pictures, row
 from torrcast.domain.nothing_found_error import NothingFoundError
+from torrcast.domain.search_refusal_reason import reason_of
 from torrcast.usecases.discover._nothing import _nothing
 
 
@@ -34,7 +35,9 @@ def test_a_living_franchise_without_the_asked_number_lists_what_it_has() -> None
 
 def test_the_franchise_refusal_is_one_the_viewer_is_owed_in_words() -> None:
     """🔴 TC-1304. Сказать есть что, и немым родом такой отказ не бывает."""
-    assert not isinstance(_nothing("тачки", 9, _CARS), NothingFoundError)
+    refusal = _nothing("тачки", 9, _CARS)
+    assert not isinstance(refusal, NothingFoundError)
+    assert reason_of(refusal).key == "web.search.franchise_no_number"
 
 
 def test_without_a_number_the_refusal_is_the_honest_one() -> None:

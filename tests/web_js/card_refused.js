@@ -12,9 +12,17 @@ const SKELETON = {
   data: { title: 'Престиж', searching: true, releases: [], releases_count: 0 },
   partial: true, missing: false, refused: null,
 };
-const REFUSAL = {
+const SEASON_REFUSAL = {
   data: null, partial: false, missing: false,
   refused: { key: 'web.search.no_season_releases', values: { title: 'Prestige', season: 9 } },
+};
+const INFRA_REFUSAL = {
+  data: null, partial: false, missing: false,
+  refused: { key: 'web.search.failed', values: {} },
+};
+const PROWLARR_REFUSAL = {
+  data: null, partial: false, missing: false,
+  refused: { key: 'web.search.prowlarr_not_configured', values: {} },
 };
 const NOTHING = { data: null, partial: false, missing: true, refused: null };
 
@@ -35,7 +43,7 @@ async function lastShown(answers) {
     TCKept: { mark: () => {}, stash: () => {} },
     TCRouter: { _card: KEY, _picture: '' },
     TC: { say: (name) => name },
-    TCApi: { card: async () => answers.shift() || REFUSAL },
+    TCApi: { card: async () => answers.shift() || SEASON_REFUSAL },
   };
   vm.createContext(context);
   const source = fs.readFileSync(
@@ -59,11 +67,14 @@ function told(data) {
 }
 
 async function main() {
-  const onSkeleton = await lastShown([SKELETON, REFUSAL]);
-  const onEmpty = await lastShown([REFUSAL]);
+  const onSkeleton = await lastShown([SKELETON, SEASON_REFUSAL]);
+  const onEmpty = await lastShown([SEASON_REFUSAL]);
+  const onInfra = await lastShown([SKELETON, INFRA_REFUSAL]);
+  const onProwlarr = await lastShown([SKELETON, PROWLARR_REFUSAL]);
   const onNothing = await lastShown([SKELETON, NOTHING]);
   process.stdout.write(JSON.stringify({
-    onSkeleton: told(onSkeleton), onEmpty: told(onEmpty), onNothing: told(onNothing),
+    onSkeleton: told(onSkeleton), onEmpty: told(onEmpty), onInfra: told(onInfra),
+    onProwlarr: told(onProwlarr), onNothing: told(onNothing),
   }) + '\n');
 }
 

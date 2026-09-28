@@ -14,6 +14,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
+from torrcast.domain.search_refusal_reason import reason_of
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.state_store.slot import install
 from torrcast.usecases.choice.enter_take import enter_take
@@ -89,8 +90,9 @@ def test_an_empty_catalogue_is_a_refusal_with_a_word() -> None:
 def test_without_prowlarr_the_search_is_an_infra_failure_not_a_refusal() -> None:
     """Искать нечем - это поломка настройки, а не «ничего не нашлось»."""
     wire_catalogue()
-    with pytest.raises(InfraError, match="не настроен Prowlarr"):
+    with pytest.raises(InfraError, match="не настроен Prowlarr") as caught:
         search_circle(Config(), Args(query=["тачки"]), Said(), indexer=lambda *_a, **_k: Indexer())
+    assert reason_of(caught.value).key == "web.search.prowlarr_not_configured"
 
 
 def test_the_circle_tells_nothing_about_who_fell_or_is_late() -> None:

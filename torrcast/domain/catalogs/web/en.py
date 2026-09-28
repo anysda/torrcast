@@ -35,7 +35,13 @@ def en() -> dict[str, str]:
         "web.search.empty": "Nothing for you",
         "web.search.empty_hint": "Try a different title",
         "web.search.failed": "Search failed",
-        "web.search.nothing_parsed": "Nothing could be parsed for “{name}”",
+        "web.search.nothing_parsed": "nothing parsed out for “{name}”",
+        "web.search.franchise_no_number": (
+            "“{name}”: pictures in the franchise: {total}, no number {index} - there is: {have}"
+        ),
+        "web.search.prowlarr_not_configured": (
+            "Prowlarr is not configured: apikey is empty, rerun ./install.sh"
+        ),
         "web.search.no_season_releases": "“{title}”: no releases with season {season}",
         "web.shelf.continue_watching": "Continue watching",
         "web.shelf.new": "New",

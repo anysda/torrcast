@@ -57,6 +57,23 @@ def test_a_refusal_on_an_empty_body_still_speaks_the_same_reason(stood: dict[str
     }, stood["onEmpty"]
 
 
+def test_an_infrastructure_failure_after_a_preview_keeps_its_generic_page_reason(
+    stood: dict[str, Any],
+) -> None:
+    assert stood["onInfra"]["refused"] == {"key": "web.search.failed", "values": {}}, stood[
+        "onInfra"
+    ]
+
+
+def test_a_named_infrastructure_refusal_after_a_preview_keeps_its_own_key(
+    stood: dict[str, Any],
+) -> None:
+    assert stood["onProwlarr"]["refused"] == {
+        "key": "web.search.prowlarr_not_configured",
+        "values": {},
+    }, stood["onProwlarr"]
+
+
 def test_a_picture_without_any_releases_stops_waiting_for_them(stood: dict[str, Any]) -> None:
     """Раздач у картины правда нет: слово обязано смениться честным счётом, а не висеть."""
     assert stood["onNothing"]["searching"] is False, (

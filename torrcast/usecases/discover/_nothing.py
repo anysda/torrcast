@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
+from torrcast.domain.search_refusal_error import SearchRefusalError
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.discover.franchise_pick import franchise_pick
 
 
-def _nothing(name: str, index: int | None, pictures: list[Picture]) -> NotFoundError:
+def _nothing(name: str, index: int | None, pictures: list[Picture]) -> TorrcastError:
     """Почему ответа нет. Причины две, и человеку с ними делать разное.
 
     Прежде обе накрывались одной строкой - «такой картины во франшизе нет». Она честна
@@ -33,14 +34,13 @@ def _nothing(name: str, index: int | None, pictures: list[Picture]) -> NotFoundE
     if whole:
         have = ", ".join(f"{p.title} ({p.year or '?'})" for p in whole[:5])
         more = phrase("discover.franchise_more") if len(whole) > 5 else ""
-        return NotFoundError(
-            phrase(
-                "discover.franchise_no_number",
-                name=name,
-                total=len(whole),
-                index=index,
-                have=have,
-                more=more,
-            )
+        return SearchRefusalError(
+            "discover.franchise_no_number",
+            "web.search.franchise_no_number",
+            name=name,
+            total=len(whole),
+            index=index,
+            have=have,
+            more=more,
         )
     return NothingFoundError(phrase("discover.nothing_found", name=name))

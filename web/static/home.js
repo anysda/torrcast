@@ -236,6 +236,9 @@ const TCHome = {
   // только незнакомый запрос уходит в источники заново.
   _askedBody(text) {
     if (TCHome._found && TCHome._found.query === text) {
+      if (TCHome._found.refusal) {
+        return TCHome._searchRefused(TCHome._found.refusal, TCHome._found.results);
+      }
       return TCHome._searchResults(TCHome._found.results);
     }
     TCHome._runSearch(text);
@@ -341,6 +344,7 @@ const TCHome = {
       if (said.refused) {
         // Отказ кодом - готовый ответ поиска, а не сорванный опрос: переспрашивать его
         // нечем, ни сейчас, ни кнопкой. Его читает английская фраза страницы.
+        TCHome._found = { query: text, results: known, refusal: said.refused };
         TCHome._swapBody(TCHome._searchRefused(said.refused, known));
         return;
       }

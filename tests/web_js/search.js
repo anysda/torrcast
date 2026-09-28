@@ -159,6 +159,40 @@ const scenarios = {
     return { reason, polls: p.polls, screen: screen(p) };
   },
 
+  // Every named refusal has its own page key. The screen must not collapse any of
+  // them to the generic failure just because it arrived after a preview.
+  async namedRefusals() {
+    const reasons = [
+      { key: 'web.search.nothing_parsed', values: { name: 'Matrix 9' } },
+      { key: 'web.search.no_season_releases', values: { title: 'Wednesday', season: 9 } },
+      { key: 'web.search.franchise_no_number', values: {
+        name: 'Cars', total: 2, index: 9, have: 'Cars (2006), Cars 2 (2011)', more: '',
+      } },
+      { key: 'web.search.prowlarr_not_configured', values: {} },
+    ];
+    const screens = [];
+    for (const reason of reasons) {
+      const p = search(() => ({ status: 409, body: { error: 'search_refused', reason } }));
+      await p.time.run(1000);
+      screens.push(screen(p));
+    }
+    return { reasons, screens };
+  },
+
+  // A return to the query can reuse a preview, but must not replace the completed
+  // refusal with a Best match tile.
+  async returnAfterRefusal() {
+    const reason = { key: 'web.search.no_season_releases', values: { title: 'Wednesday', season: 9 } };
+    const p = search((n) => (n < 1
+      ? { partial: true, results: [hit('wednesday')], finalBy: 12 }
+      : { status: 409, body: { error: 'search_refused', reason } }), 'уэнсдэй 9 сезон');
+    await p.time.run(5000);
+    const refusal = screen(p);
+    const returned = p.home._askedBody('уэнсдэй 9 сезон');
+    p.doc.getElementById('tc-body').replaceWith(returned);
+    return { reason, refusal, returned: screen(p) };
+  },
+
   async retry() {
     const p = search((n) => n ? { partial: false, results: [], finalBy: 0 } : { status: 500 });
     await p.time.run(1000);

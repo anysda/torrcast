@@ -23,9 +23,9 @@ from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.search_refusal_error import SearchRefusalInfraError
 from torrcast.usecases.discover.search_circle import search_circle
 
 _CONFIG = Config(prowlarr_apikey="KEY")
@@ -449,7 +449,9 @@ def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:
 
     def search(*_args: Any) -> Any:
         gate.wait(2.0)
-        raise InfraError("Prowlarr не отвечает")
+        raise SearchRefusalInfraError(
+            "discover.prowlarr_not_configured", "web.search.prowlarr_not_configured"
+        )
 
     results, partial = _poll("нетакого", search)
     assert (results, partial) == ([], True), "отказ ещё не готов - это просто пустой ход"
@@ -463,7 +465,8 @@ def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:
         except RefusedError as caught:
             refused = caught
             break
-    assert refused is not None and refused.word == "search_refused"
+    assert refused is not None and refused.reason is not None
+    assert refused.reason.key == "web.search.prowlarr_not_configured"
 
 
 class _Index:

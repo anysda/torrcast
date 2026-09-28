@@ -10,10 +10,9 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.infra_error import InfraError
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.domain.search_refusal_error import SearchRefusalError
+from torrcast.domain.search_refusal_error import SearchRefusalError, SearchRefusalInfraError
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
@@ -91,7 +90,9 @@ def _circle(
 ) -> list[Plan]:
     """Сам круг: :func:`search_circle` без наблюдения за ним."""
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
-        raise InfraError(phrase("discover.prowlarr_not_configured"))
+        raise SearchRefusalInfraError(
+            "discover.prowlarr_not_configured", "web.search.prowlarr_not_configured"
+        )
     # Строка каталога и выбор после круга обязаны спросить Enter ОДНИМИ словами.
     # Локальный ``args`` ниже может стать сезонным (``имя 2`` → ``имя s2e1``), но
     # вызывающий выбор по-прежнему держит исходный объект и спросит именно эту строку.

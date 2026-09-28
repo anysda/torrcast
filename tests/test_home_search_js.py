@@ -171,6 +171,26 @@ def test_a_named_refusal_is_read_on_the_screen_and_not_offered_a_retry(
 
 
 @pytest.mark.machine
+def test_every_named_search_refusal_keeps_its_own_page_key(facts: dict[str, Any]) -> None:
+    refused = _scenario(facts, "namedRefusals")
+
+    assert [screen["text"] for screen in refused["screens"]] == [
+        reason["key"] + "web.search.empty_hint" for reason in refused["reasons"]
+    ]
+    assert all(screen["failed"] == 0 for screen in refused["screens"])
+    assert all("web.search.failed" not in screen["text"] for screen in refused["screens"])
+
+
+@pytest.mark.machine
+def test_a_named_refusal_survives_returning_to_its_preview(facts: dict[str, Any]) -> None:
+    returned = _scenario(facts, "returnAfterRefusal")
+
+    for screen in (returned["refusal"], returned["returned"]):
+        assert returned["reason"]["key"] in screen["text"]
+        assert screen["best"] == 0
+
+
+@pytest.mark.machine
 def test_a_failed_search_retries_the_same_query(facts: dict[str, Any]) -> None:
     retried = _scenario(facts, "retry")
     assert retried["queries"] == ["тачки", "тачки"]

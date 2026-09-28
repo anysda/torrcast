@@ -24,13 +24,12 @@ from hass.search_poster_verdict import SearchPosterVerdict
 from hass.search_results import search_results
 from hass.searching import Detect, Offer, Remember
 from torrcast.cli.parse_args import parse_args
-from torrcast.domain._search_refusal_reason import _SearchReason
 from torrcast.domain.config import Config
 from torrcast.domain.goal_spare import GOAL
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import Profile
-from torrcast.domain.search_refusal_reason import _reason_of
+from torrcast.domain.search_refusal_reason import SearchRefusalReason, reason_of
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.progress.progress import Progress
@@ -71,7 +70,7 @@ class SearchJob(SearchPosterVerdict):
 
     client: IndexerClient | None = None
     done: bool = False
-    error: _SearchReason | None = None
+    error: SearchRefusalReason | None = None
     results: list[JsonValue] = field(default_factory=list)
     finished_at: float = 0.0
     posters: dict[str, JsonValue] = field(default_factory=dict)
@@ -111,7 +110,7 @@ class SearchJob(SearchPosterVerdict):
             plans = []
         except TorrcastError as refusal:
             # The page receives a key and values, not process words in the machine's language.
-            plans, self.error = [], _reason_of(refusal)
+            plans, self.error = [], reason_of(refusal)
         if self.error is not None:
             # A catalogue tile is a useful preview while the circle runs, but it cannot turn a
             # completed named refusal into a seemingly successful search.  The page retains
