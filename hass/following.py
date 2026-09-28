@@ -6,23 +6,26 @@
 
 from __future__ import annotations
 
+from hass.catalog_next import catalog_next
 from torrcast.domain.slugify import slugify
 from torrcast.ports.playback_session import PlaybackSession
 from torrcast.ports.state_store.slot import store
 
 
 def following(session: PlaybackSession) -> str | None:
-    """Запрос на следующую серию; ``None`` - фильм, последняя серия или тишина."""
+    """Запрос на следующую серию; ``None`` - фильм, последняя серия сериала или тишина."""
     if not session.active():
         return None
     entry = store().load().get(session.key())
     if entry is None:
         return None
     after = entry.advance()
-    if after.done or not after.label:
+    # Раздача кончилась - сериал не обязательно: серию за её краем называет каталог.
+    label = catalog_next(entry) if after.done else after.label
+    if not label:
         return None
     # Запрос собирается из записи ровно так же, как его собирает поиск следующего
     # сезона (:func:`torrcast.usecases.next_season._next_season`), а серия встаёт в
     # него так же, как её называет человек: `cast киберпанк s2e5` (TC-807).
     words = (entry.query or slugify(entry.title)).replace("-", " ")
-    return f"{words} {after.label}"
+    return f"{words} {label}"
