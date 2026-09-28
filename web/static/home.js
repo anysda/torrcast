@@ -49,11 +49,10 @@ const TCHome = {
       input.focus();
       TCHome._askSources();
       TCHome._stateLater(root);
-      if (asked) {
-        TCHome._runSearch(asked);
-      } else {
-        TCHome._freshen(root);
-      }
+      // Возвращённая выдача остаётся на месте, но её следующий Esc обязан взять
+      // свежую историю, а не снимок до ухода в карточку.
+      TCHome._freshen(root);
+      if (asked) TCHome._runSearch(asked);
       TCHome._markNow();
       return;
     }
@@ -118,14 +117,14 @@ const TCHome = {
     if (shelves.partial) {
       if (JSON.stringify(history) !== JSON.stringify(TCHome._lastHistory)) {
         TCHome._lastHistory = history;
-        TCHome._wornContinue(history);
+        if (!TCHome._query) TCHome._wornContinue(history);
       }
       TCHome._waitShelves(root, mine);
       return;
     }
     TCHome._lastHistory = history;
     TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
-    if (JSON.stringify([history, TCHome._lastShelves]) !== TCHome._shownHome) {
+    if (!TCHome._query && JSON.stringify([history, TCHome._lastShelves]) !== TCHome._shownHome) {
       const body = document.getElementById('tc-body');
       if (body) body.replaceWith(TCHome._body(history, TCHome._lastShelves));
     }
@@ -158,8 +157,16 @@ const TCHome = {
     const body = document.getElementById('tc-body');
     const first = body && body.firstElementChild;
     if (!first) return;
-    if (history.length === 0) first.remove();
-    else first.replaceWith(TCHome._continue(history));
+    const current = first.querySelector('[data-tc-group="shelf-continue"]') ? first : null;
+    if (history.length === 0) {
+      if (current) current.remove();
+      else if (first.matches('.shelf-loading')) first.remove();
+      return;
+    }
+    const shelf = TCHome._continue(history);
+    if (current) current.replaceWith(shelf);
+    else if (first.matches('.shelf-loading')) first.replaceWith(shelf);
+    else body.prepend(shelf);
   },
 
   // Шапка пересобирается целиком, а счётчик выдачи, вставший в прежнюю, надо вернуть:
