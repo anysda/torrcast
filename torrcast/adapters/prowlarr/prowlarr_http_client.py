@@ -12,6 +12,13 @@ from torrcast.domain.why import why
 _HttpSession = requests.Session
 
 
+def _close(response: Any) -> None:
+    """Освободить ответ HTTP, если подставной транспорт его поддерживает."""
+    close = getattr(response, "close", None)
+    if callable(close):
+        close()
+
+
 class _IndexersUnavailableError(InfraError):
     """Prowlarr сообщает, что выбранные индексеры недоступны."""
 
@@ -23,6 +30,7 @@ class ProwlarrHttpClient:
         return requests.Session()
 
     def get_json(self, session: Any, url: str, timeout: float, base_url: str) -> Any:
+        response: Any = None
         try:
             response = session.get(url, timeout=timeout)
             response.raise_for_status()
@@ -38,9 +46,11 @@ class ProwlarrHttpClient:
             ) from exc
         except ValueError as exc:
             raise InfraError(phrase("prowlarr.not_json")) from exc
+        finally:
+            _close(response)
 
     def post(self, session: Any, url: str, body: Any, timeout: float) -> None:
-        session.post(url, json=body, timeout=timeout)
+        _close(session.post(url, json=body, timeout=timeout))
 
     def probe(
         self,
@@ -54,4 +64,4 @@ class ProwlarrHttpClient:
         """Проверить индексер, поглотив сетевой отказ фонового лечения."""
         with contextlib.suppress(requests.RequestException, InfraError, ValueError):
             body = self.get_json(session, indexer_url, list_timeout, base_url)
-            session.post(test_url, json=body, timeout=test_timeout)
+            self.post(session, test_url, body, test_timeout)

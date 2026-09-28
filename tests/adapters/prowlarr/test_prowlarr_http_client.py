@@ -4,24 +4,33 @@ from torrcast.adapters.prowlarr.prowlarr_http_client import ProwlarrHttpClient
 
 
 class _Response:
+    def __init__(self) -> None:
+        self.closed = False
+
     def raise_for_status(self) -> None:
         pass
 
     def json(self) -> object:
         return {"rows": 3}
 
+    def close(self) -> None:
+        self.closed = True
+
 
 class _Session:
     def __init__(self) -> None:
         self.timeout = 0.0
         self.posted: tuple[str, object, float] | None = None
+        self.response = _Response()
+        self.post_response = _Response()
 
     def get(self, url: str, timeout: float) -> _Response:
         self.timeout = timeout
-        return _Response()
+        return self.response
 
-    def post(self, url: str, json: object, timeout: float) -> None:
+    def post(self, url: str, json: object, timeout: float) -> _Response:
         self.posted = (url, json, timeout)
+        return self.post_response
 
 
 def test_исполняет_запрос_с_переданным_таймаутом() -> None:
@@ -31,6 +40,7 @@ def test_исполняет_запрос_с_переданным_таймаут�
     )
     assert payload == {"rows": 3}
     assert session.timeout == 3.0
+    assert session.response.closed
 
 
 def test_лечит_индексер_с_назначенными_правилом_таймаутами() -> None:
@@ -49,3 +59,4 @@ def test_лечит_индексер_с_назначенными_правило�
         {"rows": 3},
         10.0,
     )
+    assert session.response.closed and session.post_response.closed
