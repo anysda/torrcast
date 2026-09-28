@@ -470,3 +470,32 @@ def test_a_related_tile_without_an_article_still_gets_its_shelf_by_the_known_qid
     assert json.loads(answer.body)["blurb"] == ""
     assert json.loads(answer.body)["related"][0]["title"] == "Тайна Коко"
     assert related.entities and set(related.entities) == {"Q471"}
+
+
+def test_a_direct_link_gets_its_poster_before_the_release_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Прямая ссылка без плитки: обложка приходит приговором по фактам, а не с кругом.
+
+    Первый ответ застаёт приговор в пути, долгий переспрос отдаёт его, как только он
+    готов, не дожидаясь справки и родни (на стенде обложка ждала круг 5-10 с).
+    """
+    monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
+    monkeypatch.setattr(web.preview, "_sleep", lambda _seconds: None)
+    judged: list[object] = []
+
+    def poster(picture: object) -> tuple[str | None, bool]:
+        judged.append(picture)
+        return (None, True) if len(judged) == 1 else ("a054ba673f4c8d67", False)
+
+    def ask(wait: str) -> dict[str, object]:
+        query = {"title": "Отступники", "year": "2006", "kind": "movie", "wait": wait}
+        request = Request("GET", "/api/card/movie:отступники:2006", query, {})
+        answer = preview(request, "movie:отступники:2006", _Warm(), _Related(), poster)
+        assert answer is not None
+        said: dict[str, object] = json.loads(answer.body)
+        return said
+
+    assert ask("0")["poster"] is None, "первый ответ не ждёт приговора"
+    assert ask("1")["poster"] == "a054ba673f4c8d67", "долгий переспрос не принёс обложку"
+    assert getattr(judged[0], "key", "") == "movie:отступники:2006"

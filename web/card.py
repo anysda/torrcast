@@ -84,7 +84,7 @@ def card(request: Request) -> Answer:
     if not query.strip() and not title and not key_name(key):
         return refusal(400, "no_query")
     hint = start_related(request, _facts, _related)
-    if early := preview(request, key, WARM, _related):
+    if early := preview(request, key, WARM, _related, _poster.of):
         return early
     config = load_config()
     try:
