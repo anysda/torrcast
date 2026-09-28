@@ -621,6 +621,12 @@ class _Answer:
     def json(self) -> object:
         raise ValueError("нечего разбирать")
 
+    def __enter__(self) -> _Answer:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
 
 class _Answering:
     def post(self, url: str, json: object = None, timeout: float = 0.0) -> _Answer:
