@@ -24,3 +24,4 @@ def test_returned_search_refreshes_history_before_esc() -> None:
     assert facts["kept"] is True, "тихий добор заменил выдачу до Esc"
     assert facts["key"] == "new", "Esc показал историю до возврата с карточки"
     assert facts["shelves"] == ["shelf-continue", "shelf-new", ""]
+    assert facts["partialKept"] is True, "недособранные полки дописали историю в выдачу"

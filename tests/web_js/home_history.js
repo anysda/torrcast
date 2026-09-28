@@ -15,7 +15,7 @@ function picture(tile) {
   return tile ? tile.dataset.tcKey : '';
 }
 
-function make() {
+function make(partial = false) {
   const doc = new Document();
   const root = doc.createElement('main');
   root.id = 'tc-root';
@@ -53,7 +53,7 @@ function make() {
   ctx.TCHome._stateLater = () => {};
   ctx.TCApi = {
     history: async () => NEW,
-    shelves: async () => ({ ...SHELVES, partial: false }),
+    shelves: async () => ({ ...SHELVES, partial }),
   };
   return { ctx, doc, root, input };
 }
@@ -74,7 +74,17 @@ async function main() {
     const tile = node.querySelector('[data-tc-group]');
     return tile ? tile.dataset.tcGroup : '';
   });
-  process.stdout.write(JSON.stringify({ kept, key: picture(shown), shelves }) + '\n');
+  // Полки ещё собираются: новая история запоминается, но выдачу поиска не трогает.
+  const q = make(true);
+  q.ctx.TCHome._waitShelves = () => {};
+  await q.ctx.TCHome.mount(q.root);
+  await new Promise((done) => setImmediate(done));
+  const found = q.doc.getElementById('tc-body');
+  const partialKept = found.querySelector('.search-was-kept') !== null
+    && found.querySelector('[data-tc-group="shelf-continue"]') === null
+    && q.ctx.TCHome._lastHistory === NEW;
+
+  process.stdout.write(JSON.stringify({ kept, key: picture(shown), shelves, partialKept }) + '\n');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
