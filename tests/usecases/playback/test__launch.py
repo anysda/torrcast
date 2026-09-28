@@ -37,6 +37,7 @@ from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.playback.launch_owner import LaunchOwner
 from torrcast.usecases.screen_line import screen_line
 from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.start_progress import START
 
 
 def _timeout_prefix(secs: float) -> str:
@@ -189,6 +190,28 @@ def test_the_waiting_phase_names_its_receiver(
         )
 
     assert waiting in progress.phases
+
+
+def test_the_first_segment_tells_the_page_that_packing_is_over(tmp_path: Path) -> None:
+    """Страница читает конец упаковки только из ``start.packed`` в ``/api/state``."""
+    out = tmp_path / "hls"
+    touch_segment(out)
+    START.began(here=True)
+    try:
+        with pytest.raises(InfraError):
+            _await_playing(
+                Config(hls_dir=str(out)),
+                FakeProgress(),
+                0.25,
+                clock=FakeClock(now=100.0),
+                unit=cast(ShowUnit, FakeShow()),
+                here=True,
+            )
+        seen = START.seen()
+    finally:
+        START.gone()
+
+    assert seen is not None and seen["packed"] is True
 
 
 def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(

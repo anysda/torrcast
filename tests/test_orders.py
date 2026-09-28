@@ -50,6 +50,17 @@ def test_a_tab_order_marks_the_wait_as_local() -> None:
     assert seen is not None and seen["here"] is True
 
 
+def test_a_tv_order_does_not_mark_the_wait_as_local() -> None:
+    """Без ``--here`` подъём идёт на приёмник, и страница обязана ждать телевизор."""
+    START.gone()
+    orders = Orders(_nothing)
+
+    assert orders.take(["матрица"])
+    seen = START.seen()
+
+    assert seen is not None and seen["here"] is False
+
+
 def test_a_forced_order_never_waits_for_its_turn() -> None:
     """Остановке отказать нечем: она встаёт в очередь, не спрашивая занятости."""
     orders = Orders(_nothing)
