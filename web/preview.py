@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final, Protocol, cast
 
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.kind import Kind
 from torrcast.domain.picture import Picture
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.runtime.menu_facts import MenuFacts
@@ -22,8 +23,9 @@ from web.request import Request
 
 _PARTIAL = "X-Torrcast-Partial"
 #: Долгий переспрос ждёт независимые от круга источники не дольше секунды. Первый ответ
-#: не ждёт вовсе: имя, обложка и скелет должны появиться до Wikipedia/Wikidata.
+#: ждёт только приговор обложки, и не дольше :data:`_ART`: с диска он готов за 10 мс.
 PATIENCE: Final = 1.0
+_ART: Final = 0.2
 _TICK: Final = 0.05
 #: Сеть может держать источник дольше штатного добора. Пока идёт этот срок, любой
 #: partial- или полный ответ присоединяется к одному запросу, а не открывает волну.
@@ -99,8 +101,7 @@ def preview(
     ``wait=1`` остаётся в preview, пока круг занят фоном: иначе второй GET стоял в
     :meth:`WarmCache.take` за раздачами. Как только круг готов, GET соберёт полную карточку.
     Прогревает круг СТРОКОЙ: прямая ссылка несёт пустой ``query`` (владелец, TC-1334).
-    Обложка судится по фактам плитки: без этого прямая ссылка ждала её весь круг раздач
-    (5-10 с), хотя приговор с диска готов за 10 мс.
+    Обложка судится по фактам: без этого прямая ссылка ждала её весь круг раздач (5-10 с).
     """
     title = request.query.get("title", "").strip()
     probe = request.query.get("query", "").strip() or title
@@ -113,24 +114,23 @@ def preview(
     getattr(warm, "hint", warm.ask)(probe)
     facts = _facts.of(title, year, kind)
 
-    def look() -> tuple[Any, bool, list[JsonValue] | None, list[Any], str | None]:
+    def look() -> tuple[Any, bool, list[JsonValue] | None, list[Any], tuple[str | None, bool]]:
         fact, told = facts.ready(title, year), facts.answered(title, year)
         kin = _related_of(related, title, kind == "tv", fact, told, year)
-        art = poster(Picture(title, year, "tv" if kind == "tv" else "movie")) if poster else None
-        return fact, told, kin, getattr(early_picture(probe, key), "releases", []), art and art[0]
+        art = poster(Picture(title, year, cast(Kind, kind))) if poster else (None, False)
+        return fact, told, kin, getattr(early_picture(probe, key), "releases", []), art
 
-    seen = look()
-    if request.query.get("wait") == "1":
-        before, until = seen, time.monotonic() + PATIENCE
-        while time.monotonic() < until:
-            _sleep(_TICK)
-            if warm.ready(probe) is not None:
-                return None  # the circle landed: the full card answers now, not after PATIENCE
-            # Справка, родня, обложка и раздачи приходят разными походами. Перемена одной
-            # не должна стоять за другой: ``related=None`` оставляет полку частичной.
-            if (seen := look()) != before:
-                break
-    fact, told, kin, early, art = seen
+    seen, wait = look(), request.query.get("wait") == "1"
+    before, hold = seen, PATIENCE if wait else _ART if seen[4][1] else 0.0
+    until = time.monotonic() + hold if hold else 0.0
+    while hold and time.monotonic() < until:
+        _sleep(_TICK)
+        if warm.ready(probe) is not None:
+            return None  # the circle landed: the full card answers now, not after PATIENCE
+        # Справка, родня, обложка и раздачи едут порознь: перемена одной не стоит за другой.
+        if (seen := look()) != before:
+            break
+    fact, told, kin, early, (art, _judging) = seen
     body: dict[str, JsonValue] = {
         "pick": 0,
         "title": title,

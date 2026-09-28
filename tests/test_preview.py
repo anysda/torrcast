@@ -9,7 +9,8 @@ from dataclasses import dataclass
 import pytest
 
 import web.preview
-from web.preview import _year, preview
+from torrcast.domain.picture import Picture
+from web.preview import _Poster, _year, preview
 from web.request import Request
 
 
@@ -477,25 +478,29 @@ def test_a_direct_link_gets_its_poster_before_the_release_circle(
 ) -> None:
     """Прямая ссылка без плитки: обложка приходит приговором по фактам, а не с кругом.
 
-    Первый ответ застаёт приговор в пути, долгий переспрос отдаёт его, как только он
-    готов, не дожидаясь справки и родни (на стенде обложка ждала круг 5-10 с).
+    Первый ответ застаёт приговор в пути и ждёт его, но недолго: приговор с диска готов
+    за 10 мс, а молчащий источник не держит имя и год (на стенде обложка ждала круг 5-10 с).
     """
     monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
     monkeypatch.setattr(web.preview, "_sleep", lambda _seconds: None)
     judged: list[object] = []
 
-    def poster(picture: object) -> tuple[str | None, bool]:
+    def poster(picture: Picture) -> tuple[str | None, bool]:
         judged.append(picture)
         return (None, True) if len(judged) == 1 else ("a054ba673f4c8d67", False)
 
-    def ask(wait: str) -> dict[str, object]:
-        query = {"title": "Отступники", "year": "2006", "kind": "movie", "wait": wait}
+    def ask(verdict: _Poster) -> tuple[dict[str, object], float]:
+        query = {"title": "Отступники", "year": "2006", "kind": "movie"}
         request = Request("GET", "/api/card/movie:отступники:2006", query, {})
-        answer = preview(request, "movie:отступники:2006", _Warm(), _Related(), poster)
+        started = time.monotonic()
+        answer = preview(request, "movie:отступники:2006", _Warm(), _Related(), verdict)
         assert answer is not None
         said: dict[str, object] = json.loads(answer.body)
-        return said
+        return said, time.monotonic() - started
 
-    assert ask("0")["poster"] is None, "первый ответ не ждёт приговора"
-    assert ask("1")["poster"] == "a054ba673f4c8d67", "долгий переспрос не принёс обложку"
+    said, _took = ask(poster)
+    assert said["poster"] == "a054ba673f4c8d67", "первый ответ отдал скелет без обложки"
     assert getattr(judged[0], "key", "") == "movie:отступники:2006"
+    said, took = ask(lambda _picture: (None, True))
+    assert said["poster"] is None
+    assert took < 1.0, f"молчащий приговор держал первый ответ {took:.2f} с"
