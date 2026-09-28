@@ -66,15 +66,24 @@ class ImdbPoster:
         return self.bodies(self.wanted([ask], timeout), timeout).get(ask)
 
     def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
-        """Кому есть что показывать: готовые адреса постеров на каждую картину."""
+        """Кому есть что показывать: готовые адреса постеров на каждую картину.
+
+        A picture whose lookup broke is left out: an unanswered source is unknown, not a miss.
+        """
         if not asks:
             return {}
         known = self._known(asks)
         with ThreadPoolExecutor(max_workers=_LANES) as lanes:
             got = list(
-                lanes.map(lambda ask: self._addresses(ask, known.get(ask, ""), timeout), asks)
+                lanes.map(lambda ask: self._answered(ask, known.get(ask, ""), timeout), asks)
             )
-        return dict(zip(asks, got, strict=True))
+        return {ask: pages for ask, pages in zip(asks, got, strict=True) if pages is not None}
+
+    def _answered(self, ask: Ask, known: str, timeout: float) -> list[str] | None:
+        try:
+            return self._addresses(ask, known, timeout)
+        except Exception:
+            return None
 
     def bodies(self, wanted: dict[Ask, list[str]], timeout: float) -> dict[Ask, bytes]:
         """Байты постеров по названным адресам; шаг общий у всех источников картинок."""
@@ -146,18 +155,13 @@ class ImdbPoster:
         return chosen[0] if len({str(row.get("id")) for row in chosen}) == 1 else None
 
     def _rows(self, text: str, timeout: float) -> list[dict[str, Any]]:
-        """Ответ подсказчика на одно имя; сеть промолчала - пустота, а не исключение.
+        """Ответ подсказчика на одно имя; a broken request raises and the picture stays unknown.
 
-        Пустота тут значит «картинки этой картине не нашлось», и это верно даже при
-        обрыве: источник ВТОРОЙ, и его молчание не должно стирать ответ первого. Промах
-        зовущий откладывает на свои пять минут (:data:`hass.hit_posters._RETRY`).
+        A stalled lookup is not "no picture": taken as a miss it would hold the picture off for
+        five minutes (:data:`hass.hit_posters._RETRY`). The first source's answer is kept by the
+        caller (:mod:`hass.both_posters`).
         """
         path = "/suggestion/x/" + quote(text, safe="") + ".json"
-        try:
-            got = self.client.get(
-                _HOST, path, {"includeVideos": "0"}, {}, min(timeout, _ASK_TIMEOUT)
-            )
-        except Exception:
-            return []
+        got = self.client.get(_HOST, path, {"includeVideos": "0"}, {}, min(timeout, _ASK_TIMEOUT))
         found = got.get("d") if isinstance(got, dict) else None
         return [row for row in found if isinstance(row, dict)] if isinstance(found, list) else []

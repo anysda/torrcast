@@ -80,6 +80,13 @@ class MinuteBudget:
             group.quiet_until = max(group.quiet_until, now + quiet)
             group.troubled_at = now
 
+    def stumbled(self, host: str) -> None:
+        """A request broke on the wire: its silence proves nothing, and no quiet is asked."""
+        group = self._group(host)
+        if group is not None:
+            with self.lock:
+                group.troubled_at = self.clock()
+
     def troubled_since(self, moment: float) -> bool:
         """A 429 or a local refusal came at or after ``moment``: a silence proves nothing."""
         with self.lock:

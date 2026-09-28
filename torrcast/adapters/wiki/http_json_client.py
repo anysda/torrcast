@@ -69,6 +69,9 @@ class HttpJsonClient(AddressMemory):
             if response.status != 200:
                 raise OSError(f"{host} ответил {response.status}")
             return json.loads(response.read())
+        except OSError:
+            self._minute.stumbled(host)
+            raise
         finally:
             if connection is not None:
                 connection.close()

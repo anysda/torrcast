@@ -111,3 +111,14 @@ def test_a_local_refusal_is_trouble_not_an_answer() -> None:
     assert not budget.troubled_since(start)
     assert not budget.admit(_HOST, 0.0, foreground=False)
     assert budget.troubled_since(start)
+
+
+def test_a_broken_request_is_trouble_without_a_quiet_window() -> None:
+    """A request lost on the wire proves nothing and keeps the next ask free to go."""
+    clock = _Clock()
+    budget = MinuteBudget(clock, clock.pause)
+    start = clock.now
+    budget.stumbled(_HOST)
+    assert budget.troubled_since(start)
+    assert budget.calm_at() == start
+    assert budget.admit(_HOST, 0.0, foreground=False)

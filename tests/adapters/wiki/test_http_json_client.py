@@ -117,3 +117,27 @@ def test_a_wikipedia_429_holds_the_background_and_lets_the_card_through(
         client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0)
     assert client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, foreground=True) == {}
     assert asked == ["ru.wikipedia.org", "ru.wikipedia.org"]
+
+
+def test_a_request_broken_on_the_wire_is_trouble_not_an_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stalled Wikipedia request marks the trouble clock and asks for no quiet window."""
+
+    class _Stalled:
+        def __init__(self, host: str, **_kwargs: object) -> None:
+            self.host = host
+
+        def request(self, *_args: object, **_kwargs: object) -> None:
+            raise TimeoutError("timed out")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(http_json_client, "_IPv4Connection", _Stalled)
+    client = HttpJsonClient("torrcast/test")
+    start = client.calm_at()
+    with pytest.raises(OSError):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 1.0)
+    assert client.troubled_since(start)
+    assert client.calm_at() < start + 1.0

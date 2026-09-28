@@ -197,15 +197,15 @@ def test_a_game_is_not_a_picture() -> None:
     assert imdb.wanted([ask], 5.0) == {ask: []}
 
 
-def test_a_broken_source_says_no_picture_rather_than_raising() -> None:
-    """Обрыв второго источника выглядит как «картинки нет», а не как исключение."""
+def test_a_broken_lookup_is_unknown_not_a_missing_picture() -> None:
+    """A broken lookup leaves the picture out of the answer instead of calling it bare."""
 
     def answer(host: str, path: str, params: dict[str, str]) -> Any:
         raise OSError("оборвалось")
 
     imdb = ImdbPoster(FakeJsonClient(answer), FakeBytesClient())
     ask = Ask("Паразиты", 1999, "movie", "Les parasites")
-    assert imdb.wanted([ask], 5.0) == {ask: []}
+    assert imdb.wanted([ask], 5.0) == {}
 
 
 def test_bytes_come_from_the_narrowed_address_first() -> None:
