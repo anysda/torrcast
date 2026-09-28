@@ -161,10 +161,10 @@ def test_a_failed_search_never_draws_the_empty_result(facts: dict[str, Any], nam
 def test_a_named_refusal_is_read_on_the_screen_and_not_offered_a_retry(
     facts: dict[str, Any],
 ) -> None:
-    """🔴 TC-1304. Круг знал, почему пусто, и сказал словами: зритель обязан их прочесть."""
+    """The named key and values reach the screen without offering a retry."""
     refused = _scenario(facts, "refused")
 
-    assert refused["word"] in refused["screen"]["text"]
+    assert refused["reason"]["key"] in refused["screen"]["text"]
     assert refused["screen"]["failed"] == 0, "отказу по существу предложили «повторить»"
     assert "web.search.failed" not in refused["screen"]["text"]
     assert len(refused["polls"]) == 1, "после отказа страница пошла опрашивать дальше"

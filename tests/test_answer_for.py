@@ -30,14 +30,14 @@ def test_the_query_string_is_cut_off_the_path_and_read() -> None:
     found = answer_for("GET", "/api/phrases?lang=ru", {})
 
     assert found is not None
-    assert json.loads(found.body)["web.shelf.new"] == "Новинки"
+    assert json.loads(found.body)["web.shelf.new"] == "New"
 
 
 def test_one_name_asked_twice_is_one_value() -> None:
     found = answer_for("GET", "/api/phrases?lang=ru&lang=en", {})
 
     assert found is not None
-    assert json.loads(found.body)["web.shelf.new"] == "Новинки"
+    assert json.loads(found.body)["web.shelf.new"] == "New"
 
 
 def test_a_percent_encoded_walk_up_does_not_reach_out_of_the_page() -> None:

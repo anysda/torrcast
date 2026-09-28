@@ -29,6 +29,7 @@ from torrcast.domain.goal_spare import GOAL
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import Profile
+from torrcast.domain.search_refusal import SearchReason, reason_of
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.progress.progress import Progress
@@ -69,7 +70,7 @@ class SearchJob(SearchPosterVerdict):
 
     client: IndexerClient | None = None
     done: bool = False
-    error: str | None = None
+    error: SearchReason | None = None
     results: list[JsonValue] = field(default_factory=list)
     finished_at: float = 0.0
     posters: dict[str, JsonValue] = field(default_factory=dict)
@@ -108,10 +109,8 @@ class SearchJob(SearchPosterVerdict):
             # Nothing found is an answer of the search, an empty list, not a failed search.
             plans = []
         except TorrcastError as refusal:
-            # Страница не получает фразу процесса: русский каталог не вправе приехать
-            # в её английский экран. Код отказа она рисует своей фразой.
-            del refusal
-            plans, self.error = [], "search_refused"
+            # The page receives a key and values, not process words in the machine's language.
+            plans, self.error = [], reason_of(refusal)
         hits: list[JsonValue] = []
         if plans:
             named = [(plan.picture.key, _named(plan.picture)) for plan in plans]

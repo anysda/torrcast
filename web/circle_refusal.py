@@ -6,6 +6,7 @@ import json
 
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found_error import NothingFoundError
+from torrcast.domain.search_refusal import reason_of
 from torrcast.domain.torrcast_error import TorrcastError
 from web.answer import Answer
 
@@ -21,8 +22,8 @@ def circle_refusal(failed: TorrcastError | None, whole: bool) -> Answer:
     «раздач нет».
 
     Названный отказ не пересылает строку каталога процесса в браузер: на русском
-    экземпляре она была бы русской среди слов страницы. Страница знает код и показывает
-    свою английскую фразу.
+    экземпляре она была бы русской среди слов страницы. Она получает ключ и значения,
+    чтобы английский каталог нарисовал именно названную причину.
 
     ``whole`` - ответил ли каталог целиком (:class:`web.heard_circle.HeardCircle`). Без него
     «Играть» не гаснет: пустота урезанного каталога - не «найти невозможно», а повод
@@ -30,10 +31,11 @@ def circle_refusal(failed: TorrcastError | None, whole: bool) -> Answer:
     """
     whole = whole and (failed is None or isinstance(failed, NotFoundError))
     if failed is None or isinstance(failed, NothingFoundError):
-        return _said(404, "not_found", whole)
-    return _said(409, "search_refused", whole)
+        return _said(404, {"error": "not_found", "whole": whole})
+    return _said(
+        409, {"error": "search_refused", "reason": reason_of(failed).json(), "whole": whole}
+    )
 
 
-def _said(code: int, word: str, whole: bool) -> Answer:
-    body = {"error": word, "whole": whole}
+def _said(code: int, body: dict[str, object]) -> Answer:
     return Answer(code, json.dumps(body).encode("utf-8"))

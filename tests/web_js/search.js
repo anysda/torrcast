@@ -151,12 +151,12 @@ const scenarios = {
     return { polls: p.polls, queries: p.queries, screen: screen(p) };
   },
 
-  // Круг отказал своими словами: страница их и показывает, а повторять тут нечего.
+  // Круг назвал причину ключом страницы и значениями: повторять тут нечего.
   async refused() {
-    const word = 'раздач с сезоном 9 нет';
-    const p = search(() => ({ status: 409, body: { error: word } }), 'уэнсдэй 9 сезон');
+    const reason = { key: 'web.search.no_season_releases', values: { title: 'Wednesday', season: 9 } };
+    const p = search(() => ({ status: 409, body: { error: 'search_refused', reason } }), 'уэнсдэй 9 сезон');
     await p.time.run(1000);
-    return { word, polls: p.polls, screen: screen(p) };
+    return { reason, polls: p.polls, screen: screen(p) };
   },
 
   async retry() {

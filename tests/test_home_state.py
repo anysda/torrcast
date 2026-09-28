@@ -59,6 +59,14 @@ def test_a_live_show_stays_visible_and_its_clock_moves(facts: dict[str, Any]) ->
 
 
 @pytest.mark.machine
+def test_a_local_start_waits_for_the_player_only_after_packaging(facts: dict[str, Any]) -> None:
+    seen = facts["preparing"]["seen"]
+    assert seen["+0"].startswith("PREPARING…")
+    assert seen["+5"].startswith("PREPARING…")
+    assert seen["+10"].startswith("WAITING FOR THE PLAYER")
+
+
+@pytest.mark.machine
 def test_a_hidden_home_tab_does_not_poll_the_server(facts: dict[str, Any]) -> None:
     hidden = facts["hidden"]
     assert hidden["callsWhileHidden"] == 1

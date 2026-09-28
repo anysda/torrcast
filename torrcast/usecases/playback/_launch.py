@@ -27,6 +27,7 @@ from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.start_progress import START
 from torrcast.usecases.still_playing import still_playing
 
 
@@ -170,6 +171,7 @@ def _await_playing(
             packed = _new_segment(out, owner)
             if packed:
                 journal().mark("первый сегмент")
+                START.packed()
         waiting = "playback.waiting_player" if here else "playback.waiting_tv"
         progress.phase(phrase(waiting) if packed else phrase("playback.packing"))
         if not unit.active():

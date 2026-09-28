@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.domain.search_refusal import SearchReason
+
 #: Слова отказа пульта и показа: часть того же договора, что и тип, перевода им нет.
 BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
 #: Показ идёт во вкладке (TC-1210): пультом (перемотка, пауза) она не управляется -
@@ -20,7 +22,11 @@ class RefusedError(Exception):
     отказа, которую сказал бы `search_circle`, - и её мост не сочиняет и не переводит.
     """
 
-    def __init__(self, word: str) -> None:
-        super().__init__(word)
-        #: Слово отказа: короткий английский ключ пульта/показа или фраза продукта.
-        self.word = word
+    def __init__(self, word: str | SearchReason) -> None:
+        if isinstance(word, SearchReason):
+            self.word: str = "search_refused"
+            self.reason: SearchReason | None = word
+        else:
+            self.word = word
+            self.reason = None
+        super().__init__(self.word)

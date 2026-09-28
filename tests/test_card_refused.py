@@ -39,7 +39,10 @@ def test_a_refusal_after_a_preview_skeleton_replaces_the_word_with_the_reason(
     assert stood["onSkeleton"]["error"] == "not_found", (
         f"отказ на скелете отброшен, ожидание осталось без конца: {stood['onSkeleton']}"
     )
-    assert stood["onSkeleton"]["refused"] == "Prowlarr не отвечает", stood["onSkeleton"]
+    assert stood["onSkeleton"]["refused"] == {
+        "key": "web.search.no_season_releases",
+        "values": {"title": "Prestige", "season": 9},
+    }, stood["onSkeleton"]
     assert stood["onSkeleton"]["searching"] is False, "слово «ищем раздачи» осталось на экране"
     assert stood["onSkeleton"]["title"] == "Престиж", (
         f"отказ по прямой ссылке стёр имя картины: {stood['onSkeleton']}"
@@ -48,7 +51,10 @@ def test_a_refusal_after_a_preview_skeleton_replaces_the_word_with_the_reason(
 
 def test_a_refusal_on_an_empty_body_still_speaks_the_same_reason(stood: dict[str, Any]) -> None:
     assert stood["onEmpty"]["error"] == "not_found", stood["onEmpty"]
-    assert stood["onEmpty"]["refused"] == "Prowlarr не отвечает", stood["onEmpty"]
+    assert stood["onEmpty"]["refused"] == {
+        "key": "web.search.no_season_releases",
+        "values": {"title": "Prestige", "season": 9},
+    }, stood["onEmpty"]
 
 
 def test_a_picture_without_any_releases_stops_waiting_for_them(stood: dict[str, Any]) -> None:

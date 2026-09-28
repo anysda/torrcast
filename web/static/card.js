@@ -409,7 +409,7 @@ const TCCard = {
 
   // ``word`` - код отказа круга. Повтора у него нет нарочно: второй такой же заход
   // ответит то же самое.
-  _notFound(key, query, word) {
+  _notFound(key, query, reason) {
     const body = document.createElement('div');
     body.id = 'tc-card-body';
     body.className = 'tc-detail-body';
@@ -422,8 +422,8 @@ const TCCard = {
     title.textContent = hint.title || '';
     const said = document.createElement('div');
     said.className = 'tc-detail-desc tc-body';
-    said.textContent = TC.say('web.detail.not_found');
-    if (word) {
+    said.textContent = reason ? TC.say(reason.key, reason.values) : TC.say('web.detail.not_found');
+    if (reason) {
       info.append(title, said);
       body.appendChild(info);
       return body;

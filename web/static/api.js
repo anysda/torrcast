@@ -75,15 +75,18 @@ const TCApi = {
         postersPending, postersBy, failed: false,
       };
     } catch (error) {
-      return { results: [], partial: false, finalBy: 0, failed: true, refused: '' };
+      return { results: [], partial: false, finalBy: 0, failed: true, refused: null };
     }
   },
 
-  // Слово отказа из тела 409. У поиска и карточки это готовая фраза продукта на языке
-  // экземпляра (`hass.refused_error.RefusedError`), а не ключ договора: её и показывают.
+  // The page's English catalog renders a reason key and values, never process words.
   async _word(said) {
-    const body = await TCApi._body(said);
-    return typeof (body && body.error) === 'string' ? body.error : '';
+    return TCApi._reason(await TCApi._body(said));
+  },
+
+  _reason(body) {
+    const reason = body && body.reason;
+    return reason && typeof reason.key === 'string' && reason.values ? reason : null;
   },
 
   async _body(said) {
@@ -113,11 +116,11 @@ const TCApi = {
       const said = await fetch(url);
       if (!said.ok) {
         const body = await TCApi._body(said);
-        const word = said.status === 409 && body && body.error;
         // `whole`: пустоту подтвердил каждый индексер, и найти картину правда нечем.
         return {
           data: null, partial: false, missing: said.status === 404,
-          refused: typeof word === 'string' ? word : '', whole: !!body && body.whole === true,
+          refused: said.status === 409 ? TCApi._reason(body) : null,
+          whole: !!body && body.whole === true,
         };
       }
       const data = await said.json();

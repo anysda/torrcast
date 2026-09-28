@@ -106,7 +106,8 @@ const TCPlayerScreens = {
     const when = screen.querySelector('.tc-preparing-when');
     const note = screen.querySelector('.tc-preparing-note');
     const bar = screen.querySelector('.tc-preparing-bar');
-    title.textContent = TC.say(start && start.here ? 'web.player.waiting_player' : 'web.player.preparing');
+    title.textContent = TC.say(start && start.here && start.packed
+      ? 'web.player.waiting_player' : 'web.player.preparing');
     const left = (start && start.left) || 0;
     const waited = (start && start.waited) || 0;
     when.textContent = left > 0 ? TC.say('web.player.preparing_in', { seconds: left }) : '';

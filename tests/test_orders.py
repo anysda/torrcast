@@ -39,6 +39,17 @@ def test_a_second_raise_is_refused_while_the_first_one_is_underway() -> None:
     assert orders.take(["муха"]), "кончился первый - второй берётся"
 
 
+def test_a_tab_order_marks_the_wait_as_local() -> None:
+    """The browser marker travels from the order argument to the waiting snapshot."""
+    START.gone()
+    orders = Orders(_nothing)
+
+    assert orders.take(["матрица", "--here"])
+    seen = START.seen()
+
+    assert seen is not None and seen["here"] is True
+
+
 def test_a_forced_order_never_waits_for_its_turn() -> None:
     """Остановке отказать нечем: она встаёт в очередь, не спрашивая занятости."""
     orders = Orders(_nothing)

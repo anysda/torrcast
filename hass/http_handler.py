@@ -65,7 +65,10 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._command(path, body)
         except RefusedError as refusal:
-            self._answer(409, {"error": refusal.word})
+            if refusal.reason is not None:
+                self._answer(409, {"error": "search_refused", "reason": refusal.reason.json()})
+            else:
+                self._answer(409, {"error": refusal.word})
 
     def do_PUT(self) -> None:
         """Чужой метод: маршруты знают ровно GET и POST."""

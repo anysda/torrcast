@@ -15,6 +15,7 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.search_refusal import SearchReason, SearchRefusal
 from torrcast.domain.release import Release
 from torrcast.usecases.select.plan import Plan
 from web.warm_cache import WarmCache
@@ -105,11 +106,22 @@ def _refused(raised: Exception) -> SearchJob:
     return job
 
 
-def test_a_named_refusal_of_the_circle_reaches_the_viewer_in_its_own_words() -> None:
-    """🔴 TC-1304. «Раздач с сезоном 9 нет» круг знал, а зритель читал пустой экран."""
-    job = _refused(NotFoundError("«Уэнсдэй»: раздач с сезоном 9 нет"))
+def test_a_named_refusal_of_the_circle_reaches_the_viewer_as_a_page_key_and_values() -> None:
+    """The job preserves the specific reason without console-language words."""
+    job = _refused(
+        SearchRefusal(
+            "discover.no_season_releases",
+            "web.search.no_season_releases",
+            title="Wednesday",
+            season=9,
+        )
+    )
 
-    assert (job.done, job.results, job.error) == (True, [], "«Уэнсдэй»: раздач с сезоном 9 нет")
+    assert (job.done, job.results, job.error) == (
+        True,
+        [],
+        SearchReason("web.search.no_season_releases", {"title": "Wednesday", "season": 9}),
+    )
 
 
 def test_the_refusal_with_nothing_to_add_stays_mute_and_leaves_the_empty_screen() -> None:

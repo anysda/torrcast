@@ -10,10 +10,13 @@ const vm = require('vm');
 const KEY = 'movie:престиж:2006';
 const SKELETON = {
   data: { title: 'Престиж', searching: true, releases: [], releases_count: 0 },
-  partial: true, missing: false, refused: '',
+  partial: true, missing: false, refused: null,
 };
-const REFUSAL = { data: null, partial: false, missing: false, refused: 'Prowlarr не отвечает' };
-const NOTHING = { data: null, partial: false, missing: true, refused: '' };
+const REFUSAL = {
+  data: null, partial: false, missing: false,
+  refused: { key: 'web.search.no_season_releases', values: { title: 'Prestige', season: 9 } },
+};
+const NOTHING = { data: null, partial: false, missing: true, refused: null };
 
 async function lastShown(answers) {
   const shown = [];

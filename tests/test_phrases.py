@@ -76,4 +76,4 @@ def test_numbered_words_hold_the_forms_people_read() -> None:
 def test_the_dictionary_travels_as_readable_utf8_and_not_as_escapes() -> None:
     answer = phrases(Request("GET", "/api/phrases", {"lang": "ru"}, {}))
 
-    assert b"New" in answer.body
+    assert "…".encode() in answer.body

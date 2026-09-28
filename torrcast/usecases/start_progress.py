@@ -47,6 +47,7 @@ class StartProgress:
         self._began: float | None = None
         self._source: tuple[int, int] = (0, 0)
         self._here = False
+        self._packed = False
         self._measured: list[float] = []
 
     def began(self, here: bool = False) -> None:
@@ -55,6 +56,13 @@ class StartProgress:
             self._began = self._clock()
             self._source = (0, 0)
             self._here = here
+            self._packed = False
+
+    def packed(self) -> None:
+        """Упаковка дала первый сегмент: теперь приёмник уже ждёт картинку."""
+        with self._lock:
+            if self._began is not None:
+                self._packed = True
 
     def source(self, number: int, total: int) -> None:
         """Какой источник очереди сейчас спрашивают и сколько их всего."""
@@ -77,6 +85,7 @@ class StartProgress:
             self._began = None
             self._source = (0, 0)
             self._here = False
+            self._packed = False
 
     def gone(self) -> None:
         """Подъёма больше нет (отказ, остановка, отмена): замерять нечего."""
@@ -84,6 +93,7 @@ class StartProgress:
             self._began = None
             self._source = (0, 0)
             self._here = False
+            self._packed = False
 
     def seen(self) -> dict[str, JsonValue] | None:
         """Снимок ожидания для ``GET /api/state``; подъёма нет - ``None``."""
@@ -93,6 +103,7 @@ class StartProgress:
             waited = self._clock() - self._began
             number, total = self._source
             here = self._here
+            packed = self._packed
             known = len(self._measured) >= ENOUGH
             left = (median(self._measured) - waited) if known else 0.0
         return {
@@ -101,6 +112,7 @@ class StartProgress:
             "source": number or None,
             "sources": total or None,
             "here": here,
+            "packed": packed,
         }
 
 

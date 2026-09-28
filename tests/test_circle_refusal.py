@@ -7,6 +7,7 @@ import json
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found_error import NothingFoundError
+from torrcast.domain.search_refusal import SearchRefusal
 from torrcast.domain.torrcast_error import TorrcastError
 from web.circle_refusal import circle_refusal
 
@@ -30,11 +31,25 @@ def test_a_mute_refusal_is_answered_as_a_picture_without_releases() -> None:
     )
 
 
-def test_a_named_refusal_never_carries_the_process_language_to_the_viewer() -> None:
-    """Веб узнаёт только код: фразу берёт его английский каталог."""
-    assert _said(TorrcastError("раздач с сезоном 9 нет")) == (
+def test_a_named_refusal_carries_its_page_key_and_values() -> None:
+    """The page receives a reason it can render in English, never console words."""
+    assert _said(
+        SearchRefusal(
+            "discover.no_season_releases",
+            "web.search.no_season_releases",
+            title="Wednesday",
+            season=9,
+        )
+    ) == (
         409,
-        {"error": "search_refused", "whole": False},
+        {
+            "error": "search_refused",
+            "reason": {
+                "key": "web.search.no_season_releases",
+                "values": {"title": "Wednesday", "season": 9},
+            },
+            "whole": False,
+        },
     )
 
 

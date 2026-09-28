@@ -16,6 +16,7 @@ from string import Formatter
 import pytest
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.phrase import _ENGLISH_ONLY_CLUSTERS
 from torrcast.domain.catalogs.tongue import _choose_tongue, tongue
 
 _ROOT = Path(__file__).parents[3]
@@ -61,9 +62,14 @@ def _catalogs() -> list[CatalogPair]:
         sides: dict[str, dict[str, str]] = {}
         for language in ("en", "ru"):
             path = _CATALOGS / cluster / f"{language}.py"
+            module_language = language
+            if not path.is_file() and language == "ru" and cluster in _ENGLISH_ONLY_CLUSTERS:
+                path = _CATALOGS / cluster / "en.py"
+                module_language = "en"
             assert path.is_file(), f"cluster {cluster}: missing {language}.py"
             function: Callable[[], dict[str, str]] = getattr(
-                import_module(f"torrcast.domain.catalogs.{cluster}.{language}"), language
+                import_module(f"torrcast.domain.catalogs.{cluster}.{module_language}"),
+                module_language,
             )
             sides[language] = function()
             assert sides[language], (

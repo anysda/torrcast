@@ -121,7 +121,8 @@ const TC = {
     // экран самого плеера тем же ключом каталога.
     label.textContent = TC.say(
       state.state !== 'playing'
-        ? state.start && state.start.here ? 'web.player.waiting_player' : 'web.player.preparing'
+        ? state.start && state.start.here && state.start.packed
+          ? 'web.player.waiting_player' : 'web.player.preparing'
         : onTv ? 'web.header.on_tv' : 'web.header.now_playing'
     );
     const title = document.createElement('div');

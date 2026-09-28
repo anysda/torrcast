@@ -50,6 +50,7 @@ function page(stateAt) {
     'web.header.now_playing': 'NOW PLAYING ▶',
     'web.header.on_tv': 'ON TV ▶',
     'web.player.preparing': 'PREPARING…',
+    'web.player.waiting_player': 'WAITING FOR THE PLAYER',
   };
   ctx.TCPlayer = { open: () => { opened += 1; } };
   ctx.TCApi.state = async () => { calls += 1; return stateAt(time.now()); };
@@ -83,6 +84,10 @@ async function main() {
   const ended = await watch((at) => (at < 2000 ? playing(at) : { state: 'idle' }));
   const started = await watch((at) => (at < 2000 ? { state: 'idle' } : playing(at)));
   const live = await watch(playing);
+  const preparing = await watch((at) => ({
+    state: 'preparing', title: 'ВАСАБИ', position: 0, duration: 5630,
+    start: { here: true, packed: at >= 10000 },
+  }));
 
   const hidden = page(playing);
   await hidden.time.run(0);
@@ -93,7 +98,7 @@ async function main() {
   await hidden.time.run(22000);
 
   process.stdout.write(JSON.stringify({
-    removed, ended, started, live,
+    removed, ended, started, live, preparing,
     hidden: { callsWhileHidden, callsAfterVisible: hidden.calls(), line: line(hidden.doc) },
   }));
 }

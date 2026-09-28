@@ -341,7 +341,7 @@ const TCHome = {
       if (said.refused) {
         // Отказ кодом - готовый ответ поиска, а не сорванный опрос: переспрашивать его
         // нечем, ни сейчас, ни кнопкой. Его читает английская фраза страницы.
-        TCHome._swapBody(TCHome._searchRefused(known));
+        TCHome._swapBody(TCHome._searchRefused(said.refused, known));
         return;
       }
       if (said.failed) {
@@ -518,13 +518,13 @@ const TCHome = {
 
   // Отказ круга поиска не несёт фразу сервера: та зависит от языка машины. Кнопки
   // повтора тут нет нарочно: второй такой же заход ответит то же самое.
-  _searchRefused(known = []) {
+  _searchRefused(reason, known = []) {
     TCHome._syncCount(known.length ? known.length : null);
     const body = document.createElement('div');
     body.id = 'tc-body';
     const said = document.createElement('div');
     said.className = 'tc-nothing';
-    said.textContent = TC.say('web.search.failed');
+    said.textContent = TC.say(reason.key, reason.values);
     const hint = document.createElement('div');
     hint.className = 'tc-nothing-hint';
     hint.textContent = TC.say('web.search.empty_hint');

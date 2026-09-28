@@ -13,6 +13,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found_error import NothingFoundError
+from torrcast.domain.search_refusal import SearchRefusal
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.journal.slot import journal
@@ -177,7 +178,7 @@ def _circle(
     if not raw:
         raise NothingFoundError(phrase("discover.nothing_found", name=name))
     if not pictures:
-        raise NotFoundError(phrase("discover.nothing_parsed", name=name))
+        raise SearchRefusal("discover.nothing_parsed", "web.search.nothing_parsed", name=name)
     if not found:
         raise _nothing(name, index, pictures)
     lead = _leading(found)
@@ -191,7 +192,10 @@ def _circle(
     found, plans = _plans(found, pictures, args, config, profile, name, asked, client, progress)
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
-        raise NotFoundError(
-            phrase("discover.no_season_releases", title=_title(found[0]), season=want.season)
+        raise SearchRefusal(
+            "discover.no_season_releases",
+            "web.search.no_season_releases",
+            title=_title(found[0]),
+            season=want.season,
         )
     return (CutCircle if getattr(source, "cut", ()) else ToldCircle)(plans, list(client.told))
