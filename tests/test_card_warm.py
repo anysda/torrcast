@@ -10,6 +10,7 @@ from typing import Any, cast
 import pytest
 
 import web.card_warm
+from torrcast.domain.pick_settings import PICK_BUDGET
 from web.card_warm import CardWarm
 
 
@@ -148,16 +149,54 @@ def test_a_show_with_nothing_warm_selects_on_its_own_bench_and_a_card_waits_for_
     assert warm.chosen.is_set() and not warms.holds("movie:тачки:2006")
 
 
-def test_a_card_that_does_not_let_go_leaves_the_show_its_own_bench(
+@pytest.mark.machine
+def test_a_card_show_waits_for_the_taken_bench_instead_of_starting_a_second_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(web.card_warm, "LET_GO", 0.01)
+    """Клик ждёт уже начатый отбор, который кончается в пределе, а не заводит второй."""
+    monkeypatch.setattr(web.card_warm, "LET_GO", 2.0)
     warms = CardWarm()
     stuck: Any = _Bench()
     warm, _opened = warms.open("movie:тачки:2006", lambda: stuck)
-    fresh: Any = _Bench()
+    fresh: Any = _Bench(profile="show")
+    taken: list[Any] = []
 
-    assert warms.take("movie:тачки:2006", fresh) is fresh
+    caller = threading.Thread(
+        target=lambda: taken.append(warms.take("movie:тачки:2006", fresh)), daemon=True
+    )
+    caller.start()
+    caller.join(0.05)
+
+    assert caller.is_alive() and taken == [], "показ подменил идущий отбор своим стендом"
     warms.finish(warm, cast(Any, _Prep()))
+    caller.join(1.0)
 
-    assert stuck.drops == 1 and stuck.kept == [], "застрявший отбор убирает за собой сам"
+    assert taken == [stuck] and stuck.drops == 0
+
+
+@pytest.mark.machine
+def test_a_hung_card_selection_holds_the_click_no_longer_than_the_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Отбор карточки не отпустил стенд к сроку: показ отбирает своим, клик не висит."""
+    monkeypatch.setattr(web.card_warm, "LET_GO", 0.1)
+    warms = CardWarm()
+    stuck: Any = _Bench()
+    warm, _opened = warms.open("movie:тачки:2006", lambda: stuck)
+    fresh: Any = _Bench(profile="show")
+    taken: list[Any] = []
+
+    caller = threading.Thread(
+        target=lambda: taken.append(warms.take("movie:тачки:2006", fresh)), daemon=True
+    )
+    caller.start()
+    caller.join(2.0)
+
+    assert taken == [fresh], "клик висит на зависшем отборе карточки"
+    warms.finish(warm, cast(Any, _Prep()))
+    assert stuck.drops == 1 and stuck.kept == [], "зависший отбор убирает за собой сам"
+
+
+def test_the_click_waits_for_the_card_selection_as_long_as_the_selection_may_last() -> None:
+    """Срок короче потолка отбора заводил бы второй отбор тех же раздач рядом с живым."""
+    assert web.card_warm.LET_GO >= PICK_BUDGET

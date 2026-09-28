@@ -320,6 +320,75 @@ def test_an_open_card_does_not_queue_behind_a_background_circle_of_another_tile(
 
 
 @pytest.mark.machine
+def test_an_open_card_waits_for_its_running_circle_instead_of_counting_it_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Клик берёт итог круга карточки, который кончается в пределе, а не дублирует индексеры."""
+    monkeypatch.setattr("web.warm_cache.BUSY_WAIT", 2.0)
+    started, release = threading.Event(), threading.Event()
+    asked: list[str] = []
+
+    def _circle(query: str) -> list[Plan]:
+        asked.append(query)
+        started.set()
+        release.wait(5.0)
+        return [_PLAN]
+
+    hands: list[threading.Thread] = []
+
+    def _thread(job: Callable[[], None]) -> None:
+        hand = threading.Thread(target=job, daemon=True)
+        hands.append(hand)
+        hand.start()
+
+    cache = _cache(_circle, spawn=_thread)
+    cache.hint("Interstellar")
+    assert started.wait(1.0)
+    got: list[list[Plan]] = []
+    caller = threading.Thread(target=lambda: got.append(cache.take("Interstellar")), daemon=True)
+    hands.append(caller)
+    caller.start()
+    try:
+        caller.join(0.05)
+        assert caller.is_alive() and asked == ["Interstellar"]
+    finally:
+        release.set()
+        for hand in hands:
+            hand.join(2.0)
+
+    assert got == [[_PLAN]] and asked == ["Interstellar"]
+
+
+@pytest.mark.machine
+def test_a_hung_card_circle_holds_the_click_no_longer_than_the_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Круг карточки завис: клик ждёт его не дольше предела и считает круг сам."""
+    monkeypatch.setattr("web.warm_cache.BUSY_WAIT", 0.1)
+    started, release = threading.Event(), threading.Event()
+    asked: list[str] = []
+
+    def _circle(query: str) -> list[Plan]:
+        asked.append(query)
+        if len(asked) == 1:
+            started.set()
+            release.wait(5.0)
+        return [_PLAN]
+
+    cache = _cache(_circle, spawn=lambda job: threading.Thread(target=job, daemon=True).start())
+    cache.hint("Interstellar")
+    assert started.wait(1.0)
+    got: list[list[Plan]] = []
+    caller = threading.Thread(target=lambda: got.append(cache.take("Interstellar")), daemon=True)
+    caller.start()
+    caller.join(2.0)
+    release.set()
+
+    assert got == [[_PLAN]], "клик висит на зависшем круге карточки"
+    assert asked == ["Interstellar", "Interstellar"]
+
+
+@pytest.mark.machine
 def test_the_background_waits_while_a_live_request_holds_the_indexers() -> None:
     """Живое идёт вперёд очереди: пока карточка считает круг, фон не начинает своего."""
     hands: list[threading.Thread] = []

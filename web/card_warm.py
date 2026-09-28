@@ -13,21 +13,19 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from types import TracebackType
 from typing import TYPE_CHECKING, Final
+
+from torrcast.domain.pick_settings import PICK_BUDGET
+from web.card_progress import CardProgress
 
 if TYPE_CHECKING:
     from torrcast.ports.progress.progress import Progress
     from torrcast.usecases.select._prep import _Prep
     from torrcast.usecases.select_bench.bench import Bench
 
-#: Сколько показ ждёт, пока отбор карточки отпустит стенд: отбор спрашивает индикатор
-#: каждые 0.2 с, и дольше он не держит. Не отпустил - показ отбирает своим стендом.
-LET_GO: Final = 5.0
-
-
-class _StoppedError(Exception):
-    """Отбор карточки снят: карточка ушла или стенд забирает показ."""
+#: Сколько показ ждёт отбор карточки на том же стенде: дольше своего потолка отбор не идёт,
+#: и не отпустивший к этому сроку завис. Тогда показ отбирает своим стендом.
+LET_GO: Final = PICK_BUDGET
 
 
 @dataclass(eq=False)
@@ -44,36 +42,6 @@ class _Warm:
     #: Раздача выбрана (или отбор кончился ничем): ответ дорожкам карточки.
     chosen: threading.Event = field(default_factory=threading.Event)
     prep: _Prep | None = None
-
-
-@dataclass(eq=False)
-class _Stoppable:
-    """Индикатор отбора карточки, который выходит из отбора, когда прогрев сняли."""
-
-    inner: Progress
-    halt: threading.Event
-
-    def phase(self, text: str) -> None:
-        if self.halt.is_set():
-            raise _StoppedError
-        self.inner.phase(text)
-
-    def note(self, text: str) -> None:
-        self.inner.note(text)
-
-    def stop(self) -> None:
-        self.inner.stop()
-
-    def __enter__(self) -> _Stoppable:
-        return self
-
-    def __exit__(
-        self,
-        kind: type[BaseException] | None,
-        error: BaseException | None,
-        trace: TracebackType | None,
-    ) -> None:
-        return None
 
 
 class CardWarm:
@@ -105,12 +73,12 @@ class CardWarm:
     @staticmethod
     def progress(warm: _Warm, inner: Progress) -> Progress:
         """Индикатор отбора карточки, снимаемый уходом карточки и показом."""
-        return _Stoppable(inner, warm.stop)
+        return CardProgress(inner, warm.stop)
 
     @staticmethod
     def stopped() -> type[Exception]:
         """Чем выходит снятый отбор карточки."""
-        return _StoppedError
+        return CardProgress.stopped
 
     def finish(self, warm: _Warm, prep: _Prep | None) -> None:
         """Отбор карточки вышел: выбранная раздача остаётся, прочее убирается."""
@@ -160,12 +128,17 @@ class CardWarm:
             if old is not None and old.key != key:
                 self._release(old)
             return fresh
-        warm.out.wait(LET_GO)
-        with self._lock:
-            if not warm.out.is_set():  # отбор карточки не отпустил: уберёт за собой сам
-                warm.taken = False
-                self._show(key, fresh)
-                return fresh
+        # Клик забрал тот же стенд и попросил отбор карточки остановиться.  Переход на
+        # ``fresh`` после произвольных пяти секунд начинал второй отбор тех же релизов,
+        # а затем оба спорили за метаданные и карту кадров.  Ждём исход уже начатой
+        # работы: он либо отдаст готовый стенд, либо закончит ошибкой, которую покажет
+        # обычный путь выбора. Ждём не дольше потолка отбора: зависший круг не держит клик вечно.
+        if not warm.out.wait(LET_GO):
+            with self._lock:
+                if not warm.out.is_set():  # отбор карточки завис: уберёт за собой сам
+                    warm.taken = False
+                    self._show(key, fresh)
+                    return fresh
         bench = warm.bench
         bench.profile, bench.choose = fresh.profile, fresh.choose
         bench.preps = {at: prep for at, prep in bench.preps.items() if not prep.dropped}
