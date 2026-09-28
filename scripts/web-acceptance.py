@@ -578,7 +578,7 @@ _SHELF_JS: Final = """
     boxes: () => [...[...document.querySelectorAll(LIVE)].slice(0, 60), ...S.rows()]
       .map((el) => { const b = box(el); return [b.left, b.top, b.width, b.height]; }),
     ring() {
-      // Контур горящей плитки рисует сама `.tc-tile.is-lit` (533a7d5f переносит его
+      // Контур горящей плитки рисует сама `.tc-tile.is-lit` (851b4260 перенёс его
       // с `.tc-tile-frame`): старый зонд читал дочерний узел и не видел обводки,
       // сколько бы её ни рисовали.
       const f = lit();
