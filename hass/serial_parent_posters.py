@@ -31,10 +31,12 @@ def _ready_posters(records: list[JsonValue], has: Callable[[str], bool]) -> list
 
 
 def _with_parent(record: JsonValue, parents: list[JsonValue]) -> JsonValue:
-    if not isinstance(record, dict) or record.get(_FIELD):
+    if not isinstance(record, dict) or record.get(_FIELD) or record.get("kind") != "tv":
         return record
-    parent = next((one for one in parents if _parent_of(record, one)), None)
-    return {**record, _FIELD: parent[_FIELD]} if isinstance(parent, dict) else record
+    # Два возможных родителя - уже догадка, а чужая обложка хуже пустоты.
+    found = [one for one in parents if isinstance(one, dict) and _parent_of(record, one)]
+    names = {_poster_name(one) for one in found}
+    return {**record, _FIELD: names.pop()} if len(names) == 1 else record
 
 
 def _ready_parent(record: JsonValue, has: Callable[[str], bool]) -> bool:
