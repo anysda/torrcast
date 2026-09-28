@@ -21,6 +21,15 @@ KINDS: Final = {
     "movie": frozenset({"movie", "tvMovie", "tvSpecial", "short", "video"}),
     "tv": frozenset({"tvSeries", "tvMiniSeries", "tvMovie", "tvSpecial"}),
 }
+#: Сам сериал. Тёзка-спецвыпуск того же года - запасной путь, а не соперник: рядом с
+#: сериалом он делал выбор неоднозначным, и сериал оставался без своей обложки.
+_SERIES: Final = frozenset({"tvSeries", "tvMiniSeries"})
+
+
+def _series_first(ask: Ask, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Под сериал - строки самого сериала, если они есть; иначе все подошедшие."""
+    series = [row for row in rows if ask.kind == "tv" and str(row.get("qid", "")) in _SERIES]
+    return series or rows
 
 
 def _fits(ask: Ask, row: dict[str, Any]) -> bool:
@@ -94,4 +103,4 @@ def _nested(first: str, second: str) -> bool:
     return first in second or second in first
 
 
-__all__ = ["KINDS", "_fits", "_image", "_otherwise_named", "_same_name", "_sized"]
+__all__ = ["KINDS", "_fits", "_image", "_otherwise_named", "_same_name", "_series_first", "_sized"]

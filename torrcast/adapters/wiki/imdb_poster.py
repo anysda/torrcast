@@ -142,7 +142,7 @@ class ImdbPoster:
         exact = [row for row in rows if imdb_rows._same_name(text, row)]
         # Тёзка по другому имени - тоже она, если подсказчик привёл ровно её одну: вторые
         # названия он разрешает сам, и «Un dramma borghese» честно приезжает «Mimi».
-        chosen = exact or imdb_rows._otherwise_named(text, rows)
+        chosen = imdb_rows._series_first(ask, exact or imdb_rows._otherwise_named(text, rows))
         return chosen[0] if len({str(row.get("id")) for row in chosen}) == 1 else None
 
     def _rows(self, text: str, timeout: float) -> list[dict[str, Any]]:

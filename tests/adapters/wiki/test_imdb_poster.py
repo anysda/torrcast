@@ -244,6 +244,21 @@ def test_a_serial_special_keeps_its_own_exact_poster(kind: str) -> None:
     assert imdb.wanted([ask], 5.0) == {ask: [SMALL, RAW]}
 
 
+def test_a_serial_keeps_its_poster_beside_a_namesake_special_of_its_year() -> None:
+    """Тёзка-спецвыпуск того же года не делает выбор неоднозначным: сериал берёт свою."""
+    other = "https://m.media-amazon.com/images/M/OTHER@._V1_.jpg"
+    imdb, _ = _imdb(
+        {
+            "Shogun": [
+                _row("tt2222222", "Shogun", 1980, "tvMovie", other),
+                _row("tt1111111", "Shogun", 1980, "tvMiniSeries"),
+            ]
+        }
+    )
+    ask = Ask("Сёгун", 1980, "tv", "Shogun")
+    assert imdb.wanted([ask], 5.0) == {ask: [SMALL, RAW]}
+
+
 def test_a_russian_title_without_an_original_is_not_asked_at_all() -> None:
     """Русским именем подсказчика не спрашивают: совпасть с латинским ответом ему нечем."""
     imdb, client = _imdb({"Укрытие": [_row("tt14688458", "Silo", 2023, "tvSeries")]})
