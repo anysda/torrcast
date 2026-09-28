@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.usecases.playback.following import Following
+from torrcast.usecases.playback.following import Following, _PreparedFollowing
 from torrcast.usecases.warm.warmer import Warmer
 
 
@@ -29,3 +29,18 @@ def test_the_handle_is_asked_and_answers_with_a_warmer() -> None:
     named()
 
     assert asked == [1], "цепочку спрашивают ровно один раз за серию"
+
+
+def test_a_prepared_following_builds_once_before_the_chain_asks() -> None:
+    """Первый кадр готовит паспорт соседа, цепочка получает тот же готовый ответ."""
+    asked: list[int] = []
+
+    def once() -> Warmer | None:
+        asked.append(1)
+        return None
+
+    following = _PreparedFollowing(once)
+
+    following.start()
+    assert following() is None
+    assert asked == [1]

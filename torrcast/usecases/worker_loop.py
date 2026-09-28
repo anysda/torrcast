@@ -23,6 +23,7 @@ from torrcast.usecases.following import _following
 from torrcast.usecases.next_season import _next_season, _prepared_next
 from torrcast.usecases.playback._next_warmer import _next_warmer
 from torrcast.usecases.playback._play import _play
+from torrcast.usecases.playback.following import _PreparedFollowing
 from torrcast.usecases.playback.voice_source import voice_source
 from torrcast.usecases.prepared_next import PreparedNext
 from torrcast.usecases.rank._hms import _hms
@@ -140,7 +141,9 @@ def _worker_loop(
             # Прогрев следующей серии впрок: собирается лениво, когда текущая уже на
             # диске (:meth:`torrcast.usecases.warm.warmer.Warmer._chain`). Раздача та же, файл -
             # соседний.
-            follow=partial(_next_warmer, config, torrserver, torrent_hash, entry, profile),
+            follow=_PreparedFollowing(
+                partial(_next_warmer, config, torrserver, torrent_hash, entry, profile)
+            ),
             supply=supply,
             profile=profile,
             session_tag=session_tag,

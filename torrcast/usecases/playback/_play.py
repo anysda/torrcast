@@ -118,6 +118,23 @@ def _play(
         voice=voice,
     )
     url = f"{_state.hls_base(config)}/index.m3u8"
+
+    def _say_started() -> None:
+        """Назвать кадр и параллельно подготовить следующую серию, если она есть."""
+        starter = getattr(follow, "start", None)
+        if callable(starter):
+            starter()
+        print(
+            phrase(
+                "playback.now_playing_tagged",
+                tag=session_tag,
+                about=about,
+                secs=f"{clock.total:.0f}",
+                where=playing_where(config.receiver == "browser"),
+            ),
+            flush=True,
+        )
+
     try:
         server.start()
         journal().mark("раздача")
@@ -175,16 +192,7 @@ def _play(
             session_tag=session_tag,
             start=start,
             raised=raised,
-            say_started=lambda: print(
-                phrase(
-                    "playback.now_playing_tagged",
-                    tag=session_tag,
-                    about=about,
-                    secs=f"{clock.total:.0f}",
-                    where=playing_where(config.receiver == "browser"),
-                ),
-                flush=True,
-            ),
+            say_started=_say_started,
         )
     finally:
         _close_show(watch, warmer, receiver, feed, server)
