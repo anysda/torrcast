@@ -499,14 +499,46 @@ def _alien(count: int) -> dict[str, JsonValue]:
     }
 
 
-def test_a_body_from_another_rule_is_not_read_back_from_disk(tmp_path: Path) -> None:
-    """Диск помнит сборку прежнего отбора - её не поднимают: в ней выброшенные плитки."""
+def test_a_body_from_another_rule_stays_visible_while_the_new_one_is_built(tmp_path: Path) -> None:
+    """Клеймо запускает пересборку, но не превращает последний известный экран в пустой."""
     path = tmp_path / "shelves.json"
     path.write_text(json.dumps(_alien(25), ensure_ascii=False), encoding="utf-8")
 
     body = _cache(tmp_path).get()
 
-    assert body == {FIELD: RULE, "fresh": [], "popular": [], "built_at": None}
+    assert body == _alien(25)
+
+
+def test_an_unmarked_body_stays_visible_while_the_new_one_is_built(tmp_path: Path) -> None:
+    """Демонстрационное тело без клейма - предшественник, а не причина показать пустоту."""
+    path = tmp_path / "shelves.json"
+    old = _alien(25)
+    old.pop(FIELD)
+    path.write_text(json.dumps(old, ensure_ascii=False), encoding="utf-8")
+
+    assert _cache(tmp_path).get() == old
+
+
+def test_rebuild_publishes_the_first_shelf_before_building_the_second(tmp_path: Path) -> None:
+    """Смена правила не держит готовые новинки за ещё идущие популярные."""
+    cache = _cache(tmp_path, feed=lambda _limit: _many_rows(2))
+    cache._body = _alien(2)
+    seen: list[dict[str, JsonValue] | None] = []
+
+    def playable(_query: str, _key: str) -> bool:
+        seen.append(cache._body)
+        return True
+
+    cache.playable = playable
+    cache._rebuild()
+
+    during_popular = seen[2]
+    assert during_popular is not None
+    assert during_popular[FIELD] == RULE - 1
+    assert isinstance(during_popular["fresh"], list) and len(during_popular["fresh"]) == 2
+    assert during_popular["popular"] == _alien(2)["popular"]
+    body = cache._body
+    assert body is not None and body[FIELD] == RULE
 
 
 def test_a_full_shelf_from_another_rule_does_not_block_a_short_build(tmp_path: Path) -> None:
