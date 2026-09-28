@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack.packer_finished import _cuts
+from torrcast.adapters.stream_pack.piece_end import piece_end
+from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.hls_settings import PACK_SHORT_SECONDS
 from torrcast.ports.journal.slot import journal
 
@@ -50,7 +53,9 @@ def done_slots(state: _State, slots: list[int], finished: bool) -> list[int]:
     закрытого куска и сходится с замером по пакетам в пределах 0.04 с. Метки в списке уже
     сдвинуты на начало ленты (:attr:`torrcast.adapters.stream_pack.grid.Grid.origin`),
     поэтому сдвиг вычитается - иначе на каждом релизе с B-кадрами «недобор» показывал бы
-    ровно его.
+    ровно его. Конец в списке - по опорной дорожке, то есть по видео: у релиза, где звук
+    идёт за картинкой, недобор по списку ещё не обрезок, и хвост перемеряется по пакетам
+    всех своих дорожек (:func:`torrcast.adapters.stream_pack.piece_end.piece_end`).
 
     Допуск :data:`PACK_SHORT_SECONDS` тот же, которым :func:`_reached` отличает обрыв от
     конца фильма, и он замерен: законный недобор последнего куска - 0.000-0.065 с, обрыв
@@ -72,7 +77,13 @@ def done_slots(state: _State, slots: list[int], finished: bool) -> list[int]:
     if tail not in done or tail < state.first or 0 <= state.last < tail:
         return done
     end = {slot: over for slot, _began, over in _cuts(state)}.get(tail)
-    if end is None or end - grid.origin >= grid.end(tail) - PACK_SHORT_SECONDS:
+    goal = grid.end(tail) - PACK_SHORT_SECONDS
+    if end is None or end - grid.origin >= goal:
+        return done
+    # Список закрывает кусок по видео, а звук здорового релиза вправе идти дальше картинки:
+    # хвост меряется по любой своей дорожке, как и в :func:`_reached` (:func:`piece_end`).
+    measured = piece_end(state.run / segment_name(tail, state.container))
+    if not math.isnan(measured) and measured - grid.origin >= goal:
         return done
     journal().mark(
         "хвост короче своей границы",

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
+import torrcast.adapters.stream_pack.packer_finished as finished
 from tests.usecases.feed_pack.world import FakeProc, grid, lay, packer
 from torrcast.adapters.stream_pack.packer_finished import _cuts, _drift, _finished
 from torrcast.domain.hls_settings import PACK_LIST
@@ -44,6 +47,60 @@ def test_a_last_piece_within_the_tolerance_is_the_honest_end_of_the_film(tmp_pat
     _list(run.run, ("v0.ts", 0.0, 9.7))
 
     assert _finished(run) is True
+
+
+def test_a_last_piece_whose_sound_outlives_the_picture_is_the_end_of_the_film(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Список закрывает кусок по видео; звук здорового релиза идёт дальше, это не обрыв.
+
+    Замер на стенде: видео до 1034.4 с, звук до 1038.4 с, паспорт 1038.46 с. Кусок
+    звался оборванным три раза подряд и списывался, плеер стоял за 8.5 с до конца.
+    """
+    asked: list[str] = []
+
+    def measure(piece: Path) -> float:
+        asked.append(piece.name)
+        return 60.0
+
+    monkeypatch.setattr(finished, "piece_end", measure)
+    run = packer(tmp_path, proc=FakeProc(code=0), grid=grid())
+    lay(run.run, 5)
+    _list(run.run, ("v5.ts", 50.0, 56.0))
+
+    assert _finished(run) is True, "здоровый хвост со звуком за картинкой назван обрывом"
+    assert asked == ["v5.ts"]
+
+
+def test_a_torn_last_piece_stays_torn_by_its_own_tracks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Обрыв входа закрывает обе дорожки вместе: мера по пакетам его не прощает."""
+    monkeypatch.setattr(finished, "piece_end", lambda _piece: 56.1)
+    run = packer(tmp_path, proc=FakeProc(code=0), grid=grid())
+    lay(run.run, 5)
+    _list(run.run, ("v5.ts", 50.0, 56.0))
+
+    assert _finished(run) is False
+
+
+def test_a_short_piece_inside_the_film_is_not_measured_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Звук за картинкой бывает только у конца фильма: середина судится списком, как была."""
+    asked: list[str] = []
+
+    def measure(piece: Path) -> float:
+        asked.append(piece.name)
+        return 20.0
+
+    monkeypatch.setattr(finished, "piece_end", measure)
+    run = packer(tmp_path, proc=FakeProc(code=0), grid=grid())
+    lay(run.run, 1)
+    _list(run.run, ("v1.ts", 10.0, 14.0))
+
+    assert _finished(run) is False
+    assert asked == []
 
 
 def test_an_empty_last_piece_is_not_the_honest_end_even_within_tolerance(tmp_path: Path) -> None:

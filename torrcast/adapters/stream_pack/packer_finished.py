@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import contextlib
+import math
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._segment_files import _names
+from torrcast.adapters.stream_pack.piece_end import piece_end
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.hls_settings import PACK_LIST, PACK_SHORT_SECONDS
 
@@ -83,7 +85,14 @@ def _reached(state: _State, code: int) -> bool:
         # муксер отказал каждому пакету, а список всё равно закрылся по границе.
         # Свой вес куска список не пишет, и это спрашивается у самого файла.
         return False
-    return ends[tail] >= grid.end(tail) - PACK_SHORT_SECONDS
+    end, goal = ends[tail], grid.end(tail) - PACK_SHORT_SECONDS
+    if end < goal and tail == grid.count - 1:
+        # Список закрывает кусок по видео, а у здорового релиза звук вправе идти дальше
+        # картинки: последний кусок фильма меряется по любой его дорожке (:func:`piece_end`).
+        measured = piece_end(state.run / tail_name)
+        if not math.isnan(measured):
+            end = max(end, measured)
+    return end >= goal
 
 
 def _weighed(chunk: Path) -> bool:
