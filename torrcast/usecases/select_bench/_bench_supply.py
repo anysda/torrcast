@@ -7,7 +7,7 @@ from torrcast.usecases.select._prep import _Prep
 
 
 def _bench_supply(profile: Profile, prep: _Prep) -> tuple[float, float, float]:
-    if prep.video is None or prep.media is None:
+    if prep.video is None or prep.media is None or prep.media.duration <= 0:
         return -1.0, 0.0, 0.0
     measured = swarm_pick(
         prep.supply,

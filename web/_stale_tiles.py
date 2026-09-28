@@ -23,4 +23,7 @@ def _keep_stale_tiles(
 
 def _tile_key(tile: JsonValue) -> str | None:
     """Ключ плитки, если старое тело ещё соблюдает контракт API."""
-    return tile.get("key") if isinstance(tile, dict) and isinstance(tile.get("key"), str) else None
+    if not isinstance(tile, dict):
+        return None
+    key = tile.get("key")
+    return key if isinstance(key, str) else None

@@ -72,6 +72,15 @@ def test_no_receiver_condemns_a_swarm_before_its_measured_settle_window() -> Non
         )
 
 
+def test_a_zero_runtime_stays_unknown_instead_of_killing_the_shelf_worker() -> None:
+    """Битый метаданные без длительности не дают делить на ноль в фоновом отборе."""
+    prep = _Prep(number=1, release=rel("zero-runtime"))
+    prep.video = TorrFile(0, "movie.mkv", 8 * 1024**3)
+    prep.media = Media(0.0, (), "h264")
+
+    assert _bench_supply(CAUTIOUS, prep) == (-1.0, 0.0, 0.0)
+
+
 def test_a_swarm_that_was_slow_until_it_spun_up_passes() -> None:
     prep = _Prep(number=1, release=rel("good-after-spin-up"))
     prep.video = TorrFile(0, "movie.mkv", 9_000_000_000)
