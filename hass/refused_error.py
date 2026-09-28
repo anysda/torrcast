@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain.search_refusal import SearchReason
+from torrcast.domain._search_refusal_reason import _SearchReason
 
 #: Слова отказа пульта и показа: часть того же договора, что и тип, перевода им нет.
 BUSY, NOTHING_PLAYING, NO_NEXT, NO_VOLUME = "busy", "nothing_playing", "no_next", "no_volume"
@@ -22,10 +22,10 @@ class RefusedError(Exception):
     отказа, которую сказал бы `search_circle`, - и её мост не сочиняет и не переводит.
     """
 
-    def __init__(self, word: str | SearchReason) -> None:
-        if isinstance(word, SearchReason):
+    def __init__(self, word: str | _SearchReason) -> None:
+        if isinstance(word, _SearchReason):
             self.word: str = "search_refused"
-            self.reason: SearchReason | None = word
+            self.reason: _SearchReason | None = word
         else:
             self.word = word
             self.reason = None

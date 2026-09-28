@@ -15,8 +15,7 @@ from string import Formatter
 
 import pytest
 
-from torrcast.domain.catalogs.phrase import phrase
-from torrcast.domain.catalogs.phrase import _ENGLISH_ONLY_CLUSTERS
+from torrcast.domain.catalogs.phrase import _ENGLISH_ONLY_CLUSTERS, phrase
 from torrcast.domain.catalogs.tongue import _choose_tongue, tongue
 
 _ROOT = Path(__file__).parents[3]

@@ -86,8 +86,6 @@ class _Handler(BaseHTTPRequestHandler):
         """Строка запроса уходит в журнал процесса, а не в stderr россыпью."""
         print(f"{self.address_string()} {format % args}", flush=True)
 
-    # ------------------------------------------------------------------ внутреннее
-
     def _command(self, path: str, body: dict[str, JsonValue]) -> None:
         """Развести POST по мосту; отказ моста поднимается выше словом."""
         if path == SEARCH:
@@ -96,8 +94,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._answer(400, {"error": "no_query"})
                 return
             if body.get("progressive") is True:
-                # Опт-ин (TC-1126): страница читает ``X-Torrcast-Partial``, HA - нет. Срок
-                # финала страница берёт тут же: потолок её опроса - срок сервера, не своё число.
                 results, partial, left = self.bridge.search_progress(query.strip())
                 headers = {
                     "X-Torrcast-Partial": "1" if partial else "0",

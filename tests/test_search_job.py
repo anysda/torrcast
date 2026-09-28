@@ -11,12 +11,11 @@ import pytest
 from hass.search_job import SearchJob
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
-from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.domain.search_refusal import SearchReason, SearchRefusal
 from torrcast.domain.release import Release
+from torrcast.domain.search_refusal_error import SearchRefusalError
 from torrcast.usecases.select.plan import Plan
 from web.warm_cache import WarmCache
 
@@ -109,7 +108,7 @@ def _refused(raised: Exception) -> SearchJob:
 def test_a_named_refusal_of_the_circle_reaches_the_viewer_as_a_page_key_and_values() -> None:
     """The job preserves the specific reason without console-language words."""
     job = _refused(
-        SearchRefusal(
+        SearchRefusalError(
             "discover.no_season_releases",
             "web.search.no_season_releases",
             title="Wednesday",
@@ -117,10 +116,11 @@ def test_a_named_refusal_of_the_circle_reaches_the_viewer_as_a_page_key_and_valu
         )
     )
 
-    assert (job.done, job.results, job.error) == (
-        True,
-        [],
-        SearchReason("web.search.no_season_releases", {"title": "Wednesday", "season": 9}),
+    assert job.done and job.results == []
+    assert job.error is not None
+    assert (job.error.key, job.error.values) == (
+        "web.search.no_season_releases",
+        {"title": "Wednesday", "season": 9},
     )
 
 

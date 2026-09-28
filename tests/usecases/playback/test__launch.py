@@ -180,8 +180,12 @@ def test_the_waiting_phase_names_its_receiver(
 
     with pytest.raises(InfraError):
         _await_playing(
-            Config(hls_dir=str(out)), progress, 0.25, clock=FakeClock(now=100.0),
-            unit=cast(ShowUnit, FakeShow()), here=here,
+            Config(hls_dir=str(out)),
+            progress,
+            0.25,
+            clock=FakeClock(now=100.0),
+            unit=cast(ShowUnit, FakeShow()),
+            here=here,
         )
 
     assert waiting in progress.phases
