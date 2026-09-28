@@ -332,7 +332,14 @@ const TCPlayer = {
       TCPlayer._hls.destroy();
       TCPlayer._hls = null;
     }
-    const onReady = () => { video.currentTime = at || 0; video.play().catch(() => {}); };
+    // У новой ленты первый закодированный пакет вправе начаться на несколько кадров
+    // после нуля. Принудительный seek в 0 после разбора манифеста тогда выбрасывает
+    // уже взятый hls.js первый пакет и даёт короткий `waiting` на позиции 0.1.
+    // Нулевая посадка уже выбрана startPosition, а закладка всё ещё требует точного seek.
+    const onReady = () => {
+      if (at > 0) video.currentTime = at;
+      video.play().catch(() => {});
+    };
     if (TCPlayer.ready()) {
       // Секунду показа знает hls.js, а не `<video>`: первый кусок он просит ДО того, как
       // `onReady` тронет `currentTime`, и с закладки уходит за `v0.m4s`, уводя головку

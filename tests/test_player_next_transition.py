@@ -45,6 +45,16 @@ def _scenario(facts: dict[str, Any], name: str) -> dict[str, Any]:
 
 
 @pytest.mark.machine
+def test_a_fresh_episode_does_not_seek_back_before_its_first_packet(
+    facts: dict[str, Any],
+) -> None:
+    """Нулевая серия оставляет HLS его первую метку, закладка ищется отдельно."""
+    said = _scenario(facts, "freshAttachKeepsInitialPacket")
+    assert said["startPosition"] == -1
+    assert said["seeks"] == 0, "свежую серию снова ищут в ноль после HLS-посадки"
+
+
+@pytest.mark.machine
 def test_the_countdown_appears_at_the_promised_threshold_and_not_earlier(
     facts: dict[str, Any],
 ) -> None:

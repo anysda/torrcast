@@ -30,6 +30,26 @@ function seriesServer(episode = { season: 1, episode: 2 }) {
 }
 
 const scenarios = {
+  // Свежая серия уже посажена `startPosition: -1` при подключении HLS. После разбора
+  // манифеста нельзя второй раз искать ровно в ноль: у TS первая метка может быть
+  // несколькими кадрами позже и этот лишний seek рождает `waiting` на 0.1 с.
+  async freshAttachKeepsInitialPacket() {
+    const p = player({
+      box: () => ({ key: 'fresh', url: 'http://stand/fresh.m3u8', at: 0 }),
+      state: () => ({ has_next: false }),
+    });
+    p.mount();
+    let seeks = 0;
+    let place = 0;
+    Object.defineProperty(p.video, 'currentTime', {
+      configurable: true,
+      get() { return place; },
+      set(value) { seeks += 1; place = value; },
+    });
+    await p.time.run(200);
+    return { seeks, startPosition: p.ctx.TCPlayer._hls.opts.startPosition };
+  },
+
   // Плашка встаёт РОВНО на пороге `TCPlayerNext.SECONDS`, не раньше и не на старой
   // зашитой секунде; досчитав сама, убирает карточку и зовёт `TCApi.next` ровно один
   // раз. Старое видео, доигрывающее свой хвост ПОСЛЕ перехода, второй раз не переводит.
