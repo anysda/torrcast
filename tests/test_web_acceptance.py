@@ -461,12 +461,13 @@ _STUB_VIDEO_PAGE = """<!doctype html><meta charset="utf-8">
   const video = document.getElementById('v');
   // Спиннер ставится и снимается ровно как в продукте (`player.js`: обработчики `waiting`
   // и `playing` навешаны до счётчика, узел `.tc-spinner` вставляется синхронно), а
-  // ``window.__stubQuiet`` выключает его, как плашка отсчёта выключает его в продукте.
+  // ``window.__stubQuiet`` выключает его, как плашка отсчёта выключает его в продукте, а
+  // ``window.__stubHide`` дописывает к его стилю правило, прячущее уже вставленный узел.
   video.addEventListener('waiting', () => {
     if (window.__stubQuiet) return;
     const spinner = document.createElement('div');
     spinner.className = 'tc-spinner';
-    spinner.style.cssText = 'width:40px;height:40px;background:#fff';
+    spinner.style.cssText = 'width:40px;height:40px;background:#fff;' + (window.__stubHide || '');
     document.body.append(spinner);
   });
   video.addEventListener('playing', () => document.querySelectorAll('.tc-spinner')
@@ -491,6 +492,8 @@ _DRIVE_STALLS = """async (pauses) => {
 #: со спиннером, вставленным и снятым в одном тике, то есть не попавшим ни в один кадр.
 #: Тик второй занят на 50 мс нарочно: без этого часы ``performance.now()`` (они огрублены)
 #: давали бы нулевую длительность, и заминку отбрасывал бы ноль, а не правило спиннера.
+#: Ещё три заминки по 200 мс (дюжина кадров) держат узел ``.tc-spinner`` в документе, но
+#: скрытым: ``opacity:0``, ``display:none`` и нулевой размер. Узел есть, зритель его не видит.
 _DRIVE_UNSEEN = """async () => {
   const video = document.querySelector('video');
   window.__stubQuiet = true;
@@ -502,7 +505,19 @@ _DRIVE_UNSEEN = """async () => {
   const busy = performance.now() + 50;
   while (performance.now() < busy) { /* главный поток занят: кадра нет */ }
   video.dispatchEvent(new Event('playing'));
+  for (const hide of ['opacity:0', 'display:none', 'width:0;height:0']) {
+    window.__stubHide = hide;
+    video.dispatchEvent(new Event('waiting'));
+    await new Promise((done) => setTimeout(done, 200));
+    video.dispatchEvent(new Event('playing'));
+  }
+  window.__stubHide = '';
 }"""
+
+#: Незримых заминок в ``_DRIVE_UNSEEN``: без спиннера, без кадра и три скрытых.
+_UNSEEN_COUNT = 5
+#: Из них тех, где узел ``.tc-spinner`` стоит в документе хотя бы один кадр, но скрыт.
+_HIDDEN_COUNT = 3
 
 #: Допуск на замер подгруза в браузере. Счётчик берёт время из ``performance.now()``, а
 #: паузы ставит ``setTimeout``: тот просыпается не раньше срока, но и не ровно в срок, и
@@ -539,8 +554,9 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
     браузер есть, она гоняется целиком, включая две отрицательные пробы: со снятым
     обработчиком ``waiting`` тот же прогон обязан дать пустой список, а счётчик старого
     правила («подгруз - любая заминка > 0») обязан записать в подгрузы и заминки, спиннера
-    которых зритель не видел. Новое правило их не берёт (слово владельца 20-09-2026:
-    «если на приемнике есть спинер то это подгруз если нет то ладно»).
+    которых зритель не видел. Третья проба - счётчик, которому хватает узла с классом:
+    он обязан взять заминки со скрытым спиннером. Новое правило их не берёт (слово
+    владельца 20-09-2026: «если на приемнике есть спинер то это подгруз если нет то ладно»).
     """
     sync_api = pytest.importorskip(
         "playwright.sync_api",
@@ -562,6 +578,13 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
             )
             assert any_wait != module._METER_JS
             old_rule = _meter_over_stub(page, module, any_wait, [400, 1250], unseen=True)
+            # Видимость подменена на «есть узел с классом»: скрытый спиннер снова подгруз.
+            node_only = module._METER_JS.replace(
+                module._SPINNER_SEEN_JS, "() => document.querySelectorAll('.tc-spinner').length > 0"
+            )
+            # Проверки «подмена легла» тут нет нарочно: не легла - ``by_node`` ниже даст 2
+            # вместо 5 и покраснеет на поведении, а не на строке исходника.
+            by_node = _meter_over_stub(page, module, node_only, [400, 1250], unseen=True)
             # Отрицательная проба: обработчик не навешивается вовсе (снятие через
             # `removeEventListener` со свежей стрелкой - законный пустой вызов).
             stripped = module._METER_JS.replace(
@@ -576,7 +599,12 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
     assert len(two) == 2, f"счётчик насчитал {two}"
     assert two[0] == pytest.approx(0.4, abs=_STALL_TOLERANCE)
     assert two[1] == pytest.approx(1.25, abs=_STALL_TOLERANCE)
-    assert len(old_rule) == 4, f"старое правило обязано взять и незримые заминки: {old_rule}"
+    assert len(old_rule) == 2 + _UNSEEN_COUNT, (
+        f"старое правило обязано взять и незримые заминки: {old_rule}"
+    )
+    assert len(by_node) == 2 + _HIDDEN_COUNT, (
+        f"счётчик по узлу с классом обязан взять скрытый спиннер: {by_node}"
+    )
     assert blind == []
 
 
