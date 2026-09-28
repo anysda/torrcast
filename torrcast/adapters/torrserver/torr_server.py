@@ -150,12 +150,11 @@ class TorrServer:
 
     def alive(self) -> bool:
         import requests
-
         if self._session is None:
             self._session = requests.Session()
         try:
-            response = self._session.get(f"{self.base_url}/echo", timeout=PROBE_TIMEOUT)
-            response.raise_for_status()
+            with self._session.get(f"{self.base_url}/echo", timeout=PROBE_TIMEOUT) as response:
+                response.raise_for_status()
         except requests.RequestException:
             return False
         return True
@@ -182,19 +181,20 @@ class TorrServer:
 
     def _post(self, path: str, body: dict[str, Any], json_body: bool = True) -> Any:
         import requests
-
         if self._session is None:
             self._session = requests.Session()
         try:
-            response = self._session.post(f"{self.base_url}{path}", json=body, timeout=self.timeout)
-            response.raise_for_status()
+            with self._session.post(
+                f"{self.base_url}{path}", json=body, timeout=self.timeout
+            ) as response:
+                response.raise_for_status()
+                if not json_body:
+                    return None
+                try:
+                    return response.json()
+                except ValueError as exc:
+                    raise ServerDownError(phrase("torrserver.not_json")) from exc
         except requests.RequestException as exc:
             raise ServerDownError(
                 phrase("torrserver.unresponsive", base_url=self.base_url, reason=why(exc))
             ) from exc
-        if not json_body:
-            return None
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise ServerDownError(phrase("torrserver.not_json")) from exc

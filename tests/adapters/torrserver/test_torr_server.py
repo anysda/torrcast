@@ -8,6 +8,56 @@ from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.swarm_error import SwarmError
 
 
+class _Response:
+    def __init__(self, payload: object = None) -> None:
+        self.payload = payload
+        self.closed = False
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> object:
+        return self.payload
+
+    def close(self) -> None:
+        self.closed = True
+
+    def __enter__(self) -> "_Response":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+
+class _Session:
+    def __init__(self, response: _Response) -> None:
+        self.response = response
+
+    def post(self, *_args: object, **_kwargs: object) -> _Response:
+        return self.response
+
+    def get(self, *_args: object, **_kwargs: object) -> _Response:
+        return self.response
+
+
+def test_a_torrserver_response_is_closed_after_a_command() -> None:
+    response = _Response({"hash": "abc"})
+    server = TorrServer("http://torrserver")
+    server._session = _Session(response)  # type: ignore[assignment]
+
+    assert server.add("magnet:?xt=urn:btih:abc") == "abc"
+    assert response.closed
+
+
+def test_a_torrserver_probe_closes_its_response() -> None:
+    response = _Response()
+    server = TorrServer("http://torrserver")
+    server._session = _Session(response)  # type: ignore[assignment]
+
+    assert server.alive()
+    assert response.closed
+
+
 class _Recording(TorrServer):
     def __init__(self) -> None:
         super().__init__("http://torrserver")

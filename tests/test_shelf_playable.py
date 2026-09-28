@@ -40,11 +40,12 @@ class _Voices:
 
     heard: Any
     pending: bool = False
+    known: bool = True
     calls: list[str] = field(default_factory=list)
 
-    def __call__(self, plan: Plan, query: str, config: Config) -> tuple[Any, bool]:
+    def __call__(self, plan: Plan, query: str, config: Config) -> tuple[Any, bool, bool]:
         self.calls.append(query)
-        return self.heard, self.pending
+        return self.heard, self.pending, self.known
 
 
 def _circle(plans: list[Plan]) -> Any:
@@ -76,6 +77,15 @@ def test_pending_voices_read_as_unknown_not_as_not_playable() -> None:
     """Отбор дорожек ещё не дочитал раздачу - «не знаю», плитка остаётся на полке."""
     playable = ShelfPlayable(
         circle=_circle([_PLAN]), voices=_Voices(heard=None, pending=True), alive=_alive
+    )
+
+    assert playable.of("film", _PICTURE.key, _CONFIG) is None
+
+
+def test_an_infrastructure_voice_failure_is_unknown_not_not_playable() -> None:
+    """Пустота от источника не решает за картину, и плитка остаётся на полке."""
+    playable = ShelfPlayable(
+        circle=_circle([_PLAN]), voices=_Voices(heard=None, known=False), alive=_alive
     )
 
     assert playable.of("film", _PICTURE.key, _CONFIG) is None

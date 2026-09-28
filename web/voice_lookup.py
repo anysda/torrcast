@@ -19,6 +19,7 @@ from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.info_hash import info_hash
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.magnet_hash import magnet_hash
 from torrcast.domain.pick_settings import PICK_BUDGET
 from torrcast.domain.profile import Profile
@@ -53,7 +54,7 @@ class VoiceLookup:
     warms: CardWarm = field(default_factory=CardWarm)
     profile_of: Callable[[Config], Profile] = _show_profile
     clock: Callable[[], float] = time.monotonic
-    _heard: dict[str, tuple[Heard | None, float]] = field(default_factory=dict)
+    _heard: dict[str, tuple[Heard | None, float, bool]] = field(default_factory=dict)
     _pending: set[str] = field(default_factory=set)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
@@ -90,6 +91,20 @@ class VoiceLookup:
                 return None, True
             return cached[0], False
 
+    def shelf_of(self, plan: Plan, query: str, config: Config) -> tuple[Heard | None, bool, bool]:
+        """Дорожки для полки с признаком, был ли пустой ответ честным.
+
+        Карточке пустой ответ достаточен: она переспрашивает его после :data:`RETRY`.
+        Полка же не вправе выдать по нему отрицательный приговор: недоступный индексер
+        или TorrServer ничего не сообщил о картине. Третий элемент отличает такой
+        инфраструктурный отказ от дочитанного отсутствия дорожек.
+        """
+        heard, pending = self.of(plan, query, config)
+        with self._lock:
+            cached = self._heard.get(plan.picture.key)
+        failed = cached is not None and cached[2]
+        return heard, pending, not failed
+
     def _build(
         self,
         plan: Plan,
@@ -113,6 +128,7 @@ class VoiceLookup:
         warm, fresh = self.warms.open(plan.picture.key, make)
         prep = None
         left = released = False
+        failed = False
         try:
             if fresh:
                 native_picture(plan.picture, query)
@@ -127,6 +143,8 @@ class VoiceLookup:
                 released = True
                 warm.chosen.wait(PICK_BUDGET)
                 prep = warm.prep
+        except InfraError:
+            failed = True
         except TorrcastError:
             prep = None
         finally:
@@ -144,7 +162,7 @@ class VoiceLookup:
                 )
             with self._lock:
                 if not left:  # ушедшая карточка ответа не узнала, и «дорожек нет» не пишется
-                    self._heard[plan.picture.key] = (heard, self.clock() + RETRY)
+                    self._heard[plan.picture.key] = (heard, self.clock() + RETRY, failed)
                 self._pending.discard(plan.picture.key)
 
 

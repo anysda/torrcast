@@ -148,6 +148,15 @@ def test_a_refused_release_is_an_empty_answer_until_the_retry_time(
     assert len(bench.asked) == 2
 
 
+def test_a_shelf_reads_an_infrastructure_failure_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Карточка получает свой пустой ответ, полка - честное «не знаю»."""
+    lookup = _lookup(monkeypatch, _Bench(InfraError("source down")), spawn=_sync)
+
+    assert lookup.shelf_of(_PLAN, "film", _CONFIG) == (None, False, False)
+
+
 _KEPT = Release(raw_name="Film 2010 1080p", title="Film", magnet="magnet:?xt=urn:btih:" + "a" * 40)
 _KEPT_PLAN = Plan(picture=_PICTURE, ranked=[_RELEASE, _KEPT], runtime=0, warn_mbit=0)
 

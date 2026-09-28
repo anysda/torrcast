@@ -19,13 +19,9 @@
 - ключа плитки нет среди планов круга - круг мог не дойти именно до этой картины;
 - ``voices_pending == true`` - отбор дорожек ещё не дочитал раздачу;
 - стенд TorrServer недоступен (:func:`_alive`) - проверяется ДО начала отбора, отдельно
-  от круга и от дорожек: и круг (поиск по индексерам), и запись «дорожек нет» внутри
-  :meth:`web.voice_lookup.VoiceLookup._build` сами гасят инфраструктурный отказ молча
-  (``except TorrcastError: prep = None``) и пишут его как честное «дорожек нет» -
-  дерево `voice_lookup.py` тут не трогается (общий с карточкой файл, не наш периметр),
-  и различить изнутри эти два случая нечем. Дешёвая проверка стенда самим ``/echo``
-  ДО дорогого разбора - единственный честный способ не приписать поломку стенда
-  картине.
+  от круга и от дорожек; :meth:`web.voice_lookup.VoiceLookup.shelf_of` отдельно несёт
+  признак инфраструктурного отказа, поэтому его пустой ответ не становится приговором
+  «дорожек нет»;
 
 ``not plan.ranked`` - отдельный случай, и он «не играет», а не «не знаю»: план,
 который вернул круг, уже готов целиком (круг не отдаёт недостроенные планы - его
@@ -69,8 +65,8 @@ from web.warm_wiring import WARM
 
 #: Круг раздач по запросу плитки; в бою - :meth:`web.warm_cache.WarmCache.take`.
 Circle = Callable[[str], list[Plan]]
-#: Отбор дорожек; в бою - :meth:`web.voice_lookup.VoiceLookup.of`.
-Voices = Callable[[Plan, str, Config], tuple["Heard | None", bool]]
+#: Отбор дорожек; последнее поле - был ли пустой ответ честным, а не отказом источника.
+Voices = Callable[[Plan, str, Config], tuple["Heard | None", bool, bool]]
 #: Жив ли стенд раздач ДО того, как его спрашивать; в бою - :meth:`TorrServer.alive`.
 Alive = Callable[[Config], bool]
 #: Приговор: ``True`` - играет, ``False`` - честно не играет, ``None`` - не знаем.
@@ -145,8 +141,8 @@ class ShelfPlayable:
             return None
         if not plan.ranked:
             return False
-        heard, pending = self.voices(plan, query, config)
-        if pending:
+        heard, pending, known = self.voices(plan, query, config)
+        if pending or not known:
             return None
         return heard is not None
 
@@ -158,7 +154,7 @@ _WARM: Final = CardWarm()
 _VOICES: Final = VoiceLookup(engines=TorrServer, warms=_WARM, spawn=_now)
 #: Боевой приговор: круг тот же, что у карточки и полки (:data:`web.warm_wiring.WARM`),
 #: память - на диске, переживает рестарт (:class:`web.verdict_disk.VerdictDisk`).
-PLAYABLE: Final = ShelfPlayable(circle=WARM.take, voices=_VOICES.of, disk=VerdictDisk())
+PLAYABLE: Final = ShelfPlayable(circle=WARM.take, voices=_VOICES.shelf_of, disk=VerdictDisk())
 
 
 __all__ = ["PLAYABLE", "PlayableOf", "ShelfPlayable", "Verdict"]
