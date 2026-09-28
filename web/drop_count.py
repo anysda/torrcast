@@ -10,7 +10,7 @@ worth_publishing`, TC-1343): «не знаю» не считается ни в �
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from web.shelf_tiles import Playable
 
@@ -22,6 +22,7 @@ class DropCount:
     checked: int = 0
     dropped: int = 0
     unknown: int = 0
+    dropped_keys: set[str] = field(default_factory=set)
 
     def wrap(self, playable: Playable) -> Playable:
         """Обёртка над приговором: считает каждый вызов, самого приговора не меняет."""
@@ -33,6 +34,7 @@ class DropCount:
                 self.unknown += 1
             elif verdict is False:
                 self.dropped += 1
+                self.dropped_keys.add(key)
             return verdict
 
         return _counted

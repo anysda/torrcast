@@ -535,14 +535,14 @@ def test_rebuild_publishes_the_first_shelf_before_building_the_second(tmp_path: 
     during_popular = seen[2]
     assert during_popular is not None
     assert during_popular[FIELD] == RULE - 1
-    assert isinstance(during_popular["fresh"], list) and len(during_popular["fresh"]) == 2
+    assert isinstance(during_popular["fresh"], list) and len(during_popular["fresh"]) == 4
     assert during_popular["popular"] == _alien(2)["popular"]
     body = cache._body
     assert body is not None and body[FIELD] == RULE
 
 
 def test_a_full_shelf_from_another_rule_does_not_block_a_short_build(tmp_path: Path) -> None:
-    """Планка держит своё тело против короткого, но не чужое: правило сменилось."""
+    """Смена правила добавляет короткое новое тело к старому, а не теряет старые плитки."""
     cache = _cache(tmp_path, feed=lambda limit: _many_rows(18))
     cache._body = _alien(25)
 
@@ -551,4 +551,21 @@ def test_a_full_shelf_from_another_rule_does_not_block_a_short_build(tmp_path: P
     body = cache._body
     assert body is not None
     assert body[FIELD] == RULE
-    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 18
+    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 43
+
+
+def test_a_stale_tile_leaves_only_after_its_new_verdict_is_false(tmp_path: Path) -> None:
+    """Смена правила не отменяет плитку молча, но новый честный отказ её снимает."""
+    cache = _cache(tmp_path)
+    cache._rebuild()
+    old = cache._body
+    assert old is not None
+    old[FIELD] = RULE - 1
+    cache.playable = lambda _query, _key: False
+
+    cache._rebuild()
+
+    body = cache._body
+    assert body is not None
+    assert body[FIELD] == RULE
+    assert body["fresh"] == []

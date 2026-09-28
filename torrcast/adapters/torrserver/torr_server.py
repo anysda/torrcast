@@ -123,11 +123,6 @@ class TorrServer:
                     self.clock.sleep(min(step, META_STEP_MAX))
                     step = min(step * META_STEP_GROW, META_STEP_MAX)
                     continue
-                # 🔴 TC-739. Прогрев спрашивает рой с той секунды, как раздача добавлена,
-                # а не с той, как до неё дошла очередь: своё ожидание он уже отстоял, и
-                # начинать бюджеты заново значит ждать по второму разу то же самое.
-                # Приговор при этом не выносится раньше вопроса: до него релиз никому не
-                # мешает, и объявлять его негодным незачем.
                 deadline = max(activated, began + timeout)
                 hopeless = max(
                     activated, (empty_since if empty_since is not None else now) + grace.seconds

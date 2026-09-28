@@ -24,7 +24,7 @@ from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
 from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
 from torrcast.usecases.shelves.popular_shelf import popular_shelf
-from web.built_by_rule import FIELD, RULE
+from web.built_by_rule import FIELD, RULE, built_by_rule
 from web.drop_count import DropCount
 from web.min_tiles import min_tiles
 from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable, shelf_tiles
@@ -165,7 +165,11 @@ class ShelvesCache:
         """
         with self._lock:
             current = self._body or _empty()
-            candidate = {**current, shelf: tiles, "built_at": now.isoformat()}
+            candidate = {
+                **current,
+                shelf: _keep_stale_tiles(current, shelf, tiles, drops),
+                "built_at": now.isoformat(),
+            }
             if complete:
                 candidate[FIELD] = RULE
             if not worth_publishing(current, candidate, drops):
@@ -194,6 +198,25 @@ class ShelvesCache:
 def _empty() -> dict[str, JsonValue]:
     """Полки до первой сборки: пустой список, а не выдуманная картина."""
     return {FIELD: RULE, "fresh": [], "popular": [], "built_at": None}
+
+
+def _keep_stale_tiles(
+    current: dict[str, JsonValue], shelf: str, tiles: list[JsonValue], drops: DropCount
+) -> list[JsonValue]:
+    """На смене правила не снимает плитку, пока новый отбор её честно не отверг."""
+    if built_by_rule(current):
+        return tiles
+    old = current.get(shelf)
+    if not isinstance(old, list):
+        return tiles
+    present = {_tile_key(tile) for tile in tiles}
+    stale = [tile for tile in old if _tile_key(tile) not in present | drops.dropped_keys]
+    return [*tiles, *stale]
+
+
+def _tile_key(tile: JsonValue) -> str | None:
+    """Ключ плитки, если старое тело ещё соблюдает контракт API."""
+    return tile.get("key") if isinstance(tile, dict) and isinstance(tile.get("key"), str) else None
 
 
 __all__ = ["Feed", "Offer", "PassportOf", "Playable", "ShelvesCache", "Spawn", "Warm"]
