@@ -274,7 +274,11 @@ def test_reloading_the_same_stale_address_gives_the_same_card_not_404(
 def test_a_strangers_search_string_still_finds_the_right_picture_by_title(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Родня или история завели карточку чужой строкой - своё имя всё равно находит."""
+    """Родня или история завели карточку чужой строкой - своё имя всё равно находит.
+
+    И «Играть» получает строку, что нашла: чужая заводила показу второй круг и второй отбор
+    той же раздачи (16 с круга на клике).
+    """
     _wired(monkeypatch, [])
     monkeypatch.setattr(
         "web.card.WARM",
@@ -287,6 +291,7 @@ def test_a_strangers_search_string_still_finds_the_right_picture_by_title(
 
     assert code == 200
     assert body["picture"] == _MOVIE.key
+    assert body["query"] == "Own Title Probe"
 
 
 def test_a_bare_link_with_no_query_at_all_resolves_by_its_own_title(

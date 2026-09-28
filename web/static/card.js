@@ -791,7 +791,7 @@ const TCCard = {
     const before = await TCApi.state();
     const stale = !!before && before.state === 'playing' && names.includes(before.title);
     const said = await TCApi.cast({
-      query: query || data.title || data.original || key,
+      query: data.query || query || data.title || data.original || key,
       ...TCCard._keys(data, key),
       voice: picked,
       from_start: false,
@@ -940,7 +940,7 @@ const TCCard = {
     // показ переводит строку в сквозной номер, но начинает с раздачи этой вкладки.
     const layout = season && (data.layout || []).length ? data.layout.join(',') : undefined;
     return TCApi.play({
-      query: query || data.title || data.original || key,
+      query: data.query || query || data.title || data.original || key,
       // 🔴 Картина обязана быть названа: без неё показ брал бы ту, которую круг
       // считает главной по запросу, а не ту, которую человек открыл. Карточка второй
       // находки запускала первую, и виднее всего это на полке - плитка «Bones and All»

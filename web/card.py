@@ -167,6 +167,7 @@ def _body(
     body: dict[str, JsonValue] = {
         # Номер картины В КРУГЕ: им «Играть» просит ровно видимую картину, не умолчание (§4.3).
         "pick": pick,
+        "query": ask.query,  # строка, нашедшая картину: «Играть» берёт этот же круг и прогрев
         "picture": picture.key,
         **release_keys(plan, episode_release, heard, WARM.live(ask.query) is not None),
         "title": picture.title,
@@ -185,8 +186,7 @@ def _body(
         "label": entry.label if entry else "",
         "pos": entry.pos if entry else 0.0,  # Место закладки в секундах (TC-1281).
         # Картина идёт НА ТЕЛЕВИЗОРЕ (:func:`web.playing_on_tv.playing_on_tv`): кнопки
-        # «Подключиться»/«Завершить» вместо «PLAY ON TV» (:mod:`web.static.card.js`).
-        # Показ в самой вкладке сюда не годится: приёмника, к которому подключаются, нет.
+        # «Подключиться»/«Завершить» вместо «PLAY ON TV»; показ во вкладке не в счёт.
         "playing": playing,
         "tv": bool(config.tv),
         "seasons": seasons,
