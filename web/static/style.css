@@ -285,7 +285,10 @@ body {
    пока кадр стоял вплотную к окну (`inset: 0`), всё, что не влезло, было недостижимо
    ничем - ни колесом, ни клавишей. Подложка и рябь по-прежнему кроются по кадру. */
 .tc-detail { position: relative; min-height: 100vh; background: var(--tc-bg); overflow: clip; }
-.tc-detail-blur { position: absolute; inset: -12%; filter: blur(5.625rem); opacity: .5;
+/* Подложка - сам градиент, без `filter: blur`: размывать и без того плавный градиент
+   нечего (разница кадра не больше 1/255 на канал), а программная растеризация
+   платила за это размытие около 250 мс до первого кадра карточки. */
+.tc-detail-blur { position: absolute; inset: -12%; opacity: .5;
                   background: linear-gradient(155deg,
                     oklch(.5 .17 var(--tc-hue, 20)) 0%,
                     oklch(.14 .06 calc(var(--tc-hue, 20) + 60)) 70%); }
