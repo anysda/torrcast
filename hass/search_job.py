@@ -112,6 +112,12 @@ class SearchJob(SearchPosterVerdict):
         except TorrcastError as refusal:
             # The page receives a key and values, not process words in the machine's language.
             plans, self.error = [], _reason_of(refusal)
+        if self.error is not None:
+            # A catalogue tile is a useful preview while the circle runs, but it cannot turn a
+            # completed named refusal into a seemingly successful search.  The page retains
+            # any preview it has already drawn and puts this reason above it.
+            self.settle([], landed=True)
+            return
         hits: list[JsonValue] = []
         if plans:
             named = [(plan.picture.key, _named(plan.picture)) for plan in plans]

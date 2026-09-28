@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from hass.catalog_tiles import CatalogTiles
 from hass.search_job import SearchJob
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
@@ -122,6 +123,29 @@ def test_a_named_refusal_of_the_circle_reaches_the_viewer_as_a_page_key_and_valu
         "web.search.no_season_releases",
         {"title": "Wednesday", "season": 9},
     )
+
+
+def test_a_catalogue_tile_does_not_hide_a_named_refusal() -> None:
+    """A preview tile remains useful, but the finished search must still speak its reason."""
+
+    class Catalogue:
+        def tiles(self) -> list[Any]:
+            return [{"key": "tv:wednesday:2022", "title": "Wednesday", "kind": "tv"}]
+
+    def search(*_args: Any, **_kwargs: Any) -> Any:
+        raise SearchRefusalError(
+            "discover.no_season_releases",
+            "web.search.no_season_releases",
+            title="Wednesday",
+            season=9,
+        )
+
+    job = SearchJob(catalog=cast(CatalogTiles, Catalogue()))
+    job.run(Config(), "Wednesday s9e1", _detect, _remember, search, _as_is)
+
+    assert job.done and job.results == []
+    assert job.error is not None
+    assert job.error.key == "web.search.no_season_releases"
 
 
 def test_the_refusal_with_nothing_to_add_stays_mute_and_leaves_the_empty_screen() -> None:
