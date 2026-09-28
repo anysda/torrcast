@@ -847,3 +847,129 @@ def test_обычный_поиск_требует_сам_фильм_а_не_лю
 
     assert "'Интерстеллар': 2014 среди первых трёх открываемых False" in result.detail
     assert result.ok is False
+
+
+#: Сэмпл пробы курсора: класс на ``<html>``, вычисленный курсор под точкой мыши, над
+#: контрольным узлом и на корне, прозрачность верха и низа панели плеера (нет - None).
+def _cursor_sample(
+    t: float, cls: bool, cursor: str, top: float | None = None, bottom: float | None = None
+) -> dict[str, Any]:
+    return {
+        "t": t, "cls": cls, "at": cursor, "ctl": cursor,
+        "root": cursor, "top": top, "bottom": bottom,
+    }
+
+
+def _cursor_marks(key_at: float, move2_at: float, move1_at: float = 0.0) -> list[dict[str, Any]]:
+    return [
+        {"t": move1_at, "kind": "move"},
+        {"t": key_at, "kind": "key"},
+        {"t": move2_at, "kind": "move"},
+    ]
+
+
+def _healthy_cursor_log(with_panel: bool) -> dict[str, Any]:
+    """Живой след сценария: движение, клавиша, движение, покой 10 с.
+
+    Панель ходит теми же мигами, что и класс, переходами по 0.4 с: 600 мс после
+    первого движения и секунда после возврата оставляют её оседлевшей в 1 к моментам,
+    где честный якорь :func:`_panel_cross` обязан её такой увидеть.
+    """
+    samples = [
+        # после первого движения панель поднялась и стоит в 1, курсор виден
+        _cursor_sample(60.0, False, "pointer", 1.0, 1.0),
+        _cursor_sample(560.0, False, "pointer", 1.0, 1.0),
+        # клавиша в 600: скрыта следующим сэмплом, панель пошла вниз одновременно
+        _cursor_sample(612.0, True, "none", 0.94, 0.94),
+        _cursor_sample(800.0, True, "none", 0.5, 0.5),
+        _cursor_sample(1000.0, True, "none", 0.0, 0.0),
+        # движение в 1200: курсор вернулся, панель пошла вверх одновременно
+        _cursor_sample(1212.0, False, "pointer", 0.06, 0.06),
+        _cursor_sample(1400.0, False, "pointer", 0.5, 0.5),
+        _cursor_sample(2200.0, False, "pointer", 1.0, 1.0),
+        # покой: на 5 с ещё видна, ушла на 10-й
+        _cursor_sample(5000.0, False, "pointer", 1.0, 1.0),
+        _cursor_sample(6200.0, False, "pointer", 1.0, 1.0),
+        _cursor_sample(11212.0, True, "none", 0.94, 0.94),
+        _cursor_sample(11400.0, True, "none", 0.4, 0.4),
+        _cursor_sample(12200.0, True, "none", 0.0, 0.0),
+    ]
+    if not with_panel:
+        for sample in samples:
+            sample["top"] = sample["bottom"] = None
+    return {"samples": samples, "marks": _cursor_marks(600.0, 1200.0)}
+
+
+def test_курсор_живой_след_зелёный_и_называет_числа() -> None:
+    module = acceptance()
+
+    plain, plain_ok = module._cursor_rows("главная", _healthy_cursor_log(False))
+    shown, shown_ok = module._cursor_rows("показ", _healthy_cursor_log(True))
+
+    assert plain_ok and shown_ok
+    assert plain == [
+        "главная: покой 10012, клавиша 12, движение 12; на 5.0 с ещё виден"
+    ]
+    assert shown == [
+        "показ: покой 10012, клавиша 12, движение 12; на 5.0 с ещё виден; "
+        "панель Δверх 0, Δниз 0, Δверх 0, Δниз 0, Δверх 0, Δниз 0"
+    ]
+
+
+@pytest.mark.parametrize(
+    "broken",
+    (
+        # клавиша вовсе не прячет: слушателя нет
+        "no_key",
+        # покой 3 с - прежнее поведение плеера до TC-1319
+        "short_idle",
+        # курсор над контрольным узлом не скрылся: CSS-запрет потерян, класс один
+        "css_lost",
+        # панель опаздывает на 400 мс - «в одном миге» больше нет
+        "panel_late",
+    ),
+)
+def test_курсор_краснеет_на_каждой_поломке_отдельно(broken: str) -> None:
+    module = acceptance()
+    log = _healthy_cursor_log(True)
+    samples = log["samples"]
+    if broken == "no_key":
+        for sample in samples:
+            if 612.0 <= sample["t"] <= 1000.0:
+                sample["cls"] = False
+                sample["at"] = sample["ctl"] = sample["root"] = "pointer"
+                sample["top"] = sample["bottom"] = 1.0
+    elif broken == "short_idle":
+        for sample in samples:
+            if sample["t"] >= 11212.0:
+                sample["t"] -= 6400.0
+            elif sample["t"] >= 5000.0:
+                sample["cls"] = True
+                sample["at"] = sample["ctl"] = sample["root"] = "none"
+                sample["top"] = sample["bottom"] = 0.0
+    elif broken == "css_lost":
+        for sample in samples:
+            if sample["cls"]:
+                sample["ctl"] = "pointer"
+    else:
+        late: list[dict[str, Any]] = []
+        for sample in samples:
+            if sample["cls"]:
+                sample["top"] = sample["bottom"] = 1.0
+                late.append({**sample, "t": sample["t"] + 400.0, "top": 0.94, "bottom": 0.94})
+        samples.extend(late)
+        samples.sort(key=lambda sample: sample["t"])
+
+    rows, ok = module._cursor_rows("показ", log)
+
+    assert not ok, rows[0]
+    assert len(rows) > 1, "претензия обязана попасть в таблицу, а не остаться в приговоре"
+
+
+def test_курсор_без_пробы_называет_чего_не_хватает() -> None:
+    module = acceptance()
+
+    rows, ok = module._cursor_rows("главная", {"samples": [], "marks": []})
+
+    assert not ok
+    assert rows == ["главная: проба не собрала сэмплов"]

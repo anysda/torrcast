@@ -7,7 +7,6 @@
 
 const TCPlayer = {
   MAX_RETRIES: 3,
-  IDLE_MS: 3000,
   POLL_MS: 2000,
   POSITION_MS: 2000,
   DRIFT_S: 5,
@@ -39,7 +38,6 @@ const TCPlayer = {
     TCPlayer._hasNext = false;
     TCPlayer._last = null;
     TCPlayer._tvMark = null;
-    TCPlayer._idleTimer = null;
     TCPlayer._leftSent = false;
     TCPlayer._halted = false;
     TCPlayer._framed = false;
@@ -81,10 +79,6 @@ const TCPlayer = {
     // video (`readyState === 4`) forever after the error, with no fatal HLS event to wake
     // `_onStreamError` (живой Chromium, Gladiator at 2:09).
     video.addEventListener('error', () => TCPlayer._onStreamError());
-
-    wrap.addEventListener('mousemove', TCPlayer._wake);
-    wrap.addEventListener('click', TCPlayer._wake);
-    TCPlayer._wake();
 
     TCPlayer._render({});
     TCPlayer._live();
@@ -579,15 +573,6 @@ const TCPlayer = {
 
   // ------------------------------------------------------------------ фокус и клавиши
 
-  _wake() {
-    if (!TCPlayer._nodes) return;
-    TCPlayer._nodes.frame.classList.remove('is-idle');
-    clearTimeout(TCPlayer._idleTimer);
-    TCPlayer._idleTimer = setTimeout(() => {
-      if (TCPlayer._nodes) TCPlayer._nodes.frame.classList.add('is-idle');
-    }, TCPlayer.IDLE_MS);
-  },
-
   _volumeBy(delta) {
     if (TCPlayer._onTv) {
       const current = TCPlayer._last && typeof TCPlayer._last.volume === 'number' ? TCPlayer._last.volume : 0;
@@ -682,6 +667,8 @@ const TCPlayer = {
 //: Стрелки/пробел/Esc принадлежат плееру целиком (§4.5), а не D-pad'у (`nav.js`):
 //: слушатель ставится в фазе перехвата, чтобы `stopImmediatePropagation` погасил
 //: геометрический D-pad раньше, чем тот переставит фокус по тем же стрелкам.
+//: Курсор и панель клавиша уже спрятала - `cursor.js` слышит её на окне раньше
+//: всякого перехвата документа (TC-1319), и будить панель тут больше нечему.
 document.addEventListener('keydown', (event) => {
   if (location.pathname !== '/play' || !TCPlayer._video || !TCPlayer._handlers) return;
   const handlers = TCPlayer._handlers;
@@ -717,7 +704,6 @@ document.addEventListener('keydown', (event) => {
   } else {
     return;
   }
-  TCPlayer._wake();
 }, true);
 
 // Закрытие вкладки, переход на другой сайт и `F5` роняют один и тот же `pagehide`

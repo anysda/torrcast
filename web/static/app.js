@@ -229,6 +229,7 @@ window.addEventListener('pagehide', () => {
 document.addEventListener('DOMContentLoaded', async () => {
   await TC.load();
   TCNav.init();
+  TCCursor.init();
   TCRouter.render();
   TCWarm.start();
 });

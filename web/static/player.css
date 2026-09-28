@@ -26,12 +26,14 @@
 .tc-player-actions { display: flex; align-items: stretch; gap: .875rem; }
 .tc-btn--square { width: 3.5rem; flex: 0 0 auto; justify-content: center; padding: 0; }
 
-/* Скрытие панели через простой без движения (§4.5): читаемость управляет opacity,
-   а не display, чтобы переход был плавным и не ронял фокус с кнопки под курсором. */
-.tc-player-frame.is-idle .tc-player-top,
-.tc-player-frame.is-idle .tc-player-bottom { opacity: 0; pointer-events: none; transition: opacity .4s; }
-.tc-player-frame.is-idle::before,
-.tc-player-frame.is-idle::after { opacity: 0; }
+/* Скрытие панели - общий покой страницы (§4.5, TC-1319): панель уходит тем же классом
+   и в тот же миг, что и курсор (`cursor.js` кладёт `tc-cursor-idle` на <html>), - и от
+   10 с без движения мыши, и от любой клавиши. Читаемость управляет opacity, а не
+   display, чтобы переход был плавным и не ронял фокус с кнопки под курсором. */
+html.tc-cursor-idle .tc-player-top,
+html.tc-cursor-idle .tc-player-bottom { opacity: 0; pointer-events: none; transition: opacity .4s; }
+html.tc-cursor-idle .tc-player-frame::before,
+html.tc-cursor-idle .tc-player-frame::after { opacity: 0; }
 .tc-player-top, .tc-player-bottom { transition: opacity .4s; }
 
 /* Значок паузы/игры - переворот той же кнопки: два столбика по умолчанию (жми - пауза),

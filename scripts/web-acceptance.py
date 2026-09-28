@@ -1735,9 +1735,10 @@ def check_3_card(ctx: Ctx, search_ok: bool) -> Result:
 def _wake_panel(ctx: Ctx) -> None:
     """Разбудить панель плеера движением мыши - ровно так, как это делает зритель.
 
-    🔴 Через 3 с простоя (``TCPlayer.IDLE_MS``) панель уходит в ``.is-idle`` и получает
-    ``pointer-events: none``: клик по её кнопке перехватывает `<video>`, и скрипт без
-    движения мышью получал таймаут вместо ответа продукта.
+    🔴 Через 10 с без движения мыши или после любой клавиши панель уходит вместе с
+    курсором (класс ``tc-cursor-idle`` на ``<html>``, `web/static/cursor.js`, TC-1319)
+    и получает ``pointer-events: none``: клик по её кнопке перехватывает `<video>`, и
+    скрипт без движения мышью получал таймаут вместо ответа продукта.
     """
     box = ctx.page.viewport_size or {"width": 1280, "height": 720}
     ctx.page.mouse.move(box["width"] / 2, box["height"] / 2)
@@ -4665,6 +4666,246 @@ def _video(ctx: Ctx, expr: str) -> Any:
     return ctx.page.eval_on_selector("video", expr)
 
 
+#: Проба курсора страницы (TC-1319): сэмпл раз в 25 мс и метка на каждое событие.
+#: Сэмпл несёт вычисленный курсор в ТРЁХ местах - под точкой мыши, над контрольным
+#: узлом с собственным ``cursor`` и на самом ``<html>``: скрытое меряется стилем, а не
+#: классом, иначе снятый CSS читался бы зелёным. На показе сэмпл несёт ещё и
+#: прозрачность верха и низа панели. Метки ставит тот же диспатч, что и прячет курсор:
+#: окно в перехвате для клавиши, документ для движения.
+_CURSOR_PROBE_JS: Final = """() => {
+  const old = window.__cursorProbe;
+  if (old) old.stop();
+  const probe = {samples: [], marks: [], timer: 0, at: null};
+  probe.stop = () => { clearInterval(probe.timer); window.__cursorProbe = null; };
+  const seat = () => {
+    const node = document.querySelector('.tc-playpause, .tc-btn, .tc-tab, [data-tc-tile]');
+    if (!node) return null;
+    const r = node.getBoundingClientRect();
+    return r.width && r.height ? {x: r.left + r.width / 2, y: r.top + r.height / 2} : null;
+  };
+  const cursorAt = (point) => {
+    const node = point ? document.elementFromPoint(point.x, point.y) : null;
+    return getComputedStyle(node || document.documentElement).cursor;
+  };
+  const opacity = (selector) => {
+    const node = document.querySelector(selector);
+    return node ? parseFloat(getComputedStyle(node).opacity) : null;
+  };
+  const sample = () => probe.samples.push({
+    t: performance.now(),
+    cls: document.documentElement.classList.contains('tc-cursor-idle'),
+    at: cursorAt(probe.at), ctl: cursorAt(seat()),
+    root: getComputedStyle(document.documentElement).cursor,
+    top: opacity('.tc-player-top'), bottom: opacity('.tc-player-bottom'),
+  });
+  document.addEventListener('pointermove', (event) => {
+    probe.at = {x: event.clientX, y: event.clientY};
+    probe.marks.push({t: performance.now(), kind: 'move'});
+  }, {passive: true});
+  window.addEventListener('keydown',
+    () => probe.marks.push({t: performance.now(), kind: 'key'}), true);
+  probe.timer = setInterval(sample, 25);
+  sample();
+  window.__cursorProbe = probe;
+}"""
+
+#: Срок покоя мыши, после которого курсор уходит (TC-1319).
+_CURSOR_IDLE_MS: Final = 10000
+#: Коридор измеренной задержки покоя, мс: сам ``setTimeout`` не бывает ранним, а поздним
+#: бывает на такт опроса (25 мс) и джиттер. Ранняя или поздняя правка дерева вылетает.
+_CURSOR_IDLE_FROM_MS: Final = 9800.0
+_CURSOR_IDLE_TO_MS: Final = 10800.0
+#: «Сразу» из карточки: клавиша, возврат движением и расхождение с панелью - 100 мс.
+_CURSOR_BAR_MS: Final = 100.0
+#: Сколько ждать покоя после последнего движения (мс).
+_CURSOR_WAIT_MS: Final = 11600
+#: Сэмпл «панель поехала»: переход плавный (0.4 с), и меряется НАЧАЛО расставания с 1
+#: (возврат - с 0), а не конец затухания.
+_CURSOR_FADE_STEP: Final = 0.02
+
+
+def _cursor_cross(
+    samples: list[dict[str, Any]], after: float, hidden: bool
+) -> dict[str, Any] | None:
+    """Первый сэмпл не раньше ``after``, где курсор страницы уже спрятан или возвращён."""
+    for sample in samples:
+        if sample["t"] >= after and sample["cls"] is hidden:
+            return sample
+    return None
+
+
+def _panel_cross(
+    samples: list[dict[str, Any]], after: float, rising: bool, field: str
+) -> dict[str, Any] | None:
+    """Первый сэмпл, где панель ПОШЛА из оседленного состояния: из 1 - вниз, из 0 - вверх.
+
+    Оседленность обязана быть увиденной после ``after``: иначе «начало возврата»
+    ловилось бы на хвосте ещё идущего падения, а окно поиска, прирезанное к курсору,
+    прятало бы расхождение крупнее самого допуска.
+    """
+    settled = False
+    for sample in samples:
+        value = sample.get(field)
+        if value is None or sample["t"] < after:
+            continue
+        if rising:
+            if value <= _CURSOR_FADE_STEP:
+                settled = True
+            elif settled:
+                return sample
+        elif value >= 1 - _CURSOR_FADE_STEP:
+            settled = True
+        elif settled:
+            return sample
+    return None
+
+
+def _cursor_rows(screen: str, log: dict[str, Any]) -> tuple[list[str], bool]:
+    """Свести пробу одного экрана в строку таблицы «событие × мс» и приговор.
+
+    Чистая арифметика над собранным журналом: живой прогон на стенде и машинный тест
+    в ``tests/test_web_acceptance.py`` судят одну и ту же функцию, а не два набора
+    порогов.
+    """
+    samples = [item for item in log.get("samples", []) if isinstance(item, dict)]
+    marks = [item for item in log.get("marks", []) if isinstance(item, dict)]
+    keys = [float(item["t"]) for item in marks if item.get("kind") == "key"]
+    moves = [float(item["t"]) for item in marks if item.get("kind") == "move"]
+    if not samples or not keys or not moves:
+        missing = "сэмплов" if not samples else "нажатия клавиши" if not keys else "движения мыши"
+        return [f"{screen}: проба не собрала {missing}"], False
+    t_key, t_move = keys[-1], moves[-1]
+    stray = sum(
+        1
+        for item in samples
+        if item["cls"] != (item.get("at") == "none")
+        or item["cls"] != (item.get("ctl") == "none")
+        or item["cls"] != (item.get("root") == "none")
+    )
+    by_key = _cursor_cross(samples, t_key, True)
+    by_move = _cursor_cross(samples, t_move, False)
+    by_idle = _cursor_cross(samples, t_move + 1.0, True)
+    mid = min(samples, key=lambda item: abs(item["t"] - (t_move + _CURSOR_IDLE_MS / 2)))
+    complaints: list[str] = []
+    if stray:
+        complaints.append(f"вычисленный курсор расходится с классом в {stray} сэмплах")
+    press_ms = None if by_key is None else by_key["t"] - t_key
+    show_ms = None if by_move is None else by_move["t"] - t_move
+    idle_ms = None if by_idle is None else by_idle["t"] - t_move
+    if press_ms is None or press_ms > _CURSOR_BAR_MS:
+        complaints.append(f"клавиша не спрятала курсор сразу: {press_ms!r} мс")
+    if show_ms is None or show_ms > _CURSOR_BAR_MS:
+        complaints.append(f"движение не вернуло курсор сразу: {show_ms!r} мс")
+    if idle_ms is None:
+        complaints.append(f"за {_CURSOR_WAIT_MS} мс покоя курсор не спрятался")
+    elif not _CURSOR_IDLE_FROM_MS <= idle_ms <= _CURSOR_IDLE_TO_MS:
+        complaints.append(
+            f"покой {idle_ms:.0f} мс вне коридора "
+            f"{_CURSOR_IDLE_FROM_MS:.0f}-{_CURSOR_IDLE_TO_MS:.0f} мс"
+        )
+    if mid["cls"] is not False:
+        complaints.append(f"на {_CURSOR_IDLE_MS / 2000:.1f} с покоя курсор уже был спрятан")
+    row = (
+        f"{screen}: покой {_fmt_ms(idle_ms)}, клавиша {_fmt_ms(press_ms)}, "
+        f"движение {_fmt_ms(show_ms)}; на {_CURSOR_IDLE_MS / 2000:.1f} с ещё виден"
+    )
+    if any(item.get("top") is not None for item in samples):
+        # Показ: панель обязана уходить и возвращаться тем же мигом, что и курсор.
+        # Якорь оседленности - место, где панель заведомо стояла в противоположном
+        # состоянии: первое движение для ухода за клавишей, секунда после возврата
+        # (вспышка 0.4 с успела догореть) для покоя, сама клавиша для возврата.
+        gaps = []
+        for label, settle, cursor_at, rising in (
+            ("клавиша", moves[0], by_key, False),
+            ("покой", t_move + 1.0, by_idle, False),
+            ("возврат", t_key, by_move, True),
+        ):
+            if cursor_at is None:
+                complaints.append(f"панель: нет сэмпла курсора для «{label}»")
+                continue
+            for field, word in (("top", "верх"), ("bottom", "низ")):
+                panel_at = _panel_cross(samples, settle, rising, field)
+                gap = None if panel_at is None else abs(panel_at["t"] - cursor_at["t"])
+                if gap is None or gap > _CURSOR_BAR_MS:
+                    complaints.append(
+                        f"панель ({word}) разошлась с курсором на «{label}»: {_fmt_ms(gap)}"
+                    )
+                gaps.append(f"Δ{word} {_fmt_ms(gap)}")
+        row += "; панель " + ", ".join(gaps)
+    return [row, *complaints], not complaints
+
+
+def _fmt_ms(value: float | None) -> str:
+    """Миллисекунды для строки приговора: нет числа - нет и вранья."""
+    return "нет" if value is None else f"{value:.0f}"
+
+
+def _cursor_pass(ctx: Ctx, screen: str) -> tuple[list[str], bool]:
+    """Прогнать на открытом экране: клавиша, возврат движением, затем покой до срока."""
+    ctx.page.evaluate(_CURSOR_PROBE_JS)
+    box = ctx.page.viewport_size or {"width": 1280, "height": 720}
+    ctx.page.mouse.move(box["width"] / 2, box["height"] / 2)
+    # 600 мс, а не «на глаз»: панель показа возвращается переходом в 0.4 с, и сверка
+    # «панель ушла тем же мигом» ниже хочет увидеть её оседлевшей в 1 ДО клавиши.
+    ctx.page.wait_for_timeout(600)
+    # На выдаче поиска буква ушла бы в поле и сменила бы запрос: клавиша без знака.
+    ctx.page.keyboard.press("Shift" if screen == "поиск" else "x")
+    ctx.page.wait_for_timeout(400)
+    ctx.page.mouse.move(box["width"] / 2 + 40, box["height"] / 2 + 40)
+    ctx.page.wait_for_timeout(300)
+    ctx.page.wait_for_timeout(_CURSOR_WAIT_MS)
+    log = ctx.page.evaluate(
+        "() => { const p = window.__cursorProbe; if (!p) return {};"
+        " p.stop(); return {samples: p.samples, marks: p.marks}; }"
+    )
+    return _cursor_rows(screen, log)
+
+
+def check_42_cursor(ctx: Ctx) -> Result:
+    """TC-1319: курсор прячется на всех экранах, на показе - вместе с панелью.
+
+    Главная, выдача поиска, карточка и сам показ: 10 с покоя, любая клавиша, возврат
+    движением мыши. Скрытое меряется вычисленным стилем курсора под точкой мыши (и над
+    узлом со своим ``cursor``, и на ``<html>``), а не классом. На показе панель обязана
+    уходить и возвращаться тем же мигом, что и курсор: расхождение - числом.
+    """
+    name = "Курсор"
+    rows: list[str] = []
+    ok = True
+    ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
+    row, fine = _cursor_pass(ctx, "главная")
+    rows, ok = [*rows, *row], ok and fine
+    found = _open_search(ctx, ctx.page, ctx.play_title)
+    if found <= 0:
+        why = "выдача поиска не доехала или не успокоилась за 60 с"
+        return Result(42, name, False, None, _cursor_join(rows, why))
+    row, fine = _cursor_pass(ctx, "поиск")
+    rows, ok = [*rows, *row], ok and fine
+    refusal = _open_card_by_page(ctx, ctx.play_title)
+    if refusal is not None:
+        return Result(42, name, False, None, _cursor_join(rows, refusal))
+    row, fine = _cursor_pass(ctx, "карточка")
+    rows, ok = [*rows, *row], ok and fine
+    guard = _playback_guard(42, name, ctx, True, "")
+    if guard is not None:
+        why = "показ не мерялся: " + (guard.blocked or "")
+        return Result(42, name, False, guard.blocked, _cursor_join(rows, why))
+    ctx.page.locator("[data-tc-play]").first.click()
+    if not _await_playback(ctx):
+        why = f"кадра нет за {_PLAY_START_WAIT / 1000:.0f} с; на экране: {_overlay_text(ctx)!r}"
+        _stop_show(ctx)
+        return Result(42, name, False, None, _cursor_join(rows, why))
+    row, fine = _cursor_pass(ctx, "показ")
+    rows, ok = [*rows, *row], ok and fine
+    _stop_show(ctx)
+    return Result(42, name, ok, None, _cursor_join(rows, ""))
+
+
+def _cursor_join(rows: list[str], tail: str) -> str:
+    """Таблица пункта одной строкой; краснота хвостом, чтобы её было видно в отчёте."""
+    return "; ".join([part for part in [*rows, tail] if part])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -4813,6 +5054,7 @@ def main() -> int:
         ok10 = pick(10, "На комп", lambda: check_10_on_pc(ctx, ok9))
         pick(20, "Уход", lambda: check_20_leave_tears_down(ctx, ok10))
         pick(11, "Стрелки", lambda: check_11_arrows(ctx))
+        pick(42, "Курсор", lambda: check_42_cursor(ctx))
         # Пункты 32-36 - по одному показу на пункт, каждый гасит свой показ сам.
         pick(32, "Кадр", lambda: check_32_film_frame(ctx))
         pick(33, "Сериал с места", lambda: check_33_series_place(ctx))
