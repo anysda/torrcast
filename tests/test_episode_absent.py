@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from torrcast.domain.catalogs.web.en import en
-from torrcast.domain.catalogs.web.ru import ru
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.release import Release
 from web.episode_absent import HUNT, WAVE, EpisodeAbsent
@@ -203,7 +202,7 @@ def test_the_page_keeps_the_row_clickable_until_the_verdict_and_then_says_why() 
     assert "if (!grey) row.addEventListener('click', play);" in body
     assert "} else if (gone && !hold) {\n        meta.appendChild(TCCardSeries._why());" in body
     assert "none.textContent = TC.say('web.detail.episode_absent');" in page
-    assert {"web.detail.episode_absent"} <= set(ru()) & set(en())
+    assert "web.detail.episode_absent" in en()
 
 
 def test_the_page_holds_the_click_window_open_for_ten_seconds() -> None:

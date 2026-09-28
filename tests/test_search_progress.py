@@ -463,7 +463,7 @@ def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:
         except RefusedError as caught:
             refused = caught
             break
-    assert refused is not None and "Prowlarr" in refused.word
+    assert refused is not None and refused.word == "search_refused"
 
 
 class _Index:

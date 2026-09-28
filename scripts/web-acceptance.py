@@ -3106,7 +3106,7 @@ def _page_assets(base: str) -> tuple[list[str], list[str], list[str]]:
 
 
 def check_13_texts(ctx: Ctx) -> Result:
-    """Тексты: нет литералов человеку в static/*, все ключи страницы в каталоге, ru = набор.
+    """Тексты: нет литералов человеку в static/*, все ключи страницы в каталоге, только EN.
 
     Файлы берутся из разметки самой страницы, а не из перечня имён внутри пункта. До
     10-09-2026 перечень был `app.js`/`player.js` - два файла из четырнадцати, которые
@@ -3122,14 +3122,18 @@ def check_13_texts(ctx: Ctx) -> Result:
     ⚠️ Грепом, а не разбором AST (см. шапку модуля).
     """
     base = ctx.base
-    # Язык называется ОБОИМ вопросам. Без ``?lang=`` страница отдаёт язык самого
-    # экземпляра, и на русском экземпляре зеркало сверяло бы русский набор с русским же:
-    # ключ, забытый в одном языке, зеленел бы у сторожа, ради которого пункт и заведён.
+    # Старый довод ``lang=ru`` обязан дать тот же английский словарь: иначе русское
+    # слово доедет до страницы по старому маршруту, хотя скрипты уже не просят язык.
     en_code, en_body = _get(base + "/api/phrases?lang=en")
     ru_code, ru_body = _get(base + "/api/phrases?lang=ru")
     english = json.loads(en_body) if en_code == 200 else {}
     russian = json.loads(ru_body) if ru_code == 200 else {}
-    same_keys = en_code == 200 and ru_code == 200 and set(english) == set(russian)
+    same_words = en_code == 200 and ru_code == 200 and english == russian
+    cyrillic_words = {
+        key: value
+        for key, value in english.items()
+        if isinstance(value, str) and _CYRILLIC_RE.search(value)
+    }
 
     scripts, styles, unreachable = _page_assets(base)
     referenced: set[str] = set()
@@ -3161,7 +3165,8 @@ def check_13_texts(ctx: Ctx) -> Result:
                     css_suspects.append(f"{name}:{lineno}:{match.group(2)!r}")
 
     source_ok = (
-        same_keys
+        same_words
+        and not cyrillic_words
         and bool(scripts)
         and not unreachable
         and not missing_keys
@@ -3233,8 +3238,9 @@ def check_13_texts(ctx: Ctx) -> Result:
     visible_ok = saw_screen and "stream_source" not in screen.casefold()
     ok = source_ok and visible_ok
     detail = (
-        f"EN ключей {len(english)} (код {en_code}), RU ключей {len(russian)} (код {ru_code}), "
-        f"наборы {'совпадают' if same_keys else 'РАСХОДЯТСЯ'}; "
+        f"EN ключей {len(english)} (код {en_code}), запрос lang=ru ключей {len(russian)} "
+        f"(код {ru_code}), слова {'совпадают' if same_words else 'РАСХОДЯТСЯ'}, "
+        f"кириллица в каталоге: {cyrillic_words or 'нет'}; "
         f"осмотрено файлов страницы: {len(scripts)} js + {len(styles)} css"
         + (f", НЕ ПРОЧИТАНО: {'; '.join(unreachable)}" if unreachable else "")
         + f"; ключей из них {len(referenced)}, вне каталога: {missing_keys or 'нет'}; "

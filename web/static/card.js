@@ -93,8 +93,8 @@ const TCCard = {
       else if (said.missing && data.searching) {
         data = { ...data, searching: false, whole: said.whole };
       }
-      // Круг отказал словом (409): карточка читает его тем же текстом, что и выдача, а не
-      // общим «Эта картина не найдена», которое молчит о причине (TC-1304). Отказ, пришедший
+      // Круг отказал кодом (409): карточка не выводит фразу процесса, потому что она зависит
+      // от языка машины. Отказ, пришедший
       // на скелет превью, встаёт наравне с отказом на пустое тело: скелет держит слово
       // «ищем раздачи», и отброшенный на нём отказ оставлял ожидание без конца.
       if (said.refused && (!data || data.searching)) {
@@ -407,9 +407,8 @@ const TCCard = {
     return body;
   },
 
-  // ``word`` - названный отказ круга, если он был: «раздач с сезоном 9 нет» говорит
-  // человеку, что делать, а «Эта картина не найдена» - нет. Повтора у названного отказа
-  // нет нарочно: второй такой же заход ответит то же самое.
+  // ``word`` - код отказа круга. Повтора у него нет нарочно: второй такой же заход
+  // ответит то же самое.
   _notFound(key, query, word) {
     const body = document.createElement('div');
     body.id = 'tc-card-body';
@@ -423,7 +422,7 @@ const TCCard = {
     title.textContent = hint.title || '';
     const said = document.createElement('div');
     said.className = 'tc-detail-desc tc-body';
-    said.textContent = word || TC.say('web.detail.not_found');
+    said.textContent = TC.say('web.detail.not_found');
     if (word) {
       info.append(title, said);
       body.appendChild(info);

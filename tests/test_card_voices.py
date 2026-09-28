@@ -1,4 +1,4 @@
-"""Строки выбора озвучки: все дорожки раздачи, подписанные языком страницы."""
+"""Строки выбора озвучки: все дорожки раздачи подписаны по-английски."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from web.heard import Heard
 
 @pytest.fixture(autouse=True)
 def _russian_ladder(_russian_product: None) -> None:
-    """Дефолт дорожки берётся русской лестницей, как у ``cast voices`` на русском продукте."""
+    """Выбор дорожки сохраняет язык продукта, хотя подпись страницы английская."""
 
 
 def _heard(*tracks: AudioTrack) -> Heard:
@@ -28,28 +28,14 @@ def test_english_and_japanese_tracks_stand_beside_the_russian_one() -> None:
     """🔴 Дефект владельца 14-09-2026: нерусских дорожек в списке веба не было вовсе."""
     heard = _heard(track(0, "rus", "Dub"), track(1, "eng", "Original"), track(2, "jpn", None))
 
-    rows = card_voices(heard, "ru")
+    rows = card_voices(heard)
 
     assert _field(rows, "label") == [
-        "русский · Dub",
-        "английский · Original",
-        "японский",
+        "Russian · Dub",
+        "English · Original",
+        "Japanese",
     ]
     assert _field(rows, "default") == [True, False, False]
-
-
-def test_the_english_page_names_the_same_tracks_in_english() -> None:
-    heard = _heard(track(0, "rus", "Dub"), track(1, "eng", None), track(2, "ukr", None))
-
-    rows = card_voices(heard, "en")
-
-    assert _field(rows, "label") == ["Russian · Dub", "English", "Ukrainian"]
-
-
-def test_the_russian_page_names_ukrainian_in_russian() -> None:
-    assert _field(card_voices(_heard(track(0, "ukr", "Dub")), "ru"), "label") == [
-        "украинский · Dub"
-    ]
 
 
 def test_the_voice_name_is_what_survives_another_release_the_show_may_take() -> None:
@@ -62,7 +48,7 @@ def test_the_voice_name_is_what_survives_another_release_the_show_may_take() -> 
         track(3, "jpn", "Original"),
     )
 
-    rows = card_voices(heard, "ru")
+    rows = card_voices(heard)
 
     assert _field(rows, "name") == ["LostFilm", "eng", "jpn · Commentary", "jpn · Original"]
 
@@ -71,52 +57,44 @@ def test_twin_tracks_that_no_word_tells_apart_are_named_by_number() -> None:
     """Живой замер: у раздачи две дорожки ``rus`` без заголовка, вторая была не выбираема."""
     heard = _heard(track(0, "rus", None), track(1, "rus", None), track(2, "jpn", None))
 
-    rows = card_voices(heard, "ru")
+    rows = card_voices(heard)
 
     assert _field(rows, "name") == ["1", "2", "jpn"]
-    assert _field(rows, "label") == ["русский", "русский", "японский"]
+    assert _field(rows, "label") == ["Russian", "Russian", "Japanese"]
 
 
 def test_an_unnamed_language_is_not_called_original_and_an_unknown_code_stays_a_code() -> None:
     heard = _heard(track(0, "und", "Дубляж"), track(1, "hun", "Original"), track(2, None, None))
 
-    rows = card_voices(heard, "ru")
+    rows = card_voices(heard)
 
     assert _field(rows, "label") == [
         "Дубляж",
         "hun · Original",
-        "дорожка 3",
+        "track 3",
     ]
 
 
 def test_no_heard_release_gives_no_rows() -> None:
-    assert card_voices(None, "ru") == []
+    assert card_voices(None) == []
 
 
 def test_a_lone_unnamed_track_of_a_foreign_picture_says_language_not_stated() -> None:
     """🔴 TC-1288. Иностранная картина, одна дорожка без тега - «язык не назван», не номер."""
     heard = Heard(media(tracks=(track(0, None, None),)), native=False, studios=())
 
-    rows = card_voices(heard, "ru")
+    rows = card_voices(heard)
 
-    assert _field(rows, "label") == ["язык не назван"]
+    assert _field(rows, "label") == ["language not stated"]
 
 
 def test_a_lone_unnamed_track_of_a_native_picture_says_russian() -> None:
     """🔴 TC-1288. Отечественный сериал, дорожка без тега - «Русский», не номер."""
     heard = Heard(media(tracks=(track(0, None, None),)), native=True, studios=())
 
-    rows = card_voices(heard, "ru")
+    rows = card_voices(heard)
 
-    assert _field(rows, "label") == ["Русский"]
-
-
-def test_the_english_page_names_a_lone_unnamed_track_in_english() -> None:
-    foreign = Heard(media(tracks=(track(0, None, None),)), native=False, studios=())
-    native = Heard(media(tracks=(track(0, None, None),)), native=True, studios=())
-
-    assert _field(card_voices(foreign, "en"), "label") == ["language not stated"]
-    assert _field(card_voices(native, "en"), "label") == ["Russian"]
+    assert _field(rows, "label") == ["Russian"]
 
 
 def test_two_unnamed_native_tracks_stay_numbered() -> None:
@@ -127,4 +105,4 @@ def test_two_unnamed_native_tracks_stay_numbered() -> None:
         studios=(),
     )
 
-    assert _field(card_voices(heard, "ru"), "label") == ["дорожка 1", "дорожка 2"]
+    assert _field(card_voices(heard), "label") == ["track 1", "track 2"]

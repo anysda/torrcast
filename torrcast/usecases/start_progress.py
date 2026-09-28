@@ -46,13 +46,15 @@ class StartProgress:
         self._lock = threading.Lock()
         self._began: float | None = None
         self._source: tuple[int, int] = (0, 0)
+        self._here = False
         self._measured: list[float] = []
 
-    def began(self) -> None:
+    def began(self, here: bool = False) -> None:
         """Подъём пошёл: часы ожидания с нуля, источник ещё не назван."""
         with self._lock:
             self._began = self._clock()
             self._source = (0, 0)
+            self._here = here
 
     def source(self, number: int, total: int) -> None:
         """Какой источник очереди сейчас спрашивают и сколько их всего."""
@@ -74,12 +76,14 @@ class StartProgress:
             del self._measured[:-KEPT]
             self._began = None
             self._source = (0, 0)
+            self._here = False
 
     def gone(self) -> None:
         """Подъёма больше нет (отказ, остановка, отмена): замерять нечего."""
         with self._lock:
             self._began = None
             self._source = (0, 0)
+            self._here = False
 
     def seen(self) -> dict[str, JsonValue] | None:
         """Снимок ожидания для ``GET /api/state``; подъёма нет - ``None``."""
@@ -88,6 +92,7 @@ class StartProgress:
                 return None
             waited = self._clock() - self._began
             number, total = self._source
+            here = self._here
             known = len(self._measured) >= ENOUGH
             left = (median(self._measured) - waited) if known else 0.0
         return {
@@ -95,6 +100,7 @@ class StartProgress:
             "left": round(left) if left > 0 else None,
             "source": number or None,
             "sources": total or None,
+            "here": here,
         }
 
 

@@ -163,7 +163,6 @@ const TCCardSeries = {
   _date(iso) {
     const [year, month, day] = String(iso).split('-');
     if (!day) return String(iso);
-    if (TC.language === 'ru') return day + '.' + month + '.' + year;
     return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
       .toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
   },

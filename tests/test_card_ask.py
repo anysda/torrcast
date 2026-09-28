@@ -8,13 +8,12 @@ def test_the_page_ask_is_read_from_the_query() -> None:
         {
             "query": "рик и морти",
             "shown": "Rick and Morty",
-            "lang": "ru",
             "season": "2",
             "voices": "1",
         }
     )
 
-    assert asked == CardAsk("рик и морти", "ru", 2, True, "Rick and Morty")
+    assert asked == CardAsk("рик и морти", 2, True, "Rick and Morty")
 
 
 def test_a_garbage_season_tab_leaves_the_choice_to_the_first_tab() -> None:

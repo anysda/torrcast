@@ -67,7 +67,7 @@ class Orders:
             # Отсюда же считает своё ожидание и страница: подъём взят в работу, и до
             # первого кадра идут те самые секунды, о которых она спрашивает
             # (:mod:`torrcast.usecases.start_progress`).
-            START.began()
+            START.began(here="--here" in args)
             self._abandoned = False  # отказ был от ПРОШЛОГО заказа, а не от этого
             self.last_error = ""  # прошлый отказ живёт до начала следующего показа
             refusal_record().forget()  # и его слово-причина - тоже: она прошлого подъёма

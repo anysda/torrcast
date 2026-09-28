@@ -1,18 +1,10 @@
-"""Строки выбора озвучки на карточке: дорожки раздачи на языке страницы.
-
-Состав тот же, что печатает ``cast voices`` (:func:`torrcast.usecases.rank.voices_table.
-voices_table`), а язык дорожки назван словом каталога языка СТРАНИЦЫ, а не процесса:
-страница выбирает свой язык сама (:mod:`web.phrases`).
-"""
+"""Английские строки выбора озвучки на карточке."""
 
 from __future__ import annotations
 
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.catalogs.rank.en import en as rank_en
-from torrcast.domain.catalogs.rank.ru import ru as rank_ru
 from torrcast.domain.catalogs.select.en import en as select_en
-from torrcast.domain.catalogs.select.ru import ru as select_ru
-from torrcast.domain.catalogs.tongue import RU
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.studio import Studio
 from torrcast.domain.track_studio import track_studio
@@ -21,7 +13,7 @@ from torrcast.usecases.rank.spoken_key import ORIGINAL_KEY, spoken_key
 from web.heard import Heard
 
 
-def card_voices(heard: Heard | None, lang: str) -> list[JsonValue]:
+def card_voices(heard: Heard | None) -> list[JsonValue]:
     """Строка на дорожку: подпись человеку, имя для ``voice`` и отметка дефолта.
 
     ``name`` - то, что ``--voice`` найдёт и в соседней раздаче (:func:`torrcast.usecases.
@@ -30,7 +22,7 @@ def card_voices(heard: Heard | None, lang: str) -> list[JsonValue]:
     if heard is None:
         return []
     media = heard.media
-    catalog = {**rank_ru(), **select_ru()} if lang == RU else {**rank_en(), **select_en()}
+    catalog = {**rank_en(), **select_en()}
     default = heard.default
     studios = [track_studio(media, t.index, heard.studios) for t in media.tracks]
     names = [studio.name.casefold() for studio in studios if studio is not None]

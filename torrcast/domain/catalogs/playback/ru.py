@@ -16,6 +16,7 @@ def ru() -> dict[str, str]:
             "выключено: нужен релиз {limit}p или ниже"
         ),
         "playback.waiting_tv": "жду телевизор",
+        "playback.waiting_player": "жду плеер",
         "playback.packing": "упаковка",
         "playback.did_not_start": "показ не запустился: {why}",
         "playback.abandoned": "показ отменён до того, как поднялся",

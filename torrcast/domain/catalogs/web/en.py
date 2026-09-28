@@ -68,9 +68,7 @@ def en() -> dict[str, str]:
         "web.detail.bookmark_gone": "Bookmarked release left the pool: tried first, then another",
         # 🔴 TC-1303. The exact wording is a product call: a show that had to leave the
         # chosen voice says so before the viewer presses Play, not after the sound changes.
-        "web.detail.voice_fallback_note": (
-            "No live release with the chosen voice - playing the original audio"
-        ),
+        "web.detail.voice_fallback_note": "No Russian voice - playing the original",
         "web.detail.searching_releases": "Searching releases…",
         "web.detail.release_unavailable": "The release is not responding",
         "web.detail.resumes": "Resumes {label} · {time}",
@@ -78,7 +76,7 @@ def en() -> dict[str, str]:
         "web.detail.watched": "✓ Watched",
         "web.detail.airs": "Out {date}",
         "web.detail.episode_absent": "Not in any release",
-        "web.detail.season_absent": "No episodes found in the releases",
+        "web.detail.season_absent": "No episodes",
         "web.detail.resumes_here": "▶ Resumes here · {time}",
         "web.detail.runtime_hm": "{h} h {m} min",
         "web.detail.runtime_m": "{m} min",
@@ -89,6 +87,7 @@ def en() -> dict[str, str]:
         "web.detail.seasons.many": "{n} seasons",
         "web.detail.seasons.other": "{n} seasons",
         "web.player.preparing": "Preparing…",
+        "web.player.waiting_player": "waiting for the player",
         "web.player.preparing_in": "starts in ~{seconds} s",
         "web.player.packaging": "Preparing video, source {n} of {m}",
         "web.player.buffering": "Buffering_",

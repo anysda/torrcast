@@ -30,11 +30,11 @@ def test_a_mute_refusal_is_answered_as_a_picture_without_releases() -> None:
     )
 
 
-def test_a_named_refusal_keeps_its_own_words_for_the_viewer() -> None:
-    """Круг знает, почему раздач нет, и эти слова зритель читает такими же, как в выдаче."""
+def test_a_named_refusal_never_carries_the_process_language_to_the_viewer() -> None:
+    """Веб узнаёт только код: фразу берёт его английский каталог."""
     assert _said(TorrcastError("раздач с сезоном 9 нет")) == (
         409,
-        {"error": "раздач с сезоном 9 нет", "whole": False},
+        {"error": "search_refused", "whole": False},
     )
 
 

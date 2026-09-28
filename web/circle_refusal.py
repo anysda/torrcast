@@ -20,9 +20,9 @@ def circle_refusal(failed: TorrcastError | None, whole: bool) -> Answer:
     и у картины, которой в круге не оказалось (``failed`` пуст): её обложка, её имя и
     «раздач нет».
 
-    Названный отказ - другое дело: круг ЗНАЕТ, почему раздач нет («раздач с сезоном 9
-    нет», «во франшизе столько частей нет», «не настроен Prowlarr»), и эти слова зритель
-    читает на карточке теми же, какими прочёл бы в выдаче.
+    Названный отказ не пересылает строку каталога процесса в браузер: на русском
+    экземпляре она была бы русской среди слов страницы. Страница знает код и показывает
+    свою английскую фразу.
 
     ``whole`` - ответил ли каталог целиком (:class:`web.heard_circle.HeardCircle`). Без него
     «Играть» не гаснет: пустота урезанного каталога - не «найти невозможно», а повод
@@ -31,7 +31,7 @@ def circle_refusal(failed: TorrcastError | None, whole: bool) -> Answer:
     whole = whole and (failed is None or isinstance(failed, NotFoundError))
     if failed is None or isinstance(failed, NothingFoundError):
         return _said(404, "not_found", whole)
-    return _said(409, str(failed), whole)
+    return _said(409, "search_refused", whole)
 
 
 def _said(code: int, word: str, whole: bool) -> Answer:

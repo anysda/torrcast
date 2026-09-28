@@ -443,16 +443,15 @@ def test_a_dead_named_release_does_not_hide_a_live_one_after_a_pack_ends() -> No
     assert [row["n"] for row in _rows(seasons)[-1]["episodes"]] == [1]
 
 
-def test_the_page_draws_the_empty_season_note_and_both_catalogs_carry_the_word() -> None:
-    """Слово пустой вкладки есть на странице и в обоих языках: молчащая метка не метка."""
+def test_the_page_draws_the_empty_season_note_from_the_english_catalog() -> None:
+    """Слово пустой вкладки есть на странице и в её единственном каталоге."""
     from pathlib import Path
 
     from torrcast.domain.catalogs.web.en import en
-    from torrcast.domain.catalogs.web.ru import ru
 
     page = Path(__file__).resolve().parents[2] / "web" / "static" / "card-series.js"
     body = page.read_text(encoding="utf-8")
 
     assert "if (!season.episodes.length && season.empty) {" in body
     assert "none.textContent = TC.say('web.detail.season_absent');" in body
-    assert {"web.detail.season_absent"} <= set(ru()) & set(en())
+    assert "web.detail.season_absent" in en()

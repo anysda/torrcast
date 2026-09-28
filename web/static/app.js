@@ -8,7 +8,6 @@ const TC = {
   // Надписи страницы. Пока словарь не приехал, тут пусто, а не английский про запас:
   // запасной каталог живёт на стороне продукта (torrcast/domain/catalogs/web).
   phrases: {},
-  language: 'en',
 
   // Сколько имён в одной ленте бегущей строки. Лента обязана быть ШИРЕ шапки, иначе
   // на стыке двух лент открылась бы дыра; восемь имён шире окна в любую ширину, потому
@@ -25,30 +24,22 @@ const TC = {
     return line;
   },
 
-  // Число и существительное - одна надпись: английскому хватает one/other, русский
-  // различает one, few (2-4) и many (включая 11-14). Дроби и отрицательные не бывают
-  // в счётчиках продукта; для них честно берётся other, а не притворная русская форма.
+  // Число и существительное - одна надпись: английскому хватает one/other. Дроби и
+  // отрицательные не бывают в счётчиках продукта; для них честно берётся other.
   count(key, number) {
     const n = Number(number);
     let form = 'other';
     if (Number.isInteger(n) && n >= 0) {
-      if (TC.language === 'ru') {
-        const last = n % 10;
-        const lastTwo = n % 100;
-        form = last === 1 && lastTwo !== 11 ? 'one'
-          : last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? 'few' : 'many';
-      } else if (n === 1) {
+      if (n === 1) {
         form = 'one';
       }
     }
     return TC.say(key + '.' + form, { n: number });
   },
 
-  async load(lang) {
-    const query = lang ? '?lang=' + encodeURIComponent(lang) : '';
-    const answer = await fetch('/api/phrases' + query);
+  async load() {
+    const answer = await fetch('/api/phrases');
     TC.phrases = await answer.json();
-    TC.language = lang === 'ru' ? 'ru' : 'en';
     return TC.phrases;
   },
 
@@ -129,7 +120,9 @@ const TC = {
     // ``state.state === 'playing'`` - до него плашка честно говорит «Готовим…», как и
     // экран самого плеера тем же ключом каталога.
     label.textContent = TC.say(
-      state.state !== 'playing' ? 'web.player.preparing' : onTv ? 'web.header.on_tv' : 'web.header.now_playing'
+      state.state !== 'playing'
+        ? state.start && state.start.here ? 'web.player.waiting_player' : 'web.player.preparing'
+        : onTv ? 'web.header.on_tv' : 'web.header.now_playing'
     );
     const title = document.createElement('div');
     title.className = 'tc-now-title';

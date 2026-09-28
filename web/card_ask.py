@@ -9,10 +9,9 @@ from typing import Final
 
 @dataclass(frozen=True, slots=True)
 class CardAsk:
-    """Запрос круга, принесённое имя, язык дорожек, вкладка и их долгий добор."""
+    """Запрос круга, принесённое имя, вкладка и их долгий добор."""
 
     query: str = ""
-    lang: str = ""
     season: int | None = None
     voices: bool = False
     shown: str = ""
@@ -25,7 +24,6 @@ class CardAsk:
         voices = query.get("voices") == "1"
         return cls(
             query.get("query", ""),
-            query.get("lang", ""),
             season,
             voices,
             query.get("shown", "").strip(),

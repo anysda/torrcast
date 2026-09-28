@@ -102,9 +102,11 @@ const TCPlayerScreens = {
   //: Срок кончился (``left`` пуст) - это «больше не знаю», и полоса возвращается к
   //: бегущей, а не замирает на ста процентах, будто вот-вот.
   _prepared(screen, start) {
+    const title = screen.querySelector('.tc-preparing-title');
     const when = screen.querySelector('.tc-preparing-when');
     const note = screen.querySelector('.tc-preparing-note');
     const bar = screen.querySelector('.tc-preparing-bar');
+    title.textContent = TC.say(start && start.here ? 'web.player.waiting_player' : 'web.player.preparing');
     const left = (start && start.left) || 0;
     const waited = (start && start.waited) || 0;
     when.textContent = left > 0 ? TC.say('web.player.preparing_in', { seconds: left }) : '';

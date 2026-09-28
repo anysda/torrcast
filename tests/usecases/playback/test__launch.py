@@ -166,6 +166,27 @@ def test_the_budget_of_the_start_is_not_endless(
     assert unit.stopped == 1, "юнит, не давший картинки, обязан быть погашен"
 
 
+@pytest.mark.parametrize(
+    ("here", "waiting"),
+    [(False, "waiting for the TV"), (True, "waiting for the player")],
+)
+def test_the_waiting_phase_names_its_receiver(
+    tmp_path: Path, here: bool, waiting: str, _english: None
+) -> None:
+    """После первого сегмента ожидание называет ТВ или вкладку, а не общий «packing»."""
+    out = tmp_path / "hls"
+    touch_segment(out)
+    progress = FakeProgress()
+
+    with pytest.raises(InfraError):
+        _await_playing(
+            Config(hls_dir=str(out)), progress, 0.25, clock=FakeClock(now=100.0),
+            unit=cast(ShowUnit, FakeShow()), here=here,
+        )
+
+    assert waiting in progress.phases
+
+
 def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

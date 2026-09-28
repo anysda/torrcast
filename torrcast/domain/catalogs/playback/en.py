@@ -21,6 +21,7 @@ def en() -> dict[str, str]:
             "is off: needs a release at {limit}p or below"
         ),
         "playback.waiting_tv": "waiting for the TV",
+        "playback.waiting_player": "waiting for the player",
         "playback.packing": "packing",
         "playback.did_not_start": "the show did not start: {why}",
         "playback.abandoned": "the show was called off before it came up",

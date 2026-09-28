@@ -93,7 +93,7 @@ def _launch(
         _state.start_play_unit(key, here)
         journal().mark("юнит")
         with progress_bar() as progress:
-            _await_playing(config, progress, start=entry.pos, owner=owner)
+            _await_playing(config, progress, start=entry.pos, owner=owner, here=here)
     where = playing_where(here)
     print(phrase("playback.now_playing", about=about, secs=f"{clock.total:.0f}", where=where))
     return EXIT_OK
@@ -107,6 +107,7 @@ def _await_playing(
     unit: ShowUnit | None = None,
     start: float = 0.0,
     owner: LaunchOwner | None = None,
+    here: bool = False,
 ) -> None:
     """Дождаться **картинки на экране**, а не «упаковка пошла».
 
@@ -169,7 +170,8 @@ def _await_playing(
             packed = _new_segment(out, owner)
             if packed:
                 journal().mark("первый сегмент")
-        progress.phase(phrase("playback.waiting_tv") if packed else phrase("playback.packing"))
+        waiting = "playback.waiting_player" if here else "playback.waiting_tv"
+        progress.phase(phrase(waiting) if packed else phrase("playback.packing"))
         if not unit.active():
             _yield_to_other(owner, progress)
             progress.phase("")

@@ -39,7 +39,16 @@ def test_first_lift_says_how_long_we_wait_and_keeps_silent_about_the_term() -> N
     progress.began()
     tick.now += 7.4
     seen = progress.seen()
-    assert seen == {"waited": 7.4, "left": None, "source": None, "sources": None}
+    assert seen == {"waited": 7.4, "left": None, "source": None, "sources": None, "here": False}
+
+
+def test_the_tab_lift_is_named_to_the_waiting_screen() -> None:
+    progress = StartProgress(Ticker())
+
+    progress.began(here=True)
+
+    assert progress.seen() is not None
+    assert progress.seen()["here"] is True
 
 
 def test_source_of_the_queue_is_named_with_its_number_and_total() -> None:

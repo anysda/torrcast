@@ -108,11 +108,10 @@ class SearchJob(SearchPosterVerdict):
             # Nothing found is an answer of the search, an empty list, not a failed search.
             plans = []
         except TorrcastError as refusal:
-            # A named refusal is an answer too, and one the viewer is owed in words: the
-            # circle knows WHY there is nothing (no releases with that season, the
-            # franchise has no such part, nothing parsed out), and the empty screen says
-            # none of it. Only the refusal with nothing to add above stays mute.
-            plans, self.error = [], str(refusal)
+            # Страница не получает фразу процесса: русский каталог не вправе приехать
+            # в её английский экран. Код отказа она рисует своей фразой.
+            del refusal
+            plans, self.error = [], "search_refused"
         hits: list[JsonValue] = []
         if plans:
             named = [(plan.picture.key, _named(plan.picture)) for plan in plans]

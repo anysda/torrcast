@@ -5,11 +5,6 @@
 'use strict';
 
 const TCApi = {
-  async phrases(lang) {
-    const query = lang ? '?lang=' + encodeURIComponent(lang) : '';
-    return TCApi._get('/api/phrases' + query, {});
-  },
-
   async state() {
     return TCApi._get('/api/state', null);
   },
@@ -112,8 +107,6 @@ const TCApi = {
     if (season) values.set('season', String(season));
     // Добор одних дорожек: сервер держит ответ до них, а не отдаёт то же тело сразу.
     if (wait && voices) values.set('voices', '1');
-    // Подписи дорожек сервер пишет на языке страницы, а не процесса.
-    if (TC.language === 'ru') values.set('lang', 'ru');
     const tail = values.toString();
     const url = '/api/card/' + encodeURIComponent(key) + (tail ? '?' + tail : '');
     try {

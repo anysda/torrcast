@@ -388,7 +388,7 @@ def test_an_unknown_key_is_a_404_not_a_crash(monkeypatch: pytest.MonkeyPatch) ->
     assert body == {"error": "not_found", "whole": False}
 
 
-def test_a_search_refusal_surfaces_as_409_with_the_products_own_word(
+def test_a_search_refusal_surfaces_as_an_english_page_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _refused(*_a: object, **_k: object) -> list[Plan]:
@@ -400,7 +400,7 @@ def test_a_search_refusal_surfaces_as_409_with_the_products_own_word(
     code, body, _extra = _asked(_MOVIE.key)
 
     assert code == 409
-    assert body["error"] == "nothing_found"
+    assert body["error"] == "search_refused"
 
 
 def test_a_mute_refusal_is_the_same_404_as_a_picture_the_circle_did_not_bring(
@@ -444,9 +444,9 @@ def test_a_movie_card_lists_every_track_of_the_release_the_show_would_play(
     assert body["runtime_estimated"] is False
     assert body["seasons"] == []
     assert [voice["label"] for voice in body["voices"]] == [
-        "русский · MVO (LostFilm)",
-        "английский · Original",
-        "японский",
+        "Russian · MVO (LostFilm)",
+        "English · Original",
+        "Japanese",
     ]
     assert [voice["name"] for voice in body["voices"]] == ["LostFilm", "eng", "jpn"]
     assert voices.asked == ["interstellar"]
@@ -818,7 +818,6 @@ def test_a_release_that_twice_failed_finishes_the_card_with_a_named_reason(
 ) -> None:
     """Сшитый путь: третий ответ снимает Partial и несёт странице дословное объяснение."""
     from torrcast.domain.catalogs.web.en import en
-    from torrcast.domain.catalogs.web.ru import ru
 
     _wired(
         monkeypatch,
@@ -835,7 +834,6 @@ def test_a_release_that_twice_failed_finishes_the_card_with_a_named_reason(
     assert "X-Torrcast-Partial" not in extra
     page = (Path(__file__).parents[1] / "web/static/card.js").read_text(encoding="utf-8")
     assert "TC.say('web.detail.release_unavailable')" in page
-    assert ru()["web.detail.release_unavailable"] == "Раздача не отвечает"
     assert en()["web.detail.release_unavailable"] == "The release is not responding"
 
 
