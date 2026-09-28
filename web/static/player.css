@@ -64,7 +64,10 @@ html.tc-cursor-idle .tc-player-frame::after { opacity: 0; }
 .tc-buffering-screen { pointer-events: none; }
 .tc-halt-actions { display: flex; align-items: center; gap: 1.375rem; }
 .tc-next { z-index: 5; }
-.tc-preparing-body { position: relative; padding: 3.75rem 5.625rem; }
+.tc-preparing-body {
+  position: relative; padding: 3.75rem 5.625rem; display: grid;
+  grid-template-columns: minmax(35rem, max-content);
+}
 .tc-preparing-bar.is-indeterminate > i { width: 30%; animation: tcprepindet 1.4s ease-in-out infinite; }
 @keyframes tcprepindet {
   0% { margin-left: 0%; }

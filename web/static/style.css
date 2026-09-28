@@ -440,7 +440,7 @@ body {
 .tc-preparing-title { font-weight: 900; font-size: 4.625rem; line-height: .9;
                       text-transform: uppercase; letter-spacing: -.03em; }
 .tc-preparing-when { color: var(--tc-acid); }
-.tc-preparing-bar { width: 35rem; height: .75rem; background: rgba(255, 255, 255, .18); }
+.tc-preparing-bar { width: 100%; height: .75rem; background: rgba(255, 255, 255, .18); }
 .tc-preparing-bar > i { display: block; height: 100%; background: var(--tc-acid); }
 .tc-preparing-note { font-weight: 700; font-size: 1.375rem; letter-spacing: .22em;
                      text-transform: uppercase; color: var(--tc-muted-dim); }
