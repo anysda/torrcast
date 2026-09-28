@@ -7,7 +7,7 @@ from web.built_by_rule import built_by_rule
 from web.drop_count import DropCount
 
 
-def keep_stale_tiles(
+def _keep_stale_tiles(
     current: dict[str, JsonValue], shelf: str, tiles: list[JsonValue], drops: DropCount
 ) -> list[JsonValue]:
     """На смене правила не снимает плитку, пока новый отбор её честно не отверг."""
@@ -24,6 +24,3 @@ def keep_stale_tiles(
 def _tile_key(tile: JsonValue) -> str | None:
     """Ключ плитки, если старое тело ещё соблюдает контракт API."""
     return tile.get("key") if isinstance(tile, dict) and isinstance(tile.get("key"), str) else None
-
-
-__all__ = ["keep_stale_tiles"]

@@ -21,12 +21,12 @@ from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
 from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
 from torrcast.usecases.shelves.popular_shelf import popular_shelf
+from web._stale_tiles import _keep_stale_tiles
 from web.built_by_rule import FIELD, RULE
 from web.drop_count import DropCount
 from web.min_tiles import min_tiles
 from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable, shelf_tiles
 from web.shelf_warm_targets import shelf_warm_targets
-from web.stale_tiles import keep_stale_tiles
 from web.warm_targets import WarmTarget
 from web.worth_publishing import worth_publishing
 
@@ -164,7 +164,7 @@ class ShelvesCache:
             current = self._body or _empty()
             candidate = {
                 **current,
-                shelf: keep_stale_tiles(current, shelf, tiles, drops),
+                shelf: _keep_stale_tiles(current, shelf, tiles, drops),
                 "built_at": now.isoformat(),
             }
             if complete:
