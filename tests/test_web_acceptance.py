@@ -400,32 +400,40 @@ def test_сезон_берётся_снимком_и_нажимается_пос
 
 
 class StallPage(Page):
-    def __init__(self, waits: list[float]) -> None:
+    def __init__(self, waits: list[float], seen: list[bool]) -> None:
         super().__init__({}, 0.0)
         self.waits = waits
+        self.seen = seen
 
     def evaluate(self, expression: str) -> Any:
         if "Math.max(0, now - meter.waiting)" in expression:
-            return {"waits": self.waits}
+            return {"waits": self.waits, "seen": self.seen}
         return super().evaluate(expression)
 
 
-def test_сумма_подгрузов_на_заглушке_считается_и_отбрасывает_нули() -> None:
+def test_сумма_подгрузов_на_заглушке_берёт_только_заминки_со_спиннером_в_кадре() -> None:
     """Про арифметику ``_wait_stalls``, и только про неё.
 
-    Прежде эта же проверка кончалась строкой ``"addEventListener('waiting'" in _METER_JS``
-    и звалась проверкой счётчика. Счётчик она не проверяла: строка в исходнике не
-    говорит ни что обработчик навешан, ни что он считает. Поведение самого ``_METER_JS``
-    проверяется ниже настоящим браузером.
+    Подгруз - заминка, у которой счётчик отметил спиннер в кадре (``seen``). Заминка без
+    отметки уходит в третье число, а не в приговор; нули отбрасываются, как и прежде.
+    Заминка, флага которой в снимке нет вовсе, в подгрузы не записывается молча: у неё
+    просто нет доказательства спиннера. Поведение самого ``_METER_JS`` - ниже, браузером.
     """
     module = acceptance()
-    clean = module.Ctx("http://example", StallPage([]), True, Path("/tmp"), {})
-    broken = module.Ctx("http://example", StallPage([0.4, 0.0, 1.25]), True, Path("/tmp"), {})
+    clean = module.Ctx("http://example", StallPage([], []), True, Path("/tmp"), {})
+    mixed = module.Ctx(
+        "http://example",
+        StallPage([0.4, 0.0, 0.03, 1.25, 0.7], [True, True, False, True]),
+        True,
+        Path("/tmp"),
+        {},
+    )
 
-    assert module._wait_stalls(clean, 0) == ([], 0)
-    waits, total = module._wait_stalls(broken, 0)
+    assert module._wait_stalls(clean, 0) == ([], 0, [])
+    waits, total, unseen = module._wait_stalls(mixed, 0)
     assert waits == [0.4, 1.25]
     assert total == pytest.approx(1.65)
+    assert unseen == [0.03, 0.7]
 
 
 #: Страница-пустышка счётчика: настоящий ``<video>``, который настоящим образом рисует
@@ -451,6 +459,18 @@ _STUB_VIDEO_PAGE = """<!doctype html><meta charset="utf-8">
     paint.fillRect(0, 0, 32, 32);
   }, 40);
   const video = document.getElementById('v');
+  // Спиннер ставится и снимается ровно как в продукте (`player.js`: обработчики `waiting`
+  // и `playing` навешаны до счётчика, узел `.tc-spinner` вставляется синхронно), а
+  // ``window.__stubQuiet`` выключает его, как плашка отсчёта выключает его в продукте.
+  video.addEventListener('waiting', () => {
+    if (window.__stubQuiet) return;
+    const spinner = document.createElement('div');
+    spinner.className = 'tc-spinner';
+    spinner.style.cssText = 'width:40px;height:40px;background:#fff';
+    document.body.append(spinner);
+  });
+  video.addEventListener('playing', () => document.querySelectorAll('.tc-spinner')
+    .forEach((node) => node.remove()));
   video.srcObject = canvas.captureStream(25);
   video.play();
 })();
@@ -467,6 +487,23 @@ _DRIVE_STALLS = """async (pauses) => {
   }
 }"""
 
+#: Заминки, которых зритель не видит: без спиннера (как под плашкой отсчёта) на 400 мс и
+#: со спиннером, вставленным и снятым в одном тике, то есть не попавшим ни в один кадр.
+#: Тик второй занят на 50 мс нарочно: без этого часы ``performance.now()`` (они огрублены)
+#: давали бы нулевую длительность, и заминку отбрасывал бы ноль, а не правило спиннера.
+_DRIVE_UNSEEN = """async () => {
+  const video = document.querySelector('video');
+  window.__stubQuiet = true;
+  video.dispatchEvent(new Event('waiting'));
+  await new Promise((done) => setTimeout(done, 400));
+  video.dispatchEvent(new Event('playing'));
+  window.__stubQuiet = false;
+  video.dispatchEvent(new Event('waiting'));
+  const busy = performance.now() + 50;
+  while (performance.now() < busy) { /* главный поток занят: кадра нет */ }
+  video.dispatchEvent(new Event('playing'));
+}"""
+
 #: Допуск на замер подгруза в браузере. Счётчик берёт время из ``performance.now()``, а
 #: паузы ставит ``setTimeout``: тот просыпается не раньше срока, но и не ровно в срок, и
 #: на занятой машине опаздывает. 0.2 с - запас, при котором 0.4 и 1.25 всё ещё
@@ -475,9 +512,9 @@ _STALL_TOLERANCE = 0.2
 
 
 def _meter_over_stub(
-    page: Any, module: ModuleType, meter_js: str, pauses: list[int]
+    page: Any, module: ModuleType, meter_js: str, pauses: list[int], unseen: bool = False
 ) -> list[float]:
-    """Прогнать счётчик над страницей-пустышкой и вернуть, что он насчитал."""
+    """Прогнать счётчик над страницей-пустышкой и вернуть, что он насчитал подгрузами."""
     page.set_content(_STUB_VIDEO_PAGE)
     page.evaluate(meter_js)
     # Без первого кадра счётчик молчит по устройству, и ждать его надо честно.
@@ -485,6 +522,8 @@ def _meter_over_stub(
         "() => window.__tcAcceptanceMeter && window.__tcAcceptanceMeter.frame !== null",
         timeout=15000,
     )
+    if unseen:
+        page.evaluate(_DRIVE_UNSEEN)
     if pauses:
         page.evaluate(_DRIVE_STALLS, pauses)
     ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
@@ -497,8 +536,11 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
 
     Щуп ставится отдельно от гейта (``pyproject.toml``: playwright в венв гейта не
     входит), поэтому без него проверка пропускается С НАЗВАННОЙ ПРИЧИНОЙ. Там, где
-    браузер есть, она гоняется целиком, включая отрицательную пробу: со снятым
-    обработчиком ``waiting`` тот же прогон обязан дать пустой список.
+    браузер есть, она гоняется целиком, включая две отрицательные пробы: со снятым
+    обработчиком ``waiting`` тот же прогон обязан дать пустой список, а счётчик старого
+    правила («подгруз - любая заминка > 0») обязан записать в подгрузы и заминки, спиннера
+    которых зритель не видел. Новое правило их не берёт (слово владельца 20-09-2026:
+    «если на приемнике есть спинер то это подгруз если нет то ладно»).
     """
     sync_api = pytest.importorskip(
         "playwright.sync_api",
@@ -512,7 +554,14 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
         page = browser.new_page()
         try:
             none = _meter_over_stub(page, module, module._METER_JS, [])
-            two = _meter_over_stub(page, module, module._METER_JS, [400, 1250])
+            two = _meter_over_stub(page, module, module._METER_JS, [400, 1250], unseen=True)
+            # Старое правило строкой из настоящего ``_METER_JS``: флаг «спиннер в кадре»
+            # ставится всякой заминке, то есть подгрузом снова считается любая > 0.
+            any_wait = module._METER_JS.replace(
+                "meter.seen.push(meter.shown)", "meter.seen.push(true)"
+            )
+            assert any_wait != module._METER_JS
+            old_rule = _meter_over_stub(page, module, any_wait, [400, 1250], unseen=True)
             # Отрицательная проба: обработчик не навешивается вовсе (снятие через
             # `removeEventListener` со свежей стрелкой - законный пустой вызов).
             stripped = module._METER_JS.replace(
@@ -527,6 +576,7 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
     assert len(two) == 2, f"счётчик насчитал {two}"
     assert two[0] == pytest.approx(0.4, abs=_STALL_TOLERANCE)
     assert two[1] == pytest.approx(1.25, abs=_STALL_TOLERANCE)
+    assert len(old_rule) == 4, f"старое правило обязано взять и незримые заминки: {old_rule}"
     assert blind == []
 
 

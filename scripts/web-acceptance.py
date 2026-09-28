@@ -1773,14 +1773,40 @@ def _await_playback(ctx: Ctx) -> bool:
 #: рестарте той же серии). ``null``, пока `player.js` ещё не отдал показ странице.
 _METER_STREAM_JS: Final = "(window.TCPlayer && window.TCPlayer._url) || null"
 
+#: Виден ли зрителю спиннер прямо сейчас: узел в документе, не спрятан стилем (``display``,
+#: ``visibility``, ``opacity`` по всей цепочке предков) и занимает место на экране. Наличие
+#: класса или узла - не ответ: узел, вставленный и снятый в одном тике, кадра не видел.
+_SPINNER_SEEN_JS: Final = """() => [...document.querySelectorAll('.tc-spinner')].some((node) => {
+    const box = node.getBoundingClientRect();
+    return box.width > 0 && box.height > 0 && box.bottom > 0 && box.right > 0
+      && box.top < innerHeight && box.left < innerWidth
+      && node.checkVisibility({checkOpacity: true, checkVisibilityCSS: true});
+  })"""
+
+#: Счётчик хода. Подгруз - это ``waiting``, во время которого спиннер попал хотя бы в один
+#: отрисованный кадр (слово владельца 20-09-2026: «если на приемнике есть спинер то это
+#: подгруз если нет то ладно»). Кадр ловится ``requestAnimationFrame``: его обратный вызов
+#: идёт в шаге отрисовки, сразу перед стилем, раскладкой и рисованием этого же кадра, так
+#: что спиннер, видимый в нём, в кадр и попадает. ``waits`` хранит все заминки, ``seen`` -
+#: по флагу на каждую: был ли спиннер в кадре. Судит только ``seen``, остальное - факт.
 _METER_JS: Final = (
     """() => {
   const old = window.__tcAcceptanceMeter;
   if (old) old.stop();
   const meter = {
     born: performance.now(), frame: null, start: null, playing: [], waits: [], waiting: null,
-    armed: null, armedStream: null, nextPlaying: null, nextFrame: null,
+    seen: [], shown: false, armed: null, armedStream: null, nextPlaying: null, nextFrame: null,
   };
+  const spinnerSeen = """
+    + _SPINNER_SEEN_JS
+    + """;
+  let painting = true;
+  const paint = () => {
+    if (!painting) return;
+    if (meter.waiting !== null && !meter.shown && spinnerSeen()) meter.shown = true;
+    requestAnimationFrame(paint);
+  };
+  requestAnimationFrame(paint);
   const stream = () => """
     + _METER_STREAM_JS
     + """;
@@ -1796,10 +1822,15 @@ _METER_JS: Final = (
       if (meter.armed !== null && meter.nextPlaying === null && stream() !== meter.armedStream) {
         meter.nextPlaying = at();
       }
-      if (meter.waiting !== null) { meter.waits.push(at() - meter.waiting); meter.waiting = null; }
+      if (meter.waiting !== null) {
+        meter.waits.push(at() - meter.waiting); meter.seen.push(meter.shown); meter.waiting = null;
+      }
     });
     video.addEventListener('waiting', () => {
-      if (meter.frame !== null) meter.waiting = at();
+      // Повторный `waiting` посреди открытой заминки её не перезапускает: иначе и длительность
+      // укорачивалась бы, и уже пойманный в кадре спиннер забывался бы.
+      if (meter.frame === null || meter.waiting !== null) return;
+      meter.waiting = at(); meter.shown = false;
     });
     const frame = () => {
       if (meter.frame === null) meter.frame = at();
@@ -1817,19 +1848,23 @@ _METER_JS: Final = (
     meter.armed = (performance.now() - meter.born) / 1000;
     meter.armedStream = stream();
     meter.nextPlaying = null; meter.nextFrame = null; meter.waits = []; meter.waiting = null;
+    meter.seen = []; meter.shown = false;
   };
-  meter.stop = () => observer.disconnect(); window.__tcAcceptanceMeter = meter;
+  meter.stop = () => { observer.disconnect(); painting = false; };
+  window.__tcAcceptanceMeter = meter;
 }"""
 )
 
 #: Сериализованный снимок счётчика. Незакрытый ``waiting`` получает настоящую
-#: длительность на миг чтения, а не условную тысячную секунды.
+#: длительность на миг чтения, а не условную тысячную секунды, и свой флаг спиннера.
 _METER_SNAPSHOT_JS: Final = """() => {
   const meter = window.__tcAcceptanceMeter;
   if (!meter) return {};
   const now = (performance.now() - meter.born) / 1000;
-  return {...meter, waits: meter.waiting === null ? [...meter.waits]
-    : [...meter.waits, Math.max(0, now - meter.waiting)]};
+  const open = meter.waiting !== null;
+  return {...meter,
+    waits: open ? [...meter.waits, Math.max(0, now - meter.waiting)] : [...meter.waits],
+    seen: open ? [...meter.seen, meter.shown] : [...meter.seen]};
 }"""
 
 
@@ -1857,15 +1892,34 @@ def _frame_measure(ctx: Ctx, limit: float) -> tuple[float | None, dict[str, Any]
     return None, meter if isinstance(meter, dict) else {}
 
 
-def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float]:
-    """Сумма ``waiting`` после первого кадра, пока зритель смотрит первые три минуты."""
+def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float, list[float]]:
+    """Подгрузы после первого кадра, пока зритель смотрит: ``(подгрузы, их сумма, незримые)``.
+
+    Подгруз - ``waiting``, во время которого спиннер попал хотя бы в один отрисованный
+    кадр (флаг ``seen`` счётчика). Заминка без спиннера в кадре подгрузом не считается,
+    но не пропадает молча: её длительность возвращается третьим числом, для отчёта.
+    """
     began = time.monotonic()
     while time.monotonic() - began < seconds:
         ctx.page.wait_for_timeout(250)
     meter = ctx.page.evaluate(_METER_SNAPSHOT_JS)
     waits = meter.get("waits", []) if isinstance(meter, dict) else []
-    values = [float(value) for value in waits if isinstance(value, int | float) and value > 0]
-    return values, sum(values)
+    seen = meter.get("seen", []) if isinstance(meter, dict) else []
+    stalls: list[float] = []
+    unseen: list[float] = []
+    for index, value in enumerate(waits):
+        if not isinstance(value, int | float) or value <= 0:
+            continue
+        shown = index < len(seen) and seen[index] is True
+        (stalls if shown else unseen).append(float(value))
+    return stalls, sum(stalls), unseen
+
+
+def _unseen_note(unseen: list[float]) -> str:
+    """Хвост отчёта про заминки, которых зритель не видел: пусто, если их не было."""
+    if not unseen:
+        return ""
+    return f"; без спиннера в кадре {len(unseen)}: {[round(value, 3) for value in unseen]}"
 
 
 def _click_play(ctx: Ctx, limit_ms: float = _CARD_READY_WAIT) -> tuple[float | None, float, str]:
@@ -1953,7 +2007,7 @@ def check_4_playback(ctx: Ctx) -> Result:
         if ctx.throttle_after_frame:
             cdp = _narrow(ctx, ctx.throttle_after_frame)
             control = f"CDP после первого кадра {ctx.throttle_after_frame} Б/с"
-        waits, total = _wait_stalls(ctx, _WATCH_SECONDS)
+        waits, total, unseen = _wait_stalls(ctx, _WATCH_SECONDS)
     finally:
         if cdp is not None:
             cdp.send("Network.emulateNetworkConditions", _WIDE)
@@ -1966,6 +2020,7 @@ def check_4_playback(ctx: Ctx) -> Result:
         f"(порог {_PLAY_READY_BAR:.0f}); первый кадр за {from_click:.1f} с от клика "
         f"({frame:.1f} с по счётчику, порог {_FRAME_BAR:.0f}); "
         f"подгрузы за {_WATCH_SECONDS:.0f} с ({control}): {len(waits)}, сумма {total:.1f} с {waits}"
+        + _unseen_note(unseen)
         + ("; контроль измеряет только подгрузы" if ctx.stalls_only else "")
     )
     return Result(4, "Показ", ok, None, detail)
@@ -2013,6 +2068,7 @@ def check_5_bookmark(ctx: Ctx) -> Result:
     clicked: float | None = None
     waited = 0.0
     waits: list[float] = []
+    unseen: list[float] = []
     total = 0.0
     from_click: float | None = None
     if fresh:
@@ -2033,7 +2089,7 @@ def check_5_bookmark(ctx: Ctx) -> Result:
             # Цель TC-1279 названа для закладки отдельно: ноль событий `waiting` за
             # первые 20 с показа. До этого пункт мерил только время до кадра, и
             # подгрузы 8.6 с и 5.1 с прохода R1 он пропускал зелёным.
-            waits, total = _wait_stalls(ctx, _BOOKMARK_WATCH)
+            waits, total, unseen = _wait_stalls(ctx, _BOOKMARK_WATCH)
     else:
         frame = None
     ready = waited <= _PLAY_READY_BAR
@@ -2059,7 +2115,7 @@ def check_5_bookmark(ctx: Ctx) -> Result:
         + f" ({frame!r} с по счётчику, порог {_FRAME_BAR:.0f}); "
         + (
             f"подгрузы за {_BOOKMARK_WATCH:.0f} с после кадра: {len(waits)}, "
-            f"сумма {total:.1f} с {[round(value, 1) for value in waits]}"
+            f"сумма {total:.1f} с {[round(value, 1) for value in waits]}" + _unseen_note(unseen)
         )
     )
     where = (
@@ -2332,7 +2388,7 @@ def check_8_autoplay(ctx: Ctx) -> Result:
             break
         ctx.page.wait_for_timeout(1000)
     frame, _ = _next_frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
-    waits, total = _wait_stalls(ctx, _WATCH_SECONDS) if frame is not None else ([], 0.0)
+    waits, total, unseen = _wait_stalls(ctx, _WATCH_SECONDS) if frame is not None else ([], 0.0, [])
     rows_ready = rows_waited <= _PLAY_READY_BAR
     ok = (
         None not in after_pair
@@ -2345,7 +2401,7 @@ def check_8_autoplay(ctx: Ctx) -> Result:
         f"s1e1 (строки серий ждали {rows_waited:.1f} с, порог {_PLAY_READY_BAR:.0f}); "
         f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
         f"кадр следующей серии {frame!r} с, подгрузы за {_WATCH_SECONDS:.0f} с: "
-        f"{len(waits)}, {total:.1f} с"
+        f"{len(waits)}, {total:.1f} с" + _unseen_note(unseen)
     )
     return Result(8, "Автопереход", ok, None, detail)
 
