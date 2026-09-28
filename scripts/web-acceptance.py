@@ -1773,11 +1773,6 @@ def _await_playback(ctx: Ctx) -> bool:
     return _frame_measure(ctx, _PLAY_START_WAIT / 1000.0)[0] is not None
 
 
-#: Адрес потока, что играет прямо сейчас - `TCPlayer._url` (`web/static/player-box.js:83`
-#: меняет его, ТОЛЬКО когда прицепляется следующий ящик; `player.js` его не трогает на
-#: рестарте той же серии). ``null``, пока `player.js` ещё не отдал показ странице.
-_METER_STREAM_JS: Final = "(window.TCPlayer && window.TCPlayer._url) || null"
-
 #: Виден ли зрителю спиннер прямо сейчас: узел в документе, не спрятан стилем (``display``,
 #: ``visibility``, ``opacity`` по всей цепочке предков) и занимает место на экране. Наличие
 #: класса или узла - не ответ: узел, вставленный и снятый в одном тике, кадра не видел.
@@ -1800,7 +1795,8 @@ _METER_JS: Final = (
   if (old) old.stop();
   const meter = {
     born: performance.now(), frame: null, start: null, playing: [], waits: [], waiting: null,
-    seen: [], shown: false, armed: null, armedStream: null, nextPlaying: null, nextFrame: null,
+    seen: [], shown: false, armed: null, nextEnded: null, nextEmptied: null, nextLoaded: null,
+    nextPlaying: null, nextFrame: null,
   };
   const spinnerSeen = """
     + _SPINNER_SEEN_JS
@@ -1812,19 +1808,16 @@ _METER_JS: Final = (
     requestAnimationFrame(paint);
   };
   requestAnimationFrame(paint);
-  const stream = () => """
-    + _METER_STREAM_JS
-    + """;
   const watch = (video) => {
     if (meter.video === video) return;
     meter.video = video; meter.start = video.currentTime;
     const at = () => (performance.now() - meter.born) / 1000;
     video.addEventListener('playing', () => {
       meter.playing.push(at());
-      // Планка приёмки - смена СЕРИИ, а не любой `playing` на том же адресе: подгруз на
-      // хвосте ЕЩЁ старой серии тоже даёт `waiting -> playing`, и без сверки адреса
-      // прибор принимал бы её последний кадр за первый кадр следующей (TC-1341).
-      if (meter.armed !== null && meter.nextPlaying === null && stream() !== meter.armedStream) {
+      // Переход подтверждает не адрес HLS, он у серий одинаковый, а новая загрузка
+      // видео после штатного `ended`. Подгруз на хвосте старой серии даёт такой же
+      // `waiting -> playing`, но не даёт эту тройку событий.
+      if (meter.armed !== null && meter.nextLoaded !== null && meter.nextPlaying === null) {
         meter.nextPlaying = at();
       }
       if (meter.waiting !== null) {
@@ -1836,6 +1829,15 @@ _METER_JS: Final = (
       // укорачивалась бы, и уже пойманный в кадре спиннер забывался бы.
       if (meter.frame === null || meter.waiting !== null) return;
       meter.waiting = at(); meter.shown = false;
+    });
+    video.addEventListener('ended', () => {
+      if (meter.armed !== null && meter.nextEnded === null) meter.nextEnded = at();
+    });
+    video.addEventListener('emptied', () => {
+      if (meter.nextEnded !== null && meter.nextEmptied === null) meter.nextEmptied = at();
+    });
+    video.addEventListener('loadeddata', () => {
+      if (meter.nextEmptied !== null && meter.nextLoaded === null) meter.nextLoaded = at();
     });
     const frame = () => {
       if (meter.frame === null) meter.frame = at();
@@ -1851,7 +1853,7 @@ _METER_JS: Final = (
   document.querySelectorAll('video').forEach(watch);
   meter.arm = () => {
     meter.armed = (performance.now() - meter.born) / 1000;
-    meter.armedStream = stream();
+    meter.nextEnded = null; meter.nextEmptied = null; meter.nextLoaded = null;
     meter.nextPlaying = null; meter.nextFrame = null; meter.waits = []; meter.waiting = null;
     meter.seen = []; meter.shown = false;
   };
@@ -1957,11 +1959,11 @@ def _click_play(ctx: Ctx, limit_ms: float = _CARD_READY_WAIT) -> tuple[float | N
 
 
 def _next_frame_measure(ctx: Ctx, limit: float) -> tuple[float | None, dict[str, Any]]:
-    """Кадр следующей серии только после её собственного ``playing``.
+    """Кадр следующей серии после ``ended`` и её собственной загрузки.
 
     Один и тот же ``<video>`` переживает автопереход. Обычный rVFC после плашки
     мог бы поймать ещё кадр старой серии, поэтому счётчик вооружается до отсчёта
-    и принимает кадр лишь после следующего события ``playing``.
+    и принимает кадр лишь после ``emptied``/``loadeddata`` и следующего ``playing``.
     """
     began = time.monotonic()
     while time.monotonic() - began < limit:

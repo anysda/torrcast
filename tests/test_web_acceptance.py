@@ -649,13 +649,12 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
 
 
 def _meter_over_transition(page: Any, module: ModuleType, meter_js: str) -> tuple[Any, Any]:
-    """Вооружить счётчик, подать подгруз на ТОМ ЖЕ адресе потока, затем сменить адрес.
+    """Вооружить счётчик, подать подгруз, затем сменить серию на том же HLS-адресе.
 
     Возвращает ``(stale, real)``: ``stale`` - что счётчик записал в ``nextFrame`` после
     подгруза без смены адреса (хвост ЕЩЁ старой серии), ``real`` - после настоящей смены
-    адреса (следующая серия). Живой автопереход роняет `<video>` на тот же элемент и
-    рестартует упаковку у самого хвоста - подгруз там штатное дело (TC-1341), и синтетика
-    тут воспроизводит именно эту пару событий, а не выдуманную форму.
+    второй серии. Живой автопереход оставляет HLS-адрес прежним, но после ``ended``
+    очищает и заново загружает тот же `<video>`; синтетика воспроизводит именно это.
     """
     page.set_content(_STUB_VIDEO_PAGE)
     page.evaluate(meter_js)
@@ -663,7 +662,7 @@ def _meter_over_transition(page: Any, module: ModuleType, meter_js: str) -> tupl
         "() => window.__tcAcceptanceMeter && window.__tcAcceptanceMeter.frame !== null",
         timeout=15000,
     )
-    page.evaluate("() => { window.TCPlayer = { _url: 'ep-1' }; window.__tcAcceptanceMeter.arm(); }")
+    page.evaluate("() => window.__tcAcceptanceMeter.arm()")
     page.evaluate(_DRIVE_STALLS, [250])
     # rVFC ставит кадр не в тот же тик, что событие ``playing``: даём ему тот же срок,
     # что и настоящему переходу ниже, иначе наивная версия читалась бы как починенная
@@ -671,7 +670,12 @@ def _meter_over_transition(page: Any, module: ModuleType, meter_js: str) -> tupl
     with contextlib.suppress(Exception):
         page.wait_for_function("() => window.__tcAcceptanceMeter.nextFrame !== null", timeout=1000)
     stale = page.evaluate("() => window.__tcAcceptanceMeter.nextFrame")
-    page.evaluate("() => { window.TCPlayer._url = 'ep-2'; }")
+    page.evaluate("""() => {
+      const video = document.querySelector('video');
+      video.dispatchEvent(new Event('ended'));
+      video.dispatchEvent(new Event('emptied'));
+      video.dispatchEvent(new Event('loadeddata'));
+    }""")
     page.evaluate(_DRIVE_STALLS, [250])
     with contextlib.suppress(Exception):
         page.wait_for_function("() => window.__tcAcceptanceMeter.nextFrame !== null", timeout=3000)
@@ -680,15 +684,14 @@ def _meter_over_transition(page: Any, module: ModuleType, meter_js: str) -> tupl
 
 
 @pytest.mark.machine
-def test_автопереход_не_принимает_playing_с_тем_же_адресом_потока() -> None:
-    """TC-1341: хвост ЕЩЁ старой серии не сходит за первый кадр следующей.
+def test_автопереход_видит_новую_серию_на_том_же_адресе_потока() -> None:
+    """Хвост старой серии не сходит за кадр следующей, одинаковый URL не мешает замеру.
 
     ``_METER_JS`` до правки принимал ЛЮБОЙ ``playing`` после ``arm()`` - вооружение
     ставится, пока старая серия ещё играет (`web-acceptance.py:2280`), и подгруз на её
     хвосте (`waiting -> playing`) сам по себе выглядел точь-в-точь как переход. Наивная
-    версия ниже воссоздаёт ИМЕННО этот старый код (условие без сверки адреса) - тем же
-    приёмом, каким выше устроена `stripped`: строкой из настоящего ``_METER_JS``, а не
-    сочинённым текстом.
+    версия ниже воссоздаёт сломанный код без проверки новой загрузки - тем же приёмом,
+    каким выше устроена `stripped`: строкой из настоящего ``_METER_JS``.
     """
     sync_api = pytest.importorskip(
         "playwright.sync_api",
@@ -696,8 +699,8 @@ def test_автопереход_не_принимает_playing_с_тем_же_�
     )
     module = acceptance()
     naive = module._METER_JS.replace(
-        "meter.nextPlaying === null && stream() !== meter.armedStream) {",
-        "meter.nextPlaying === null) {",
+        "meter.nextLoaded !== null && meter.nextPlaying === null",
+        "meter.nextPlaying === null",
     )
     assert naive != module._METER_JS
     executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "") or None
@@ -711,14 +714,14 @@ def test_автопереход_не_принимает_playing_с_тем_же_�
             browser.close()
 
     assert isinstance(naive_stale, int | float), (
-        f"наивный счётчик обязан принять хвост старой серии как переход, взял {naive_stale!r}"
+        f"сломанный счётчик обязан принять хвост старой серии как переход, взял {naive_stale!r}"
     )
     assert isinstance(naive_real, int | float)
     assert fixed_stale is None, (
         f"починенный счётчик принял хвост старой серии за переход: nextFrame={fixed_stale!r}"
     )
     assert isinstance(fixed_real, int | float), (
-        f"починенный счётчик обязан дождаться кадра НОВОГО адреса, взял {fixed_real!r}"
+        f"починенный счётчик обязан дождаться кадра НОВОЙ серии, взял {fixed_real!r}"
     )
 
 
