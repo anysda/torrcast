@@ -76,6 +76,10 @@ class IndexerCircle:
         """Имена тех, кто ещё в пути: круг их не дождался, а долив может."""
         return tuple(ask.name for ask in self._late)
 
+    def unheard(self) -> tuple[str, ...]:
+        """Опоздавшие, чьей выдачи нет: ещё в пути или ответили отказом."""
+        return tuple(ask.name for ask in self._late if not ask.done.is_set() or ask.rows is None)
+
     def run(
         self, pairs: Sequence[Indexer], query: str, limit: int, cap: float = 0.0
     ) -> tuple[list[list[RawResult]], InfraError | None]:

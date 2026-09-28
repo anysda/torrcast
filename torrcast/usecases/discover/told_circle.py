@@ -20,6 +20,8 @@ class ToldCircle(list["Plan"]):
     def __init__(self, plans: Iterable[Plan] = (), told: list[Told] | None = None) -> None:
         super().__init__(plans)
         self.told: list[Told] = told or []
+        #: Ответил ли каждый спрошенный индексер (:mod:`torrcast.usecases.discover.circle_watch`).
+        self.whole = False
 
 
 __all__ = ["ToldCircle"]

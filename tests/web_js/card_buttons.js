@@ -58,10 +58,21 @@ function ring(data) {
   };
 }
 
-const EMPTY = { releases_count: 0, searching: false, voices: [], tv: false };
+// `whole`: пустоту подтвердил каждый индексер. Без него пустота ничего не доказала.
+const EMPTY = { releases_count: 0, searching: false, voices: [], tv: false, whole: true };
+
+// Строка счёта раздач: пока круг идёт, она растёт с каждым ответившим индексером.
+function counted(data) {
+  return card(new Document())._releases(data).textContent;
+}
 
 process.stdout.write(JSON.stringify({
   noReleases: ring(EMPTY),
+  unheard: ring({ ...EMPTY, whole: false }),
   searching: ring({ ...EMPTY, searching: true }),
   found: ring({ ...EMPTY, releases_count: 73 }),
+  lines: {
+    nothingYet: counted({ searching: true, releases_count: 0 }),
+    growing: counted({ searching: true, releases_count: 12, sources_count: 2 }),
+  },
 }) + '\n');

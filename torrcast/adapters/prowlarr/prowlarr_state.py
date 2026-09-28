@@ -44,6 +44,11 @@ class _State:
         self.banned: tuple[str, ...] = ()
         #: Опорные, чей ноль пришёл по отсечке переходника (:func:`cut_short`): круг урезан.
         self.cut: tuple[str, ...] = ()
+        #: Кто хоть в одном заходе поиска смолчал, был забанен, урезан или отказал пустотой:
+        #: с ним пустота поиска - урезанный каталог, а не «такого нет» (:meth:`whole`).
+        self.short: set[str] = set()
+        #: Спрашивали врозь, по списку индексеров: только тогда известно, кто ответил.
+        self.apart = False
         self._roster = IndexerRoster(self._api, spawn=heal)
         self._circle = IndexerCircle(self._api, slack=slack, budget_of=budget_of)
         #: Начало поиска - от него считается остаток цели (:meth:`spare`, TC-228).
@@ -82,6 +87,10 @@ class _State:
         урезанный каталог, а не отсутствие каталога.
         """
         return self._circle.answered
+
+    def whole(self) -> bool:
+        """Ответил ли за этот поиск КАЖДЫЙ спрошенный индексер, строкой или честным нулём."""
+        return self.apart and not self.short and not self._circle.unheard()
 
     def spare(self) -> float:
         """Сколько секунд цели этот поиск ещё не потратил (TC-228)."""

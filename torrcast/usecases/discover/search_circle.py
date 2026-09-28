@@ -25,6 +25,7 @@ from torrcast.usecases.discover._plan_menu import _plans
 from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover._second_typo import _second_typo
+from torrcast.usecases.discover.circle_watch import WATCH
 from torrcast.usecases.discover.cut_circle import CutCircle
 from torrcast.usecases.discover.named_round import NamedRound
 from torrcast.usecases.discover.recognized_pick import recognized_pick
@@ -69,7 +70,26 @@ def search_circle(
     боевое (:class:`~torrcast.adapters.prowlarr.prowlarr.Prowlarr`,
     :func:`~torrcast.usecases.passport.Passport.of`); называют их те, у кого своих служб нет, -
     тесты и щупы. ``on_indexer`` - шов превью (TC-1126): звонок сразу после сборки клиента.
+
+    Идущий круг виден под своей строкой и кончается меткой полноты (:data:`WATCH`).
     """
+    return WATCH.run(
+        args.title_query,
+        on_indexer,
+        lambda hear: _circle(config, args, progress, profile, indexer, passport, hear),
+    )
+
+
+def _circle(
+    config: Config,
+    args: Args,
+    progress: Progress,
+    profile: Profile,
+    indexer: Callable[[str, str], IndexerClient] | None,
+    passport: Callable[..., Origin] | None,
+    on_indexer: Callable[[IndexerClient], None],
+) -> list[Plan]:
+    """Сам круг: :func:`search_circle` без наблюдения за ним."""
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
         raise InfraError(phrase("discover.prowlarr_not_configured"))
     # Строка каталога и выбор после круга обязаны спросить Enter ОДНИМИ словами.

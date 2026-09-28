@@ -68,6 +68,10 @@ class NamedRound:
         """Rows of the picture's names that already answered."""
         return [row for client in list(self._named) for row in _inflight(client)]
 
+    def whole(self) -> bool:
+        """Every client of the picture's names heard all of its indexers."""
+        return all(_whole(client) for client in list(self._named))
+
     def ask(
         self,
         client: ToldIndexer,
@@ -130,6 +134,11 @@ def _texts(known: MapPicture | None, name: str) -> list[str]:
     texts = {f"{each}{tail}".casefold(): f"{each}{tail}" for each in names}
     texts.pop(name.casefold(), None)
     return list(texts.values())
+
+
+def _whole(client: IndexerClient) -> bool:
+    whole = getattr(client, "whole", None)
+    return bool(whole()) if callable(whole) else False
 
 
 def _inflight(client: IndexerClient) -> list[RawResult]:

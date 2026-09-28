@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.discover.cut_circle import CutCircle
 from torrcast.usecases.discover.told_circle import ToldCircle
@@ -76,10 +77,19 @@ class CircleMemory:
         with self._lock:
             return self.key(query) in self._revived
 
-    def refusal(self, query: str) -> TorrcastError | None:
-        """Свежий отказ этого запроса, если он есть."""
+    def refusal(self, query: str, retry: bool = False) -> TorrcastError | None:
+        """Свежий отказ этого запроса, если он есть.
+
+        ``retry`` - клик по живой «Играть»: пустота, за которую не ответил весь каталог
+        (``whole``), не повод отказать клику, и он ищет заново. Только «ничего», сказанное
+        каждым индексером, стоит свою минуту и против клика.
+        """
+        key = self.key(query)
         with self._lock:
-            empty = self._empty.get(self.key(query))
+            empty = self._empty.get(key)
+            if retry and empty is not None and not _whole(empty[0]):
+                del self._empty[key]
+                return None
         return empty[0] if empty is not None and empty[1] > self.clock() else None
 
     def keep(self, query: str, plans: list[Plan]) -> None:
@@ -143,6 +153,10 @@ class CircleMemory:
         """
         with self._lock:
             self._empty[self.key(query)] = (error, self.clock() + EMPTY_TTL)
+
+
+def _whole(error: TorrcastError) -> bool:
+    return isinstance(error, NotFoundError) and error.whole
 
 
 def _sources(told: list[Told]) -> set[str]:

@@ -13,6 +13,8 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.runtime.menu_facts import MenuFacts
 from web.answer import Answer
+from web.card_details import CardDetails
+from web.early_picture import early_picture
 from web.kin_ahead import KIN_AHEAD
 from web.rating_score import rating_score
 from web.request import Request
@@ -113,8 +115,9 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
     fact = facts.ready(title, year)
     told = facts.answered(title, year)
     kin = _related_of(related, title, series, fact, told, year)
+    early = getattr(early_picture(probe, key), "releases", [])
     if request.query.get("wait") == "1":
-        before = (fact, told, kin)
+        before = (fact, told, kin, early)
         until = time.monotonic() + PATIENCE
         while time.monotonic() < until:
             _sleep(_TICK)
@@ -123,9 +126,10 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
             fact = facts.ready(title, year)
             told = facts.answered(title, year)
             kin = _related_of(related, title, series, fact, told, year)
-            # Справка и родня приходят разными походами. Перемена одной не должна
+            early = getattr(early_picture(probe, key), "releases", [])
+            # Справка, родня и раздачи приходят разными походами. Перемена одной не должна
             # стоять за другой: ``related=None`` оставляет полку частичной.
-            if (fact, told, kin) != before:
+            if (fact, told, kin, early) != before:
                 break
     body: dict[str, JsonValue] = {
         "pick": 0,
@@ -148,8 +152,8 @@ def preview(request: Request, key: str, warm: _Warm, related: _Related) -> Answe
         "playing": False,
         "seasons": [],
         "related": _others(key, kin),
-        "releases_count": 0,
-        "sources_count": 0,
+        "releases_count": len(early),
+        "sources_count": CardDetails.sources_count(early),
         "searching": True,
     }
     # Always partial: ``searching`` has no end but the circle, even for a confirmed missing

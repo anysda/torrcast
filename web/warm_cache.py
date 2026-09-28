@@ -73,7 +73,7 @@ class WarmCache:
     def __post_init__(self) -> None:
         self._memory = CircleMemory(self.clock, self.ttl, self.disk, self.replay)
 
-    def take(self, query: str, circle: Circle | None = None) -> list[Plan]:
+    def take(self, query: str, circle: Circle | None = None, retry: bool = False) -> list[Plan]:
         """Круг живому запросу: согретый - сразу, иначе считается тут же, вперёд фона.
 
         Один круг на запрос для поиска, прогрева, карточки и «похожих»: идущий дожидаются,
@@ -89,7 +89,7 @@ class WarmCache:
             self._cond.wait_for(
                 lambda: key not in self._busy or self.ready(query) is not None, BUSY_WAIT
             )
-            refused = self._memory.refusal(query)
+            refused = self._memory.refusal(query, retry)
             ready = None if refused is not None else self.ready(query)
             if ready is not None and not self._memory.revived(query):
                 return ready

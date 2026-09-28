@@ -30,8 +30,8 @@ class _Warm:
     def __init__(self, circle: list[Any]) -> None:
         self.circle, self.asked = circle, []  # type: list[Any], list[str]
 
-    def take(self, query: str) -> list[Any]:
-        self.asked.append(query)
+    def take(self, query: str, retry: bool = False) -> list[Any]:
+        self.asked.append(("клик: " if retry else "") + query)
         return self.circle
 
     def ready(self, query: str) -> list[Any] | None:
@@ -61,7 +61,7 @@ def test_a_card_show_takes_the_card_circle_as_a_copy(monkeypatch: pytest.MonkeyP
 
     got = show_stage._card_circle(Any, Args(query=["тачки"], picture="k"), Any, Any)  # type: ignore[arg-type]
 
-    assert warm.asked == ["тачки"]
+    assert warm.asked == ["клик: тачки"], "пустота урезанного каталога не отказывает клику"
     assert [p.picture.key for p in got] == [p.picture.key for p in warm.circle]
     assert got[0] is not warm.circle[0], "отбор переставляет планы, кэш карточки служит дальше"
 

@@ -385,7 +385,7 @@ def test_an_unknown_key_is_a_404_not_a_crash(monkeypatch: pytest.MonkeyPatch) ->
     code, body, _extra = _asked("movie:nobody:1900")
 
     assert code == 404
-    assert body == {"error": "not_found"}
+    assert body == {"error": "not_found", "whole": False}
 
 
 def test_a_search_refusal_surfaces_as_409_with_the_products_own_word(
@@ -423,7 +423,7 @@ def test_a_mute_refusal_is_the_same_404_as_a_picture_the_circle_did_not_bring(
 
     code, body, _extra = _asked(_MOVIE.key)
 
-    assert (code, body) == (404, {"error": "not_found"})
+    assert (code, body) == (404, {"error": "not_found", "whole": False})
 
 
 def test_a_movie_card_lists_every_track_of_the_release_the_show_would_play(
@@ -1104,7 +1104,7 @@ def test_a_namesake_in_another_year_is_not_taken_for_the_asked_picture(
     code, body, _extra = _asked("movie:bones-and-all:2022", query="Bones and All")
 
     assert code == 404
-    assert body == {"error": "not_found"}
+    assert body == {"error": "not_found", "whole": False}
 
 
 def test_the_card_carries_its_own_number_in_the_circle(

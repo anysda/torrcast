@@ -39,9 +39,9 @@ from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices
 from web.card_warm import CARD_WARM
-from web.circle_refusal import circle_refusal
 from web.display_runtime import display_runtime
 from web.episode_lookup import GRACE, EpisodeLookup
+from web.heard_circle import HeardCircle
 from web.key_name import key_name
 from web.own_plan import own_plan
 from web.playing_on_tv import playing_on_tv
@@ -89,11 +89,11 @@ def card(request: Request) -> Answer:
     config = load_config()
     try:
         # Живой запрос не ждёт за очередью прогрева: несогретый круг он считает сам.
-        plan, pick, found = own_plan(key, query, title, WARM.take)
+        plan, pick, found = own_plan(key, query, title, asked := HeardCircle(WARM.take))
     except TorrcastError as failed:
-        return circle_refusal(failed)
+        return asked.refusal(failed)
     if plan is None:
-        return refusal(404, "not_found")
+        return asked.refusal(None)
     wait = WAIT if request.query.get("wait") == "1" else 0.0
     # Дорожки (:func:`_body`) спрашивают по строке, что и нашла картину, не по адресной.
     ask = replace(CardAsk.of(request.query), query=found)

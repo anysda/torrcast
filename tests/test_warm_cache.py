@@ -125,6 +125,32 @@ def test_nothing_found_is_remembered_for_a_minute_and_not_asked_again() -> None:
     assert asked == ["Ludwig", "Ludwig"]
 
 
+def test_a_play_click_searches_again_unless_every_indexer_said_nothing() -> None:
+    """Живая «Играть» ищет: пустота урезанного каталога не отказывает клику из памяти."""
+    asked: list[str] = []
+    whole = [False]
+
+    def _circle(query: str) -> list[Plan]:
+        asked.append(query)
+        nothing = NotFoundError("nothing")
+        nothing.whole = whole[0]
+        raise nothing
+
+    cache = _cache(_circle)
+    with pytest.raises(NotFoundError):
+        cache.take("Ludwig")
+    with pytest.raises(NotFoundError):
+        cache.take("Ludwig")  # переспрос карточки круг заново не гонит
+    assert asked == ["Ludwig"]
+    whole[0] = True
+    with pytest.raises(NotFoundError):
+        cache.take("Ludwig", retry=True)
+    assert asked == ["Ludwig", "Ludwig"], "клик по живой кнопке искал заново"
+    with pytest.raises(NotFoundError):
+        cache.take("Ludwig", retry=True)
+    assert asked == ["Ludwig", "Ludwig"], "каталог целиком сказал «нет»: клик не гонит круг"
+
+
 def test_a_screen_of_search_hits_costs_one_circle_for_the_whole_screen() -> None:
     """У выдачи запрос один на весь экран - и кругов у неё тоже один, а не по плитке."""
     circle = _Circle()

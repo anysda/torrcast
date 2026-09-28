@@ -86,17 +86,21 @@ const TCCard = {
       // Preview уже честно назвал карточку по фактам плитки. Полный круг иногда не
       // находит его ключ (раздачи успели смениться), и пустой `{ error }` не должен
       // стирать это тело вместе с заголовком, как было у «Вперёд» на 14.8 с.
-      if (said.missing && !data) data = TCCard._fallback(key);
+      if (said.missing && !data) data = { ...TCCard._fallback(key), whole: said.whole };
       // Тот же ответ, пришедший на скелет превью: круг кончился ничем, и слово «ищем
       // раздачи» на экране больше не правда. Без этого карточка картины, у которой
       // раздач правда нет, ждала их до закрытия вкладки.
-      else if (said.missing && data.searching) data = { ...data, searching: false };
+      else if (said.missing && data.searching) {
+        data = { ...data, searching: false, whole: said.whole };
+      }
       // Круг отказал словом (409): карточка читает его тем же текстом, что и выдача, а не
       // общим «Эта картина не найдена», которое молчит о причине (TC-1304). Отказ, пришедший
       // на скелет превью, встаёт наравне с отказом на пустое тело: скелет держит слово
       // «ищем раздачи», и отброшенный на нём отказ оставлял ожидание без конца.
       if (said.refused && (!data || data.searching)) {
-        data = { ...TCCard._fallback(key), error: 'not_found', refused: said.refused };
+        data = {
+          ...TCCard._fallback(key), error: 'not_found', refused: said.refused, whole: said.whole,
+        };
       }
       // Дорожки доезжают добором после «Играть», а не держат её: отбор раздачи - это рой.
       const voicesLeft = !!(data && data.voices_pending) && Date.now() < voicesUntil;
@@ -562,8 +566,10 @@ const TCCard = {
       return row;
     }
     const noReleases = data.searching || (data.releases_count || 0) === 0;
-    // «Играть» не ждёт круга карточки: раздачу ищет и выбирает показ по нажатию.
-    const noPlay = !data.searching && (data.releases_count || 0) === 0;
+    // «Играть» не ждёт круга карточки: раздачу ищет и выбирает показ по нажатию. Гаснет она
+    // только там, где найти правда нечего: ответил каждый индексер, и раздач нет. Упал или
+    // смолчал хоть один - нажатие ищет само, как у всякой картины без раздач.
+    const noPlay = !data.searching && (data.releases_count || 0) === 0 && data.whole === true;
 
     const voices = Array.isArray(data.voices) ? data.voices : [];
     const chosen = TCCard._chosenVoice(voices);
@@ -942,7 +948,8 @@ const TCCard = {
   _releases(data) {
     const line = document.createElement('div');
     line.className = 'tc-releases';
-    if (data.searching) {
+    // Пока круг идёт, счёт растёт с каждым ответившим индексером, а не встаёт куском в конце.
+    if (data.searching && !data.releases_count) {
       line.textContent = TC.say('web.detail.searching_releases');
       return line;
     }

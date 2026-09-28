@@ -35,7 +35,7 @@ def stood() -> dict[str, Any]:
     return said
 
 
-@pytest.mark.parametrize("screen", ["noReleases", "searching", "found"])
+@pytest.mark.parametrize("screen", ["noReleases", "unheard", "searching", "found"])
 def test_every_stop_of_the_remote_ring_actually_takes_the_focus(
     stood: dict[str, Any], screen: str
 ) -> None:
@@ -65,3 +65,24 @@ def test_a_picture_with_releases_keeps_its_play_button_in_the_ring(
     assert stood["found"]["play_disabled"] is False, stood["found"]
     assert stood["found"]["play_in_ring"] is True, stood["found"]
     assert stood["searching"]["play_in_ring"] is True, stood["searching"]
+
+
+def test_play_stays_alive_while_the_emptiness_is_not_proven(stood: dict[str, Any]) -> None:
+    """Серой «Играть» бывает, только когда ответил каждый индексер и раздач нет.
+
+    Упал или смолчал хоть один - картина могла лежать как раз у него, и нажатие ищет само.
+    """
+    shown = stood["unheard"]
+    assert shown["play_disabled"] is False, shown
+    assert shown["play_in_ring"] is True, shown
+
+
+def test_the_release_count_grows_while_the_circle_is_still_running(
+    stood: dict[str, Any],
+) -> None:
+    """Счёт раздач приходит с первым индексером, а не одним куском в конце круга."""
+    lines = stood["lines"]
+    assert lines["nothingYet"] == "web.detail.searching_releases", lines
+    assert lines["growing"] == ("web.detail.release:12 web.detail.from web.detail.source_from:2"), (
+        lines
+    )

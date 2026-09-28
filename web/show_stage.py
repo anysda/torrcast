@@ -15,6 +15,7 @@ from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.reinforce.plan_for import plan_for
 from web.card_lookup import card_lookup
 from web.card_warm import CARD_WARM
+from web.early_picture import early_picture
 from web.warm_wiring import WARM
 
 if TYPE_CHECKING:
@@ -33,9 +34,15 @@ def _card_circle(config: Config, args: Args, progress: Progress, profile: Profil
     (:func:`_season_circle`); сезона в нём нет - добор сезона умеет только свой поиск.
     Копия, а не общий объект: отбор переставляет планы, а кэш карточки служит дальше.
     Круг с диска идёт в показ сразу; пул в нём старый - за свежим ходит :func:`_card_renewed`.
+    Круг ещё идёт, а картина уже есть в пришедшей выдаче - показ берёт её пул, не дожидаясь
+    опоздавших индексеров (:func:`web.early_picture.early_picture`).
     """
     if args.picture and args.episode is None:
-        return [_detached(plan) for plan in WARM.take(args.title_query)]
+        if WARM.ready(args.title_query) is None and (
+            early := early_picture(args.title_query, args.picture)
+        ):
+            return [plan_for(copy.copy(early), args, config, profile)]
+        return [_detached(plan) for plan in WARM.take(args.title_query, retry=True)]
     if args.picture and (season := _season_circle(config, args, profile)):
         return season
     return search_circle(config, args, progress, profile)

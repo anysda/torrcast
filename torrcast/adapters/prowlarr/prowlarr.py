@@ -39,9 +39,9 @@ class Prowlarr(_State):
         general = self._url(query, limit)
         results = found if found is not None else from_json(self._api.get_json(general))
         if not results:
-            raise nothing_found(
-                query, self.banned, self._roster.refused(self.banned, self._begun_at), self.silent
-            )
+            refused = self._roster.refused(self.banned, self._begun_at)
+            self.short.update(refused)
+            raise nothing_found(query, self.banned, refused, self.silent)
         return results
 
     def feed(self, limit: int = 200) -> list[FeedRow]:
@@ -119,6 +119,8 @@ class Prowlarr(_State):
         self.silent = tuple(self._circle.lost)
         self.capped = capped_indexers(self._circle.counts)
         self.cut = (*self.cut, *cut_short(self._circle.counts, self._circle.spent))
+        self.apart = True
+        self.short.update((*self.silent, *self.banned, *self.cut))
         # 🔴 TC-318. Пул ПУСТ, а опоздавший ещё в пути - вот тут его и дожидаются:
         # показывать всё равно нечего, и он единственный, кто ещё может привезти картину.
         # Пустая выдача ответившего идёт тут наравне с молчанием - строк не приехало ни

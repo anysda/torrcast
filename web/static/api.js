@@ -87,11 +87,15 @@ const TCApi = {
   // Слово отказа из тела 409. У поиска и карточки это готовая фраза продукта на языке
   // экземпляра (`hass.refused_error.RefusedError`), а не ключ договора: её и показывают.
   async _word(said) {
+    const body = await TCApi._body(said);
+    return typeof (body && body.error) === 'string' ? body.error : '';
+  },
+
+  async _body(said) {
     try {
-      const body = await said.json();
-      return typeof (body && body.error) === 'string' ? body.error : '';
+      return await said.json();
     } catch (error) {
-      return '';
+      return null;
     }
   },
 
@@ -115,9 +119,12 @@ const TCApi = {
     try {
       const said = await fetch(url);
       if (!said.ok) {
+        const body = await TCApi._body(said);
+        const word = said.status === 409 && body && body.error;
+        // `whole`: пустоту подтвердил каждый индексер, и найти картину правда нечем.
         return {
           data: null, partial: false, missing: said.status === 404,
-          refused: said.status === 409 ? await TCApi._word(said) : '',
+          refused: typeof word === 'string' ? word : '', whole: !!body && body.whole === true,
         };
       }
       const data = await said.json();
