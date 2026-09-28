@@ -60,10 +60,10 @@ def test_past_the_last_episode_of_the_release_the_catalogue_names_the_next(
         query="rick and morty",
     )
     store.save(state)
-    asked: list[tuple[int | None, int | None]] = []
+    asked: list[tuple[int | None, int | None, str, str]] = []
 
-    def catalogue(entry: Entry) -> str | None:
-        asked.append((entry.season, entry.episode))
+    def catalogue(entry: Entry, key: str, query: str) -> str | None:
+        asked.append((entry.season, entry.episode, key, query))
         return "s8e4"
 
     monkeypatch.setattr(following_module, "catalog_next", catalogue)
@@ -71,7 +71,7 @@ def test_past_the_last_episode_of_the_release_the_catalogue_names_the_next(
     said = following(FakePlaybackSession(playing=True, play_key="tv:рик"))
 
     assert said == "rick and morty s8e4"
-    assert asked == [(8, 3)]
+    assert asked == [(8, 3, "tv:рик", "rick and morty")], "пул спрашивается кругом запроса"
 
 
 def test_inside_the_release_the_catalogue_is_not_asked(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,6 +88,6 @@ def test_inside_the_release_the_catalogue_is_not_asked(monkeypatch: pytest.Monke
         query="чернобыль",
     )
     store.save(state)
-    monkeypatch.setattr(following_module, "catalog_next", lambda _e: "s9e9")
+    monkeypatch.setattr(following_module, "catalog_next", lambda *_a: "s9e9")
 
     assert following(FakePlaybackSession(playing=True, play_key="tv:чернобыль")) == "чернобыль s1e4"

@@ -20,12 +20,10 @@ def following(session: PlaybackSession) -> str | None:
     if entry is None:
         return None
     after = entry.advance()
-    # Раздача кончилась - сериал не обязательно: серию за её краем называет каталог.
-    label = catalog_next(entry) if after.done else after.label
-    if not label:
-        return None
     # Запрос собирается из записи ровно так же, как его собирает поиск следующего
     # сезона (:func:`torrcast.usecases.next_season._next_season`), а серия встаёт в
     # него так же, как её называет человек: `cast киберпанк s2e5` (TC-807).
     words = (entry.query or slugify(entry.title)).replace("-", " ")
-    return f"{words} {label}"
+    # Раздача кончилась - сериал не обязательно: серию за её краем называет каталог.
+    label = catalog_next(entry, session.key(), words) if after.done else after.label
+    return f"{words} {label}" if label else None
