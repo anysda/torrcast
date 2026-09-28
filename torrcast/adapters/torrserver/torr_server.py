@@ -150,6 +150,7 @@ class TorrServer:
 
     def alive(self) -> bool:
         import requests
+
         if self._session is None:
             self._session = requests.Session()
         try:
@@ -181,6 +182,7 @@ class TorrServer:
 
     def _post(self, path: str, body: dict[str, Any], json_body: bool = True) -> Any:
         import requests
+
         if self._session is None:
             self._session = requests.Session()
         try:
