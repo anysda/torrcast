@@ -482,7 +482,8 @@ def test_a_direct_link_gets_its_poster_before_the_release_circle(
     за 10 мс, а молчащий источник не держит имя и год (на стенде обложка ждала круг 5-10 с).
     """
     monkeypatch.setattr(web.preview, "MenuFacts", _Facts)
-    monkeypatch.setattr(web.preview, "_sleep", lambda _seconds: None)
+    slept: list[float] = []
+    monkeypatch.setattr(web.preview, "_sleep", slept.append)
     judged: list[object] = []
 
     def poster(picture: Picture) -> tuple[str | None, bool]:
@@ -500,6 +501,7 @@ def test_a_direct_link_gets_its_poster_before_the_release_circle(
 
     said, _took = ask(poster)
     assert said["poster"] == "a054ba673f4c8d67", "первый ответ отдал скелет без обложки"
+    assert slept and max(slept) <= 0.01, f"приговор за 10 мс ждался шагом долгого опроса: {slept}"
     assert getattr(judged[0], "key", "") == "movie:отступники:2006"
     said, took = ask(lambda _picture: (None, True))
     assert said["poster"] is None

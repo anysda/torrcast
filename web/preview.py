@@ -124,7 +124,7 @@ def preview(
     before, hold = seen, PATIENCE if wait else _ART if seen[4][1] else 0.0
     until = time.monotonic() + hold if hold else 0.0
     while hold and time.monotonic() < until:
-        _sleep(_TICK)
+        _sleep(_TICK if wait else _ART / 20)  # a disk verdict lands in 10 ms, not a tick
         if warm.ready(probe) is not None:
             return None  # the circle landed: the full card answers now, not after PATIENCE
         # Справка, родня, обложка и раздачи едут порознь: перемена одной не стоит за другой.
