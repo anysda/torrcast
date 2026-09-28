@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torrcast.usecases.cast_command._play_state as _play_state
+import torrcast.usecases.next_season as _next_season
 import torrcast.usecases.playback._show_state as _show_state
 import torrcast.usecases.releases_command as _releases_command
 import torrcast.usecases.revive_playback._revive_state as _revive_state
@@ -42,6 +43,7 @@ from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.runtime.native_picture import native_picture
+from torrcast.runtime.series_facts import SeriesFacts
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.runtime.wire_show import wire_show
 
@@ -99,6 +101,8 @@ def test_the_show_gets_the_real_media_pipeline_and_the_real_receiver() -> None:
     assert _worker._worker_configs is load_config
     assert _worker._worker_detect == detector.detect
     assert _worker_loop._worker_thresholds is trace_thresholds
+    # Одиночная серия на ТВ: без каталога юнит гас бы молча, не назвав следующую.
+    assert type(_next_season._series) is SeriesFacts
 
     # Команды cast: показ, таблица релизов и меню озвучек.
     assert _play_state._play_engines is TorrServer

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,15 +14,19 @@ from tests.fakes.journal import Tape
 from tests.fakes.state_store import FakeStateStore
 from tests.fakes.stream_source import FakeStreamSource
 from tests.fakes.torrent_engine import FakeTorrentEngine
+from tests.usecases import test_next_season as seasons_mirror
 from tests.usecases.revive_playback.world import (
     Beat,
     RemoteClosedReceiver,
     feed_with_segments,
 )
+from torrcast.domain._series import _Series
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.episode import Episode
 from torrcast.domain.media import Media
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.worker_settings import WORKER_META
@@ -29,6 +35,7 @@ from torrcast.ports.receiver import Receiver
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases import worker_loop
 from torrcast.usecases.following import _following
+from torrcast.usecases.next_season import _next_season
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.worker_loop import _worker_loop
@@ -523,3 +530,73 @@ def test_a_naturally_ended_show_still_raises_the_next_episode(
     assert phrase("worker.next_episode", label="s1e8") in capsys.readouterr().out, (
         "переход к следующей серии назван вслух, а не сделан молча"
     )
+
+
+def test_a_lone_episode_is_continued_by_the_episode_the_catalogue_names(
+    monkeypatch: pytest.MonkeyPatch, _ports_restored: None
+) -> None:
+    """Раздача одной серии доиграна - цикл юнита сам ищет и играет следующую серию.
+
+    Раньше одиночная серия сериалом не считалась (:attr:`Entry.serial`), и юнит на её конце
+    гас молча. Поиск тут настоящий (:func:`_next_season`), подставные у него только круг
+    раздач, стенд отбора и каталог сериала.
+    """
+    key = "tv:сериал:2020"
+    state = FakeStateStore()
+    fresh = state.load()
+    lone = [[8, 1, 0, 10**9]]
+    fresh.put(key, Entry(title="Сериал", magnet="magnet:?xt=s8e1", kind="tv", season=8,
+                         episode=1, dur=1400.0, depth=8, frame=1080, episodes=lone))  # fmt: skip
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(Tape())
+    monkeypatch.setattr(worker_loop, "_worker_thresholds", lambda *_a: {})
+    monkeypatch.setattr(
+        "torrcast.usecases.episode_duration._episode_prober",
+        lambda *_a, **_k: Media(duration=1400.0, video="h264", height=1080, width=1920),
+    )
+    played: list[tuple[int | None, int | None]] = []
+
+    def play(
+        _c: object, _s: object, _a: object, title: str, _clock: object, watch: Any, **_kw: object
+    ) -> int:
+        played.append((watch.entry.season, watch.entry.episode))
+        watch.done = True
+        keeper = state_slot.store()
+        now = keeper.load()
+        now.put(key, watch.entry.advance())
+        keeper.save(now)
+        return 0
+
+    plan = replace(seasons_mirror._plan(), series=_Series(want=Episode(8, 2)))
+    prep = seasons_mirror._prep(plan)
+    second = TorrFile(index=0, name="сериал/s08e02.mkv", size=8 * 1024**3)
+    prep.video, prep.files = second, [second]
+    asked: list[str] = []
+
+    def circle(_config: object, args: Any, *_rest: object, **_kw: object) -> list[Any]:
+        asked.append(str(args.episode))
+        if len(asked) > 1:
+            raise NotFoundError("раздач s8e3 нет")
+        return [plan]
+
+    code = worker_loop._worker_loop(
+        Config(),
+        key,
+        FakeTorrentEngine(),
+        None,  # type: ignore[arg-type]
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        play=play,
+        next_season=partial(
+            _next_season,
+            circle=circle,
+            stand=lambda *_a, **_k: seasons_mirror._Bench(prep),  # type: ignore[arg-type]
+            series=seasons_mirror.RICK,
+        ),
+    )
+
+    assert code == 0
+    assert asked == ["s8e2", "s8e3"], "следующая названа каталогом и запрошена поиском"
+    assert played == [(8, 1), (8, 2)], "s8e2 юнит сыграл сам"

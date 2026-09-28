@@ -153,7 +153,10 @@ def _worker_loop(
         # и записывается в состояние здесь, и цикл играет его, как играл бы следующую
         # серию внутри пака. Не нашёлся - строка уже сказана, и показ заканчивается.
         if following is None and watch.done and next_season(config, key, torrserver, profile):
-            following = _following(key)
+            # Записанное поиском играется, даже если это раздача одной серии: подписи у
+            # такой записи нет (:attr:`Entry.label`), но это найденная следующая серия.
+            following = store().load().get(key)
         if following is None:
             return code
-        print(phrase("worker.next_episode", label=following.label), flush=True)
+        label = following.label or f"s{following.season}e{following.episode}"
+        print(phrase("worker.next_episode", label=label), flush=True)

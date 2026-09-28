@@ -2,6 +2,8 @@
 
 Зовёт её композиционный корень (:func:`torrcast.runtime.wire.wire`), и только он."""
 
+from functools import partial
+
 from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.clear_web_position import clear_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
@@ -31,12 +33,17 @@ from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.supply import Supply
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.torr_server import TorrServer
+from torrcast.adapters.wiki.imdb_episode_index.seasons import seasons
+from torrcast.adapters.wiki.tvmaze_episodes import TvmazeEpisodes
+from torrcast.domain.facts.settings import EPISODES_PATH
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.runtime.native_picture import native_picture
+from torrcast.runtime.series_facts import SeriesFacts
 from torrcast.runtime.show_unit import start_play_unit
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.usecases.cast_command._play_state import _configure_cast_command
+from torrcast.usecases.next_season import _configure_next_season
 from torrcast.usecases.playback._show_state import _configure_playback
 from torrcast.usecases.playback.show_environment import ShowEnvironment
 from torrcast.usecases.releases_command import _configure_releases_command
@@ -53,6 +60,13 @@ def wire_show() -> None:
     # уже внутри юнита.
     _configure_worker(TorrServer, make_receiver, Supply, load_config, detector.detect)
     _configure_worker_loop(trace_thresholds)
+    # Серию за одиночной раздачей юнит называет тем же каталогом, что и карточка
+    # (:data:`web.series_catalog.SERIES`), только собранным тут: веба юнит не видит.
+    _configure_next_season(
+        SeriesFacts(
+            FACTS.catalogue.series_id, partial(seasons, EPISODES_PATH), TvmazeEpisodes().aired
+        )
+    )
     # Команды ``cast`` берут свой внешний мир тем же порядком: службу раздач, настройки,
     # паспорт приёмника, справку о картинах, происхождение картины, память показанной
     # таблицы, разбор сырой выдачи каталога и чтение кэша справки (имя играющей картины

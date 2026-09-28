@@ -28,6 +28,8 @@ from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.state_store.slot import install, store
+from torrcast.runtime.series_facts import SeriesFacts
+from torrcast.usecases import next_season as next_season_module
 from torrcast.usecases.next_season import _next_season
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
@@ -281,3 +283,89 @@ def test_anything_but_a_finished_season_is_not_looked_beyond(fields: dict[str, A
 def test_an_unknown_key_is_a_quiet_no() -> None:
     """Запись могли снести между сторожем и циклом - это не авария и не поиск."""
     assert _next_season(Config(), "tv:такого-нет:1900", FakeTorrentEngine(), CAUTIOUS) is False
+
+
+#: Каталог «Рика и Морти» без дат TVmaze: восьмой сезон целиком, девятый анонсирован.
+RICK = SeriesFacts(
+    lambda title, *_a: "tt2861424" if title == "Сериал" else "",
+    lambda _t: {8: tuple(range(1, 11)), 9: (1, 2)},
+    lambda *_a: ({}, False),
+)
+
+
+def _lone(episode: int) -> dict[str, Any]:
+    """Досмотренная раздача ОДНОЙ серии восьмого сезона: соседей она не знает."""
+    return {
+        "season": 8,
+        "episode": episode,
+        "magnet": f"magnet:?xt=s8e{episode}",
+        "episodes": [[8, episode, 0, 10**9]],
+    }
+
+
+def test_a_lone_episode_searches_and_records_the_episode_the_catalogue_names() -> None:
+    """Раздача s8e1 доиграна - юнит ищет s8e2 и кладёт её в состояние, а не гаснет."""
+    entry = _put(**_lone(1))
+    assert not entry.serial, "одна серия - не пак: старый путь сезона её не видел"
+    plan = _plan()
+    prep = _prep(plan)
+    files = [TorrFile(index=0, name="сериал/s08e02.mkv", size=8 * 1024**3)]
+    prep.video, prep.files = files[0], files
+    asked: list[Args] = []
+
+    def circle(_config: object, args: Args, *_rest: object, **_kw: object) -> list[Plan]:
+        asked.append(args)
+        return [plan]
+
+    found = _next_season(
+        Config(),
+        KEY,
+        FakeTorrentEngine(),
+        CAUTIOUS,
+        circle=circle,
+        stand=lambda *_a, **_k: _Bench(prep),  # type: ignore[arg-type]
+        series=RICK,
+    )
+
+    assert found is True
+    assert [str(args.episode) for args in asked] == ["s8e2"], "названа и запрошена s8e2"
+    after = store().load().get(KEY)
+    assert after is not None
+    assert (after.season, after.episode, after.done) == (8, 2, False)
+
+
+def test_a_lone_episode_outside_the_catalogue_or_at_its_end_is_not_searched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Каталога нет или картины в нём нет - поиска нет, запись досмотренной не тронута."""
+    monkeypatch.setattr(next_season_module, "_series", None)
+
+    def circle(*_args: object, **_kw: object) -> list[Plan]:
+        raise AssertionError("искать тут нечего")
+
+    _put(**_lone(1))
+    assert _next_season(Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=circle) is False
+    _put(**_lone(1), title="Другой")
+    assert (
+        _next_season(Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=circle, series=RICK)
+        is False
+    )
+
+
+def test_a_lone_last_episode_of_a_season_searches_the_next_season(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """s8e10 одной раздачей: следующий по каталогу s9e1, и строка та же, что у пака."""
+    _put(**_lone(10))
+    asked: list[Args] = []
+
+    def circle(_config: object, args: Args, *_rest: object, **_kw: object) -> list[Plan]:
+        asked.append(args)
+        raise NotFoundError("«Сериал»: раздач с сезоном 9 нет")
+
+    found = _next_season(Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=circle, series=RICK)
+
+    assert found is False
+    assert [str(args.episode) for args in asked] == ["s9e1"]
+    out = capsys.readouterr().out
+    assert phrase("season.searching_next", title="Сериал", season=8, upcoming=9) in out
