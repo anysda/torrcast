@@ -12,7 +12,8 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.domain.search_refusal_error import SearchRefusalError, SearchRefusalInfraError
+from torrcast.domain.search_refusal_error import SearchRefusalError
+from torrcast.domain.search_refusal_infra_error import SearchRefusalInfraError
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress

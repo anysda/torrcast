@@ -29,7 +29,8 @@ from torrcast.domain.goal_spare import GOAL
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import Profile
-from torrcast.domain.search_refusal_reason import SearchRefusalReason, reason_of
+from torrcast.domain.reason_of import reason_of
+from torrcast.domain.search_refusal_reason import SearchRefusalReason
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.progress.progress import Progress

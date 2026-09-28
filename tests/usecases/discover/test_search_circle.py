@@ -14,7 +14,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
-from torrcast.domain.search_refusal_reason import reason_of
+from torrcast.domain.reason_of import reason_of
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.state_store.slot import install
 from torrcast.usecases.choice.enter_take import enter_take

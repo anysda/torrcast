@@ -25,7 +25,7 @@ from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.domain.search_refusal_error import SearchRefusalInfraError
+from torrcast.domain.search_refusal_infra_error import SearchRefusalInfraError
 from torrcast.usecases.discover.search_circle import search_circle
 
 _CONFIG = Config(prowlarr_apikey="KEY")

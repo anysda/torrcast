@@ -6,7 +6,7 @@ import json
 
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.nothing_found_error import NothingFoundError
-from torrcast.domain.search_refusal_reason import reason_of
+from torrcast.domain.reason_of import reason_of
 from torrcast.domain.torrcast_error import TorrcastError
 from web.answer import Answer
 

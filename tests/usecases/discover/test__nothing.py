@@ -6,7 +6,7 @@ import pytest
 
 from tests.usecases.discover.world import pictures, row
 from torrcast.domain.nothing_found_error import NothingFoundError
-from torrcast.domain.search_refusal_reason import reason_of
+from torrcast.domain.reason_of import reason_of
 from torrcast.usecases.discover._nothing import _nothing
 
 

@@ -19,13 +19,4 @@ class SearchRefusalReason:
         return {"key": self.key, "values": self.values}
 
 
-def reason_of(error: Exception) -> SearchRefusalReason:
-    """Return the named reason or the honest generic external failure."""
-    from torrcast.domain.search_refusal_error import SearchRefusalError, SearchRefusalInfraError
-
-    if isinstance(error, SearchRefusalError | SearchRefusalInfraError):
-        return error.reason
-    return SearchRefusalReason("web.search.failed", {})
-
-
-__all__ = ["SearchRefusalReason", "reason_of"]
+__all__ = ["SearchRefusalReason"]
