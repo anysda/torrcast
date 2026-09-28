@@ -1,0 +1,76 @@
+// hls.js грузится показом, а не страницей: настоящий `player.js` в node, `_attach` до и
+// после загрузки файла. Решает `tests/test_player_hls_lazy.py`.
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const STATIC = path.join(__dirname, '..', '..', 'web', 'static');
+
+function hlsStub(made) {
+  function Hls(opts) { this.opts = opts; made.push(this); }
+  Hls.prototype.on = function on() {};
+  Hls.prototype.loadSource = function loadSource(url) { this.url = url; };
+  Hls.prototype.attachMedia = function attachMedia() {};
+  Hls.prototype.destroy = function destroy() {};
+  Hls.isSupported = () => true;
+  Hls.Events = { MANIFEST_PARSED: 'MANIFEST_PARSED', ERROR: 'ERROR' };
+  return Hls;
+}
+
+function stand() {
+  const tags = [];
+  const ctx = {
+    console,
+    addEventListener() {},
+    MediaSource: function MediaSource() {},
+    document: {
+      addEventListener() {},
+      head: { appendChild(tag) { tags.push(tag); return tag; } },
+      createElement(name) {
+        const heard = {};
+        return {
+          name, src: '', heard,
+          addEventListener(event, fn) { (heard[event] = heard[event] || []).push(fn); },
+        };
+      },
+    },
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(STATIC, 'player.js'), 'utf8'), ctx, { filename: 'player.js' });
+  const player = vm.runInContext('TCPlayer', ctx);
+  player._video = { src: '', addEventListener() {} };
+  return { ctx, tags, player };
+}
+
+const settle = () => new Promise((done) => setImmediate(done));
+
+async function loaded() {
+  const { ctx, tags, player } = stand();
+  const made = [];
+  player._attach('/hls/first.m3u8', 0);
+  player._attach('/hls/second.m3u8', 7);
+  const before = { tags: tags.map((t) => t.src), made: made.length };
+  ctx.Hls = hlsStub(made);
+  tags.forEach((t) => (t.heard.load || []).forEach((fn) => fn()));
+  await settle();
+  return {
+    before,
+    after: made.map((h) => [h.url, h.opts.startPosition]),
+    tags: tags.length,
+  };
+}
+
+async function failed() {
+  const { tags, player } = stand();
+  player._attach('/hls/only.m3u8', 0);
+  tags.forEach((t) => (t.heard.error || []).forEach((fn) => fn()));
+  await settle();
+  return { tags: tags.length, src: player._video.src };
+}
+
+(async () => {
+  process.stdout.write(JSON.stringify({ loaded: await loaded(), failed: await failed() }));
+})();

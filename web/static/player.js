@@ -61,6 +61,7 @@ const TCPlayer = {
     video.playsInline = true;
     TCPlayer._nodes.frame.prepend(video);
     TCPlayer._video = video;
+    TCPlayer._hlsLoad();
     video.addEventListener('playing', () => {
       TCPlayer._framed = true;
       TCPlayer._ordered = false;
@@ -277,14 +278,41 @@ const TCPlayer = {
   TAB_SECONDS: 30,
   TAB_BYTES: 60 * 1000 * 1000,
 
+  //: hls.js (414 КБ, 40 мс разбора) не стоит в `index.html`: там он держал первый кадр
+  //: любой страницы, а нужен только показу. Грузится с `mount` и ждётся в `_attach`.
+  //: Не загрузился - второй попытки нет, `_attach` уходит в родной `<video>`.
+  _hlsLoad() {
+    if (TCPlayer.ready() || TCPlayer._hlsTried || typeof MediaSource === 'undefined') return null;
+    if (!TCPlayer._hlsWait) {
+      TCPlayer._hlsWait = new Promise((done) => {
+        const tag = document.createElement('script');
+        const over = () => { TCPlayer._hlsTried = true; done(); };
+        tag.src = '/static/hls-1.5.17.min.js';
+        tag.addEventListener('load', over);
+        tag.addEventListener('error', over);
+        document.head.appendChild(tag);
+      });
+    }
+    return TCPlayer._hlsWait;
+  },
+
   //: Поток - ОДНА полоса упаковки на всю машину (замер 06-09-2026): тут ровно один
   //: ``Hls``, старый уничтожается ДО создания нового, второго читателя не заводим.
   _attach(url, at) {
+    const video = TCPlayer._video;
+    const loading = TCPlayer._hlsLoad();
+    if (loading) {
+      // Второй `_attach` за время загрузки заменяет первый: встаёт только последний.
+      const turn = (TCPlayer._hlsTurn = (TCPlayer._hlsTurn || 0) + 1);
+      loading.then(() => {
+        if (turn === TCPlayer._hlsTurn && TCPlayer._video === video) TCPlayer._attach(url, at);
+      });
+      return;
+    }
     if (TCPlayer._hls) {
       TCPlayer._hls.destroy();
       TCPlayer._hls = null;
     }
-    const video = TCPlayer._video;
     const onReady = () => { video.currentTime = at || 0; video.play().catch(() => {}); };
     if (TCPlayer.ready()) {
       // Секунду показа знает hls.js, а не `<video>`: первый кусок он просит ДО того, как
