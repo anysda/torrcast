@@ -122,3 +122,56 @@ def test_warming_a_name_asks_for_it_once_and_does_not_wait_for_the_answer() -> N
         assert asked == ["en.wikipedia.org"], "одна нитка на имя, сколько его ни грей"
     finally:
         slow.set()
+
+
+def test_a_lookup_lost_on_the_wire_gets_one_spare() -> None:
+    """A lost resolver answer costs about the spare delay, not the resolver's own retry."""
+    asked: list[str] = []
+    lost = threading.Event()
+
+    def flaky(host: str) -> list[Any]:
+        asked.append(host)
+        if len(asked) == 1:
+            lost.wait(5.0)  # the first answer went missing: the resolver sits out its retry
+        return [(0, 0, 0, "", ("1.2.3.4", 0))]
+
+    client = AddressMemory(lookup=flaky)
+    started = time.monotonic()
+    try:
+        assert client._resolve("m.example", 8.0) == "1.2.3.4"
+        assert time.monotonic() - started < 2.0, "the lookup sat out the lost answer"
+        assert len(asked) == 2
+        client._resolved.clear()  # the address aged out while the lost lookup still hangs
+        assert client._resolve("m.example", 8.0) == "1.2.3.4"
+    finally:
+        lost.set()
+
+
+@pytest.mark.machine
+def test_a_silent_name_never_gets_a_third_lookup() -> None:
+    """Two askers of one silent name share its lookup and its single spare."""
+    asked: list[str] = []
+    silent = threading.Event()
+
+    def mute(host: str) -> list[Any]:
+        asked.append(host)
+        silent.wait(5.0)
+        return []
+
+    client = AddressMemory(lookup=mute)
+    threading.Timer(1.6, silent.set).start()
+    refused: list[str] = []
+
+    def ask() -> None:
+        try:
+            client._resolve("q.example", 1.3)
+        except OSError as refusal:
+            refused.append(str(refusal))
+
+    askers = [threading.Thread(target=ask) for _ in range(2)]
+    for one in askers:
+        one.start()
+    for one in askers:
+        one.join(10.0)
+    assert len(refused) == 2
+    assert len(asked) == 2, f"one lookup and one spare per silent name, asked {asked}"

@@ -15,6 +15,9 @@ _RESOLVE_TTL: Final = 600.0
 #: резолвере, в Python нечем. Потолок у закрытия не свой: дольше, чем всё меню согласно
 #: ждать справку, держать его незачем - ответа к этому сроку не ждёт уже никто.
 _CLOSING: Final = FACTS_BUDGET
+#: After how long a silent lookup gets one spare, seconds. A resolver that lost its UDP answer
+#: waits out its own retry (five seconds by default); a fresh query is usually back in tens of ms.
+_SPARE_AFTER: Final = 1.0
 
 
 def _getaddrinfo(host: str) -> list[Any]:
@@ -32,7 +35,8 @@ class AddressMemory:
     def __init__(self, lookup: Callable[[str], list[Any]] = _getaddrinfo) -> None:
         self.lookup = lookup
         self._resolved: dict[str, tuple[float, str]] = {}
-        self._looking: dict[str, threading.Thread] = {}
+        self._looking: dict[str, list[threading.Thread]] = {}
+        self._answered: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
 
     def warm(self, host: str) -> None:
@@ -61,16 +65,23 @@ class AddressMemory:
         своей нитки, и за вечер их набиралось столько же, сколько было запросов.
 
         Не отпустил резолвер и за :data:`_CLOSING` - нитка остаётся ОДНА на имя: следующий
-        спросивший ждёт её же (:meth:`_looker`), а не заводит вторую.
+        спросивший ждёт её же (:meth:`_looker`), а не заводит вторую. The one exception is the
+        spare after :data:`_SPARE_AFTER`: a lost UDP answer holds the system resolver for its
+        whole retry, and one fresh query per silent name is what the first screen can afford.
         """
         known = self._known(host)
         if known is not None:
             return known
-        worker = self._looker(host)
-        worker.join(timeout)
+        began = time.monotonic()
+        workers = [self._looker(host)]
+        answered = self._arrival(host)
+        if not answered.wait(min(timeout, _SPARE_AFTER)) and workers[0].is_alive():
+            workers.append(self._looker(host, spare=True))
+        answered.wait(max(0.0, began + timeout - time.monotonic()))
         found = self._known(host)
-        if worker.is_alive():
-            worker.join(_CLOSING)  # закрываем за собой то, что подняли
+        closing = time.monotonic() + _CLOSING
+        for worker in workers if found is None else ():
+            worker.join(max(0.0, closing - time.monotonic()))  # закрываем за собой поднятое
         if found is None:
             raise OSError(f"{host}: address not resolved in {timeout:.1f} s")
         return found
@@ -83,10 +94,16 @@ class AddressMemory:
             return None
         return hit[1]
 
-    def _looker(self, host: str) -> threading.Thread:
-        """Нитка, разрешающая имя: одна на имя, а не одна на запрос.
+    def _arrival(self, host: str) -> threading.Event:
+        """Set once the name's current round has an address or no lookup left running."""
+        with self._lock:
+            return self._answered[host]
+
+    def _looker(self, host: str, spare: bool = False) -> threading.Thread:
+        """Нитка, разрешающая имя: одна на имя, а не одна на запрос; ``spare`` - вторая.
 
         Память пишет она сама - тогда ответ, приехавший после срока, не пропадает даром.
+        The spare is one more fresh query for a lookup that went silent, never a third one.
         """
 
         def look() -> None:
@@ -95,14 +112,24 @@ class AddressMemory:
                 if info:
                     with self._lock:
                         self._resolved[host] = (time.monotonic(), str(info[0][4][0]))
+                    arrived.set()
             with self._lock:
-                self._looking.pop(host, None)
+                mine = self._looking.get(host, [])
+                if worker in mine:  # a thread of an ended round leaves the new one alone
+                    mine.remove(worker)
+                    if not mine:
+                        arrived.set()
 
         with self._lock:
-            running = self._looking.get(host)
-            if running is not None and running.is_alive():
-                return running
+            running = [one for one in self._looking.get(host, ()) if one.is_alive()]
+            if running and self._answered[host].is_set():
+                running = []  # that round is over: a hung lookup there is nobody's answer
+            if running and (not spare or len(running) > 1):
+                return running[-1]
+            if not running:
+                self._answered[host] = threading.Event()
+            arrived = self._answered[host]
             worker = threading.Thread(target=look, daemon=True, name=f"resolve-{host}")
-            self._looking[host] = worker
-        worker.start()
+            self._looking[host] = [*running, worker]
+            worker.start()  # under the lock: a thread not yet started is not alive to the next
         return worker
