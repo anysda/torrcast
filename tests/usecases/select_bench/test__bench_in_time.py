@@ -136,3 +136,23 @@ def test_a_younger_release_whose_keyframe_map_is_still_read_does_not_jump_the_qu
     prep = bench.resolve(plan(_POOL), _ASKED, Said())
 
     assert prep.number == 1
+
+
+@pytest.mark.machine
+def test_the_show_taking_a_card_bench_does_not_wait_the_top_out_again(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """🔴 Срок идёт с первого отбора картины на стенде: показ после карточки старшую заново не ждёт.
+
+    Карточка на сроке взяла №2, показ, забрав её стенд, ждал №1 ещё 1.8 с
+    и всё равно взял №2.
+    """
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 1.0)
+    bench = Bench(Torrents(), prober=_prober(top_answers, 30.0, _RUS, _RUS))
+    assert bench.resolve(plan(_POOL), _ASKED, Said()).number == 2
+    began = time.monotonic()
+
+    prep = bench.resolve(plan(_POOL), _ASKED, Said())
+
+    assert prep.number == 2
+    assert time.monotonic() - began < 0.5

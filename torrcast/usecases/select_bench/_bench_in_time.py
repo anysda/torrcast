@@ -49,11 +49,13 @@ def _in_time(
 ) -> _Prep:
     """Дождаться раздачи ``prep``; после срока взять готовую годную из фронта, если она есть.
 
-    ``deadline`` - потолок фазы отбора (:data:`PICK_BUDGET`), срок считается от его начала.
+    ``deadline`` - потолок фазы отбора (:data:`PICK_BUDGET`). Срок считается от первого
+    отбора картины на этом стенде: показ, забравший стенд карточки, продолжает её отбор, и
+    от старшей, которую карточка уже не дождалась, клик второй раз срока не ждёт.
     Названный руками релиз не подменяется, запасной без русского звука тоже.
     """
     limit = tally.patience(deadline, bench.clock())
-    due = deadline - bench.pick_budget + PICK_IN_TIME
+    due = bench.judging.setdefault(plan.picture.key, deadline - bench.pick_budget) + PICK_IN_TIME
     if args.pinned or len(front) < 2:
         bench._wait(prep, progress, prefix=prefix, limit=limit)
         return prep
