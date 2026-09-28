@@ -855,8 +855,13 @@ def _cursor_sample(
     t: float, cls: bool, cursor: str, top: float | None = None, bottom: float | None = None
 ) -> dict[str, Any]:
     return {
-        "t": t, "cls": cls, "at": cursor, "ctl": cursor,
-        "root": cursor, "top": top, "bottom": bottom,
+        "t": t,
+        "cls": cls,
+        "at": cursor,
+        "ctl": cursor,
+        "root": cursor,
+        "top": top,
+        "bottom": bottom,
     }
 
 
@@ -907,9 +912,7 @@ def test_курсор_живой_след_зелёный_и_называет_ч�
     shown, shown_ok = module._cursor_rows("показ", _healthy_cursor_log(True))
 
     assert plain_ok and shown_ok
-    assert plain == [
-        "главная: покой 10012, клавиша 12, движение 12; на 5.0 с ещё виден"
-    ]
+    assert plain == ["главная: покой 10012, клавиша 12, движение 12; на 5.0 с ещё виден"]
     assert shown == [
         "показ: покой 10012, клавиша 12, движение 12; на 5.0 с ещё виден; "
         "панель Δверх 0, Δниз 0, Δверх 0, Δниз 0, Δверх 0, Δниз 0"
