@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
@@ -132,3 +135,33 @@ def test_a_top_taken_by_the_deadline_still_gives_way_to_a_read_honest_neighbour(
     chosen.hurried = True
 
     assert bench._honest(built, chosen, [1, 2], _ASKED, Said()).number == 2
+
+
+@pytest.mark.machine
+def test_a_neighbour_that_did_not_answer_is_not_waited_for_again_on_the_same_bench() -> None:
+    """🔴 «Во все тяжкие»: карточка ждала №3 весь бюджет и сыграла 400p, а показ на её
+    стенде спросил №3 заново и ждал его ещё 8 с."""
+    pool = [rel(name="r0 | Дубляж", seeders=140), rel(name="r1 | Дубляж", seeders=121)]
+    read, gone, asked = probes(pool, _media(400, 720), _media(1080, 1920)), threading.Event(), []
+
+    def prober(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        if f"hash-{pool[1].magnet}/" in source_url:
+            asked.append(source_url)
+            gone.wait(30.0)
+        return read(source_url, timeout=timeout)
+
+    bench = Bench(Torrents(), prober=prober, honest_budget=0.5)
+    built = plan(pool)
+    chosen = bench.start(built, 1)
+    bench._wait(chosen, Said())
+    try:
+        assert bench._honest(built, chosen, [1, 2], _ASKED, Said()) is chosen
+        began = time.monotonic()
+
+        played = bench._honest(built, chosen, [1, 2], _ASKED, Said())
+
+        assert played is chosen
+        assert time.monotonic() - began < 0.3
+        assert len(asked) == 1, "прожданного соседа второй раз не спрашивают"
+    finally:
+        gone.set()

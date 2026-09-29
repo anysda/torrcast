@@ -100,6 +100,9 @@ class _BenchHonest(_BenchTrouble):
             if not self._peek(alt, progress, deadline, phase):
                 progress.phase("")
                 _turned_down(judged, number, phrase("select_bench.reason_no_answer"), alt)
+                # Прождан весь бюджет - второй раз его не ждут: «Во все тяжкие» карточка
+                # ждала №3 12 с и сыграла 400p, а показ на её стенде ждал №3 ещё 8 с.
+                self.waited_out.add(alt.release.magnet)
                 print(
                     phrase(
                         "select_bench.honest_no_answer_note",
