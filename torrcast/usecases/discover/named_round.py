@@ -38,6 +38,9 @@ class NamedRound:
         #: Set once the viewer's text has answered: its rows alone make the tiles, so the
         #: list can be judged while the names are still in flight.
         self.typed = threading.Event()
+        #: The names were still asked when the viewer's text answered: judging its tiles
+        #: then runs beside them. Answered last, the text leaves nothing to overlap.
+        self.ahead = False
         self._named: list[IndexerClient] = []
 
     @property
@@ -95,6 +98,7 @@ class NamedRound:
             try:
                 raw = typed.result()
             finally:
+                self.ahead = any(not future.done() for future in asked)
                 self.typed.set()
             if not raw and not asked:
                 # A map still being built on a cold start names the picture a moment later,

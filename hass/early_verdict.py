@@ -41,7 +41,9 @@ def _judge(
     query: str, client: NamedRound, offer: Callable[[list[JsonValue]], list[JsonValue]]
 ) -> None:
     client.typed.wait()
-    records = peek_client(query, client)
+    # Answered last, the viewer's text leaves no names to overlap: judging here would
+    # only race the list's own build for the processor.
+    records = peek_client(query, client) if client.ahead else []
     if not records:
         return
     # A refused verdict costs the list nothing: its own verdict asks again.

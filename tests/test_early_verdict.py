@@ -32,10 +32,16 @@ def _judged() -> tuple[list[list[JsonValue]], threading.Event, Callable[..., lis
     return said, done, offer
 
 
+def _ahead() -> NamedRound:
+    round_ = NamedRound(_PreviewClient(raw=_CARS))
+    round_.ahead = True
+    return round_
+
+
 def test_the_verdict_waits_for_the_viewers_text_and_runs_once() -> None:
     wire_catalogue()
     said, done, offer = _judged()
-    round_ = NamedRound(_PreviewClient(raw=_CARS))
+    round_ = _ahead()
     hook = early_verdict("тачки", offer)
     hook(round_)
     hook(round_)
@@ -54,13 +60,22 @@ def test_a_plain_client_is_left_to_the_lists_own_verdict() -> None:
     assert not done.wait(0.2)
 
 
+def test_a_viewers_text_answered_last_is_left_to_the_lists_own_verdict() -> None:
+    wire_catalogue()
+    _said, done, offer = _judged()
+    round_ = NamedRound(_PreviewClient(raw=_CARS))
+    early_verdict("тачки", offer)(round_)
+    round_.typed.set()
+    assert not done.wait(0.3), "judged beside nothing, racing the list's own build"
+
+
 def test_the_blocking_search_judges_before_its_circle_returns() -> None:
     wire_catalogue()
     _said, done, offer = _judged()
     before: list[bool] = []
 
     def search(*said: Any, on_indexer: Callable[[IndexerClient], None] | None = None) -> Any:
-        round_ = NamedRound(_PreviewClient(raw=_CARS))
+        round_ = _ahead()
         assert on_indexer is not None, "the circle got no hook"
         on_indexer(round_)
         round_.typed.set()

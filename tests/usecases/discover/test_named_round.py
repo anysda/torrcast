@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -151,3 +152,36 @@ def test_the_viewers_text_is_known_while_the_names_are_still_asked() -> None:
     gate.set()
     asked.join()
     assert typed_in == [True], "the viewer's text answered, and the round kept it to itself"
+    assert first.ahead, "the names were still asked, and the round did not say so"
+
+
+class _Last(Indexer):
+    def __init__(self, names: threading.Event) -> None:
+        super().__init__(answers={"интерстелар": [_ROW]})
+        self.names = names
+
+    def search(self, query: str) -> list[RawResult]:
+        self.names.wait(2.0)
+        time.sleep(0.1)
+        return super().search(query)
+
+
+class _Quick(Indexer):
+    def __init__(self, names: threading.Event) -> None:
+        super().__init__()
+        self.names = names
+
+    def search(self, query: str) -> list[RawResult]:
+        self.names.set()
+        return []
+
+
+@pytest.mark.machine
+def test_a_viewers_text_answered_last_is_not_ahead_of_the_names() -> None:
+    _configure_recognize(lambda _query, _wait: _INTERSTELLAR)
+    names = threading.Event()
+    source = _Last(names)
+    first = NamedRound(source)
+    first.ask(ToldIndexer(source), lambda: _Quick(names), None, "Интерстелар", "Интерстелар")
+    assert first.typed.is_set()
+    assert not first.ahead, "the names were in, and the round still called the text ahead"
