@@ -27,6 +27,7 @@ from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.ports.aired_state import AiredState
 from torrcast.ports.state_store.slot import install, store
 from torrcast.runtime.series_facts import SeriesFacts
 from torrcast.usecases import next_season as next_season_module
@@ -289,7 +290,7 @@ def test_an_unknown_key_is_a_quiet_no() -> None:
 RICK = SeriesFacts(
     lambda title, *_a: "tt2861424" if title == "Сериал" else "",
     lambda _t: {8: tuple(range(1, 11)), 9: (1, 2)},
-    lambda *_a: ({}, False),
+    lambda *_a: ({}, AiredState.KNOWN),
 )
 
 

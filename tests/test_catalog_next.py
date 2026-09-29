@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from hass.catalog_next import catalog_next
 from torrcast.domain.entry import Entry
+from torrcast.ports.aired_state import AiredState
 from torrcast.runtime.series_facts import SeriesFacts
 
 KEY = "tv:рик-и-морти:2013"
@@ -19,7 +20,7 @@ def test_the_plate_does_not_promise_an_announced_season() -> None:
     catalog = SeriesFacts(
         lambda *_a: "tt2861424",
         lambda _t: {9: tuple(range(1, 11)), 10: (1,)},
-        lambda *_a: ({}, False),
+        lambda *_a: ({}, AiredState.KNOWN),
     )
     asked: list[tuple[str, str]] = []
 

@@ -25,7 +25,7 @@ def _catalog(
     def series_id(title: str, _original: str, _year: int | None) -> str:
         return "tt0000001" if title == "Show" else ""
 
-    def tvmaze(_tconst: str, _wait: float) -> tuple[Dates, bool]:
+    def tvmaze(_tconst: str, _wait: float) -> tuple[Dates, AiredState]:
         return aired or {}, state
 
     return SeriesFacts(series_id, lambda _t: imdb, tvmaze, lambda: NOW)
