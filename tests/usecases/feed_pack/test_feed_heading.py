@@ -184,3 +184,22 @@ def test_a_copy_packs_from_the_tape_start_past_the_head_without_a_trial_seek(
     assert settled == [0.0], "пробный заход на второе место держит LOAD холодного файла"
     assert packed == [0], "упаковка заходит не с начала ленты"
     assert started == [1], "докатку головы выложили наружу"
+
+
+def test_a_whole_recode_leaves_the_cores_to_the_head_being_laid(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Сплошной перекод не кодирует рядом с кладущейся головой: ядра нужны ей."""
+    _, started, _ = _begun(tmp_path, laying=True, encode=object())
+
+    assert started == [], "сплошной перекод делит ядра с головой, которую ждёт первый кадр"
+
+
+def test_a_whole_recode_packs_past_a_head_already_on_the_shelf(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Положительный контроль: голова уже лежит, и упаковка сразу идёт за ней."""
+    _, started, (settled, _) = _begun(tmp_path, laying=False, encode=object())
+
+    assert started == [1]
+    assert settled == [], "сплошной перекод меряет вход пробным заходом"

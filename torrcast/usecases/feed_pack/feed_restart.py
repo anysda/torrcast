@@ -13,6 +13,7 @@ from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.pack_run.pack_factory import PackShrink
 from torrcast.usecases.feed_pack.feed_heading import _heading
+from torrcast.usecases.feed_pack.feed_segment import _have
 
 if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
@@ -166,8 +167,11 @@ def _begin(state: _State, want: float, shrink: PackShrink) -> float:
             # Копия заходит с начала ленты, как без головы, и её докатывает: пробный заход
             # на границу следующего места холодного файла стоил LOAD 10.6 с.
             _restart(state, 0, shrink, first=past)
-        else:
+        elif state.encode is None or _have(state, head):
             _restart(state, past, shrink)
+        # Сплошной перекод рядом с кладущейся головой делил бы с ней ядра: голова 720p легла
+        # за 5.4 с вместо ~3. Упаковку за ней поднимет стык прогретого
+        # (:func:`torrcast.usecases.feed_pack.feed_seam._seam`) или запрос следующего места.
         state.door = head  # и обещать её можно: она лежит или ляжет
         return want
     if want <= 0.0 or state.encode is not None:
