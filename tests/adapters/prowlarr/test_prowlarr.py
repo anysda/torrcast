@@ -683,6 +683,25 @@ def test_inflight_показывает_опорных_раньше_опозда�
         client.late(wait=5.0)
 
 
+@pytest.mark.machine
+def test_play_during_the_search_never_gets_a_release_the_circle_left_out() -> None:
+    """«Play» pressed while the circle runs takes its pool from the preview (``show_stage``).
+    A late indexer that answered after the cut is not in the circle's pool, so not in it either.
+    """
+    client = _swarm(rows=2, hold={3})
+    try:
+        taken = {row.info_hash for row in client.search("Naruto [TV]")}
+        _swarm_of(client).gate.set()
+        deadline = time.monotonic() + 5.0
+        while client._circle.unheard() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert client._circle.unheard() == (), "Nyaa answered, and the circle has not taken it"
+        assert {row.info_hash for row in client.inflight()} == taken
+    finally:
+        _swarm_of(client).gate.set()
+        client.late(wait=5.0)
+
+
 def test_опоздавший_доливается_после_круга_а_не_теряется() -> None:
     """Выдача опоздавшего не выбрасывается: она забирается :meth:`Prowlarr.late` уже
     после того, как список показан. Пока индексер в пути, долив пуст - ждать его на
