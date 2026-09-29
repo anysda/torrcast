@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import follower, lay, quiet, vault, warmer, world
-from torrcast.usecases.warm.chain import _ask_follow, _chain, _nap
+from torrcast.usecases.warm.chain import _adopt, _ask_follow, _chain, _nap
 from torrcast.usecases.warm.settings import PACKED_SLACK
 from torrcast.usecases.warm.warmer import Warmer
 
@@ -94,6 +94,29 @@ def test_a_chain_never_goes_two_episodes_ahead(
     _chain(warm)
 
     assert asked == 1, "цепочка ушла на две серии вперёд"
+    quiet(warm)
+
+
+def test_an_episode_gathered_early_is_started_not_asked_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Следующую серию уже собрал ранний старт (:func:`_early_head`): её поднимают, не спрашивая."""
+    world()
+    warm = _whole(tmp_path)
+    following = follower(tmp_path, vault=vault(tmp_path, key="следующая"))
+    _adopt(warm, following)
+    asked = 0
+
+    def _follow() -> Warmer:
+        nonlocal asked
+        asked += 1
+        return follower(tmp_path, vault=vault(tmp_path, key="другая"))
+
+    warm.follow = _follow
+    _chain(warm)
+
+    assert asked == 0 and warm.after is following
+    assert following.thread is not None, "собранную заранее серию так и не подняли"
     quiet(warm)
 
 

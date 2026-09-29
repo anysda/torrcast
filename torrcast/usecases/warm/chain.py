@@ -31,25 +31,36 @@ def _chain(state: _State) -> None:
 
     Раньше - только когда живая упаковка дошла до конца файла (:attr:`handed`): остаток
     серии уже у показа, и ждать прогрева её головы значило встретить стык без следующей.
+    Исключение одно - её стартовый кусок, он ложится заранее (:func:`_early_head`).
     """
-    if state.stopped or state.follow is None or state.after is not None:
+    if state.stopped or state.follow is None:
         return
+    if state.after is not None and state.after.thread is not None:
+        return  # уже поднят
     if not state.handed and _pending(state):
         return
-    following = _ask_follow(state)
+    # Собранный заранее (:func:`_early_head`) уже положил свой старт - осталось поднять.
+    following = state.after if state.after is not None else _ask_follow(state)
     if following is None:
         return
+    if state.after is None:
+        _adopt(state, following)
+    following.start()
+    _state._environment.mark("прогрев следующей серии")
+
+
+def _adopt(state: _State, following: _State) -> None:
+    """Привязать прогрев следующей серии к этой, не поднимая его нитку."""
     # Текущая серия для соседнего прогрева - чужой каталог, и бюджет вытеснил бы её
     # первой: она и старше, и досматривать её ещё полчаса (:attr:`Vault.keep`).
     following.vault.keep = following.vault.keep | {state.vault.key}
+    following.vault.open()
     state.after = following
     following.ahead = True
     following.slack = state.slack
     # Кодировщик живых кусков у показа один на всех, и уступать ему обязана вся
     # цепочка: прогрев следующей серии жжёт тот же процессор, что и прогрев этой.
     following.rival = state.rival
-    following.start()
-    _state._environment.mark("прогрев следующей серии")
 
 
 def _ask_follow(state: _State) -> _State | None:

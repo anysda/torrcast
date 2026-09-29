@@ -542,7 +542,9 @@ def test_the_next_episode_starts_warming_only_when_this_one_is_on_disk(tmp_path:
         calls.append(1)
         return nxt
 
-    warmer = Warmer(source="s1", audio=0, grid=grid, vault=mine, follow=follow, slack=999.0)
+    warmer = Warmer(
+        source="s1", audio=0, grid=grid, vault=mine, follow=follow, slack=999.0, framed=True
+    )
     warmer._work()
 
     assert warmer.done and warmer.after is nxt, "следующая серия не взята в работу"
@@ -588,6 +590,7 @@ def test_the_chain_waits_out_a_break_instead_of_giving_up_on_the_next_episode(
         vault=mine,
         follow=follow,
         slack=999.0,
+        framed=True,
         log=said.append,
     )
     warmer.chain_retry = 0.0  # проверяем повтор, а не ожидание
@@ -617,7 +620,9 @@ def test_the_chain_gives_up_at_once_when_there_is_no_next_episode(tmp_path: Path
         tries.append(1)
         return None
 
-    warmer = Warmer(source="s1", audio=0, grid=grid, vault=mine, follow=follow, slack=999.0)
+    warmer = Warmer(
+        source="s1", audio=0, grid=grid, vault=mine, follow=follow, slack=999.0, framed=True
+    )
     warmer.chain_retry = 0.0
     warmer._work()
 
@@ -625,18 +630,20 @@ def test_the_chain_gives_up_at_once_when_there_is_no_next_episode(tmp_path: Path
 
 
 def test_the_next_episode_is_not_warmed_while_this_one_is_not_done(tmp_path: Path) -> None:
-    """Недогретая серия ни при каких условиях не уступает место следующей."""
+    """Недогретая серия не уступает место следующей: заранее ложится только её старт."""
     grid = _grid()
+    following = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
     warmer = Warmer(
         source="s1",
         audio=0,
         grid=grid,
         vault=_vault(tmp_path, key="эта", budget=1),
-        follow=lambda: pytest.fail("прогрев следующей серии полез раньше времени"),
+        follow=lambda: following,
         slack=999.0,
+        framed=True,
     )
     warmer._work()
-    assert warmer.trouble and warmer.after is None, "следующая серия взята при недогретой текущей"
+    assert warmer.trouble and following.thread is None, "следующая серия взята при недогретой"
 
 
 def test_the_done_flag_counts_only_what_the_show_can_take(tmp_path: Path) -> None:
@@ -692,6 +699,7 @@ def test_the_chain_outlives_a_film_whose_heavy_pieces_stay_copies(tmp_path: Path
         cap=4096,
         follow=lambda: nxt,
         slack=999.0,
+        framed=True,
         log=said.append,
     )
     warmer._work()

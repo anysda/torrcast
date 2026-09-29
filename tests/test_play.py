@@ -667,6 +667,9 @@ class _Warm:
     def feed(self, slack: float) -> None:
         pass
 
+    def shown(self, pos: float, playing: bool) -> None:
+        pass
+
     def line(self) -> str:
         return "прогрето"
 

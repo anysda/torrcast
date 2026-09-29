@@ -461,3 +461,34 @@ def test_the_warming_is_handed_on_once_the_live_pack_reaches_the_end(
     )
 
     assert warmer.handed is handed
+
+
+def test_the_warmer_hears_of_a_frame_only_from_a_moving_pointer(tmp_path: Path) -> None:
+    """Прогрев узнаёт о кадре от показа: ``BUFFERING`` и стоящий ``PLAYING`` - ещё не кадр.
+
+    Под ``BUFFERING`` указатель ходит и без картинки: его двигает сторож подвиса.
+
+    По этому признаку ранний шаг к следующей серии ждёт кадра текущей
+    (:func:`torrcast.usecases.warm.early_head._framed`).
+    """
+    heard: list[bool] = []
+
+    class _Heard(Warmer):
+        def shown(self, pos: float, playing: bool) -> None:
+            Warmer.shown(self, pos, playing)
+            heard.append(self.framed)
+
+    vault = Vault(root=tmp_path / "warm", key="кино")
+    vault.open()
+    warmer = _Heard(source="s", audio=0, grid=Grid.uniform(1.0), vault=vault)
+    script = [(100.0, "PLAYING"), (108.0, "BUFFERING"), (108.0, "PLAYING"), (110.0, "PLAYING")]
+    receiver = PlainReceiver(script)
+
+    _hold(
+        cast(Receiver, receiver),
+        feed_with_segments(tmp_path),
+        warmer=warmer,
+        clock=FakeClock(now=1000.0),
+    )
+
+    assert heard[:4] == [False, False, False, True], heard

@@ -266,3 +266,32 @@ def test_the_start_recode_is_announced_landed_only_after_it_is_on_disk(tmp_path:
 
     assert seen == [(False, False), (True, True)], "перекод старта шёл без отметки «ложится»"
     assert warm.landing is not None and warm.landing.is_set(), "лёгший перекод не отмечен"
+
+
+def test_the_next_start_is_laid_before_this_episode_warms(tmp_path: Path) -> None:
+    """Старт следующей серии - сразу после картинки, раньше прогрева этой (:func:`_early_head`)."""
+    world()
+    taken: list[tuple[str, int, bool]] = []
+
+    class Laying(Warmer):
+        def _run(self, first: int, last: int, spot: bool = False) -> None:
+            taken.append((self.vault.key, first, spot))
+            if spot:
+                self.vault.spot(first).touch()
+            else:
+                lay(self.vault, first)
+            self.stopped = self.vault.key == "k"
+
+    following = warmer(
+        tmp_path,
+        kind=Laying,
+        vault=vault(tmp_path, key="следующая"),
+        spots=(0,),
+        spot_encode=cast(Any, object()),
+    )
+    warm = warmer(tmp_path, kind=Laying, slack=GUARD_HIGH + 1.0, framed=True)
+    warm.follow = lambda: following
+
+    warm._work()
+
+    assert [key for key, _slot, _spot in taken] == ["следующая", "следующая", "k"]

@@ -5,14 +5,13 @@
 
 from __future__ import annotations
 
-import threading
 from dataclasses import dataclass
 
 import torrcast.usecases.warm._state as _state
 from torrcast.usecases.warm.chain import _ask_follow, _chain, _nap
+from torrcast.usecases.warm.early_head import _early_head, _lay_head, _shown
 from torrcast.usecases.warm.forecast import _forecast
 from torrcast.usecases.warm.hand_over import _hand_over
-from torrcast.usecases.warm.head_spot import _head_spot
 from torrcast.usecases.warm.lay_heavy import _lay_heavy
 from torrcast.usecases.warm.line import _line
 from torrcast.usecases.warm.missing import _missing, _pending
@@ -49,6 +48,10 @@ class Warmer(_State):
         self.feed(PACKED_SLACK)
         self.handed = True
 
+    def shown(self, pos: float, playing: bool) -> None:
+        """Позиция приёмника с опроса показа: был ли кадр на нынешнем месте (:func:`_shown`)."""
+        _shown(self, pos, playing)
+
     def line(self) -> str:
         """Строка о прогреве для журнала и статуса (:func:`_line`)."""
         return _line(self)
@@ -70,6 +73,7 @@ class Warmer(_State):
     def _work(self) -> None:
         """Нитка прогрева: крутится, пока идёт показ, участок за участком."""
         self._wait_for_picture()
+        _early_head(self)
         # ``trouble`` тут не для порядка: им кончается и упёртый бюджет, и место, которое
         # так и не легло на сетку (:meth:`_verify`). Без этого условия прогрев ходил бы
         # кругами по одному и тому же непрогретому куску.
@@ -89,16 +93,7 @@ class Warmer(_State):
                 if self.handed:
                     self._chain()
                     return
-                head = _head_spot(self)
-                if head is not None:
-                    # Копия поверх нужна перекоду ради звука (:func:`_run`), поэтому сперва она.
-                    spot = self.vault.have(head)
-                    landing = self.landing = threading.Event() if spot else None
-                    try:
-                        self._run(head, head, spot=spot)
-                    finally:
-                        if landing is not None:
-                            landing.set()  # после метки: :meth:`hand_over` ждёт её
+                if _lay_head(self):
                     continue
                 job = self._missing()
                 if job is None:

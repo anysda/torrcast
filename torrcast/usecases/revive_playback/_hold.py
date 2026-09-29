@@ -123,6 +123,7 @@ def _hold(
             # Прогрев видит тот же запас, что сторож приёмника, и на просевшем
             # замирает (:meth:`torrcast.usecases.warm.warmer.Warmer._throttle`).
             front = feed.front(feed_at)
+            warmer.shown(position.pos, position.state == "PLAYING")
             if front < feed.duration:
                 warmer.feed(front - feed_at)
             else:
