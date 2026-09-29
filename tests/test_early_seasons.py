@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from pathlib import Path
 
 import pytest
 
@@ -118,3 +119,17 @@ def test_the_preview_of_a_series_shows_the_episodes_while_the_circle_runs(
     assert answer is not None
     body = json.loads(answer.body)
     assert (body["searching"], body["seasons"]) == (True, [{"n": 1, "episodes": [_EPISODE]}])
+
+
+def test_a_row_of_the_early_answer_plays_only_with_the_release_of_the_card() -> None:
+    # The page keeps the contract as text beside the node harness of the play buttons. An early
+    # row has no release, and the show picking its own missed "2nd GIG" s2e20 on releases counted
+    # through; the press waits for the body that names the release and presses the row there.
+    static = Path(__file__).resolve().parents[1] / "web" / "static"
+    series = (static / "card-series.js").read_text(encoding="utf-8")
+    card = (static / "card.js").read_text(encoding="utf-8")
+    shown = card.split("  _show(root, key, query, data) {", 1)[1].split("\n  },", 1)[0]
+    played = card.split("  _play(data, key, query, voices, fromStart, season, episode) {", 1)[1]
+    assert "const play = () => (data.searching ? TCCardSeries._wait(key, row) : " in series
+    assert "TCCard._pressAgain(next, key, data);" in shown
+    assert "TCCard._pressed = null;" in played.split("\n  },", 1)[0]

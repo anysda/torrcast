@@ -29,9 +29,13 @@ const TCCard = {
   // Сезон, выбранный ЗРИТЕЛЕМ на этой карточке: подмена тела добором больше не
   // сбрасывает вкладку на первый сезон (дефект возврата TC-1240).
   _picked: null,
+  // The episode row pressed before the card knew its release (`card-series.js`): the first
+  // full body of the same visit settles it (`_pressAgain`).
+  _pressed: null,
 
   async mount(root, key) {
     TCCard._visit += 1;
+    TCCard._pressed = null;  // a press belongs to the visit it was made on
     root.replaceChildren();
     const query = new URLSearchParams(location.search).get('query') || '';
     const facts = TCCard._facts();
@@ -200,6 +204,7 @@ const TCCard = {
     body.replaceWith(next);
     TCCard._shown = { key, query, data };
     if (held) TCCard._standAgain(root, held);
+    TCCard._pressAgain(next, key, data);
   },
 
   // Добор меняет кнопки и метку просмотра, но та же обложка не должна мигать и
@@ -213,6 +218,17 @@ const TCCard = {
     if (was && becomes && oldImg && newImg && oldImg.currentSrc === newImg.src) {
       becomes.replaceWith(was);
     }
+  },
+
+  // The episode row pressed in the early answer meets the first body that is not searching,
+  // and that body settles it once: the row plays as a click on it would, a grey row stays
+  // grey, a refusal or an empty card shows itself. Nothing is kept for a later body.
+  _pressAgain(body, key, data) {
+    const was = TCCard._pressed;
+    if (!was || was.key !== key || data.searching) return;
+    TCCard._pressed = null;
+    const row = body.querySelector('[data-tc-episode="' + was.episode + '"]');
+    if (row) row.click();  // a grey row has no click to run
   },
 
   // Вернуть фокус туда же, где он стоял до подмены тела; такой кнопки в новом теле нет -
@@ -913,6 +929,7 @@ const TCCard = {
   },
 
   _play(data, key, query, voices, fromStart, season, episode) {
+    TCCard._pressed = null;  // a later press wins over a row still waiting for its release
     const kept = sessionStorage.getItem(TCCard._voiceKey);
     const known = kept && (voices || []).some((v) => v.name === kept) ? kept : undefined;
     // Номер дорожки из прежней вкладки не прикладывается к серии: вкладка могла выбрать

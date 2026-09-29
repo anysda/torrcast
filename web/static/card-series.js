@@ -149,15 +149,23 @@ const TCCardSeries = {
         bar.style.width = Math.max(0, Math.min(1, episode.pos / episode.dur)) * 100 + '%';
         row.appendChild(bar);
       }
-      const play = () => TCCard._play(data, key, query,
-        data.voices || [], false, season.n, episode.n)
-        .then((said) => TCCard._showPlayRefusal(row, said));
+      // A row of the early answer has no release yet: the click waits for the card to pick
+      // the one whose files hold the episode, or the show picked its own and missed the row.
+      const play = () => (data.searching ? TCCardSeries._wait(key, row) : TCCard._play(data, key,
+        query, data.voices || [], false, season.n, episode.n)
+        .then((said) => TCCard._showPlayRefusal(row, said)));
       if (!grey) row.addEventListener('click', play);
       // Приговор уже есть, но окно нажатия ещё идёт: строка живая, и гаснет по будильнику.
       if (gone && hold) setTimeout(() => TCCardSeries._fade(row, play), hold);
       list.appendChild(row);
     }
     return list;
+  },
+
+  // The row clicked before the card knew its release: `TCCard._pressAgain` settles it in the
+  // first full body of this visit.
+  _wait(key, row) {
+    TCCard._pressed = { key, episode: row.dataset.tcEpisode };
   },
 
   _date(iso) {
