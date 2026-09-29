@@ -83,7 +83,7 @@ def test_a_client_of_the_names_is_not_held_by_the_quorum() -> None:
     finally:
         _swarm_of(client).gate.set()
         client.late(wait=5.0)
-    assert len(results) == 2, "RuTor answered, Knaben is still on its way, Nyaa is not asked"
+    assert len(results) == 4, "RuTor and Nyaa answered, Knaben is still on its way"
     assert elapsed < 0.5, f"the names waited {elapsed:.2f} s for the quorum"
 
 
@@ -122,17 +122,16 @@ def test_the_names_leave_the_first_slot_to_the_viewers_text(
     assert (elapsed >= NAMES_BEHIND) is behind, f"first circle done in {elapsed:.2f} s"
 
 
-@pytest.mark.parametrize(("joint", "anime"), [(None, ["1", "2", "3"]), ("", ["1", "2"])])
-def test_only_the_viewers_text_calls_the_anime_indexers_on_a_thin_pool(
-    joint: str | None, anime: list[str]
-) -> None:
+@pytest.mark.parametrize(
+    ("query", "asked"), [("Cars 2006", ["1", "2", "3"]), ("Тачки 2006", ["1", "2"])]
+)
+def test_a_latin_name_asks_the_anime_indexers_at_once(query: str, asked: list[str]) -> None:
     client = _swarm(rows=2, empty={1, 2, 3})
-    if joint is not None:
-        client.beside(joint)
-        client.behind = 0.0
+    client.beside("")
+    client.behind = 0.0
     with pytest.raises(NotFoundError):
-        client.search("Cars 2006")
-    assert _asked(client) == anime
+        client.search(query)
+    assert _asked(client) == asked, "a Cyrillic name leaves Nyaa to the viewer's text"
 
 
 @pytest.mark.parametrize(("joint", "asked"), [(None, {1, 2}), ("", {1})])
@@ -179,3 +178,16 @@ def test_a_name_left_unsent_keeps_the_search_from_being_whole(queued: bool, whol
     client.search("Cars 2006")
     assert client._circle.unheard() == (("RuTor",) if queued else ())
     assert client.whole() is whole, "nobody heard RuTor, so nothing proves the catalogue"
+
+
+@pytest.mark.machine
+def test_a_silent_anime_indexer_does_not_hold_the_names() -> None:
+    client = _swarm(rows=5, delay={3: 1.0})  # Nyaa is silent past the names' core
+    client.beside("")
+    client.behind = 0.0
+    began = time.monotonic()
+    client.search("Cars 2006")
+    elapsed = time.monotonic() - began
+    assert elapsed < 0.5, f"the names waited {elapsed:.2f} s for Nyaa"
+    assert client.waiting() == ("Nyaa.si",), "Nyaa was asked at once and comes late"
+    client.late(wait=2.0)

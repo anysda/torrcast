@@ -13,6 +13,7 @@ from torrcast.adapters.prowlarr.prowlarr_http_client import _IndexersUnavailable
 from torrcast.adapters.prowlarr.prowlarr_state import _State
 from torrcast.adapters.prowlarr.search_url import search_url
 from torrcast.domain.anime_fallback import anime_fallback
+from torrcast.domain.anime_query import CYRILLIC_RE
 from torrcast.domain.capped_indexers import capped_indexers
 from torrcast.domain.circle_indexers import circle_indexers
 from torrcast.domain.cut_short import cut_short
@@ -102,6 +103,12 @@ class Prowlarr(_State):
         self._api.open()  # сессия поднимается ДО потоков: ленивая сборка внутри них - гонка
         known, self.banned = self._roster.usable(known)
         first, later = circle_indexers(known, query)
+        if self.joint is not None:
+            # A Latin name asks the anime indexers at once: romaji is the only text that
+            # finds an anime typed in Cyrillic, and they are not the core, so a silent one
+            # comes late instead of holding the round for a second circle. A Cyrillic name
+            # leaves them to the viewer's text rather than take Nyaa's first slot for nothing.
+            first, later = (first if CYRILLIC_RE.search(query) else (*first, *later)), ()
         # 🔴 TC-228: каждый следующий круг идёт в остаток цели (:meth:`spare`), но не ниже
         # пола (:attr:`cap_floor`): второй заход раньше платил хвост первого плюс свой
         # полный - и удваивал цену.
@@ -115,10 +122,7 @@ class Prowlarr(_State):
         self._first = False
         self._circle.begin()
         got, why_lost = self._circle.run(first, query, limit, cap, self.joint)
-        # The names' pool is thin by design, and it is the viewer's text that decides
-        # whether the picture is anime: a second circle here only held the round.
-        thin = anime_fallback(len(merge(*got)), bool(got))
-        fallback = bool(later) and self.joint is None and thin
+        fallback = bool(later) and anime_fallback(len(merge(*got)), bool(got))
         if fallback:
             # Фолбэк - тоже второй круг, и цель он тратит наравне с добором.
             more, err = self._circle.run(later, query, limit, self.circle_cap(), self.joint)
