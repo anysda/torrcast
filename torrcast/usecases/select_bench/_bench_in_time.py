@@ -5,12 +5,17 @@
 годная раздача ниже: русская дорожка подтверждена паспортом, файл без беды, рой
 снабжает. Играет лучшая из годных на ту секунду. Замер стенда 15-09: №2 прошёл ffprobe
 на 4.19 с, а осуждения №1 (vc1) ждали до 12.86 с.
+
+Запасной, уже осуждённый, смены не даёт, и тогда греется следующий по очереди
+(:func:`_widen`): «Призрак в доспехах» ждал молчащий №1 все 20 с, потому что №2 был без
+русского звука, а годный №3 до своей попытки не грелся вовсе.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
+from torrcast.domain.pick_settings import PICK_FRONT
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.playback.refuse_called_off import refuse_called_off
@@ -61,18 +66,42 @@ def _in_time(
         return prep
     if bench.clock() < due and bench._peek(prep, progress, min(due, limit), prefix + prep.phase):
         return prep
+    spares = front[1:]
     while bench.clock() < limit:
         if prep.ready.wait(_STEP):
             return prep
         refuse_called_off()
         progress.phase(prefix + prep.phase)
-        for number in front[1:]:
+        for number in spares:
             ready = bench.preps.get((plan.picture.key, number))
             if ready is not None and ready.ready.is_set() and _fit(bench, plan, ready):
                 journal().emit("select", "in_time", waited=prep.number, took=number)
                 return ready
+        _widen(bench, plan, args, spares)
     bench._wait(prep, progress, prefix=prefix, limit=limit)
     return prep
+
+
+def _widen(bench: _BenchTrouble, plan: Plan, args: Args, spares: list[int]) -> None:
+    """Все запасные осуждены: греть следующего по очереди, но не шире :data:`PICK_FRONT`.
+
+    Осуждён - прочитан и негоден; ещё читающий карту не осуждён, его ждут.
+    """
+    if not spares or len(spares) >= PICK_FRONT - 1:
+        return
+    for number in spares:
+        spare = bench.preps.get((plan.picture.key, number))
+        if spare is None or not spare.ready.is_set() or _fit(bench, plan, spare):
+            return
+        if spare.mapped is not None and not spare.mapped.is_set():
+            return
+    queue = plan.candidates(args)
+    after = queue.index(spares[-1]) + 1 if spares[-1] in queue else len(queue)
+    if after < len(queue):
+        spares.append(queue[after])
+        bench.needed.add((plan.picture.key, queue[after]))
+        bench.start(plan, queue[after])
+        journal().emit("select", "widen", took=queue[after])
 
 
 def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep) -> bool:

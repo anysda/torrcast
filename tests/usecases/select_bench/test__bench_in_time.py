@@ -82,11 +82,29 @@ def test_a_younger_release_without_a_proven_russian_track_does_not_jump_the_queu
 ) -> None:
     """Гейт TC-492 цел: младшая с английским звуком после срока старшую не подменяет."""
     monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
-    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, _ENG))
+    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, _ENG, _ENG))
 
     prep = bench.resolve(plan(_POOL), _ASKED, Said())
 
     assert prep.number == 1
+
+
+@pytest.mark.machine
+def test_a_judged_spare_hands_the_deadline_to_the_next_release_in_the_queue(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """🔴 №2 осуждён, №3 годен: после срока играет №3, а не молчащий №1 до конца терпения.
+
+    «Призрак в доспехах» ждал молчащий №1 20 с при №2 без русского звука.
+    """
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.4)
+    bench = Bench(Torrents(), prober=_prober(top_answers, 30.0, _RUS, _ENG, _RUS))
+    began = time.monotonic()
+
+    prep = bench.resolve(plan(_POOL), _ASKED, Said())
+
+    assert prep.number == 3
+    assert time.monotonic() - began < 3.0
 
 
 @pytest.mark.machine
@@ -96,7 +114,7 @@ def test_a_younger_release_that_the_receiver_gets_recoded_does_not_jump_the_queu
     """Младшая тяжелее потолка приёмника пережимается на ходу и срока не выигрывает."""
     monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
     heavy = replace(_RUS, video_bps=15_000_000.0)
-    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, heavy))
+    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, heavy, heavy))
 
     prep = bench.resolve(plan(_POOL, recode_at=10.0), _ASKED, Said())
 
@@ -109,7 +127,7 @@ def test_a_younger_release_of_another_year_does_not_jump_the_queue(
 ) -> None:
     """🔴 Склеенная соседняя работа («Rick and Morty: The Anime» 2024 в картине 2013) не подмена."""
     monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
-    pool = [_POOL[0], replace(_POOL[1], year=2024), _POOL[2]]
+    pool = [_POOL[0], replace(_POOL[1], year=2024), replace(_POOL[2], year=2024)]
     bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, _RUS))
 
     prep = bench.resolve(plan(pool), _ASKED, Said())
