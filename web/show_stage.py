@@ -54,7 +54,9 @@ def _own_circle(args: Args) -> list[Plan]:
 
     «Оно» 2017: выдача по «Оно» раздач фильма не принесла, карточка нашла его по «оно» из
     ключа, а «Играть», нажатая до ответа карточки, искала строкой плитки и отказывала
-    «картины с карточки больше нет».
+    «картины с карточки больше нет». «Играть» плитки истории приходит со
+    строкой-слагом («рататуй») раньше ответа карточки: согретый «Рататуй» берётся сразу,
+    а не сетевым кругом по слагу, стоившим закладке 7.3 с.
     """
     taken: dict[str, list[Plan]] = {}
 
@@ -62,7 +64,11 @@ def _own_circle(args: Args) -> list[Plan]:
         taken[query] = WARM.take(query, retry=True)
         return taken[query]
 
-    found = own_plan(args.picture, args.title_query, "", circle)[2]
+    def warm(query: str) -> list[Plan] | None:
+        taken[query] = WARM.live(query, True) or []
+        return taken[query]
+
+    found = own_plan(args.picture, args.title_query, "", circle, warm)[2]
     return taken[found or args.title_query.strip()]
 
 

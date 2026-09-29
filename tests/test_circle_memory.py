@@ -41,3 +41,19 @@ def test_a_cut_circle_is_kept_a_minute_not_the_full_term() -> None:
     assert memory.plans("Тачки") == [plan]
     now[0] += 2.0
     assert memory.plans("Тачки") is None
+
+
+def test_a_slug_line_finds_the_network_circle_of_the_same_spelling() -> None:
+    """История несёт «рататуй», круг согрет под «Рататуй»; чужое имя и дисковое не берутся."""
+    now = [0.0]
+    memory = CircleMemory(clock=lambda: now[0], ttl=300.0)
+    plan, other = cast(Any, object()), cast(Any, object())
+
+    memory.keep("Рататуй", [plan])
+    memory.keep("Рататуй 2", [other])
+
+    assert memory.alike("рататуй") == [plan]
+    assert memory.live("рататуй") is None
+    assert memory.alike("Тачки") is None
+    now[0] += 301.0
+    assert memory.alike("рататуй") is None

@@ -28,8 +28,9 @@ def test_a_history_tile_plays_the_circle_warmed_under_the_picture_title(
     monkeypatch.setattr("web.card.preview", lambda *_args: None)
     state_slot.install(FakeStateStore())
     warm.take("Own Title Probe")
+    facts = {k: v for k, v in _PROBE_FACTS.items() if k != "title"}  # имени нет, только слаг
 
-    code, body, _extra = _asked(_MOVIE.key, query="own-title-probe", extra_query=_PROBE_FACTS)
+    code, body, _extra = _asked(_MOVIE.key, query="own-title-probe", extra_query=facts)
 
-    assert (code, body["picture"], body["query"]) == (200, _MOVIE.key, "Own Title Probe")
+    assert (code, body["picture"]) == (200, _MOVIE.key)
     assert asked == ["Own Title Probe"]

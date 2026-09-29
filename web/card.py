@@ -87,9 +87,9 @@ def card(request: Request) -> Answer:
     if early := preview(request, key, WARM, _related, _poster.of):
         return early
     config = load_config()
+    asked = HeardCircle(WARM.take)  # живой запрос несогретый круг считает сам, без очереди
     try:
-        # Живой запрос не ждёт за очередью прогрева: несогретый круг он считает сам.
-        plan, pick, found = own_plan(key, query, title, asked := HeardCircle(WARM.take), WARM.live)
+        plan, pick, found = own_plan(key, query, title, asked, lambda q: WARM.live(q, True))
     except TorrcastError as failed:
         return asked.refusal(failed)
     if plan is None:

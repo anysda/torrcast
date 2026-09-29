@@ -116,8 +116,8 @@ class WarmCache:
         """Круг только из сети: показу без раздачи с диска и выдаче HA (:mod:`web.warm_live`)."""
         return _take_live(self, query, BUSY_WAIT, circle)
 
-    def live(self, query: str) -> list[Plan] | None:
-        return self._memory.live(query)
+    def live(self, query: str, alike: bool = False) -> list[Plan] | None:
+        return (self._memory.alike if alike else self._memory.live)(query)
 
     def ready(self, query: str) -> list[Plan] | None:
         """Согретый круг, ``[]`` при свежем «ничего не нашлось», иначе ``None``."""

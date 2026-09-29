@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.slugify import slugify
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.discover.cut_circle import CutCircle
 from torrcast.usecases.discover.told_circle import ToldCircle
@@ -78,6 +79,21 @@ class CircleMemory:
         with self._lock:
             landed = self._landed.get(self.key(query))
         return landed[0] if landed is not None and landed[1] > self.clock() else None
+
+    def alike(self, query: str) -> list[Plan] | None:
+        """Сетевой круг этой строки, а нет его - строки, что отличается регистром и знаками.
+
+        История несёт строку слагом («рататуй»), а круг согрет строкой набора («Рататуй»).
+        Своя ли в нём картина, решает спросивший (:func:`web.own_plan.own_plan`).
+        """
+        if (own := self.live(query)) is not None:
+            return own
+        slug, now = slugify(query), self.clock()
+        with self._lock:
+            for key, (plans, until) in self._landed.items():
+                if until > now and slug and slugify(key) == slug:
+                    return plans
+        return None
 
     def revived(self, query: str) -> bool:
         """Показывается ли круг, поднятый с диска, за которым из сети ещё ничего не пришло."""

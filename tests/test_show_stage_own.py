@@ -15,8 +15,12 @@ from torrcast.domain.not_found_error import NotFoundError
 class _Circles:
     """Круг по строке: у строки плитки картины нет, у имени из ключа она есть."""
 
-    def __init__(self, circles: dict[str, Any]) -> None:
+    def __init__(self, circles: dict[str, Any], alike: dict[str, Any] | None = None) -> None:
         self.circles, self.asked = circles, []  # type: dict[str, Any], list[str]
+        self.alike = alike or {}
+
+    def live(self, query: str, alike: bool = False) -> Any:
+        return self.alike.get(query) if alike else None
 
     def ready(self, query: str) -> None:
         return None  # круг ещё идёт: показ не знает его итога
@@ -66,6 +70,21 @@ def test_a_picture_gone_from_every_line_keeps_the_tile_circle(
 
     assert [p.picture.key for p in got] == [p.picture.key for p in tile]
     assert show_stage._card_picture(got, "movie:никто:1900") == 0
+
+
+def test_a_history_tile_line_plays_the_warm_circle_of_the_same_spelling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«Рататуй»: «Играть» с плитки истории несёт «рататуй» - сети нет, круг согретый."""
+    own = plans(2)
+    key = own[1].picture.key
+    circles = _Circles({}, alike={own_name(key): own})
+    monkeypatch.setattr(show_stage, "WARM", circles)
+
+    got = show_stage._card_circle(Any, Args(query=[own_name(key)], picture=key), Any, Any)  # type: ignore[arg-type]
+
+    assert [p.picture.key for p in got] == [p.picture.key for p in own]
+    assert circles.asked == []
 
 
 def own_name(key: str) -> str:

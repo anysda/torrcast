@@ -37,6 +37,9 @@ class _Warm:
     def ready(self, query: str) -> list[Any] | None:
         return None
 
+    def live(self, query: str, alike: bool = False) -> list[Any] | None:
+        return None
+
     def take_live(self, query: str) -> list[Any]:
         self.asked.append("сеть: " + query)
         return self.circle
