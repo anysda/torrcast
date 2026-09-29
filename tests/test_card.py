@@ -23,6 +23,7 @@ from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.release import Release
+from torrcast.domain.search_refusal_error import SearchRefusalError
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.select.plan import Plan
@@ -388,7 +389,31 @@ def test_an_unknown_key_is_a_404_not_a_crash(monkeypatch: pytest.MonkeyPatch) ->
     assert body == {"error": "not_found", "whole": False}
 
 
-def test_a_search_refusal_surfaces_as_an_english_page_code(
+def test_a_named_search_refusal_surfaces_as_its_page_key_and_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _refused(*_a: object, **_k: object) -> list[Plan]:
+        raise SearchRefusalError(
+            "discover.no_season_releases",
+            "web.search.no_season_releases",
+            title="Interstellar",
+            season=9,
+        )
+
+    _wired(monkeypatch, [])
+    monkeypatch.setattr("web.card.WARM", _warm(_refused))
+
+    code, body, _extra = _asked(_MOVIE.key)
+
+    assert code == 409
+    assert body["error"] == "search_refused"
+    assert body["reason"] == {
+        "key": "web.search.no_season_releases",
+        "values": {"title": "Interstellar", "season": 9},
+    }
+
+
+def test_an_unnamed_search_refusal_surfaces_as_the_generic_page_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _refused(*_a: object, **_k: object) -> list[Plan]:
@@ -400,7 +425,7 @@ def test_a_search_refusal_surfaces_as_an_english_page_code(
     code, body, _extra = _asked(_MOVIE.key)
 
     assert code == 409
-    assert body["error"] == "search_refused"
+    assert body["reason"] == {"key": "web.search.failed", "values": {}}
 
 
 def test_a_mute_refusal_is_the_same_404_as_a_picture_the_circle_did_not_bring(
