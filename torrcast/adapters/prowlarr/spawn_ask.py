@@ -8,9 +8,11 @@ import threading
 from dataclasses import dataclass, field
 
 from torrcast.adapters.prowlarr.ask_indexer import ask_indexer
+from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.search_url import search_url
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.is_down import IN_TIME
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.response_budget import response_budget
 
@@ -30,12 +32,16 @@ class _Ask:
     rows: list[RawResult] | None = None
     ms: int = 0
     err: InfraError | None = None
+    #: Taken by whoever tells the book how this ask went: the circle that stopped waiting
+    #: for it, or the thread when it ends. One ask is one outcome, never two.
+    judge: threading.Lock = field(default_factory=threading.Lock)
 
 
 def spawn_ask(api: ProwlarrApi, query: str, limit: int, num: int, name: str, budget: float) -> _Ask:
     """Пустить один индексер отдельным потоком и вернуть место под его ответ."""
     ask = _Ask(name=name, budget=budget)
     url = search_url(api.base_url, api.apikey, query, limit, num)
+    book = DOWN_BOOK.where()
 
     def work() -> None:
         # Бюджет ``ask`` отвечает только за критический путь. Сам запрос живёт в
@@ -43,6 +49,9 @@ def spawn_ask(api: ProwlarrApi, query: str, limit: int, num: int, name: str, bud
         # ответ на границе, а поздний ответ опорного мог доехать в долив.
         ask.rows, ask.ms, ask.err = ask_indexer(api.get_json, url, response_budget(name))
         ask.done.set()
+        if ask.judge.acquire(blocking=False):
+            in_time = ask.rows is not None and ask.ms <= IN_TIME * 1000
+            DOWN_BOOK.hear(name, answered=in_time, where=book)
 
     threading.Thread(target=work, daemon=True, name=f"idx-{name}").start()
     return ask

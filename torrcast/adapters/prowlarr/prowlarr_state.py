@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
+from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
 from torrcast.adapters.prowlarr.indexer_circle import ASK_SLACK, IndexerCircle
 from torrcast.adapters.prowlarr.indexer_roster import IndexerRoster, _aside, _Spawn
 from torrcast.adapters.prowlarr.prowlarr_api import TIMEOUT, ProwlarrApi
@@ -113,6 +114,16 @@ class _State:
         tail it went on without (still on its way, or not sent inside the budget).
         """
         return self.apart and not self.missed
+
+    def miss(self, names: Iterable[str]) -> None:
+        """Count ``names`` as missed, all but those down (:mod:`torrcast.domain.is_down`).
+
+        A down one's silence is its verdict, not a gap in this circle: the circle is heard
+        without it, and the memory stops sending the screen back to the network for it.
+        It stays in :attr:`short`: an empty circle without it is still not the whole truth.
+        """
+        down = DOWN_BOOK.down()
+        self.missed.update(name for name in names if name not in down)
 
     def gone(self) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
         """Кто выпал из этого поиска: промолчал, увёл Prowlarr, отказал за пустой выдачей."""

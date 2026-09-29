@@ -1,20 +1,24 @@
-"""Checks how long a circle waits, and for whom, when its core was left unsent."""
+"""Checks how long a circle waits, and for whom: its core left unsent, or down."""
 
 from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from torrcast.adapters.prowlarr import circle_wait as circle_wait_module
 from torrcast.adapters.prowlarr.circle_wait import circle_wait
+from torrcast.adapters.prowlarr.down_book import DownBook
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
+from torrcast.domain.is_down import DOWN_AFTER
 
 
-def _waited(asked: list[_Ask], **kwargs: Any) -> tuple[list[_Ask], float]:
+def _waited(asked: list[_Ask], names: bool = True, **kwargs: Any) -> tuple[list[_Ask], float]:
     began = time.monotonic()
-    core = circle_wait(asked, names=True, began=began, slack=0.0, **kwargs)
+    core = circle_wait(asked, names=names, began=began, slack=0.0, **kwargs)
     return core, time.monotonic() - began
 
 
@@ -56,3 +60,46 @@ def test_the_quorum_holds_only_the_viewers_text() -> None:
     knaben, rutor = _Ask("Knaben", 0.1), _Ask("RuTor", 0.1)
     assert circle_wait([knaben, rutor], names=True, began=0.0, slack=0.0) == [rutor]
     assert circle_wait([knaben, rutor], names=False, began=0.0, slack=0.0) == [knaben, rutor]
+
+
+def _down(tmp_path: Path, *names: str) -> DownBook:
+    book = DownBook(lambda: tmp_path / "down.json")
+    for name in names:
+        for _ in range(DOWN_AFTER):
+            book.hear(name, answered=False)
+    return book
+
+
+@pytest.mark.machine
+def test_a_down_core_does_not_hold_the_circle(tmp_path: Path) -> None:
+    knaben, rutor = _Ask("Knaben", 5.0), _Ask("RuTor", 5.0)
+    threading.Timer(0.1, rutor.done.set).start()
+    core, elapsed = _waited([knaben, rutor], book=_down(tmp_path, "Knaben"), names=False)
+    assert core == [rutor], "Knaben is asked, not waited: its rows come late if at all"
+    assert elapsed < 1.0, f"waited {elapsed:.2f} s for a source that is down"
+
+
+def test_a_core_all_down_is_waited_as_before(tmp_path: Path) -> None:
+    knaben, rutor = _Ask("Knaben", 0.0), _Ask("RuTor", 0.0)
+    book = _down(tmp_path, "Knaben", "RuTor")
+    core = circle_wait([knaben, rutor], names=False, began=0.0, slack=0.0, book=book)
+    assert core == [knaben, rutor]
+
+
+def test_a_core_given_up_after_the_whole_wait_is_told_silent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its thread may live 45 s more: a restart before that would never tell the book."""
+    monkeypatch.setattr(circle_wait_module, "IN_TIME", 0.0)
+    book = DownBook(lambda: tmp_path / "down.json")
+    for _ in range(DOWN_AFTER):
+        circle_wait([_Ask("Knaben", 0.0)], names=False, began=0.0, slack=0.0, book=book)
+    assert book.down() == {"Knaben"}
+
+
+def test_a_short_wait_tells_nothing(tmp_path: Path) -> None:
+    """A second circle capped to a second gave up on Knaben too early to call it silent."""
+    book = DownBook(lambda: tmp_path / "down.json")
+    for _ in range(DOWN_AFTER):
+        circle_wait([_Ask("Knaben", 1.0)], names=False, began=0.0, slack=0.0, book=book)
+    assert book.down() == frozenset()
