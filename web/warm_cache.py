@@ -92,7 +92,7 @@ class WarmCache:
                 lambda: key not in self._busy or self.ready(query) is not None, BUSY_WAIT
             )
             refused = self._memory.refusal(query, retry)
-            ready = None if refused is not None else self.ready(query)
+            ready = None if refused is not None else self._memory.plans(query, retry)
             if ready is not None and not self._memory.revived(query):
                 return ready
             if ready is None and refused is None:

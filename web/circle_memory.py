@@ -1,8 +1,8 @@
 """Память кругов раздач: найденное на срок, отказ круга на минуту, диск на сутки.
 
-Круг, где ответил не каждый спрошенный индексер, живёт в памяти минуту, а на диске лежит с
-меткой: экран после минуты и после перезапуска поднимает его без сети, а любой следующий
-круг его сменяет. Полный круг на диске неполный сменяет, только если не беднее его.
+Круг, где ответил не каждый спрошенный индексер, на диске лежит с меткой и сменяется
+следующим, не беднее его. Минуту он ответ и тому, кто спрашивает сам; после неё поиск
+спрашивает сеть, а экран держит его свой срок, как любой круг.
 
 Пустой ответ помнится коротко, по образцу Torrentio (``addon/lib/cache.js``, Apache-2.0,
 github.com/TheBeastLT/torrentio-scraper): без памяти отказа каждый переспрос карточки
@@ -51,6 +51,8 @@ class CircleMemory:
     #: Last circle that came from the network, poorer or not, and keys shown from disk only.
     _landed: dict[str, tuple[list[Plan], float]] = field(default_factory=dict, repr=False)
     _revived: set[str] = field(default_factory=set, repr=False)
+    #: When a circle not every indexer answered stops answering one who asks (:meth:`plans`).
+    _asker: dict[str, float] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @staticmethod
@@ -58,15 +60,16 @@ class CircleMemory:
         """Один ключ круга на всех: поиск, прогрев, карточка и «похожие»."""
         return query.strip()
 
-    def plans(self, query: str) -> list[Plan] | None:
+    def plans(self, query: str, retry: bool = False) -> list[Plan] | None:
         """Согретый круг, пустой список для свежего отказа, иначе ``None``.
 
         Сорванный круг пуст так же (ждущие его не переспрашивают сеть до срока), но это
         :class:`TornCircle`: читающий вердикт отличит «не знаю» от «нет раздач».
+        ``retry`` - спрашивает человек: неполный круг старше минуты ему не ответ.
         """
         key, now = self.key(query), self.clock()
         with self._lock:
-            found = self._found.get(key)
+            found = None if retry and self._asker.get(key, now + 1) <= now else self._found.get(key)
             if found is not None and found[1] > now:
                 return found[0]
             empty = self._empty.get(key)
@@ -123,20 +126,21 @@ class CircleMemory:
         """Запомнить непустую находку; пустая - не находка, урезанная - на минуту.
 
         Неполный круг (:meth:`poorer`) живой полный не вытесняет, а без него живёт минуту.
-        Круг, где ответил не каждый спрошенный индексер (:func:`_part`), тоже живёт минуту: его
-        плитки не весь каталог, и следующий запрос после неё спрашивает сеть заново.
+        Круг, где ответил не каждый спрошенный индексер (:func:`_part`), спрашивающему сам
+        ответ минуту (:meth:`plans`): фон и экран держат его свой срок и сети не зовут.
         """
         if not plans:
             return
-        key, poorer = self.key(query), self.poorer(query, plans)
-        ttl = EMPTY_TTL if poorer or _part(plans) else self.ttl
+        key, poorer, part = self.key(query), self.poorer(query, plans), _part(plans)
+        ttl = EMPTY_TTL if poorer or isinstance(plans, CutCircle) else self.ttl
         with self._lock:
-            self._landed[key] = (plans, self.clock() + ttl)
+            self._landed[key] = (plans, self.clock() + (EMPTY_TTL if part else ttl))
             self._revived.discard(key)
             shown = self._found.get(key)
             if poorer and shown is not None and shown[1] > self.clock():
                 return
             self._found[key] = (plans, self.clock() + ttl)
+            self._asker[key] = self.clock() + EMPTY_TTL if part else float("inf")
             self._empty.pop(key, None)
 
     def poorer(self, query: str, plans: list[Plan]) -> bool:

@@ -67,11 +67,14 @@ def test_a_slug_line_finds_the_network_circle_of_the_same_spelling() -> None:
     assert memory.alike("рататуй") is None
 
 
-def test_a_circle_not_every_indexer_answered_lives_a_minute_and_gives_way_on_disk(
+def test_a_circle_not_every_indexer_answered_answers_an_asker_a_minute_and_gives_way_on_disk(
     tmp_path: Path,
 ) -> None:
     """🔴 «Начало» показывало 2 плитки вместо 20 в 30 заходах подряд: круг, где JacRed и
-    RuTor смолчали, лёг на диск на сутки как полный и заслонял собой каждый следующий."""
+    RuTor смолчали, лёг на диск на сутки как полный и заслонял собой каждый следующий.
+
+    🔴 Its minute bound the screen too: every home page opened after it asked the network
+    again, half as many indexer requests again as the build without the mark."""
     now = [0.0]
     told: list[Told] = [
         ("search", "Начало", 0.0, (), [RawResult("Начало", "a", indexer="AniLibria")])
@@ -89,14 +92,16 @@ def test_a_circle_not_every_indexer_answered_lives_a_minute_and_gives_way_on_dis
         circle, lambda _p: None, _sync, clock=lambda: now[0], disk=disk, replay=lambda *_: [_PLAN]
     )
 
-    assert cache.take("Начало") == [_PLAN]
+    assert cache.take("Начало", retry=True) == [_PLAN]
     assert disk.part("Начало"), "the cut circle lies on disk only with its mark"
     now[0] += EMPTY_TTL - 1.0
-    assert cache.take("Начало") == [_PLAN]
+    assert cache.take("Начало", retry=True) == [_PLAN]
     assert asked == ["Начало"], "inside its minute the cut circle is not asked again"
     now[0] += 2.0
-    cache.take("Начало")
-    assert asked == ["Начало", "Начало"], "after it the network is asked behind the disk"
+    assert cache.take("Начало") == [_PLAN]
+    assert asked == ["Начало"], "past the minute the screen still holds it and asks no one"
+    cache.take("Начало", retry=True)
+    assert asked == ["Начало", "Начало"], "one who asks after it gets the network behind the disk"
     assert (disk.told("Начало"), disk.part("Начало")) == (whole, False), (
         "the next circle takes the marked one's place, though AniLibria is not in it"
     )
