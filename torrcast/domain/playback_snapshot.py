@@ -27,6 +27,7 @@ class PlaybackSnapshot:
     file_index: int = 0
     audio_index: int = 0
     #: Хэш раздачи из магнита записи: им ``cast stop`` сносит пережившую юнит раздачу.
+    #: Пусто у раздачи, которую юнит оставил закладке (:attr:`torrcast.domain.entry.Entry.parked`).
     torrent_hash: str = ""
     done: bool = False
     year: int = 0

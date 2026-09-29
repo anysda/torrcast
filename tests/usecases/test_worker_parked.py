@@ -81,3 +81,16 @@ def test_the_next_start_takes_a_parked_release_the_page_does_not_hold(
     _release_orphans(load_config())
 
     assert (service.dropped, _entry().parked) == (["hash"], "")
+
+
+def test_stop_leaves_the_release_the_unit_parked() -> None:
+    """«Завершить» сносил раздачу ещё раз после юнита, и закладка снова ждала метаданные."""
+    from torrcast.adapters.unit_playback_session import _left
+    from torrcast.domain.entry import Entry
+
+    torrent_hash = "4f2c1a90bd9e3f1fbaa1a8b8b7c0d1e2f3a4b5c6"
+    entry = Entry(title="Брат", magnet=f"magnet:?xt=urn:btih:{torrent_hash}")
+
+    assert _left(entry) == torrent_hash, "юнит не оставил её никому - сносится как прежде"
+    entry.parked = torrent_hash
+    assert _left(entry) == ""

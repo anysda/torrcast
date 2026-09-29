@@ -107,9 +107,15 @@ class UnitPlaybackSession:
             warm=entry.warm,
             file_index=entry.file_idx,
             audio_index=entry.audio,
-            torrent_hash=_torrent_hash(entry.magnet),
+            torrent_hash=_left(entry),
             done=entry.done,
             year=entry.year,
             original=entry.original,
             query=getattr(entry, "query", ""),
         )
+
+
+def _left(entry: Any) -> str:
+    """Раздача, пережившая юнит; оставленную закладке (:attr:`Entry.parked`) остановка не сносит."""
+    torrent_hash = _torrent_hash(entry.magnet)
+    return "" if torrent_hash == getattr(entry, "parked", "") else torrent_hash
