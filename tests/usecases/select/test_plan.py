@@ -141,3 +141,22 @@ def test_a_series_queue_has_no_release_of_another_work_of_the_franchise() -> Non
     built = plan(other, mine, season, picture=picture, series=_Series(want=Episode(1, 1)))
 
     assert built.candidates(_ASKED) == [2, 3]
+
+
+def test_a_first_season_queue_has_no_later_form_of_another_year() -> None:
+    """«Синдром одиночки» s1e1 играл первую серию 2nd GIG: «(ТВ-2)» 2004 лежала в пуле 2002."""
+    gig = parsed(
+        "Призрак в доспехах: Синдром одиночки (ТВ-2) / Koukaku Kidoutai S.A.C. 2nd GIG"
+        " [TV] [26 из 26] [RUS(ext),JAP+Sub] [2004, BDRip] [1080p]"
+    )
+    mine = parsed(
+        "Призрак в доспехах: Синдром одиночки (ТВ-1) / Koukaku Kidoutai: Stand Alone Complex"
+        " [TV] [26 из 26] [RUS(ext),JAP+Sub] [2002, BDRip] [1080p]",
+        seeders=5,
+    )
+    picture = Picture(title="Призрак в доспехах: Синдром одиночки", year=2002, kind="tv")
+    built = plan(gig, mine, picture=picture, series=_Series(want=Episode(1, 1)))
+
+    assert built.candidates(_ASKED) == [2]
+    later = plan(gig, mine, picture=picture, series=_Series(want=Episode(2, 1)))
+    assert 1 in later.candidates(_ASKED), "второй сезон картины ТВ-2 не отнимается"

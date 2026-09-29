@@ -10,6 +10,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.foreign_work import foreign_work
 from torrcast.domain.info_hash import info_hash
+from torrcast.domain.later_form import later_form
 from torrcast.domain.map_episodes import map_episodes
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
@@ -182,8 +183,10 @@ class Plan(_PlanFields):
 
     def _elsewhere(self, release: Release) -> bool:
         """Серии тут нет: имя её не обещает или раздача другой работы (:func:`foreign_work`)."""
-        return misses_episode(release, self.want) or (
-            self.want is not None and foreign_work(release, self.picture)
+        want, picture = self.want, self.picture
+        return misses_episode(release, want) or (
+            want is not None
+            and (foreign_work(release, picture) or later_form(release, picture, want))
         )
 
     @property
