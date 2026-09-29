@@ -295,10 +295,10 @@ def test_a_recounted_circle_waits_for_its_new_top_though_the_card_waited_out_tha
 def test_a_release_taken_by_the_deadline_does_not_wait_again_for_its_honesty(
     monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
 ) -> None:
-    """384p «Призрака», взятый сроком, ждал проверки честности ещё 12 с."""
+    """Взятый сроком 720p под именем 1080p не ждёт проверки честности: «Призрак» ждал 12 с."""
     monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.4)
     pool = [rel(name=f"r{n} 1080p | Дубляж", seeders=100 - n) for n in range(3)]
-    small = replace(_RUS, height=384, width=512)
+    small = replace(_RUS, height=720, width=1280)
     read = probes(pool, _RUS, small)
 
     def slow(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
@@ -313,6 +313,20 @@ def test_a_release_taken_by_the_deadline_does_not_wait_again_for_its_honesty(
 
     assert (prep.number, prep.hurried) == (2, True)
     assert time.monotonic() - began < 3.0
+
+
+@pytest.mark.machine
+def test_a_younger_release_below_hd_does_not_jump_the_queue(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """«HDRip» «Рататуя» оказался 288p: срок его не берёт, играет старшая в свой черёд."""
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    sd = replace(_RUS, height=288, width=512)
+    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, sd, sd))
+
+    prep = bench.resolve(plan(_POOL), _ASKED, Said())
+
+    assert prep.number == 1
 
 
 @pytest.mark.machine

@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.pick_settings import PICK_FRONT
+from torrcast.domain.rank_settings import HD_HEIGHT
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.playback.refuse_called_off import refuse_called_off
@@ -176,6 +177,10 @@ def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep) -> bool:
     # у «Рика и Морти» (2013), и подмена показала чужой сериал. Другой год ждёт очереди.
     year = plan.picture.year
     if year is not None and prep.release.year not in (None, year):
+        return False
+    # Срок покупает время, а не картинку хуже HD: «HDRip» «Рататуя» прошёл очередь по имени,
+    # паспорт сказал 288p, и подмена отдала его вместо 1080p №2. Такой ждёт своей очереди.
+    if prep.media is not None and 0 < prep.media.frame < HD_HEIGHT:
         return False
     # Без карты опорных кадров нет сетки, и LOAD ждёт её: карта №2 «Тачек» снималась 8.5 с.
     if prep.mapped is not None and not prep.mapped.is_set():
