@@ -230,3 +230,22 @@ def test_a_movie_does_not_leave_before_its_own_last_second(facts: dict[str, Any]
     assert said["cardAt9_5"] is False, "у фильма встала плашка перехода - переходить некуда"
     assert said["goneAt0_7"] == 1, "вкладка не ушла и на 0.7 с до конца (порог dev - 1 с)"
     assert said["path"] == "/"
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize("case", ["unknown", "promised"])
+def test_a_tab_leaves_once_the_unit_ends_without_a_next_box(
+    facts: dict[str, Any], case: str
+) -> None:
+    """Серия кончилась, юнит погас без нового ящика - вкладка уходит при любом ``has_next``.
+
+    ``promised`` - ``has_next: true``: дата каталога, номер того же сезона или сезон из
+    пула обещают серию, но раздачу не доказывают, и поиск юнита может прийти пустым.
+    Ушла только ``unknown`` (``null``) - вкладка при ``true`` стояла на «буферизации»
+    навеки (зонд мержера: две минуты без ухода). Пока юнит жив и ищет, уходить рано.
+    """
+    said = _scenario(facts, "idleAfterTheEndLeaves")[case]
+    assert said["buffering"] is True, "пока юнит ищет, на экране буферизация"
+    assert said["whileSearching"] == 0, "вкладка ушла, пока юнит ещё искал продолжение"
+    assert said["afterIdle"] >= 1, "юнит погас без ящика, а вкладка осталась на показе"
+    assert said["nextCalls"] == 0, "автопереход не зовёт POST /api/next"

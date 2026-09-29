@@ -8,8 +8,9 @@ const TCPlayerNext = {
   //: Сколько секунд ждать до автоматического перехода; число из ТЗ, а не из воздуха.
   SECONDS: 10,
 
-  // ``onPlay`` зовётся и по истечении счётчика, и по клику «Смотреть» - ровно одна
-  // дверь в ``POST /api/next`` (:mod:`torrcast.usecases` дальше сам не дублируется).
+  // ``onPlay`` зовётся и по истечении счётчика, и по клику «Смотреть» - ровно один раз.
+  // Сервер он не зовёт: следующую серию ищет живой юнит, а ``onPlay`` лишь открывает
+  // его новый ящик (`TCPlayer._playNext`).
   mount(root, onPlay, onCancel) {
     const card = document.createElement('div');
     card.className = 'tc-next';

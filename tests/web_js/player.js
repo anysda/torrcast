@@ -274,6 +274,33 @@ const scenarios = {
       leftAtPosition: 99.3, leftAtRemaining: 100 - 99.3,
     };
   },
+
+  // Серия кончилась, юнит ищет продолжение и гаснет пустым: ``has_next`` мог быть и
+  // ``null`` (каталог молчит), и ``true`` (дата, номер того же сезона, сезон из пула -
+  // обещание, а не найденная раздача). В обоих случаях вкладка уходит, как только
+  // юнит погас без нового ящика, а пока он жив - ждёт на «буферизации» (зонд мержера:
+  // при ``true`` вкладка стояла две минуты).
+  async idleAfterTheEndLeaves() {
+    const run = async (first) => {
+      let st = { state: 'playing', has_next: first, season: 8, episode: 1 };
+      const box = { key: 'k1', url: 'http://stand/a.m3u8', at: 0 };
+      const p = player({ box: () => box, state: () => st });
+      const gone = () => p.calls.routerGo.length + p.calls.historyBack;
+      p.mount();
+      await p.time.run(200);
+      p.video.duration = 100;
+      p.tick(95);
+      await p.time.run(11000); // плашка у ``true`` досчитала, ящика нет
+      p.ended();
+      await p.time.run(41000); // полминуты юнит ещё ищет (часы стенда - абсолютные)
+      const buffering = !!p.overlay().querySelector('.tc-buffering');
+      const whileSearching = gone();
+      st = { state: 'idle', has_next: false };
+      await p.time.run(46000);
+      return { buffering, whileSearching, afterIdle: gone(), nextCalls: p.calls.next.length };
+    };
+    return { unknown: await run(null), promised: await run(true) };
+  },
 };
 
 async function main() {

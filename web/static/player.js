@@ -115,7 +115,12 @@ const TCPlayer = {
         const awaiting = TCPlayer._awaitNext;
         TCPlayer._hasNext = state.has_next === true;
         TCPlayer._awaitNext = state.has_next === null && state.state !== 'idle';
-        if (awaiting && state.state === 'idle') TCPlayer._leave();
+        //: Серия кончилась, а юнит погас, не дав нового ящика: следующей не будет, что бы
+        //: ни обещала плашка. `has_next === true` - это дата каталога или номер того же
+        //: сезона, а не найденная раздача; поиск юнита мог прийти пустым, и без этого ухода
+        //: вкладка стояла на «буферизации» навеки (зонд мержера: две минуты без ухода).
+        const over = awaiting || (TCPlayer._ending && !TCPlayer._pendingBox);
+        if (over && state.state === 'idle') TCPlayer._leave();
         TCPlayer._last = state;
         TCPlayer._render(state);
         //: Пока ящика нет, эти же ответы двигают экран подготовки: раз в две секунды
@@ -210,17 +215,11 @@ const TCPlayer = {
       TCPlayer._leave();
       return;
     }
-    // 🔴 Кончившаяся серия называется серверу поимённо и СЕЙЧАС, до отсчёта: за его
-    // 10 секунд сторож юнита доигрывает сериал сам, и снимок к ответу уже говорил бы
-    // про НОВУЮ серию - её имя вместо кончившейся читалось бы как «перейди дальше»,
-    // и показ перепрыгивал серию, уезжая со вкладки на телевизор (замер на живом
-    // приёмнике 10-09-2026: s1e2 кончилась, вкладка получила s1e4 на ТВ и чёрный экран).
-    const ended = TCPlayer._endedMark();
     TCPlayer._counting = true;
     TCPlayer._overlay.replaceChildren();
     TCPlayer._nextStop = TCPlayerNext.mount(
       TCPlayer._overlay,
-      () => TCPlayer._playNext(ended),
+      () => TCPlayer._playNext(),
       () => TCPlayer._cancelNext(),
     );
   },
@@ -244,8 +243,11 @@ const TCPlayer = {
     TCPlayer._clearOverlay();
   },
 
-  //: Серия, которая играет в эту секунду, поимённо - тело ``POST /api/next``; снимок её
-  //: ещё не назвал (фильм, первые секунды) - пустой зов, старое поведение без имени.
+  //: Серия, которая играет в эту секунду, поимённо - тело ``POST /api/next`` у кнопки
+  //: ``web.player.next_episode`` панели (`onNext`): человек просит перескочить СЕЙЧАС, и сервер
+  //: должен знать, с какой серии. Автопереход на конце серии его не зовёт - продолжение
+  //: ищет живой юнит (`_playNext`). Снимок серию ещё не назвал (фильм, первые секунды) -
+  //: пустой зов, старое поведение без имени.
   _endedMark() {
     const state = TCPlayer._last || {};
     return state.season && state.episode ? { season: state.season, episode: state.episode } : {};
@@ -257,7 +259,7 @@ const TCPlayer = {
   //: `_pendingBox`, чтобы не рвать счёт на середине (замер на двух живых приёмниках 17-09-2026).
   //: Тут этот ящик и открывается: экран «грузится» - та же панель, что у первого кадра
   //: показа, а не голый чёрный `<video>`.
-  _playNext(ended) {
+  _playNext() {
     const box = TCPlayer._pendingBox;
     TCPlayer._pendingBox = null;
     TCPlayer._counting = false;
