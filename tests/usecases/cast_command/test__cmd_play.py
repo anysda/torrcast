@@ -625,3 +625,73 @@ def test_the_taken_release_is_held_until_the_show_is_handed_over() -> None:
     assert code == EXIT_OK
     assert held == [True], "до конца пути показа раздачу держит отбор"
     assert CLAIMS.claimed("hash-взятая") is False, "путь кончился - отметка снята"
+
+
+class _Head:
+    """Голова заранее под наблюдением: что просили греть и когда."""
+
+    def __init__(self, order: list[str]) -> None:
+        self.order = order
+        self.entries: list[Entry] = []
+
+    def want(self, _config: object, _profile: object, _engine: object, entry: Entry) -> None:
+        self.order.append("голова")
+        self.entries.append(entry)
+
+
+def _one_film() -> tuple[Plan, _Prep]:
+    pack = release("Кино / Movie BDRip 1080p")
+    one = Plan(
+        picture=Picture(title="Кино", year=1999, releases=[pack]),
+        ranked=[pack],
+        runtime=5400.0,
+        warn_mbit=16.0,
+    )
+    prep = _Prep(number=1, release=pack, torrent_hash="hash-взятая")
+    prep.video = TorrFile(index=0, name="кино.mkv", size=8 * GB)
+    prep.files = [prep.video]
+    prep.media = Media(
+        duration=5400.0,
+        tracks=(AudioTrack(index=0, language="rus", title="Дубляж"),),
+        video="h264",
+        height=1080,
+        video_bps=8.0 * 1e6,
+    )
+    return one, prep
+
+
+@pytest.mark.parametrize("dry", [False, True], ids=["click", "dry"])
+def test_the_click_starts_the_head_before_the_unit(
+    monkeypatch: pytest.MonkeyPatch, dry: bool
+) -> None:
+    """Тяжёлая голова кодируется, пока поднимается юнит; сухой прогон её не греет."""
+    one, prep = _one_film()
+    order: list[str] = []
+    launched: list[Entry] = []
+
+    def launch(_config: object, _key: str, entry: Entry, *_rest: object, **_kw: object) -> int:
+        order.append("юнит")
+        launched.append(entry)
+        return EXIT_OK
+
+    monkeypatch.setattr("torrcast.usecases.cast_command._cmd_play._launch", launch)
+
+    class _Bench:
+        def drop_all(self) -> None:
+            return None
+
+    def choose(*_args: object, **_kw: object) -> object:
+        return [one], one, prep, _Bench(), _OnePassport()
+
+    head = _Head(order)
+    code = _cmd_play(
+        Args(query=["кино"], dry=dry),
+        restart=_never,
+        resume=_never,
+        choose=choose,  # type: ignore[arg-type]
+        head=head,  # type: ignore[arg-type]
+    )
+
+    assert code == EXIT_OK
+    assert order == ([] if dry else ["голова", "юнит"])
+    assert head.entries == launched, "голова греется не той записью, что играет юнит"

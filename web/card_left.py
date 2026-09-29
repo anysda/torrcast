@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from torrcast.usecases.playback.head_ahead import HEAD
 from web.answer import Answer
 from web.card_warm import CARD_WARM
 from web.refusal import refusal
@@ -21,5 +22,6 @@ def card_left(request: Request) -> Answer:
     picture = request.body.get("picture")
     if not isinstance(picture, str) or not picture or len(picture) > _KEY_LIMIT:
         return refusal(400, "bad_picture")
-    CARD_WARM.leave(picture)
+    if CARD_WARM.leave(picture):  # показ стенд не забрал: голова карточки тоже не нужна
+        HEAD.drop(picture)  # чужую голову и голову показа это не снимает
     return Answer(204, b"")

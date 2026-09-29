@@ -21,19 +21,17 @@ from torrcast.usecases.cast_command._account_watched import _account_watched
 from torrcast.usecases.cast_command._bookmark import _from_start, _kept_place
 from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._default_query import _default_query
-from torrcast.usecases.cast_command._entry_for import _entry_for
+from torrcast.usecases.cast_command._entry_of import _entry_of
 from torrcast.usecases.cast_command._kept_dead import _kept_dead
 from torrcast.usecases.cast_command._notes import _notes
 from torrcast.usecases.choice._named import _title
 from torrcast.usecases.playback._launch import _launch
+from torrcast.usecases.playback.head_ahead import HEAD, HeadAhead
 from torrcast.usecases.rank._hms import _hms
-from torrcast.usecases.rank.pick_voice import pick_voice
 from torrcast.usecases.rank.quality_text import quality_text
 from torrcast.usecases.rank.spoken_label import _spoken_media_label
 from torrcast.usecases.say_showing import _say_showing
 from torrcast.usecases.select._continue import _continue
-from torrcast.usecases.select._remembered import _remembered
-from torrcast.usecases.select._studio_seen import _studio_seen
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _release_orphans
@@ -50,6 +48,7 @@ def _cmd_play(
     restart: Callable[..., int | None] = _from_start,
     resume: Callable[..., int | None] = _continue,
     choose: Callable[..., Chosen] = _choose,
+    head: HeadAhead = HEAD,
 ) -> int:
     """Счастливый путь: запрос → «какой фильм?» → «какая озвучка?» → показ.
 
@@ -136,17 +135,8 @@ def _cmd_play(
     # Взятую раздачу держит отбор, пока показ её не поднял: уборка страницы её не снесёт.
     with CLAIMS.kept(prep.torrent_hash, bench):
         release, video, media = prep.release, prep.want, prep.found
-        # Дорожку выбирают у того файла, из которого её и возьмёт показ: у видео, а когда
-        # русская лежит рядом отдельным файлом (:attr:`_Prep.apart`) - у него. Номер дорожки
-        # после этого считается ВНУТРИ выбранного файла, и туда же смотрит показ.
         sound = prep.voiced
-        audio, voice = pick_voice(
-            sound,
-            args,
-            _remembered(state, plan.picture.key, found_entry),
-            plan.picture.native,
-            release.studios,
-        )
+        entry, audio = _entry_of(state, found_entry, plan, prep, args)
         journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
         label = _spoken_media_label(sound, audio, native=plan.picture.native)
         if prep.apart and prep.voice_file is not None:
@@ -156,10 +146,6 @@ def _cmd_play(
         studio = track_studio(sound, audio, release.studios)
         if studio is not None and studio.name.casefold() not in label.casefold():
             label = f"{label} ({studio.name})"
-        # Студия из памяти картины: вынужденный дефолт её не переписывает, поэтому знать
-        # прежнюю запись обязана и запись показа, а не только порядок меню.
-        seen = _studio_seen(state, plan.picture.key, found_entry)
-        entry = _entry_for(plan, prep, release, video, media, audio, voice, seen, args)
         if resumed is None:
             # Фильм, чья записанная раздача не играется: место у него одно на всю картину, и
             # спрашивается оно по ключу выбранной картины - закладка, ответившая после меню,
@@ -197,4 +183,6 @@ def _cmd_play(
             # «сыграла не та серия» (сквозная нумерация против сезонной) не видна (TC-302).
             print(phrase("cmd_play.dry_no_cast", about=about, base=video.base))
             return EXIT_OK
+        # Тяжёлая голова кодируется, пока поднимается юнит: он возьмёт её с полки.
+        head.want(config, chosen.profile, _state._play_engines(config.torrserver_url), entry)
         return _launch(config, plan.picture.key, entry, about, clock, here=args.here)

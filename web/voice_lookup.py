@@ -40,6 +40,10 @@ def _daemon(job: Callable[[], None]) -> None:
     threading.Thread(target=job, daemon=True, name="voice-lookup").start()
 
 
+def _no_head(*_args: object) -> None:
+    """Отбор полки голов не греет: плитку ещё не открыли."""
+
+
 def _show_profile(config: Config) -> Profile:
     """Профиль, которым судит показ: карточка, судящая иначе, выбрала бы не ту раздачу."""
     return detector.detect(config).profile
@@ -53,6 +57,8 @@ class VoiceLookup:
     spawn: Spawn = _daemon
     warms: CardWarm = field(default_factory=CardWarm)
     profile_of: Callable[[Config], Profile] = _show_profile
+    #: Голова показа по раздаче, оставленной греться (:func:`web.card_head.card_head`).
+    head: Callable[..., None] = _no_head
     clock: Callable[[], float] = time.monotonic
     _heard: dict[str, tuple[Heard | None, float, bool]] = field(default_factory=dict)
     _pending: set[str] = field(default_factory=set)
@@ -160,6 +166,8 @@ class VoiceLookup:
             foreign = pinned and prep is not None and info_hash(prep.release) != release
             if fresh and not released:  # чужую закладке раздачу не греют: играть её не будут
                 self.warms.finish(warm, None if foreign else prep)
+                if prep is not None and not pinned and not left:
+                    self.head(config, profile, engines, plan, prep, args)
             if prep is not None and not foreign:
                 release = info_hash(prep.release)
                 heard = Heard(

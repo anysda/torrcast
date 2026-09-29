@@ -326,3 +326,40 @@ def test_a_card_without_a_live_bookmark_warms_the_file_start(
     lookup.of(_PLAN, "film", _CONFIG, _live(pos=395.0, done=True))
 
     assert getattr(bench, "resume", None) == 0.0
+
+
+def test_a_finished_card_pick_starts_the_head_of_the_release_it_keeps_warm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Отбор карточки кончился раньше клика: голова показа греется этой же раздачей."""
+    heads: list[tuple[Any, ...]] = []
+    bench = _Bench(_MEDIA)
+    lookup = _lookup(monkeypatch, bench, spawn=_sync, head=lambda *args: heads.append(args))
+
+    lookup.of(_PLAN, "film", _CONFIG)
+
+    assert len(heads) == 1
+    config, profile, _engines, plan, prep, args = heads[0]
+    assert config is _CONFIG and profile.key == "q70d" and plan is _PLAN
+    assert prep.found is _MEDIA and args.title_query == "film"
+
+
+def test_a_bookmark_card_starts_no_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Закладка играет со своего места, а голова кладётся с начала файла: греть нечего."""
+    heads: list[tuple[Any, ...]] = []
+    bench = _Bench(_MEDIA, release=_KEPT)
+    lookup = _lookup(monkeypatch, bench, spawn=_sync, head=lambda *args: heads.append(args))
+
+    lookup.of(_KEPT_PLAN, "film", _CONFIG, _live())
+
+    assert heads == []
+
+
+def test_a_refused_card_pick_starts_no_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    heads: list[tuple[Any, ...]] = []
+    bench = _Bench(InfraError("no fit"))
+    lookup = _lookup(monkeypatch, bench, spawn=_sync, head=lambda *args: heads.append(args))
+
+    lookup.of(_PLAN, "film", _CONFIG)
+
+    assert heads == []

@@ -58,6 +58,7 @@ from torrcast.usecases.discover._search_state import (
 )
 from torrcast.usecases.facts import Facts
 from torrcast.usecases.feed_pack import _state as feed_state
+from torrcast.usecases.playback.head_ahead import HEAD
 from torrcast.usecases.playback.hls_root import HLS_ENV
 from torrcast.usecases.torrent_claims import CLAIMS
 from web.series_catalog import SERIES
@@ -813,6 +814,17 @@ def _no_machine_swarm(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     composition.use_warm_file(monkeypatch, _no_warming)
     composition.use_swarm_pulse(monkeypatch, _no_pulse)
+
+
+@pytest.fixture(autouse=True)
+def _no_head_ahead(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Голова процесса (:data:`torrcast.usecases.playback.head_ahead.HEAD`) фона не заводит.
+
+    Боевая голова поднимает демона с ffmpeg и спрашивает TorrServer о файлах раздачи, а
+    у подделок раздач такого нет: поток падал бы в соседнем тесте. Тесты самой головы
+    строят свой :class:`HeadAhead` со своим ``spawn``.
+    """
+    monkeypatch.setattr(HEAD, "spawn", lambda _job: None)
 
 
 def _no_warming(*_args: object, **_kwargs: object) -> None:

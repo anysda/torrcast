@@ -102,14 +102,15 @@ class CardWarm:
             warm.bench.drop_all()
         warm.chosen.set()
 
-    def leave(self, key: str) -> None:
-        """Карточка ушла с экрана: её прогрев снимается, а чужой остаётся."""
+    def leave(self, key: str) -> bool:
+        """Карточка ушла с экрана: её прогрев снимается, а чужой остаётся. Правда - снят."""
         with self._lock:
             warm = self._current
             if warm is None or warm.key != key or warm.taken:
-                return
+                return False
             self._current = None
         self._release(warm)
+        return True
 
     def take(self, key: str, fresh: Bench) -> Bench:
         """Стенд показу с карточки: прогретый карточкой, иначе ``fresh``, названный её ключом.

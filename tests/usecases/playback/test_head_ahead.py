@@ -1,0 +1,153 @@
+"""Голова процесса: одна на ключ полки, карточка снимает только свою, показ - ничью."""
+
+from __future__ import annotations
+
+import threading
+from dataclasses import replace
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from torrcast.domain.config import Config
+from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.usecases.playback import head_ahead
+from torrcast.usecases.playback.head_ahead import HeadAhead
+
+_ENTRY: Any = SimpleNamespace(audio=1)
+_PROFILE: Any = SimpleNamespace(max_segment_bytes=16 << 20)
+
+
+def _now(job: Any) -> None:
+    job()
+
+
+def _heads(monkeypatch: pytest.MonkeyPatch, *keys: str) -> None:
+    """Каждый следующий ``_plan`` называет следующий ключ полки."""
+    queue = list(keys)
+
+    def plan(*_args: object) -> Any:
+        return SimpleNamespace(
+            vault=SimpleNamespace(key=queue.pop(0)), source="s", voice="", grid=None, slot=0,
+            encode=None,
+        )  # fmt: skip
+
+    monkeypatch.setattr(head_ahead, "_plan", plan)
+
+
+def _want(ahead: HeadAhead, owner: str = "") -> None:
+    ahead.want(Config(), _PROFILE, object(), _ENTRY, owner=owner)  # type: ignore[arg-type]
+
+
+def test_leaving_the_card_stops_its_own_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Карточка ушла, пока голова кодируется: заход снимается, играть её не будут."""
+    _heads(monkeypatch, "k")
+    halts: list[threading.Event] = []
+    ahead = HeadAhead(spawn=_now)
+
+    def lay(*args: Any) -> bool:
+        halts.append(args[-1])
+        ahead.drop("кино")
+        return False
+
+    ahead.lay = lay
+    _want(ahead, owner="кино")
+
+    assert halts[0].is_set(), "ушедшая карточка оставила голову кодироваться"
+
+
+def test_another_card_leaving_keeps_the_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Чужая карточка голову не снимает: страница ушла не с этой картины."""
+    _heads(monkeypatch, "k")
+    halts: list[threading.Event] = []
+    ahead = HeadAhead(spawn=_now)
+
+    def lay(*args: Any) -> bool:
+        halts.append(args[-1])
+        ahead.drop("другое")
+        return True
+
+    ahead.lay = lay
+    _want(ahead, owner="кино")
+
+    assert not halts[0].is_set()
+
+
+def test_the_click_takes_the_card_head_over_and_does_not_lay_it_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Клик по той же раздаче вторую голову не заводит, и уход карточки её уже не снимает."""
+    _heads(monkeypatch, "k", "k")
+    halts: list[threading.Event] = []
+    ahead = HeadAhead(spawn=_now)
+
+    def lay(*args: Any) -> bool:
+        halts.append(args[-1])
+        _want(ahead)  # клик пришёл, пока голова карточки кодируется
+        ahead.drop("кино")  # страница ушла с карточки на показ
+        return True
+
+    ahead.lay = lay
+    _want(ahead, owner="кино")
+
+    assert len(halts) == 1, "одну и ту же голову кодировали дважды"
+    assert not halts[0].is_set(), "уход карточки снял голову, которую уже ждёт показ"
+
+
+def test_a_new_head_stops_the_old_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Другая раздача - другая голова: прежняя снимается, ядра нужны новой."""
+    _heads(monkeypatch, "old", "new")
+    halts: list[threading.Event] = []
+    ahead = HeadAhead(spawn=_now)
+
+    def lay(*args: Any) -> bool:
+        halts.append(args[-1])
+        if len(halts) == 1:
+            _want(ahead)
+        return True
+
+    ahead.lay = lay
+    _want(ahead, owner="кино")
+
+    assert len(halts) == 2
+    assert halts[0].is_set(), "прежняя голова кодировалась рядом с новой"
+    assert not halts[1].is_set()
+
+
+def test_a_failed_plan_lays_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Раздача не ответила о файлах: заранее голову не кладут, показ возьмёт её сам."""
+
+    def plan(*_args: object) -> Any:
+        raise TorrcastError("нет ответа")
+
+    monkeypatch.setattr(head_ahead, "_plan", plan)
+    laid: list[object] = []
+
+    def lay(*args: object) -> bool:
+        laid.append(args)
+        return True
+
+    ahead = HeadAhead(spawn=_now, lay=lay)
+
+    _want(ahead, owner="кино")
+
+    assert laid == []
+
+
+@pytest.mark.parametrize(
+    "config",
+    [replace(Config(), warm=False), replace(Config(), recode=False)],
+    ids=["warm", "recode"],
+)
+def test_no_head_without_the_shelf_or_the_recode(config: Config) -> None:
+    """Без полки или без перекода класть нечего, и раздачу даже не спрашивают."""
+    assert head_ahead._plan(config, CAUTIOUS, object(), _ENTRY) is None  # type: ignore[arg-type]
+
+
+def test_with_the_shelf_and_the_recode_the_plan_asks_the_torrent() -> None:
+    """Положительный контроль к пробе выше: с умолчаниями план идёт к раздаче за файлом."""
+    entry: Any = SimpleNamespace(magnet="magnet:?xt=urn:btih:" + "a" * 40, file_idx=1)
+
+    with pytest.raises(AttributeError, match="stream_url"):
+        head_ahead._plan(Config(), CAUTIOUS, object(), entry)  # type: ignore[arg-type]

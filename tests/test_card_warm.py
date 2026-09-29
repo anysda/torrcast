@@ -58,9 +58,9 @@ def test_the_chosen_release_stays_warm_until_the_card_is_left() -> None:
     _warm, bench, prep = _warmed(warms)
 
     assert bench.kept == [prep] and prep.card_warmed and bench.drops == 0
-    warms.leave("movie:другое:2000")
+    assert warms.leave("movie:другое:2000") is False
     assert bench.drops == 0, "чужой уход прогрев не снимает"
-    warms.leave("movie:тачки:2006")
+    assert warms.leave("movie:тачки:2006") is True
     assert bench.drops == 1 and not warms.holds("movie:тачки:2006")
 
 
@@ -99,7 +99,7 @@ def test_the_show_takes_the_warm_bench_with_its_own_profile_and_without_dropped_
     assert got is bench and (got.profile, got.choose) == ("q70d", "show")
     assert not got.lends, "стенд у показа: срезанное поиском дорожки уходит, как у показа"
     assert list(got.preps.values()) == [prep], "убранную карточкой раздачу показ греет заново"
-    warms.leave("movie:тачки:2006")
+    assert warms.leave("movie:тачки:2006") is False, "стенд у показа, а уход назван снятием"
     assert bench.drops == 0, "стенд у показа: уход с карточки его не трогает"
 
 

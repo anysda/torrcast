@@ -35,6 +35,7 @@ from web.answer import Answer
 from web.answered_episode import _episodes_unavailable
 from web.card_ask import NO_ASK, CardAsk
 from web.card_details import CardDetails
+from web.card_head import card_head
 from web.card_poster import CardPoster
 from web.card_seasons import card_seasons
 from web.card_voices import card_voices
@@ -55,8 +56,7 @@ from web.start_related import start_related
 from web.voice_lookup import VoiceLookup
 from web.warm_wiring import RELATED, WARM
 
-#: Префикс, под которым живёт вся карточка; ключ картины - хвост пути после него.
-_PREFIX = "/api/card/"
+_PREFIX = "/api/card/"  # Префикс карточки; ключ картины - хвост пути после него.
 #: Родня общая с прогревом полок; имя остаётся подменяемым швом карточечных проб.
 _related = RELATED
 #: Заголовок, которым карточка метит недоехавшее описание, рейтинг, родню или серии.
@@ -67,8 +67,8 @@ WAIT: Final = GRACE + 1.0
 _TICK: Final = 0.25  # Шаг, которым долгий переспрос оглядывается на фоновые доборы.
 #: Разбор серий раздачи, которую играл бы показ (:class:`web.episode_lookup.EpisodeLookup`).
 _episodes = EpisodeLookup(engines=TorrServer)
-#: Дорожки той раздачи, которую играл бы показ (:class:`web.voice_lookup.VoiceLookup`).
-_voices = VoiceLookup(engines=TorrServer, warms=CARD_WARM)
+#: Дорожки и голова той раздачи, которую играл бы показ (:class:`web.voice_lookup.VoiceLookup`).
+_voices = VoiceLookup(engines=TorrServer, warms=CARD_WARM, head=card_head)
 #: Приговор обложки - тот же, что у выдачи поиска и полки (:mod:`web.card_poster`).
 _poster = CardPoster(offer=hits.urgent, pending=hits.pending)
 #: Сколько долгий заход досиживает после первой перемены, пока доезжает остальное: части
