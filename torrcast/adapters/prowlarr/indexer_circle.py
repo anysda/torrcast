@@ -57,6 +57,7 @@ class IndexerCircle:
         self._left: list[_Ask] = []
         #: Names left unsent behind the host's queue (:func:`send_circle`): nobody heard them.
         self._unsent: list[str] = []
+        self.sent = threading.Event()  # the first circle drew its slots: the names queue behind
         self._begun = 0
         self._lock = threading.Lock()
 
@@ -135,6 +136,7 @@ class IndexerCircle:
         self._unsent += [name for name, _budget in unsent]
         if self._begun <= 1:
             self._asked.extend(asked)
+            self.sent.set()
         names = joint is not None
         core = circle_wait(asked, names=names, began=began, slack=self.slack, unsent=unsent)
         got: list[list[RawResult]] = []

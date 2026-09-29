@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 from torrcast.adapters.prowlarr.circle_trace import circle_trace
 from torrcast.adapters.prowlarr.feed_url import feed_url
 from torrcast.adapters.prowlarr.from_feed_json import from_feed_json
@@ -38,9 +36,12 @@ class Prowlarr(_State):
         Спрашиваем КАЖДЫЙ индексер отдельным запросом (:meth:`_apart`). Список индексеров
         не отдали - остаётся прежний общий запрос, один на всех.
         """
-        found = self._apart(query, limit)
-        general = self._url(query, limit)
-        results = found if found is not None else from_json(self._api.get_json(general))
+        try:
+            found = self._apart(query, limit)
+            general = self._url(query, limit)
+            results = found if found is not None else from_json(self._api.get_json(general))
+        finally:
+            self._circle.sent.set()  # a search that ended holds nobody behind it
         if not results:
             refused = self._roster.refused(self.banned, self._begun_at)
             self.short.update(refused)
@@ -65,6 +66,13 @@ class Prowlarr(_State):
     def inflight(self) -> list[RawResult]:
         """Превью прямо сейчас, не дожидаясь конца круга (TC-1126)."""
         return self._circle.inflight()
+
+    def sent(self, wait: float) -> bool:
+        """Первая строка поиска ушла к индексерам или поиск кончился; ждать не дольше ``wait``.
+
+        :class:`~torrcast.usecases.discover.named_round.NamedRound` пускает имена картины за ней.
+        """
+        return self._circle.sent.wait(wait)
 
     def waiting(self) -> tuple[str, ...]:
         """Имена тех, кто ещё в пути: их части каталога в этой выдаче нет (TC-118).
@@ -115,9 +123,6 @@ class Prowlarr(_State):
         # 🔴 TC-1046: у первого круга потолок свой (:attr:`first_cap`). Цель ему не указ -
         # он и есть поиск, - а вот бюджет самого медленного опорного указ: круг ждёт
         # каждого опорного отдельно, и без потолка ценой меню были двадцать секунд Knaben.
-        if self._first and self.joint is not None:
-            # The viewer's text takes the first slot at every paced host (:attr:`behind`).
-            time.sleep(max(0.0, self._began + self.behind - time.monotonic()))
         cap = self.first_cap if self._first else self.circle_cap()
         self._first = False
         self._circle.begin()

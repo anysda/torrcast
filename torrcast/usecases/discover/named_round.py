@@ -4,6 +4,11 @@ Radarr and Lampa with JacRed know the picture before they ask for its releases: 
 short name or a poor round of the viewer's text then costs nothing, because the indexers
 are asked «name year» and «original year» at once. The viewer's text is still asked: its
 rows keep the namesakes and the rest of the franchise on the screen as before.
+
+Prowlarr paces the requests to one host two seconds apart, in the order they arrive, so of
+two texts sent at once one waits. The viewer's text leaves first: its rows are the only ones
+making tiles and the ones the open card counts early (:func:`web.early_picture.early_picture`).
+The names leave on its event, not after a pause: a slow list of indexers outlasts any pause.
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ from torrcast.usecases.discover.told_indexer import ToldIndexer
 
 #: How long the round may wait for an offline map still being built on a cold start.
 RECOGNIZE_WAIT: Final = 4.0
+#: How long the names wait for the viewer's text to leave; a text that never leaves frees them.
+HEAD: Final = 1.0
 
 
 class NamedRound:
@@ -137,6 +144,7 @@ class NamedRound:
         if (beside := getattr(source, "beside", None)) is not None:
             beside(joint)
         told = ToldIndexer(source)
+        _behind(self.source)
         # The viewer's text answers for the catalogue's health; a name only adds rows.
         with suppress(InfraError):
             _ask(told, text)
@@ -154,6 +162,13 @@ def _texts(known: MapPicture | None, name: str) -> list[str]:
     return list(texts.values())
 
 
+def _behind(client: IndexerClient) -> None:
+    """Let the viewer's text draw its slots at the hosts before the picture's names do."""
+    sent = getattr(client, "sent", None)
+    if callable(sent):
+        sent(HEAD)
+
+
 def _whole(client: IndexerClient) -> bool:
     whole = getattr(client, "whole", None)
     return bool(whole()) if callable(whole) else False
@@ -164,4 +179,4 @@ def _inflight(client: IndexerClient) -> list[RawResult]:
     return list(peek()) if peek is not None else []
 
 
-__all__ = ["RECOGNIZE_WAIT", "NamedRound"]
+__all__ = ["HEAD", "RECOGNIZE_WAIT", "NamedRound"]

@@ -185,3 +185,32 @@ def test_a_viewers_text_answered_last_is_not_ahead_of_the_names() -> None:
     first.ask(ToldIndexer(source), lambda: _Quick(names), None, "Интерстелар", "Интерстелар")
     assert first.typed.is_set()
     assert not first.ahead, "the names were in, and the round still called the text ahead"
+
+
+class _Host(Indexer):
+    """Индексер за Prowlarr: запрос уходит к хосту не сразу, и хост помнит, чей был первым."""
+
+    def __init__(self, arrived: list[str], delay: float) -> None:
+        super().__init__(answers={"интерстеллар 2014": [_ROW], "interstellar 2014": [_ROW]})
+        self._arrived, self._delay, self._sent = arrived, delay, threading.Event()
+
+    def sent(self, wait: float) -> bool:
+        return self._sent.wait(wait)
+
+    def search(self, query: str) -> list[RawResult]:
+        time.sleep(self._delay)
+        self._arrived.append(query)
+        self._sent.set()
+        return super().search(query)
+
+
+def test_the_typed_text_reaches_the_host_before_the_picture_names() -> None:
+    # Prowlarr paces one host two seconds apart: whoever comes second waits. The early card
+    # counts the viewer's text, so the text goes first even when its client starts slower.
+    _configure_recognize(lambda _query, _wait: _INTERSTELLAR)
+    arrived: list[str] = []
+    source = _Host(arrived, 0.2)
+    NamedRound(source).ask(
+        ToldIndexer(source), lambda: _Host(arrived, 0.0), None, "Интерстелар", "Интерстелар"
+    )
+    assert arrived[0] == "Интерстелар", arrived

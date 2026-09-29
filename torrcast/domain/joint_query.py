@@ -18,11 +18,6 @@ from typing import Final
 JOINT: Final = " | "
 #: Indexers that split a joined request themselves: only our own adapter does.
 JOINT_INDEXERS: Final = ("jacred",)
-#: How far behind the viewer's text the names are asked. The pacing hands out the slots in
-#: the order the requests arrive, so texts sent at once drew them at random, and the
-#: viewer's text, the only one making tiles, could start four seconds late with a budget of
-#: three. Behind it the names leave it the first slot at every host.
-NAMES_BEHIND: Final = 0.3
 
 
 def _joint_indexer(name: str) -> bool:
@@ -40,4 +35,4 @@ def joint_query(name: str, query: str, joint: str | None) -> str:
     return joint if joint is not None and _joint_indexer(name) else query
 
 
-__all__ = ["JOINT", "JOINT_INDEXERS", "NAMES_BEHIND", "joint_query"]
+__all__ = ["JOINT", "JOINT_INDEXERS", "joint_query"]
