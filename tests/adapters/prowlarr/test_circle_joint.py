@@ -11,6 +11,7 @@ import pytest
 
 from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _RUTOR, _Http
 from tests.adapters.prowlarr.test_prowlarr import _asked, _swarm, _swarm_of
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.domain.joint_query import NAMES_BEHIND
@@ -166,3 +167,15 @@ def test_an_unsent_name_does_not_leave_the_circle_waiting_the_rest_in_full() -> 
     assert elapsed < 0.5, f"the names waited {elapsed:.2f} s for one that only adds rows"
     assert got == [] and circle.waiting() == ("Nyaa.si",), "it comes late, not lost"
     circle.late(wait=2.0)
+
+
+@pytest.mark.parametrize(("queued", "whole"), [(False, True), (True, False)])
+def test_a_name_left_unsent_keeps_the_search_from_being_whole(queued: bool, whole: bool) -> None:
+    client = _swarm(rows=5)
+    client.beside("")
+    client.behind = 0.0
+    for _ in range(3 if queued else 0):
+        HOST_SLOTS.take("RuTor", 3.0)  # the searches before drew these slots
+    client.search("Cars 2006")
+    assert client._circle.unheard() == (("RuTor",) if queued else ())
+    assert client.whole() is whole, "nobody heard RuTor, so nothing proves the catalogue"

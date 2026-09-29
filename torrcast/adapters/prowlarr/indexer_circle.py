@@ -11,13 +11,12 @@ from torrcast.adapters.prowlarr.circle_wait import circle_wait
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, HostSlots
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
-from torrcast.adapters.prowlarr.spawn_ask import _Ask, spawn_ask
+from torrcast.adapters.prowlarr.send_circle import send_circle
+from torrcast.adapters.prowlarr.spawn_ask import _Ask
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.indexer_budget import indexer_budget
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.joint_query import joint_query
 from torrcast.domain.raw_result import RawResult
-from torrcast.domain.wait_indexer import wait_indexer
 
 #: Запас поверх личного бюджета на ожидание потока: сам запрос уже ограничен бюджетом,
 #: и эта секунда нужна лишь на то, чтобы поток успел записать ответ и поднять флаг.
@@ -56,6 +55,8 @@ class IndexerCircle:
         #: круг по ним не ждёт и не судит, кто молчун. Отрезанные кругом - в ``_left``.
         self._asked: list[_Ask] = []
         self._left: list[_Ask] = []
+        #: Names left unsent behind the host's queue (:func:`send_circle`): nobody heard them.
+        self._unsent: list[str] = []
         self._begun = 0
         self._lock = threading.Lock()
 
@@ -90,8 +91,9 @@ class IndexerCircle:
         return tuple(ask.name for ask in self._late)
 
     def unheard(self) -> tuple[str, ...]:
-        """Опоздавшие, чьей выдачи нет: ещё в пути или ответили отказом."""
-        return tuple(ask.name for ask in self._late if not ask.done.is_set() or ask.rows is None)
+        """Опоздавшие, чьей выдачи нет: ещё в пути или ответили отказом; и неотправленные."""
+        late = [ask.name for ask in self._late if not ask.done.is_set() or ask.rows is None]
+        return (*late, *self._unsent)
 
     def run(
         self,
@@ -127,22 +129,14 @@ class IndexerCircle:
         Возвращает выдачи и причину последней потери - она понадобится, если смолчат все.
         """
         began = time.monotonic()
-        texts = [(num, name, joint_query(name, query, joint)) for num, name in pairs]
-        spare = joint is not None  # the names only add rows (:meth:`HostSlots.take`)
-        spawned = [
-            (name, self._spawn(text, limit, num, name, cap, spare))
-            for num, name, text in texts
-            if text
-        ]
-        asked = [ask for _name, ask in spawned if ask is not None]
+        asked, unsent = send_circle(
+            self.api, self.slots, pairs, query, limit, joint=joint, budgets=self.budget_of, cap=cap
+        )
+        self._unsent += [name for name, _budget in unsent]
         if self._begun <= 1:
             self._asked.extend(asked)
-        unsent = [
-            self._budget(name, cap) for name, ask in spawned if ask is None and wait_indexer(name)
-        ]
-        core = circle_wait(
-            asked, names=spare, began=began, slack=self.slack, held=max(unsent, default=0.0)
-        )
+        names = joint is not None
+        core = circle_wait(asked, names=names, began=began, slack=self.slack, unsent=unsent)
         got: list[list[RawResult]] = []
         why_lost: InfraError | None = None
         with self._lock:  # a peek sees an ask either taken or left, never both
@@ -199,18 +193,6 @@ class IndexerCircle:
                 rows += ask.rows
         self._late = rest
         return merge(rows) if rows else []
-
-    def _spawn(
-        self, query: str, limit: int, num: int, name: str, cap: float, spare: bool
-    ) -> _Ask | None:
-        """Пустить один индексер в его личный бюджет, урезанный потолком круга."""
-        budget = self._budget(name, cap)
-        if not self.slots.take(name, budget, spare=spare):
-            return None
-        return spawn_ask(self.api, query, limit, num, name, budget)
-
-    def _budget(self, name: str, cap: float) -> float:
-        return min(self.budget_of(name), cap) if cap else self.budget_of(name)
 
 
 __all__ = ["ASK_SLACK", "IndexerCircle"]
