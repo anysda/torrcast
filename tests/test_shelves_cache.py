@@ -149,10 +149,10 @@ def test_each_shelf_is_warmed_before_its_body_is_published(
         for query, key, title, year, kind in screen
     )
     assert capsys.readouterr().out.splitlines() == [
-        "полка fresh: заказан прогрев 20 плиток",
-        "полка fresh: опубликовано тело из 20 плиток",
-        "полка popular: заказан прогрев 20 плиток",
-        "полка popular: опубликовано тело из 20 плиток",
+        "shelf fresh: warmup ordered for 20 tiles",
+        "shelf fresh: published body with 20 tiles",
+        "shelf popular: warmup ordered for 20 tiles",
+        "shelf popular: published body with 20 tiles",
     ]
 
 

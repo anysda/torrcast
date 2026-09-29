@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from torrcast.adapters.filesystem.state.shelves_cache_path import shelves_cache_path
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.torrcast_error import TorrcastError
@@ -118,10 +119,8 @@ class ShelvesCache:
     def _rebuild(self) -> None:
         """Собрать обе полки заново; отказ ленты не роняет цикл - следующий час свой.
 
-        Молчащий индексер не приносит строк, и сборка выходит короче, чем могла бы: фон
-        добирает ленту ещё заходами, склеивая строки по хэшу раздачи, и берёт самую
-        полную попытку. Добор останавливается САМ, не по абсолютной цели длины: заход
-        без новых строк и без более полной полки следующего добавить уже не может.
+        Молчащий индексер не приносит строк; фон склеивает добранную ленту по хэшу и
+        берёт самую полную попытку. Добор останавливается без новых строк и роста полки.
 
         Готовая полка публикуется сразу, не дожидаясь соседней (:meth:`_publish`), и
         публикация - отдельный вопрос: даже самая полная попытка может оказаться хуже
@@ -185,14 +184,13 @@ class ShelvesCache:
             )
             if candidate is None:
                 return
-        # Сначала факты плиток, затем публикация: клик по уже видимой полке не ждёт
-        # единственного рабочего поиска раздач.
+        # Сначала факты плиток, затем публикация: видимый клик не ждёт поиска раздач.
         warmed = {shelf: candidate[shelf]}
         self.warm(shelf_warm_targets(warmed), shelf_warm_targets(warmed, later=True))
-        print(f"полка {shelf}: заказан прогрев {len(warmed[shelf])} плиток", flush=True)
+        print(phrase("web.shelf.warmup_ordered", shelf=shelf, count=len(warmed[shelf])), flush=True)
         with self._lock:
             self._body = candidate
-        print(f"полка {shelf}: опубликовано тело из {len(warmed[shelf])} плиток", flush=True)
+        print(phrase("web.shelf.published", shelf=shelf, count=len(warmed[shelf])), flush=True)
         write_shelves(self.path, candidate)
 
     def _load(self) -> dict[str, JsonValue]:

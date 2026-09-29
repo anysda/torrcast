@@ -51,6 +51,8 @@ def en() -> dict[str, str]:
         "web.shelf.loading": "Loading_",
         "web.shelf.prev": "Scroll shelf left",
         "web.shelf.next": "Scroll shelf right",
+        "web.shelf.warmup_ordered": "shelf {shelf}: warmup ordered for {count} tiles",
+        "web.shelf.published": "shelf {shelf}: published body with {count} tiles",
         "web.tile.no_art": "No art_",
         "web.detail.back": "‹ Back",
         "web.detail.more": "More_",
