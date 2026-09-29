@@ -221,3 +221,32 @@ def test_a_show_raised_on_the_browser_leaves_the_box_to_the_receiver_itself(
 
     out = Path(config.hls_dir)
     assert not web_box_path(out).exists()
+
+
+class _Part:
+    """Часть тракта, которая пишет в общий список, что с ней сделали."""
+
+    def __init__(self, name: str, said: list[str]) -> None:
+        self.name, self.said = name, said
+
+    def __getattr__(self, verb: str) -> object:
+        def act(*_args: object, **_kw: object) -> None:
+            self.said.append(f"{self.name}.{verb}")
+            if verb == "begin":
+                raise RuntimeError("тракт остановлен на начале показа")
+
+        return act
+
+
+def test_the_head_on_the_shelf_is_claimed_before_the_coder_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Голову с полки показ берёт до кодировщика: иначе первый же его заход кодирует её снова."""
+    said: list[str] = []
+    parts = (_Part("recoder", said), None, _Part("feed", said), _Part("server", said), _Screening())
+    monkeypatch.setattr("torrcast.usecases.playback._play._tract", lambda *_a, **_k: parts)
+
+    with pytest.raises(RuntimeError, match="тракт остановлен"):
+        _play(_config(tmp_path), "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=_Screening())
+
+    assert said.index("feed.claim_head") < said.index("recoder.start"), said

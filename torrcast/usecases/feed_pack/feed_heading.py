@@ -17,9 +17,10 @@ if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
 
 #: Сколько показ ждёт голову, которую ещё кладут, прежде чем паковать её сам. Заход головы
-#: 1080p на 4 ядрах - 3-4.7 с («Призрак в доспехах»); знак захода, брошенный
+#: 1080p на 4 ядрах - 3-4.7 с («Призрак в доспехах»), а рядом с отбором второй
+#: раздачи - до 14 с; начатая голова и тогда ляжет раньше новой. Знак захода, брошенный
 #: упавшим процессом страницы, стоит показу не больше этого.
-HEAD_WAIT: Final = 8.0
+HEAD_WAIT: Final = 20.0
 
 
 def _heading(state: _State, slot: int) -> int:
@@ -36,11 +37,12 @@ def _heading(state: _State, slot: int) -> int:
     vault = state.vault
     if vault is None or slot + 1 >= state.grid.count:
         return slot
+    if state.heading[0] == slot:
+        return slot + 1  # голову уже взяли до кодировщика (:meth:`Feed.claim_head`)
     laying = head_work(vault.head().parent, slot).exists()
     if not laying and not _have(state, slot):
         return slot
-    if laying:
-        state.heading = (slot, _state.clock_port.monotonic())
+    state.heading = (slot, _state.clock_port.monotonic())
     if state.recoder is not None:
         state.recoder.done.add(slot)  # кодировать это место кодировщику показа незачем
     journal().mark("голова с полки", слот=slot, кладут=laying)

@@ -58,7 +58,21 @@ def test_a_head_already_on_the_shelf_is_not_packed_or_coded_again(
 
     assert _heading(show, 0) == 1
     assert show.recoder.done == {0}, "кодировщик показа кодирует голову с полки второй раз"
-    assert show.heading == (-1, 0.0), "лежащую голову ждут как ещё не лёгшую"
+    assert _awaiting(show, 0) is True, "лежащую голову пакуют заново"
+
+
+def test_a_head_taken_before_the_coder_stays_taken_at_the_start(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Голову взяли до кодировщика, и заход её кончился: начало показа её всё равно обходит."""
+    tract(now=100.0)
+    show = _show(tmp_path)
+    head_work(show.vault.dir, 0).mkdir()
+    show.claim_head(0.0)
+    head_work(show.vault.dir, 0).rmdir()
+
+    assert show.recoder.done == {0}, "кодировщик взял голову первым же заходом"
+    assert _heading(show, 0) == 1, "взятую голову начало показа пакует само"
 
 
 def test_a_head_being_laid_is_awaited_not_packed(tmp_path: Path, journal: Path) -> None:
@@ -111,9 +125,19 @@ def test_the_last_place_is_packed_even_from_the_shelf(tmp_path: Path, journal: P
     assert _heading(show, 5) == 5
 
 
-def _begun(tmp_path: Path, laying: bool) -> tuple[Any, list[int]]:
+def _begun(tmp_path: Path, laying: bool, **parts: Any) -> tuple[Any, list[int], list[Any]]:
     """Начать показ с нуля, когда голова лежит на полке или её туда кладут."""
     started: list[int] = []
+    settled: list[float] = []
+    packed: list[int] = []
+
+    def settle(_source: str, want: float) -> tuple[float, float]:
+        settled.append(want)
+        return want, want
+
+    def command(*args: Any, **_kw: Any) -> list[str]:
+        packed.append(args[4])
+        return ["ffmpeg"]
 
     def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
         started.append(first)
@@ -122,22 +146,22 @@ def _begun(tmp_path: Path, laying: bool) -> tuple[Any, list[int]]:
 
     tract(
         now=100.0,
-        settle_start=lambda _source, want: (want, want),
-        pack_command=lambda *a, **k: ["ffmpeg"],
+        settle_start=settle,
+        pack_command=command,
         packer=factory(_start),
     )
-    show = _show(tmp_path)
+    show = _show(tmp_path, **parts)
     if laying:
         head_work(show.vault.dir, 0).mkdir()
     else:
         lay(show.vault.dir, 0)
     assert _begin(show, 0.0, lambda slot, size: False) == 0.0
-    return show, started
+    return show, started, [settled, packed]
 
 
 def test_the_show_start_packs_past_the_head_on_the_shelf(tmp_path: Path, journal: Path) -> None:
     """Начало показа: и упаковка, и голова кодировщика встают за головой с полки."""
-    show, started = _begun(tmp_path, laying=False)
+    show, started, _ = _begun(tmp_path, laying=False)
 
     assert started == [1], "упаковка показа пакует голову, которая лежит на полке"
     assert show.recoder.heads == [1]
@@ -145,7 +169,18 @@ def test_the_show_start_packs_past_the_head_on_the_shelf(tmp_path: Path, journal
 
 def test_a_head_being_laid_stays_promised_by_the_playlist(tmp_path: Path, journal: Path) -> None:
     """Голову ещё кладут: манифест её обещает, иначе приёмник начнёт со второго места."""
-    show, started = _begun(tmp_path, laying=True)
+    show, started, _ = _begun(tmp_path, laying=True)
 
     assert started == [1]
     assert 0 not in show._gaps(), "манифест не обещает голову, которую вот-вот положат"
+
+
+def test_a_copy_packs_from_the_tape_start_past_the_head_without_a_trial_seek(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Копия заходит с начала ленты и докатывает голову: пробного захода на второе место нет."""
+    _, started, (settled, packed) = _begun(tmp_path, laying=True)
+
+    assert settled == [0.0], "пробный заход на второе место держит LOAD холодного файла"
+    assert packed == [0], "упаковка заходит не с начала ленты"
+    assert started == [1], "докатку головы выложили наружу"

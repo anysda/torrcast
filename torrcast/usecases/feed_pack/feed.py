@@ -14,6 +14,7 @@ from torrcast.domain.segment_container import FMP4
 from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
 from torrcast.usecases.feed_pack.feed_head import _head
+from torrcast.usecases.feed_pack.feed_heading import _heading
 from torrcast.usecases.feed_pack.feed_restart import _begin, _restart
 from torrcast.usecases.feed_pack.feed_seam import _seam
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
@@ -63,9 +64,8 @@ class Feed(_State):
         404, после которого ресивер не берёт LOAD минутами.
 
         Ниже двери обещается ровно то, что уже лежит на диске (:meth:`have`): прогретое
-        место остаётся честной перемоткой назад, а не дырой. Поэтому список собирается на
-        каждый запрос манифеста, а не один раз: упаковка идёт, и обещанного становится
-        больше.
+        место остаётся честной перемоткой назад, а не дырой. Список собирается на каждый
+        запрос манифеста: упаковка идёт, и обещанного становится больше.
         """
         return frozenset(slot for slot in range(self.door) if not self.have(slot))
 
@@ -117,6 +117,10 @@ class Feed(_State):
     def restart(self, slot: int) -> None:
         """Начать упаковку с сегмента ``slot`` (:func:`_restart`)."""
         _restart(self, slot, self._shrink)
+
+    def claim_head(self, want: float) -> None:
+        """Взять голову с полки до кодировщика, чтобы он её не кодировал (:func:`_heading`)."""
+        _heading(self, self.grid.slot_at(want))
 
     def begin(self, want: float) -> float:
         """Начать показ с закладки ``want``; вернуть место для LOAD (:func:`_begin`)."""

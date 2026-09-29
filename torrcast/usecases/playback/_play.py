@@ -123,6 +123,7 @@ def _play(
         journal().mark("раздача")
         # Упаковку начинаем сами, не дожидаясь первого запроса: ресиверу нужен готовый
         # кусок сразу, иначе LOAD упирается в ожидание ffmpeg и старт растёт на глазах.
+        feed.claim_head(start)  # голову с полки кодировщик не берёт с первого же захода
         if recoder is not None:
             recoder.played = start
             recoder.start()

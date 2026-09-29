@@ -19,7 +19,11 @@ if TYPE_CHECKING:
 
 
 def _restart(
-    state: _State, slot: int, shrink: PackShrink, entry: tuple[float, float] | None = None
+    state: _State,
+    slot: int,
+    shrink: PackShrink,
+    entry: tuple[float, float] | None = None,
+    first: int | None = None,
 ) -> None:
     """Начать упаковку с сегмента ``slot``: перемотка, возврат с паузы или старт показа.
 
@@ -32,7 +36,11 @@ def _restart(
     там, где место захода уже измерено и служит не только упаковке: начало показа с
     закладки выбирает опорный кадр под ЗРИТЕЛЯ (:func:`_begin`) и обязано паковать ровно
     оттуда же. Без довода место захода меряется здесь и по границе слота, как всегда.
+
+    ``first`` - первое выкладываемое место, если оно дальше ``slot``: всё до него прогон
+    пакует докаткой и выбрасывает (:attr:`Packer.first`).
     """
+    first = slot if first is None else first
     if state.packer is not None:
         # 🔴 TC-905. Довод обязателен: без него снятый нами прогон остаётся с пустым
         # :attr:`PackRun.stopped`, а по этому полю показ и отличает «сняли сами» от
@@ -47,7 +55,7 @@ def _restart(
     # (0.5-1.7 с): голову прогона он обязан начать не позже упаковщика, иначе
     # придерживать её копию будет нечего и первый сегмент уйдёт тяжёлым.
     if state.recoder is not None:
-        state.recoder.opening(slot)
+        state.recoder.opening(first)
     # ⚠️ Перекодирующему прогону пробный не нужен и вреден: по ``-ss`` он встаёт точно,
     # докатки не делает (:func:`ffmpeg_pack_command`), и измеренное ``at`` увело бы
     # весь прогон на сегмент назад. Заодно это минус 0.5-1.7 с из пути старта - ровно
@@ -91,7 +99,7 @@ def _restart(
         command,
         state.out,
         state.out / PACK_DIR,
-        slot,
+        first,
         spare=None if state.recoder is None else state.recoder.spare,
         told=None if state.recoder is None else state.recoder.note,
         hold=None if state.recoder is None else state.recoder.holding,
@@ -151,10 +159,16 @@ def _begin(state: _State, want: float, shrink: PackShrink) -> float:
     Сплошной перекод сюда не заходит: он ставит опорные кадры САМ и ровно на границы
     сетки, то есть вход есть у каждого слота по построению.
     """
-    past = _heading(state, state.grid.slot_at(want))
-    if past != state.grid.slot_at(want):
-        _restart(state, past, shrink)  # голова лежит на полке или её туда кладут
-        state.door = state.grid.slot_at(want)  # и обещать её можно: она лежит или ляжет
+    head = state.grid.slot_at(want)
+    past = _heading(state, head)
+    if past != head:  # голова лежит на полке или её туда кладут
+        if head == 0 and state.encode is None:
+            # Копия заходит с начала ленты, как без головы, и её докатывает: пробный заход
+            # на границу следующего места холодного файла стоил LOAD 10.6 с.
+            _restart(state, 0, shrink, first=past)
+        else:
+            _restart(state, past, shrink)
+        state.door = head  # и обещать её можно: она лежит или ляжет
         return want
     if want <= 0.0 or state.encode is not None:
         _restart(state, state.grid.slot_at(want), shrink)
