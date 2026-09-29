@@ -23,6 +23,8 @@ const TCCard = {
   // Номер единственного добора этого визита: новый повод освежить карточку отменяет
   // предыдущий долгий ответ, чтобы один показ не умножал опросы `/api/card`.
   _loadId: 0,
+  // Обрыв запроса этого добора: отменённый заход не держит соединение браузера.
+  _inflight: null,
   // Тело, стоящее на экране: тихий добор сравнивает с ним ответ и не трогает DOM,
   // пока данные те же.
   _shown: null,
@@ -77,13 +79,17 @@ const TCCard = {
     season = season || picked;
     const mine = TCCard._visit;
     const load = ++TCCard._loadId;
+    // Прежний заход карточки уже не нужен: его висящий добор дорожек держал соединение, и
+    // после пяти вкладок сезона строки новой ждали очереди браузера 2 с.
+    if (TCCard._inflight) TCCard._inflight.abort();
+    const inflight = TCCard._inflight = new AbortController();
     let data = null;
     const voicesUntil = Date.now() + TCCard._VOICES_WAIT;
     for (let turn = 0; ; turn += 1) {
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       // Целое тело без дорожек дальше спрашивает только их: долгий заход держится до них.
       const hearing = !!(data && data.voices_pending && !data.searching);
-      const said = await TCApi.card(key, query, turn > 0, facts, season, hearing);
+      const said = await TCApi.card(key, query, turn > 0, facts, season, hearing, inflight.signal);
       if (mine !== TCCard._visit || load !== TCCard._loadId || !TCCard._here(root, key)) return;
       if (said.data) data = said.data;
       if (data && data.picture && TCRouter._card === key) TCRouter._picture = data.picture;

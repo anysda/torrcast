@@ -18,7 +18,7 @@ function card(doc) {
     sessionStorage: { getItem: () => null, setItem: () => {} },
     history: { back: () => {} },
     window: {},
-    URLSearchParams, JSON, Date, setTimeout, Promise, console,
+    URLSearchParams, AbortController, JSON, Date, setTimeout, Promise, console,
     TC: { say: (name) => name, count: (name, n) => name + ':' + n },
     TCKept: { mark: () => {}, take: () => null },
     TCRouter: { _card: KEY, _picture: '' },

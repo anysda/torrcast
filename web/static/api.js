@@ -100,7 +100,7 @@ const TCApi = {
   // Карточка иногда приходит частями (заголовок ``X-Torrcast-Partial``): её самой
   // читает card.js и переспрашивает долгим заходом (``wait``): сервер держит ответ,
   // пока тело не изменится, вместо того чтобы страница стучалась раз в две секунды.
-  async card(key, query, wait, facts, season, voices) {
+  async card(key, query, wait, facts, season, voices, signal) {
     const values = new URLSearchParams();
     if (query) values.set('query', query);
     if (facts) for (const name of ['title', 'shown', 'year', 'kind']) {
@@ -113,7 +113,7 @@ const TCApi = {
     const tail = values.toString();
     const url = '/api/card/' + encodeURIComponent(key) + (tail ? '?' + tail : '');
     try {
-      const said = await fetch(url);
+      const said = await fetch(url, { signal });
       if (!said.ok) {
         const body = await TCApi._body(said);
         // `whole`: пустоту подтвердил каждый индексер, и найти картину правда нечем.

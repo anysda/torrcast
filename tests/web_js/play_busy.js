@@ -20,7 +20,7 @@ async function main() {
     history: { back: () => {} },
     sessionStorage: { getItem: () => null },
     window: {},
-    URLSearchParams, JSON, Date, Blob, Promise, console,
+    URLSearchParams, AbortController, JSON, Date, Blob, Promise, console,
     setTimeout: (fire) => { timers.push(fire); },
     TCPlayerBox: {
       holdStale: async () => {},

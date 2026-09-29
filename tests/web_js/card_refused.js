@@ -39,7 +39,7 @@ async function lastShown(answers) {
     sessionStorage: { getItem: () => null },
     history: { back: () => {} },
     window: {},
-    URLSearchParams, JSON, Date, setTimeout, Promise, console,
+    URLSearchParams, AbortController, JSON, Date, setTimeout, Promise, console,
     TCKept: { mark: () => {}, stash: () => {} },
     TCRouter: { _card: KEY, _picture: '' },
     TC: { say: (name) => name },

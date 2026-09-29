@@ -18,7 +18,7 @@ function card(doc) {
     sessionStorage: { getItem: () => null, setItem: () => {} },
     history: { back: () => {} },
     window: {},
-    URLSearchParams, JSON, Date, setTimeout, Promise, console,
+    URLSearchParams, AbortController, JSON, Date, setTimeout, Promise, console,
     // Сторож смотрит на КЛЮЧ фразы, а не на её текст: слова строки на решении владельца
     // (TC-1376) и могут смениться без ведома этого сторожа.
     TC: { say: (name) => name },
