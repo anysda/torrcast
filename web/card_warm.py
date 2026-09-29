@@ -142,7 +142,7 @@ class CardWarm:
                     self._show(key, fresh)
                     return fresh
         bench = warm.bench
-        bench.profile, bench.choose = fresh.profile, fresh.choose
+        bench.profile, bench.choose, bench.lends = fresh.profile, fresh.choose, fresh.lends
         bench.preps = {at: prep for at, prep in bench.preps.items() if not prep.dropped}
         return bench
 

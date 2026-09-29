@@ -105,7 +105,13 @@ class _Tally:
         priced = self.verdicts < MAX_TRIES or self.priced < verdict_budget
         return priced and self.hunted < self.voice_budget
 
-    def hold(self, prep: _Prep, voiceless: bool, forget: Callable[[_Prep], None]) -> None:
+    def hold(
+        self,
+        prep: _Prep,
+        voiceless: bool,
+        forget: Callable[[_Prep], None],
+        spare: Callable[[_Prep], None] | None = None,
+    ) -> None:
         """Отложить кандидата, чей язык звука НАЗВАН; остальных - отпустить.
 
         Запасной ход держит ОДНОГО отложенного, и держит он только того, про кого паспорт
@@ -129,5 +135,7 @@ class _Tally:
         # :attr:`Media.foreign`, под английской - то же правило без русской его записи.
         if voiceless and all(track.named for track in prep.found.tracks) and self.mute is None:
             self.mute = prep  # запасной ход: искомой дорожки может не оказаться ни у кого
+        elif self.mute is not None:  # срезана поиском дорожки: решает стенд (:meth:`_spare`)
+            (spare or forget)(prep)
         else:
             forget(prep)

@@ -124,7 +124,9 @@ class VoiceLookup:
         args = parse_args([*words, "--card-release", release] if release else words)
         profile = self.profile_of(config)
         engines = self.engines(config.torrserver_url)
-        make = lambda: Bench(engines, choose=file_picker(args), profile=profile)  # noqa: E731
+        make = lambda: Bench(  # noqa: E731
+            engines, choose=file_picker(args), profile=profile, lends=True
+        )
         warm, fresh = self.warms.open(plan.picture.key, make)
         prep = None
         left = released = False

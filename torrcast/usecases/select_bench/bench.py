@@ -151,7 +151,7 @@ class Bench(_BenchPrewarm):
             why = _waiting_note(prep, trouble) if trouble else no_voice
             tally.note(number, prep, why, entered, self.clock)
             if weak is None or prep is not weak[3]:
-                tally.hold(prep, voiceless, self._forget)
+                tally.hold(prep, voiceless, self._forget, self._spare)
             progress.phase("")
             # Три приговора - пол, дальше секунды; а поиск дорожки на языке зрителя
             # платит из своего кошелька и своим потолком (:meth:`_Tally.affordable`).

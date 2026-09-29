@@ -47,9 +47,13 @@ class _Bench:
 
     profiles: list[Any] = field(default_factory=list)
     release: Release = _RELEASE
+    lends: bool = False
 
-    def __call__(self, _engine: object, choose: object = None, profile: Any = None) -> _Bench:
+    def __call__(
+        self, _engine: object, choose: object = None, profile: Any = None, lends: bool = False
+    ) -> _Bench:
         self.profiles.append(profile)
+        self.lends = lends
         return self
 
     def resolve(self, plan: Plan, args: Any, _progress: object) -> _Prep:

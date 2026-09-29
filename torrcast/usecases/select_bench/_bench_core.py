@@ -46,6 +46,7 @@ class _BenchCore:
         voice_budget: float | None = None,
         honest_budget: float | None = None,
         clock: Callable[[], float] = time.monotonic,
+        lends: bool = False,
     ) -> None:
         self.torrserver = torrserver
         self.choose = choose or _default_file
@@ -62,6 +63,10 @@ class _BenchCore:
         self.honest_budget = HONEST_BUDGET if honest_budget is None else honest_budget
         #: Часы отбора: все его сроки меряются отсюда, а не стенными часами напрямую.
         self.clock = clock
+        #: Стенд карточки, который заберёт показ: недочитанных, срезанных поиском дорожки,
+        #: он не убирает (:meth:`_spare`). Показ, забрав стенд, это снимает.
+        self.lends = lends
+        self.spared: list[_Prep] = []
         self.preps: dict[tuple[str, int], _Prep] = {}
         #: С какой секунды часов стенда судится картина: показ, забравший стенд карточки,
         #: продолжает её отбор, а не начинает срок заново (:func:`_in_time`).
@@ -134,6 +139,18 @@ class _BenchCore:
             if not _held_by_show(torrent_hash):
                 self.torrserver.drop(torrent_hash)
 
+    def _spare(self, prep: _Prep) -> None:
+        """Раздачу срезал срок поиска дорожки: на стенде карточки она дочитывается, а не уходит.
+
+        Зритель ещё читает карточку, и терпение к дорожке, истраченное до клика, снимало
+        годную раздачу, которую показ потом заводил заново: «Призрак в доспехах» ждал №3
+        ещё 16 с после клика.
+        """
+        if self.lends and not prep.ready.is_set():
+            self.spared.append(prep)
+            return
+        self._forget(prep)
+
     def drop_all(self) -> None:
         """Показа не будет: всё прогретое убирается из TorrServer.
 
@@ -155,6 +172,8 @@ class _BenchCore:
         """
         with self._preps_lock:
             others = [prep for prep in self.preps.values() if prep is not chosen]
+            if self.lends:  # недочитанных карточки дочитает показ (:meth:`_spare`)
+                others = [prep for prep in others if all(prep is not s for s in self.spared)]
         for prep in others:
             self._forget(prep)
         self._keep_open(chosen)

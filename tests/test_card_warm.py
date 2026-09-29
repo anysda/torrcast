@@ -27,6 +27,7 @@ class _Bench:
     preps: dict[tuple[str, int], _Prep] = field(default_factory=dict)
     kept: list[_Prep] = field(default_factory=list)
     drops: int = 0
+    lends: bool = False
 
     def keep_only(self, prep: _Prep) -> None:
         self.kept.append(prep)
@@ -90,11 +91,13 @@ def test_the_show_takes_the_warm_bench_with_its_own_profile_and_without_dropped_
     warms = CardWarm()
     _warm, bench, prep = _warmed(warms)
     bench.preps = {("k", 1): _Prep(dropped=True), ("k", 2): prep}
+    bench.lends = True
     fresh: Any = _Bench(profile="q70d", choose="show")
 
     got: Any = warms.take("movie:тачки:2006", fresh)
 
     assert got is bench and (got.profile, got.choose) == ("q70d", "show")
+    assert not got.lends, "стенд у показа: срезанное поиском дорожки уходит, как у показа"
     assert list(got.preps.values()) == [prep], "убранную карточкой раздачу показ греет заново"
     warms.leave("movie:тачки:2006")
     assert bench.drops == 0, "стенд у показа: уход с карточки его не трогает"
