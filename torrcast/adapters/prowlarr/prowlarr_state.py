@@ -102,6 +102,12 @@ class _State:
         """Ответил ли за этот поиск КАЖДЫЙ спрошенный индексер, строкой или честным нулём."""
         return self.apart and not self.short and not self._circle.unheard()
 
+    def gone(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Кто выпал из этого поиска: не ответил или не спрошен, и кого увёл Prowlarr."""
+        banned = set(self.banned)
+        silent = {*self._circle.unheard(), *self.short} - banned
+        return tuple(sorted(silent)), tuple(sorted(banned))
+
     def spare(self) -> float:
         """Сколько секунд цели этот поиск ещё не потратил (TC-228)."""
         return goal_spare(time.monotonic() - self._began)

@@ -8,6 +8,8 @@ import pytest
 
 from tests.usecases.discover.world import row
 from torrcast.domain.nothing_found_error import NothingFoundError
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 from torrcast.usecases.discover.circle_watch import CircleWatch, _heard_all
 from torrcast.usecases.discover.told_circle import ToldCircle
 
@@ -109,3 +111,39 @@ def test_the_pool_the_circle_took_is_counted_while_it_runs() -> None:
     watch.keep(kept)  # no circle runs here: nothing to keep it for
     assert seen == [2, 4]
     assert watch.rows("матрица") == ([], [], None)
+
+
+def test_the_nothing_refusal_names_who_fell_out() -> None:
+    """Silent and banned names of every client reach the refusal; a banned one is not silent."""
+
+    class _Gone(_Client):
+        def __init__(self, silent: tuple[str, ...], banned: tuple[str, ...]) -> None:
+            super().__init__(False)
+            self.gone = lambda: (silent, banned)
+
+    def circle(hear: Any) -> list[Any]:
+        hear(_Gone(("RuTor", "Knaben"), ()))
+        hear(_Gone(("Knaben",), ("Knaben", "YTS")))
+        hear(_Client(True))
+        raise NothingFoundError("пусто")
+
+    written: list[tuple[str, str, dict[str, object]]] = []
+
+    class _Sink(Silent):
+        def emit(self, phase: str, event: str, **fields: object) -> None:
+            written.append((phase, event, fields))
+
+    install(_Sink())
+    try:
+        with pytest.raises(NothingFoundError) as caught:
+            CircleWatch().run("матрица", None, circle)
+    finally:
+        install(Silent())
+    assert (caught.value.silent, caught.value.banned) == (("RuTor",), ("Knaben", "YTS"))
+    assert written == [
+        (
+            "search",
+            "empty",
+            {"query": "матрица", "whole": False, "silent": ["RuTor"], "banned": ["Knaben", "YTS"]},
+        )
+    ], "the stand trace cannot tell a cut empty circle from a whole one"

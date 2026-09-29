@@ -23,7 +23,8 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.usecases.discover.named_round import NamedRound, _whole
+from torrcast.ports.journal.slot import journal
+from torrcast.usecases.discover.named_round import NamedRound, _gone, _whole
 from torrcast.usecases.discover.told_circle import ToldCircle
 
 if TYPE_CHECKING:
@@ -102,6 +103,16 @@ class CircleWatch:
                 plans = circle(hear)
             except NotFoundError as nothing:
                 nothing.whole = _heard_all(heard)
+                nothing.silent, nothing.banned = _gone(heard)
+                # The one line that tells a cut empty circle from a whole one on a stand.
+                journal().emit(
+                    "search",
+                    "empty",
+                    query=query,
+                    whole=nothing.whole,
+                    silent=list(nothing.silent),
+                    banned=list(nothing.banned),
+                )
                 raise
             finally:
                 _current.reset(token)

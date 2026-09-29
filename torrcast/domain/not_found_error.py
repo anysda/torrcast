@@ -9,3 +9,7 @@ class NotFoundError(TorrcastError):
     #: Ответил ли на этот поиск каждый спрошенный индексер. Только тогда «ничего» - правда
     #: о каталоге, а не о его выпавшей части (:mod:`torrcast.usecases.discover.circle_watch`).
     whole: bool = False
+    #: Who of the asked catalogue did not answer, and whom Prowlarr took out of reach: the
+    #: names a cut empty circle owes the person instead of a bare «nothing».
+    silent: tuple[str, ...] = ()
+    banned: tuple[str, ...] = ()

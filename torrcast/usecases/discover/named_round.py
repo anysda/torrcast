@@ -87,6 +87,10 @@ class NamedRound:
         """Every client of the picture's names heard all of its indexers."""
         return all(_whole(client) for client in list(self._named))
 
+    def gone(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Who dropped out of the rounds of the picture's names (:func:`_gone`)."""
+        return _gone(list(self._named))
+
     def ask(
         self,
         client: ToldIndexer,
@@ -172,6 +176,18 @@ def _behind(client: IndexerClient) -> None:
 def _whole(client: IndexerClient) -> bool:
     whole = getattr(client, "whole", None)
     return bool(whole()) if callable(whole) else False
+
+
+def _gone(clients: list[IndexerClient]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Names that did not answer and names Prowlarr took away, over clients that can tell."""
+    silent: set[str] = set()
+    banned: set[str] = set()
+    for client in clients:
+        if callable(gone := getattr(client, "gone", None)):
+            quiet, taken = gone()
+            silent.update(quiet)
+            banned.update(taken)
+    return tuple(sorted(silent - banned)), tuple(sorted(banned))
 
 
 def _inflight(client: IndexerClient) -> list[RawResult]:
