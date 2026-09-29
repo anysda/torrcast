@@ -1631,6 +1631,7 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
         first=0,
         last=3,
         shrink=warmer._lay_heavy,
+        outward=True,  # как у захода прогрева (:func:`torrcast.usecases.warm.run._run`)
     )
 
     packer.publish()

@@ -286,6 +286,31 @@ def test_a_piece_shrunk_in_place_goes_out_with_the_audio_of_its_own_copy(tmp_pat
     assert (run.out / "v0.ts").read_bytes() == b"m" * 5, "наружу ушла не склейка"
 
 
+def test_a_laid_piece_does_not_wait_in_its_pass_for_a_heavy_neighbour_to_shrink(
+    tmp_path: Path,
+) -> None:
+    """Ужатие v1 держало ответ на готовый v0 4.5 с: запрос сам зовёт выкладку."""
+    asked: list[int] = []
+
+    def shrink(slot: int, size: int) -> bool:
+        asked.append(slot)
+        return False
+
+    run = packer(tmp_path, cap=10, shrink=shrink)
+    lay(run.run, 0, size=5)
+    lay(run.run, 1, size=100)
+    lay(run.run, 2, size=5)
+
+    _lay_out(run, _always)
+
+    assert (asked, run.edge) == ([], 0)
+    assert (run.out / "v0.ts").exists()
+
+    _lay_out(run, _always)
+
+    assert (asked, run.edge) == ([1], 2), "следующий заход ужимает соседа и идёт дальше"
+
+
 def test_without_anyone_to_shrink_the_heavy_piece_the_publish_stops_on_it(
     tmp_path: Path,
 ) -> None:

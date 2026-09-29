@@ -46,15 +46,13 @@ def _lay_out(
 ) -> None:
     """Выложить наружу куски, которые ffmpeg уже дописал.
 
-    Дописан тот, за которым появился следующий; хвост сетки - ещё и дорезанный до конца
-    фильма (:func:`done_slots`). Последнему соседа не будет, за него отвечает
-    :meth:`Packer.finished`.
+    Дописан тот, за которым появился следующий; хвост - ещё и дорезанный до конца фильма
+    (:func:`done_slots`), а за последний, у которого соседа нет, отвечает :meth:`Packer.finished`.
     Докатка (номер меньше ``first``) не выкладывается никогда — она короче своего
     места в манифесте и под её именем может лежать честный сегмент прошлого прогона.
 
-    Признак «прогон дочитал вход» приходит доводом, а не спрашивается у класса: подменяют
-    его наследники прогона на стендах показа, а импортировать сюда сам класс нельзя -
-    выкладка живёт внутри него.
+    Признак «прогон дочитал вход» приходит доводом: его подменяют наследники прогона на
+    стендах показа, а сам класс сюда не импортировать - выкладка живёт внутри него.
 
     Тем же доводом приезжают ``merge`` (склейка картинки перекода со звуком копии),
     ``shift_of`` (сдвиг ленты, нужный ужатию на месте), ``keyless`` (не начинается ли
@@ -69,9 +67,8 @@ def _lay_out(
     slots = sorted(s for s in map(segment_slot, _names(state.run)) if s >= 0)
     if not slots:
         return
-    # Прогон дочитал вход до конца - дописан и последний кусок (:meth:`finished`).
-    # Любой другой исход (жив, убит, оборвался) последний кусок дописанным не делает.
-    done = done_slots(state, slots, finished())
+    # Последний кусок дописан, только если прогон дочитал вход (:meth:`finished`), не иначе.
+    done, laid = done_slots(state, slots, finished()), False
     for slot in done:
         path = state.run / segment_name(slot, state.container)
         # Докатка и обрезок за ``-to`` короче своего места и наружу не выходят.
@@ -153,12 +150,15 @@ def _lay_out(
         # одним словом, каждый ужатый кусок печатал «склейка не вышла, стык под вопросом»:
         # на ровной сетке это 818 ложных заявок на разбор за фильм (TC-693).
         shrink = state.shrink
+        # Ужатие показа - второй ffmpeg на секунды, и выложенный кусок ждал бы его в этом
+        # заходе: v0 «Призрака» лежал готовым 4.5 с, пока ужимался v1.
+        if (oversized or unsafe) and laid and shrink is not None and not state.outward:
+            break
         shrunk = shrink(slot, size) if (oversized or unsafe) and shrink is not None else False
         if shrunk is None and better is not None:
             source, how, oversized = better, "recode", False
         elif shrunk and better is not None:
-            # Место и обе мерки приёмника разом: каталог прогона, слот, копия, ужатое,
-            # потолок веса и контейнер - расширение склейки выбирает муксер по нему.
+            # Место и мерки приёмника: каталог, слот, копия, ужатое, потолок, контейнер.
             place = (state.run, slot, path, better, state.cap, want, state.container, heads)
             source = _shrunk_out(
                 *place, merge=merge, shift_of=shift_of, keyless=keyless, starts_of=starts_of
@@ -188,7 +188,7 @@ def _lay_out(
             os.replace(source, state.out / segment_name(slot, state.container))
             # Край двигает состоявшееся переименование, а не файл в каталоге (:attr:`edge`).
             state.edge = max(state.edge, slot)
-            moved = True
+            moved = laid = True
         # Остальные копии места больше не нужны: лишний файл в каталоге перекода выглядел бы для
         # кодировщика готовым куском (:meth:`torrcast.adapters.recode.recoder.Recoder.ready`).
         if moved and source is not path:
