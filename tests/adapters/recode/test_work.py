@@ -114,6 +114,28 @@ def test_an_abandoned_run_is_retried_after_a_pause_not_in_a_spin(tmp_path: Path)
     assert slept == [2.0], "между подъёмами одного и того же захода - пауза"
 
 
+def test_a_run_dropped_for_its_stuck_piece_is_taken_again_at_once(tmp_path: Path) -> None:
+    """Выкладка встала на куске захода - заход тут же идёт заново, но только один раз.
+
+    Живой прогон: заход ``v1...v6`` бросили ради вставшего ``v1``, и он лежал 2 с в
+    паузе, а показ за это время доиграл ``v0`` и встал. Второй бросок подряд ждёт.
+    """
+    state = _state(tmp_path)
+    state.blocked = 1
+    started: list[tuple[int, int]] = []
+    slept: list[float] = []
+
+    def _run(seen: _State, first: int, last: int) -> str:
+        started.append((first, last))
+        seen.stopped = len(started) == 3
+        return "упаковка встала на v1"
+
+    _work(state, pick=lambda seen: (1, 6), run=_run, nap=slept.append)
+
+    assert started == [(1, 6), (1, 6), (1, 6)]
+    assert slept == [2.0], "первый повтор сразу, второй - после паузы"
+
+
 def test_a_new_job_after_an_abandon_runs_without_a_pause(tmp_path: Path) -> None:
     """Заход за другим куском после броска - не повтор, а новая работа: он не ждёт.
 
