@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import subprocess
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -39,22 +40,28 @@ def timeline_shift(
     ``run`` - чем поднимается ffprobe. Доводом, а не именем модуля: прежде стенд подменял
     :mod:`subprocess` целиком, вместе с его же классом ошибок.
     """
-    marks: list[float] = []
-    for path in (copy, recode):
-        command = [
-            "ffprobe", "-v", "error", "-select_streams", "v", "-read_intervals", "%+#4",
-            "-show_entries", "packet=dts_time", "-of", "csv=p=0", str(path),
-        ]  # fmt: skip
-        try:
-            done = run(command, capture_output=True, timeout=timeout, check=False)
-        except (OSError, subprocess.SubprocessError):
-            return None
-        found = []
-        for line in done.stdout.decode("utf-8", "replace").splitlines():
-            with contextlib.suppress(ValueError):
-                found.append(float(line.strip().rstrip(",")))
-        if not found:
-            return None
-        marks.append(min(found))
+    # Два ffprobe по 0.15 с - цена запуска процесса, а не счёта: порознь они стояли подряд
+    # на пути первого кадра, вместе стоят как один.
+    with ThreadPoolExecutor(2) as pool:
+        marks = list(pool.map(lambda path: _first_dts(path, timeout, run), (copy, recode)))
+    if marks[0] is None or marks[1] is None:
+        return None
     shift = marks[0] - marks[1]
     return None if abs(shift) > 1.0 else shift
+
+
+def _first_dts(path: Path, timeout: float, run: Callable[..., Any]) -> float | None:
+    """Самый ранний DTS картинки куска по первым четырём пакетам; ``None`` - не прочли."""
+    command = [
+        "ffprobe", "-v", "error", "-select_streams", "v", "-read_intervals", "%+#4",
+        "-show_entries", "packet=dts_time", "-of", "csv=p=0", str(path),
+    ]  # fmt: skip
+    try:
+        done = run(command, capture_output=True, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found = []
+    for line in done.stdout.decode("utf-8", "replace").splitlines():
+        with contextlib.suppress(ValueError):
+            found.append(float(line.strip().rstrip(",")))
+    return min(found) if found else None

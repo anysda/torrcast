@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -23,9 +24,14 @@ class _Ffprobe:
     answers: list[Any]
     seen: list[list[str]] = field(default_factory=list)
 
+    delay: float = 0.0
+
     def run(self, command: list[str], **kwargs: Any) -> _Done:
+        """Ответ по куску, а не по очереди вызова: оба куска спрашиваются разом."""
         self.seen.append(command)
-        answer = self.answers[min(len(self.seen) - 1, len(self.answers) - 1)]
+        own = 0 if command[-1].rsplit("/", 1)[-1].startswith("c") else 1
+        answer = self.answers[min(own, len(self.answers) - 1)]
+        time.sleep(self.delay)
         if isinstance(answer, Exception):
             raise answer
         return _Done(stdout=answer.encode("utf-8"))
@@ -42,6 +48,15 @@ def test_the_shift_is_the_difference_of_the_first_packets(tmp_path: Path) -> Non
     shift = timeline_shift(tmp_path / "copy.ts", tmp_path / "recode.ts", run=probe.run)
     assert shift == 10.100 - 10.058
     assert len(probe.seen) == 2 and "ffprobe" in probe.seen[0]
+
+
+def test_both_pieces_are_probed_at_once(tmp_path: Path) -> None:
+    """ffprobe стоит 0.15 с запуском процесса: подряд два стояли на пути первого кадра."""
+    probe = _Ffprobe(answers=["10.1,\n", "10.0,\n"], delay=0.3)
+
+    began = time.monotonic()
+    timeline_shift(tmp_path / "copy.ts", tmp_path / "recode.ts", run=probe.run)
+    assert time.monotonic() - began < 0.5
 
 
 def test_a_difference_over_a_second_means_we_measured_the_wrong_thing(tmp_path: Path) -> None:
