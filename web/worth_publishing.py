@@ -13,6 +13,7 @@ from typing import Final
 
 from torrcast.domain.json_value import JsonValue
 from web.built_by_rule import built_by_rule
+from web.carried import carried
 from web.drop_count import DropCount
 
 #: Новая полка не вправе усохнуть больше чем вдвое против прежней той же версии отбора:
@@ -44,7 +45,10 @@ def worth_publishing(
     if not built_by_rule(current):
         return True
     for shelf in ("fresh", "popular"):
-        old, new = _shelf_len(current, shelf), _shelf_len(best, shelf)
+        # Перенесённые с прежнего правила плитки (:mod:`web._stale_tiles`) не свои:
+        # мерить ими усыхание значило бы не пустить честную короткую полку.
+        old = _shelf_len(current, shelf) - carried(current, shelf)
+        new = _shelf_len(best, shelf)
         if old and new < old * SHRINK_FLOOR:
             return False
     return drops.ratio <= MASS_DROP

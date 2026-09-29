@@ -1,41 +1,44 @@
-"""Серверный кэш полок, строящийся фоном и мгновенно отвечающий на ``GET /api/shelves``."""
+"""Серверный кэш полок «Новинки»/«Популярное»: строится фоном, отдаётся мгновенно.
+
+``GET /api/shelves`` не вправе ждать индексеры (TC-1110): человек открывает главный
+экран, и полка, ждущая Prowlarr, - это то же самое зависшее меню, от которого круг
+поиска ушёл врозь (:meth:`torrcast.adapters.prowlarr.prowlarr.Prowlarr._apart`), только
+на самом видном месте страницы. Первый заход после установки честно пуст - фон ещё не
+успел ни разу собрать полки, - и это штатное состояние, а не отказ.
+"""
 
 from __future__ import annotations
 
-import contextlib
-import json
 import threading
 import time
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
 
 from torrcast.adapters.filesystem.state.shelves_cache_path import shelves_cache_path
-from torrcast.adapters.filesystem.state.write_atomic import _write_atomic
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
-from torrcast.usecases.shelves.fresh_shelf import fresh_shelf
-from torrcast.usecases.shelves.popular_shelf import popular_shelf
-from web._stale_tiles import _keep_stale_tiles
+from web.build_shelf import build_shelf
 from web.built_by_rule import FIELD, RULE
 from web.drop_count import DropCount
 from web.min_tiles import min_tiles
-from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable, shelf_tiles
+from web.read_shelves import read_shelves
+from web.shelf_candidate import shelf_candidate
+from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable
 from web.shelf_warm_targets import shelf_warm_targets
 from web.warm_targets import WarmTarget
-from web.worth_publishing import worth_publishing
+from web.write_shelves import write_shelves
 
 #: Кто приносит ленту последних раздач; в бою - :meth:`Prowlarr.feed`.
 Feed = Callable[[int], list[FeedRow]]
 #: Кто запускает фоновую сборку; в бою - настоящий поток-демон.
 Spawn = Callable[[Callable[[], None]], None]
 Warm = Callable[[list[WarmTarget], list[WarmTarget]], object]
-_CANDIDATES: Final = SHELF_LIMIT * 3
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -49,7 +52,12 @@ def _no_warm(_targets: list[WarmTarget], _later: list[WarmTarget]) -> None:
 
 @dataclass
 class ShelvesCache:
-    """Полки в памяти и на диске: фон обновляет, запрос только читает."""
+    """Полки в памяти и на диске: обновляет их фон раз в час, читает - каждый запрос.
+
+    Фон, сон и часы - подставные ради тестов (:mod:`tests.thread_guard` роняет тест,
+    следующий за тем, что оставил настоящий поток жить): подделка зовёт ``spawn`` и
+    ``sleep`` синхронно, ни разу не открывая настоящий сокет.
+    """
 
     feed: Feed
     catalogue: TorrentCatalogue
@@ -93,11 +101,37 @@ class ShelvesCache:
 
     def _loop(self) -> None:
         while True:
-            self._rebuild()
+            self._pass()
             self.sleep(self.every)
 
+    def _pass(self) -> None:
+        """Одна пересборка; беда вне :class:`TorrcastError` роняет заход, а не поток.
+
+        Поток фона один на процесс: умри он от чужого исключения (ошибка разбора,
+        приговора, деления), полки застыли бы до рестарта молча.
+        """
+        try:
+            self._rebuild()
+        except Exception:
+            traceback.print_exc()
+
     def _rebuild(self) -> None:
-        """Собрать полки, публикуя готовую до постройки соседней."""
+        """Собрать обе полки заново; отказ ленты не роняет цикл - следующий час свой.
+
+        Молчащий индексер не приносит строк, и сборка выходит короче, чем могла бы: фон
+        добирает ленту ещё заходами, склеивая строки по хэшу раздачи, и берёт самую
+        полную попытку. Добор останавливается САМ, не по абсолютной цели длины: заход
+        без новых строк и без более полной полки следующего добавить уже не может.
+
+        Готовая полка публикуется сразу, не дожидаясь соседней (:meth:`_publish`), и
+        публикация - отдельный вопрос: даже самая полная попытка может оказаться хуже
+        уже опубликованной (:func:`web.worth_publishing.worth_publishing`), и
+        тогда фон отступает молча, до следующего часа.
+        """
+        with self._lock:
+            origin = self._body
+        if origin is None:
+            origin = self._load()
         rows: dict[str, FeedRow] = {}
         best: dict[str, JsonValue] | None = None
         for attempt in range(self.attempts):
@@ -108,24 +142,24 @@ class ShelvesCache:
                 for row in self.feed(self.limit):
                     rows.setdefault(row.raw.info_hash.lower(), row)
                 now = self.clock()
-                fresh_drops = DropCount()
-                fresh = self._build_shelf(
-                    "fresh", list(rows.values()), fresh_drops.wrap(self.playable), now
-                )
-                self._publish("fresh", fresh, now, fresh_drops)
-                popular_drops = DropCount()
-                popular = self._build_shelf(
-                    "popular", list(rows.values()), popular_drops.wrap(self.playable), now
-                )
-                body: dict[str, JsonValue] = {
-                    FIELD: RULE,
-                    "fresh": fresh,
-                    "popular": popular,
-                    "built_at": now.isoformat(),
-                }
+                body: dict[str, JsonValue] = {FIELD: RULE, "built_at": now.isoformat()}
+                for shelf in ("fresh", "popular"):
+                    # Свой счётчик приговоров у каждой полки: планка массового отсева
+                    # (:data:`web.worth_publishing.MASS_DROP`) меряет только её.
+                    drops = DropCount()
+                    tiles = build_shelf(
+                        shelf,
+                        list(rows.values()),
+                        self.catalogue,
+                        self.offer,
+                        self.passport,
+                        drops.wrap(self.playable),
+                        now,
+                    )
+                    body[shelf] = tiles
+                    self._publish(origin, shelf, tiles, now, drops)
             except TorrcastError:
                 continue
-            self._publish("popular", popular, now, popular_drops, complete=True)
             grew = best is None or min_tiles(body) > min_tiles(best)
             if grew:
                 best = body
@@ -136,65 +170,28 @@ class ShelvesCache:
         # Готовая полка не ждёт ни соседнюю, ни проводку первого клика.
         self.warm(shelf_warm_targets(best), shelf_warm_targets(best, later=True))
 
-    def _build_shelf(
-        self, shelf: str, rows: list[FeedRow], playable: Playable, now: datetime
-    ) -> list[JsonValue]:
-        """Плитки одной полки из строк ленты, с отдельным счётчиком приговоров."""
-        pictures = (
-            fresh_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES)
-            if shelf == "fresh"
-            else popular_shelf(rows, self.catalogue, now=now, limit=_CANDIDATES)
-        )
-        return self._tiles(pictures, playable)
-
     def _publish(
         self,
+        origin: dict[str, JsonValue],
         shelf: str,
         tiles: list[JsonValue],
         now: datetime,
         drops: DropCount,
-        *,
-        complete: bool = False,
     ) -> None:
-        """Поставить готовую полку, не снимая ещё строящуюся соседнюю.
-
-        Клеймо меняется после второй полки, поэтому новое короче не спорит со старым.
-        """
+        """Поставить готовую полку, не снимая строящуюся соседнюю (:mod:`web.shelf_candidate`)."""
         with self._lock:
-            current = self._body or _empty()
-            candidate = {
-                **current,
-                shelf: _keep_stale_tiles(current, shelf, tiles, drops),
-                "built_at": now.isoformat(),
-            }
-            if complete:
-                candidate[FIELD] = RULE
-            if not worth_publishing(current, candidate, drops):
+            current = self._body if self._body is not None else origin
+            complete = shelf == "popular"  # клеймо нового правила - по последней полке
+            candidate = shelf_candidate(
+                current, origin, shelf, tiles, drops, now=now, limit=SHELF_LIMIT, complete=complete
+            )
+            if candidate is None:
                 return
             self._body = candidate
-        self._save(candidate)
-
-    def _tiles(self, pictures: list[Any], playable: Playable) -> list[JsonValue]:
-        """Видимые плитки полки: только картины с обложкой, в числе видимых ТЗ §9."""
-        return shelf_tiles(pictures, self.offer, self.passport, playable, limit=SHELF_LIMIT)
+        write_shelves(self.path, candidate)
 
     def _load(self) -> dict[str, JsonValue]:
-        try:
-            raw: Any = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return _empty()
-        # Клеймо велит пересобрать, но прежнее или бесклейменное тело остаётся экраном.
-        return raw if isinstance(raw, dict) else _empty()
-
-    def _save(self, body: dict[str, JsonValue]) -> None:
-        # диск лёг - полки просто не переживут рестарт, показу до этого дела нет
-        with contextlib.suppress(TorrcastError):
-            _write_atomic(self.path, body)
-
-
-def _empty() -> dict[str, JsonValue]:
-    """Полки до первой сборки: пустой список, а не выдуманная картина."""
-    return {FIELD: RULE, "fresh": [], "popular": [], "built_at": None}
+        return read_shelves(self.path)
 
 
 __all__ = ["Feed", "Offer", "PassportOf", "Playable", "ShelvesCache", "Spawn", "Warm"]

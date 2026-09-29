@@ -541,17 +541,113 @@ def test_rebuild_publishes_the_first_shelf_before_building_the_second(tmp_path: 
     assert body is not None and body[FIELD] == RULE
 
 
-def test_a_full_shelf_from_another_rule_does_not_block_a_short_build(tmp_path: Path) -> None:
-    """Смена правила добавляет короткое новое тело к старому, а не теряет старые плитки."""
+def _shelf(body: dict[str, JsonValue] | None, key: str) -> list[JsonValue]:
+    assert body is not None
+    shelf = body[key]
+    assert isinstance(shelf, list)
+    return shelf
+
+
+def test_old_tiles_only_fill_the_free_places_of_the_first_new_rule_build(tmp_path: Path) -> None:
+    """25 старых плиток и 18 новых: полка 30, новые первыми, старые добивают 12 мест."""
     cache = _cache(tmp_path, feed=lambda limit: _many_rows(18))
     cache._body = _alien(25)
 
     cache._rebuild()
 
     body = cache._body
-    assert body is not None
-    assert body[FIELD] == RULE
-    assert isinstance(body["fresh"], list) and len(body["fresh"]) == 43
+    assert body is not None and body[FIELD] == RULE
+    for key in ("fresh", "popular"):
+        shelf = _shelf(body, key)
+        assert len(shelf) == 30
+        assert all(_tile(shelf, index).get("key") for index in range(18))
+        assert shelf[18:] == _shelf(_alien(25), key)[:12]
+    assert body["carried"] == {"fresh": 12, "popular": 12}
+
+
+def test_old_tiles_leave_with_the_next_rebuild_of_the_new_rule(tmp_path: Path) -> None:
+    """Перенос живёт одну пересборку: следующий час полка состоит только из нового отбора."""
+    cache = _cache(tmp_path, feed=lambda limit: _many_rows(18))
+    cache._body = _alien(25)
+    cache._rebuild()
+
+    cache._rebuild()
+
+    body = cache._body
+    assert len(_shelf(body, "fresh")) == 18 and len(_shelf(body, "popular")) == 18
+    assert body is not None and body["carried"] == {"fresh": 0, "popular": 0}
+
+
+def test_carried_tiles_do_not_hold_the_shrink_floor_against_an_honest_shelf(
+    tmp_path: Path,
+) -> None:
+    """Порог усыхания меряет 18 своих плиток, а не 30 с перенесёнными: 10 из 18 проходит."""
+    answers = iter([_many_rows(18), _many_rows(10)])
+    cache = _cache(tmp_path, feed=lambda limit: next(answers))
+    cache._body = _alien(25)
+    cache._rebuild()
+
+    cache._rebuild()
+
+    assert len(_shelf(cache._body, "fresh")) == 10
+
+
+def test_every_attempt_of_the_first_rebuild_still_fills_from_the_old_body(tmp_path: Path) -> None:
+    """Добор внутри первой пересборки не теряет перенос: источник - тело на её старте."""
+    answers = iter([_many_rows(10), _many_rows(18), _many_rows(18)])
+    cache = _cache(tmp_path, feed=lambda limit: next(answers), attempts=3)
+    cache._body = _alien(25)
+
+    cache._rebuild()
+
+    assert len(_shelf(cache._body, "fresh")) == 30
+    assert cache._body is not None and cache._body["carried"] == {"fresh": 12, "popular": 12}
+
+
+@pytest.mark.parametrize(("old", "new"), [(30, 30), (25, 18), (30, 0), (0, 30), (5, 3)])
+def test_no_shelf_is_ever_longer_than_its_limit(tmp_path: Path, old: int, new: int) -> None:
+    """Предел полки держится на любой паре «старое тело, новый отбор»."""
+    cache = _cache(tmp_path, feed=lambda limit: _many_rows(new))
+    cache._body = _alien(old)
+
+    cache._rebuild()
+
+    for key in ("fresh", "popular"):
+        assert len(_shelf(cache._body, key)) == min(old + new, 30)
+
+
+def test_a_foreign_exception_fails_the_pass_but_not_the_loop(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Приговор бросил не :class:`TorrcastError` - заход сорван, поток жив, следующий собирает."""
+    verdicts = 0
+
+    def playable(_query: str, _key: str) -> bool:
+        nonlocal verdicts
+        verdicts += 1
+        if verdicts == 1:
+            raise ZeroDivisionError("division by zero")
+        return True
+
+    slept: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        if len(slept) == 2:
+            raise _Stop
+
+    cache = _cache(tmp_path, feed=lambda limit: _many_rows(3), playable=playable, sleep=sleep)
+
+    with pytest.raises(_Stop):
+        cache._loop()
+
+    assert slept == [cache.every, cache.every]
+    assert len(_shelf(cache._body, "fresh")) == 3
+    assert "ZeroDivisionError" in capsys.readouterr().err
+
+
+class _Stop(BaseException):
+    """Выход из бесконечного цикла фона в тесте: не :class:`Exception`, ограждение его не ловит."""
 
 
 def test_a_stale_tile_leaves_only_after_its_new_verdict_is_false(tmp_path: Path) -> None:

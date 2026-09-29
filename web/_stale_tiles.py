@@ -1,4 +1,19 @@
-"""Сохраняет плитки прежнего правила до нового честного приговора."""
+"""Плитки прежнего правила на смене отбора: добивают полку, но не спорят с новой.
+
+Смена правила (:mod:`web.built_by_rule`) не вправе ослепить главную: пока новый отбор
+идёт, человек видит прежнее тело. Но прежние плитки и не вправе в нём прижиться -
+ровно так латиница однажды пережила круг пересборки. Отсюда правило переноса:
+
+- новая сборка стоит первой, прежняя плитка только добивает свободные места до предела
+  полки и никогда не вытесняет новую;
+- прежняя плитка, которую новый отбор принёс сам или честно отверг (``False``), не
+  переносится;
+- переносит только первая пересборка нового правила, со всеми её заходами: источник
+  переноса - тело на её старте, собранное чужим правилом. Следующая пересборка (через
+  час) начинается с тела нового клейма, и перенесённые плитки уходят;
+- сколько плиток в хвосте полки перенесено, тело помнит в поле :data:`web.carried.CARRIED`: порог
+  усыхания (:func:`web.worth_publishing.worth_publishing`) меряет только своё.
+"""
 
 from __future__ import annotations
 
@@ -8,17 +23,22 @@ from web.drop_count import DropCount
 
 
 def _keep_stale_tiles(
-    current: dict[str, JsonValue], shelf: str, tiles: list[JsonValue], drops: DropCount
-) -> list[JsonValue]:
-    """На смене правила не снимает плитку, пока новый отбор её честно не отверг."""
-    if built_by_rule(current):
-        return tiles
-    old = current.get(shelf)
+    origin: dict[str, JsonValue],
+    shelf: str,
+    tiles: list[JsonValue],
+    drops: DropCount,
+    limit: int,
+) -> tuple[list[JsonValue], int]:
+    """Полка для публикации и число перенесённых в её хвост плиток прежнего правила."""
+    if built_by_rule(origin):
+        return tiles, 0
+    old = origin.get(shelf)
     if not isinstance(old, list):
-        return tiles
+        return tiles, 0
     present = {_tile_key(tile) for tile in tiles}
-    stale = [tile for tile in old if _tile_key(tile) not in present | drops.dropped_keys]
-    return [*tiles, *stale]
+    gone = present | drops.dropped_keys
+    stale = [tile for tile in old if _tile_key(tile) not in gone][: max(limit - len(tiles), 0)]
+    return [*tiles, *stale], len(stale)
 
 
 def _tile_key(tile: JsonValue) -> str | None:
