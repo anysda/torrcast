@@ -111,13 +111,15 @@ def test_rebuild_fills_both_shelves_with_projected_tiles(tmp_path: Path) -> None
     assert tile["shown"] == "Матрица"
 
 
-def test_rebuild_warms_the_first_eight_tiles_of_each_shelf(tmp_path: Path) -> None:
+def test_each_shelf_is_warmed_before_its_body_is_published(tmp_path: Path) -> None:
     """Первый клик на видимой полке не становится первым заходом к индексерам."""
     warmed: list[list[WarmTarget]] = []
     behind: list[list[WarmTarget]] = []
+    seen: list[dict[str, JsonValue] | None] = []
     cache = _cache(tmp_path, feed=lambda _limit: _many_rows(20))
 
     def warm(screen: list[WarmTarget], later: list[WarmTarget]) -> None:
+        seen.append(cache._body)
         warmed.append(screen)
         behind.append(later)
 
@@ -125,17 +127,24 @@ def test_rebuild_warms_the_first_eight_tiles_of_each_shelf(tmp_path: Path) -> No
 
     cache._rebuild()
 
-    assert len(warmed) == 1
-    assert len(warmed[0]) == 16
-    assert len(warmed[0][:8]) == len(warmed[0][8:]) == 8
-    assert not {target[1] for target in behind[0]} & {target[1] for target in warmed[0]}
+    assert len(warmed) == len(behind) == 2
+    assert seen[0] is None
+    assert seen[1] is not None
+    assert len(_shelf(seen[1], "fresh")) == 20
+    assert _shelf(seen[1], "popular") == []
+    assert all(len(targets) == 8 for targets in warmed)
+    assert all(
+        not {target[1] for target in later} & {target[1] for target in screen}
+        for screen, later in zip(warmed, behind, strict=True)
+    )
     assert all(
         query.startswith("Картина ")
         and key.startswith("movie:")
         and title.startswith("Картина ")
         and year == 2026
         and kind == "movie"
-        for query, key, title, year, kind in warmed[0]
+        for screen in warmed
+        for query, key, title, year, kind in screen
     )
 
 

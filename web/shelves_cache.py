@@ -167,8 +167,6 @@ class ShelvesCache:
                 break
         if best is None:
             return
-        # Готовая полка не ждёт ни соседнюю, ни проводку первого клика.
-        self.warm(shelf_warm_targets(best), shelf_warm_targets(best, later=True))
 
     def _publish(
         self,
@@ -187,6 +185,11 @@ class ShelvesCache:
             )
             if candidate is None:
                 return
+        # Сначала факты плиток, затем публикация: клик по уже видимой полке не ждёт
+        # единственного рабочего поиска раздач.
+        warmed = {shelf: candidate[shelf]}
+        self.warm(shelf_warm_targets(warmed), shelf_warm_targets(warmed, later=True))
+        with self._lock:
             self._body = candidate
         write_shelves(self.path, candidate)
 
