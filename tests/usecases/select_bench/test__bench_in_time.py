@@ -316,6 +316,37 @@ def test_a_release_taken_by_the_deadline_does_not_wait_again_for_its_honesty(
 
 
 @pytest.mark.machine
+def test_the_honesty_check_does_not_ask_again_a_swarm_the_bench_waited_out(
+    top_answers: threading.Event,
+) -> None:
+    """🔴 Молчащий №1 уже прождан: проверка честности 400p его не переспрашивает.
+
+    «Во все тяжкие»: отбор снял молчащий №1 и взял 400p под именем 1080p, а проверка
+    честности завела №1 заново и ждала его весь свой бюджет - в карточке и ещё раз в показе.
+    """
+    pool = [rel(name=f"r{n} 1080p | Дубляж", seeders=100 - n) for n in range(2)]
+    read = probes(pool, _RUS, replace(_RUS, height=400, width=720))
+    asked: list[str] = []
+
+    def prober(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        if f"hash-{pool[0].magnet}/" in source_url:
+            asked.append(source_url)
+            if len(asked) == 1:
+                time.sleep(0.3)
+                raise SwarmError("рой молчит", waited=0.3)
+            top_answers.wait(30.0)
+        return read(source_url, timeout=timeout, alive=alive)
+
+    bench = Bench(Torrents(), prober=prober, honest_budget=5.0)
+    began = time.monotonic()
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert prep.number == 2
+    assert time.monotonic() - began < 3.0
+
+
+@pytest.mark.machine
 def test_a_younger_release_below_hd_does_not_jump_the_queue(
     monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
 ) -> None:

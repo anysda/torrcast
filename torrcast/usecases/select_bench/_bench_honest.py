@@ -78,6 +78,9 @@ class _BenchHonest(_BenchTrouble):
             for n in queue
             if n != chosen.number
             and n not in judged
+            # Прожданный рой переспрашивать незачем: «Во все тяжкие» ждали молчащий №1
+            # весь бюджет проверки в карточке и ещё раз в показе.
+            and plan.ranked[n - 1].magnet not in self.waited_out
             and promises_more(plan.ranked[n - 1], chosen.found)
         ][:MAX_TRIES]
         # Взятую сроком проверка не держит: «Призрак в доспехах» 384p ждал ответов трёх
