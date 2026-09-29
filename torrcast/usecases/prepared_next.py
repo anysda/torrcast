@@ -33,6 +33,7 @@ class PreparedNext:
     stand: Callable[..., Bench]
     _thread: Thread | None = field(default=None, init=False)
     _result: tuple[Entry, int] | None = field(default=None, init=False)
+    _error: Exception | None = field(default=None, init=False)
     _lock: Lock = field(default_factory=Lock, init=False)
 
     def start(self) -> None:
@@ -48,16 +49,23 @@ class PreparedNext:
         self.start()
         assert self._thread is not None
         self._thread.join()
+        # A crashed search is not the end of the series: the unit fails as it would
+        # have failed searching in place, instead of ending quietly.
+        if self._error is not None:
+            raise self._error
         return self._result
 
     def _find(self) -> None:
-        self._result = find_next(
-            self.config,
-            self.key,
-            self.torrserver,
-            self.profile,
-            self.entry,
-            self.target,
-            self.circle,
-            self.stand,
-        )
+        try:
+            self._result = find_next(
+                self.config,
+                self.key,
+                self.torrserver,
+                self.profile,
+                self.entry,
+                self.target,
+                self.circle,
+                self.stand,
+            )
+        except Exception as error:  # carried to result() on the unit's own thread
+            self._error = error
