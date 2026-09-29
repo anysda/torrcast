@@ -145,3 +145,34 @@ def test_a_query_that_finds_someone_elses_circle_without_erroring_still_falls_th
 
     assert (plan, pick, found) == (_PLAN, 1, "призрак в доспехах")
     assert asked == ["матрица", "призрак в доспехах"]
+
+
+def test_a_warm_circle_of_another_line_answers_before_the_network() -> None:
+    """История несёт «рататуй», круг согрет под «Рататуй»: сетевой круг по слагу стоил 7-8 с."""
+    asked, circle = _circle({})
+
+    got = own_plan(
+        _KEY,
+        "призрак-в-доспехах",
+        "Призрак в доспехах",
+        circle,
+        {"Призрак в доспехах": [_PLAN]}.get,
+    )
+
+    assert got == (_PLAN, 1, "Призрак в доспехах")
+    assert asked == []
+
+
+def test_a_warm_circle_without_the_picture_leaves_the_network_path() -> None:
+    other = Plan(
+        picture=Picture(title="Другое", year=1999, kind="movie"),
+        ranked=[],
+        runtime=1.0,
+        warn_mbit=12.0,
+    )
+    asked, circle = _circle({"призрак-в-доспехах": [_PLAN]})
+
+    got = own_plan(_KEY, "призрак-в-доспехах", "", circle, {"призрак-в-доспехах": [other]}.get)
+
+    assert got == (_PLAN, 1, "призрак-в-доспехах")
+    assert asked == ["призрак-в-доспехах"]

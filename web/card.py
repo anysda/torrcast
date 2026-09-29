@@ -89,7 +89,7 @@ def card(request: Request) -> Answer:
     config = load_config()
     try:
         # Живой запрос не ждёт за очередью прогрева: несогретый круг он считает сам.
-        plan, pick, found = own_plan(key, query, title, asked := HeardCircle(WARM.take))
+        plan, pick, found = own_plan(key, query, title, asked := HeardCircle(WARM.take), WARM.live)
     except TorrcastError as failed:
         return asked.refusal(failed)
     if plan is None:

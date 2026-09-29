@@ -22,9 +22,17 @@ from web.key_name import key_name
 
 #: Круг раздач по одной строке; в бою это :meth:`web.warm_cache.WarmCache.take`.
 Circle = Callable[[str], "list[Plan]"]
+#: Круг, уже пришедший из сети, без похода туда; в бою :meth:`web.warm_cache.WarmCache.live`.
+Warm = Callable[[str], "list[Plan] | None"]
 
 
-def own_plan(key: str, query: str, title: str, circle: Circle) -> tuple[Plan | None, int, str]:
+def _cold(_query: str) -> list[Plan] | None:
+    return None
+
+
+def own_plan(
+    key: str, query: str, title: str, circle: Circle, warm: Warm = _cold
+) -> tuple[Plan | None, int, str]:
     """Картина по своему имени, а не по строке, которой её нашли; строка, что сработала.
 
     Отказ круга ПРО СТРОКУ дорогу следующей не закрывает, и немой он или названный -
@@ -35,13 +43,18 @@ def own_plan(key: str, query: str, title: str, circle: Circle) -> tuple[Plan | N
     настроен, лёг TorrServer) - другое дело: он общий на все три попытки и уходит наверх
     сразу, переспрашивать им нечего. Наверх идёт отказ ПОСЛЕДНЕГО довода: зритель читает
     слова про картину, которую открывал, а не про чужую строку.
+
+    Сначала - согретый круг любой из строк, где картина своя (``warm``): история несёт
+    строку слагом («рататуй»), круг согрет под «Рататуй», и сетевой круг по слагу стоил
+    карточке и «Играть» с закладки 7-8 с.
     """
-    tried: set[str] = set()
+    candidates = [c for c in dict.fromkeys((query.strip(), title.strip(), key_name(key))) if c]
+    for candidate in candidates:
+        plan, pick = card_lookup(warm(candidate) or [], key)
+        if plan is not None:
+            return plan, pick, candidate
     failure: NotFoundError | None = None
-    for candidate in (query.strip(), title.strip(), key_name(key)):
-        if not candidate or candidate in tried:
-            continue
-        tried.add(candidate)
+    for candidate in candidates:
         try:
             plans = circle(candidate)
         except NotFoundError as nothing:
@@ -55,4 +68,4 @@ def own_plan(key: str, query: str, title: str, circle: Circle) -> tuple[Plan | N
     return None, 0, ""
 
 
-__all__ = ["Circle", "own_plan"]
+__all__ = ["Circle", "Warm", "own_plan"]
