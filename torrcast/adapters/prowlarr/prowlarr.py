@@ -45,6 +45,8 @@ class Prowlarr(_State):
         if not results:
             refused = self._roster.refused(self.banned, self._begun_at)
             self.short.update(refused)
+            self.missed.update(refused)
+            self.refusing.update(refused)
             raise nothing_found(query, self.banned, refused, self.silent)
         return results
 
@@ -138,6 +140,7 @@ class Prowlarr(_State):
         self.cut = (*self.cut, *cut_short(self._circle.counts, self._circle.spent))
         self.apart = True
         self.short.update((*self.silent, *self.banned, *self.cut))
+        self.missed.update((*self.silent, *self.cut))
         # 🔴 TC-318. Пул ПУСТ, а опоздавший ещё в пути - вот тут его и дожидаются:
         # показывать всё равно нечего, и он единственный, кто ещё может привезти картину.
         # Пустая выдача ответившего идёт тут наравне с молчанием - строк не приехало ни

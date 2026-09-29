@@ -103,6 +103,31 @@ def test_a_circle_not_every_indexer_answered_lives_a_minute_and_gives_way_on_dis
     assert cache.take("Начало") == [_PLAN, _SHOWN]
 
 
+def test_a_circle_only_prowlarr_cut_short_keeps_its_full_term_and_the_disk(
+    tmp_path: Path,
+) -> None:
+    """🔴 With Knaben out of reach for hours no shelf circle reached the disk, and every home
+    screen after a minute asked the network again: one Prowlarr took away was not asked."""
+    now = [0.0]
+    told: list[Told] = [("search", "Тачки", 0.0, (), [RawResult("Тачки", "a", indexer="RuTor")])]
+    asked: list[str] = []
+
+    def circle(query: str) -> list[Plan]:
+        asked.append(query)
+        return ToldCircle([_PLAN], told, whole=False, heard=True)
+
+    disk = CircleDisk(path=lambda: tmp_path / "circles.json")
+    cache = WarmCache(
+        circle, lambda _p: None, _sync, clock=lambda: now[0], disk=disk, replay=lambda *_: [_PLAN]
+    )
+
+    assert cache.take("Тачки") == [_PLAN]
+    assert disk.told("Тачки") == told, "the circle goes to disk for its day"
+    now[0] += EMPTY_TTL + 1.0
+    assert cache.take("Тачки") == [_PLAN]
+    assert asked == ["Тачки"], "after a minute the circle is still the memory's answer"
+
+
 def test_a_cut_circle_as_rich_as_the_whole_one_on_disk_stands_for_it(tmp_path: Path) -> None:
     """Not poorer than the kept whole circle, a cut one replaces it and keeps its guard."""
     rows = [RawResult("Тачки", "a", indexer="RuTor"), RawResult("Тачки", "b", indexer="YTS")]

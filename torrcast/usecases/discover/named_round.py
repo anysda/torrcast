@@ -28,6 +28,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover._ask import _ask, _notify
+from torrcast.usecases.discover._circle_heard import Gone, _gone, _heard, _whole
 from torrcast.usecases.discover.told_indexer import ToldIndexer
 
 #: How long the round may wait for an offline map still being built on a cold start.
@@ -87,7 +88,11 @@ class NamedRound:
         """Every client of the picture's names heard all of its indexers."""
         return all(_whole(client) for client in list(self._named))
 
-    def gone(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    def heard(self) -> bool:
+        """Every client of the picture's names heard all the indexers it asked."""
+        return all(_heard(client) for client in list(self._named))
+
+    def gone(self) -> Gone:
         """Who dropped out of the rounds of the picture's names (:func:`_gone`)."""
         return _gone(list(self._named))
 
@@ -171,23 +176,6 @@ def _behind(client: IndexerClient) -> None:
     sent = getattr(client, "sent", None)
     if callable(sent):
         sent(HEAD)
-
-
-def _whole(client: IndexerClient) -> bool:
-    whole = getattr(client, "whole", None)
-    return bool(whole()) if callable(whole) else False
-
-
-def _gone(clients: list[IndexerClient]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Names that did not answer and names Prowlarr took away, over clients that can tell."""
-    silent: set[str] = set()
-    banned: set[str] = set()
-    for client in clients:
-        if callable(gone := getattr(client, "gone", None)):
-            quiet, taken = gone()
-            silent.update(quiet)
-            banned.update(taken)
-    return tuple(sorted(silent - banned)), tuple(sorted(banned))
 
 
 def _inflight(client: IndexerClient) -> list[RawResult]:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.adapters.prowlarr.test_prowlarr import _ago, _swarm
+from tests.adapters.prowlarr.test_prowlarr import _ago, _swarm, _swarm_of
 from torrcast.domain.not_found_error import NotFoundError
 
 
@@ -43,20 +43,54 @@ def test_a_client_that_never_asked_proved_nothing() -> None:
 
 
 @pytest.mark.parametrize(
-    ("broken", "silent", "banned"),
+    ("broken", "fell"),
     [
-        ({}, 0, 0),
-        ({"refuses": {1}}, 1, 0),
-        ({"mute": 1}, 1, 0),
-        ({"yts": True, "blocked": {4: _ago(300)}}, 0, 1),
+        ({}, ((), (), ())),
+        ({"refuses": {1}}, ((), (), ("Knaben",))),
+        ({"mute": 1}, (("Knaben",), (), ())),
+        ({"yts": True, "blocked": {4: _ago(300)}}, ((), ("YTS",), ())),
     ],
     ids=["whole", "refused", "silent", "banned"],
 )
-def test_the_client_names_who_fell_out(broken: dict[str, object], silent: int, banned: int) -> None:
-    """A cut empty circle owes the person its missing names: a silent one is not a banned one."""
+def test_the_client_names_who_fell_out(broken: dict[str, object], fell: object) -> None:
+    """A cut empty circle owes the person its missing names, each by what befell it.
+
+    One that refused behind an empty page is not silent: it answered, with a refusal.
+    """
     client = _swarm(rows=0, **broken)  # type: ignore[arg-type]
     with pytest.raises(NotFoundError):
         client.search("матрица")
-    quiet, taken = client.gone()
-    assert (len(quiet), len(taken)) == (silent, banned), (quiet, taken)
-    assert not set(quiet) & set(taken)
+    assert client.gone() == fell
+
+
+@pytest.mark.parametrize(
+    ("broken", "heard"),
+    [
+        ({}, True),
+        ({"refuses": {1}}, False),
+        ({"mute": 1}, False),
+        ({"yts": True, "blocked": {4: _ago(300)}}, True),
+    ],
+    ids=["whole", "refused", "silent", "banned"],
+)
+def test_only_one_prowlarr_took_away_leaves_the_circle_heard(
+    broken: dict[str, object], heard: bool
+) -> None:
+    """Prowlarr's banned one was not asked; everyone asked answering is all a circle can hear."""
+    client = _swarm(rows=0, **broken)  # type: ignore[arg-type]
+    with pytest.raises(NotFoundError):
+        client.search("матрица")
+    assert client.heard() is heard
+
+
+@pytest.mark.machine
+def test_a_tail_the_circle_went_on_without_leaves_it_heard_but_not_whole() -> None:
+    """The screen still waits for the late one; the memory keeps what the circle waited for."""
+    client = _swarm(rows=2, hold={3})
+    try:
+        client.search("Naruto [TV]")
+        assert client.waiting() == ("Nyaa.si",)
+        assert (client.whole(), client.heard()) == (False, True)
+    finally:
+        _swarm_of(client).gate.set()
+        client.late(wait=5.0)

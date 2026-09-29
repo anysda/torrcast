@@ -13,3 +13,5 @@ class NotFoundError(TorrcastError):
     #: names a cut empty circle owes the person instead of a bare «nothing».
     silent: tuple[str, ...] = ()
     banned: tuple[str, ...] = ()
+    #: Who refused behind an empty page while the search ran: a refusal, not a silence.
+    refused: tuple[str, ...] = ()

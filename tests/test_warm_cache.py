@@ -554,16 +554,23 @@ def test_a_screen_after_a_restart_is_warmed_from_disk_without_the_indexers(tmp_p
     assert cache.ready("Interstellar") == [_PLAN]
 
 
-def test_a_background_refresh_with_a_silent_source_keeps_the_full_circle(tmp_path: Path) -> None:
-    """🔴 Обновление, где JacRed промолчал, легло поверх полного круга: 4 раздачи вместо 32."""
+@pytest.mark.parametrize("heard", [False, True], ids=["known-silent", "zero-before-cutoff"])
+def test_a_background_refresh_without_a_source_keeps_the_full_circle(
+    tmp_path: Path, heard: bool
+) -> None:
+    """🔴 Обновление, где JacRed промолчал, легло поверх полного круга: 4 раздачи вместо 32.
+
+    The circle knows of the silence, or it counts JacRed's early zero as an answer: either
+    way the full circle stays.
+    """
     full: list[Told] = [
         ("search", "Тачки", 0.0, (), [RawResult("Тачки 2006", "a", indexer="JacRed")]),
         ("search", "Тачки", 0.0, (), [RawResult("Cars 2006", "b", indexer="RuTor")]),
     ]
-    silent = [said for said in full if said[4][0].indexer != "JacRed"]
+    without = [said for said in full if said[4][0].indexer != "JacRed"]
     circle = _Circle(answer=ToldCircle([_PLAN], full, whole=True))
     _restarted(tmp_path, circle, _sync, full)[0].take("Тачки")
-    circle.answer = ToldCircle([_SHOWN], silent)
+    circle.answer = ToldCircle([_SHOWN], without, heard=heard)
     held: list[Callable[[], None]] = []
     cache, _ = _restarted(tmp_path, circle, held.append, full)
 

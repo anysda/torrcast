@@ -24,7 +24,8 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.ports.journal.slot import journal
-from torrcast.usecases.discover.named_round import NamedRound, _gone, _whole
+from torrcast.usecases.discover._circle_heard import _gone, _heard, _whole
+from torrcast.usecases.discover.named_round import NamedRound
 from torrcast.usecases.discover.told_circle import ToldCircle
 
 if TYPE_CHECKING:
@@ -37,12 +38,14 @@ if TYPE_CHECKING:
 Rows = tuple["list[RawResult]", "list[RawResult]", "MapPicture | None"]
 
 
-def _heard_all(clients: list[IndexerClient]) -> bool:
+def _heard_all(
+    clients: list[IndexerClient], said: Callable[[IndexerClient], bool] = _whole
+) -> bool:
     """Ответил ли каталог целиком: каждый клиент круга сам говорит, все ли ему ответили.
 
     Клиент, который этого сказать не умеет (круг с диска, подделка), полноты не доказал.
     """
-    return bool(clients) and all(_whole(client) for client in clients)
+    return bool(clients) and all(said(client) for client in clients)
 
 
 class _Heard(list["IndexerClient"]):
@@ -103,7 +106,7 @@ class CircleWatch:
                 plans = circle(hear)
             except NotFoundError as nothing:
                 nothing.whole = _heard_all(heard)
-                nothing.silent, nothing.banned = _gone(heard)
+                nothing.silent, nothing.banned, nothing.refused = _gone(heard)
                 # The one line that tells a cut empty circle from a whole one on a stand.
                 journal().emit(
                     "search",
@@ -112,12 +115,14 @@ class CircleWatch:
                     whole=nothing.whole,
                     silent=list(nothing.silent),
                     banned=list(nothing.banned),
+                    refused=list(nothing.refused),
                 )
                 raise
             finally:
                 _current.reset(token)
             if isinstance(plans, ToldCircle):
                 plans.whole = _heard_all(heard)
+                plans.heard = _heard_all(heard, _heard)
             return plans
 
     @staticmethod

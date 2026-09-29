@@ -47,6 +47,10 @@ class _State:
         #: Кто хоть в одном заходе поиска смолчал, был забанен, урезан или отказал пустотой:
         #: с ним пустота поиска - урезанный каталог, а не «такого нет» (:meth:`whole`).
         self.short: set[str] = set()
+        #: Those of :attr:`short` that were asked: silent, cut, or refusing behind an empty page.
+        self.missed: set[str] = set()
+        #: Those of :attr:`missed` whose refusal Prowlarr marked while this search ran.
+        self.refusing: set[str] = set()
         #: Спрашивали врозь, по списку индексеров: только тогда известно, кто ответил.
         self.apart = False
         self._roster = IndexerRoster(self._api, spawn=heal)
@@ -102,11 +106,20 @@ class _State:
         """Ответил ли за этот поиск КАЖДЫЙ спрошенный индексер, строкой или честным нулём."""
         return self.apart and not self.short and not self._circle.unheard()
 
-    def gone(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        """Кто выпал из этого поиска: не ответил или не спрошен, и кого увёл Prowlarr."""
+    def heard(self) -> bool:
+        """Answered every indexer it waited for.
+
+        One Prowlarr took away was not asked at all, and the circle never waited for the
+        tail it went on without (still on its way, or not sent inside the budget).
+        """
+        return self.apart and not self.missed
+
+    def gone(self) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        """Кто выпал из этого поиска: промолчал, увёл Prowlarr, отказал за пустой выдачей."""
         banned = set(self.banned)
-        silent = {*self._circle.unheard(), *self.short} - banned
-        return tuple(sorted(silent)), tuple(sorted(banned))
+        refused = self.refusing - banned
+        silent = {*self._circle.unheard(), *self.short} - banned - refused
+        return tuple(sorted(silent)), tuple(sorted(banned)), tuple(sorted(refused))
 
     def spare(self) -> float:
         """Сколько секунд цели этот поиск ещё не потратил (TC-228)."""

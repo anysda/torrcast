@@ -18,12 +18,18 @@ class ToldCircle(list["Plan"]):
     """Планы и запись ответов каталога, по которой круг собирается заново без сети."""
 
     def __init__(
-        self, plans: Iterable[Plan] = (), told: list[Told] | None = None, whole: bool = False
+        self,
+        plans: Iterable[Plan] = (),
+        told: list[Told] | None = None,
+        whole: bool = False,
+        heard: bool | None = None,
     ) -> None:
         super().__init__(plans)
         self.told: list[Told] = told or []
-        #: Ответил ли каждый спрошенный индексер (:mod:`torrcast.usecases.discover.circle_watch`).
+        #: Ответил ли каждый спрошенный индексер (:mod:`torrcast.usecases.discover._circle_heard`).
         self.whole = whole
+        #: Answered every indexer it asked; a whole circle is heard too.
+        self.heard = whole if heard is None else heard
 
 
 __all__ = ["ToldCircle"]

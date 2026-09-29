@@ -42,6 +42,23 @@ def test_the_plans_carry_the_mark_of_a_whole_catalogue() -> None:
     assert isinstance(plans, ToldCircle) and plans.whole
 
 
+def test_a_circle_prowlarr_cut_short_is_heard_but_not_whole() -> None:
+    """The memory reads *heard*, the screen reads *whole*: a banned one splits the two."""
+
+    class _Banned(_Client):
+        def __init__(self) -> None:
+            super().__init__(False)
+            self.heard = lambda: True
+
+    def circle(hear: Any) -> list[Any]:
+        hear(_Banned())
+        hear(_Client(True))
+        return ToldCircle([], [])
+
+    plans = CircleWatch().run("матрица", None, circle)
+    assert isinstance(plans, ToldCircle) and (plans.whole, plans.heard) == (False, True)
+
+
 @pytest.mark.parametrize("vouches", [True, False])
 def test_the_nothing_refusal_carries_the_same_mark(vouches: bool) -> None:
     watch = CircleWatch()
@@ -114,16 +131,16 @@ def test_the_pool_the_circle_took_is_counted_while_it_runs() -> None:
 
 
 def test_the_nothing_refusal_names_who_fell_out() -> None:
-    """Silent and banned names of every client reach the refusal; a banned one is not silent."""
+    """Every client's names reach the refusal; a banned one or a refusing one is not silent."""
 
     class _Gone(_Client):
-        def __init__(self, silent: tuple[str, ...], banned: tuple[str, ...]) -> None:
+        def __init__(self, *names: tuple[str, ...]) -> None:
             super().__init__(False)
-            self.gone = lambda: (silent, banned)
+            self.gone = lambda: (*names, ())[:3]
 
     def circle(hear: Any) -> list[Any]:
-        hear(_Gone(("RuTor", "Knaben"), ()))
-        hear(_Gone(("Knaben",), ("Knaben", "YTS")))
+        hear(_Gone(("RuTor", "Knaben"), (), ("JacRed",)))
+        hear(_Gone(("Knaben", "JacRed"), ("Knaben", "YTS")))
         hear(_Client(True))
         raise NothingFoundError("пусто")
 
@@ -139,11 +156,18 @@ def test_the_nothing_refusal_names_who_fell_out() -> None:
             CircleWatch().run("матрица", None, circle)
     finally:
         install(Silent())
-    assert (caught.value.silent, caught.value.banned) == (("RuTor",), ("Knaben", "YTS"))
+    fell = (caught.value.silent, caught.value.banned, caught.value.refused)
+    assert fell == (("RuTor",), ("Knaben", "YTS"), ("JacRed",))
     assert written == [
         (
             "search",
             "empty",
-            {"query": "матрица", "whole": False, "silent": ["RuTor"], "banned": ["Knaben", "YTS"]},
+            {
+                "query": "матрица",
+                "whole": False,
+                "silent": ["RuTor"],
+                "banned": ["Knaben", "YTS"],
+                "refused": ["JacRed"],
+            },
         )
     ], "the stand trace cannot tell a cut empty circle from a whole one"

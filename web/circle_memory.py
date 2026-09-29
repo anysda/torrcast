@@ -123,8 +123,8 @@ class CircleMemory:
         """Запомнить непустую находку; пустая - не находка, урезанная - на минуту.
 
         Неполный круг (:meth:`poorer`) живой полный не вытесняет, а без него живёт минуту.
-        Круг, где ответил не каждый индексер (:func:`_part`), тоже живёт минуту: его плитки
-        не весь каталог, и следующий запрос после неё спрашивает сеть заново.
+        Круг, где ответил не каждый спрошенный индексер (:func:`_part`), тоже живёт минуту: его
+        плитки не весь каталог, и следующий запрос после неё спрашивает сеть заново.
         """
         if not plans:
             return
@@ -191,8 +191,11 @@ class CircleMemory:
 
 
 def _part(plans: list[Plan]) -> bool:
-    """A circle that not every indexer answered: cut short, or some source kept silent."""
-    return isinstance(plans, CutCircle) or (isinstance(plans, ToldCircle) and not plans.whole)
+    """A circle some asked indexer did not answer: cut short, silent, or refusing.
+
+    One Prowlarr took out of reach was not asked, and it does not make the circle part.
+    """
+    return isinstance(plans, CutCircle) or (isinstance(plans, ToldCircle) and not plans.heard)
 
 
 def _whole(error: TorrcastError) -> bool:
