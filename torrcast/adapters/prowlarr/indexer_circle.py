@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Final
 
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, HostSlots
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.spawn_ask import _Ask, spawn_ask
@@ -33,8 +34,10 @@ class IndexerCircle:
         *,
         slack: float = ASK_SLACK,
         budget_of: Callable[[str], float] = indexer_budget,
+        slots: HostSlots = HOST_SLOTS,
     ) -> None:
         self.api = api
+        self.slots = slots
         self.slack = slack
         self.budget_of = budget_of
         #: Сколько строк отдал каждый ответивший - по именам.
@@ -125,7 +128,11 @@ class IndexerCircle:
         """
         began = time.monotonic()
         texts = [(num, name, joint_query(name, query, joint)) for num, name in pairs]
-        asked = [self._spawn(text, limit, num, name, cap) for num, name, text in texts if text]
+        spare = joint is not None  # the names only add rows (:meth:`HostSlots.take`)
+        spawned = [
+            self._spawn(text, limit, num, name, cap, spare) for num, name, text in texts if text
+        ]
+        asked = [ask for ask in spawned if ask is not None]
         if self._begun <= 1:
             self._asked.extend(asked)
         # A circle of the picture's names only adds rows: the viewer's text answers for
@@ -196,10 +203,14 @@ class IndexerCircle:
         self._late = rest
         return merge(rows) if rows else []
 
-    def _spawn(self, query: str, limit: int, num: int, name: str, cap: float = 0.0) -> _Ask:
+    def _spawn(
+        self, query: str, limit: int, num: int, name: str, cap: float, spare: bool
+    ) -> _Ask | None:
         """Пустить один индексер в его личный бюджет, урезанный потолком круга."""
-        budget = self.budget_of(name)
-        return spawn_ask(self.api, query, limit, num, name, min(budget, cap) if cap else budget)
+        budget = min(self.budget_of(name), cap) if cap else self.budget_of(name)
+        if not self.slots.take(name, budget, spare=spare):
+            return None
+        return spawn_ask(self.api, query, limit, num, name, budget)
 
 
 __all__ = ["ASK_SLACK", "IndexerCircle"]

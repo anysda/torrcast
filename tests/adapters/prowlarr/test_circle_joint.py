@@ -132,3 +132,12 @@ def test_only_the_viewers_text_calls_the_anime_indexers_on_a_thin_pool(
     with pytest.raises(NotFoundError):
         client.search("Cars 2006")
     assert _asked(client) == anime
+
+
+@pytest.mark.parametrize(("joint", "asked"), [(None, {1, 2}), ("", {1})])
+def test_a_name_behind_a_full_queue_is_not_sent(joint: str | None, asked: set[int]) -> None:
+    circle, http = _circle()
+    circle.slots.take("RuTor", 0.5)  # the slot the search before drew is still ahead
+    circle.run([_KNABEN, _RUTOR], "Cars 2006", 100, joint=joint)
+    assert set(http.texts) == asked
+    assert "RuTor" not in circle.lost, "an unsent name is not a silent one"

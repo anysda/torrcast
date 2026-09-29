@@ -1,0 +1,42 @@
+"""Checks the picture of Prowlarr's pacing queue the process keeps across searches."""
+
+from __future__ import annotations
+
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, PACE, HostSlots
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_the_viewers_text_is_sent_however_long_the_queue() -> None:
+    slots = HostSlots(_Clock())
+    assert all(slots.take("RuTor", 3.0) for _ in range(4))
+    assert slots._free["RuTor"] == 100.0 + 4 * PACE
+
+
+def test_a_name_that_cannot_start_in_its_budget_is_not_sent() -> None:
+    slots = HostSlots(_Clock())
+    assert slots.take("RuTor", 3.0)
+    assert slots.take("RuTor", 3.0, spare=True), "the second slot starts in two seconds"
+    assert not slots.take("RuTor", 3.0, spare=True), "the third starts at the budget"
+    assert slots.take("YTS", 3.0, spare=True), "another host has its own queue"
+    assert slots._free["RuTor"] == 100.0 + 2 * PACE, "the unsent name drew no slot"
+
+
+def test_the_queue_empties_with_time() -> None:
+    clock = _Clock()
+    slots = HostSlots(clock)
+    for _ in range(3):
+        slots.take("RuTor", 3.0)
+    assert not slots.take("RuTor", 3.0, spare=True)
+    clock.now += 3 * PACE
+    assert slots.take("RuTor", 3.0, spare=True)
+
+
+def test_the_process_keeps_one_queue() -> None:
+    assert isinstance(HOST_SLOTS, HostSlots)

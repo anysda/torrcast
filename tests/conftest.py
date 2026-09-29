@@ -38,6 +38,7 @@ from torrcast.adapters.filesystem.state import save_config as save_config_module
 from torrcast.adapters.filesystem.state.config_path import DEFAULT_CONFIG_PATH
 from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
 from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue, tongue
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
@@ -626,6 +627,12 @@ def _own_claims(monkeypatch: pytest.MonkeyPatch) -> None:
     уборка этого теста его щадила бы (:data:`torrcast.usecases.torrent_claims.CLAIMS`).
     """
     monkeypatch.setattr(CLAIMS, "_owners", {})
+
+
+@pytest.fixture(autouse=True)
+def _own_host_slots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prowlarr's queue is the process's: a neighbour's requests would hold this test's slots."""
+    monkeypatch.setattr(HOST_SLOTS, "_free", {})
 
 
 @pytest.fixture
