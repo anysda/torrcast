@@ -6,9 +6,8 @@
 второй только о промахах первого, а срочный открывает его параллельно и берёт ранний,
 проверенный ответ, когда Википедия задержалась.
 
-Байты у обоих одни и те же: приговор каждого - это готовый адрес файла, и качаются они
-общим шагом (:class:`~torrcast.adapters.wiki.poster_bodies.PosterBodies`). Разделять их
-по источнику было бы вымыслом: обоим адресам одинаково нужен один GET.
+Байты у обоих одни: приговор - готовый адрес файла, а плитку без байт добирают адреса
+проигравшего в той же гонке (:mod:`hass.spare_bodies`), зависший хост её не обнуляет.
 """
 
 from __future__ import annotations
@@ -16,9 +15,10 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Sequence
-from typing import Any
 
+from hass.poster_race import PosterRace
 from hass.poster_source import PosterSource
+from hass.spare_bodies import spare_bodies
 from torrcast.adapters.wiki.poster_bodies import PosterBodies
 from torrcast.domain.facts.ask import Ask
 from torrcast.ports.bytes_client import BytesClient
@@ -27,6 +27,8 @@ from torrcast.ports.bytes_client import BytesClient
 _URGENT_BY = 1.5
 #: How many source timeouts the late landing waits for a race it inherited.
 _LATE_BY = 3
+#: How many visible asks keep their race for spare addresses; the oldest are dropped first.
+_RACES_KEPT = 512
 
 
 class BothPosters:
@@ -41,7 +43,9 @@ class BothPosters:
         self.urgent = urgent
         self._lock = threading.Lock()
         #: Visible asks whose race is still on the wire: the late landing waits for it.
-        self._racing: dict[Ask, _Race] = {}
+        self._racing: dict[Ask, PosterRace] = {}
+        #: The race each visible ask was served by, the loser's answer included.
+        self._raced: dict[Ask, PosterRace] = {}
 
     def poster(self, ask: Ask, timeout: float) -> bytes | None:
         """Байты постера одной картины; постера у неё нет ни там, ни там - ``None``.
@@ -84,7 +88,7 @@ class BothPosters:
         A source handing pictures one by one ends the wait at its first hit; the rest lands late.
         """
         each = getattr(self.second, "wanted_each", None)
-        race = _Race(
+        race = PosterRace(
             lambda _heard: self.first.wanted(asks, timeout),
             lambda heard: (
                 each(asks, timeout, heard) if callable(each) else self.second.wanted(asks, timeout)
@@ -95,6 +99,11 @@ class BothPosters:
         said = race.said(asks)
         with self._lock:
             self._racing.update({ask: race for ask in asks if ask not in said})
+            for ask in asks:
+                self._raced.pop(ask, None)
+                self._raced[ask] = race
+            while len(self._raced) > _RACES_KEPT:
+                del self._raced[next(iter(self._raced))]
         return said
 
     def finish_urgent(
@@ -117,84 +126,16 @@ class BothPosters:
         return said
 
     def bodies(self, wanted: dict[Ask, list[str]], timeout: float) -> dict[Ask, bytes]:
-        """Байты постеров по названным адресам; чей источник их назвал - уже неважно."""
-        return self.pictures.bodies(wanted, timeout)
+        """Байты по названным адресам; зависший хост отдаёт плитку адресам другого источника.
 
+        Запасные адреса берутся только из гонки видимого ряда, где ответ проигравшего уже
+        оплачен. Спокойный путь второй источник об удачах первого не спрашивал, и запаса у
+        него нет: новый запрос к API ради запаса здесь не делается никогда.
+        """
 
-class _Race:
-    """Both sources in flight for one visible batch; either answer is kept when it comes."""
+        def spare(ask: Ask) -> list[str]:
+            with self._lock:
+                race = self._raced.get(ask)
+            return race.spare(ask, time.monotonic() + timeout) if race is not None else []
 
-    def __init__(self, first: Callable[..., Any], second: Callable[..., Any]) -> None:
-        self.moved = threading.Event()
-        self.first = _Call(first, self.moved)
-        self.second = _Call(second, self.moved)
-
-    def said(self, asks: Sequence[Ask]) -> dict[Ask, list[str]]:
-        """Pages by trust order; ``[]`` only when both answered, and silence is left out."""
-        first, second = self.first.so_far(), self.second.so_far()
-        both = self.first.answer is not None and self.second.answer is not None
-        return {
-            ask: first.get(ask) or second.get(ask) or []
-            for ask in asks
-            if first.get(ask) or second.get(ask) or both
-        }
-
-    def over(self) -> bool:
-        return self.first.done.is_set() or self.second.done.is_set()
-
-    def land(
-        self, asks: Sequence[Ask], deadline: float, land: Callable[[dict[Ask, list[str]]], None]
-    ) -> dict[Ask, list[str]]:
-        """Hand over each hit the moment its source answers; the rest waits for the other."""
-        landed: set[Ask] = set()
-
-        def hits() -> bool:
-            now = {ask: pages for ask, pages in self.said(asks).items() if pages}
-            fresh = {ask: pages for ask, pages in now.items() if ask not in landed}
-            if fresh:
-                landed.update(fresh)
-                land(fresh)
-            return self.first.done.is_set() and self.second.done.is_set()
-
-        self.wait(deadline, hits)
-        return self.said(asks)
-
-    def wait(self, deadline: float, enough: Callable[[], bool]) -> None:
-        """Wake on every finished source until ``enough`` says so or the deadline passes."""
-        while not enough() and time.monotonic() < deadline:
-            self.moved.wait(max(0.0, deadline - time.monotonic()))
-            self.moved.clear()
-            if self.first.done.is_set() and self.second.done.is_set():
-                enough()
-                return
-
-
-class _Call:
-    """One independent source call; a raised one ends with no answer at all.
-
-    A source that hands pictures over one by one (``wanted_each``) wakes the race on each.
-    """
-
-    def __init__(self, ask: Callable[[Callable[..., None]], Any], moved: threading.Event) -> None:
-        self.done = threading.Event()
-        self.answer: dict[Ask, list[str]] | None = None
-        self.heard: dict[Ask, list[str]] = {}
-
-        def heard(part: dict[Ask, list[str]]) -> None:
-            self.heard.update(part)
-            moved.set()
-
-        def run() -> None:
-            try:
-                self.answer = ask(heard)
-            except Exception:
-                pass
-            finally:
-                self.done.set()
-                moved.set()
-
-        threading.Thread(target=run, daemon=True, name="poster-source").start()
-
-    def so_far(self) -> dict[Ask, list[str]]:
-        """The whole answer once in, else the pictures handed over so far."""
-        return self.answer if self.answer is not None else dict(self.heard)
+        return spare_bodies(self.pictures, spare, wanted, timeout)
