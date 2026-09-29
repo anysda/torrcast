@@ -21,6 +21,7 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.discover.cut_circle import CutCircle
 from torrcast.usecases.discover.told_circle import ToldCircle
 from web.circle_disk import CircleDisk
+from web.torn_circle import TornCircle
 
 if TYPE_CHECKING:
     from torrcast.usecases.discover.told_indexer import Told
@@ -53,14 +54,20 @@ class CircleMemory:
         return query.strip()
 
     def plans(self, query: str) -> list[Plan] | None:
-        """Согретый круг, пустой список для свежего отказа, иначе ``None``."""
+        """Согретый круг, пустой список для свежего отказа, иначе ``None``.
+
+        Сорванный круг пуст так же (ждущие его не переспрашивают сеть до срока), но это
+        :class:`TornCircle`: читающий вердикт отличит «не знаю» от «нет раздач».
+        """
         key, now = self.key(query), self.clock()
         with self._lock:
             found = self._found.get(key)
             if found is not None and found[1] > now:
                 return found[0]
             empty = self._empty.get(key)
-            return [] if empty is not None and empty[1] > now else None
+        if empty is None or empty[1] <= now:
+            return None
+        return [] if isinstance(empty[0], NotFoundError) else TornCircle(empty[0])
 
     def live(self, query: str) -> list[Plan] | None:
         """Круг, пришедший из сети в свой срок, а не поднятый с диска.

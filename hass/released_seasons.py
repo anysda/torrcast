@@ -3,6 +3,7 @@
 Спрашивает плашка следующей серии (:mod:`hass.catalog_next`) каждую секунду опроса
 состояния, поэтому круг читается только из памяти (:meth:`web.warm_cache.WarmCache.ready`):
 нет его там - греется фоном (:meth:`web.warm_cache.WarmCache.hint`), а вердикт помнится.
+Сорванный сетью круг (:class:`web.torn_circle.TornCircle`) вердиктом не считается.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from typing import Final, Protocol
 
 from torrcast.domain.seasons_named import seasons_named
 from torrcast.usecases.select.plan import Plan
+from web.torn_circle import TornCircle
 from web.warm_wiring import WARM
 
 #: Сколько помнится, какие сезоны картины видел пул: сезон на глазах не появляется.
@@ -38,6 +40,8 @@ def released_seasons(
     if plans is None:
         pool.hint(query)
         return None
+    if isinstance(plans, TornCircle):
+        return None  # a circle torn by the network says nothing about seasons
     plan = next((plan for plan in plans if plan.picture.key == key), None)
     seasons = seasons_named(plan.picture) if plan is not None else ()
     _seen[(key, query)] = (seasons, clock())
