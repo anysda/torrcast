@@ -48,15 +48,18 @@ def publish_shelf(
     changed = candidate.get(shelf) != current.get(shelf)
     published = cast(list[JsonValue], candidate[shelf])
     if changed:
-        warmed = {shelf: published}
+        # Очередь прогрева одна и каждый заказ её заменяет: заказ одной полки снёс бы
+        # видимые плитки соседней. Поэтому заказ всегда держит обе полки кандидата.
+        screen = shelf_warm_targets(candidate)
+        later = shelf_warm_targets(candidate, later=True)
         try:
-            warm(shelf_warm_targets(warmed), shelf_warm_targets(warmed, later=True))
+            warm(screen, later)
         except Exception:
             # A broken warm-up must not turn an already-built shelf into an invisible one.
             traceback.print_exc()
         else:
-            ordered = phrase("systemd.shelf.warmup_ordered", shelf=shelf, count=len(warmed[shelf]))
-            print(ordered, flush=True)
+            count = len(screen) + len(later)
+            print(phrase("systemd.shelf.warmup_ordered", shelf=shelf, count=count), flush=True)
     store(candidate)
     print(phrase("systemd.shelf.published", shelf=shelf, count=len(published)), flush=True)
     write_shelves(path, candidate)

@@ -26,9 +26,11 @@ def test_publish_orders_changed_tiles_before_storing_the_body(tmp_path: Path) ->
     current: dict[str, JsonValue] = {FIELD: RULE, "fresh": [], "popular": [], "built_at": None}
     ordered: list[list[WarmTarget]] = []
     stored: list[dict[str, JsonValue]] = []
+    stored_before_order: list[int] = []
 
     def warm(screen: list[WarmTarget], _later: list[WarmTarget]) -> None:
-        assert stored == []
+        # Только запись: assert здесь проглотило бы ограждение прогрева в publish_shelf.
+        stored_before_order.append(len(stored))
         ordered.append(screen)
 
     publish_shelf(
@@ -58,5 +60,6 @@ def test_publish_orders_changed_tiles_before_storing_the_body(tmp_path: Path) ->
         complete=False,
     )
 
-    assert len(ordered) == 1
+    assert stored_before_order == [0]
+    assert ordered == [[("Матрица", "movie:matrix:2026", "Матрица", 2026, "movie")]]
     assert len(stored) == 2

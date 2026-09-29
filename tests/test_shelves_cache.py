@@ -17,6 +17,7 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from web.built_by_rule import FIELD, RULE
 from web.shelves_cache import Feed, Offer, PassportOf, Playable, ShelvesCache, Spawn
+from web.warm_cache import WarmCache
 from web.warm_targets import WarmTarget
 
 _MOMENT = datetime(2026, 9, 6, tzinfo=UTC)
@@ -134,7 +135,10 @@ def test_each_shelf_is_warmed_before_its_body_is_published(
     assert seen[1] is not None
     assert len(_shelf(seen[1], "fresh")) == 20
     assert _shelf(seen[1], "popular") == []
-    assert all(len(targets) == 8 for targets in warmed)
+    assert len(warmed[0]) == 8
+    # Один заказ держит видимые плитки обеих полок: очередь прогрева заменяется целиком.
+    assert len(warmed[1]) == 16
+    assert len(warmed[1][:8]) == len(warmed[1][8:]) == 8
     assert all(
         not {target[1] for target in later} & {target[1] for target in screen}
         for screen, later in zip(warmed, behind, strict=True)
@@ -151,7 +155,7 @@ def test_each_shelf_is_warmed_before_its_body_is_published(
     assert capsys.readouterr().out.splitlines() == [
         "shelf fresh: warmup ordered for 20 tiles",
         "shelf fresh: published body with 20 tiles",
-        "shelf popular: warmup ordered for 20 tiles",
+        "shelf popular: warmup ordered for 40 tiles",
         "shelf popular: published body with 20 tiles",
     ]
 
@@ -165,8 +169,42 @@ def test_republishing_the_same_tiles_does_not_order_their_warmup_again(tmp_path:
     cache._rebuild()
     cache._rebuild()
 
-    assert len(ordered) == 2
-    assert all(len(screen) == 8 for screen in ordered)
+    assert [len(screen) for screen in ordered] == [8, 16]
+
+
+def _two_shelf_rows() -> list[FeedRow]:
+    """Лента, где восемь самых свежих и восемь самых раздаваемых - разные картины."""
+    return [
+        FeedRow(
+            RawResult(
+                f"Картина {index:02d} 2026 1080p",
+                f"{index:040x}",
+                1000,
+                100 + index if index >= 8 else 1,
+                "rutor",
+            ),
+            datetime(2026, 9, 5, 23 - index, tzinfo=UTC),
+        )
+        for index in range(16)
+    ]
+
+
+def test_rebuilding_both_shelves_keeps_every_visible_tile_in_the_warm_queue(
+    tmp_path: Path,
+) -> None:
+    """Смена обеих полок: в единственной очереди прогрева все 8 «Новинок» и все 8 «Популярного»."""
+    queue = WarmCache(circle=lambda _query: [], blurbs=lambda _found: None, spawn=lambda _job: None)
+    cache = _cache(tmp_path, feed=lambda _limit: _two_shelf_rows())
+    cache.warm = lambda screen, _later: queue.ask([query for query, *_rest in screen])
+
+    cache._rebuild()
+
+    fresh = {str(_tile(_shelf(cache._body, "fresh"), at)["query"]) for at in range(8)}
+    popular = {str(_tile(_shelf(cache._body, "popular"), at)["query"]) for at in range(8)}
+    assert not fresh & popular
+    waiting = set(queue._queue)
+    assert len(fresh & waiting) == 8
+    assert len(popular & waiting) == 8
 
 
 def test_a_broken_warmup_still_publishes_the_ready_shelf(
