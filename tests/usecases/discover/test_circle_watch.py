@@ -90,3 +90,22 @@ def test_one_release_sent_by_two_indexers_is_counted_once() -> None:
     with watch.watching("q") as heard:
         heard += [_Client(True, rows=2), _Client(True, rows=3)]  # type: ignore[list-item]
         assert len(watch.rows("q")[0]) == 3
+
+
+def test_the_pool_the_circle_took_is_counted_while_it_runs() -> None:
+    """A late tail or a reinforcement enters the count once the circle keeps it, not before."""
+    watch = CircleWatch()
+    seen: list[int] = []
+    kept = [row(f"Матрица / The Matrix (1999) BDRip {n}", str(n)) for n in range(4)]
+
+    def circle(hear: Any) -> list[Any]:
+        hear(_Client(True, rows=2))
+        seen.append(len(watch.rows("матрица")[0]))
+        watch.keep(kept)  # two of these the first row already sent
+        seen.append(len(watch.rows("матрица")[0]))
+        return ToldCircle([], [])
+
+    watch.run("матрица", None, circle)
+    watch.keep(kept)  # no circle runs here: nothing to keep it for
+    assert seen == [2, 4]
+    assert watch.rows("матрица") == ([], [], None)

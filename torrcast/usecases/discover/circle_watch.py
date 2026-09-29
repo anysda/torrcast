@@ -5,6 +5,9 @@
 клиенты индексеров идущего круга лежат под его строкой, пока круг не кончится, и превью
 читает их выдачу прямо сейчас (:meth:`CircleWatch.rows`), ничего не спрашивая в сеть.
 
+Кроме ответивших, круг кладёт сюда пул, который уже взял (:meth:`CircleWatch.keep`): строки,
+привезённые доливом опоздавших и доборами, входят в счёт превью, как только круг их принял.
+
 Второе, что отсюда видно, - полнота круга (:func:`_heard_all`): «раздач нет» правдиво
 только тогда, когда ответил каждый спрошенный индексер, а не когда кто-то смолчал.
 """
@@ -12,8 +15,9 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -40,18 +44,32 @@ def _heard_all(clients: list[IndexerClient]) -> bool:
     return bool(clients) and all(_whole(client) for client in clients)
 
 
+class _Heard(list["IndexerClient"]):
+    """Клиенты одного круга и пул, который круг уже взял в итог."""
+
+    kept: list[RawResult]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.kept = []
+
+
+#: Круг, идущий в этом потоке: сюда :meth:`CircleWatch.keep` кладёт взятый пул.
+_current: ContextVar[_Heard | None] = ContextVar("circle", default=None)
+
+
 @dataclass
 class CircleWatch:
     """Клиенты идущих кругов под их строкой; кончился круг - его здесь нет."""
 
-    _running: dict[str, list[list[IndexerClient]]] = field(default_factory=dict)
+    _running: dict[str, list[_Heard]] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @contextmanager
-    def watching(self, query: str) -> Iterator[list[IndexerClient]]:
+    def watching(self, query: str) -> Iterator[_Heard]:
         """Список, в который круг кладёт своих клиентов, пока он идёт."""
         key = query.strip()
-        heard: list[IndexerClient] = []
+        heard = _Heard()
         with self._lock:
             self._running.setdefault(key, []).append(heard)
         try:
@@ -73,6 +91,7 @@ class CircleWatch:
     ) -> list[Plan]:
         """Круг под наблюдением; и планы, и отказ «ничего» несут метку полноты ``whole``."""
         with self.watching(query) as heard:
+            token = _current.set(heard)
 
             def hear(client: IndexerClient) -> None:
                 heard.append(client)
@@ -84,25 +103,34 @@ class CircleWatch:
             except NotFoundError as nothing:
                 nothing.whole = _heard_all(heard)
                 raise
+            finally:
+                _current.reset(token)
             if isinstance(plans, ToldCircle):
                 plans.whole = _heard_all(heard)
             return plans
 
+    @staticmethod
+    def keep(raw: list[RawResult]) -> None:
+        """Пул, который идущий в этом потоке круг уже взял: его строки входят в счёт превью."""
+        heard = _current.get()
+        if heard is not None:
+            heard.kept = list(raw)
+
     def rows(self, query: str) -> Rows:
         """Выдача идущего круга по строке прямо сейчас; кругов несколько - самый богатый."""
         with self._lock:
-            circles = [list(heard) for heard in self._running.get(query.strip(), [])]
+            circles = [(list(heard), heard.kept) for heard in self._running.get(query.strip(), [])]
         best: Rows = ([], [], None)
-        for clients in circles:
-            got = _peek(clients)
+        for clients, kept in circles:
+            got = _peek(clients, kept)
             if len(got[0]) + len(got[1]) > len(best[0]) + len(best[1]):
                 best = got
         return best
 
 
-def _peek(clients: list[IndexerClient]) -> Rows:
-    """Строки одного круга: у круга имён свой счёт, у остальных - то, что уже ответило."""
-    raw: list[RawResult] = []
+def _peek(clients: list[IndexerClient], kept: Sequence[RawResult] = ()) -> Rows:
+    """Строки одного круга: взятый пул, у круга имён свой счёт, у остальных - что ответило."""
+    raw: list[RawResult] = list(kept)
     named: list[RawResult] = []
     known = None
     for client in clients:

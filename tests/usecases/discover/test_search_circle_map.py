@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+import torrcast.usecases.discover.search_circle as circle_module
 from tests.fakes import composition
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.slugify import slugify
+from torrcast.usecases.discover._plan_menu import _plans
 from torrcast.usecases.discover._search_state import _configure_recognize
+from torrcast.usecases.discover.circle_watch import WATCH
 from torrcast.usecases.discover.search_circle import search_circle
 
 _MAP = {
@@ -76,3 +81,34 @@ def test_a_typo_the_indexers_do_not_know_finds_the_picture_by_its_names(
     # идут параллельно, поэтому их порядок не часть договора.
     assert set(indexer.asked) == {"Интерстелар", "Интерстеллар 2014", "Interstellar 2014"}
     assert len(indexer.asked) == 3
+
+
+def test_the_card_counts_what_a_later_pass_brought_before_the_circle_ends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The viewer's text found nothing, the picture's names did: the waiting card sees them."""
+    wire_catalogue()
+    composition.use_known_pictures(monkeypatch, _known)
+    known = MapPicture("Интерстеллар", 2014, False, "Interstellar", 2605028)
+    _configure_recognize(lambda _query, _wait: known)
+    pool = [
+        row("Интерстеллар / Interstellar (2014) BDRip 1080p", "a"),
+        row("Interstellar.2014.2160p.UHD.BluRay.x265", "b"),
+    ]
+    indexer = Indexer(answers={"интерстеллар 2014": pool[:1], "interstellar 2014": pool[1:]})
+    seen: list[int] = []
+
+    def watched(*args: Any, **kwargs: Any) -> Any:
+        seen.append(len(WATCH.rows("Интерстелар")[0]))  # the circle still runs: a card asks
+        return _plans(*args, **kwargs)
+
+    monkeypatch.setattr(circle_module, "_plans", watched)
+    search_circle(
+        Config(prowlarr_apikey="KEY"),
+        Args(query=["Интерстелар"]),
+        Said(),
+        indexer=lambda *_args: indexer,
+    )
+
+    assert seen == [2]
+    assert WATCH.rows("Интерстелар") == ([], [], None)

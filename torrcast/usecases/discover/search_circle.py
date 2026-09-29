@@ -118,6 +118,7 @@ def _circle(
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     pictures, found = recognized_pick(query, raw, named, first.known)
     raw = _search_state._search_catalogue.merge(raw, named) if named else raw
+    WATCH.keep(raw)  # the card counts what the circle took, tail and names included
     # The picture's names already asked what the reinforcements below would ask for it.
     led = first.leads(found)
     titled = False
@@ -154,6 +155,7 @@ def _circle(
         raw, pictures, found = _ceiling_reinforce(
             client, name, args, raw, pictures, found, progress, passport=passport
         )
+    WATCH.keep(raw)
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
     if lacks_season(found, args):
@@ -166,6 +168,7 @@ def _circle(
         raw, pictures, found = _voice_reinforce(
             client, query, voiceless, raw, found, progress, titled
         )
+    WATCH.keep(raw)
     if not raw:
         # Ни строки - повод заподозрить описку в одном слове (:func:`_second_typo`).
         raw, pictures, found = _second_typo(client, name, index, raw, progress)
