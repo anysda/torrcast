@@ -39,6 +39,17 @@ def test_a_ready_recode_needs_no_holding_at_all(tmp_path: Path) -> None:
     assert state.blocked == -1, "и слот перестаёт числиться держащим выкладку"
 
 
+def test_a_piece_warm_already_recoded_on_disk_is_never_held(tmp_path: Path) -> None:
+    """Прогретое место кодировщик не возьмёт: держать под него выкладку - ждать впустую."""
+    state = _state(tmp_path)
+    state.head, state.head_at = 5, time.monotonic()  # даже голова прогона
+    state.stuck[5], state.blocked = time.monotonic(), 5
+    state.stocked = lambda slot: slot == 5
+
+    assert not _holding(state, 5, size=1 << 40)
+    assert state.blocked == -1
+
+
 def test_a_piece_the_show_has_already_reached_is_never_held(tmp_path: Path) -> None:
     """Ожидание под носом у показа - это и есть подгруз."""
     state = _state(tmp_path)

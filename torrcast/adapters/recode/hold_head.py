@@ -56,8 +56,12 @@ def _hold_head(state: _State, now: float) -> bool:
 
 
 def _head_pending(state: _State) -> bool:
-    """Голова прогона тяжёлая, ещё не готова и её ещё ждут (:attr:`head_wait`)."""
+    """Голова прогона тяжёлая, ещё не готова и её ещё ждут (:attr:`head_wait`).
+
+    Голова, прогретая на диске, не ждёт ничего: кодировщик за ней не придёт (:func:`_pick`),
+    а бросать ради неё заход значит отдать копией тяжёлый кусок, который он кодировал.
+    """
     head = state.head
-    if head < 0 or head in state.done or state.ready(head) is not None:
+    if head < 0 or head in state.done or state.ready(head) is not None or state.stocked(head):
         return False
     return _hold_head(state, time.monotonic())

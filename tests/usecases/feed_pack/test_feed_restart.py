@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from tests.usecases.feed_pack.world import factory, feed, grid, packer, signals, tract
+from tests.usecases.feed_pack.world import factory, feed, grid, lay, packer, signals, tract, vault
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.whole_encode import FULL_PRESET
 from torrcast.domain.catalogs.phrase import phrase
@@ -71,6 +71,20 @@ def test_the_encoder_learns_about_the_new_place_before_the_pilot_run(
     assert recoder.seen == ["голова 5"]
     assert seen == ["проба"], "пробный прогон обогнал кодировщика"
     assert started and started[0][3] == 5
+
+
+def test_the_run_is_told_which_places_warm_already_recoded(tmp_path: Path, journal: Path) -> None:
+    """Прогон узнаёт прогретые перекоды от ленты: их копию он не выложит (:func:`_lay_out`)."""
+    started = _tract([])
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store)
+    lay(store.dir, 2)
+    store.served.add(2)
+
+    _restart(show, 0, lambda slot, size: False)
+
+    stocked = started[0][4]["stocked"]
+    assert stocked(2) and not stocked(1)
 
 
 def test_every_pack_start_records_the_door_below_which_nothing_is_promised(

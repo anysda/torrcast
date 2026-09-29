@@ -82,6 +82,24 @@ def test_the_pack_and_the_warm_up_get_the_same_grid(tmp_path: Path) -> None:
         server.stop()
 
 
+def test_the_recoder_is_told_what_warm_already_recoded_on_disk(tmp_path: Path) -> None:
+    """Прогретый перекод показ берёт с диска, и кодировщик показа знает его от той же ленты."""
+    out = hls_dir(str(tmp_path / "hls"))
+
+    recoder, warmer, _feed, server, _receiver = _tract(
+        _config(tmp_path), "http://ts", 0, "кино", out, grid(), None, 0.0, 8.0, False, _Cutting()
+    )
+    try:
+        assert recoder is not None and warmer is not None
+        warmer.vault.open()
+        warmer.vault.path(3).write_bytes(b"x" * 1024)
+        warmer.vault.served.mark(3)
+        stocked = cast(Recoder, recoder).stocked
+        assert stocked(3) and not stocked(4)
+    finally:
+        server.stop()
+
+
 def test_the_seek_thresholds_reach_the_feed_from_the_settings(tmp_path: Path) -> None:
     """Порог ожидания и задел стыка доезжают до ленты настройкой, а не умолчанием класса.
 

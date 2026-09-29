@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import torrcast.usecases.playback._show_state as _state
@@ -17,6 +18,7 @@ from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.spot_recoder import SpotRecoder
 from torrcast.usecases.feed_pack.feed import Feed
+from torrcast.usecases.feed_pack.feed_segment import _stocked
 from torrcast.usecases.playback._cuttable import _Cuttable
 from torrcast.usecases.playback._recoder import _recoder
 from torrcast.usecases.playback._warmer import _warmer
@@ -109,6 +111,10 @@ def _tract(
         encode=whole,
         vault=None if warmer is None else warmer.vault,
     )
+    if recoder is not None:
+        # Прогретый перекод показ берёт с диска, и кодировать его второй раз - отнимать ядра
+        # у соседних тяжёлых мест (у следующей серии на стыке - у её первых секунд).
+        recoder.stock(partial(_stocked, feed))
     server = _state.HlsServer(
         out,
         config.hls_cert,

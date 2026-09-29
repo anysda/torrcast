@@ -17,7 +17,14 @@ from typing import IO, Any
 from torrcast.adapters.stream_pack.packer_finished import _cuts, _drift, _finished
 from torrcast.adapters.stream_pack.packer_measure import _eta, _frontier, _pending
 from torrcast.adapters.stream_pack.packer_publish import _lay_out
-from torrcast.adapters.stream_pack.packer_state import _AfterRecode, _Asked, _Shrink, _State, _Told
+from torrcast.adapters.stream_pack.packer_state import (
+    _AfterRecode,
+    _Asked,
+    _Shrink,
+    _State,
+    _Stocked,
+    _Told,
+)
 from torrcast.adapters.stream_pack.packer_stop import _stop, _why
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
@@ -55,6 +62,7 @@ class Packer(_State):
         cap: int = CAUTIOUS.max_segment_bytes,
         container: SegmentContainer = MPEGTS,
         outward: bool = False,
+        stocked: _Stocked | None = None,
         *,
         spawn: Callable[..., Any] = subprocess.Popen,
         log_file: Callable[[], IO[bytes]] = tempfile.TemporaryFile,
@@ -97,6 +105,7 @@ class Packer(_State):
             cap=cap,
             container=container,
             outward=outward,
+            stocked=stocked,
         )
 
     def eta(self, film: float) -> float:

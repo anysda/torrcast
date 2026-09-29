@@ -94,3 +94,44 @@ def test_nothing_to_do_is_answered_by_none(tmp_path: Path) -> None:
     state.played = 0.0
 
     assert _pick(state) is None
+
+
+def test_a_piece_warm_already_recoded_is_not_encoded_again(tmp_path: Path) -> None:
+    """Прогретый перекод показ берёт с диска: второй перекод отнял бы ядра у следующего места.
+
+    Живой стык серий: v0 следующей серии лёг прогретым, а показ всё равно перекодировал его
+    сам 5 с - и v1-v3 опоздали к концу v0 на 2.2 с подгруза.
+    """
+    state = _state(tmp_path)
+    state.played, state.head = 0.0, 0
+    state.stocked = {0, 1}.__contains__
+
+    job = _pick(state)
+
+    assert job is not None and job[0] == 2
+
+
+def test_a_run_stops_short_of_a_warm_recoded_piece(tmp_path: Path) -> None:
+    """Заход подряд не перешагивает прогретое: за ним своё место, а не этот же кусок."""
+    state = _state(tmp_path)
+    state.played = 0.0
+    state.stocked = {2}.__contains__
+
+    assert _pick(state) == (0, 1)
+
+
+def test_a_lonely_heavy_piece_takes_no_warm_recoded_neighbour(tmp_path: Path) -> None:
+    """Сосед, чей перекод уже лежит прогретым, в заход не берётся: он и так не копия."""
+    lines = grid()
+    weights = Weights.of(keys(rate=0.5e6), lines)
+    assert weights is not None
+    raw = list(weights.raw)
+    raw[5] = 20.0
+    weights.raw = tuple(raw)
+    state = _State(
+        source="src", audio=0, grid=lines, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    state.played, state.edge = 0.0, 0
+    state.stocked = {4}.__contains__
+
+    assert _pick(state) == (5, 5)

@@ -109,3 +109,8 @@ def test_a_ready_piece_is_looked_for_under_the_name_the_receiver_container_gives
 
     assert state.ready(3) == tmp_path / "v3.m4s"
     assert state.ready(4) is None, "кусок чужого контейнера готовым не считается"
+
+
+def test_a_recoder_without_a_show_counts_nothing_as_warm_recoded(tmp_path: Path) -> None:
+    """Без показа прогретого нет: всё тяжёлое кодировщик считает своим."""
+    assert not any(_state(tmp_path).stocked(slot) for slot in range(-1, 5))

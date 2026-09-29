@@ -37,8 +37,10 @@ def _holding(state: _State, slot: int, size: int = 0) -> bool:
     решает отдельное правило (:meth:`_hold_bulky`), и оно про факт, а не про срок.
     """
     now = time.monotonic()
-    # Перекод уже лежит - держать нечего, :meth:`Packer.publish` возьмёт его сам.
-    if state.ready(slot) is not None:
+    # Перекод уже лежит - держать нечего, :meth:`Packer.publish` возьмёт его сам. Лежит
+    # прогретым на диске - тоже: кодировщик за ним не придёт (:func:`_pick`), а лента
+    # отдаст его с диска.
+    if state.ready(slot) is not None or state.stocked(slot):
         state._unstick(slot)
         return False
     # Копию тяжелее потолка по сроку не отпускаем вовсе - ни на голове, ни в середине.

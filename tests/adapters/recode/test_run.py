@@ -150,6 +150,33 @@ def test_the_head_of_a_new_run_preempts_a_run_that_works_ahead(tmp_path: Path) -
     assert run.stopped == "the head of the run matters more"
 
 
+def test_a_head_on_disk_does_not_abandon_the_run_that_works_ahead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Голова, прогретая на диске, заход не бросает: иначе тяжёлый кусок уходит копией."""
+    state = _state(tmp_path)
+    state.stopped = False
+    run = fake_packer(tmp_path, first=0, edge=-1)
+    state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": lambda *a, **k: run}))
+    state.played = state.grid.start(12)
+    state.head, state.head_at = 3, time.monotonic()
+    assert 3 in set(state.targets), "замер подобран неверно: голова обязана быть тяжёлой"
+    state.stocked = lambda slot: slot == 3
+    rounds: list[float] = []
+
+    def _round(seconds: float) -> None:
+        rounds.append(seconds)
+        state.stopped = len(rounds) >= 3  # голову заход проверил трижды
+
+    monkeypatch.setattr("torrcast.adapters.recode.run.time.sleep", _round)
+
+    _run(state, 12, 14)
+
+    assert len(rounds) == 3, "заход дожил до своего конца, а не бросился ради головы"
+
+    assert run.stopped != "the head of the run matters more"
+
+
 def test_an_abandoned_run_says_why_and_a_finished_one_says_nothing(tmp_path: Path) -> None:
     """Возврат захода - это причина броска; отработавший до конца заход молчит.
 

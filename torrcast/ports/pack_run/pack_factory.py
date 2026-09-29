@@ -17,6 +17,8 @@ type PackAsked = Callable[[int, int], bool]
 type PackShrink = Callable[[int, int], bool | None]
 #: Левый опубликованный сосед сменил производителя картинки.
 type PackAfterRecode = Callable[[int], bool]
+#: Перекод места уже лежит прогретым: копию не выкладывать, раздача возьмёт его с диска.
+type PackStocked = Callable[[int], bool]
 
 
 class PackFactory(Protocol):
@@ -47,5 +49,6 @@ class PackFactory(Protocol):
         cap: int = CAUTIOUS.max_segment_bytes,
         container: SegmentContainer = MPEGTS,
         outward: bool = False,
+        stocked: PackStocked | None = None,
     ) -> PackRun:
         """Поднять ffmpeg командой ``command`` и вернуть идущий прогон."""

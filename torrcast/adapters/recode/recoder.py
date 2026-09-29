@@ -9,7 +9,7 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from torrcast.adapters.recode.heavy_line import _heavy_line
 from torrcast.adapters.recode.hold_bulky import _hold_bulky
@@ -26,6 +26,9 @@ from torrcast.adapters.recode.yield_to_shrink import (
     _yield_to_shrink,
 )
 from torrcast.domain.catalogs.phrase import phrase
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass(slots=True)
@@ -65,6 +68,10 @@ class Recoder(_State):
             with contextlib.suppress(OSError, ProcessLookupError, AttributeError):
                 packer.proc.send_signal(signal.SIGCONT)
             packer.stop(keep_files=True, reason=phrase("recode.show_over"))
+
+    def stock(self, stocked: Callable[[int], bool]) -> None:
+        """Назвать, чей перекод уже лежит прогретым (:attr:`stocked`)."""
+        self.stocked = stocked
 
     def opening(self, slot: int) -> None:
         """Упаковка начинается заново с сегмента ``slot``

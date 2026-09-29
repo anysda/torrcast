@@ -144,3 +144,12 @@ def test_the_report_stays_silent_when_there_was_nothing_to_do(tmp_path: Path) ->
 def test_every_occupation_stays_reachable_by_its_old_name(name: str) -> None:
     """Занятия разъехались по файлам, а ручки кодировщика остались теми же."""
     assert callable(getattr(Recoder, name))
+
+
+def test_the_show_names_what_warm_already_recoded(tmp_path: Path) -> None:
+    """Кто собрал показ, тот и называет прогретые перекоды: второй раз их не кодируют."""
+    recoder = _recoder(tmp_path)
+
+    recoder.stock({2}.__contains__)
+
+    assert recoder.stocked(2) and not recoder.stocked(3)

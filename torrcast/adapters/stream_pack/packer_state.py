@@ -24,6 +24,8 @@ type _Asked = Callable[[int, int], bool]
 type _Shrink = Callable[[int, int], bool | None]
 #: Предыдущий выложенный слот сменил производителя картинки.
 type _AfterRecode = Callable[[int], bool]
+#: Перекод места уже лежит прогретым на диске, и отдаст его раздача.
+type _Stocked = Callable[[int], bool]
 
 
 class _Process(Protocol):
@@ -172,6 +174,8 @@ class _State:
     #: Нужна ли keyless-копии этого слота своя картинка: отвечает кодировщик по
     #: фактически выложенному левому соседу, включая пережившие перемотку слоты.
     after_recode: _AfterRecode | None = None
+    #: Кого спросить, не лёг ли перекод места прогретым: такое место выкладка пропускает молча.
+    stocked: _Stocked | None = None
     #: Потолок веса куска этого приёмника. Последний гейт обязан мерить ровно им:
     #: здесь уже известен вес файла после склейки, которого не видел каталог перекода.
     cap: int = CAUTIOUS.max_segment_bytes

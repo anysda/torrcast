@@ -169,3 +169,18 @@ def _have(state: _State, slot: int) -> bool:
     with contextlib.suppress(OSError):
         return path.stat().st_size <= state.cap
     return False
+
+
+def _stocked(state: _State, slot: int) -> bool:
+    """Прогрев уже перекодировал это место на диск, и кусок влезает в потолок (:func:`_warm`).
+
+    Живой показ такое место второй раз не кодирует и копию его не выкладывает: у зрителя
+    с перемоткой в прогретое и у следующей серии на стыке второй перекод того же куска
+    отнимал ядра у соседних тяжёлых мест. Копия в прогретом сюда не входит: её вес или
+    битрейт и привели место в список перекода, и заменяет её только перекод.
+    """
+    if state.vault is None or slot not in state.vault.served:
+        return False
+    with contextlib.suppress(OSError):
+        return state.vault.path(slot).stat().st_size <= state.cap
+    return False

@@ -21,9 +21,15 @@ from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.pack_run.pack_factory import PackFactory
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from torrcast.adapters.stream_pack.grid import Grid
+
+
+def _unstocked(_slot: int) -> bool:
+    """Прогретого нет: кодировщик без показа (замеры, прогрев) считает всё своим."""
+    return False
 
 
 @dataclass(slots=True)
@@ -89,6 +95,10 @@ class _State:
     #: деле, решает тот, кто собирает кодировщик.
     packer_type: PackFactory = Packer
     log: Any = None
+    #: Лежит ли кусок этого места прогретым на диске и годен ли в раздачу как есть
+    #: (:func:`torrcast.usecases.feed_pack.feed_segment._stocked`). Такое место второй раз не
+    #: кодируют и копию его не держат: показ берёт его с диска.
+    stocked: Callable[[int], bool] = _unstocked
 
     #: Где сейчас показ; обновляет :func:`torrcast.usecases.revive_playback._hold._hold`.
     played: float = 0.0

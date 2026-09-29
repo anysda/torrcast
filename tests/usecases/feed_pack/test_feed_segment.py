@@ -10,7 +10,7 @@ import pytest
 import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, grid, lay, tract, vault
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
+from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _stocked, _warm
 from torrcast.usecases.warm._warm_count import _spots_left
 from torrcast.usecases.warm.segment_start import _Clock
 
@@ -261,3 +261,23 @@ def test_a_piece_is_ours_whether_it_lies_in_the_window_or_on_the_disk(
     lay(store.dir, 2)
 
     assert _have(show, 1) and _have(show, 2) and not _have(show, 3)
+
+
+def test_only_a_warm_recode_within_the_cap_counts_as_stocked(tmp_path: Path) -> None:
+    """Место, которое живой показ второй раз не кодирует: перекод прогрева лёг и влезает.
+
+    Копия в прогретом - не запас: её вес или битрейт и привели место в список перекода.
+    """
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store, cap=100)
+    lay(store.dir, 3, size=100)
+
+    assert not _stocked(show, 3), "копия без метки перекода"
+
+    store.served.add(3)
+    assert _stocked(show, 3)
+
+    lay(store.dir, 3, size=101)
+    assert not _stocked(show, 3), "перекод тяжелее потолка раздача сама не отдаст"
+    assert not _stocked(show, 4), "метки нет и файла нет"
+    assert not _stocked(feed(tmp_path / "bare"), 3), "без прогрева запаса нет"

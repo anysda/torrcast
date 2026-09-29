@@ -1,5 +1,6 @@
 """Кодировщик тяжёлых кусков целиком: договор того, кто его поднимает и раздаёт."""
 
+from collections.abc import Callable
 from typing import Protocol
 
 from torrcast.ports.recode.feed_recoder import FeedRecoder
@@ -20,6 +21,9 @@ class SpotRecoder(FeedRecoder, SpotRival, Protocol):
     Поднять поток умеет только этот, самый широкий договор: решение «работать или нет»
     принимает тот же, кто кодировщика создал.
     """
+
+    def stock(self, stocked: Callable[[int], bool]) -> None:
+        """Назвать, чей перекод уже лежит прогретым: такое место второй раз не кодируют."""
 
     def start(self) -> None:
         """Поднять поток кодировщика; тяжёлых кусков нет - он не поднимается вовсе."""

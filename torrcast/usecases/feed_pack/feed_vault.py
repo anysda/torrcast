@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Set
 from pathlib import Path
 from typing import Protocol
 
@@ -21,3 +22,7 @@ class _Vault(Protocol):
     def reject(self, slot: int) -> None: ...
 
     def head(self) -> Path: ...
+    @property
+    def served(self) -> Set[int]:
+        """Места, которые прогрев уже перекодировал на диск (метки ``v{N}.rec``)."""
+        ...

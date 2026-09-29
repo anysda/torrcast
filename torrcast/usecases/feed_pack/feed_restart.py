@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
@@ -13,7 +14,7 @@ from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.pack_run.pack_factory import PackShrink
 from torrcast.usecases.feed_pack.feed_heading import _heading
-from torrcast.usecases.feed_pack.feed_segment import _have
+from torrcast.usecases.feed_pack.feed_segment import _have, _stocked
 
 if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
@@ -112,6 +113,7 @@ def _restart(
         grid=state.grid,
         cap=state.cap,
         container=state.container,
+        stocked=partial(_stocked, state),
     )
     drop = state.grid.start(slot) - at
     said = phrase("feed.pack_from", start=f"{state.grid.start(slot):.1f}")

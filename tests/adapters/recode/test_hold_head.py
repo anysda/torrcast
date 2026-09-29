@@ -84,3 +84,12 @@ def test_without_a_run_at_all_there_is_no_head_to_wait_for(tmp_path: Path) -> No
 
     assert state.head == -1
     assert not _head_pending(state)
+
+
+def test_a_head_warm_already_recoded_on_disk_is_not_pending(tmp_path: Path) -> None:
+    """Голову с диска кодировщик не возьмёт никогда: ждать её - бросать заходы впустую."""
+    state = _state(tmp_path)
+    state.head, state.head_at = 0, time.monotonic()
+    state.stocked = lambda slot: slot == 0
+
+    assert not _head_pending(state)

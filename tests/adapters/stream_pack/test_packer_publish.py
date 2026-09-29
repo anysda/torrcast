@@ -103,6 +103,33 @@ def test_a_held_piece_stops_the_publish_and_leaves_no_hole(tmp_path: Path) -> No
     assert held == [0, 1] and run.edge == 0
 
 
+def test_a_place_warm_already_recoded_is_dropped_not_published_and_moves_the_edge(
+    tmp_path: Path,
+) -> None:
+    """Перекод места уже лежит прогретым: живая копия встала бы в раздаче впереди него.
+
+    Живой стык серий: v0 следующей серии лёг прогретым перекодом, а выкладка держала свою
+    тяжёлую копию того же места под второй перекод. Место не держат и не ужимают - копию
+    выбрасывают, край идёт дальше, раздача отдаёт кусок с диска. Лёгкая копия туда же:
+    место в списке перекода и по битрейту, а подменить перекод копией значит отдать его.
+    """
+    held: list[int] = []
+
+    def hold(slot: int, size: int) -> bool:
+        held.append(slot)
+        return False
+
+    run = packer(tmp_path, hold=hold, stocked={0, 1}.__contains__)
+    for slot in (0, 1, 2, 3):
+        lay(run.run, slot, size=40 << 20 if slot == 0 else 1024)
+
+    _lay_out(run, _always)
+
+    assert sorted(p.name for p in run.out.glob("v*.ts")) == ["v2.ts", "v3.ts"]
+    assert not (run.run / "v0.ts").exists() and not (run.run / "v1.ts").exists()
+    assert held == [2, 3] and run.edge == 3
+
+
 def test_the_recoded_picture_goes_out_with_the_sound_of_the_copy(tmp_path: Path) -> None:
     """Наружу идёт склейка: картинка перекода со звуком копии этого же прогона."""
     told: list[tuple[int, str]] = []

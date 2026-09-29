@@ -85,6 +85,7 @@ class FakeVault:
 
     dir: Path
     container: SegmentContainer = MPEGTS
+    served: set[int] = field(default_factory=set)
 
     def path(self, slot: int) -> Path:
         return self.dir / f"v{slot}{self.suffix}"

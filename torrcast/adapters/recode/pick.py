@@ -29,6 +29,8 @@ def _pick(state: _State) -> tuple[int, int] | None:
             continue
         if slot in state.done or state.ready(slot) is not None:
             continue
+        if state.stocked(slot):
+            continue  # прогретый кусок уже лёг на диск: показ возьмёт его, второй перекод - трата
         first = slot
         break
     if first is None:
@@ -46,6 +48,7 @@ def _pick(state: _State) -> tuple[int, int] | None:
         and last + 1 - first + 1 <= state.run_max
         and last + 1 not in state.done
         and state.ready(last + 1) is None
+        and not state.stocked(last + 1)
     ):
         spent += state.grid.span(last + 1) / quickest
         if spent > state.slack(last + 1):
@@ -66,6 +69,8 @@ def _pick(state: _State) -> tuple[int, int] | None:
         and first + 1 not in state.done
         and state.ready(first - 1) is None
         and state.ready(first + 1) is None
+        and not state.stocked(first - 1)
+        and not state.stocked(first + 1)
     ):
         joined = sum(state.grid.span(slot) for slot in range(first - 1, first + 2))
         if joined / quickest <= state.slack(first + 1):
