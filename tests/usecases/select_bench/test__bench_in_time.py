@@ -15,6 +15,7 @@ from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, pro
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
+from torrcast.domain.swarm_error import SwarmError
 from torrcast.usecases.select_bench.bench import Bench
 
 
@@ -174,3 +175,35 @@ def test_the_show_taking_a_card_bench_does_not_wait_the_top_out_again(
 
     assert prep.number == 2
     assert time.monotonic() - began < 0.5
+
+
+@pytest.mark.machine
+def test_the_show_takes_the_release_the_card_read_while_it_waits_the_top_again(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """🔴 Карточка сняла молчащие №1 и №2 и дочитала №3: показ после срока берёт №3.
+
+    «Во все тяжкие» - показ, забрав стенд карточки, завёл №1 и №2 заново,
+    а готовый №3 стоял вне фронта, и кадр ждал заново заведённый №1 11 с.
+    """
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    read = probes(_POOL, _RUS, _RUS, _RUS)
+    silent: set[str] = set()
+
+    def swarm(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        hashes = (f"hash-{release.magnet}/" for release in _POOL[:2])
+        if (top := next((h for h in hashes if h in source_url), None)) is not None:
+            if top not in silent:
+                silent.add(top)
+                raise SwarmError("рой молчит", waited=10.0)
+            top_answers.wait(30.0)
+        return read(source_url, timeout=timeout, alive=alive)
+
+    bench = Bench(Torrents(), prober=swarm)
+    assert bench.resolve(plan(_POOL), _ASKED, Said()).number == 3, "карточка дочитала №3"
+    began = time.monotonic()
+
+    prep = bench.resolve(plan(_POOL), _ASKED, Said())
+
+    assert prep.number == 3
+    assert time.monotonic() - began < 1.0

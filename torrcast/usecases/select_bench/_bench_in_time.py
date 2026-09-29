@@ -72,7 +72,7 @@ def _in_time(
             return prep
         refuse_called_off()
         progress.phase(prefix + prep.phase)
-        for number in spares:
+        for number in (*spares, *_read(bench, plan, args, prep.number, spares)):
             ready = bench.preps.get((plan.picture.key, number))
             if ready is not None and ready.ready.is_set() and _fit(bench, plan, ready):
                 journal().emit("select", "in_time", waited=prep.number, took=number)
@@ -80,6 +80,24 @@ def _in_time(
         _widen(bench, plan, args, spares)
     bench._wait(prep, progress, prefix=prefix, limit=limit)
     return prep
+
+
+def _read(
+    bench: _BenchTrouble, plan: Plan, args: Args, waited: int, spares: list[int]
+) -> list[int]:
+    """Готовые раздачи ниже ждущей вне фронта: их дочитала карточка, пока зритель её читал.
+
+    «Во все тяжкие»: карточка сняла молчащие №1 и №2 и дочитала №3, а показ, забрав её
+    стенд, завёл №1 заново и ждал его 11 с при готовом №3.
+    """
+    queue = plan.candidates(args)
+    below = queue[queue.index(waited) + 1 :] if waited in queue else []
+    ready = {
+        n
+        for (key, n), prep in list(bench.preps.items())
+        if key == plan.picture.key and not prep.dropped and prep.ready.is_set()
+    }
+    return [number for number in below if number in ready and number not in spares]
 
 
 def _widen(bench: _BenchTrouble, plan: Plan, args: Args, spares: list[int]) -> None:
