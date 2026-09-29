@@ -259,3 +259,33 @@ def test_the_show_does_not_wait_again_for_a_swarm_the_card_waited_out(
 
     assert prep.number == 3
     assert time.monotonic() - began < 1.5
+
+
+@pytest.mark.machine
+def test_a_recounted_circle_waits_for_its_new_top_though_the_card_waited_out_that_number(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """🔴 Прожданный рой помнится магнитом: номер у пересчитанного круга уже чужой.
+
+    Опоздавший индексер пересчитал круг «Призрака» (30 раздач стало 40), и
+    показ счёл бы прожданным новый №1 лишь за то, что карточка не дождалась старого.
+    """
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    pool = [_POOL[0], _POOL[1], replace(_POOL[2], year=2004)]
+    newcomer = rel(name="new | Дубляж", seeders=500)
+    read = _prober(top_answers, 30.0, _RUS, _ENG, _RUS)
+
+    def prober(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        if f"hash-{newcomer.magnet}/" in source_url:
+            time.sleep(0.5)
+            return _RUS
+        return read(source_url, timeout=timeout, alive=alive)
+
+    bench = Bench(Torrents(), prober=prober, pick_budget=1.0)
+    with pytest.raises(NotFoundError):
+        bench.resolve(plan(pool), _ASKED, Said())
+    bench.pick_budget = 5.0
+
+    prep = bench.resolve(plan([newcomer, *pool]), _ASKED, Said())
+
+    assert prep.release is newcomer

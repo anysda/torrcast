@@ -64,7 +64,7 @@ def _in_time(
     не ждёт вовсе: «Призрак в доспехах» - карточка ждала молчащий №1 20 с, а показ завёл
     его заново и ждал ещё 10, пока годный №3 стоял готовым.
     """
-    seat = (plan.picture.key, prep.number)
+    seat = prep.release.magnet  # номер у пересчитанного круга уже чужой
     limit = tally.patience(deadline, bench.clock())
     if seat in bench.waited_out and not args.pinned and not prep.ready.is_set():
         limit = min(limit, bench.clock())
