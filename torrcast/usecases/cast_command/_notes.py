@@ -82,11 +82,17 @@ def _notes(
     # нет и строки нет (:func:`default_note`).
     if note := swap_note(plans, plan, args.title_query):
         print(note)
+    # Паспорт добирается про ДЕФОЛТНУЮ картину (:func:`_passport`): к выбранной номером он
+    # отношения не имеет, и ждать его ей незачем. «Играть» карточки сериала «Призрак в
+    # доспехах» (№3 меню) стояло на нём 0.94 с перед юнитом.
+    if not _is_default(plans, plan):
+        return
+    about = passport.get()
     # 🔴 TC-199/TC-200. Год дефолтной картины против независимого слова справки: имя
     # раздачи врёт («Оно» 2014, «Медведь» 2026), а год у дефолта не сверялся нигде.
-    if _is_default(plans, plan) and (note := year_note(plan, passport.get(), args.title_query)):
+    if note := year_note(plan, about, args.title_query):
         print(note)
     # 🔴 TC-371. Двусмысленность самих источников: под одним именем и годом картин две,
     # и развести их отбору нечем - значит человек читает об этом строкой.
-    if note := namesake_note(plan, passport.get()):
+    if note := namesake_note(plan, about):
         print(note)
