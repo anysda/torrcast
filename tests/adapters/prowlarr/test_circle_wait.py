@@ -10,8 +10,6 @@ import pytest
 from torrcast.adapters.prowlarr.circle_wait import circle_wait
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
 
-pytestmark = pytest.mark.machine
-
 
 def _waited(asked: list[_Ask], **kwargs: float) -> tuple[list[_Ask], float]:
     began = time.monotonic()
@@ -19,6 +17,7 @@ def _waited(asked: list[_Ask], **kwargs: float) -> tuple[list[_Ask], float]:
     return core, time.monotonic() - began
 
 
+@pytest.mark.machine
 def test_a_circle_without_a_core_waits_every_one() -> None:
     yts = _Ask("YTS", 0.3)
     core, elapsed = _waited([yts])
@@ -26,6 +25,7 @@ def test_a_circle_without_a_core_waits_every_one() -> None:
     assert elapsed >= 0.3, f"waited {elapsed:.2f} s for the only one asked"
 
 
+@pytest.mark.machine
 def test_an_unsent_core_holds_the_rest_its_budget_and_no_longer() -> None:
     yts = _Ask("YTS", 5.0)
     core, elapsed = _waited([yts], held=0.2)
@@ -33,6 +33,7 @@ def test_an_unsent_core_holds_the_rest_its_budget_and_no_longer() -> None:
     assert 0.2 <= elapsed < 1.0, f"waited {elapsed:.2f} s instead of the unsent budget"
 
 
+@pytest.mark.machine
 def test_the_rest_that_answers_within_the_hold_ends_it() -> None:
     yts = _Ask("YTS", 5.0)
     threading.Timer(0.1, yts.done.set).start()

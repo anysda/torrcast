@@ -17,8 +17,6 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover.named_round import NamedRound
 
-pytestmark = pytest.mark.machine
-
 
 def _judged() -> tuple[list[list[JsonValue]], threading.Event, Callable[..., list[JsonValue]]]:
     said: list[list[JsonValue]] = []
@@ -38,6 +36,7 @@ def _ahead() -> NamedRound:
     return round_
 
 
+@pytest.mark.machine
 def test_the_verdict_waits_for_the_viewers_text_and_runs_once() -> None:
     wire_catalogue()
     said, done, offer = _judged()
@@ -54,12 +53,14 @@ def test_the_verdict_waits_for_the_viewers_text_and_runs_once() -> None:
     assert "Тачки 2" in [record["title"] for record in said[0] if isinstance(record, dict)]
 
 
+@pytest.mark.machine
 def test_a_plain_client_is_left_to_the_lists_own_verdict() -> None:
     _said, done, offer = _judged()
     early_verdict("тачки", offer)(Indexer())
     assert not done.wait(0.2)
 
 
+@pytest.mark.machine
 def test_a_viewers_text_answered_last_is_left_to_the_lists_own_verdict() -> None:
     wire_catalogue()
     _said, done, offer = _judged()
@@ -69,6 +70,7 @@ def test_a_viewers_text_answered_last_is_left_to_the_lists_own_verdict() -> None
     assert not done.wait(0.3), "judged beside nothing, racing the list's own build"
 
 
+@pytest.mark.machine
 def test_the_blocking_search_judges_before_its_circle_returns() -> None:
     wire_catalogue()
     _said, done, offer = _judged()
