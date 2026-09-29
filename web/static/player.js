@@ -112,15 +112,19 @@ const TCPlayer = {
     while (TCPlayer._mounted()) {
       const state = await TCApi.state();
       if (state) {
-        const awaiting = TCPlayer._awaitNext;
         TCPlayer._hasNext = state.has_next === true;
         TCPlayer._awaitNext = state.has_next === null && state.state !== 'idle';
+        const refused = !state.start && (state.refusal || state.last_error);
         //: Серия кончилась, а юнит погас, не дав нового ящика: следующей не будет, что бы
         //: ни обещала плашка. `has_next === true` - это дата каталога или номер того же
         //: сезона, а не найденная раздача; поиск юнита мог прийти пустым, и без этого ухода
-        //: вкладка стояла на «буферизации» навеки (зонд мержера: две минуты без ухода).
-        const over = awaiting || (TCPlayer._ending && !TCPlayer._pendingBox);
-        if (over && state.state === 'idle') TCPlayer._leave();
+        //: вкладка стояла на «буферизации» навеки. Только после конца серии: на подъёме
+        //: `has_next` тоже `null`, и погасший юнит там значит отказ, а не конец сериала.
+        //: Отказ поднять следующую серию - тот же экран отказа, что у первого подъёма.
+        if (TCPlayer._ending && !TCPlayer._pendingBox && state.state === 'idle') {
+          if (refused) TCPlayer._screenRefused(state.refusal);
+          else TCPlayer._leave();
+        }
         TCPlayer._last = state;
         TCPlayer._render(state);
         //: Пока ящика нет, эти же ответы двигают экран подготовки: раз в две секунды
@@ -131,7 +135,7 @@ const TCPlayer = {
         //: юнит, :mod:`torrcast.domain.start_refusal`). Слова нет - строка остаётся
         //: короткой, без выдуманного хвоста.
         if (!TCPlayer._url) {
-          if (!state.start && (state.refusal || state.last_error)) TCPlayer._screenRefused(state.refusal);
+          if (refused) TCPlayer._screenRefused(state.refusal);
           else TCPlayer._screenPreparing(state);
         }
       }
