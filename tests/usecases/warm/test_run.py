@@ -417,3 +417,39 @@ def test_a_spot_run_fits_its_target_to_the_length_of_the_piece(tmp_path: Path) -
         f"цель {seen[0].mbit:.2f} Мбит/с кладёт в кусок {span:.3f} с "
         f"{weight / 1e6:.2f} МБ при потолке {warm.cap / 1e6:g} МБ"
     )
+
+
+def test_a_run_handed_to_the_next_episode_ends_quietly(tmp_path: Path) -> None:
+    """Живая упаковка дошла до конца файла - заход снимается сразу и без приговоров.
+
+    Снятый нами заход - не обрыв сети: ни пяти секунд паузы, ни счёта обрывов, ни
+    «не дал ни куска». Иначе цепочка на следующую серию опаздывала бы к стыку сама.
+    """
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    fake = world(**parts)
+    warm = warmer(tmp_path, log=[].append)
+    start = parts["packer"].start
+
+    def _handing(*args: Any, **kwargs: Any) -> _Packer:
+        packer = cast(_Packer, start(*args, **kwargs))
+        publish = packer.publish
+
+        def _publish() -> None:
+            publish()
+            if packer.edge == 1:  # второй кусок лёг - и тут живая упаковка дошла до конца
+                warm.packed()
+
+        # Живой ffmpeg: работает, пока его не сняли, а снятый сигналом кончается не нулём.
+        packer.publish = _publish  # type: ignore[method-assign]
+        packer.poll = lambda: -15 if packer.stopped else None  # type: ignore[method-assign]
+        return packer
+
+    parts["packer"].start = staticmethod(_handing)
+
+    _run(warm, 0, warm.grid.count - 1)
+
+    assert packers[0].edge < warm.grid.count - 1, "заход догрел серию, хотя её отдали"
+    assert packers[0].stopped, "отданный заход остался жить"
+    assert warm.breaks == 0 and 5.0 not in fake.slept, "снятие заходом приняли за обрыв сети"
+    assert not warm.barren, "снятый заход записан пустым"

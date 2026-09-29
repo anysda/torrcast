@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import follower, lay, quiet, vault, warmer, world
 from torrcast.usecases.warm.chain import _ask_follow, _chain, _nap
+from torrcast.usecases.warm.settings import PACKED_SLACK
 from torrcast.usecases.warm.warmer import Warmer
 
 if TYPE_CHECKING:
@@ -165,3 +166,26 @@ def test_the_nap_wakes_up_in_small_steps(tmp_path: Path, monkeypatch: pytest.Mon
     _nap(warm, 2.0)
 
     assert fake.slept == [0.5, 0.5, 0.5, 0.5], "прогрев уснул одним куском"
+
+
+def test_a_packed_episode_hands_the_chain_over_before_its_own_warming_ends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Живая упаковка у конца файла - следующая серия берётся, не дожидаясь этой на диске.
+
+    Замер стыка: после перемотки к концу прогрев грел голову текущей серии, и следующая
+    встречала стык без единого куска на диске - первый кадр через 9.7 с после конца.
+    Запас в этот миг - хвост серии, и следующую по нему не морозят.
+    """
+    world()
+    warm = warmer(tmp_path)
+    following = follower(tmp_path, vault=vault(tmp_path, key="следующая"))
+    warm.follow = lambda: following
+
+    warm.packed()
+    _chain(warm)
+
+    assert warm.after is following, "цепочка ждала прогрева уже упакованной серии"
+    assert following.slack == PACKED_SLACK, "следующую серию заморозил хвост текущей"
+    assert not following._must_yield(), "прогрев следующей серии замер перед стыком"
+    quiet(warm)

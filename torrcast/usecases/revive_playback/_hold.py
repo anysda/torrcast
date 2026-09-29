@@ -122,7 +122,11 @@ def _hold(
         if warmer is not None:
             # Прогрев видит тот же запас, что сторож приёмника, и на просевшем
             # замирает (:meth:`torrcast.usecases.warm.warmer.Warmer._throttle`).
-            warmer.feed(feed.front(feed_at) - feed_at)
+            front = feed.front(feed_at)
+            if front < feed.duration:
+                warmer.feed(front - feed_at)
+            else:
+                warmer.packed()  # живая упаковка у конца файла - очередь следующей серии
             if warmer.done and feed.rest():
                 print(phrase("revive.fully_warm_switch_disk"), flush=True)
         if clock.monotonic() - screen.said >= SAY_SECONDS:

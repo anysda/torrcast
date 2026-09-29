@@ -28,8 +28,13 @@ def _chain(state: _State) -> None:
     в силах положить (:meth:`_pending`), а не обязательно «готово» (:attr:`done`):
     место тяжелее потолка приёмника без перекода прогретым не станет никогда, и
     держать из-за него цепочку - значит оставить стык серий без страховки вовсе.
+
+    Раньше - только когда живая упаковка дошла до конца файла (:attr:`handed`): остаток
+    серии уже у показа, и ждать прогрева её головы значило встретить стык без следующей.
     """
-    if state.stopped or state.follow is None or state.after is not None or _pending(state):
+    if state.stopped or state.follow is None or state.after is not None:
+        return
+    if not state.handed and _pending(state):
         return
     following = _ask_follow(state)
     if following is None:

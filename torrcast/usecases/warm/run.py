@@ -143,7 +143,7 @@ def _run(
     state.misgrid = -1
     laid = checked = first - 1
     try:
-        while not state.stopped:
+        while not (state.stopped or state.handed):
             packer.publish()
             laid = _inspect(state, laid, min(packer.edge, last), began_of)
             if state.misgrid >= 0 or packer.edge >= last or packer.poll() is not None:
@@ -177,9 +177,10 @@ def _run(
             _state.spot_out(first, state.vault.path(first), donor, state.cap, state.container)
         donor.unlink(missing_ok=True)
         state.vault.touch()
-    if state.misgrid >= 0:
+    if state.misgrid >= 0 or state.handed:
         # Заход, вставший не туда, кладёт мимо сетки весь свой участок: доводить его
-        # до конца значит намолотить ещё сотню таких же кусков.
+        # до конца значит намолотить ещё сотню таких же кусков. Заход, отданный
+        # следующей серии (:meth:`Warmer.packed`), снят нами - это не обрыв сети.
         return
     got = max(0, min(last, packer.edge) - first + 1)
     spent = _state._environment.monotonic() - began

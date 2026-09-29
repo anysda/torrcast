@@ -14,6 +14,7 @@ from torrcast.usecases.warm.lay_heavy import _lay_heavy
 from torrcast.usecases.warm.line import _line
 from torrcast.usecases.warm.missing import _missing, _pending
 from torrcast.usecases.warm.run import _run
+from torrcast.usecases.warm.settings import PACKED_SLACK
 from torrcast.usecases.warm.stall import _stall, _trace
 from torrcast.usecases.warm.throttle import _Frozen, _may_resume, _resume, _throttle
 from torrcast.usecases.warm.verify import _inspect, _verify
@@ -29,6 +30,17 @@ class Warmer(_State):
     понадобится раньше всего, — потом голова фильма, если начали с середины. Внутри
     каждого куска работы это ОДИН прогон ffmpeg от края до края (см. заголовок модуля).
     """
+
+    def packed(self) -> None:
+        """Живая упаковка дошла до конца файла: прогрев отдаёт раздачу следующей серии.
+
+        Остаток этой серии показ уже держит сам, а цепочка поднималась только по концу
+        ЭТОГО прогрева (:func:`_chain`) - после перемотки к концу он грел голову серии, и
+        следующая встречала стык без единого куска на диске (замер: первый кадр через
+        9.7 с после конца серии, с прогретой головой следующей - через 3.6 с).
+        """
+        self.feed(PACKED_SLACK)
+        self.handed = True
 
     def line(self) -> str:
         """Строка о прогреве для журнала и статуса (:func:`_line`)."""
@@ -67,6 +79,9 @@ class Warmer(_State):
                     # процессором пробного прогона.
                     _state._environment.sleep(0.5)
                     continue
+                if self.handed:
+                    self._chain()
+                    return
                 job = self._missing()
                 if job is None:
                     left = self._spots_left()

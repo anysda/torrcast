@@ -89,6 +89,8 @@ class _State:
     #: легло на сетку, тяжёлые места копией, которые перекодировать нечем. Пусто - идёт.
     trouble: str = ""
     stopped: bool = False
+    #: Живая упаковка дошла до конца файла, и прогрев отдал раздачу следующей серии.
+    handed: bool = False
     thread: threading.Thread | None = None
     packer: _Run | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)

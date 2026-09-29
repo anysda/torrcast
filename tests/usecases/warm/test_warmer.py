@@ -18,6 +18,7 @@ from tests.usecases.warm.world import (
 )
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm.settings import GUARD_HIGH
+from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.warm.warmer_state import _State
 
 if TYPE_CHECKING:
@@ -180,3 +181,29 @@ def test_a_crash_inside_the_work_never_kills_the_show(tmp_path: Path) -> None:
 
     assert any("прогрев сорвался" in line for line in said)
     assert fake.slept[-1] == 5.0
+
+
+def test_a_packed_episode_leaves_its_head_cold_and_moves_to_the_next(tmp_path: Path) -> None:
+    """Живая упаковка дошла до конца файла посреди захода - нитка берётся за следующую серию.
+
+    Голова этой серии остаётся непрогретой: после перемотки к концу ей больше некуда
+    понадобиться раньше стыка, а следующей серии без прогрева на стыке нечего показать.
+    """
+    world()
+    taken: list[int] = []
+
+    class Handing(Warmer):
+        def _run(self, first: int, last: int, spot: bool = False) -> None:
+            taken.append(first)
+            self.packed()
+            self.stopped = len(taken) > 3  # без передачи нитка крутилась бы вечно
+
+    warm = warmer(tmp_path, kind=Handing, slack=GUARD_HIGH + 1.0)
+    following = follower(tmp_path, vault=vault(tmp_path, key="следующая"))
+    warm.follow = lambda: following
+
+    warm._work()
+
+    assert taken == [0], "после передачи нитка грела отданную серию дальше"
+    assert warm.after is following, "следующая серия не взялась в работу"
+    quiet(warm)

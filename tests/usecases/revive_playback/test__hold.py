@@ -439,3 +439,25 @@ def test_the_end_poll_window_is_wider_than_the_countdown() -> None:
     """Учащение у конца серии начинается не позже плашки отсчёта (10 с во вкладке)."""
     assert END_POLL_WINDOW > 10.0
 
+
+@pytest.mark.parametrize(("whole", "handed"), [(120.0, True), (7200.0, False)])
+def test_the_warming_is_handed_on_once_the_live_pack_reaches_the_end(
+    tmp_path: Path, whole: float, handed: bool
+) -> None:
+    """Живая упаковка дошла до конца файла - прогрев этой серии отдаёт раздачу следующей.
+
+    Середина фильма прогрев не отпускает: остаток серии ещё не у показа.
+    """
+    vault = Vault(root=tmp_path / "warm", key="серия")
+    vault.open()
+    warmer = Warmer(source="s", audio=0, grid=Grid.uniform(whole), vault=vault)
+    receiver = PlainReceiver([(100.0, "PLAYING"), (0.0, "IDLE")])
+
+    _hold(
+        cast(Receiver, receiver),
+        feed_with_segments(tmp_path, whole=whole),
+        warmer=warmer,
+        clock=FakeClock(now=1000.0),
+    )
+
+    assert warmer.handed is handed
