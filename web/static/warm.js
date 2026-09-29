@@ -68,11 +68,12 @@ const TCWarm = {
   // Скрытая вкладка не зовёт: раздачи отпускаются, когда на страницу никто не смотрит.
   hold(beat) {
     if (document.hidden) return;
+    // Карточка первой: держатель заводит раздачи по одной в порядке ключей.
     const keys = new Set();
-    for (const node of document.querySelectorAll('[data-tc-hold]')) keys.add(node.dataset.tcHold);
     const router = window.TCRouter;
     if (router && router._card) keys.add(router._card);
     if (router && router._picture) keys.add(router._picture);
+    for (const node of document.querySelectorAll('[data-tc-hold]')) keys.add(node.dataset.tcHold);
     const mark = [...keys].join('\n');
     if (!keys.size || (!beat && mark === TCWarm._holding)) return;
     TCWarm._holding = mark;

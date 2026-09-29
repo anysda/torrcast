@@ -6,6 +6,11 @@
 4-36 с. Главная называет ключи плиток «Продолжить», карточка - свой ключ, раз в
 :data:`BEAT`; держатель поднимает их записанные раздачи и не даёт службе их закрыть, пока
 страница зовёт. Читателя у раздачи нет, поэтому байты картины сами не тянутся.
+
+Заводятся они по одной: двадцать раздач истории, поднятые разом, тянули метаданные живой
+раздачи 15-19 с вместо 0.2-3 с (мимо torrcast), и «Играть» с закладки ждала
+22.8 с. Следующая заводится, когда прошлая ответила метаданными; первой идёт ключ, который
+страница назвала первым. Мёртвую раздачу держатель отпускает и не трогает :data:`MUTE`.
 """
 
 from __future__ import annotations
@@ -34,6 +39,13 @@ LEASE: Final = 3 * BEAT
 HOLD_MAX: Final = 20
 #: Терпение одного запроса к службе: зов страницы не должен копить висящие потоки.
 TIMEOUT: Final = 10.0
+#: Столько TorrServer ждёт метаданные новой раздачи, потом закрывает её сам
+#: («timeout connection get torrent info»): дольше её не ждут и следующую не держат.
+COLD: Final = 20.0
+#: Шаг, которым заводимая раздача спрашивает метаданные, а очередь - свой черёд.
+COLD_STEP: Final = 0.5
+#: Сколько мёртвая раздача не заводится снова: без пиров она лишь занимала бы очередь.
+MUTE: Final = 300.0
 
 
 def _thread(work: Callable[[], None]) -> None:
@@ -55,6 +67,8 @@ class RecordHold:
     spawn: Callable[[Callable[[], None]], None] = _thread
     _lease: dict[str, float] = field(default_factory=dict, repr=False)
     _held: set[str] = field(default_factory=set, repr=False)
+    _queue: list[str] = field(default_factory=list, repr=False)
+    _mute: dict[str, float] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def touch(self, base_url: str, keys: list[str]) -> int:
@@ -64,12 +78,15 @@ class RecordHold:
         magnets = list(dict.fromkeys(entry.magnet for entry in found if entry and entry.magnet))
         fresh: list[str] = []
         with self._lock:
-            until = self.clock() + LEASE
+            now = self.clock()
+            magnets = [magnet for magnet in magnets if self._mute.get(magnet, 0.0) <= now]
             for magnet in magnets:
-                self._lease[magnet] = until
+                self._lease[magnet] = now + LEASE
                 if magnet not in self._held:
                     self._held.add(magnet)
                     fresh.append(magnet)
+            named = [magnet for magnet in magnets if magnet in self._queue]
+            self._queue = named + [m for m in self._queue if m not in named] + fresh
         for magnet in fresh:
             self.spawn(lambda magnet=magnet: self._hold(base_url, magnet))  # type: ignore[misc]
         return len(fresh)
@@ -91,18 +108,50 @@ class RecordHold:
         """
         engine = self.engines(base_url, timeout=TIMEOUT)
         torrent_hash = ""
+        dead = False
         try:
             step = _keep_step(engine.disconnect_timeout()) if isinstance(engine, _Timed) else BEAT
-            while self._leased(magnet):
-                torrent_hash = self._renew(engine, magnet) or torrent_hash
+            while self._leased(magnet) and not self._turn(magnet):
+                self.wait(COLD_STEP)
+            torrent_hash, dead = self._wake(engine, magnet)
+            while not dead:
                 self.wait(step)
+                if not self._leased(magnet):
+                    break
+                torrent_hash = self._renew(engine, magnet) or torrent_hash
         finally:
+            with self._lock:
+                if magnet in self._queue:
+                    self._queue.remove(magnet)
+                if dead:
+                    self._mute[magnet] = self.clock() + MUTE
             free = bool(torrent_hash) and CLAIMS.unclaim(torrent_hash, self)
             if free and not _held_by_show(torrent_hash):
                 with contextlib.suppress(TorrcastError):
                     engine.drop(torrent_hash)
             with self._lock:
                 self._held.discard(magnet)
+
+    def _turn(self, magnet: str) -> bool:
+        with self._lock:
+            return not self._queue or self._queue[0] == magnet
+
+    def _wake(self, engine: TorrentEngine, magnet: str) -> tuple[str, bool]:
+        """Завести раздачу и дождаться её метаданных; «мертва» - служба ответила, пиров нет."""
+        began = self.clock()
+        torrent_hash = ""
+        while self._leased(magnet):
+            with contextlib.suppress(TorrcastError):
+                torrent_hash = torrent_hash or CLAIMS.adding(magnet, self, engine.add)
+                if engine.files(torrent_hash):
+                    break
+            if self.clock() - began >= COLD:
+                return torrent_hash, bool(torrent_hash)
+            self.wait(COLD_STEP)
+        with self._lock:
+            if magnet in self._queue:
+                self._queue.remove(magnet)
+        return torrent_hash, False
 
     def _renew(self, engine: TorrentEngine, magnet: str) -> str:
         """Поднять раздачу и продлить её срок; служба промолчала - спросит следующий шаг.

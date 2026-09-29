@@ -9,6 +9,7 @@ import pytest
 from tests.fakes.state_store import FakeStateStore
 from tests.fakes.torrent_engine import FakeTorrentEngine
 from torrcast.domain.entry import Entry
+from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store import slot as state_slot
@@ -40,6 +41,11 @@ class _Page:
             self.spawned.pop(0)()
 
 
+def _live() -> FakeTorrentEngine:
+    """Раздача с пирами: метаданные приходят на первый же вопрос."""
+    return FakeTorrentEngine(torrent_files=[TorrFile(0, "Cars.mkv")])
+
+
 def _entry(magnet: str, torrent: str = "") -> Entry:
     return Entry(title="Тачки", magnet=magnet, pos=60.0, dur=6000.0, torrent=torrent)
 
@@ -53,7 +59,7 @@ def state() -> FakeStateStore:
 
 def test_each_recorded_release_on_the_page_is_held_once(state: FakeStateStore) -> None:
     entries = {"a": _entry("magnet:a"), "b": _entry("magnet:a"), "c": _entry("magnet:c")}
-    page = _Page(entries, FakeTorrentEngine())
+    page = _Page(entries, _live())
 
     assert page.holder.touch("http://ts", ["a", "b", "c", "unknown"]) == 2
     assert page.holder.touch("http://ts", ["a", "c"]) == 0
@@ -63,7 +69,7 @@ def test_each_recorded_release_on_the_page_is_held_once(state: FakeStateStore) -
 
 def test_no_more_than_the_ceiling_is_held_at_once(state: FakeStateStore) -> None:
     entries = {f"k{n}": _entry(f"magnet:{n}") for n in range(HOLD_MAX + 5)}
-    page = _Page(entries, FakeTorrentEngine())
+    page = _Page(entries, _live())
 
     assert page.holder.touch("http://ts", list(entries)) == HOLD_MAX
 
@@ -71,7 +77,7 @@ def test_no_more_than_the_ceiling_is_held_at_once(state: FakeStateStore) -> None
 def test_a_held_release_is_woken_each_step_and_dropped_once_the_page_stops_calling(
     state: FakeStateStore,
 ) -> None:
-    engine = FakeTorrentEngine()
+    engine = _live()
     page = _Page({"a": _entry("magnet:a")}, engine)
     page.holder.touch("http://ts", ["a"])
 
@@ -84,7 +90,7 @@ def test_a_held_release_is_woken_each_step_and_dropped_once_the_page_stops_calli
 
 
 def test_a_page_that_keeps_calling_keeps_the_release(state: FakeStateStore) -> None:
-    engine = FakeTorrentEngine()
+    engine = _live()
     page = _Page({"a": _entry("magnet:a")}, engine)
     page.holder.touch("http://ts", ["a"])
     calls = iter(range(5))
@@ -102,7 +108,7 @@ def test_a_page_that_keeps_calling_keeps_the_release(state: FakeStateStore) -> N
 
 
 def test_a_release_the_show_took_over_is_not_dropped(state: FakeStateStore) -> None:
-    engine = FakeTorrentEngine()
+    engine = _live()
     page = _Page({"a": _entry("magnet:a")}, engine)
     page.holder.touch("http://ts", ["a"])
     page.on_wait = lambda: state.save(WatchState({"a": _entry("magnet:a", "hash")}))
@@ -116,7 +122,7 @@ def test_a_release_the_show_took_over_is_not_dropped(state: FakeStateStore) -> N
 def test_a_release_another_holder_in_the_process_claims_is_not_dropped(
     state: FakeStateStore,
 ) -> None:
-    engine = FakeTorrentEngine()
+    engine = _live()
     page = _Page({"a": _entry("magnet:a")}, engine)
     page.holder.touch("http://ts", ["a"])
     show = _Page({}, engine)  # any live holder in the process
