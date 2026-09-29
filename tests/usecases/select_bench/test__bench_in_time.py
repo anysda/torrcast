@@ -313,3 +313,31 @@ def test_a_release_taken_by_the_deadline_does_not_wait_again_for_its_honesty(
 
     assert (prep.number, prep.hurried) == (2, True)
     assert time.monotonic() - began < 3.0
+
+
+@pytest.mark.machine
+def test_a_spare_read_and_found_unfit_leaves_its_place_in_the_front(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """🔴 №2 без русского звука дочитан, №3 ещё читается: греется и играет №4.
+
+    Японский №2 «Призрака» держал место во фронте, русский №5 карточка не завела
+    за 20 с, и показ сыграл японский звук.
+    """
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(4)]
+    read = probes(pool, _RUS, _ENG, _RUS, _RUS)
+    silent = {f"hash-{pool[n].magnet}/" for n in (0, 2)}
+
+    def slow(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        if any(part in source_url for part in silent):
+            top_answers.wait(30.0)
+        return read(source_url, timeout=timeout, alive=alive)
+
+    bench = Bench(Torrents(), prober=slow)
+    began = time.monotonic()
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert prep.number == 4
+    assert time.monotonic() - began < 3.0

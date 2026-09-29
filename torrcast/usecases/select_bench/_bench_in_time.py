@@ -135,12 +135,18 @@ def _widen(bench: _BenchTrouble, plan: Plan, args: Args, spares: list[int]) -> N
     который ещё читается, третьего не держит. «Призрак в доспехах»: японский №2 на 40 ГБ
     читался 13.5 с, и годный №3 до того не грелся вовсе - кадр через 28.5 с.
     """
-    if not spares or len(spares) >= PICK_FRONT - 1:
+    if not spares:
         return
+    busy = 0
     for number in spares:
         spare = bench.preps.get((plan.picture.key, number))
         if spare is None or (spare.ready.is_set() and _fit(bench, plan, spare)):
             return
+        busy += not _spent(spare)
+    # Прочитанный и негодный рой больше не читается и места во фронте не держит: японский №2
+    # «Призрака» держал его 20 с, и русский №5 карточка так и не завела.
+    if busy >= PICK_FRONT - 1:
+        return
     queue = plan.candidates(args)
     after = queue.index(spares[-1]) + 1 if spares[-1] in queue else len(queue)
     if after < len(queue):
@@ -148,6 +154,11 @@ def _widen(bench: _BenchTrouble, plan: Plan, args: Args, spares: list[int]) -> N
         bench.needed.add((plan.picture.key, queue[after]))
         bench.start(plan, queue[after])
         journal().emit("select", "widen", took=queue[after])
+
+
+def _spent(prep: _Prep) -> bool:
+    """Раздача дочитана: паспорт и карта опорных кадров есть, рой больше не спрашивается."""
+    return prep.ready.is_set() and (prep.mapped is None or prep.mapped.is_set())
 
 
 def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep) -> bool:
