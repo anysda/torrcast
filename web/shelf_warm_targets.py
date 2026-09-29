@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Final
 
 from torrcast.domain.json_value import JsonValue
@@ -11,7 +12,7 @@ from web.warm_targets import WarmTarget
 VISIBLE: Final = 8
 
 
-def shelf_warm_targets(body: dict[str, JsonValue], later: bool = False) -> list[WarmTarget]:
+def shelf_warm_targets(body: Mapping[str, JsonValue], later: bool = False) -> list[WarmTarget]:
     """Первые видимые плитки обеих полок; ``later`` - плитки за ними, ближние первыми."""
     shelves = [
         rows if isinstance(rows := body.get(shelf), list) else [] for shelf in ("fresh", "popular")

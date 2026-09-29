@@ -3,8 +3,7 @@
 ``GET /api/shelves`` не вправе ждать индексеры (TC-1110): человек открывает главный
 экран, и полка, ждущая Prowlarr, - это то же самое зависшее меню, от которого круг
 поиска ушёл врозь (:meth:`torrcast.adapters.prowlarr.prowlarr.Prowlarr._apart`), только
-на самом видном месте страницы. Первый заход после установки честно пуст - фон ещё не
-успел ни разу собрать полки, - и это штатное состояние, а не отказ.
+на самом видном месте. До первой сборки полки честно пусты, это штатно, а не отказ.
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from torrcast.adapters.filesystem.state.shelves_cache_path import shelves_cache_path
 from torrcast.domain.catalogs.phrase import phrase
@@ -185,7 +185,7 @@ class ShelvesCache:
             if candidate is None:
                 return
         # Сначала факты плиток, затем публикация: видимый клик не ждёт поиска раздач.
-        warmed = {shelf: candidate[shelf]}
+        warmed = {shelf: cast(list[JsonValue], candidate[shelf])}
         self.warm(shelf_warm_targets(warmed), shelf_warm_targets(warmed, later=True))
         print(phrase("web.shelf.warmup_ordered", shelf=shelf, count=len(warmed[shelf])), flush=True)
         with self._lock:
