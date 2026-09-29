@@ -18,7 +18,7 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.playback._publish_box import _publish_box
 from torrcast.usecases.playback._show_end import _close_show, _report_end, _say_whole
 from torrcast.usecases.playback._tract import _tract
-from torrcast.usecases.playback.following import Following
+from torrcast.usecases.playback.following import Following, _holding
 from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.revive_playback._hold import _hold
@@ -121,9 +121,8 @@ def _play(
 
     def _say_started() -> None:
         """Назвать кадр и параллельно подготовить следующую серию, если она есть."""
-        starter = getattr(follow, "start", None)
-        if callable(starter):
-            starter()
+        if follow is not None:
+            follow.start(_holding(warmer))
         print(
             phrase(
                 "playback.now_playing_tagged",

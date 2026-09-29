@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -250,3 +251,25 @@ def test_the_head_on_the_shelf_is_claimed_before_the_coder_starts(
         _play(_config(tmp_path), "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=_Screening())
 
     assert said.index("feed.claim_head") < said.index("recoder.start"), said
+
+
+def test_the_next_episode_is_prepared_from_the_first_frame(tmp_path: Path) -> None:
+    """Первый кадр заводит сборку следующей серии, и держит её правило прогрева."""
+    holds: list[Callable[[], bool]] = []
+
+    class _Next:
+        def start(self, hold: Callable[[], bool]) -> None:
+            holds.append(hold)
+
+        def __call__(self) -> None:
+            return None
+
+    receiver = _Screening()
+
+    _play(
+        _config(tmp_path), "file:///нет-такого", 0, "«Серия»", _Clock(), receiver=receiver,
+        follow=_Next(),
+    )  # fmt: skip
+
+    assert len(holds) == 1, "сборка следующей серии не завелась на первом кадре"
+    assert not holds[0](), "без прогрева держать сборку нечем"
