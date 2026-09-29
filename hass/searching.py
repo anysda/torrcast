@@ -33,7 +33,7 @@ from hass.early_verdict import early_verdict
 from hass.hit_posters import hits
 from hass.offer_within import offer_within
 from hass.refused_error import RefusedError
-from hass.search import Search as Search  # the bridge takes it from here
+from hass.search import Search
 from hass.search_results import search_results
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins

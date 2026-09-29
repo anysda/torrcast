@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, PACE, HostSlots
+from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
+from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 
 
 class _Clock:
@@ -39,4 +41,8 @@ def test_the_queue_empties_with_time() -> None:
 
 
 def test_the_process_keeps_one_queue() -> None:
-    assert isinstance(HOST_SLOTS, HostSlots)
+    first, second = (IndexerCircle(ProwlarrApi("http://p", "KEY")) for _ in range(2))
+    for _ in range(2):
+        first.slots.take("RuTor", 3.0)
+    assert not second.slots.take("RuTor", 3.0, spare=True), "a new search sees the old queue"
+    assert "RuTor" in HOST_SLOTS._free

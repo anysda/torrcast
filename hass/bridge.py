@@ -33,8 +33,9 @@ from hass.refused_error import BUSY, NO_REMOTE, NO_VOLUME, NOTHING_PLAYING, Refu
 from hass.remote_refused import remote_refused
 from hass.resuming import _resume
 from hass.say import SEEKBY, TOGGLE, say
+from hass.search import Search
 from hass.search_progress import search_progress
-from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, Search, searching
+from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, searching
 from hass.starting import starting
 from hass.stopping import STOP, _abandoned, stopping
 from hass.tab_cast import tab_cast
@@ -159,8 +160,6 @@ class Bridge:
         """``POST /api/next``: следующая серия той же раздачи, названная запросом."""
         if args := next_show(self._session, body or {}):
             self._start(args)
-
-    # ------------------------------------------------------------------ внутреннее
 
     def _start(self, args: list[str]) -> str:
         """Отдать команду рабочему потоку; идущий показ новый СНИМАЕТ (ТЗ §7.4)."""

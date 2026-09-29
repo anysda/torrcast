@@ -19,7 +19,7 @@ from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.search_refusal_error import SearchRefusalError
 
 
-def _refused(*_args: Any) -> Any:
+def _refused(*_args: Any, on_indexer: Any = None) -> Any:
     raise SearchRefusalError(
         "discover.no_season_releases",
         "web.search.no_season_releases",
