@@ -2213,7 +2213,11 @@ def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
     """Открыть карточку ТЕМ ЖЕ путём, что и человек: поиск, плитка, карточка.
 
     Возвращает причину отказа строкой или ``None``, если карточка открыта и доехала.
+    Пустое название - отказ: поиск без слова не сужает выдачу, и первая плитка главной
+    подменила бы нужную карточку чужой, а отчёт подписал бы её заказанным именем.
     """
+    if not title.strip():
+        return "пустое название: первая плитка главной подменила бы карточку"
     ctx.page.goto(ctx.base + "/", wait_until="load", timeout=15000)
     placeholder = ctx.english.get("web.search.placeholder", "")
     field = ctx.page.get_by_placeholder(placeholder, exact=True) if placeholder else None
@@ -2382,6 +2386,12 @@ def _autoplay_ok(
     )
 
 
+def _played(before: dict[str, Any], after: dict[str, Any]) -> str:
+    """Что показ сыграл на самом деле, по /api/state, а не по заказанному имени."""
+    title = after.get("title") or before.get("title")
+    return f"«{title}»" if title else "без названия"
+
+
 def check_8_autoplay(ctx: Ctx) -> Result:
     """Автопереход: перемотка к концу → плашка с отсчётом → через 10 с следующая серия.
 
@@ -2469,7 +2479,8 @@ def check_8_autoplay(ctx: Ctx) -> Result:
     ok = _autoplay_ok((before_pair, after_pair), frame, gap, rows_ready, waits)
     detail = (
         f"s1e1 (строки серий ждали {rows_waited:.1f} с, порог {_PLAY_READY_BAR:.0f}); "
-        f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
+        f"плашка появилась; серия по /api/state: {_played(before, after)} "
+        f"{before_pair} -> {after_pair}; "
         f"кадр следующей серии {frame!r} с от плашки"
         + ("" if gap is None else f", {gap:.2f} с от ended{_bridge_steps(meter)}")
         + f" (порог {_JOIN_BAR:.0f})"
@@ -5046,6 +5057,8 @@ def main() -> int:
         help="номера пунктов через запятую; пункт без своего предшественника заблокирован",
     )
     args = parser.parse_args()
+    if not args.series_title.strip():
+        parser.error("--series-title пустой: прибор сыграл бы первую плитку главной")
     if args.throttle_after_frame < 0:
         parser.error("--throttle-after-frame должен быть неотрицательным")
     only = {int(number) for number in args.only.split(",") if number.strip()}

@@ -236,6 +236,36 @@ def test_автопереход_судит_стык_от_ended_до_кадра(g
     assert module._autoplay_ok(((1, 1), (1, 1)), 11.5, 1.82, True, []) is False
 
 
+def test_пустое_название_не_открывает_чужую_карточку() -> None:
+    """Пустой поиск не сужает выдачу: карточка не открывается, страница не трогается."""
+    module = acceptance()
+    ctx = module.Ctx("http://example", None, True, Path("/tmp"), {})
+
+    assert "пустое название" in module._open_card_by_page(ctx, " ")
+
+
+def test_прибор_отказывает_на_пустом_сериале(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = acceptance()
+    monkeypatch.setattr(sys, "argv", ["web-acceptance.py", "--only", "8", "--series-title", ""])
+
+    with pytest.raises(SystemExit) as stop:
+        module.main()
+
+    assert stop.value.code == 2
+    assert "--series-title пустой" in capsys.readouterr().err
+
+
+def test_автопереход_называет_сыгранный_сериал() -> None:
+    """Строка п.8 подписана тем, что сыграл показ, а не тем, что заказали."""
+    module = acceptance()
+
+    assert module._played({"title": "Рик и Морти"}, {"title": "Призрак"}) == "«Призрак»"
+    assert module._played({"title": "Рик и Морти"}, {}) == "«Рик и Морти»"
+    assert module._played({}, {}) == "без названия"
+
+
 def test_серия_контроля_не_прибита_к_s2e1() -> None:
     module = acceptance()
 
