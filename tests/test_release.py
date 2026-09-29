@@ -86,6 +86,7 @@ def _write_repo(root: Path) -> None:
         "jacred.yml",
         "anilibria-indexer.py",
         "jacred-indexer.py",
+        "hatch_build_id_hook.py",
     ):
         (scripts / name).write_text("stub\n", encoding="utf-8")
 
@@ -245,6 +246,9 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
             # обновился. Тарбол собирается белым списком, поэтому забыть тут - молча.
             "docs/changelog",
         } <= set(names)
+        # pyproject.toml builds the wheel through this hook: a tarball without it
+        # fails every upgrade at `pip install`, and the installed version stays.
+        assert "scripts/hatch_build_id_hook.py" in names
         assert "tests" not in names and not any(n.startswith("tests/") for n in names)
 
         version_py = tar.extractfile("torrcast/domain/version.py")

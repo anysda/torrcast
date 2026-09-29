@@ -117,7 +117,8 @@ build_hass_zip() {  # $1 - рабочий каталог (внутри - src/ к
 # install (bootstrap), pyproject.toml, все четыре README с гифкой из docs/, ченджлог
 # (docs/changelog: его читает последний экран обновления), LICENSE и пять
 # файлов из scripts/,
-# которых install.sh реально зовёт по REPO_DIR (sni-shim.py и определения индексеров).
+# которых install.sh реально зовёт по REPO_DIR (sni-shim.py и определения индексеров),
+# и хук сборки колеса: pyproject.toml зовёт его, и без него pip не соберёт ничего.
 # tests/, scripts/test-gate и прочая разработческая обвязка НЕ едут.
 build_tarball() {  # $1 - рабочий каталог (внутри - src/ клон), $2 - версия без v
     work="$1" ver="$2" src="$1/src" pkg="$1/pkg"
@@ -128,7 +129,8 @@ build_tarball() {  # $1 - рабочий каталог (внутри - src/ к�
     cp "$src/docs/README-jp.md" "$src/docs/README-es.md" "$src/docs/README-ru.md" \
        "$src/docs/demo.gif" "$src/docs/changelog" "$pkg/docs/"
     cp "$src/scripts/sni-shim.py" "$src/scripts/anilibria.yml" "$src/scripts/jacred.yml" \
-       "$src/scripts/anilibria-indexer.py" "$src/scripts/jacred-indexer.py" "$pkg/scripts/"
+       "$src/scripts/anilibria-indexer.py" "$src/scripts/jacred-indexer.py" \
+       "$src/scripts/hatch_build_id_hook.py" "$pkg/scripts/"
     find "$pkg" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
     find "$pkg" -name '*.pyc' -delete
 
