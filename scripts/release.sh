@@ -113,7 +113,7 @@ build_hass_zip() {  # $1 - рабочий каталог (внутри - src/ к
 }
 
 # --- 4. тарбол белым списком + sha256 ----------------------------------------
-# Едут: torrcast/, tgbot/, hass/ (их ставит hatchling, see pyproject packages), install.sh,
+# Едут: torrcast/, tgbot/, hass/, web/ (их ставит hatchling, see pyproject packages), install.sh,
 # install (bootstrap), pyproject.toml, все четыре README с гифкой из docs/, ченджлог
 # (docs/changelog: его читает последний экран обновления), LICENSE и пять
 # файлов из scripts/,
@@ -123,7 +123,7 @@ build_hass_zip() {  # $1 - рабочий каталог (внутри - src/ к
 build_tarball() {  # $1 - рабочий каталог (внутри - src/ клон), $2 - версия без v
     work="$1" ver="$2" src="$1/src" pkg="$1/pkg"
     mkdir "$pkg" "$pkg/scripts" "$pkg/docs"
-    cp -a "$src/torrcast" "$src/tgbot" "$src/hass" "$pkg/"
+    cp -a "$src/torrcast" "$src/tgbot" "$src/hass" "$src/web" "$pkg/"
     cp "$src/install.sh" "$src/install" "$src/pyproject.toml" "$src/LICENSE" "$pkg/"
     cp "$src/README.md" "$pkg/"
     cp "$src/docs/README-jp.md" "$src/docs/README-es.md" "$src/docs/README-ru.md" \
