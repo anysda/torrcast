@@ -77,6 +77,8 @@ class _Prep:
     voice_fallback: bool = False
     #: Сколько раздач запасной ход успел спросить, прежде чем сыграть чужой звук.
     voice_checked: int = 0
+    #: Взята сроком вместо ждущей старшей (:func:`_in_time`): время показа уже вышло.
+    hurried: bool = False
 
     @property
     def want(self) -> TorrFile:

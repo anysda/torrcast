@@ -80,6 +80,10 @@ class _BenchHonest(_BenchTrouble):
             and n not in judged
             and promises_more(plan.ranked[n - 1], chosen.found)
         ][:MAX_TRIES]
+        # Взятую сроком проверка не держит: «Призрак в доспехах» 384p ждал ответов трёх
+        # соседей 12 с, и кадр встал на 15.6 с вместо 5. Спрашиваются готовые.
+        if chosen.hurried:
+            rest = [n for n in rest if self._read_here(plan, n)]
         deadline = self.clock() + self.honest_budget
         for number in rest:
             # Нужны двое: тот, кого играем, если проверка ничего не найдёт, и тот, кого
@@ -150,3 +154,9 @@ class _BenchHonest(_BenchTrouble):
             return alt
         print(phrase("select_bench.honest_kept_note", chosen=chosen.number, short=short))
         return chosen
+
+    def _read_here(self, plan: Plan, number: int) -> bool:
+        """Сосед ``number`` уже прочитан на этом стенде той же раздачей круга."""
+        prep = self.preps.get((plan.picture.key, number))
+        same = prep is not None and prep.release.magnet == plan.ranked[number - 1].magnet
+        return same and prep is not None and not prep.dropped and prep.ready.is_set()

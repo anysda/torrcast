@@ -289,3 +289,27 @@ def test_a_recounted_circle_waits_for_its_new_top_though_the_card_waited_out_tha
     prep = bench.resolve(plan([newcomer, *pool]), _ASKED, Said())
 
     assert prep.release is newcomer
+
+
+@pytest.mark.machine
+def test_a_release_taken_by_the_deadline_does_not_wait_again_for_its_honesty(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """384p «Призрака», взятый сроком, ждал проверки честности ещё 12 с."""
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.4)
+    pool = [rel(name=f"r{n} 1080p | Дубляж", seeders=100 - n) for n in range(3)]
+    small = replace(_RUS, height=384, width=512)
+    read = probes(pool, _RUS, small)
+
+    def slow(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        if f"hash-{pool[0].magnet}/" in source_url:
+            top_answers.wait(30.0)
+        return read(source_url, timeout=timeout, alive=alive)
+
+    bench = Bench(Torrents(), prober=slow, honest_budget=5.0)
+    began = time.monotonic()
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert (prep.number, prep.hurried) == (2, True)
+    assert time.monotonic() - began < 3.0

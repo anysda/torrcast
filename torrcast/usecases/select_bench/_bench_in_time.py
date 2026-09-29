@@ -65,6 +65,7 @@ def _in_time(
     его заново и ждал ещё 10, пока годный №3 стоял готовым.
     """
     seat = prep.release.magnet  # номер у пересчитанного круга уже чужой
+    prep.hurried = False
     limit = tally.patience(deadline, bench.clock())
     if seat in bench.waited_out and not args.pinned and not prep.ready.is_set():
         limit = min(limit, bench.clock())
@@ -102,6 +103,7 @@ def _awaited(
             ready = bench.preps.get((plan.picture.key, number))
             if ready is not None and ready.ready.is_set() and _fit(bench, plan, ready):
                 journal().emit("select", "in_time", waited=prep.number, took=number)
+                ready.hurried = True
                 return ready
         _widen(bench, plan, args, spares)
     bench._wait(prep, progress, prefix=prefix, limit=limit)
