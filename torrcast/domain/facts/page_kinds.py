@@ -6,9 +6,15 @@
 
 from __future__ import annotations
 
+import re
+
 from torrcast.domain.json_map import json_map
 from torrcast.domain.json_rows import json_rows
 from torrcast.domain.json_value import JsonValue
+
+#: Categories every biography carries on either wiki. A page about a person is no picture,
+#: though «Киноактёры» and «film directors» name a kind word for word.
+_PERSON = re.compile(r"персоналии по алфавиту|:родившиеся |:living people$|:\d+ births$")
 
 
 def page_kinds(page: JsonValue) -> set[str]:
@@ -22,6 +28,8 @@ def page_kinds(page: JsonValue) -> set[str]:
     out: set[str] = set()
     for row in json_rows(json_map(page).get("categories")):
         low = str(json_map(row).get("title", "")).casefold()
+        if _PERSON.search(low):
+            return set()
         if "сериал" in low or "television series" in low or "miniseries" in low:
             out.add("tv")
         elif "фильм" in low or "кино" in low or "film" in low:

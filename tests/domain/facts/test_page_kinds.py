@@ -19,3 +19,25 @@ def test_categories_that_say_nothing_about_the_kind_leave_it_unsaid() -> None:
     """Несказанное родом не считается: отсев по нему выбросил бы годную статью."""
     assert page_kinds(_page("Категория:Появились в 2019 году")) == set()
     assert page_kinds(None) == set()
+
+
+def test_a_page_about_a_person_is_no_picture_of_any_kind() -> None:
+    """Search for «BLADE RUNNER- BLACK LOTUS» brought its actors: their photo became the poster.
+
+    «Киноактёры Канады» reads as «кино», and a series guess gave way to that «film».
+    """
+    actor = _page(
+        "Категория:Актёры телевидения Канады",
+        "Категория:Киноактёры Канады",
+        "Категория:Персоналии по алфавиту",
+    )
+    assert page_kinds(actor) == set()
+    assert (
+        page_kinds(_page("Категория:Кинопродюсеры США", "Категория:Родившиеся в 1973 году"))
+        == set()
+    )
+    assert (
+        page_kinds(_page("Category:Canadian male film actors", "Category:Living people")) == set()
+    )
+    assert page_kinds(_page("Category:Japanese film directors", "Category:1966 births")) == set()
+    assert page_kinds(_page("Category:Films about multiple births")) == {"movie"}
