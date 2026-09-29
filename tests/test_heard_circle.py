@@ -45,4 +45,8 @@ def test_the_refusal_carries_the_mark_of_the_circle() -> None:
     heard("a")
     assert json.loads(heard.refusal(None).body) == {"error": "not_found", "whole": True}
     said = json.loads(heard.refusal(TorrcastError("индексеры недоступны")).body)
-    assert said == {"error": "индексеры недоступны", "whole": False}
+    assert said == {
+        "error": "search_refused",
+        "reason": {"key": "web.search.failed", "values": {}},
+        "whole": False,
+    }
