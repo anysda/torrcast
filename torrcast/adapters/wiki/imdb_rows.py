@@ -82,6 +82,18 @@ def _same_name(text: str, row: dict[str, Any]) -> bool:
     return slugify(str(row.get("l") or "")) == slugify(text)
 
 
+def _only_one(ask: Ask, text: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """A year-less picture: the only row of exactly that name, when it is of our kind.
+
+    A namesake of any kind or year refuses it: nothing else tells them apart here.
+    """
+    same = [
+        row for row in rows if str(row.get("id", "")).startswith("tt") and _same_name(text, row)
+    ]
+    one = same[0] if len(same) == 1 else None
+    return one if one and _image(one) and str(one.get("qid", "")) in KINDS[ask.kind] else None
+
+
 def _otherwise_named(text: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Строки-ТЕЗКИ по другому имени: подсказчик сводит и альтернативные названия.
 
@@ -103,4 +115,13 @@ def _nested(first: str, second: str) -> bool:
     return first in second or second in first
 
 
-__all__ = ["KINDS", "_fits", "_image", "_otherwise_named", "_same_name", "_series_first", "_sized"]
+__all__ = [
+    "KINDS",
+    "_fits",
+    "_image",
+    "_only_one",
+    "_otherwise_named",
+    "_same_name",
+    "_series_first",
+    "_sized",
+]

@@ -265,3 +265,46 @@ def test_a_russian_title_without_an_original_is_not_asked_at_all() -> None:
     ask = Ask("Укрытие", 2026, "tv")
     assert imdb.wanted([ask], 5.0) == {ask: []}
     assert client.calls == [], "русское имя ушло в сеть"
+
+
+def test_a_picture_without_a_year_takes_the_one_picture_of_its_exact_name() -> None:
+    """«BLADE RUNNER- BLACK LOTUS» comes without a year, and IMDb knows one picture by that name.
+
+    Its tile stayed bare while the source held the series poster: a year-less ask was never asked.
+    """
+    lotus = "BLADE RUNNER- BLACK LOTUS"
+    imdb, _ = _imdb(
+        {
+            lotus: [
+                _row("tt9359796", "Blade Runner: Black Lotus", 2021, "tvSeries"),
+                _row("tt7428594", "Blade Runner: Black Out 2022", 2017, "video"),
+            ]
+        }
+    )
+    ask = Ask(lotus, None, "tv")
+    assert imdb.wanted([ask], 5.0) == {ask: [SMALL, RAW]}
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [
+            _row("tt6751668", "Parasite", 2019, "movie"),
+            _row("tt0084472", "Parasite", 1982, "movie"),
+        ],
+        [
+            _row("tt0083658", "Blade Runner", 1982, "movie"),
+            _row("tt0126817", "Blade Runner", 1997, "videoGame"),
+        ],
+        [_row("tt0083658", "Blade Runner", 1982, "movie", image="")],
+        [_row("tt0083658", "Blade Runner", 1982, "tvSeries")],
+    ],
+)
+def test_without_a_year_any_namesake_or_doubt_leaves_the_line_a_line(
+    rows: list[dict[str, Any]],
+) -> None:
+    """No year to tell namesakes apart: a second picture of that name, of any kind, refuses both."""
+    imdb, _ = _imdb({"Parasite": rows, "Blade Runner": rows})
+    for title in ("Parasite", "Blade Runner"):
+        ask = Ask(title, None, "movie")
+        assert imdb.wanted([ask], 5.0) == {ask: []}

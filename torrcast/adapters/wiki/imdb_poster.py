@@ -111,11 +111,12 @@ class ImdbPoster:
     def _addresses(self, ask: Ask, known: str, timeout: float) -> list[str]:
         """Адреса постера одной картины; сверить её не по чем или не с чем - пусто.
 
-        🔴 Без года не спрашиваем вовсе. Год - единственное, чем тёзки тут отличаются друг
-        от друга: подсказчик не знает ни режиссёра, ни страны, и «Паразиты» без года
-        означали бы «любые из семи».
+        🔴 Год - единственное, чем тёзки тут отличаются друг от друга: подсказчик не знает
+        ни режиссёра, ни страны, и «Паразиты» без года означали бы «любые из семи». Without
+        a year the source is taken only at its word: one picture of exactly that name and
+        no namesake of any kind (:func:`~torrcast.adapters.wiki.imdb_rows._only_one`).
         """
-        if ask.year is None or ask.kind not in imdb_rows.KINDS:
+        if ask.kind not in imdb_rows.KINDS:
             return []
         # Карта назвала id, а картинки у него нет - тогда второй путь: у «Паразиты» 2016
         # обложка лежит под тем же оригинальным именем, каким картину зовёт сам источник.
@@ -147,6 +148,8 @@ class ImdbPoster:
         text = ask.original.strip() or (ask.title.strip() if _said_in_latin(ask.title) else "")
         if not text:
             return None
+        if ask.year is None:
+            return imdb_rows._only_one(ask, text, self._rows(text, timeout))
         rows = [row for row in self._rows(text, timeout) if imdb_rows._fits(ask, row)]
         exact = [row for row in rows if imdb_rows._same_name(text, row)]
         # Тёзка по другому имени - тоже она, если подсказчик привёл ровно её одну: вторые
