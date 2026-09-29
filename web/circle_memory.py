@@ -144,10 +144,11 @@ class CircleMemory:
 
         Метка урезанного (:class:`CutCircle`) ставится по отсечке переходника и пропускает
         ноль, пришедший раньше неё (JacRed: 0 за 3060 мс), а число строк честно гуляет.
+        A whole circle always replaces a marked entry; a part one only when it lost no source.
         """
         told = plans.told if isinstance(plans, ToldCircle) else []
         kept = self.disk.told(self.key(query)) if self.disk is not None and told else None
-        if not kept or self.disk is None or self.disk.part(self.key(query)):
+        if not kept or self.disk is None or (self.disk.part(self.key(query)) and not _part(plans)):
             return False
         return bool(_sources(kept) - _sources(told))
 

@@ -142,3 +142,27 @@ def test_a_cut_circle_as_rich_as_the_whole_one_on_disk_stands_for_it(tmp_path: P
     assert (disk.told("Тачки"), disk.part("Тачки")) == (richer, False)
     memory.store("Тачки", ToldCircle([_PLAN], poorer))
     assert disk.told("Тачки") == richer, "a cut circle without YTS does not replace it"
+
+
+def test_a_cut_circle_does_not_replace_a_richer_cut_one_but_a_whole_one_always_does(
+    tmp_path: Path,
+) -> None:
+    """A marked entry is not a free slot: a cut circle that lost a source keeps off it."""
+    rows = [
+        RawResult("Начало", "a", indexer="JacRed"),
+        RawResult("Начало", "b", indexer="RuTor"),
+        RawResult("Начало", "c", indexer="YTS"),
+    ]
+    rich: list[Told] = [("search", "Начало", 0.0, (), rows)]
+    thin: list[Told] = [("search", "Начало", 0.0, (), rows[1:2])]
+    disk = CircleDisk(path=lambda: tmp_path / "circles.json")
+    memory = CircleMemory(clock=lambda: 0.0, ttl=300.0, disk=disk)
+    disk.keep("Начало", rich, part=True)
+
+    memory.store("Начало", ToldCircle([_PLAN], thin))
+    assert (disk.told("Начало"), disk.part("Начало")) == (rich, True), "RuTor alone is poorer"
+    richer: list[Told] = [("search", "Начало", 0.0, (), [*rows, RawResult("Начало 2", "d")])]
+    memory.store("Начало", ToldCircle([_PLAN], richer))
+    assert (disk.told("Начало"), disk.part("Начало")) == (richer, True)
+    memory.store("Начало", ToldCircle([_PLAN], thin, whole=True))
+    assert (disk.told("Начало"), disk.part("Начало")) == (thin, False), "a whole circle wins"
