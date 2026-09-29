@@ -16,6 +16,7 @@ from torrcast.usecases.reinforce.plan_for import plan_for
 from web.card_lookup import card_lookup
 from web.card_warm import CARD_WARM
 from web.early_picture import early_picture
+from web.own_plan import own_plan
 from web.warm_wiring import WARM
 
 if TYPE_CHECKING:
@@ -42,10 +43,27 @@ def _card_circle(config: Config, args: Args, progress: Progress, profile: Profil
             early := early_picture(args.title_query, args.picture)
         ):
             return [plan_for(copy.copy(early), args, config, profile)]
-        return [_detached(plan) for plan in WARM.take(args.title_query, retry=True)]
+        return [_detached(plan) for plan in _own_circle(args)]
     if args.picture and (season := _season_circle(config, args, profile)):
         return season
     return search_circle(config, args, progress, profile)
+
+
+def _own_circle(args: Args) -> list[Plan]:
+    """Круг, где картина карточки есть: тем же правилом её нашла карточка (:func:`own_plan`).
+
+    «Оно» 2017: выдача по «Оно» раздач фильма не принесла, карточка нашла его по «оно» из
+    ключа, а «Играть», нажатая до ответа карточки, искала строкой плитки и отказывала
+    «картины с карточки больше нет».
+    """
+    taken: dict[str, list[Plan]] = {}
+
+    def circle(query: str) -> list[Plan]:
+        taken[query] = WARM.take(query, retry=True)
+        return taken[query]
+
+    found = own_plan(args.picture, args.title_query, "", circle)[2]
+    return taken[found or args.title_query.strip()]
 
 
 def _season_circle(config: Config, args: Args, profile: Profile) -> list[Plan]:
