@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
-from torrcast.domain.episode import Episode
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import CAUTIOUS, Profile
@@ -20,6 +19,7 @@ from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._named import _also, _different_display_names, _title
 from torrcast.usecases.discover._ask import _notify
+from torrcast.usecases.discover._no_season import _no_season
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._plan_menu import _plans
 from torrcast.usecases.discover._reread import _relayout, _titled_number
@@ -192,11 +192,5 @@ def _circle(
             progress.note(phrase("discover.glued_pictures", also=also, title=title, count=count))
     found, plans = _plans(found, pictures, args, config, profile, name, asked, client, progress)
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
-        want = args.episode or Episode(1, 1)
-        raise SearchRefusalError(
-            "discover.no_season_releases",
-            "web.search.no_season_releases",
-            title=_title(found[0]),
-            season=want.season,
-        )
+        raise _no_season(found[0], args.episode)
     return (CutCircle if getattr(source, "cut", ()) else ToldCircle)(plans, list(client.told))
