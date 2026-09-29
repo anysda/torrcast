@@ -31,7 +31,7 @@ from torrcast.ports.aired_state import AiredState
 from torrcast.ports.state_store.slot import install, store
 from torrcast.runtime.series_facts import SeriesFacts
 from torrcast.usecases import next_season as next_season_module
-from torrcast.usecases.next_season import _next_season
+from torrcast.usecases.next_season import _next_season, _prepared_next
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 
@@ -335,6 +335,40 @@ def test_a_lone_episode_searches_and_records_the_episode_the_catalogue_names() -
     assert (after.season, after.episode, after.done) == (8, 2, False)
 
 
+def test_a_boundary_search_can_finish_before_the_episode_without_replacing_it() -> None:
+    """The one search starts before the credits but changes state only at hand-off."""
+    entry = _put(**_lone(1), done=False)
+    plan = _plan()
+    prep = _prep(plan)
+    second = TorrFile(index=0, name="сериал/s08e02.mkv", size=8 * 1024**3)
+    prep.video, prep.files = second, [second]
+    asked: list[str] = []
+
+    def circle(_config: object, args: Args, *_rest: object, **_kw: object) -> list[Plan]:
+        asked.append(str(args.episode))
+        return [plan]
+
+    prepared = _prepared_next(
+        Config(),
+        KEY,
+        FakeTorrentEngine(),
+        CAUTIOUS,
+        entry,
+        circle=circle,
+        stand=lambda *_a, **_k: _Bench(prep),  # type: ignore[arg-type]
+        series=RICK,
+    )
+    assert prepared is not None
+
+    prepared.start()
+    found = prepared.result()
+
+    assert asked == ["s8e2"], "the early and hand-off paths must share one search"
+    assert found is not None and (found[0].season, found[0].episode) == (8, 2)
+    current = store().load().get(KEY)
+    assert current is not None and (current.season, current.episode) == (8, 1)
+
+
 def test_a_lone_episode_outside_the_catalogue_or_at_its_end_is_not_searched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -385,5 +419,5 @@ def test_a_lone_episode_missing_from_the_answer_is_not_called_a_search_failure(
         Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=circle, series=RICK
     )
     out = capsys.readouterr().out
-    assert phrase("season.no_releases_found", title="Сериал", season=8, upcoming=8) in out
+    assert phrase("season.no_episode_found", title="Сериал", season=8, episode=2) in out
     assert "не найти" not in out

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from torrcast.domain.catalogs.phrase import phrase
@@ -12,10 +13,11 @@ from torrcast.domain.entry import Entry
 from torrcast.ports.state_store.slot import store
 from torrcast.usecases.rank._hms import _hms
 
-__all__ = ["WATCH_SECONDS", "Watch"]
+__all__ = ["NEXT_LOOKAHEAD", "WATCH_SECONDS", "Watch"]
 
 #: Как часто сторож кладёт позицию в state, секунды.
 WATCH_SECONDS = 10.0
+NEXT_LOOKAHEAD = 25.0
 
 
 @dataclass(slots=True)
@@ -38,6 +40,9 @@ class Watch:
     #: Закладка при этом двигается как обычно, а вот следующую серию цикл (:mod:`torrcast.
     #: usecases.worker_loop`) на приёмнике не поднимает - сеанс кончается на месте (TC-880).
     closed_by_remote: bool = False
+    #: One deferred search at a torrent boundary; it must never hold up receiver polling.
+    nearing_end: Callable[[], None] | None = None
+    _near_called: bool = False
     last: float = field(default_factory=time.monotonic)
 
     def see(self, pos: float) -> None:
@@ -45,6 +50,13 @@ class Watch:
         if pos <= 0:  # приёмник ещё не начал считать - нулём позицию не затираем
             return
         self.entry.pos, self.entry.moved = pos, True
+        if (
+            not self._near_called
+            and self.nearing_end is not None
+            and self.entry.dur - pos <= NEXT_LOOKAHEAD
+        ):
+            self._near_called = True
+            self.nearing_end()
         if time.monotonic() - self.last >= self.every:
             self.flush()
 

@@ -20,7 +20,7 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.episode_duration import _duration
 from torrcast.usecases.following import _following
-from torrcast.usecases.next_season import _next_season
+from torrcast.usecases.next_season import _next_season, _prepared_next
 from torrcast.usecases.playback._next_warmer import _next_warmer
 from torrcast.usecases.playback._play import _play
 from torrcast.usecases.playback.voice_source import voice_source
@@ -93,7 +93,8 @@ def _worker_loop(
         entry = _duration(key, entry, source)
         journal().mark("длительность")
         supply.file_index, supply.duration = entry.file_idx, entry.dur
-        watch = Watch(key=key, entry=entry)
+        prepared = _prepared_next(config, key, torrserver, profile, entry)
+        watch = Watch(key=key, entry=entry, nearing_end=prepared.start if prepared else None)
         title = " ".join(filter(None, (entry.spoken, entry.label)))
         # 🔴 Подпись показа - единственное, что уезжает на ЭКРАН, и подмена озвучки
         # обязана доехать именно туда: запомненной студии в этом релизе не нашлось,
@@ -152,7 +153,14 @@ def _worker_loop(
         # Конец раздачи сезона - не конец сериала (TC-805): следующий сезон ищется
         # и записывается в состояние здесь, и цикл играет его, как играл бы следующую
         # серию внутри пака. Не нашёлся - строка уже сказана, и показ заканчивается.
-        if following is None and watch.done and next_season(config, key, torrserver, profile):
+        searched = False
+        if following is None and watch.done:
+            searched = (
+                next_season(config, key, torrserver, profile, prepared=prepared)
+                if next_season is _next_season
+                else next_season(config, key, torrserver, profile)
+            )
+        if following is None and watch.done and searched:
             # Записанное поиском играется, даже если это раздача одной серии: подписи у
             # такой записи нет (:attr:`Entry.label`), но это найденная следующая серия.
             following = store().load().get(key)

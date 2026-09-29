@@ -12,5 +12,8 @@ def ru() -> dict[str, str]:
         "season.no_releases_found": (
             "«{title}» - сезон {season} последний: раздач сезона {upcoming} не нашлось"
         ),
+        "season.no_episode_found": (
+            "«{title}» - сезон {season}: раздач серии s{season}e{episode} не нашлось"
+        ),
         "season.could_not_start": "«{title}» - сезон {upcoming} не поднялся: {err}",
     }

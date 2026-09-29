@@ -11,22 +11,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from torrcast.domain.args import Args
-from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
-from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import Profile
-from torrcast.domain.slugify import slugify
-from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.journal.slot import journal
-from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.ports.series_source import SeriesSource
 from torrcast.ports.state_store.slot import store
 from torrcast.ports.torrent_engine import TorrentEngine
-from torrcast.usecases.cast_command._entry_for import _entry_for
 from torrcast.usecases.discover.search_circle import search_circle
-from torrcast.usecases.playback.file_picker import file_picker
-from torrcast.usecases.rank.pick_voice import pick_voice
+from torrcast.usecases.find_next import find_next
+from torrcast.usecases.prepare_next import prepare_next as _prepare_next
+from torrcast.usecases.prepared_next import PreparedNext
 from torrcast.usecases.select_bench.bench import Bench
 from torrcast.usecases.series_next import series_next
 
@@ -55,6 +49,26 @@ def _target(entry: Entry, series: SeriesSource | None) -> tuple[int, int] | None
     return series_next(entry, series) if series is not None else None
 
 
+def _prepared_next(
+    config: Config,
+    key: str,
+    torrserver: TorrentEngine,
+    profile: Profile,
+    entry: Entry,
+    *,
+    circle: Callable[..., list[Plan]] = search_circle,
+    stand: Callable[..., Bench] = Bench,
+    series: SeriesSource | None = None,
+) -> PreparedNext | None:
+    """Make one deferred search for a torrent boundary, without changing state yet."""
+    if not entry.advance().done:
+        return None
+    target = _target(entry, series or _series)
+    if target is None:
+        return None
+    return _prepare_next(config, key, torrserver, profile, entry, target, circle, stand)
+
+
 def _next_season(
     config: Config,
     key: str,
@@ -64,6 +78,7 @@ def _next_season(
     circle: Callable[..., list[Plan]] = search_circle,
     stand: Callable[..., Bench] = Bench,
     series: SeriesSource | None = None,
+    prepared: PreparedNext | None = None,
 ) -> bool:
     """Досмотренный сезон - не конец сериала: найти и записать следующий, молча.
 
@@ -88,69 +103,26 @@ def _next_season(
     entry = store().load().get(key)
     if entry is None or not entry.done or entry.season is None:
         return False  # не конец раздачи: фильм, стык внутри раздачи, живая запись
-    target = _target(entry, series or _series)
-    if target is None:
-        return False  # одна серия вне каталога или последняя в нём
-    season, (upcoming, episode) = entry.season, target
-    # Серия того же сезона - не «сезон досмотрен»: строк про сезон тут не говорится.
-    same = upcoming == season
-    words = (entry.query or slugify(entry.title)).replace("-", " ").split()
-    args = Args(query=[*words, f"s{upcoming}e{episode}"])
-    if not same:
-        print(
-            phrase("season.searching_next", title=entry.spoken, season=season, upcoming=upcoming),
-            flush=True,
+    if prepared is not None:
+        following = prepared.result()
+    else:
+        target = _target(entry, series or _series)
+        following = (
+            find_next(config, key, torrserver, profile, entry, target, circle, stand)
+            if target is not None
+            else None
         )
-    journal().mark("поиск следующего сезона", сезон=upcoming, серия=episode)
-    with progress_bar() as progress:
-        try:
-            plans = circle(config, args, progress, profile)
-        except NotFoundError as err:
-            # Выдача без серии - ответ каталога, а не сбой поиска.
-            word = "season.no_releases_found" if same else "season.no_next_found"
-            print(
-                phrase(word, title=entry.spoken, season=season, upcoming=upcoming, err=err),
-                flush=True,
-            )
-            return False
-        except TorrcastError as err:
-            # Поиск не состоялся (индексеры, сеть): «последний» здесь было бы ложью.
-            print(
-                phrase("season.search_failed", title=entry.spoken, upcoming=upcoming, err=err),
-                flush=True,
-            )
-            return False
-        plan = next((p for p in plans if p.picture.key == key), None)
-        if plan is None:
-            said = phrase(
-                "season.no_releases_found", title=entry.spoken, season=season, upcoming=upcoming
-            )
-            print(said, flush=True)
-            return False
-        bench = stand(torrserver, choose=file_picker(args), profile=profile)
-        try:
-            prep = bench.resolve(plan, args, progress)
-        except TorrcastError as err:
-            bench.drop_all()  # прогретое без показа - мусор в рое
-            # Сезон есть, но играть его нечем: отказ отбора называет причину сам.
-            print(
-                phrase("season.could_not_start", title=entry.spoken, upcoming=upcoming, err=err),
-                flush=True,
-            )
-            return False
-        bench.keep_only(prep)  # взятую раздачу с этой секунды держит показ, не стенд
-        audio, voice = pick_voice(
-            prep.found, args, entry.voice, plan.picture.native, prep.release.studios
-        )
-        # Память студии переезжает через границу сезона вместе с памятью дорожки: у
-        # новой раздачи запомненной студии может не быть вовсе, и тогда играется что
-        # есть, а помнится прежнее (:attr:`torrcast.domain._playing._Playing.studio`).
-        # Подмену зритель прочтёт на экране подписью показа (:func:`voice_swap`).
-        following = _entry_for(
-            plan, prep, prep.release, prep.want, prep.found, audio, voice, entry.studio, args
-        )
+    if following is None:
+        return False
+    next_entry, release = following
     state = store().load()
-    state.put(key, following)
+    state.put(key, next_entry)
     store().save(state)
-    journal().emit("select", "next_season", season=upcoming, episode=episode, release=prep.number)
+    journal().emit(
+        "select",
+        "next_season",
+        season=next_entry.season,
+        episode=next_entry.episode,
+        release=release,
+    )
     return True
