@@ -50,6 +50,11 @@ def warm_file(
     (:func:`torrcast.usecases.select_bench._bench_in_time._fit`) ждёт его у подмены.
     """
     mapped = threading.Event()
+    if "." in name and not container_of(name):
+        # Карту знают только mkv и mp4; чужое имя файла отвечает про неё сразу, а голова из
+        # холодного роя, по которой её отказывает разбор, стоила отбору 1.5 с (AVI «Призрака
+        # в доспехах»). Разбор идёт и так: его отказ ложится на полку показу.
+        mapped.set()
 
     def work() -> None:
         keys: FilmKeys | None = None

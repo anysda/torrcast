@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -154,3 +155,28 @@ def test_the_returned_event_marks_a_map_taken_or_refused() -> None:
             origin_of=watch.origin_of,
         )
         assert mapped.wait(3.0), "карта кончилась, а событие не встало"
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(("name", "waits"), [("серия.avi", False), ("серия.mkv", True), ("", True)])
+def test_a_file_no_map_is_read_from_does_not_hold_the_pick(name: str, waits: bool) -> None:
+    """AVI карты не даёт: отбор не ждёт холодную голову ради её отказа, разбор идёт сам.
+
+    Положительный контроль - mkv и безымянный файл: их карту отбор ждёт, пока она читается.
+    """
+    reading, release = threading.Event(), threading.Event()
+
+    def keys_of(url: str) -> FilmKeys:
+        reading.set()
+        release.wait(3.0)
+        raise OSError("это не mkv и не mp4")
+
+    watch = Watch(None)
+    mapped = warm_file(
+        "http://торрент/поток", name=name, keys_of=keys_of, warm=watch.warm,
+        origin_of=watch.origin_of,
+    )  # fmt: skip
+    assert reading.wait(3.0), "разбор карты не пошёл"
+    assert mapped.is_set() is not waits
+    release.set()
+    assert mapped.wait(3.0)
