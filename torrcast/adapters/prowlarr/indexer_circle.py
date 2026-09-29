@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Final
 
+from torrcast.adapters.prowlarr.circle_wait import circle_wait
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, HostSlots
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
@@ -15,7 +16,6 @@ from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.indexer_budget import indexer_budget
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.joint_query import joint_query
-from torrcast.domain.quorum_indexer import quorum_indexer
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.wait_indexer import wait_indexer
 
@@ -130,22 +130,19 @@ class IndexerCircle:
         texts = [(num, name, joint_query(name, query, joint)) for num, name in pairs]
         spare = joint is not None  # the names only add rows (:meth:`HostSlots.take`)
         spawned = [
-            self._spawn(text, limit, num, name, cap, spare) for num, name, text in texts if text
+            (name, self._spawn(text, limit, num, name, cap, spare))
+            for num, name, text in texts
+            if text
         ]
-        asked = [ask for ask in spawned if ask is not None]
+        asked = [ask for _name, ask in spawned if ask is not None]
         if self._begun <= 1:
             self._asked.extend(asked)
-        # A circle of the picture's names only adds rows: the viewer's text answers for
-        # the catalogue's health, so the quorum does not hold it.
-        core = [
-            ask
-            for ask in asked
-            if wait_indexer(ask.name) and (joint is None or not quorum_indexer(ask.name))
-        ] or asked
-        for ask in core:
-            # Every budget runs from the circle's start: waiting one after another from
-            # the call added the first answer's seconds to the next silent one's budget.
-            ask.done.wait(max(0.0, began + ask.budget + self.slack - time.monotonic()))
+        unsent = [
+            self._budget(name, cap) for name, ask in spawned if ask is None and wait_indexer(name)
+        ]
+        core = circle_wait(
+            asked, names=spare, began=began, slack=self.slack, held=max(unsent, default=0.0)
+        )
         got: list[list[RawResult]] = []
         why_lost: InfraError | None = None
         with self._lock:  # a peek sees an ask either taken or left, never both
@@ -207,10 +204,13 @@ class IndexerCircle:
         self, query: str, limit: int, num: int, name: str, cap: float, spare: bool
     ) -> _Ask | None:
         """Пустить один индексер в его личный бюджет, урезанный потолком круга."""
-        budget = min(self.budget_of(name), cap) if cap else self.budget_of(name)
+        budget = self._budget(name, cap)
         if not self.slots.take(name, budget, spare=spare):
             return None
         return spawn_ask(self.api, query, limit, num, name, budget)
+
+    def _budget(self, name: str, cap: float) -> float:
+        return min(self.budget_of(name), cap) if cap else self.budget_of(name)
 
 
 __all__ = ["ASK_SLACK", "IndexerCircle"]

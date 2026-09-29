@@ -141,3 +141,28 @@ def test_a_name_behind_a_full_queue_is_not_sent(joint: str | None, asked: set[in
     circle.run([_KNABEN, _RUTOR], "Cars 2006", 100, joint=joint)
     assert set(http.texts) == asked
     assert "RuTor" not in circle.lost, "an unsent name is not a silent one"
+
+
+@pytest.mark.machine
+def test_the_rest_keeps_the_time_the_unsent_name_held_the_circle() -> None:
+    circle, _http = _circle(delay={3: 0.2})  # Nyaa answers in 0.2 s, its budget is 0.5
+    circle.slots.take("RuTor", 0.5)
+    began = time.monotonic()
+    got, _error = circle.run([_RUTOR, (3, "Nyaa.si")], "Cars 2006", 100, joint="")
+    elapsed = time.monotonic() - began
+    assert len(got) == 1, "the answer that came in the unsent name's time is kept"
+    assert elapsed < 0.45, f"waited {elapsed:.2f} s, the unsent name held the circle 0.5 s"
+
+
+@pytest.mark.machine
+def test_an_unsent_name_does_not_leave_the_circle_waiting_the_rest_in_full() -> None:
+    http = _Asked(delay={3: 0.6})
+    budgets = {"RuTor": 0.2, "Nyaa.si": 1.0}
+    circle = IndexerCircle(ProwlarrApi("http://p", "KEY", http=http), budget_of=budgets.__getitem__)
+    circle.slots.take("RuTor", 0.2)
+    began = time.monotonic()
+    got, _error = circle.run([_RUTOR, (3, "Nyaa.si")], "Cars 2006", 100, joint="")
+    elapsed = time.monotonic() - began
+    assert elapsed < 0.5, f"the names waited {elapsed:.2f} s for one that only adds rows"
+    assert got == [] and circle.waiting() == ("Nyaa.si",), "it comes late, not lost"
+    circle.late(wait=2.0)
