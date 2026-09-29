@@ -48,6 +48,9 @@ if TYPE_CHECKING:
 #: страницу секундой позже.
 JOB_TTL = 30.0
 
+# Столько заход с обложками в пути живёт за потолком для опроса, ушедшего до потолка.
+CAP_GRACE = 5.0
+
 #: Полный круг поиска, но с ходом внутрь (:func:`search_circle`'s ``on_indexer``):
 #: боевая сборка звонит настоящему кругу, подделка нужна только тестам.
 ProgressiveSearch = Callable[
@@ -137,7 +140,7 @@ def search_progress(
         stale = job is not None and job.done and time.monotonic() - job.finished_at > JOB_TTL
         # A circle still running behind its deadline snapshot is heard out, not doubled.
         stale = stale and not (job is not None and job.late(POSTERS_BY))
-        stale = stale and not (job is not None and _coming(job, covers))
+        stale = stale and not (job is not None and _coming(job, covers, CAP_GRACE))
         if job is None or stale:
             job = SearchJob(catalog=None if catalog is None else catalog(query))
             _jobs[key] = job
@@ -179,9 +182,14 @@ def _refusal_pending(query: str) -> bool:
         return job is not None and job.late(REFUSAL_BY)
 
 
-def _coming(job: SearchJob, covers: _Covers | None) -> bool:
-    """Обложки готового захода в пути или были в пути у опроса, и потолок не пройден."""
-    if covers is None or not job.done or time.monotonic() - job.started_at >= POSTERS_BY:
+def _coming(job: SearchJob, covers: _Covers | None, grace: float = 0.0) -> bool:
+    """Обложки готового захода в пути или были в пути у опроса, и потолок не пройден.
+
+    ``grace`` держит заход и чуть за потолком: опрос, ушедший со страницы до потолка,
+    приезжает после него, и новый круг по индексерам на его месте был бы вторым поиском
+    того же запроса.
+    """
+    if covers is None or not job.done or time.monotonic() - job.started_at >= POSTERS_BY + grace:
         return False
     return job.promised or job.judging or covers.pending(job.results)
 

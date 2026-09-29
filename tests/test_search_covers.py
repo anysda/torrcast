@@ -122,7 +122,8 @@ def test_a_job_with_posters_coming_outlives_its_ttl_but_not_the_cap(
         monkeypatch.setattr(module, "JOB_TTL", -1.0)
         _, partial = _poll(circles, posters)
         assert partial is False, "обложки в пути, а заход сменился новым кругом"
-        monkeypatch.setattr(module, "POSTERS_BY", 0.0)
+        # Потолок и запас за ним для опроса, ушедшего до потолка, оба позади.
+        monkeypatch.setattr(module, "POSTERS_BY", -module.CAP_GRACE)
         _, partial = _poll(circles, posters)
         assert partial is True, "зависший дозапрос держит заход вечно"
         deadline = time.monotonic() + _SETTLE
