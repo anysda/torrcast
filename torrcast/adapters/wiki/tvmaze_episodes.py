@@ -23,6 +23,7 @@ from urllib.request import Request, urlopen
 
 from torrcast.adapters.filesystem.state.state_path import state_path
 from torrcast.domain.facts.settings import USER_AGENT
+from torrcast.ports.series_source import AiredState
 
 #: Серии: (сезон, номер) -> (момент выхода для сравнения, дата выхода для глаз).
 Aired = dict[tuple[int, int], tuple[str, str]]
@@ -102,17 +103,17 @@ class TvmazeEpisodes:
     _pending: dict[str, threading.Event] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
-    def aired(self, tconst: str, wait: float = 0.0) -> tuple[Aired, bool]:
-        """Серии сериала и «ответ ещё в пути»; неизвестный сериал и молчащая сеть - пусто."""
+    def aired(self, tconst: str, wait: float = 0.0) -> tuple[Aired, AiredState]:
+        """Серии и достоверность ответа; неизвестный сериал не равен молчащей сети."""
         if not _TCONST.fullmatch(tconst):
-            return {}, False
+            return {}, AiredState.KNOWN
         now = self.clock()
         with self._lock:
             known = self._memory.get(tconst) or self._read(tconst)
             if known is not None:
                 self._memory[tconst] = known
                 if now - known[1] < FRESH:
-                    return known[0], False
+                    return known[0], AiredState.KNOWN
             event = self._pending.get(tconst)
             started = event is None and self._failed.get(tconst, 0.0) <= now
             if started:
@@ -120,12 +121,12 @@ class TvmazeEpisodes:
         if started and event is not None:
             self.spawn(lambda: self._refresh(tconst, event))
         if known is not None:
-            return known[0], False
+            return known[0], AiredState.KNOWN
         if started and event is not None and wait > 0:
             event.wait(wait)
         with self._lock:
             fresh = self._memory.get(tconst)
-            return (fresh[0], False) if fresh else ({}, tconst in self._pending)
+            return (fresh[0], AiredState.KNOWN) if fresh else ({}, AiredState.UNKNOWN)
 
     def _refresh(self, tconst: str, event: threading.Event) -> None:
         found: Aired | None = None

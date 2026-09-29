@@ -24,7 +24,7 @@ def payload(
     disk_free: int,
     last_error: str,
     picture: tuple[str, str],
-    has_next: bool,
+    has_next: bool | None,
     start: dict[str, JsonValue] | None = None,
     refusal: str | None = None,
 ) -> dict[str, JsonValue]:

@@ -36,6 +36,7 @@ const TCPlayer = {
     TCPlayer._counting = false;
     TCPlayer._ending = false;
     TCPlayer._hasNext = false;
+    TCPlayer._awaitNext = false;
     TCPlayer._last = null;
     TCPlayer._tvMark = null;
     TCPlayer._leftSent = false;
@@ -111,7 +112,10 @@ const TCPlayer = {
     while (TCPlayer._mounted()) {
       const state = await TCApi.state();
       if (state) {
-        TCPlayer._hasNext = !!state.has_next;
+        const awaiting = TCPlayer._awaitNext;
+        TCPlayer._hasNext = state.has_next === true;
+        TCPlayer._awaitNext = state.has_next === null && state.state !== 'idle';
+        if (awaiting && state.state === 'idle') TCPlayer._leave();
         TCPlayer._last = state;
         TCPlayer._render(state);
         //: Пока ящика нет, эти же ответы двигают экран подготовки: раз в две секунды
@@ -199,6 +203,10 @@ const TCPlayer = {
     if (TCPlayer._ending) return;
     TCPlayer._ending = true;
     if (!TCPlayer._hasNext) {
+      if (TCPlayer._awaitNext) {
+        TCPlayer._screenBuffering();
+        return;
+      }
       TCPlayer._leave();
       return;
     }
@@ -267,7 +275,8 @@ const TCPlayer = {
       TCPlayer._framed = false;
       TCPlayer._screenBuffering();
     }
-    TCApi.next(ended);
+    // Поиск продолжения делает живой юнит. Вкладка только открывает его ящик: второй
+    // поиск здесь соревновался с ним на границе одиночной серии и сезона.
   },
   // ------------------------------------------------------------------ hls.js
 

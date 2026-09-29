@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
+from torrcast.ports.series_source import AiredState
 from web.series_catalog import COLD, RETRY, SeriesCatalog
 
 SHOW = Picture(title="Show", year=2020, kind="tv", original="Show")
@@ -15,12 +16,12 @@ RELEASE = Release(raw_name="Show S01E01", title="Show", kind="tv", season=1, epi
 
 class _Tvmaze:
     def __init__(self, aired: Mapping[tuple[int, int], tuple[str, str]], pending: bool) -> None:
-        self.answer = (aired, pending)
+        self.answer = (aired, AiredState.UNKNOWN if pending else AiredState.KNOWN)
         self.waits: list[float] = []
 
     def __call__(
         self, _tconst: str, wait: float
-    ) -> tuple[Mapping[tuple[int, int], tuple[str, str]], bool]:
+    ) -> tuple[Mapping[tuple[int, int], tuple[str, str]], AiredState]:
         self.waits.append(wait)
         return self.answer
 

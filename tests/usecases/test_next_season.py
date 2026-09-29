@@ -369,3 +369,20 @@ def test_a_lone_last_episode_of_a_season_searches_the_next_season(
     assert [str(args.episode) for args in asked] == ["s9e1"]
     out = capsys.readouterr().out
     assert phrase("season.searching_next", title="Сериал", season=8, upcoming=9) in out
+
+
+def test_a_lone_episode_missing_from_the_answer_is_not_called_a_search_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """NotFound для s8e2 означает «раздач нет», а не неназванный сбой поиска."""
+    _put(**_lone(1))
+
+    def circle(*_args: object, **_kw: object) -> list[Plan]:
+        raise NotFoundError("«Сериал»: раздач с s8e2 нет")
+
+    assert not _next_season(
+        Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=circle, series=RICK
+    )
+    out = capsys.readouterr().out
+    assert phrase("season.no_releases_found", title="Сериал", season=8, upcoming=8) in out
+    assert "не найти" not in out

@@ -22,6 +22,7 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.series_layout import series_layout
+from torrcast.ports.series_source import Aired, AiredState
 from torrcast.runtime.facts_wiring import FACTS
 
 #: Сколько первый вопрос сериала ждёт TVmaze: живой отвечает за 0.2-0.5 с (живой приёмник),
@@ -43,7 +44,7 @@ class SeriesCatalog:
 
     ids: Callable[[str, str, int | None], str]
     numbers: Callable[[str], Mapping[int, tuple[int, ...]] | None]
-    aired: Callable[[str, float], tuple[Mapping[tuple[int, int], tuple[str, str]], bool]]
+    aired: Callable[[str, float], Aired]
     now: Callable[[], str] = _now
     clock: Callable[[], float] = monotonic
     _ids: dict[str, tuple[str, float]] = field(default_factory=dict)
@@ -66,7 +67,8 @@ class SeriesCatalog:
             self._ids[key] = (tconst, moment)
         if not tconst:
             return {}, False, []  # outside the catalogue the card keeps the release tables
-        aired, pending = self.aired(tconst, COLD)
+        aired, state = self.aired(tconst, COLD)
+        pending = state is AiredState.UNKNOWN
         imdb = self.numbers(tconst) or {}
         layout, direct = series_layout(imdb, aired, releases, saved, self.now())
         if not direct:

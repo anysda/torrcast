@@ -1,10 +1,19 @@
 """Каталог сериала: номера серий и даты выхода; зовут плашка следующей серии и цикл юнита."""
 
 from collections.abc import Callable, Mapping
+from enum import Enum
 from typing import Protocol
 
-#: Серии сериала с датами выхода: ``(сезон, серия) -> (момент ISO, день)``, и «ещё в пути».
-Aired = tuple[Mapping[tuple[int, int], tuple[str, str]], bool]
+
+class AiredState(Enum):
+    """Достоверность ответа TVmaze: ответил ли каталог или сеть ещё ничего не сказала."""
+
+    KNOWN = "known"
+    UNKNOWN = "unknown"
+
+
+#: Серии сериала с датами выхода и достоверность ответа TVmaze.
+Aired = tuple[Mapping[tuple[int, int], tuple[str, str]], AiredState]
 
 
 class SeriesSource(Protocol):
@@ -20,7 +29,7 @@ class SeriesSource(Protocol):
 
     @property
     def aired(self) -> Callable[[str, float], Aired]:
-        """Даты выхода серий по TVmaze; пусто - дат нет."""
+        """Даты выхода серий по TVmaze; ``UNKNOWN`` - сеть или фоновый вопрос."""
 
     @property
     def now(self) -> Callable[[], str]:

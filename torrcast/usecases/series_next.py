@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection
 
 from torrcast.domain.entry import Entry
-from torrcast.ports.series_source import SeriesSource
+from torrcast.ports.series_source import AiredState, SeriesSource
 
 
 def series_next(
@@ -35,7 +35,11 @@ def series_next(
     tconst = catalog.ids(entry.title, entry.original, entry.year or None)
     if not tconst:
         return None
-    aired, _pending = catalog.aired(tconst, 0.0)
+    aired, state = catalog.aired(tconst, 0.0)
+    # Не ответившая сеть не даёт права назвать серию вышедшей. Юнит всё же может
+    # назвать КАНДИДАТА, потому что ниже докажет его настоящим поиском раздачи.
+    if state is AiredState.UNKNOWN and released is not None:
+        return None
     dated = bool(aired)
     if dated:
         now = catalog.now()

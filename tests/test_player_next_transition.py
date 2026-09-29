@@ -59,13 +59,12 @@ def test_the_countdown_appears_at_the_promised_threshold_and_not_earlier(
 
 
 @pytest.mark.machine
-def test_the_countdown_expires_naturally_removes_its_card_and_calls_next_once(
+def test_the_countdown_expires_naturally_removes_its_card_without_a_second_search(
     facts: dict[str, Any],
 ) -> None:
-    """Досчитала сама - карточка уходит из DOM и переход зовётся ровно один раз.
+    """Досчитала сама - карточка уходит из DOM, а поиск остаётся у юнита.
 
-    Ловит пробу (д) («убрать ``TCApi.next(ended)`` из ветки без ящика» - перехода не
-    было бы вовсе). Пробу (г) («убрать ``card.remove()`` из ``stop()``») в СБОРКЕ не
+    Пробу (г) («убрать ``card.remove()`` из ``stop()``») в СБОРКЕ не
     ловит ничто - следующий же ``_playNext()``/``_cancelNext()`` сам заменяет весь
     оверлей (``overlay.replaceChildren()`` у любого экрана ``player-screens.js``), и
     дефект замаскирован; поэтому вторая половина этой проверки берёт ``player-next.js``
@@ -75,8 +74,7 @@ def test_the_countdown_expires_naturally_removes_its_card_and_calls_next_once(
     said = _scenario(facts, "seriesCountdown")
     assert said["beforeExpiry"] is True, "карточка пропала до истечения счёта"
     assert said["afterExpiry"] is False, "карточка осталась в DOM после «0» (виснет)"
-    assert said["nextCalls"] == 1, f"TCApi.next зовётся {said['nextCalls']} раз, не 1"
-    assert said["nextArg"] == {"season": 1, "episode": 2}
+    assert said["nextCalls"] == 0, f"вкладка завела второй поиск: {said['nextCalls']}"
 
     alone = _scenario(facts, "standaloneNextExpiry")
     assert alone["mounted"] is True
@@ -95,7 +93,7 @@ def test_a_stale_video_after_expiry_does_not_fire_a_second_transition(
     ``timeupdate`` на ещё старой длительности зовёт ``_startNext`` второй раз."""
     said = _scenario(facts, "seriesCountdown")
     assert said["afterStaleTick"] is False, "карточка вернулась на доигрывающем видео"
-    assert said["nextCalls"] == 1, "переход завёлся второй раз на том же хвосте"
+    assert said["nextCalls"] == 0, "вкладка завела поиск на старом хвосте"
 
 
 @pytest.mark.machine
@@ -172,7 +170,7 @@ def test_a_successful_retry_lets_the_same_episode_reach_its_own_end(
     assert said["endingAfterRetry"] is False, "«Повторить» не сняло _ending - серия заперта"
     assert said["secondCardMounted"] is True, "после «Повторить» плашка больше не встаёт"
     assert said["secondCardExpired"] is True, "вторая карточка не истекла сама"
-    assert said["nextCalls"] == 1, "серия, доигранная после «Повторить», не перешла дальше"
+    assert said["nextCalls"] == 0, "повторный конец завёл второй поиск вкладкой"
 
 
 @pytest.mark.machine
@@ -209,7 +207,7 @@ def test_the_deferred_box_opens_without_a_second_round_trip_and_calls_next_once(
         f"поход за ящиком случился {said['boxPolls']} раз - первый (посадка) и второй "
         "(находка посреди счёта); третьего быть не должно"
     )
-    assert said["nextCalls"] == 1
+    assert said["nextCalls"] == 0
     assert said["noCardMidway"] is False, "карточка новой серии встала посреди неё"
     assert said["secondCountdownAppears"] is True, (
         "открытая серия осталась без своего автоперехода - apply() не снял _ending"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import hass.following as following_module
-from hass.following import following
+from hass.following import following, waits_for_next
 from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.state_store import FakeStateStore
 from torrcast.domain.entry import Entry
@@ -91,3 +91,21 @@ def test_inside_the_release_the_catalogue_is_not_asked(monkeypatch: pytest.Monke
     monkeypatch.setattr(following_module, "catalog_next", lambda *_a: "s9e9")
 
     assert following(FakePlaybackSession(playing=True, play_key="tv:чернобыль")) == "чернобыль s1e4"
+
+
+def test_a_tvmaze_question_at_the_end_waits_for_the_units_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_slot.install(FakeStateStore())
+    state = state_slot.store().load()
+    state.entries["tv:рик"] = Entry(
+        title="Рик и Морти", magnet="m", kind="tv", season=9, episode=5,
+        episodes=[[9, 5, 0, 0]], query="rick and morty",
+    )  # fmt: skip
+    state_slot.store().save(state)
+    monkeypatch.setattr(following_module, "catalog_next", lambda *_a: None)
+    monkeypatch.setattr(following_module, "catalog_waits", lambda *_a: True)
+    session = FakePlaybackSession(playing=True, play_key="tv:рик")
+
+    assert following(session) is None
+    assert waits_for_next(session) is True

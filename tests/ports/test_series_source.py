@@ -1,6 +1,6 @@
 """Контракт каталога сериала: ему отвечают и каталог карточки, и сборка юнита."""
 
-from torrcast.ports.series_source import Aired, SeriesSource
+from torrcast.ports.series_source import Aired, AiredState, SeriesSource
 from torrcast.runtime.series_facts import SeriesFacts
 from web.series_catalog import SeriesCatalog
 
@@ -13,7 +13,7 @@ def test_the_card_catalogue_and_the_unit_catalogue_are_the_same_port() -> None:
         return "tt1"
 
     def aired(*_a: object) -> Aired:
-        return {}, False
+        return {}, AiredState.KNOWN
 
     def now() -> str:
         return "2026-01-01T00:00:00+00:00"
@@ -23,5 +23,5 @@ def test_the_card_catalogue_and_the_unit_catalogue_are_the_same_port() -> None:
     for port in (card, unit):
         assert port.ids("Show", "", None) == "tt1"
         assert port.numbers("tt1") == numbers
-        assert port.aired("tt1", 0.0) == ({}, False)
+        assert port.aired("tt1", 0.0) == ({}, AiredState.KNOWN)
         assert port.now() == "2026-01-01T00:00:00+00:00"

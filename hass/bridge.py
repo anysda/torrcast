@@ -19,7 +19,7 @@ import secrets
 from collections.abc import Callable
 from typing import Unpack
 
-from hass.following import following
+from hass.following import following, waits_for_next
 from hass.hit_posters import hits
 from hass.motion import Motion
 from hass.next_show import next_show
@@ -89,6 +89,10 @@ class Bridge:
         active = self._session.active()
         shown = self._session.snapshot(self._session.key() if active else "")
         word = self._motion.phase(shown, active=active, starting=self._orders.underway())
+        next_query = following(self._session)
+        has_next = (
+            True if next_query is not None else None if waits_for_next(self._session) else False
+        )
         return payload(
             self._motion.aimed(shown),
             version=__version__,
@@ -100,7 +104,7 @@ class Bridge:
             last_error=self._orders.last_error,
             refusal=refusal_record().read(),
             picture=self._posters.picture(shown if active else None, self._session.stream_address),
-            has_next=following(self._session) is not None,
+            has_next=has_next,
             start=START.seen(),
         )
 

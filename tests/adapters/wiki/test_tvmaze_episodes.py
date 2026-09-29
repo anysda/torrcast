@@ -13,6 +13,7 @@ from torrcast.adapters.wiki.tvmaze_episodes import (
     TvmazeEpisodes,
     _Pace,
 )
+from torrcast.ports.series_source import AiredState
 
 SHOW = "https://api.tvmaze.com/lookup/shows?imdb=tt0000001"
 EPISODES = "https://api.tvmaze.com/shows/7/episodes"
@@ -58,15 +59,15 @@ def test_the_episodes_land_on_disk_and_answer_without_the_network(tmp_path: Path
     net, now = _Net(ANSWERS), [1000.0]
     first = TvmazeEpisodes(lambda: tmp_path, net, _sync, _now(now))
 
-    aired, pending = first.aired("tt0000001")
+    aired, state = first.aired("tt0000001")
 
-    assert not pending
+    assert state is AiredState.KNOWN
     assert aired == {
         (1, 1): ("2010-01-01T20:00:00+00:00", "2010-01-01"),
         (2, 1): ("2026-09-20", "2026-09-20"),
     }, "спецвыпуск без номера не серия"
     later = TvmazeEpisodes(lambda: tmp_path, _Net({}), _sync, _now(now))
-    assert later.aired("tt0000001") == (aired, False)
+    assert later.aired("tt0000001") == (aired, AiredState.KNOWN)
 
 
 def test_a_stale_answer_is_served_at_once_and_refreshed_behind(tmp_path: Path) -> None:
@@ -78,19 +79,19 @@ def test_a_stale_answer_is_served_at_once_and_refreshed_behind(tmp_path: Path) -
 
     aired, pending = stale.aired("tt0000001")
 
-    assert (len(aired), pending, net.asked) == (2, False, [])
+    assert (len(aired), pending, net.asked) == (2, AiredState.KNOWN, [])
     jobs.pop()()
-    assert stale.aired("tt0000001") == ({}, False)
+    assert stale.aired("tt0000001") == ({}, AiredState.KNOWN)
 
 
-def test_a_silent_network_is_pending_then_empty_until_the_retry(tmp_path: Path) -> None:
+def test_a_silent_network_stays_unknown_until_the_retry(tmp_path: Path) -> None:
     now, jobs = [1000.0], list[Callable[[], None]]()
     net = _Net({SHOW: TimeoutError("silent")})
     catalogue = TvmazeEpisodes(lambda: tmp_path, net, jobs.append, _now(now))
 
-    assert catalogue.aired("tt0000001", wait=0.01) == ({}, True)
+    assert catalogue.aired("tt0000001", wait=0.01) == ({}, AiredState.UNKNOWN)
     jobs.pop()()
-    assert catalogue.aired("tt0000001") == ({}, False)
+    assert catalogue.aired("tt0000001") == ({}, AiredState.UNKNOWN)
     assert (jobs, len(net.asked)) == ([], 1), "молчание переспрашивается не раньше RETRY"
     now[0] += RETRY + 1
     catalogue.aired("tt0000001")
@@ -101,10 +102,10 @@ def test_a_series_tvmaze_does_not_know_is_an_empty_answer_kept_for_a_day(tmp_pat
     net = _Net({SHOW: None})
     catalogue = TvmazeEpisodes(lambda: tmp_path, net, _sync, _now([1000.0]))
 
-    assert catalogue.aired("tt0000001") == ({}, False)
-    assert catalogue.aired("tt0000001") == ({}, False)
+    assert catalogue.aired("tt0000001") == ({}, AiredState.KNOWN)
+    assert catalogue.aired("tt0000001") == ({}, AiredState.KNOWN)
     assert net.asked == [SHOW]
-    assert catalogue.aired("../../etc/passwd") == ({}, False)
+    assert catalogue.aired("../../etc/passwd") == ({}, AiredState.KNOWN)
 
 
 def test_the_oldest_answers_leave_the_disk_once_the_cache_is_over_its_limit(

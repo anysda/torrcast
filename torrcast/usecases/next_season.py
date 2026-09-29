@@ -106,8 +106,8 @@ def _next_season(
         try:
             plans = circle(config, args, progress, profile)
         except NotFoundError as err:
-            # Следующего сезона не нашлось - это ответ, а не молчаливый выход.
-            word = "season.search_failed" if same else "season.no_next_found"
+            # Выдача без серии - ответ каталога, а не сбой поиска.
+            word = "season.no_releases_found" if same else "season.no_next_found"
             print(
                 phrase(word, title=entry.spoken, season=season, upcoming=upcoming, err=err),
                 flush=True,
@@ -122,14 +122,8 @@ def _next_season(
             return False
         plan = next((p for p in plans if p.picture.key == key), None)
         if plan is None:
-            said = (
-                phrase(
-                    "season.search_failed", title=entry.spoken, upcoming=upcoming, err=args.episode
-                )
-                if same
-                else phrase(
-                    "season.no_releases_found", title=entry.spoken, season=season, upcoming=upcoming
-                )
+            said = phrase(
+                "season.no_releases_found", title=entry.spoken, season=season, upcoming=upcoming
             )
             print(said, flush=True)
             return False
