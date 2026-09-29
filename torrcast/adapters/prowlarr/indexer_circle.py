@@ -114,12 +114,15 @@ class IndexerCircle:
 
         Возвращает выдачи и причину последней потери - она понадобится, если смолчат все.
         """
+        began = time.monotonic()
         asked = [self._spawn(query, limit, num, name, cap) for num, name in pairs]
         if self._begun <= 1:
             self._asked.extend(asked)
         core = [ask for ask in asked if wait_indexer(ask.name)] or asked
         for ask in core:
-            ask.done.wait(ask.budget + self.slack)
+            # Every budget runs from the circle's start: waiting one after another from
+            # the call added the first answer's seconds to the next silent one's budget.
+            ask.done.wait(max(0.0, began + ask.budget + self.slack - time.monotonic()))
         got: list[list[RawResult]] = []
         why_lost: InfraError | None = None
         with self._lock:  # a peek sees an ask either taken or left, never both
