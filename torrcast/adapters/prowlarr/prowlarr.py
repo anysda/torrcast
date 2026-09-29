@@ -115,7 +115,10 @@ class Prowlarr(_State):
         self._first = False
         self._circle.begin()
         got, why_lost = self._circle.run(first, query, limit, cap, self.joint)
-        fallback = bool(later) and anime_fallback(len(merge(*got)), bool(got))
+        # The names' pool is thin by design, and it is the viewer's text that decides
+        # whether the picture is anime: a second circle here only held the round.
+        thin = anime_fallback(len(merge(*got)), bool(got))
+        fallback = bool(later) and self.joint is None and thin
         if fallback:
             # Фолбэк - тоже второй круг, и цель он тратит наравне с добором.
             more, err = self._circle.run(later, query, limit, self.circle_cap(), self.joint)

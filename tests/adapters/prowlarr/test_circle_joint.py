@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _RUTOR, _Http
-from tests.adapters.prowlarr.test_prowlarr import _swarm, _swarm_of
+from tests.adapters.prowlarr.test_prowlarr import _asked, _swarm, _swarm_of
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.domain.joint_query import NAMES_BEHIND
@@ -82,7 +82,7 @@ def test_a_client_of_the_names_is_not_held_by_the_quorum() -> None:
     finally:
         _swarm_of(client).gate.set()
         client.late(wait=5.0)
-    assert len(results) == 4, "RuTor and Nyaa answered, Knaben is still on its way"
+    assert len(results) == 2, "RuTor answered, Knaben is still on its way, Nyaa is not asked"
     assert elapsed < 0.5, f"the names waited {elapsed:.2f} s for the quorum"
 
 
@@ -119,3 +119,16 @@ def test_the_names_leave_the_first_slot_to_the_viewers_text(
     client.search("Cars 2006")
     elapsed = time.monotonic() - client._began
     assert (elapsed >= NAMES_BEHIND) is behind, f"first circle done in {elapsed:.2f} s"
+
+
+@pytest.mark.parametrize(("joint", "anime"), [(None, ["1", "2", "3"]), ("", ["1", "2"])])
+def test_only_the_viewers_text_calls_the_anime_indexers_on_a_thin_pool(
+    joint: str | None, anime: list[str]
+) -> None:
+    client = _swarm(rows=2, empty={1, 2, 3})
+    if joint is not None:
+        client.beside(joint)
+        client.behind = 0.0
+    with pytest.raises(NotFoundError):
+        client.search("Cars 2006")
+    assert _asked(client) == anime
