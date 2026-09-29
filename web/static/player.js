@@ -75,7 +75,10 @@ const TCPlayer = {
       if (!TCPlayer._counting) TCPlayer._clearOverlay();
       TCPlayer._sendPosition();
     });
-    video.addEventListener('waiting', () => { if (!TCPlayer._counting) TCPlayer._screenBuffering(); });
+    // Отказ подъёма - последнее слово: заминка мёртвого потока его не перебивает.
+    video.addEventListener('waiting', () => {
+      if (!TCPlayer._counting && !TCPlayer._overlay.querySelector('.tc-refused')) TCPlayer._screenBuffering();
+    });
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
     video.addEventListener('ended', () => {
       TCPlayer._startNext();
@@ -140,9 +143,16 @@ const TCPlayer = {
         //: названном отказе (``last_error`` кладёт мост, слово-причину ``refusal`` -
         //: юнит, :mod:`torrcast.domain.start_refusal`). Слова нет - строка остаётся
         //: короткой, без выдуманного хвоста.
+        //: Ящик уже есть, а кадра нет: экран подготовки остаётся экраном подъёма и
+        //: переписывается теми же ответами, пока подъём идёт (``_screenBuffering``).
+        //: Подъём кончился - один раз на буферизацию или на отказ, если показ умер.
         if (!TCPlayer._url) {
           if (refused) TCPlayer._screenRefused(state.refusal);
           else TCPlayer._screenPreparing(state);
+        } else if (!TCPlayer._framed && !TCPlayer._counting
+          && TCPlayer._overlay.querySelector('.tc-preparing')) {
+          if (refused) TCPlayer._screenRefused(state.refusal);
+          else TCPlayer._screenBuffering();
         }
       }
       await TCPlayer._sleep(TCPlayer.POLL_MS);
@@ -584,7 +594,16 @@ const TCPlayer = {
   //: До первого кадра (свежий ящик, «Повторить») панели делать нечего: перематывать и
   //: слать на ТВ ещё нечего, и её кнопки были мёртвыми (прод 11-09: «куча кнопок, которые
   //: не работают»). Тогда она прячется, как у подготовки, а выход - «Назад» экрана.
+  //:
+  //: До первого кадра, пока продукт ещё поднимает показ (``start`` в ``/api/state``),
+  //: вместо буферизации стоит экран подготовки: он называет фазу подъёма, в том числе
+  //: «жду плеер», когда упаковка уже готова и ждут саму вкладку. «Буферизация» до кадра
+  //: говорила о сети, которой тут ещё нечего отдавать, и замораживала экран подготовки.
   _screenBuffering() {
+    if (!TCPlayer._framed && TCPlayer._last && TCPlayer._last.start) {
+      TCPlayer._screenPreparing();
+      return;
+    }
     const bare = !TCPlayer._framed;
     TCPlayer._halt(bare);
     TCPlayerScreens.buffering(TCPlayer._overlay, bare ? TCPlayer._leave : null);
