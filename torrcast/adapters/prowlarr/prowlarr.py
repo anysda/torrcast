@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from torrcast.adapters.prowlarr.circle_trace import circle_trace
 from torrcast.adapters.prowlarr.feed_url import feed_url
 from torrcast.adapters.prowlarr.from_feed_json import from_feed_json
@@ -106,6 +108,9 @@ class Prowlarr(_State):
         # 🔴 TC-1046: у первого круга потолок свой (:attr:`first_cap`). Цель ему не указ -
         # он и есть поиск, - а вот бюджет самого медленного опорного указ: круг ждёт
         # каждого опорного отдельно, и без потолка ценой меню были двадцать секунд Knaben.
+        if self._first and self.joint is not None:
+            # The viewer's text takes the first slot at every paced host (:attr:`behind`).
+            time.sleep(max(0.0, self._began + self.behind - time.monotonic()))
         cap = self.first_cap if self._first else self.circle_cap()
         self._first = False
         self._circle.begin()
@@ -128,8 +133,10 @@ class Prowlarr(_State):
         # стоило им по 2.1 с, и у двух из них опоздавший вёз ту самую картину, которой не
         # хватало, опаздывая на 0.2 с. Ждём остаток цели: секунды тут покупают не скорость
         # показа, а выбор между «ничего не нашлось» и картиной.
+        # A client of the picture's names shows nothing by itself: the viewer's text
+        # does, and waiting here only held the whole round for seconds.
         waiting = self.waiting()
-        if not any(got) and (rows := self.late(wait=self.spare())):
+        if not any(got) and self.joint is None and (rows := self.late(wait=self.spare())):
             got.append(rows)
         circle_trace(
             got=self._circle.counts,

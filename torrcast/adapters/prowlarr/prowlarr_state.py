@@ -13,6 +13,7 @@ from torrcast.adapters.prowlarr.prowlarr_api import TIMEOUT, ProwlarrApi
 from torrcast.domain.circle_budget import FIRST_CIRCLE_TIMEOUT
 from torrcast.domain.goal_spare import CIRCLE_SHARE, goal_spare
 from torrcast.domain.indexer_budget import indexer_budget
+from torrcast.domain.joint_query import NAMES_BEHIND
 
 
 class _State:
@@ -80,6 +81,9 @@ class _State:
         self.over_goal: bool = False
         #: A client of the picture's names (:meth:`beside`); ``None`` for the viewer's text.
         self.joint: str | None = None
+        #: How long after its start a client of the names holds its first circle
+        #: (:data:`~torrcast.domain.joint_query.NAMES_BEHIND`); tests shorten it.
+        self.behind: float = NAMES_BEHIND
 
     def beside(self, joint: str) -> None:
         """Ask the picture's names beside the viewer's text (:mod:`~torrcast.domain.joint_query`).

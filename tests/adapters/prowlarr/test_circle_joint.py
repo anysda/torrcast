@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import urllib.parse
 from typing import Any
@@ -12,6 +13,8 @@ from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _RUTOR, _Http
 from tests.adapters.prowlarr.test_prowlarr import _swarm, _swarm_of
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
+from torrcast.domain.joint_query import NAMES_BEHIND
+from torrcast.domain.not_found_error import NotFoundError
 
 _JACRED = (4, "JacRed")
 _JOINT = "Тачки 2006 | Cars 2006"
@@ -71,6 +74,7 @@ def test_the_quorum_holds_the_viewers_text_but_not_the_names(joint: str | None, 
 def test_a_client_of_the_names_is_not_held_by_the_quorum() -> None:
     client = _swarm(hold={1}, rows=2)  # Knaben is held until the gate
     client.beside("")
+    client.behind = 0.0
     began = time.monotonic()
     try:
         results = client.search("Cars 2006")
@@ -80,3 +84,38 @@ def test_a_client_of_the_names_is_not_held_by_the_quorum() -> None:
         client.late(wait=5.0)
     assert len(results) == 4, "RuTor and Nyaa answered, Knaben is still on its way"
     assert elapsed < 0.5, f"the names waited {elapsed:.2f} s for the quorum"
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(("joint", "waits"), [(None, True), ("", False)])
+def test_only_the_viewers_text_waits_for_a_late_one_on_an_empty_pool(
+    joint: str | None, waits: bool
+) -> None:
+    client = _swarm(rows=2, empty={1, 2}, hold={3})  # Nyaa is on its way
+    if joint is not None:
+        client.beside(joint)
+        client.behind = 0.0
+    threading.Timer(0.6, _swarm_of(client).gate.set).start()
+    began = time.monotonic()
+    try:
+        client.search("Naruto [TV]")
+    except NotFoundError:
+        assert not waits, "the viewer's text waited for the late rows"
+    else:
+        assert waits, "a client of the names waited for the late rows"
+    elapsed = time.monotonic() - began
+    assert (elapsed > 0.5) is waits, f"the pool stayed empty for {elapsed:.2f} s"
+    client.late(wait=2.0)
+
+
+@pytest.mark.parametrize(("joint", "behind"), [(None, False), ("", True)])
+def test_the_names_leave_the_first_slot_to_the_viewers_text(
+    joint: str | None, behind: bool
+) -> None:
+    client = _swarm(rows=2)
+    if joint is not None:
+        client.beside(joint)
+    client._began = time.monotonic()
+    client.search("Cars 2006")
+    elapsed = time.monotonic() - client._began
+    assert (elapsed >= NAMES_BEHIND) is behind, f"first circle done in {elapsed:.2f} s"
