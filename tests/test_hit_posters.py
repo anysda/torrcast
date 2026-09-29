@@ -279,6 +279,24 @@ def test_a_silent_source_is_not_a_miss_and_is_asked_again(tmp_path: Path) -> Non
     assert hits.read(name) == (POSTER, "image/jpeg")
 
 
+def test_a_picture_left_out_of_the_answer_is_asked_again(tmp_path: Path) -> None:
+    """A source that could not answer about one picture leaves it unknown, not bare."""
+
+    @dataclass
+    class GappySource(FakeSource):
+        gap: bool = True
+
+        def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
+            return {} if self.gap else super().wanted(asks, timeout)
+
+    source = GappySource()
+    hits = _hits(tmp_path, source, now=lambda: 0.0)
+    first = hits.offer([_row()])[0]
+    assert isinstance(first, dict) and FIELD not in first
+    source.gap = False
+    assert hits.read(_named(hits, _row())) == (POSTER, "image/jpeg")
+
+
 def test_the_original_name_rides_along_to_the_walk(tmp_path: Path) -> None:
     """Оригинальное имя доезжает до похода: у части картин русской статьи нет вовсе."""
     source = FakeSource()

@@ -18,6 +18,7 @@ def test_the_bridge_takes_pictures_from_both_sources_wikipedia_first() -> None:
     assert isinstance(source, BothPosters)
     assert isinstance(source.first, WikiPoster)
     assert isinstance(source.second, ImdbPoster)
+    assert picture_source(urgent=True).urgent
 
 
 def test_the_list_of_hits_takes_its_source_from_this_one_place(

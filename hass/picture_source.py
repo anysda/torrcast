@@ -25,4 +25,5 @@ def picture_source(urgent: bool = False) -> BothPosters:
         WikiPoster(client, client),
         ImdbPoster(client, client, FACTS.catalogue),
         client,
+        urgent=urgent,
     )

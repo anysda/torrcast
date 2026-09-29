@@ -28,6 +28,7 @@ from collections.abc import Callable, Sequence
 from hass.facts_weather import FactsWeather, _CalmWeather, _Weather
 from hass.hit_ask import _about, _name
 from hass.hit_claims import _ASK, _CLAIMED, _KEEP, _RETRY, _WAIT, HitClaims
+from hass.late_posters import late_posters
 from hass.picture_source import picture_source
 from hass.picture_type import picture_type
 from hass.poster_parts import poster_parts
@@ -101,19 +102,6 @@ class HitPosters(HitClaims):
         self._arrive([_name(ask) for ask in map(_about, offered) if ask], _SETTLE_BY)
         return _ready_posters(serial_parent_posters(offered, self.has), self.has)
 
-    def landed(self, record: JsonValue) -> bool:
-        """Байты картинки этой записи уже здесь: плитка не ждёт их на маршруте."""
-        ask = _about(record)
-        return ask is not None and self.has(_name(ask))
-
-    def pending(self, records: Sequence[JsonValue]) -> bool:
-        """У кого-то из записей картинка ещё может приехать: приговор, байты или повтор."""
-        return any(ask is not None and self.coming(_name(ask)) for ask in map(_about, records))
-
-    def due(self, records: Sequence[JsonValue]) -> bool:
-        """Кому-то из записей пора спросить приговор снова: тишина источника кончилась."""
-        return any(ask is not None and self.ripe(_name(ask)) for ask in map(_about, records))
-
     def read(self, name: str) -> tuple[bytes, str] | None:
         """Байты картинки и её тип; она ещё в пути - подождать, но не бесконечно.
 
@@ -133,21 +121,33 @@ class HitPosters(HitClaims):
         return (body, picture_type(body)) if body else None
 
     def _judge(self, fresh: list[Ask], urgent: bool) -> None:
-        """Приговор пачке заявленных картин; ответ в минуту отказов - не промах."""
+        """Приговор пачке заявленных картин; ответ в минуту отказов - не промах.
+
+        Картины, о которых источник промолчал (нет в ответе), - не промах: видимый ряд
+        дожидается их уже идущих запросов (:mod:`hass.late_posters`), остальные спросят снова.
+        """
         if not fresh:
             return
         began = self._now()
-        answered = self._answer(fresh, urgent)
-        troubled = answered is None or self._weather.troubled_since(began)
-        found = {ask: pages for ask, pages in (answered or {}).items() if pages and ask in fresh}
+        said = self._answer(fresh, urgent)
+        troubled = said is None or self._weather.troubled_since(began)
+        found = {ask: pages for ask, pages in (said or {}).items() if pages and ask in fresh}
+        late = getattr(self._source_of(urgent), "finish_urgent", None) if urgent else None
+        later = [ask for ask in fresh if callable(late) and ask not in (said or {})]
         with self._lock:
-            for ask in fresh:
+            self._late_names.update(_name(ask) for ask in later)
+            for ask in (ask for ask in fresh if ask not in later):
                 if ask in found:
                     self._pending[_name(ask)] = threading.Event()
                 else:
-                    self._missed(_name(ask), troubled, self._weather.calm_at())
+                    unknown = troubled or ask not in (said or {})
+                    self._missed(_name(ask), unknown, self._weather.calm_at())
         if found:
             threading.Thread(target=self._fill, args=(found, urgent), daemon=True).start()
+        if later:
+            threading.Thread(
+                target=late_posters, args=(self, later, late, _TIMEOUT), daemon=True
+            ).start()
 
     def _answer(self, asks: Sequence[Ask], urgent: bool) -> dict[Ask, list[str]] | None:
         """Приговор на всю пачку; ``None`` - источник МОЛЧИТ, а не «постеров нет»."""

@@ -17,9 +17,10 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Final
 
-from hass.hit_ask import _name
+from hass.hit_ask import _about, _name
 from hass.poster_shelf import PosterShelf
 from torrcast.domain.facts.ask import Ask
+from torrcast.domain.json_value import JsonValue
 
 #: Через сколько секунд после промаха спрашиваем о той же картине снова.
 _RETRY: Final = 300.0
@@ -51,6 +52,7 @@ class HitClaims:
         self._tried: dict[str, float] = {}
         self._again: dict[str, tuple[int, float]] = {}
         self._judging: dict[str, threading.Event] = {}
+        self._late_names: set[str] = set()
         self._landed: set[str] = set()
 
     def named(self, name: str) -> bool:
@@ -66,7 +68,25 @@ class HitClaims:
     def coming(self, name: str) -> bool:
         """Картинка ещё может приехать: приговор или байты в пути, повтор впереди."""
         with self._lock:
-            return name in self._judging or name in self._pending or name in self._again
+            return (
+                name in self._judging
+                or name in self._pending
+                or name in self._again
+                or name in self._late_names
+            )
+
+    def landed(self, record: JsonValue) -> bool:
+        """Байты картинки этой записи уже здесь: плитка не ждёт их на маршруте."""
+        ask = _about(record)
+        return ask is not None and self.has(_name(ask))
+
+    def pending(self, records: Sequence[JsonValue]) -> bool:
+        """У кого-то из записей картинка ещё может приехать: приговор, байты или повтор."""
+        return any(ask is not None and self.coming(_name(ask)) for ask in map(_about, records))
+
+    def due(self, records: Sequence[JsonValue]) -> bool:
+        """Кому-то из записей пора спросить приговор снова: тишина источника кончилась."""
+        return any(ask is not None and self.ripe(_name(ask)) for ask in map(_about, records))
 
     def ripe(self, name: str) -> bool:
         """Отложенный из-за отказов приговор пора спросить снова, и никто его не спрашивает."""
@@ -102,6 +122,8 @@ class HitClaims:
             return _READY
         if name in self._judging:
             return _CLAIMED
+        if name in self._late_names:
+            return _HELD
         now = self._now()
         if now < self._tried.get(name, 0.0) or now < self._again.get(name, (0, 0.0))[1]:
             return _HELD
