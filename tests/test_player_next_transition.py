@@ -259,3 +259,18 @@ def test_a_tab_leaves_once_the_unit_ends_without_a_next_box(
     assert said["whileSearching"] == 0, "вкладка ушла, пока юнит ещё искал продолжение"
     assert said["afterIdle"] >= 1, "юнит погас без ящика, а вкладка осталась на показе"
     assert said["nextCalls"] == 0, "автопереход не зовёт POST /api/next"
+
+
+@pytest.mark.machine
+def test_the_end_of_an_episode_is_reported_without_waiting_for_the_queue(
+    facts: dict[str, Any],
+) -> None:
+    """Конец серии показ узнаёт только от вкладки - и узнаёт сразу, а не через 2 с.
+
+    Замер стыка: от ``ended`` до смены ящика уходило 2.9 с, из них до 2 с
+    вкладка молчала в очереди отчёта. На новом ящике частого отчёта уже нет.
+    """
+    said = _scenario(facts, "endedReportsAtOnce")
+    assert said["firstSecond"] >= 3, "после ended отчёт ждал обычной очереди в 2 с"
+    assert said["key"] == "k2", "409 после ended не открыл новый ящик"
+    assert said["afterBox"] <= 3, "частый отчёт не кончился на новом ящике"

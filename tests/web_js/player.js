@@ -295,6 +295,35 @@ const scenarios = {
     };
   },
 
+  // Конец серии показ узнаёт только от вкладки. Раньше вкладка молчала до своей очереди
+  // в две секунды, и стык серий стоял на ней. После ``ended`` - частый отчёт, пока 409
+  // не назовёт новый ящик; на новом ящике - снова обычная очередь.
+  async endedReportsAtOnce() {
+    let box = { key: 'k1', url: 'http://stand/a.m3u8', at: 0 };
+    const p = player({
+      box: () => box,
+      state: () => ({ has_next: true, season: 1, episode: 2 }),
+      position: (said) => (said.key === box.key ? 200 : 409),
+    });
+    const ended = () => p.calls.position.filter((said) => said.phase === 'ended').length;
+    p.mount();
+    await p.time.run(200);
+    p.video.duration = 100;
+    p.tick(95);
+    await p.time.run(11200); // часы абсолютные
+    const before = ended();
+    p.video.ended = true;
+    p.ended();
+    await p.time.run(12200);
+    const firstSecond = ended() - before;
+    box = { key: 'k2', url: 'http://stand/b.m3u8', at: 0 };
+    await p.time.run(13200);
+    const key = p.ctx.TCPlayer._key;
+    const settled = p.calls.position.length;
+    await p.time.run(17200);
+    return { firstSecond, key, afterBox: p.calls.position.length - settled };
+  },
+
   // Серия кончилась, юнит ищет продолжение и гаснет пустым: ``has_next`` мог быть и
   // ``null`` (каталог молчит), и ``true`` (дата, номер того же сезона, сезон из пула -
   // обещание, а не найденная раздача). В обоих случаях вкладка уходит, как только

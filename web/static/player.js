@@ -9,6 +9,8 @@ const TCPlayer = {
   MAX_RETRIES: 3,
   POLL_MS: 2000,
   POSITION_MS: 2000,
+  ENDED_MS: 250,
+  ENDED_WAIT_MS: 30000,
   DRIFT_S: 5,
   TRIM_RATE: 0.75,
 
@@ -75,7 +77,10 @@ const TCPlayer = {
     });
     video.addEventListener('waiting', () => { if (!TCPlayer._counting) TCPlayer._screenBuffering(); });
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
-    video.addEventListener('ended', () => TCPlayer._startNext());
+    video.addEventListener('ended', () => {
+      TCPlayer._startNext();
+      TCPlayer._reportEnded();
+    });
     // hls.js recovers most short gaps itself, but a broken MediaSource can finish as the
     // native `error` event only. Without this listener Chromium pauses a healthy-looking
     // video (`readyState === 4`) forever after the error, with no fatal HLS event to wake
@@ -154,6 +159,18 @@ const TCPlayer = {
     // `pagehide` ниже): цикл это увидел первым, и сказать «ухожу» тут естественно.
     TCPlayer._callOff();
     TCPlayer._left();
+  },
+
+  //: Конец серии не ждёт очереди отчёта в две секунды: пока вкладка молчит, показ не
+  //: знает, что кадр кончился, и следующая серия не заводится. Шлём чаще, пока не придёт
+  //: 409 нового ящика, - сигнал о смене остаётся тем же (`player-box.js`).
+  async _reportEnded() {
+    const key = TCPlayer._key;
+    for (let left = TCPlayer.ENDED_WAIT_MS; left > 0 && TCPlayer._mounted() && TCPlayer._key === key
+      && !TCPlayer._pendingBox && TCPlayer._video && TCPlayer._video.ended; left -= TCPlayer.ENDED_MS) {
+      await TCPlayer._sendPosition();
+      await TCPlayer._sleep(TCPlayer.ENDED_MS);
+    }
   },
 
   //: Первый кадр не ждёт очереди отчёта в две секунды: человек может уйти со страницы
