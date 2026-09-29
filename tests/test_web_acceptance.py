@@ -387,6 +387,46 @@ class SeasonPage:
         return True
 
 
+class EpisodeRow:
+    """Строка серии, клик по которой пишется в общий журнал рядом с остановкой показа."""
+
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
+
+    @property
+    def first(self) -> EpisodeRow:
+        return self
+
+    def count(self) -> int:
+        return 1
+
+    def wait_for(self, **_: Any) -> None:
+        return None
+
+    def click(self) -> None:
+        self.log.append("клик")
+
+
+def test_серия_гасит_поднятый_кликом_показ(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Пункт 7 последний в прогоне: показ, который включил его клик, он и гасит."""
+    module = acceptance()
+    log: list[str] = []
+    row = EpisodeRow(log)
+    page = SimpleNamespace(locator=lambda _selector: row, wait_for_function=lambda *_a, **_k: None)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {}, series_target="s1e1")
+    monkeypatch.setattr(module, "_open_card_by_page", lambda *_args: None)
+    monkeypatch.setattr(module, "_await_seasons", lambda _ctx: ["Season 1"])
+    monkeypatch.setattr(module, "_click_season", lambda *_args: True)
+    monkeypatch.setattr(module, "_playback_guard", lambda *_args: None)
+    monkeypatch.setattr(module, "_get", lambda _url: (200, b'{"season": 1, "episode": 1}'))
+    monkeypatch.setattr(module, "_stop_show", lambda _ctx: log.append("стоп"))
+
+    result = module.check_7_series(ctx)
+
+    assert result.ok, result.detail
+    assert log == ["клик", "стоп"]
+
+
 def test_сезон_берётся_снимком_и_нажимается_после_пересборки() -> None:
     module = acceptance()
     page = SeasonPage()

@@ -2301,15 +2301,20 @@ def check_7_series(ctx: Ctx) -> Result:
     # `/api/state` честно отвечает `null`. Полсекунды тут мерили скорость сети.
     season = episode = None
     began = time.monotonic()
-    while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
-        code, body = _get(ctx.base + "/api/state")
-        if code == 200:
-            with contextlib.suppress(json.JSONDecodeError):
-                payload = json.loads(body)
-                season, episode = payload.get("season"), payload.get("episode")
-        if season is not None and episode is not None:
-            break
-        time.sleep(1.0)
+    try:
+        while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
+            code, body = _get(ctx.base + "/api/state")
+            if code == 200:
+                with contextlib.suppress(json.JSONDecodeError):
+                    payload = json.loads(body)
+                    season, episode = payload.get("season"), payload.get("episode")
+            if season is not None and episode is not None:
+                break
+            time.sleep(1.0)
+    finally:
+        # Показ, поднятый кликом, гасит сам пункт: последним в прогоне он оставался играть
+        # на экземпляре, и следующий прогон начинал с чужого живого показа.
+        _stop_show(ctx)
     ok = tabs_ok and season == expected_season and episode == expected_episode
     detail = (
         f"{ctx.series_title!r}; вкладки за ≤{_EPISODES_BAR:.0f} с: {', '.join(tab_times)}; "
