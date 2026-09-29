@@ -19,7 +19,7 @@ import secrets
 from collections.abc import Callable
 from typing import Unpack
 
-from hass.following import following, waits_for_next
+from hass.following import _waits_for_next, following
 from hass.hit_posters import hits
 from hass.motion import Motion
 from hass.next_show import next_show
@@ -81,8 +81,6 @@ class Bridge:
         self._motion = motion or Motion()
         self._posters = posters or Posters()
 
-    # ------------------------------------------------------------------ снимок
-
     def state(self) -> dict[str, JsonValue]:
         """Тело ``GET /api/state``: снимок показа, громкость и место под прогрев."""
         config = self._settings()
@@ -91,7 +89,7 @@ class Bridge:
         word = self._motion.phase(shown, active=active, starting=self._orders.underway())
         next_query = following(self._session)
         has_next = (
-            True if next_query is not None else None if waits_for_next(self._session) else False
+            True if next_query is not None else None if _waits_for_next(self._session) else False
         )
         return payload(
             self._motion.aimed(shown),
@@ -111,8 +109,6 @@ class Bridge:
     def poster(self, name: str) -> tuple[bytes, str] | None:
         """``GET /api/poster/<имя>``: байты картинки и её тип; чужое имя - ``None``."""
         return self._posters.read(name)
-
-    # ------------------------------------------------------------------ команды
 
     def search(self, query: str) -> list[JsonValue]:
         """``POST /api/search``: список картин тем же поиском, что и показ, мимо очереди.

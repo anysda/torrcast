@@ -1,6 +1,7 @@
 """Контракт каталога сериала: ему отвечают и каталог карточки, и сборка юнита."""
 
-from torrcast.ports.series_source import Aired, AiredState, SeriesSource
+from torrcast.ports.aired_state import AiredState
+from torrcast.ports.series_source import Aired, SeriesSource
 from torrcast.runtime.series_facts import SeriesFacts
 from web.series_catalog import SeriesCatalog
 

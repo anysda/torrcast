@@ -13,7 +13,8 @@ from collections.abc import Callable
 
 from hass.released_seasons import released_seasons
 from torrcast.domain.entry import Entry
-from torrcast.ports.series_source import AiredState, SeriesSource
+from torrcast.ports.aired_state import AiredState
+from torrcast.ports.series_source import SeriesSource
 from torrcast.usecases.series_next import series_next
 from web.series_catalog import SERIES
 
@@ -30,7 +31,7 @@ def catalog_next(
     return f"s{later[0]}e{later[1]}" if later else None
 
 
-def catalog_waits(entry: Entry, catalog: SeriesSource = SERIES) -> bool:
+def _catalog_waits(entry: Entry, catalog: SeriesSource = SERIES) -> bool:
     """Не ответивший TVmaze оставляет стык юниту, а не объявляет сериал последним."""
     tconst = catalog.ids(entry.title, entry.original, entry.year or None)
     if not tconst:
@@ -39,4 +40,4 @@ def catalog_waits(entry: Entry, catalog: SeriesSource = SERIES) -> bool:
     return state is AiredState.UNKNOWN
 
 
-__all__ = ["catalog_next", "catalog_waits"]
+__all__ = ["catalog_next"]

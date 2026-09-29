@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from hass.catalog_next import catalog_next, catalog_waits
+from hass.catalog_next import _catalog_waits, catalog_next
 from torrcast.domain.entry import Entry
 from torrcast.domain.slugify import slugify
 from torrcast.ports.playback_session import PlaybackSession
@@ -28,10 +28,10 @@ def following(session: PlaybackSession) -> str | None:
     return f"{words} {label}" if label else None
 
 
-def waits_for_next(session: PlaybackSession) -> bool:
+def _waits_for_next(session: PlaybackSession) -> bool:
     """Стык без ответа TVmaze держит вкладку до единственного поиска юнита."""
     entry = _entry(session)
-    return bool(entry is not None and entry.advance().done and catalog_waits(entry))
+    return bool(entry is not None and entry.advance().done and _catalog_waits(entry))
 
 
 def _entry(session: PlaybackSession) -> Entry | None:

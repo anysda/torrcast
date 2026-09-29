@@ -1,16 +1,9 @@
 """Каталог сериала: номера серий и даты выхода; зовут плашка следующей серии и цикл юнита."""
 
 from collections.abc import Callable, Mapping
-from enum import Enum
 from typing import Protocol
 
-
-class AiredState(Enum):
-    """Достоверность ответа TVmaze: ответил ли каталог или сеть ещё ничего не сказала."""
-
-    KNOWN = "known"
-    UNKNOWN = "unknown"
-
+from torrcast.ports.aired_state import AiredState
 
 #: Серии сериала с датами выхода и достоверность ответа TVmaze.
 Aired = tuple[Mapping[tuple[int, int], tuple[str, str]], AiredState]

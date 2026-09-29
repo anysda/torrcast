@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 from torrcast.adapters.filesystem.state.state_path import state_path
 from torrcast.domain.facts.settings import USER_AGENT
-from torrcast.ports.series_source import AiredState
+from torrcast.ports.aired_state import AiredState
 
 #: Серии: (сезон, номер) -> (момент выхода для сравнения, дата выхода для глаз).
 Aired = dict[tuple[int, int], tuple[str, str]]
@@ -32,7 +32,6 @@ Fetch = Callable[[str], object]
 #: Кто разносит фоновый вопрос по потоку; в бою - поток-демон.
 Spawn = Callable[[Callable[[], None]], None]
 _BASE = "https://api.tvmaze.com"
-#: Потолок одного HTTP-вопроса: дольше этого сеть считается молчащей.
 TIMEOUT = 5.0
 #: Сколько ответ годен без обновления.
 FRESH = 24 * 3600.0

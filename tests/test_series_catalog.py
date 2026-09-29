@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
-from torrcast.ports.series_source import AiredState
+from torrcast.ports.aired_state import AiredState
 from web.series_catalog import COLD, RETRY, SeriesCatalog
 
 SHOW = Picture(title="Show", year=2020, kind="tv", original="Show")

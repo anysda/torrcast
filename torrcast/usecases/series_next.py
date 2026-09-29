@@ -17,7 +17,8 @@ from __future__ import annotations
 from collections.abc import Callable, Collection
 
 from torrcast.domain.entry import Entry
-from torrcast.ports.series_source import AiredState, SeriesSource
+from torrcast.ports.aired_state import AiredState
+from torrcast.ports.series_source import SeriesSource
 
 
 def series_next(

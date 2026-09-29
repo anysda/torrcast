@@ -13,7 +13,7 @@ from torrcast.adapters.wiki.tvmaze_episodes import (
     TvmazeEpisodes,
     _Pace,
 )
-from torrcast.ports.series_source import AiredState
+from torrcast.ports.aired_state import AiredState
 
 SHOW = "https://api.tvmaze.com/lookup/shows?imdb=tt0000001"
 EPISODES = "https://api.tvmaze.com/shows/7/episodes"

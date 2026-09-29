@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import hass.following as following_module
-from hass.following import following, waits_for_next
+from hass.following import _waits_for_next, following
 from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.state_store import FakeStateStore
 from torrcast.domain.entry import Entry
@@ -104,8 +104,8 @@ def test_a_tvmaze_question_at_the_end_waits_for_the_units_search(
     )  # fmt: skip
     state_slot.store().save(state)
     monkeypatch.setattr(following_module, "catalog_next", lambda *_a: None)
-    monkeypatch.setattr(following_module, "catalog_waits", lambda *_a: True)
+    monkeypatch.setattr(following_module, "_catalog_waits", lambda *_a: True)
     session = FakePlaybackSession(playing=True, play_key="tv:рик")
 
     assert following(session) is None
-    assert waits_for_next(session) is True
+    assert _waits_for_next(session) is True

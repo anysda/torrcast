@@ -22,7 +22,8 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.series_layout import series_layout
-from torrcast.ports.series_source import Aired, AiredState
+from torrcast.ports.aired_state import AiredState
+from torrcast.ports.series_source import Aired
 from torrcast.runtime.facts_wiring import FACTS
 
 #: Сколько первый вопрос сериала ждёт TVmaze: живой отвечает за 0.2-0.5 с (живой приёмник),

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from torrcast.adapters.wiki.tvmaze_episodes import TvmazeEpisodes
 from torrcast.domain.entry import Entry
-from torrcast.ports.series_source import AiredState
+from torrcast.ports.aired_state import AiredState
 from torrcast.runtime.series_facts import SeriesFacts
 from torrcast.usecases.series_next import series_next
 
