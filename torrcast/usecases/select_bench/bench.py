@@ -186,7 +186,7 @@ class Bench(_BenchPrewarm):
                 plan, tally.mute, queue, tally.judged, reached, len(tally.tried)
             )
         if tally.mute is not None:
-            self._forget(tally.mute)
+            self._spare(tally.mute)
         if tally.verdicts == 0 and exhausted and tally.tried:
             judged_before = set(tally.judged)
             revived = self._recheck(plan, queue, args, progress, tally.judged, deadline)

@@ -142,11 +142,11 @@ class _BenchCore:
                 self.torrserver.drop(torrent_hash)
 
     def _spare(self, prep: _Prep) -> None:
-        """Раздачу срезал срок поиска дорожки: на стенде карточки она дочитывается, а не уходит.
+        """Раздача отпущена отбором: на стенде карточки она дочитывается или судится показом.
 
-        «Призрак в доспехах»: показ завёл срезанный до клика №3 заново и ждал 16 с.
+        «Призрак в доспехах»: показ заново читал срезанный №3 16 с, а японский №2 - 3 с.
         """
-        if self.lends and not prep.ready.is_set():
+        if self.lends and (not prep.ready.is_set() or prep.media is not None):
             self.spared.append(prep)
             return
         self._forget(prep)

@@ -11,7 +11,9 @@ from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, rel
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
+from torrcast.domain.swarm_error import SwarmError
 from torrcast.usecases.select_bench.bench import Bench
 
 
@@ -69,5 +71,39 @@ def test_the_card_keeps_reading_the_release_the_voice_hunt_cut(slow: threading.E
 def test_the_show_still_lets_the_cut_release_go(slow: threading.Event) -> None:
     """Показу ждать некого: срезанная сроком раздача убирается сразу."""
     _bench, torrents, second = _resolved(False, slow)
+
+    assert second in torrents.dropped
+
+
+def _refused(lends: bool, slow: threading.Event) -> tuple[Bench, Torrents, str]:
+    """№1 молчит, №2 назвал японский звук, №3 не дочитан к сроку: отбор отказывает."""
+    pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(4)]
+    japanese = Media(RUNTIME, (AudioTrack(index=0, language="jpn"),), "h264", height=1080)
+
+    def read(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        if f"hash-{pool[0].magnet}/" in source_url:
+            raise SwarmError("рой молчит", waited=20.0)
+        if f"hash-{pool[2].magnet}/" in source_url:
+            slow.wait(5.0)
+        return japanese
+
+    torrents = Torrents()
+    bench = Bench(torrents, prober=read, pick_budget=0.6, lends=lends)
+    with pytest.raises(NotFoundError):
+        bench.resolve(plan(pool), Args(query=["кино"]), Said())
+    return bench, torrents, f"hash-{pool[1].magnet}"
+
+
+def test_the_card_keeps_the_release_whose_voice_it_already_read(slow: threading.Event) -> None:
+    """«Призрак в доспехах»: карточка узнала японский звук №2, и показ не читает его заново 3 с."""
+    bench, torrents, second = _refused(True, slow)
+
+    assert second not in torrents.dropped
+    assert not bench.preps[("movie:кино:1999", 2)].dropped
+
+
+def test_the_show_lets_the_read_foreign_release_go(slow: threading.Event) -> None:
+    """Показу этот запасной ход больше не нужен: раздача уходит сразу."""
+    _bench, torrents, second = _refused(False, slow)
 
     assert second in torrents.dropped
