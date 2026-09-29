@@ -111,7 +111,9 @@ def test_rebuild_fills_both_shelves_with_projected_tiles(tmp_path: Path) -> None
     assert tile["shown"] == "Матрица"
 
 
-def test_each_shelf_is_warmed_before_its_body_is_published(tmp_path: Path) -> None:
+def test_each_shelf_is_warmed_before_its_body_is_published(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Первый клик на видимой полке не становится первым заходом к индексерам."""
     warmed: list[list[WarmTarget]] = []
     behind: list[list[WarmTarget]] = []
@@ -146,6 +148,12 @@ def test_each_shelf_is_warmed_before_its_body_is_published(tmp_path: Path) -> No
         for screen in warmed
         for query, key, title, year, kind in screen
     )
+    assert capsys.readouterr().out.splitlines() == [
+        "полка fresh: заказан прогрев 20 плиток",
+        "полка fresh: опубликовано тело из 20 плиток",
+        "полка popular: заказан прогрев 20 плиток",
+        "полка popular: опубликовано тело из 20 плиток",
+    ]
 
 
 def _offer_with_original(records: list[JsonValue]) -> list[JsonValue]:

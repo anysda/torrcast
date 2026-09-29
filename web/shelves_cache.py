@@ -189,8 +189,10 @@ class ShelvesCache:
         # единственного рабочего поиска раздач.
         warmed = {shelf: candidate[shelf]}
         self.warm(shelf_warm_targets(warmed), shelf_warm_targets(warmed, later=True))
+        print(f"полка {shelf}: заказан прогрев {len(warmed[shelf])} плиток", flush=True)
         with self._lock:
             self._body = candidate
+        print(f"полка {shelf}: опубликовано тело из {len(warmed[shelf])} плиток", flush=True)
         write_shelves(self.path, candidate)
 
     def _load(self) -> dict[str, JsonValue]:
