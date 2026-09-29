@@ -23,9 +23,9 @@ from torrcast.adapters.stream_pack.slot_place import slot_place
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
 from torrcast.adapters.stream_pack.track_starts import track_starts
 from torrcast.adapters.stream_pack.unsafe_copy import unsafe_copy
+from torrcast.adapters.stream_pack.vet_recode import vet_recode
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
-from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -95,9 +95,8 @@ def _lay_out(
         # против 0.94. Такой перекод не спасти ни склейкой, ни выкладкой как есть (сегмент
         # обязан быть самостоятельным), поэтому он тут же и сносится: дальше место идёт
         # обычным путём копии, то есть ужатием на месте.
-        if better is not None and better.exists() and keyless(better):
-            journal().mark("перекод без опорного кадра", слот=slot)
-            better.unlink(missing_ok=True)
+        if better is not None and better.exists():
+            vet_recode(state, slot, path, better, keyless, shift_of)
         # 🔴 "how" - внутренний ярлык, не надпись человеку: слово для показа берёт каталог.
         source, how = path, "copy"
         # Чем описаны обе половины будущей склейки: картинка приезжает от кодировщика,
@@ -112,11 +111,9 @@ def _lay_out(
         # не измерена - тогда сверять не с чем, и места не проверяют.
         want = slot_place(state, slot)
         if better is not None and better.exists():
-            if state.recode_shift is None:
-                state.recode_shift = shift_of(path, better) or 0.0
             source, how = _merged_out(
                 state.run, slot, path, better, size, state.cap, want, state.container, heads,
-                shift=state.recode_shift, merge=merge, starts_of=starts_of,
+                shift=state.recode_shift or 0.0, merge=merge, starts_of=starts_of,
             )  # fmt: skip
         # Последний гейт стоит после склейки: только здесь известен вес ровно того
         # файла, который получит приёмник. Обе его части могут влезать по отдельности,
