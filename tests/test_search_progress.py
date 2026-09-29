@@ -489,14 +489,15 @@ def test_a_circle_that_outlives_the_listening_window_ends_as_a_failed_search() -
     _poll("нетакого", search)
     job = module._jobs["нетакого"]
     job.started_at -= REFUSAL_BY + 1.0
-    for _ in range(2):
+    try:
         with pytest.raises(RefusedError) as refused:
             _poll("нетакого", search)
         assert refused.value.body()["reason"] == {"key": "web.search.failed", "values": {}}
         assert _refusal_pending("нетакого") is False
-        job.finished_at -= JOB_TTL + 1.0
-    assert module._jobs["нетакого"] is job, "the running circle is heard out, not doubled"
-    gate.set()
+        # «Try again» gets a job of its own (:mod:`tests.test_search_try_again`), not this echo.
+        assert "нетакого" not in module._jobs
+    finally:
+        gate.set()
 
 
 def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:

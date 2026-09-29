@@ -66,7 +66,9 @@ _Search = Callable[
 class _Shared(Protocol):
     """Общий кэш кругов: один круг на запрос для всех, кто его спросил."""
 
-    def take(self, query: str, circle: Callable[[str], list[Plan]] | None = None) -> list[Plan]: ...
+    def take(
+        self, query: str, circle: Callable[[str], list[Plan]] | None = None, retry: bool = False
+    ) -> list[Plan]: ...
 
 
 @dataclass
@@ -111,7 +113,8 @@ class SearchJob(SearchPosterVerdict):
             return search(tuned, args, progress(), chosen.profile, self._capture)
 
         try:
-            plans = circle(query) if warm is None else warm.take(query, circle)
+            # A new job is someone asking: a cut refusal still remembered is no answer to it.
+            plans = circle(query) if warm is None else warm.take(query, circle, retry=True)
         except NothingFoundError as nothing:
             # Only a circle every indexer answered may say «nothing»: an empty cut circle has
             # not searched the catalogue, and the page says the search failed instead.

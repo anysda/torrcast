@@ -154,10 +154,10 @@ def search_progress(
         return (preview if covers is None else shown_covers(preview, covers)), True
     failed = job.error is None and job.timed_out and not job.results and not job.late(REFUSAL_BY)
     if failed or (job.error is not None and job.error.key == FAILED.key):
-        # A failed search is not an answer to keep: «Try again» asks the catalogue anew, and
-        # only a circle still running behind the snapshot is left to finish, not doubled.
+        # A failed search is not an answer to keep: «Try again» gets a job of its own, which
+        # joins the circle still running behind the snapshot (:meth:`WarmCache.take`).
         with _jobs_lock:
-            if _jobs.get(key) is job and not job.late(POSTERS_BY):
+            if _jobs.get(key) is job:
                 del _jobs[key]
     if job.error is not None:
         raise RefusedError(job.error)
