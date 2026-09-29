@@ -18,6 +18,7 @@ from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.playback._recoder import _recoder
 from torrcast.usecases.playback._warmer import _warmer
 from torrcast.usecases.playback.entry_layout import entry_layout
+from torrcast.usecases.playback.pack_container import pack_container
 from torrcast.usecases.playback.voice_source import voice_source
 from torrcast.usecases.warm.warmer import Warmer
 
@@ -80,6 +81,7 @@ def _next_warmer(
             config,
             video_mbit=video_mbit,
             profile=profile,
+            video_mbit_estimated=passport.vbps_estimated,
             voice=voice,
         )
     )
@@ -95,5 +97,6 @@ def _next_warmer(
         recoder=recoder,
         profile=profile,
         video_mbit=video_mbit,
+        container=pack_container(profile, whole),
         voice=voice,
     )

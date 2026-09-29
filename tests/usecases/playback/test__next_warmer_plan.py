@@ -10,6 +10,7 @@ import pytest
 from tests.fakes import composition
 from tests.fakes.torrent_engine import FakeTorrentEngine
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.domain.android_tv_profile import ANDROID_TV
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
@@ -21,10 +22,11 @@ from torrcast.usecases.playback._next_warmer import _next_warmer
 from torrcast.usecases.playback._tract import _tract
 from torrcast.usecases.playback.entry_layout import entry_layout
 
-#: Приёмники, между которыми гуляет профиль вкладки: осторожный и осторожный с потолком
-#: куска в 500 КБ - другая сетка при том же контейнере.
+#: Приёмники, между которыми гуляет профиль вкладки: осторожный MPEG-TS, приставка fMP4
+#: и осторожный с потолком куска в 500 КБ - другая сетка при том же контейнере.
 _PROFILES: tuple[Profile, ...] = (
     CAUTIOUS,
+    ANDROID_TV,
     replace(CAUTIOUS, key="tight", max_segment_bytes=500_000),
 )
 _FILES = [
@@ -86,7 +88,8 @@ def test_the_next_episode_warms_onto_the_shelf_its_show_reads(
     """HEVC в mkv без веса в паспорте (Футурама): вес у показа - оценка по размеру файла.
 
     Прогрев, считавший вес голым ffprobe, клал сплошной перекод на 8.3 Мбит/с, а показ шёл
-    на 3.0: полки разошлись, первый кусок следующей серии паковался на лету.
+    на 3.0: полки разошлись, первый кусок следующей серии паковался на лету. H.264 идёт
+    копией в контейнере приёмника - и у приставки (fMP4) прогрев грел мимо неё.
     """
     passport = Media(duration=1352.9, tracks=(), video=codec, height=720, width=960)
     composition.use_prober(monkeypatch, lambda source, **_: passport)

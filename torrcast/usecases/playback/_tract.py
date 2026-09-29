@@ -13,7 +13,6 @@ import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.codec_tag import codec_tag
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.domain.segment_container import MPEGTS
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.spot_recoder import SpotRecoder
@@ -24,6 +23,7 @@ from torrcast.usecases.playback._recoder import _recoder
 from torrcast.usecases.playback._warmer import _warmer
 from torrcast.usecases.playback.following import Following
 from torrcast.usecases.playback.media_grid import MediaGrid
+from torrcast.usecases.playback.pack_container import pack_container
 from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.warm.warmer import Warmer
 
@@ -68,7 +68,7 @@ def _tract(
     )
     # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и
     # сетка, и решение о перекодировании - те же, что у живой упаковки.
-    container = profile.segment_container if whole is None else MPEGTS
+    container = pack_container(profile, whole)
     warmer = _warmer(
         config,
         source,
