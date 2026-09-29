@@ -11,6 +11,7 @@ import pytest
 
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.segment_container import MPEGTS
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.playback import head_ahead
 from torrcast.usecases.playback.head_ahead import HeadAhead
@@ -30,7 +31,7 @@ def _heads(monkeypatch: pytest.MonkeyPatch, *keys: str) -> None:
     def plan(*_args: object) -> Any:
         return SimpleNamespace(
             vault=SimpleNamespace(key=queue.pop(0)), source="s", voice="", grid=None, slot=0,
-            encode=None,
+            encode=None, splice=True,
         )  # fmt: skip
 
     monkeypatch.setattr(head_ahead, "_plan", plan)
@@ -46,7 +47,7 @@ def test_leaving_the_card_stops_its_own_head(monkeypatch: pytest.MonkeyPatch) ->
     halts: list[threading.Event] = []
     ahead = HeadAhead(spawn=_now)
 
-    def lay(*args: Any) -> bool:
+    def lay(*args: Any, **_kw: Any) -> bool:
         halts.append(args[-1])
         ahead.drop("кино")
         return False
@@ -63,7 +64,7 @@ def test_another_card_leaving_keeps_the_head(monkeypatch: pytest.MonkeyPatch) ->
     halts: list[threading.Event] = []
     ahead = HeadAhead(spawn=_now)
 
-    def lay(*args: Any) -> bool:
+    def lay(*args: Any, **_kw: Any) -> bool:
         halts.append(args[-1])
         ahead.drop("другое")
         return True
@@ -82,7 +83,7 @@ def test_the_click_takes_the_card_head_over_and_does_not_lay_it_twice(
     halts: list[threading.Event] = []
     ahead = HeadAhead(spawn=_now)
 
-    def lay(*args: Any) -> bool:
+    def lay(*args: Any, **_kw: Any) -> bool:
         halts.append(args[-1])
         _want(ahead)  # клик пришёл, пока голова карточки кодируется
         ahead.drop("кино")  # страница ушла с карточки на показ
@@ -101,7 +102,7 @@ def test_a_new_head_stops_the_old_one(monkeypatch: pytest.MonkeyPatch) -> None:
     halts: list[threading.Event] = []
     ahead = HeadAhead(spawn=_now)
 
-    def lay(*args: Any) -> bool:
+    def lay(*args: Any, **_kw: Any) -> bool:
         halts.append(args[-1])
         if len(halts) == 1:
             _want(ahead)
@@ -124,7 +125,7 @@ def test_a_failed_plan_lays_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(head_ahead, "_plan", plan)
     laid: list[object] = []
 
-    def lay(*args: object) -> bool:
+    def lay(*args: object, **_kw: object) -> bool:
         laid.append(args)
         return True
 
@@ -151,3 +152,34 @@ def test_with_the_shelf_and_the_recode_the_plan_asks_the_torrent() -> None:
 
     with pytest.raises(AttributeError, match="stream_url"):
         head_ahead._plan(Config(), CAUTIOUS, object(), entry)  # type: ignore[arg-type]
+
+
+def test_a_whole_recode_file_lays_its_head_under_the_whole_shelf_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """Файл идёт перекодом целиком: голова - его же перекод, без склейки, на полке показа."""
+    whole: Any = SimpleNamespace(name="целиком")
+    grid: Any = SimpleNamespace(slot_at=lambda _pos: 0)
+    monkeypatch.setattr(head_ahead, "layout", lambda *_a, **_k: (grid, whole))
+    monkeypatch.setattr(head_ahead, "voice_source", lambda *_a: "")
+    keys: list[tuple[Any, ...]] = []
+
+    def key(*args: Any) -> str:
+        keys.append(args)
+        return "ключ"
+
+    monkeypatch.setattr(head_ahead, "warm_key", key)
+    engine: Any = SimpleNamespace(stream_url=lambda *_a: "src", files=lambda _t: [])
+    entry: Any = SimpleNamespace(
+        magnet="magnet:?xt=urn:btih:" + "a" * 40, file_idx=1, audio=2, vbps=1.0, dur=60.0,
+        codec="mpeg4", depth=8, frame=None, hdr="", vbps_estimated=False, pos=0.0,
+        title="кино", label="",
+    )  # fmt: skip
+    config = replace(Config(), warm_dir=str(tmp_path))
+
+    head = head_ahead._plan(config, CAUTIOUS, engine, entry)
+
+    assert head is not None, "сплошной перекод остался без головы заранее"
+    assert head.splice is False and head.encode is whole
+    assert keys == [("src", 2, grid, whole, (), MPEGTS, "", whole)]
+    assert head.vault.key == "ключ"

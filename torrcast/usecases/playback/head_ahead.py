@@ -99,7 +99,7 @@ class HeadAhead:
             old.halt.set()
         self.lay(
             head.vault, head.source, entry.audio, head.voice, head.grid, head.slot, head.encode,
-            profile.max_segment_bytes, MPEGTS, job.halt,
+            profile.max_segment_bytes, MPEGTS, job.halt, splice=head.splice,
         )  # fmt: skip
         with self._lock:
             if self._job is job:
@@ -116,13 +116,15 @@ class _Head:
     grid: MediaGrid
     slot: int
     encode: EncodingRate
+    splice: bool = True
 
 
 def _plan(config: Config, profile: Profile, engine: TorrentEngine, entry: Entry) -> _Head | None:
     """Полка и перекод головы теми же числами, что у показа (:func:`_play`, :func:`_tract`).
 
-    ``None`` - греть нечего: прогрев выключен, файл идёт перекодом целиком, голова лёгкая
-    или приёмник берёт куски fMP4 (у них своя голова ``init.mp4``).
+    ``None`` - греть нечего: прогрев выключен, голова лёгкая или приёмник берёт куски
+    fMP4 (у них своя голова ``init.mp4``). Файл, который перекодом идёт целиком, кладёт
+    голову своим же сплошным перекодом, под ключом полки такого показа (:func:`_warmer`).
     """
     if not config.warm or not config.recode or profile.segment_container != MPEGTS:
         return None
@@ -135,8 +137,11 @@ def _plan(config: Config, profile: Profile, engine: TorrentEngine, entry: Entry)
         config, source, entry.dur, entry.codec, mbit, depth=entry.depth,
         profile=profile, frame=entry.frame, hdr=entry.hdr, file_size=size,
     )  # fmt: skip
+    slot = grid.slot_at(entry.pos)
     if whole is not None:
-        return None
+        key = warm_key(source, entry.audio, grid, whole, (), MPEGTS, voice, whole)
+        journal().mark("голова заранее", слот=slot, ключ=key, целиком=True)
+        return _Head(_shelf(config, entry, key), source, voice, grid, slot, whole, splice=False)
     recoder = _recoder(
         source,
         entry.audio,
@@ -148,20 +153,25 @@ def _plan(config: Config, profile: Profile, engine: TorrentEngine, entry: Entry)
         video_mbit_estimated=entry.vbps_estimated,
         voice=voice,
     )
-    slot = grid.slot_at(entry.pos)
     spots = () if recoder is None else tuple(recoder.targets)
     if recoder is None or slot not in spots:
         return None
-    vault = Vault(
+    key = warm_key(source, entry.audio, grid, None, spots, MPEGTS, voice, recoder.encode)
+    vault = _shelf(config, entry, key)
+    fastest = recoder.pace.table()[-1][0]
+    journal().mark("голова заранее", слот=slot, ключ=vault.key)
+    return _Head(vault, source, voice, grid, slot, recoder.fit(grid.span(slot), fastest))
+
+
+def _shelf(config: Config, entry: Entry, key: str) -> Vault:
+    """Полка показа под ключом ``key``: тот же корень, бюджет и подпись, что у прогрева."""
+    return Vault(
         root=warm_root(config.warm_dir),
-        key=warm_key(source, entry.audio, grid, None, spots, MPEGTS, voice, recoder.encode),
+        key=key,
         budget=int(config.warm_budget_gb * 1e9),
         title=" ".join(filter(None, (entry.title, entry.label))),
         container=MPEGTS,
     )
-    fastest = recoder.pace.table()[-1][0]
-    journal().mark("голова заранее", слот=slot, ключ=vault.key)
-    return _Head(vault, source, voice, grid, slot, recoder.fit(grid.span(slot), fastest))
 
 
 #: Голова процесса: её греют карточка и клик, а берёт показ с полки.

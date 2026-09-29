@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from tests.usecases.warm.world import grid, lay, vault, world
 from torrcast.domain.segment_container import MPEGTS
-from torrcast.usecases.warm.lay_head import WORK, lay_head
+from torrcast.usecases.warm.head_work import head_work
+from torrcast.usecases.warm.lay_head import lay_head
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -63,10 +64,12 @@ def _world(packs: _Packs, mixed: _Mixed, fits: bool = True) -> None:
     )
 
 
-def _lay(store: Any, halt: threading.Event | None = None) -> bool:
+def _lay(
+    store: Any, halt: threading.Event | None = None, *, splice: bool = True, cap: int = 1 << 30
+) -> bool:
     return lay_head(
-        store, "http://ts/stream", 1, "", grid(), 0, _ENCODE, 1 << 30, MPEGTS,
-        halt or threading.Event(),
+        store, "http://ts/stream", 1, "", grid(), 0, _ENCODE, cap, MPEGTS,
+        halt or threading.Event(), splice=splice,
     )  # fmt: skip
 
 
@@ -80,7 +83,7 @@ def test_the_head_lands_on_the_shelf_as_a_mix_and_is_marked_served(tmp_path: Pat
     assert mixed == [(b"code", b"copy")], "склейка взяла не те куски"
     assert store.path(0).read_bytes() == b"mixed", "на полку лёг не склеенный кусок"
     assert store.spot(0).exists(), "голова на полке без метки спота: показ примет её за копию"
-    assert not (store.dir / WORK).exists(), "рабочий каталог головы остался на полке"
+    assert not head_work(store.dir, 0).exists(), "рабочий каталог головы остался на полке"
     assert sorted(packs.stopped) == ["code", "copy"]
 
 
@@ -117,4 +120,39 @@ def test_a_served_head_already_on_the_shelf_starts_no_ffmpeg(tmp_path: Path) -> 
     store.served.mark(0)
 
     assert _lay(store) is True
+    assert packs.started == []
+
+
+def test_a_whole_recode_head_is_the_code_run_itself(tmp_path: Path) -> None:
+    """Файл идёт перекодом целиком: одна прогонка со своим звуком, без копии и склейки."""
+    packs, mixed = _Packs(), _Mixed()
+    _world(packs, mixed)
+    store = vault(tmp_path)
+
+    assert _lay(store, splice=False) is True
+    assert packs.started == ["code"], "у сплошного перекода завёлся донор звука"
+    assert mixed == []
+    assert store.path(0).read_bytes() == b"code"
+    assert not store.spot(0).exists(), "сплошной перекод помечен точечным"
+    assert not head_work(store.dir, 0).exists()
+
+
+def test_a_whole_recode_head_over_the_cap_stays_off_the_shelf(tmp_path: Path) -> None:
+    """Кусок сплошного перекода тяжелее потолка приёмника: полка его не берёт."""
+    packs, mixed = _Packs(), _Mixed()
+    _world(packs, mixed)
+    store = vault(tmp_path)
+
+    assert _lay(store, splice=False, cap=2) is False
+    assert not store.have(0)
+
+
+def test_a_whole_recode_head_already_on_the_shelf_starts_no_ffmpeg(tmp_path: Path) -> None:
+    """Кусок сплошного перекода на полке уже есть: метка спота ему не нужна."""
+    packs, mixed = _Packs(), _Mixed()
+    _world(packs, mixed)
+    store = vault(tmp_path)
+    lay(store, 0)
+
+    assert _lay(store, splice=False) is True
     assert packs.started == []
