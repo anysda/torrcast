@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.recode_note import recode_note
 from torrcast.ports.journal.slot import journal
@@ -11,6 +13,9 @@ from torrcast.usecases.rank.stepdown_note import stepdown_note
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_honest import _BenchHonest
+
+if TYPE_CHECKING:
+    from torrcast.domain.args import Args
 
 
 class _BenchNotes(_BenchHonest):
@@ -101,6 +106,47 @@ class _BenchNotes(_BenchHonest):
         # 🔴 TC-1303. Помечаем ход, а не только печатаем строку в stdout: карточка веба
         # печатное слово не читает, и без этого признака зритель молча получал бы чужой
         # звук (см. :class:`web.heard.Heard`, :func:`web.release_keys.release_keys`).
-        mute.voice_fallback = True
+        mute.voice_fallback, mute.voice_checked = True, tried
         self._announce(plan, mute, queue, judged, reached)
         return mute
+
+    def _card_mute(self, plan: Plan, args: Args, queue: list[int]) -> _Prep | None:
+        """Запасной ход карточки этой картины: показ, забравший её стенд, очередь не обходит.
+
+        Карточка уже спросила очередь о русском звуке и сыграла бы чужой. «Призрак в
+        доспехах» s1e1: карточка обошла очередь за 19.5 с и кончила японским №2, показ
+        обошёл её заново по кругу, который опоздавший индексер пересчитал (30 раздач стало
+        40), взял немую 384p, и кадра не было вовсе. Беда под профилем
+        показа возвращает обход.
+        """
+        self._recount(plan)
+        for (key, number), prep in list(self.preps.items()):
+            mine = key == plan.picture.key and prep.card_warmed and prep.voice_fallback
+            if args.pinned or not mine or prep.dropped or number not in queue:
+                continue
+            recode, warn, hard = plan.recode_at > 0, plan.warn_mbit, plan.hard_mbit
+            if self._trouble(prep, pinned=False, warn_mbit=warn, recode=recode, hard_mbit=hard):
+                return None
+            return self._mute_fallback(plan, prep, queue, {}, len(queue), prep.voice_checked)
+        return None
+
+    def _recount(self, plan: Plan) -> None:
+        """Прогревы картины - на номера этого круга, по магниту: пересчёт номера сдвигает.
+
+        Без переезда :meth:`start` видел под номером чужой магнит и бросал прочитанное
+        карточкой, а срок отбора брал готовую раздачу под чужим номером.
+        """
+        places = {release.magnet: n for n, release in enumerate(plan.ranked, start=1)}
+        moved: dict[tuple[str, int], _Prep] = {}
+        stale: list[_Prep] = []
+        with self._preps_lock:
+            for (key, number), prep in self.preps.items():
+                if key == plan.picture.key and prep.release.magnet in places:
+                    prep.number = number = places[prep.release.magnet]
+                elif key == plan.picture.key:
+                    stale.append(prep)
+                    continue
+                moved[(key, number)] = prep
+            self.preps = moved
+        for prep in stale:
+            self._forget(prep)

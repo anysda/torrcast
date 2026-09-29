@@ -33,8 +33,7 @@ class Bench(_BenchPrewarm):
     def resolve(self, plan: Plan, args: Args, progress: Progress) -> _Prep:
         """Годный релиз плана: ждём подготовку с прогрессом, негодный — следующий.
 
-        Осечки бывают двух разных сортов, и до сих пор они стоили одинаково — попытки из
-        трёх:
+        Осечки бывают двух сортов, и до сих пор они стоили одинаково — попытки из трёх:
         * **приговор** — ffprobe раздачу прочитал и она не годится (av1, vc1, тяжёлая),
           либо сам осмотр раздачи ответил за неё («нужной серии нет», «отдельного
           видеофайла нет»). Про релиз узнали всё, второй раз спрашивать нечего;
@@ -74,7 +73,8 @@ class Bench(_BenchPrewarm):
         кого нет».
         """
         queue = _bench_queue(plan, args)
-        # Верх и запасной готовятся независимо: паспорт второго релиза не ждёт первого.
+        if (card := self._card_mute(plan, args, queue)) is not None:
+            return card
         for number in _bench_front(queue, 1):
             self.start(plan, number)
         tally = _Tally(self.voice_budget)
