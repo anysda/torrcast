@@ -13,7 +13,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.domain.start_settings import FIRST_FRAME_POLL, SAY_SECONDS
+from torrcast.domain.start_settings import SAY_SECONDS
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
@@ -24,6 +24,7 @@ from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._closed import _closed
 from torrcast.usecases.revive_playback._endure import _endure
 from torrcast.usecases.revive_playback._paused import _pause
+from torrcast.usecases.revive_playback._poll_step import _poll_step
 from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.revive_playback._revive_state import TAIL_LIMIT
 from torrcast.usecases.revive_playback._screen import (
@@ -53,9 +54,9 @@ def _hold(
     raised: bool = True,
     say_started: Callable[[], None] = lambda: None,
 ) -> bool:
-    """Держим показ: опрос приёмника раз в 2 с (между словом ``PLAYING`` и первым
-    кадром - раз в :data:`FIRST_FRAME_POLL`), упаковка должна быть жива, из RAM уходит
-    только пройденное, сторож раз в 10 с пишет позицию.
+    """Держим показ: опрос приёмника раз в 2 с (в окне первого кадра и у конца серии
+    перед следующей чаще, :func:`_poll_step`), упаковка должна быть жива, из RAM уходит только
+    пройденное, сторож раз в 10 с пишет позицию.
 
     ``clock`` - чем меряются все выдержки показа (:class:`torrcast.ports.clock.Clock`).
     Боевой путь молчит и берёт часы, которые положил композиционный корень; сухому
@@ -82,6 +83,7 @@ def _hold(
     #: Всё, что показ помнит между двумя опросами приёмника (:class:`_Screen`).
     screen = _Screen(raised=raised)
     source_wait = _SourceWait(buffer=profile.start_buffer)
+    joins = watch is not None and not watch.entry.advance().done  # стык серий впереди
     # Обе выдержки воскрешения - мера молчания ПРИЁМНИКА, поэтому приходят из его профиля,
     # а не из общей константы: приставка после отказа берёт LOAD не так, как телевизор.
     revival = _Revival(
@@ -188,12 +190,4 @@ def _hold(
             if feed.recoder is not None:
                 feed.recoder.played = feed_at
             feed.prune(feed_at)
-        # Между словом ``PLAYING`` и доказанным кадром приёмник спрашивается чаще: при шаге
-        # 2 с строка «старт NN с» запаздывала за кадром на 1.9-3.8 с (:data:`FIRST_FRAME_POLL`).
-        # До слова ``PLAYING`` кадру взяться неоткуда, на паузе и в темноте указатель не
-        # двигается - там окна старта нет, и шаг обычный.
-        clock.sleep(
-            2.0
-            if screen.seen or screen.still_at < 0 or position.state in {"PAUSED", "IDLE"}
-            else FIRST_FRAME_POLL
-        )
+        clock.sleep(_poll_step(screen, position, joins))

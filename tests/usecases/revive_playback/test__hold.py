@@ -27,7 +27,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import SOURCE_TRIES
-from torrcast.domain.start_settings import FIRST_FRAME_POLL
+from torrcast.domain.start_settings import END_POLL_WINDOW, FIRST_FRAME_POLL
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.feed_recoder import FeedRecoder
 from torrcast.ports.state_store import slot as state_slot
@@ -385,3 +385,57 @@ def test_a_show_closed_before_the_very_first_frame_is_not_raised_either(
     assert receiver.replayed == [], "показа не было ни кадра, но закрыл его зритель"
     said = phrase("revive.closed_by_remote", tag="", pos=_hms(2231.0)).lstrip()
     assert said in capsys.readouterr().out
+
+
+def _series(episodes: list[list[int]]) -> Entry:
+    return Entry(
+        title="Сериал",
+        magnet="m",
+        kind="tv",
+        season=1,
+        episode=1,
+        file_idx=0,
+        episodes=episodes,
+        dur=7200.0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("entry", "often"),
+    [
+        (_series([[1, 1, 0], [1, 2, 1]]), True),
+        (_series([[1, 1, 0]]), False),
+        (Entry(title="Кино", magnet="m", dur=7200.0), False),
+    ],
+    ids=["next-episode", "last-episode", "movie"],
+)
+def test_the_receiver_is_asked_more_often_at_the_end_of_an_episode(
+    tmp_path: Path, entry: Entry, often: bool
+) -> None:
+    """Последние секунды серии перед следующей приёмник спрашивается чаще.
+
+    Замер стыка во вкладке: от конца серии до нового ящика уходило 2.9 с, и до 2 с из
+    них показ просто спал между вопросами. Середина серии идёт обычным шагом, а у фильма
+    и последней серии стыка нет - и учащать незачем.
+    """
+    clock = FakeClock(now=1000.0)
+    receiver = FakeReceiver(
+        [(100.0, "PLAYING"), (101.0, "PLAYING"), (103.0, "PLAYING")]
+        + [(7190.0, "PLAYING"), (7190.5, "PLAYING")]
+        + [(7190.5, "PAUSED")] * 2000
+    )
+    watch = Watch(key="показ", entry=entry)
+
+    ended = _hold(cast(Receiver, receiver), feed_with_segments(tmp_path), watch, clock=clock)
+
+    assert ended is False
+    assert clock.sleeps[1:3] == [2.0, 2.0], "середина серии - обычный шаг"
+    end = [FIRST_FRAME_POLL] * 2 if often else [2.0, 2.0]
+    assert clock.sleeps[3:5] == end, "учащение у конца не там, где стык серий"
+    assert set(clock.sleeps[5:]) == {2.0}, "на паузе у конца опрос не учащается"
+
+
+def test_the_end_poll_window_is_wider_than_the_countdown() -> None:
+    """Учащение у конца серии начинается не позже плашки отсчёта (10 с во вкладке)."""
+    assert END_POLL_WINDOW > 10.0
+
