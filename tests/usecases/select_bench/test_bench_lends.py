@@ -107,3 +107,24 @@ def test_the_show_lets_the_read_foreign_release_go(slow: threading.Event) -> Non
     _bench, torrents, second = _refused(False, slow)
 
     assert second in torrents.dropped
+
+
+def test_a_bench_warms_the_file_from_the_place_the_show_resumes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Прогрев стенда тянет место закладки, а не начало файла; без закладки - начало."""
+    from tests.fakes import composition
+
+    places: list[object] = []
+
+    def warm(_source: str, **kwargs: object) -> None:
+        places.append(kwargs.get("at"))
+
+    composition.use_warm_file(monkeypatch, warm)
+    russian = Media(RUNTIME, (AudioTrack(index=0, language="rus"),), "h264", height=1080)
+    pool = [rel(name="r | Дубляж", seeders=100)]
+    for resume in (395.0, 0.0):
+        bench = Bench(Torrents(), prober=lambda *_a, **_k: russian)
+        bench.resume = resume
+        bench.resolve(plan(pool), Args(query=["кино"]), Said())
+    assert places == [395.0, 0.0]

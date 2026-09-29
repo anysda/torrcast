@@ -303,3 +303,26 @@ def test_a_show_clicked_while_the_card_chooses_takes_the_card_result(
     lookup.spawn = lambda _job: None  # карточка открыта заново: прогрев уже не про этот тест
     assert lookup.of(_PLAN, "film", _CONFIG)[0] is not None, "дорожки - от итога карточки"
     assert bench.dropped == [] and bench.kept == [], "стенд у показа: карточка его не трогает"
+
+
+def test_a_bookmark_card_warms_the_bookmark_place_not_the_file_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«Оно» продолжалось с 395 с, а прогрев карточки тянул начало: первый сегмент ждал рой."""
+    bench = _Bench(_MEDIA, release=_KEPT)
+    lookup = _lookup(monkeypatch, bench, spawn=_sync)
+
+    lookup.of(_KEPT_PLAN, "film", _CONFIG, _live(pos=395.0))
+
+    assert getattr(bench, "resume", None) == 395.0
+
+
+def test_a_card_without_a_live_bookmark_warms_the_file_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bench = _Bench(_MEDIA)
+    lookup = _lookup(monkeypatch, bench, spawn=_sync)
+
+    lookup.of(_PLAN, "film", _CONFIG, _live(pos=395.0, done=True))
+
+    assert getattr(bench, "resume", None) == 0.0

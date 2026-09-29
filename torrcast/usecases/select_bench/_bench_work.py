@@ -26,6 +26,9 @@ from torrcast.usecases.torrent_claims import CLAIMS
 class _BenchWork(_BenchCore):
     """Работа одного прогрева: раздача, метаданные, дорожки - и как её ждут."""
 
+    #: Секунда, с которой продолжит показ: закладку карточки прогрев греет с неё, не с начала.
+    resume: float = 0.0
+
     def _work(self, plan: Plan, prep: _Prep) -> None:
         """Фоновая подготовка: раздача в TorrServer, метаданные по DHT, ffprobe."""
         try:
@@ -52,7 +55,7 @@ class _BenchWork(_BenchCore):
             # и вопросам человека. Показ потом либо берёт готовое, либо
             # дожидается этого же чтения, а не начинает своё вторым потоком.
             mapped = _bench_state._bench_warm_file(
-                source, alive=lambda: not prep.dropped, name=prep.want.name
+                source, at=self.resume, alive=lambda: not prep.dropped, name=prep.want.name
             )
             prep.mapped = mapped if isinstance(mapped, threading.Event) else None
             self._sample_supply(prep)

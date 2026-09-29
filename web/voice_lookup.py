@@ -82,7 +82,8 @@ class VoiceLookup:
             self._pending.add(key)
         if start:
             release = mark or (heard.release if heard is not None else "")
-            self.spawn(lambda: self._build(plan, query, config, release, bool(mark), label))
+            at = live.pos if mark and live is not None else 0.0
+            self.spawn(lambda: self._build(plan, query, config, release, bool(mark), label, at))
         if known:
             return heard, False
         with self._lock:
@@ -113,20 +114,26 @@ class VoiceLookup:
         release: str = "",
         pinned: bool = False,
         label: str = "",
+        resume: float = 0.0,
     ) -> None:
         """Отобрать раздачу, прочитать её дорожки и оставить греться только выбранную.
 
         ``pinned`` - раздачу назвала закладка: отбор, взявший другую, дорожек не отдаёт,
-        потому что сыграет не она, а меню чужих дорожек соврало бы.
+        потому что сыграет не она, а меню чужих дорожек соврало бы. ``resume`` - место
+        закладки: «Оно» продолжалось с 395 с, а прогрев карточки тянул начало файла, и
+        первый сегмент ждал рой 7.8 с.
         """
         heard: Heard | None = None
         words = [query, label] if label else [query]
         args = parse_args([*words, "--card-release", release] if release else words)
         profile = self.profile_of(config)
         engines = self.engines(config.torrserver_url)
-        make = lambda: Bench(  # noqa: E731
-            engines, choose=file_picker(args), profile=profile, lends=True
-        )
+
+        def make() -> Bench:
+            bench = Bench(engines, choose=file_picker(args), profile=profile, lends=True)
+            bench.resume = resume
+            return bench
+
         warm, fresh = self.warms.open(plan.picture.key, make)
         prep = None
         left = released = False
