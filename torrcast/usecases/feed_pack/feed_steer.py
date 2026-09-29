@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Final
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.ports.journal.slot import journal
+from torrcast.usecases.feed_pack.feed_heading import _awaiting
 from torrcast.usecases.feed_pack.feed_survive import _mute, _progress, _reread, _settle, _survive
 
 if TYPE_CHECKING:
@@ -123,6 +124,8 @@ def _steer(state: _State, slot: int, restart: Callable[[int], None]) -> bool:
         # отсюда уходит мимо перезапуска, а иначе запрос детерминированно тяжёлого места крутил бы
         # перепаковку вечно, получая ровно ту же копию.
         return True
+    if _awaiting(state, slot):
+        return True  # голову кладут на полку: паковать её - кодировать то же место второй раз
     packer = state.packer
     if packer is not None and not packer.halted:
         moved = _progress(state, packer)

@@ -12,6 +12,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.pack_run.pack_factory import PackShrink
+from torrcast.usecases.feed_pack.feed_heading import _heading
 
 if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
@@ -150,6 +151,11 @@ def _begin(state: _State, want: float, shrink: PackShrink) -> float:
     Сплошной перекод сюда не заходит: он ставит опорные кадры САМ и ровно на границы
     сетки, то есть вход есть у каждого слота по построению.
     """
+    past = _heading(state, state.grid.slot_at(want))
+    if past != state.grid.slot_at(want):
+        _restart(state, past, shrink)  # голова лежит на полке или её туда кладут
+        state.door = state.grid.slot_at(want)  # и обещать её можно: она лежит или ляжет
+        return want
     if want <= 0.0 or state.encode is not None:
         _restart(state, state.grid.slot_at(want), shrink)
         return want

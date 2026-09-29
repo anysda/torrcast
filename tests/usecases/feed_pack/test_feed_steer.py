@@ -16,7 +16,9 @@ from tests.usecases.feed_pack.world import (
     vault,
 )
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.usecases.feed_pack.feed_heading import HEAD_WAIT
 from torrcast.usecases.feed_pack.feed_steer import IDLE_CIRCLES, _steer
+from torrcast.usecases.warm.head_work import head_work
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -343,3 +345,25 @@ def test_a_real_seek_back_still_repacks_once_the_show_clock_has_caught_up(
 
     slots = [told["слот"] for told in tape.named("заход упаковки")]
     assert slots == [85, 5], f"честная перемотка назад не перепаковала поток: заходы {slots}"
+
+
+def test_a_head_being_laid_on_the_shelf_is_awaited_not_repacked(tmp_path: Path) -> None:
+    """Голову кладут на полку: её запрос ждёт, а не поднимает упаковку назад к ней.
+
+    Упаковка показа начата за головой (:func:`_heading`), и запрос головы для неё -
+    место ниже края без файла, то есть перемотка назад. Перепакуй его - и голову снова
+    кодируют два ffmpeg разом, ровно то, ради чего её обходили.
+    """
+    fake = tract(now=100.0)
+    asked: list[int] = []
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store)
+    head_work(store.dir, 0).mkdir()
+    show.heading = (0, 100.0)
+    show.packer = packer(tmp_path, first=1, edge=0, out=show.out)
+
+    fake.now = 105.0
+    assert _steer(show, 0, asked.append) is True and asked == [], "голову перепаковали"
+
+    fake.now = 100.0 + HEAD_WAIT
+    assert _steer(show, 0, asked.append) is True and asked == [0], "не лёгшую голову не взяли"
