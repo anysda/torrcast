@@ -321,7 +321,9 @@ const TCHome = {
   //
   // Опрос идёт, пока ответ частичный, и не дольше срока сервера: к `finalBy` секунд от
   // начала заказа сервер отдаёт финал из собранного (`hass.search_job.FINAL_BY`), и
-  // страница ждёт его с запасом на шаг опроса. Своё число тут было 16 с, а финал
+  // страница ждёт его с запасом на шаг опроса. Если этот финал вышел по сроку, сервер
+  // отдельно оставляет право дослушать только названный отказ уже идущего круга: список
+  // виден в прежний срок, а отказ не схлопывается в пустой экран. Своё число тут было 16 с, а финал
   // «Начало» на стенде ехал 18-21 с: выдача оставалась без «Best match» навсегда.
   // Пока показать нечего, шаг 150 мс: круг, сохранённый на диске, готов за 150-400 мс;
   // с первой находкой шаг снова 400 мс.
@@ -368,6 +370,18 @@ const TCHome = {
       // очереди браузера, иначе обрывал поиск за миг до финала (TC-1286).
     } while (asked < until || misses > 0);
     if (said.failed || said.partial) return;
+    while (said.refusalPending) {
+      await new Promise((done) => setTimeout(done, TCHome._REFUSAL_STEP));
+      said = await TCApi.searchProgress(text);
+      if (gone()) return;
+      if (said.refused) {
+        TCHome._found = { query: text, results: known, refusal: said.refused };
+        TCHome._swapBody(TCHome._searchRefused(said.refused, known));
+        return;
+      }
+      if (said.failed || said.partial) return;
+      known = TCHome._showHits(text, known, said);
+    }
     // Финал бывает раньше обложек: сервер называет, что они ещё в пути, и сколько секунд до
     // его потолка. Потолок идёт от начала захода сервера, а заход бывает старше страницы:
     // отсчёт от своего начала опрашивал за потолком и гнал новый круг поиска.
@@ -400,6 +414,9 @@ const TCHome = {
 
   // Шаг дозапроса обложек после финала.
   _POSTER_STEP: 2500,
+
+  // The server already gave the ordinary final; this hears only its late named refusal.
+  _REFUSAL_STEP: 1000,
 
   _screenOf(results, partial) {
     return JSON.stringify([results, !!partial]);

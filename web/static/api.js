@@ -70,9 +70,10 @@ const TCApi = {
       // Обложки готового списка ещё в пути и секунды до потолка их дозапроса у сервера.
       const postersPending = said.headers.get('X-Torrcast-Posters-Pending') === '1';
       const postersBy = Number(said.headers.get('X-Torrcast-Posters-By')) || 0;
+      const refusalPending = said.headers.get('X-Torrcast-Refusal-Pending') === '1';
       return {
         results, partial: said.headers.get('X-Torrcast-Partial') === '1', finalBy,
-        postersPending, postersBy, failed: false,
+        postersPending, postersBy, refusalPending, failed: false,
       };
     } catch (error) {
       return { results: [], partial: false, finalBy: 0, failed: true, refused: null };

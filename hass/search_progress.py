@@ -135,6 +135,7 @@ def search_progress(
     with _jobs_lock:
         job = _jobs.get(key)
         stale = job is not None and job.done and time.monotonic() - job.finished_at > JOB_TTL
+        stale = stale and not (job is not None and job.awaiting_refusal())
         stale = stale and not (job is not None and _coming(job, covers))
         if job is None or stale:
             job = SearchJob(catalog=None if catalog is None else catalog(query))
@@ -158,6 +159,13 @@ def search_progress(
     if _coming(job, covers) and not job.judging and covers.due(job.results):
         redress(job, searching.OFFER if offer is None else offer)
     return shown_covers(job.results, covers), False
+
+
+def _refusal_pending(query: str) -> bool:
+    """Whether a deadline snapshot must still listen for the circle's named refusal."""
+    with _jobs_lock:
+        job = _jobs.get(query.strip().casefold())
+        return job is not None and job.awaiting_refusal()
 
 
 def _coming(job: SearchJob, covers: _Covers | None) -> bool:

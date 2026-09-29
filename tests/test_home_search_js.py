@@ -171,6 +171,19 @@ def test_a_named_refusal_is_read_on_the_screen_and_not_offered_a_retry(
 
 
 @pytest.mark.machine
+def test_a_named_refusal_after_the_deadline_replaces_the_empty_snapshot(
+    facts: dict[str, Any],
+) -> None:
+    late = _scenario(facts, "lateRefusal")
+
+    assert late["reason"]["key"] in late["screen"]["text"]
+    assert late["screen"]["text"] == late["reason"]["key"] + "web.search.empty_hint"
+    assert late["screen"]["failed"] == 0
+    assert len(late["polls"]) == 3, "финал без флага всё ещё опрашивался или отказ не дослушали"
+    assert late["timers"] == 0
+
+
+@pytest.mark.machine
 def test_every_named_search_refusal_keeps_its_own_page_key(facts: dict[str, Any]) -> None:
     refused = _scenario(facts, "namedRefusals")
 

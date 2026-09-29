@@ -159,6 +159,19 @@ const scenarios = {
     return { reason, polls: p.polls, screen: screen(p) };
   },
 
+  // The deadline's empty snapshot remains on screen only until the running circle names why.
+  async lateRefusal() {
+    const reason = { key: 'web.search.franchise_no_number', values: {
+      name: 'Cars', total: 2, index: 9, have: 'Cars (2006), Cars 2 (2011)', more: '',
+    } };
+    const p = search((n) => (n < 1
+      ? { partial: true, results: [], finalBy: 12 }
+      : n < 2 ? { partial: false, results: [], finalBy: 12, refusalPending: true }
+        : { status: 409, body: { error: 'search_refused', reason } }), 'тачки 9');
+    await p.time.run(60000);
+    return { reason, polls: p.polls, timers: p.time.pending(), screen: screen(p) };
+  },
+
   // Every named refusal has its own page key. The screen must not collapse any of
   // them to the generic failure just because it arrived after a preview.
   async namedRefusals() {

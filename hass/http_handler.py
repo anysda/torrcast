@@ -95,12 +95,13 @@ class _Handler(BaseHTTPRequestHandler):
             if body.get("progressive") is True:
                 # Опт-ин (TC-1126): страница читает ``X-Torrcast-Partial``, HA - нет. Срок
                 # финала страница берёт тут же: потолок её опроса - срок сервера, не своё число.
-                results, partial, left = self.bridge.search_progress(query.strip())
+                results, partial, left, refusal_pending = self.bridge.search_progress(query.strip())
                 headers = {
                     "X-Torrcast-Partial": "1" if partial else "0",
                     "X-Torrcast-Final-By": f"{FINAL_BY:g}",
                     "X-Torrcast-Posters-Pending": "1" if left > 0 else "0",
                     "X-Torrcast-Posters-By": f"{left:.1f}",
+                    "X-Torrcast-Refusal-Pending": "1" if refusal_pending else "0",
                 }
                 self._answer(200, {"results": results}, headers=headers)
                 return
@@ -112,9 +113,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._answer(400, {"error": "no_query"})
                 return
             pick = body.get("pick")
-            if pick is not None and (
-                not isinstance(pick, int) or isinstance(pick, bool) or pick < 1
-            ):
+            if pick is not None and (type(pick) is not int or pick < 1):
                 self._answer(400, {"error": "bad_pick"})
                 return
             extras = play_extras(body)

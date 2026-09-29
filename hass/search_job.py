@@ -74,6 +74,8 @@ class SearchJob(SearchPosterVerdict):
     error: SearchRefusalReason | None = None
     results: list[JsonValue] = field(default_factory=list)
     finished_at: float = 0.0
+    #: The deadline published a usable snapshot while the circle still owns the job.
+    timed_out: bool = False
     posters: dict[str, JsonValue] = field(default_factory=dict)
     #: A poll has seen this job's covers coming: the job then stays until the poster cap.
     promised: bool = False
@@ -165,6 +167,12 @@ class SearchJob(SearchPosterVerdict):
             # Time before the flag: a poll seeing ``done`` with zero time takes the job as stale.
             self.finished_at = time.monotonic()
             self.done = True
+            self.timed_out = not landed
+
+    def awaiting_refusal(self) -> bool:
+        """The deadline snapshot is visible, but the circle may still name a refusal."""
+        with self._lock:
+            return self.done and self.timed_out
 
     def _capture(self, client: IndexerClient) -> None:
         self.client = client

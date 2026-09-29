@@ -16,7 +16,7 @@ from hass.hit_posters import HitPosters
 from hass.poster_shelf import PosterShelf
 from hass.refused_error import RefusedError
 from hass.search_job import SearchJob
-from hass.search_progress import JOB_TTL, search_progress
+from hass.search_progress import JOB_TTL, _refusal_pending, search_progress
 from tests.fakes import composition
 from tests.usecases.discover.world import Indexer, row, wire_catalogue
 from torrcast.domain.choice import Choice
@@ -467,6 +467,38 @@ def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:
             break
     assert refused is not None and refused.reason is not None
     assert refused.reason.key == "web.search.prowlarr_not_configured"
+
+
+def test_a_deadline_snapshot_keeps_listening_for_the_running_circle_refusal() -> None:
+    """The ordinary deadline stays final while the page can still receive its named reason."""
+    gate = threading.Event()
+
+    def search(*_args: Any) -> Any:
+        gate.wait(2.0)
+        raise SearchRefusalInfraError(
+            "discover.prowlarr_not_configured", "web.search.prowlarr_not_configured"
+        )
+
+    results, partial = _poll("нетакого", search)
+    job = module._jobs["нетакого"]
+    job.started_at -= 20.0
+    results, partial = _poll("нетакого", search)
+
+    assert (results, partial) == ([], False)
+    assert _refusal_pending("нетакого") is True
+    job.finished_at -= JOB_TTL + 1.0
+    assert _poll("нетакого", search) == ([], False), "дослушивание подняло второй круг"
+    gate.set()
+    deadline = time.monotonic() + 1.0
+    refused: RefusedError | None = None
+    while time.monotonic() < deadline:
+        try:
+            _poll("нетакого", search)
+        except RefusedError as caught:
+            refused = caught
+            break
+    assert refused is not None and refused.reason is not None
+    assert _refusal_pending("нетакого") is False
 
 
 class _Index:

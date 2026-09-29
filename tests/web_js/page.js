@@ -292,7 +292,8 @@ function page(answer, { latency = 30 } = {}) {
           headers: { get: (name) => ({ 'X-Torrcast-Partial': said.partial ? '1' : '0',
             'X-Torrcast-Final-By': String(said.finalBy ?? 12),
             'X-Torrcast-Posters-Pending': said.postersPending ? '1' : '0',
-            'X-Torrcast-Posters-By': String(said.postersBy ?? 60) })[name] ?? null },
+            'X-Torrcast-Posters-By': String(said.postersBy ?? 60),
+            'X-Torrcast-Refusal-Pending': said.refusalPending ? '1' : '0' })[name] ?? null },
           json: async () => said.body || { results: said.results },
         });
       }, said.delay ?? latency);

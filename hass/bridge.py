@@ -34,7 +34,7 @@ from hass.remote_refused import remote_refused
 from hass.resuming import _resume
 from hass.say import SEEKBY, TOGGLE, say
 from hass.search import Search
-from hass.search_progress import search_progress
+from hass.search_progress import _refusal_pending, search_progress
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, searching
 from hass.starting import starting
 from hass.stopping import STOP, _abandoned, stopping
@@ -119,14 +119,14 @@ class Bridge:
         said = self._settings(), query, self._search, self._detect, self._remember
         return searching(*said, warm=WARM)
 
-    def search_progress(self, query: str) -> tuple[list[JsonValue], bool, float]:
+    def search_progress(self, query: str) -> tuple[list[JsonValue], bool, float, bool]:
         """``POST /api/search`` с ``progressive: true``: каталог первым, круг (:data:`WARM`).
 
-        Третье поле - сколько секунд ещё дозапрашивать обложки готового списка; 0 - не в пути."""
+        Третье поле - обложки, четвёртое - дослушать ли именованный отказ ещё идущего круга."""
         said = self._settings(), query, self._detect, self._remember
         results, partial = search_progress(*said, warm=WARM, catalog=CATALOG, covers=hits)
         coming = not partial and hits.pending(results)
-        return results, partial, posters_left(query) if coming else 0.0
+        return results, partial, posters_left(query) if coming else 0.0, _refusal_pending(query)
 
     def play(self, query: str, pick: int | None = None, **extras: Unpack[_PlayExtras]) -> str:
         """``POST /api/play``: argv собирает :func:`play_argv`, доводы проверены заранее."""
