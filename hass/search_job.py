@@ -51,6 +51,10 @@ FINAL_BY: Final = GOAL + 2.0
 #: Потолок дозапроса обложек от начала захода, секунды: после финала страница спрашивает
 #: обложки, пока они в пути, но не дольше него, а заход с обложками в пути не сменяется новым.
 POSTERS_BY: Final = 60.0
+#: How long the page may keep listening for the refusal of a circle that outran the deadline.
+REFUSAL_BY: Final = 45.0
+#: The honest end of a search that could not ask the whole catalogue or took too long.
+FAILED: Final = SearchRefusalReason("web.search.failed", {})
 
 #: Тот же тип, что :data:`hass.search_progress.ProgressiveSearch`; назван тут, чтобы не
 #: замыкать импорт по кругу.
@@ -108,9 +112,10 @@ class SearchJob(SearchPosterVerdict):
 
         try:
             plans = circle(query) if warm is None else warm.take(query, circle)
-        except NothingFoundError:
-            # Nothing found is an answer of the search, an empty list, not a failed search.
-            plans = []
+        except NothingFoundError as nothing:
+            # Only a circle every indexer answered may say «nothing»: an empty cut circle has
+            # not searched the catalogue, and the page says the search failed instead.
+            plans, self.error = [], None if nothing.whole else FAILED
         except TorrcastError as refusal:
             # The page receives a key and values, not process words in the machine's language.
             plans, self.error = [], reason_of(refusal)
@@ -169,13 +174,14 @@ class SearchJob(SearchPosterVerdict):
             self.done = True
             self.timed_out = not landed
 
-    def awaiting_refusal(self) -> bool:
-        """The deadline snapshot is visible, but the circle may still name a refusal."""
+    def late(self, within: float) -> bool:
+        """The deadline snapshot is out, its circle still runs, and ``within`` s have not passed."""
         with self._lock:
-            return self.done and self.timed_out
+            running = self.done and self.timed_out and self.error is None
+            return running and time.monotonic() - self.started_at < within
 
     def _capture(self, client: IndexerClient) -> None:
         self.client = client
 
 
-__all__ = ["FINAL_BY", "POSTERS_BY", "SearchJob"]
+__all__ = ["FAILED", "FINAL_BY", "POSTERS_BY", "REFUSAL_BY", "SearchJob"]

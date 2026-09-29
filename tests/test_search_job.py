@@ -148,11 +148,14 @@ def test_a_catalogue_tile_does_not_hide_a_named_refusal() -> None:
     assert job.error.key == "web.search.no_season_releases"
 
 
-def test_the_refusal_with_nothing_to_add_stays_mute_and_leaves_the_empty_screen() -> None:
-    """Пустой экран поиска и есть эти слова: второй раз их говорить незачем."""
-    job = _refused(NothingFoundError("по запросу «Уэнсдэй» ничего не нашлось"))
+@pytest.mark.parametrize(("whole", "said"), [(True, None), (False, "web.search.failed")])
+def test_only_a_whole_circle_may_leave_the_empty_screen(whole: bool, said: str | None) -> None:
+    """The empty screen says «nothing» only for a catalogue that answered in full."""
+    nothing = NothingFoundError("по запросу «Уэнсдэй» ничего не нашлось")
+    nothing.whole = whole
+    job = _refused(nothing)
 
-    assert (job.done, job.results, job.error) == (True, [], None)
+    assert (job.done, job.results, job.error and job.error.key) == (True, [], said)
 
 
 def test_a_poster_once_named_is_not_taken_away_by_a_silent_verdict() -> None:

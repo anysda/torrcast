@@ -184,6 +184,34 @@ def test_a_named_refusal_after_the_deadline_replaces_the_empty_snapshot(
 
 
 @pytest.mark.machine
+@pytest.mark.parametrize("name", ["cutEmpty", "lateFailed"])
+def test_a_cut_empty_circle_is_a_failed_search_with_a_retry(
+    facts: dict[str, Any], name: str
+) -> None:
+    """A circle that missed indexers never reads as «nothing found» or as a named reason."""
+    cut = _scenario(facts, name)
+    assert cut["screen"]["text"].startswith("web.search.failed")
+    assert "web.search.empty" not in cut["screen"]["text"]
+    assert cut["screen"]["failedKeys"] == 1, "сбойный круг не предложил повтор"
+
+
+@pytest.mark.machine
+def test_returning_to_a_failed_search_asks_again(facts: dict[str, Any]) -> None:
+    """Its empty deadline list is not an answer, so it never comes back as «nothing found»."""
+    late = _scenario(facts, "lateFailed")
+    assert late["askedAgain"] == 1
+    assert "web.search.empty" not in late["returned"]["text"]
+
+
+@pytest.mark.machine
+def test_a_torn_poll_does_not_end_listening_to_a_late_circle(facts: dict[str, Any]) -> None:
+    torn = _scenario(facts, "tornListen")
+    assert torn["screen"]["text"] == torn["reason"]["key"] + "web.search.empty_hint"
+    assert torn["screen"]["failed"] == 0
+    assert torn["timers"] == 0
+
+
+@pytest.mark.machine
 def test_every_named_search_refusal_keeps_its_own_page_key(facts: dict[str, Any]) -> None:
     refused = _scenario(facts, "namedRefusals")
 

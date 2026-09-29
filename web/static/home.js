@@ -235,7 +235,7 @@ const TCHome = {
   // Возврат на свою выдачу: находки, которые уже приезжали, показываются сразу, и
   // только незнакомый запрос уходит в источники заново.
   _askedBody(text) {
-    if (TCHome._found && TCHome._found.query === text) {
+    if (TCHome._found && TCHome._found.query === text && !TCHome._found.failed) {
       if (TCHome._found.refusal) {
         return TCHome._searchRefused(TCHome._found.refusal, TCHome._found.results);
       }
@@ -322,8 +322,8 @@ const TCHome = {
   // Опрос идёт, пока ответ частичный, и не дольше срока сервера: к `finalBy` секунд от
   // начала заказа сервер отдаёт финал из собранного (`hass.search_job.FINAL_BY`), и
   // страница ждёт его с запасом на шаг опроса. Если этот финал вышел по сроку, сервер
-  // отдельно оставляет право дослушать только названный отказ уже идущего круга: список
-  // виден в прежний срок, а отказ не схлопывается в пустой экран. Своё число тут было 16 с, а финал
+  // оставляет право дослушать, чем кончится уже идущий круг: список виден в прежний срок,
+  // а отказ или сбой круга не схлопывается в пустой экран. Своё число тут было 16 с, а финал
   // «Начало» на стенде ехал 18-21 с: выдача оставалась без «Best match» навсегда.
   // Пока показать нечего, шаг 150 мс: круг, сохранённый на диске, готов за 150-400 мс;
   // с первой находкой шаг снова 400 мс.
@@ -346,8 +346,7 @@ const TCHome = {
       if (said.refused) {
         // Отказ кодом - готовый ответ поиска, а не сорванный опрос: переспрашивать его
         // нечем, ни сейчас, ни кнопкой. Его читает английская фраза страницы.
-        TCHome._found = { query: text, results: known, refusal: said.refused };
-        TCHome._swapBody(TCHome._searchRefused(said.refused, known));
+        TCHome._endRefused(text, known, said.refused);
         return;
       }
       if (said.failed) {
@@ -370,17 +369,26 @@ const TCHome = {
       // очереди браузера, иначе обрывал поиск за миг до финала (TC-1286).
     } while (asked < until || misses > 0);
     if (said.failed || said.partial) return;
-    while (said.refusalPending) {
+    // A torn poll here is survived as above: giving up on the first one left the empty
+    // deadline list on screen as if the unfinished circle had found nothing.
+    for (let listening = said.refusalPending; listening;) {
       await new Promise((done) => setTimeout(done, TCHome._REFUSAL_STEP));
       said = await TCApi.searchProgress(text);
       if (gone()) return;
       if (said.refused) {
-        TCHome._found = { query: text, results: known, refusal: said.refused };
-        TCHome._swapBody(TCHome._searchRefused(said.refused, known));
+        TCHome._endRefused(text, known, said.refused);
         return;
       }
-      if (said.failed || said.partial) return;
+      if (said.failed) {
+        misses += 1;
+        if (misses < TCHome._POLL_TRIES) continue;
+        TCHome._swapBody(TCHome._searchFailed(text, known));
+        return;
+      }
+      if (said.partial) return;
+      misses = 0;
       known = TCHome._showHits(text, known, said);
+      listening = said.refusalPending;
     }
     // Финал бывает раньше обложек: сервер называет, что они ещё в пути, и сколько секунд до
     // его потолка. Потолок идёт от начала захода сервера, а заход бывает старше страницы:
@@ -415,7 +423,7 @@ const TCHome = {
   // Шаг дозапроса обложек после финала.
   _POSTER_STEP: 2500,
 
-  // The server already gave the ordinary final; this hears only its late named refusal.
+  // The server already gave the ordinary final; this hears only how its late circle ended.
   _REFUSAL_STEP: 1000,
 
   _screenOf(results, partial) {
@@ -510,9 +518,23 @@ const TCHome = {
     return body;
   },
 
+  // A server that could not ask the whole catalogue says «Search failed» by its key: that is
+  // the same end as a torn poll, with the same retry, since another search may well succeed.
+  // Every other key is an answer the same search would repeat.
+  _endRefused(text, known, reason) {
+    if (reason.key === 'web.search.failed') {
+      TCHome._swapBody(TCHome._searchFailed(text, known));
+      return;
+    }
+    TCHome._found = { query: text, results: known, refusal: reason };
+    TCHome._swapBody(TCHome._searchRefused(reason, known));
+  },
+
   // Сбой поиска не стирает уже показанных плиток: человек видел их и может открыть,
   // а строка сбоя с повтором встаёт над ними.
   _searchFailed(text, known = []) {
+    // Returning to a failed search asks again instead of drawing its empty list as an answer.
+    TCHome._found = { query: text, results: known, failed: true };
     TCHome._syncCount(known.length ? known.length : null);
     const body = document.createElement('div');
     body.id = 'tc-body';

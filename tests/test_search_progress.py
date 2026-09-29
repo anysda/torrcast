@@ -15,7 +15,7 @@ from hass.hit_ask import _about, _name
 from hass.hit_posters import HitPosters
 from hass.poster_shelf import PosterShelf
 from hass.refused_error import RefusedError
-from hass.search_job import SearchJob
+from hass.search_job import REFUSAL_BY, SearchJob
 from hass.search_progress import JOB_TTL, _refusal_pending, search_progress
 from tests.fakes import composition
 from tests.usecases.discover.world import Indexer, row, wire_catalogue
@@ -24,6 +24,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.nothing_found_error import NothingFoundError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.search_refusal_infra_error import SearchRefusalInfraError
 from torrcast.usecases.discover.search_circle import search_circle
@@ -73,20 +74,26 @@ class _PreviewClient(Indexer):
         return list(self._raw)
 
 
-def _blocking_search(client: _PreviewClient, gate: threading.Event) -> Any:
-    """Круг поиска, который отдаёт клиента сразу и не возвращается, пока не отпустят."""
+def _blocking_search(client: _PreviewClient, gate: threading.Event, whole: bool = True) -> Any:
+    """Круг поиска, который отдаёт клиента сразу и не возвращается, пока не отпустят.
+
+    ``whole`` - ответил ли его каталог целиком: так его пустоту метит наблюдатель кругов."""
 
     def search(config: Config, args: Any, said: Any, profile: Any, on_indexer: Any) -> Any:
         on_indexer(client)
         gate.wait(2.0)
-        return search_circle(
-            config,
-            args,
-            said,
-            profile,
-            indexer=lambda *_a, **_k: client,
-            passport=lambda *_a, **_k: Origin(),
-        )
+        try:
+            return search_circle(
+                config,
+                args,
+                said,
+                profile,
+                indexer=lambda *_a, **_k: client,
+                passport=lambda *_a, **_k: Origin(),
+            )
+        except NothingFoundError as nothing:
+            nothing.whole = whole
+            raise
 
     return search
 
@@ -442,6 +449,54 @@ def test_nothing_found_is_an_empty_final_not_a_refusal() -> None:
     while time.monotonic() < deadline and partial:
         results, partial = _poll("нетакого", search)
     assert (results, partial) == ([], False)
+
+
+def test_a_cut_empty_circle_ends_as_a_failed_search_not_as_nothing() -> None:
+    """Silent indexers leave the catalogue unasked: the page must not read that as «nothing»."""
+    wire_catalogue()
+    gate = threading.Event()
+    circle = _blocking_search(_PreviewClient(answers={}, raw=[]), gate, whole=False)
+    circles: list[str] = []
+
+    def search(*args: Any) -> Any:
+        circles.append("asked")
+        return circle(*args)
+
+    assert _poll("нетакого", search) == ([], True)
+
+    gate.set()
+    deadline = time.monotonic() + 1.0
+    with pytest.raises(RefusedError) as refused:
+        while time.monotonic() < deadline:
+            _poll("нетакого", search)
+    assert refused.value.body()["reason"] == {"key": "web.search.failed", "values": {}}
+    # «Try again» asks anew: a failed search is not kept like an answer for JOB_TTL.
+    assert "нетакого" not in module._jobs
+    with pytest.raises(RefusedError):
+        while time.monotonic() < deadline + 1.0:
+            _poll("нетакого", search)
+    assert circles == ["asked", "asked"]
+
+
+def test_a_circle_that_outlives_the_listening_window_ends_as_a_failed_search() -> None:
+    """The page stops listening at REFUSAL_BY: an empty screen then is not «nothing found»."""
+    gate = threading.Event()
+
+    def search(*_args: Any) -> Any:
+        gate.wait(2.0)
+        return []
+
+    _poll("нетакого", search)
+    job = module._jobs["нетакого"]
+    job.started_at -= REFUSAL_BY + 1.0
+    for _ in range(2):
+        with pytest.raises(RefusedError) as refused:
+            _poll("нетакого", search)
+        assert refused.value.body()["reason"] == {"key": "web.search.failed", "values": {}}
+        assert _refusal_pending("нетакого") is False
+        job.finished_at -= JOB_TTL + 1.0
+    assert module._jobs["нетакого"] is job, "the running circle is heard out, not doubled"
+    gate.set()
 
 
 def test_a_refusal_surfaces_only_once_the_job_is_done() -> None:

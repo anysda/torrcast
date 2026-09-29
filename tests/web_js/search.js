@@ -172,6 +172,44 @@ const scenarios = {
     return { reason, polls: p.polls, timers: p.time.pending(), screen: screen(p) };
   },
 
+  // An empty circle that missed indexers did not search the catalogue: the server says
+  // the search failed, and the screen offers the retry, not «nothing» or another title.
+  async cutEmpty() {
+    const reason = { key: 'web.search.failed', values: {} };
+    const p = search(() => ({ status: 409, body: { error: 'search_refused', reason } }), 'ubuntu');
+    await p.time.run(1000);
+    return { polls: p.polls, screen: screen(p) };
+  },
+
+  // The deadline's empty snapshot is kept listening to; a circle that ends cut says so late.
+  async lateFailed() {
+    const reason = { key: 'web.search.failed', values: {} };
+    const p = search((n) => (n < 1
+      ? { partial: false, results: [], finalBy: 12, refusalPending: true }
+      : { status: 409, body: { error: 'search_refused', reason } }), 'ubuntu');
+    await p.time.run(60000);
+    const failed = screen(p);
+    const asked = p.queries.length;
+    const returned = p.home._askedBody('ubuntu');
+    p.doc.getElementById('tc-body').replaceWith(returned);
+    await p.time.run(1000);
+    return { polls: p.polls, timers: p.time.pending(), screen: failed,
+      askedAgain: p.queries.length - asked, returned: screen(p) };
+  },
+
+  // One torn poll while listening past the deadline does not end the listening.
+  async tornListen() {
+    const reason = { key: 'web.search.franchise_no_number', values: {
+      name: 'Cars', total: 2, index: 9, have: 'Cars (2006), Cars 2 (2011)', more: '',
+    } };
+    const p = search((n) => (n < 1
+      ? { partial: false, results: [], finalBy: 12, refusalPending: true }
+      : n < 2 ? { status: 502 }
+        : { status: 409, body: { error: 'search_refused', reason } }), 'тачки 9');
+    await p.time.run(60000);
+    return { reason, polls: p.polls, timers: p.time.pending(), screen: screen(p) };
+  },
+
   // Every named refusal has its own page key. The screen must not collapse any of
   // them to the generic failure just because it arrived after a preview.
   async namedRefusals() {

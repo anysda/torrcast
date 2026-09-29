@@ -29,7 +29,7 @@ from hass.catalog_tiles import CatalogTiles
 from hass.peek_client import peek_client
 from hass.redress import redress
 from hass.refused_error import RefusedError
-from hass.search_job import POSTERS_BY, SearchJob, _Shared
+from hass.search_job import FAILED, POSTERS_BY, REFUSAL_BY, SearchJob, _Shared
 from hass.searching import Detect, Offer, Remember
 from hass.shown_covers import _Covers, shown_covers
 from torrcast.domain.config import Config
@@ -135,7 +135,8 @@ def search_progress(
     with _jobs_lock:
         job = _jobs.get(key)
         stale = job is not None and job.done and time.monotonic() - job.finished_at > JOB_TTL
-        stale = stale and not (job is not None and job.awaiting_refusal())
+        # A circle still running behind its deadline snapshot is heard out, not doubled.
+        stale = stale and not (job is not None and job.late(POSTERS_BY))
         stale = stale and not (job is not None and _coming(job, covers))
         if job is None or stale:
             job = SearchJob(catalog=None if catalog is None else catalog(query))
@@ -151,8 +152,18 @@ def search_progress(
     if not job.done:
         preview = _preview(query, job, offer)
         return (preview if covers is None else shown_covers(preview, covers)), True
+    failed = job.error is None and job.timed_out and not job.results and not job.late(REFUSAL_BY)
+    if failed or (job.error is not None and job.error.key == FAILED.key):
+        # A failed search is not an answer to keep: «Try again» asks the catalogue anew, and
+        # only a circle still running behind the snapshot is left to finish, not doubled.
+        with _jobs_lock:
+            if _jobs.get(key) is job and not job.late(POSTERS_BY):
+                del _jobs[key]
     if job.error is not None:
         raise RefusedError(job.error)
+    if failed:
+        # The page stopped listening with nothing on screen: the circle did not end in time.
+        raise RefusedError(FAILED)
     if covers is None:
         return job.results, False
     job.promised = job.promised or covers.pending(job.results)
@@ -162,10 +173,10 @@ def search_progress(
 
 
 def _refusal_pending(query: str) -> bool:
-    """Whether a deadline snapshot must still listen for the circle's named refusal."""
+    """Whether a deadline snapshot must still listen for how its running circle ends."""
     with _jobs_lock:
         job = _jobs.get(query.strip().casefold())
-        return job is not None and job.awaiting_refusal()
+        return job is not None and job.late(REFUSAL_BY)
 
 
 def _coming(job: SearchJob, covers: _Covers | None) -> bool:
