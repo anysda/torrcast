@@ -298,6 +298,44 @@ const scenarios = {
   // Конец серии показ узнаёт только от вкладки. Раньше вкладка молчала до своей очереди
   // в две секунды, и стык серий стоял на ней. После ``ended`` - частый отчёт, пока 409
   // не назовёт новый ящик; на новом ящике - снова обычная очередь.
+  // Лента кончилась посреди счёта: найденный ящик открывается сразу, а не по нулю
+  // счёта. Оба порядка: ящик после `ended` (путь `rebox()`) и ящик, придержанный ещё
+  // до `ended` (путь самого `ended`).
+  async endedOpensTheHeldBox() {
+    const run = async (boxFirst) => {
+      const { server, setBox } = seriesServer();
+      const p = player(server);
+      p.mount();
+      await p.time.run(200);
+      p.video.duration = 100;
+      p.tick(92);
+      const found = () => {
+        setBox({ key: 'k2', url: 'http://stand/b.m3u8', at: 0 });
+        return p.ctx.TCPlayerBox.rebox(p.ctx.TCPlayer);
+      };
+      let heldWhilePlaying = null;
+      if (boxFirst) {
+        found();
+        await p.time.run(300);
+        heldWhilePlaying = p.ctx.TCPlayer._key;
+      }
+      p.video.ended = true;
+      p.ended();
+      if (!boxFirst) found();
+      await p.time.run(600); // часы абсолютные: счёт истёк бы только к 10200
+      const keyAtOnce = p.ctx.TCPlayer._key;
+      const cardAtOnce = !!overlayCard(p);
+      p.video.ended = false;
+      p.video.dispatch('playing'); // первый кадр новой серии
+      await p.time.run(11000); // бывший остаток счёта: второго перехода нет
+      return {
+        heldWhilePlaying, keyAtOnce, cardAtOnce,
+        bufferingLater: !!p.overlay().querySelector('.tc-buffering'),
+        key: p.ctx.TCPlayer._key, nextCalls: p.calls.next.length,
+      };
+    };
+    return { boxAfterEnd: await run(false), boxBeforeEnd: await run(true) };
+  },
   async endedReportsAtOnce() {
     let box = { key: 'k1', url: 'http://stand/a.m3u8', at: 0 };
     const p = player({

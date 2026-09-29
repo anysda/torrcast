@@ -79,6 +79,7 @@ const TCPlayer = {
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
     video.addEventListener('ended', () => {
       TCPlayer._startNext();
+      TCPlayer._nextOnEnd();
       TCPlayer._reportEnded();
     });
     // hls.js recovers most short gaps itself, but a broken MediaSource can finish as the
@@ -272,6 +273,18 @@ const TCPlayer = {
   _endedMark() {
     const state = TCPlayer._last || {};
     return state.season && state.episode ? { season: state.season, episode: state.episode } : {};
+  },
+
+  //: Кадр кончился, а ящик следующей серии уже найден: досчитывать плашку не над чем,
+  //: зритель смотрит на стоп-кадр. Лента бывает короче счёта (замер стыка: `ended` на
+  //: 8.1 с из 10, ящик через 0.5 с после него, а кадр новой серии только по нулю счёта,
+  //: ещё через 1.3 с). Пока видео играет, ящик по-прежнему ждёт конца счёта.
+  _nextOnEnd() {
+    if (!TCPlayer._counting || !TCPlayer._pendingBox) return;
+    if (!TCPlayer._video || !TCPlayer._video.ended) return;
+    if (TCPlayer._nextStop) TCPlayer._nextStop();
+    TCPlayer._nextStop = null;
+    TCPlayer._playNext();
   },
 
   //: Единственная дверь к следующему кадру (счётчик догорел или нажато «Смотреть»,

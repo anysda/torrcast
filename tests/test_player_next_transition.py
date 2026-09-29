@@ -274,3 +274,23 @@ def test_the_end_of_an_episode_is_reported_without_waiting_for_the_queue(
     assert said["firstSecond"] >= 3, "после ended отчёт ждал обычной очереди в 2 с"
     assert said["key"] == "k2", "409 после ended не открыл новый ящик"
     assert said["afterBox"] <= 3, "частый отчёт не кончился на новом ящике"
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize("case", ["boxAfterEnd", "boxBeforeEnd"])
+def test_a_finished_episode_opens_the_found_box_without_waiting_for_the_countdown(
+    facts: dict[str, Any], case: str
+) -> None:
+    """Лента кончилась посреди счёта: стоп-кадр не держится до нуля плашки.
+
+    Замер стыка: ``ended`` на 8.1 с из 10, ящик через 0.5 с после него, а кадр новой
+    серии шёл только по нулю счёта. Пока видео играет, ящик ждёт, как и прежде.
+    """
+    said = _scenario(facts, "endedOpensTheHeldBox")[case]
+    if case == "boxBeforeEnd":
+        assert said["heldWhilePlaying"] == "k1", "ящик открылся, пока серия ещё играла"
+    assert said["keyAtOnce"] == "k2", "после ended найденный ящик ждал конца счёта"
+    assert said["cardAtOnce"] is False, "плашка осталась висеть над новой серией"
+    assert said["key"] == "k2"
+    assert said["bufferingLater"] is False, "брошенный счёт плашки сорвал новую серию"
+    assert said["nextCalls"] == 0

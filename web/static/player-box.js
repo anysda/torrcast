@@ -69,6 +69,7 @@ const TCPlayerBox = {
     TCPlayerBox.dropStale();
     if (player._counting) {
       player._pendingBox = box;
+      player._nextOnEnd();
       return true;
     }
     TCPlayerBox.apply(player, box);
