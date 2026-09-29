@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
+from torrcast.adapters.torrserver.file_stats import file_stats
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
@@ -40,17 +41,6 @@ class _RealClock:
 
     def sleep(self, seconds: float) -> None:
         time.sleep(seconds)
-
-
-def _file_stats(status: dict[str, Any]) -> list[TorrFile]:
-    raw = status.get("file_stats")
-    if not isinstance(raw, list):
-        return []
-    return [
-        TorrFile(int(i.get("id") or 0), str(i.get("path", "")), int(i.get("length") or 0))
-        for i in raw
-        if isinstance(i, dict)
-    ]
 
 
 class TorrServer:
@@ -97,7 +87,7 @@ class TorrServer:
         return payload
 
     def files(self, torrent_hash: str) -> list[TorrFile]:
-        return _file_stats(self.status(torrent_hash))
+        return file_stats(self.status(torrent_hash))
 
     def wait_files(
         self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWaitPort = 0.0
@@ -109,7 +99,7 @@ class TorrServer:
         step = META_STEP
         while True:
             status = self.status(torrent_hash)
-            files = _file_stats(status)
+            files = file_stats(status)
             if files:
                 return files
             now = self.clock.monotonic()
@@ -123,6 +113,11 @@ class TorrServer:
                     self.clock.sleep(min(step, META_STEP_MAX))
                     step = min(step * META_STEP_GROW, META_STEP_MAX)
                     continue
+                # 🔴 TC-739. Прогрев спрашивает рой с той секунды, как раздача добавлена,
+                # а не с той, как до неё дошла очередь: своё ожидание он уже отстоял, и
+                # начинать бюджеты заново значит ждать по второму разу то же самое.
+                # Приговор при этом не выносится раньше вопроса: до него релиз никому не
+                # мешает, и объявлять его негодным незачем.
                 deadline = max(activated, began + timeout)
                 hopeless = max(
                     activated, (empty_since if empty_since is not None else now) + grace.seconds
