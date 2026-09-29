@@ -40,7 +40,6 @@ from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import Profile
-from torrcast.domain.reason_of import reason_of
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.progress.progress import Progress
@@ -112,8 +111,6 @@ def searching(
     try:
         plans = circle(query) if warm is None else warm.take_live(query, circle)
     except TorrcastError as refusal:
-        reason = reason_of(refusal)
-        word = reason if reason.key != "web.search.failed" else str(refusal)
-        raise RefusedError(word) from refusal
+        raise RefusedError(str(refusal)) from refusal
     remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])
     return offer_within(named, search_results(plans, enter_take(plans, args.title_query).number))

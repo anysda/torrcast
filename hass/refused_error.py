@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.search_refusal_reason import SearchRefusalReason
 
 #: Слова отказа пульта и показа: часть того же договора, что и тип, перевода им нет.
@@ -20,6 +21,8 @@ class RefusedError(Exception):
     ``no_next``, ``no_volume``) - у него нет перевода, каталог надписей ему не нужен.
     Поиск (:meth:`hass.bridge.Bridge.search`) отвечает СЛОВОМ ПРОДУКТА - готовой фразой
     отказа, которую сказал бы `search_circle`, - и её мост не сочиняет и не переводит.
+    Поиск страницы (:meth:`hass.bridge.Bridge.search_progress`) отвечает кодом
+    ``search_refused`` и причиной: ключом каталога страницы и значениями для него.
     """
 
     def __init__(self, word: str | SearchRefusalReason) -> None:
@@ -30,3 +33,9 @@ class RefusedError(Exception):
             self.word = word
             self.reason = None
         super().__init__(self.word)
+
+    def body(self) -> dict[str, JsonValue]:
+        """Тело ответа 409: слово отказа и, у отказа поиска страницы, его причина."""
+        if self.reason is None:
+            return {"error": self.word}
+        return {"error": self.word, "reason": self.reason.json()}
