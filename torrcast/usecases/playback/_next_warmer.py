@@ -11,12 +11,13 @@ from pathlib import Path
 import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.episode_passport import episode_passport
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.worker_settings import WORKER_DUR
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.playback._recoder import _recoder
 from torrcast.usecases.playback._warmer import _warmer
-from torrcast.usecases.playback.layout import layout
+from torrcast.usecases.playback.entry_layout import entry_layout
 from torrcast.usecases.playback.voice_source import voice_source
 from torrcast.usecases.warm.warmer import Warmer
 
@@ -55,22 +56,13 @@ def _next_warmer(
         0,
     )
     voice = voice_source(torrserver, torrent_hash, following)
-    media = _state.probe(source, timeout=WORKER_DUR)
-    video_mbit = max(0.0, media.video_bps / 1e6)
-    # 🔴 Профиль тот же, что у показа: разойдись они - прогретое ляжет под другим ключом
+    # 🔴 Вход раскладки - та же запись, что увидит показ
+    # (:func:`torrcast.usecases.episode_duration._duration`), собранная тем же правилом, а
+    # не свой пересказ паспорта: разойдись они - прогретое ляжет под другим ключом
     # (:func:`torrcast.usecases.warm.warm_key`), и показ своего же прогретого не найдёт.
-    grid, whole = layout(
-        config,
-        source,
-        media.duration,
-        media.video or "",
-        video_mbit,
-        depth=media.depth,
-        profile=profile,
-        frame=media.frame,
-        hdr=media.hdr,
-        file_size=file_size,
-    )
+    passport = episode_passport(following, _state.probe(source, timeout=WORKER_DUR))
+    video_mbit = max(0.0, passport.vbps)
+    grid, whole = entry_layout(config, source, passport, profile, file_size)
     recoder = (
         None
         if whole is not None

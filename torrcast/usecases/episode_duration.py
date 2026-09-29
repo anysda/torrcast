@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from torrcast.domain.entry import Entry
-from torrcast.domain.estimated_video_mbit import estimated_video_mbit
+from torrcast.domain.episode_passport import episode_passport
 from torrcast.domain.worker_settings import WORKER_DUR
 from torrcast.ports.prober import Prober
 from torrcast.ports.state_store.slot import store
@@ -49,26 +49,13 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     """
     if entry.dur > 0 and entry.depth > 0 and entry.frame > 0:
         return entry
-    media = _episode_prober(source, timeout=WORKER_DUR)
-    entry.dur = media.duration or entry.dur
-    # Паспортный вес точнее; если он промолчал, размер текущего файла даёт честно
-    # названную верхнюю оценку. Старые записи без четвёртого столбца остаются с -1.
-    row = next(
-        (item for item in entry.episodes if len(item) >= 3 and item[2] == entry.file_idx), []
-    )
-    size = row[3] if len(row) >= 4 else 0
-    measured_mbit = media.video_bps / 1e6
-    estimated_mbit = estimated_video_mbit(size, media.duration)
-    entry.vbps = measured_mbit or estimated_mbit or -1.0
-    entry.vbps_estimated = not measured_mbit and bool(estimated_mbit)
-    # Кодек следующей серии тоже свой: в раздаче аниме нередко лежат и HEVC, и H.264,
-    # а решение «перекодировать целиком» принимается по файлу, который играем сейчас.
-    entry.codec = media.video or ""
-    # Глубина цвета оттуда же и той же ценой: без неё Hi10P неотличим от обычного H.264.
-    entry.depth = media.depth
-    # И кадр тем же паспортом: без него 4К-запись прежней версии уезжала бы с уровнем
-    # «4.1» в потоке - заведомым враньём (TC-251).
-    entry.frame = media.frame
+    # Паспорт в запись - тем же правилом, каким его видит прогрев следующей серии
+    # (:func:`torrcast.domain.episode_passport.episode_passport`): вес видео, кодек, глубина,
+    # кадр и HDR у этой серии свои, а разойдись они с прогревом - прогретое не найдётся.
+    passport = episode_passport(entry, _episode_prober(source, timeout=WORKER_DUR))
+    # Правка на месте, как и прежде: запись держит не только этот вызов.
+    for name in ("dur", "vbps", "vbps_estimated", "codec", "depth", "frame", "hdr"):
+        setattr(entry, name, getattr(passport, name))
     state = store().load()
     state.put(key, entry)
     store().save(state)

@@ -20,8 +20,8 @@ from torrcast.domain.segment_container import MPEGTS
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.playback._recoder import _recoder
+from torrcast.usecases.playback.entry_layout import entry_layout
 from torrcast.usecases.playback.hls_root import hls_root
-from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.playback.voice_source import voice_source
 from torrcast.usecases.warm.lay_head import lay_head
 from torrcast.usecases.warm.vault import Vault
@@ -133,10 +133,7 @@ def _plan(config: Config, profile: Profile, engine: TorrentEngine, entry: Entry)
     size = next((item.size for item in engine.files(torrent) if item.index == entry.file_idx), 0)
     voice = voice_source(engine, torrent, entry)
     mbit = max(0.0, entry.vbps)
-    grid, whole = layout(
-        config, source, entry.dur, entry.codec, mbit, depth=entry.depth,
-        profile=profile, frame=entry.frame, hdr=entry.hdr, file_size=size,
-    )  # fmt: skip
+    grid, whole = entry_layout(config, source, entry, profile, size)
     slot = grid.slot_at(entry.pos)
     if whole is not None:
         key = warm_key(source, entry.audio, grid, whole, (), MPEGTS, voice, whole)

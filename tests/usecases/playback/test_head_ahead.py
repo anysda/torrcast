@@ -160,7 +160,7 @@ def test_a_whole_recode_file_lays_its_head_under_the_whole_shelf_key(
     """Файл идёт перекодом целиком: голова - его же перекод, без склейки, на полке показа."""
     whole: Any = SimpleNamespace(name="целиком")
     grid: Any = SimpleNamespace(slot_at=lambda _pos: 0)
-    monkeypatch.setattr(head_ahead, "layout", lambda *_a, **_k: (grid, whole))
+    monkeypatch.setattr(head_ahead, "entry_layout", lambda *_a, **_k: (grid, whole))
     monkeypatch.setattr(head_ahead, "voice_source", lambda *_a: "")
     keys: list[tuple[Any, ...]] = []
 

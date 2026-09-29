@@ -18,12 +18,18 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.playback._publish_box import _publish_box
 from torrcast.usecases.playback._show_end import _close_show, _report_end, _say_whole
 from torrcast.usecases.playback._tract import _tract
+from torrcast.usecases.playback.entry_layout import entry_layout
 from torrcast.usecases.playback.following import Following, _holding
 from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.watch import Watch
+
+
+def _say(text: str) -> None:
+    """Строка раскладки - в консоль показа."""
+    print(text, flush=True)
 
 
 def _play(
@@ -81,19 +87,13 @@ def _play(
     # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен -
     # перекодировать поверх перекода нечего. Решается это ДО сетки: от битрейта перекода
     # зависит вес каждого куска, а значит и то, где сетка поставит границы.
+    # Серия с записью раскладывается ТОЛЬКО по ней (:func:`entry_layout`): тем же
+    # переводом раскладывает её прогрев, когда она ещё следующая.
     journal().mark("раскладка")
-    grid, whole = layout(
-        config,
-        source,
-        length,
-        codec,
-        video_mbit,
-        say=lambda text: print(text, flush=True),
-        depth=depth,
-        profile=profile,
-        frame=frame,
-        hdr=hdr,
-        file_size=file_size,
+    grid, whole = (
+        entry_layout(config, source, watch.entry, profile, file_size, _say)
+        if watch
+        else layout(config, source, length, codec, 0.0, _say, depth, profile, frame, hdr, file_size)
     )
     journal().mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     if whole is not None:
