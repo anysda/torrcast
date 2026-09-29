@@ -29,8 +29,8 @@ Home Assistant через сеть, где режут по SNI.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Final
 from urllib.parse import quote
 
@@ -70,14 +70,28 @@ class ImdbPoster:
 
         A picture whose lookup broke is left out: an unanswered source is unknown, not a miss.
         """
+        return self.wanted_each(asks, timeout, lambda _part: None)
+
+    def wanted_each(
+        self, asks: Sequence[Ask], timeout: float, found: Callable[[dict[Ask, list[str]]], None]
+    ) -> dict[Ask, list[str]]:
+        """:meth:`wanted` that hands each picture to ``found`` the moment its own lookup ends.
+
+        A batch goes :data:`_LANES` at a time: a row of twenty waited a second for its last
+        lookup while the first answers were long ready (:mod:`hass.both_posters` takes each).
+        """
         if not asks:
             return {}
         known = self._known(asks)
+        got: dict[Ask, list[str]] = {}
         with ThreadPoolExecutor(max_workers=_LANES) as lanes:
-            got = list(
-                lanes.map(lambda ask: self._answered(ask, known.get(ask, ""), timeout), asks)
-            )
-        return {ask: pages for ask, pages in zip(asks, got, strict=True) if pages is not None}
+            jobs = {lanes.submit(self._answered, a, known.get(a, ""), timeout): a for a in asks}
+            for job in as_completed(jobs):
+                pages = job.result()
+                if pages is not None:
+                    got[jobs[job]] = pages
+                    found({jobs[job]: pages})
+        return {ask: got[ask] for ask in asks if ask in got}
 
     def _answered(self, ask: Ask, known: str, timeout: float) -> list[str] | None:
         try:

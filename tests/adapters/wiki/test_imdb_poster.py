@@ -308,3 +308,43 @@ def test_without_a_year_any_namesake_or_doubt_leaves_the_line_a_line(
     for title in ("Parasite", "Blade Runner"):
         ask = Ask(title, None, "movie")
         assert imdb.wanted([ask], 5.0) == {ask: []}
+
+
+@pytest.mark.machine
+def test_each_picture_is_handed_over_when_its_own_lookup_ends() -> None:
+    """A quick answer does not wait for a slow neighbour of the same batch."""
+    import threading
+
+    slow = threading.Event()
+    rows = {
+        "The Matrix": [_row("tt0133093", "The Matrix", 1999, "movie")],
+        "Les parasites": [_row("tt0200000", "Les parasites", 1999, "movie")],
+    }
+
+    def answer(host: str, path: str, params: dict[str, str]) -> Any:
+        from urllib.parse import unquote
+
+        asked = unquote(path.removeprefix("/suggestion/x/").removesuffix(".json"))
+        if asked == "Les parasites":
+            slow.wait(5.0)
+        return {"d": rows.get(asked, [])}
+
+    imdb = ImdbPoster(FakeJsonClient(answer), FakeBytesClient())
+    quick = Ask("Матрица", 1999, "movie", "The Matrix")
+    late = Ask("Паразиты", 1999, "movie", "Les parasites")
+    heard: list[dict[Ask, list[str]]] = []
+    arrived = threading.Event()
+
+    def found(part: dict[Ask, list[str]]) -> None:
+        heard.append(part)
+        arrived.set()
+
+    batch = threading.Thread(target=imdb.wanted_each, args=([quick, late], 5.0, found))
+    batch.start()
+    try:
+        assert arrived.wait(2.0), "the quick picture waited for the slow one"
+        assert heard == [{quick: [SMALL, RAW]}]
+    finally:
+        slow.set()
+        batch.join(5.0)
+    assert heard[1:] == [{late: [SMALL, RAW]}]

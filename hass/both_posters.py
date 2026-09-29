@@ -79,12 +79,19 @@ class BothPosters:
         return {ask: found.get(ask) or more.get(ask, []) for ask in asks}
 
     def _urgent(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
-        """Race the sources once; an overdue source is unknown, not a missing poster."""
+        """Race the sources once; an overdue source is unknown, not a missing poster.
+
+        A source handing pictures one by one ends the wait at its first hit; the rest lands late.
+        """
+        each = getattr(self.second, "wanted_each", None)
         race = _Race(
-            lambda: self.first.wanted(asks, timeout), lambda: self.second.wanted(asks, timeout)
+            lambda _heard: self.first.wanted(asks, timeout),
+            lambda heard: (
+                each(asks, timeout, heard) if callable(each) else self.second.wanted(asks, timeout)
+            ),
         )
         deadline = time.monotonic() + _URGENT_BY
-        race.wait(deadline, lambda: race.first.done.is_set() or race.second.done.is_set())
+        race.wait(deadline, lambda: race.over() or any(race.said(asks).values()))
         said = race.said(asks)
         with self._lock:
             self._racing.update({ask: race for ask in asks if ask not in said})
@@ -117,20 +124,23 @@ class BothPosters:
 class _Race:
     """Both sources in flight for one visible batch; either answer is kept when it comes."""
 
-    def __init__(self, first: Callable[[], Any], second: Callable[[], Any]) -> None:
+    def __init__(self, first: Callable[..., Any], second: Callable[..., Any]) -> None:
         self.moved = threading.Event()
         self.first = _Call(first, self.moved)
         self.second = _Call(second, self.moved)
 
     def said(self, asks: Sequence[Ask]) -> dict[Ask, list[str]]:
         """Pages by trust order; ``[]`` only when both answered, and silence is left out."""
-        first, second = self.first.answer or {}, self.second.answer or {}
+        first, second = self.first.so_far(), self.second.so_far()
         both = self.first.answer is not None and self.second.answer is not None
         return {
             ask: first.get(ask) or second.get(ask) or []
             for ask in asks
             if first.get(ask) or second.get(ask) or both
         }
+
+    def over(self) -> bool:
+        return self.first.done.is_set() or self.second.done.is_set()
 
     def land(
         self, asks: Sequence[Ask], deadline: float, land: Callable[[dict[Ask, list[str]]], None]
@@ -160,15 +170,23 @@ class _Race:
 
 
 class _Call:
-    """One independent source call; a raised one ends with no answer at all."""
+    """One independent source call; a raised one ends with no answer at all.
 
-    def __init__(self, ask: Callable[[], Any], moved: threading.Event) -> None:
+    A source that hands pictures over one by one (``wanted_each``) wakes the race on each.
+    """
+
+    def __init__(self, ask: Callable[[Callable[..., None]], Any], moved: threading.Event) -> None:
         self.done = threading.Event()
         self.answer: dict[Ask, list[str]] | None = None
+        self.heard: dict[Ask, list[str]] = {}
+
+        def heard(part: dict[Ask, list[str]]) -> None:
+            self.heard.update(part)
+            moved.set()
 
         def run() -> None:
             try:
-                self.answer = ask()
+                self.answer = ask(heard)
             except Exception:
                 pass
             finally:
@@ -176,3 +194,7 @@ class _Call:
                 moved.set()
 
         threading.Thread(target=run, daemon=True, name="poster-source").start()
+
+    def so_far(self) -> dict[Ask, list[str]]:
+        """The whole answer once in, else the pictures handed over so far."""
+        return self.answer if self.answer is not None else dict(self.heard)

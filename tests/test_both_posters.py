@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 import pytest
@@ -159,3 +159,40 @@ def test_the_card_of_the_playing_picture_goes_the_same_two_sources() -> None:
     """Дверь карточки идёт теми же источниками: полка у неё со списком общая."""
     both = BothPosters(FakeSource(), FakeSource({THERE: [IMDB]}), FakeBytesClient())
     assert both.poster(THERE, 5.0) == PICTURE
+
+
+def test_an_urgent_row_takes_each_second_source_answer_as_it_comes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 One quick IMDb answer is not held back by the rest of its batch or by Wiki."""
+    monkeypatch.setattr(both_posters, "_URGENT_BY", 5.0)
+    gate = threading.Event()
+
+    class SlowFirst(FakeSource):
+        def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
+            self.asked.append(list(asks))
+            gate.wait(timeout)
+            return {ask: [] for ask in asks}
+
+    class EachSecond(FakeSource):
+        def wanted_each(
+            self, asks: Sequence[Ask], timeout: float, found: Callable[[dict[Ask, list[str]]], None]
+        ) -> dict[Ask, list[str]]:
+            self.asked.append(list(asks))
+            found({HERE: [IMDB]})
+            gate.wait(timeout)
+            found({THERE: [IMDB]})
+            return {HERE: [IMDB], THERE: [IMDB]}
+
+    first, second = SlowFirst(), EachSecond()
+    both = BothPosters(first, second, FakeBytesClient(), urgent=True)
+    began = time.monotonic()
+    try:
+        assert both.wanted([HERE, THERE], 5.0) == {HERE: [IMDB]}
+        assert time.monotonic() - began < 1.0, "the row waited for the whole batch"
+    finally:
+        gate.set()
+    landed: list[dict[Ask, list[str]]] = []
+    assert both.finish_urgent([THERE], 5.0, landed.append) == {THERE: [IMDB]}
+    assert landed == [{THERE: [IMDB]}]
+    assert first.asked == [[HERE, THERE]] and second.asked == [[HERE, THERE]]
