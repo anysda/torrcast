@@ -21,6 +21,7 @@ from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.playback.refuse_called_off import refuse_called_off
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select._verdict import _silenced
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_supply import _supply_verdict
 
@@ -58,8 +59,33 @@ def _in_time(
     отбора картины на этом стенде: показ, забравший стенд карточки, продолжает её отбор, и
     от старшей, которую карточка уже не дождалась, клик второй раз срока не ждёт.
     Названный руками релиз не подменяется, запасной без русского звука тоже.
+
+    Раздачу, чей рой отбор на этом стенде уже прождал впустую (:attr:`waited_out`), показ
+    не ждёт вовсе: «Призрак в доспехах» - карточка ждала молчащий №1 20 с, а показ завёл
+    его заново и ждал ещё 10, пока годный №3 стоял готовым.
     """
+    seat = (plan.picture.key, prep.number)
     limit = tally.patience(deadline, bench.clock())
+    if seat in bench.waited_out and not args.pinned and not prep.ready.is_set():
+        limit = min(limit, bench.clock())
+    got = _awaited(bench, plan, args, prep, front, progress, prefix, deadline, limit)
+    if got is prep and _silenced(prep):
+        bench.waited_out.add(seat)
+    return got
+
+
+def _awaited(
+    bench: _BenchTrouble,
+    plan: Plan,
+    args: Args,
+    prep: _Prep,
+    front: list[int],
+    progress: Progress,
+    prefix: str,
+    deadline: float,
+    limit: float,
+) -> _Prep:
+    """Ожидание ``prep`` до ``limit`` с подменой готовой годной после срока."""
     due = bench.judging.setdefault(plan.picture.key, deadline - bench.pick_budget) + PICK_IN_TIME
     if args.pinned or len(front) < 2:
         bench._wait(prep, progress, prefix=prefix, limit=limit)

@@ -15,6 +15,7 @@ from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, pro
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.usecases.select_bench.bench import Bench
 
@@ -207,3 +208,26 @@ def test_the_show_takes_the_release_the_card_read_while_it_waits_the_top_again(
 
     assert prep.number == 3
     assert time.monotonic() - began < 1.0
+
+
+@pytest.mark.machine
+def test_the_show_does_not_wait_again_for_a_swarm_the_card_waited_out(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """🔴 Карточка прождала молчащий №1 весь свой срок: показ его заново не ждёт.
+
+    «Призрак в доспехах» - карточка ждала №1 20 с, показ завёл его заново и
+    ждал ещё 10, а №3 (ТВ-2, другого года, подменой не берётся) стоял готовым.
+    """
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    pool = [_POOL[0], _POOL[1], replace(_POOL[2], year=2004)]
+    bench = Bench(Torrents(), prober=_prober(top_answers, 30.0, _RUS, _ENG, _RUS), pick_budget=1.0)
+    with pytest.raises(NotFoundError):
+        bench.resolve(plan(pool), _ASKED, Said())
+    bench.pick_budget = 5.0
+    began = time.monotonic()
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert prep.number == 3
+    assert time.monotonic() - began < 1.5
