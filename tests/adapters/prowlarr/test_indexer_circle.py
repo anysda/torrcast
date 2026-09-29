@@ -183,3 +183,25 @@ def test_новый_расклад_не_помнит_прошлый_круг_н�
     circle.begin()
     assert circle.lost == [] and circle.counts == {} and circle.spent == {}
     assert circle.answered == {"Knaben"}
+
+
+@pytest.mark.machine
+def test_inflight_не_считает_опоздавшего_которого_круг_отрезал() -> None:
+    """Превью считает то, что войдёт в итог: отрезанный хвост приедет, но не в этот список.
+
+    Иначе счёт раздач на карточке обещал больше, чем показывал полный ответ (60, потом 57).
+    """
+    circle, _http = _circle(rows=2, delay={3: 0.3})
+    circle.run([_KNABEN, _NYAA], "Naruto [TV]", 100)
+    time.sleep(0.5)  # Nyaa.si уже ответил, но круг ушёл без него
+    assert sorted(row.title for row in circle.inflight()) == ["picture.1.0", "picture.1.1"]
+
+
+def test_inflight_держит_первую_строку_и_не_берёт_выдачу_добора() -> None:
+    """Добор отбирает из своей выдачи часть или отвергает её: в счёт она идёт только итогом."""
+    circle, _http = _circle(rows=2)
+    circle.begin()
+    circle.run([_KNABEN], "матрица", 100)
+    circle.begin()
+    circle.run([_RUTOR], "матрица 1999", 100)
+    assert sorted(row.title for row in circle.inflight()) == ["picture.1.0", "picture.1.1"]

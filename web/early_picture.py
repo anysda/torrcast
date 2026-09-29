@@ -7,6 +7,10 @@
 (:func:`~torrcast.usecases.discover.recognized_pick.recognized_pick`), по выдаче, которую
 идущий круг уже держит (:data:`~torrcast.usecases.discover.circle_watch.WATCH`), ни одного
 запроса в сеть не добавляя. Итог круга эти числа не решают: он приходит полным телом.
+
+Считается только то, что круг уже взял в итог (:meth:`~torrcast.adapters.prowlarr.
+indexer_circle.IndexerCircle.inflight`): отрезанный опоздавший и выдача доборов входят в
+число вместе с итогом. Так счёт до итога его не больше и на экране только растёт.
 """
 
 from __future__ import annotations

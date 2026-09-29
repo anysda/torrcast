@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable, Sequence
 from typing import Final
@@ -46,9 +47,12 @@ class IndexerCircle:
         self.answered: set[str] = set()
         #: Опоздавшие: круг ушёл по опорным, а эти ещё в пути (TC-118).
         self._late: list[_Ask] = []
-        #: Все спрошенные обоих кругов этого поиска - только для :meth:`inflight`
-        #: (TC-1126): сам круг по нему не ждёт и не судит, кто молчун.
+        #: Спрошенные ПЕРВОЙ строкой поиска - только для :meth:`inflight` (TC-1126): сам
+        #: круг по ним не ждёт и не судит, кто молчун. Отрезанные кругом - в ``_left``.
         self._asked: list[_Ask] = []
+        self._left: list[_Ask] = []
+        self._begun = 0
+        self._lock = threading.Lock()
 
     def begin(self) -> None:
         """Начать новый расклад: кругов у поиска бывает два, а счёт по ним общий.
@@ -59,7 +63,7 @@ class IndexerCircle:
         self.counts = {}
         self.spent = {}
         self.lost = []
-        self._asked = []
+        self._begun += 1
 
     def inflight(self) -> list[RawResult]:
         """Что уже ответило прямо сейчас, не дожидаясь конца круга (TC-1126).
@@ -67,10 +71,14 @@ class IndexerCircle:
         Только превью: список читает флаг ``done`` каждого спрошенного, ничего не ждёт
         и не трогает счёт молчунов - опорные (:func:`~torrcast.domain.wait_indexer.
         wait_indexer`) как ждались, так и ждутся этим же :meth:`run`.
+
+        Отдаёт только то, что круг берёт в итог: ответы первой строки до отсечки. Опоздавшего
+        круг отрезал, а добор отбирает из своей выдачи часть или отвергает её целиком - их
+        строки в счёте превью обещали раздачи, которых итог не показывал (60, потом 57).
         """
-        return [
-            row for ask in list(self._asked) if ask.done.is_set() and ask.rows for row in ask.rows
-        ]
+        with self._lock:
+            asked = [ask for ask in self._asked if ask.done.is_set() and ask not in self._left]
+        return [row for ask in asked if ask.rows for row in ask.rows]
 
     def waiting(self) -> tuple[str, ...]:
         """Имена тех, кто ещё в пути: круг их не дождался, а долив может."""
@@ -107,14 +115,18 @@ class IndexerCircle:
         Возвращает выдачи и причину последней потери - она понадобится, если смолчат все.
         """
         asked = [self._spawn(query, limit, num, name, cap) for num, name in pairs]
-        self._asked.extend(asked)
+        if self._begun <= 1:
+            self._asked.extend(asked)
         core = [ask for ask in asked if wait_indexer(ask.name)] or asked
         for ask in core:
             ask.done.wait(ask.budget + self.slack)
         got: list[list[RawResult]] = []
         why_lost: InfraError | None = None
+        with self._lock:  # a peek sees an ask either taken or left, never both
+            self._left += [ask for ask in asked if not ask.done.is_set()]
+            done = {id(ask) for ask in asked if ask.done.is_set()}
         for ask in asked:
-            if not ask.done.is_set():  # опоздал, но не потерян: доедет доливом
+            if id(ask) not in done:  # опоздал, но не потерян: доедет доливом
                 self._late.append(ask)
                 # Опорного уже прождали весь бюджет круга. На пути к показу это честное
                 # «молчит», даже если фоновый запрос позднее привезёт строки. Остальных
