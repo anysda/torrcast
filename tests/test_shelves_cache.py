@@ -156,6 +156,35 @@ def test_each_shelf_is_warmed_before_its_body_is_published(
     ]
 
 
+def test_republishing_the_same_tiles_does_not_order_their_warmup_again(tmp_path: Path) -> None:
+    """Добор повторяет публикацию, но не сносит очередь тех же видимых плиток."""
+    ordered: list[list[WarmTarget]] = []
+    cache = _cache(tmp_path, feed=lambda _limit: _many_rows(20), attempts=3)
+    cache.warm = lambda screen, _later: ordered.append(screen)
+
+    cache._rebuild()
+    cache._rebuild()
+
+    assert len(ordered) == 2
+    assert all(len(screen) == 8 for screen in ordered)
+
+
+def test_a_broken_warmup_still_publishes_the_ready_shelf(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Прогрев упал после отбора: готовая полка всё равно выходит человеку на экран."""
+    cache = _cache(tmp_path, feed=lambda _limit: _many_rows(2))
+
+    def broken_warm(_screen: list[WarmTarget], _later: list[WarmTarget]) -> None:
+        raise RuntimeError("warmup broke")
+
+    cache.warm = broken_warm
+    cache._rebuild()
+
+    assert len(_shelf(cache._body, "fresh")) == len(_shelf(cache._body, "popular")) == 2
+    assert "RuntimeError: warmup broke" in capsys.readouterr().err
+
+
 def _offer_with_original(records: list[JsonValue]) -> list[JsonValue]:
     """Подмена ``offer``: как поле пришло бы с найденной латиницей у картины."""
     decorated: list[JsonValue] = []

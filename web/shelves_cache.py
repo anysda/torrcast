@@ -3,7 +3,8 @@
 ``GET /api/shelves`` не вправе ждать индексеры (TC-1110): человек открывает главный
 экран, и полка, ждущая Prowlarr, - это то же самое зависшее меню, от которого круг
 поиска ушёл врозь (:meth:`torrcast.adapters.prowlarr.prowlarr.Prowlarr._apart`), только
-на самом видном месте. До первой сборки полки честно пусты, это штатно, а не отказ.
+на самом видном месте страницы. Первый заход после установки честно пуст - фон ещё не
+успел ни разу собрать полки, - и это штатное состояние, а не отказ.
 """
 
 from __future__ import annotations
@@ -15,10 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
 
 from torrcast.adapters.filesystem.state.shelves_cache_path import shelves_cache_path
-from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.torrcast_error import TorrcastError
@@ -28,18 +27,14 @@ from web.build_shelf import build_shelf
 from web.built_by_rule import FIELD, RULE
 from web.drop_count import DropCount
 from web.min_tiles import min_tiles
+from web.publish_shelf import Warm, publish_shelf
 from web.read_shelves import read_shelves
-from web.shelf_candidate import shelf_candidate
 from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable
-from web.shelf_warm_targets import shelf_warm_targets
-from web.warm_targets import WarmTarget
-from web.write_shelves import write_shelves
 
 #: Кто приносит ленту последних раздач; в бою - :meth:`Prowlarr.feed`.
 Feed = Callable[[int], list[FeedRow]]
 #: Кто запускает фоновую сборку; в бою - настоящий поток-демон.
 Spawn = Callable[[Callable[[], None]], None]
-Warm = Callable[[list[WarmTarget], list[WarmTarget]], object]
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -47,7 +42,7 @@ def _daemon(job: Callable[[], None]) -> None:
     threading.Thread(target=job, daemon=True, name="shelves-cache").start()
 
 
-def _no_warm(_targets: list[WarmTarget], _later: list[WarmTarget]) -> None:
+def _no_warm(_targets: object, _later: object) -> None:
     """Без проводки сборка не трогает очередь кругов."""
 
 
@@ -119,8 +114,10 @@ class ShelvesCache:
     def _rebuild(self) -> None:
         """Собрать обе полки заново; отказ ленты не роняет цикл - следующий час свой.
 
-        Молчащий индексер не приносит строк; фон склеивает добранную ленту по хэшу и
-        берёт самую полную попытку. Добор останавливается без новых строк и роста полки.
+        Молчащий индексер не приносит строк, и сборка выходит короче, чем могла бы: фон
+        добирает ленту ещё заходами, склеивая строки по хэшу раздачи, и берёт самую
+        полную попытку. Добор останавливается САМ, не по абсолютной цели длины: заход
+        без новых строк и без более полной полки следующего добавить уже не может.
 
         Готовая полка публикуется сразу, не дожидаясь соседней (:meth:`_publish`), и
         публикация - отдельный вопрос: даже самая полная попытка может оказаться хуже
@@ -156,6 +153,7 @@ class ShelvesCache:
                         now,
                     )
                     body[shelf] = tiles
+                    # Готовая полка не ждёт ни соседнюю, ни проводку первого клика.
                     self._publish(origin, shelf, tiles, now, drops)
             except TorrcastError:
                 continue
@@ -164,8 +162,6 @@ class ShelvesCache:
                 best = body
             if len(rows) == before and not grew:
                 break
-        if best is None:
-            return
 
     def _publish(
         self,
@@ -179,19 +175,23 @@ class ShelvesCache:
         with self._lock:
             current = self._body if self._body is not None else origin
             complete = shelf == "popular"  # клеймо нового правила - по последней полке
-            candidate = shelf_candidate(
-                current, origin, shelf, tiles, drops, now=now, limit=SHELF_LIMIT, complete=complete
-            )
-            if candidate is None:
-                return
-        # Сначала факты плиток, затем публикация: видимый клик не ждёт поиска раздач.
-        warmed = {shelf: cast(list[JsonValue], candidate[shelf])}
-        self.warm(shelf_warm_targets(warmed), shelf_warm_targets(warmed, later=True))
-        print(phrase("web.shelf.warmup_ordered", shelf=shelf, count=len(warmed[shelf])), flush=True)
+        publish_shelf(
+            current,
+            origin,
+            shelf,
+            tiles,
+            drops,
+            now=now,
+            limit=SHELF_LIMIT,
+            warm=self.warm,
+            store=self._store,
+            path=self.path,
+            complete=complete,
+        )
+
+    def _store(self, body: dict[str, JsonValue]) -> None:
         with self._lock:
-            self._body = candidate
-        print(phrase("web.shelf.published", shelf=shelf, count=len(warmed[shelf])), flush=True)
-        write_shelves(self.path, candidate)
+            self._body = body
 
     def _load(self) -> dict[str, JsonValue]:
         return read_shelves(self.path)

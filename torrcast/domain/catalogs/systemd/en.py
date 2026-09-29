@@ -9,4 +9,6 @@ def en() -> dict[str, str]:
         "systemd.unit_did_not_start": "unit {unit} did not start: {detail}",
         "systemd.reason_unavailable": "reason unavailable: {reason}",
         "systemd.journal_empty": "the journal is empty",
+        "systemd.shelf.warmup_ordered": "shelf {shelf}: warmup ordered for {count} tiles",
+        "systemd.shelf.published": "shelf {shelf}: published body with {count} tiles",
     }
