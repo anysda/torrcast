@@ -67,3 +67,38 @@ def test_only_a_whole_catalogue_may_say_nothing_to_home_assistant(whole: bool) -
             lambda results: results,
         )
     assert refusal.value.word == (bare if whole else cut)
+
+
+@pytest.mark.parametrize(
+    ("fell", "said"),
+    [
+        ((), phrase("web.search.failed")),
+        (
+            ("RuTor",),
+            phrase(
+                "hunt.nothing_cut", query="Выживший", gone=phrase("hunt.refused", names="RuTor")
+            ),
+        ),
+    ],
+    ids=["nobody-named", "refused"],
+)
+def test_a_cut_circle_home_assistant_hears_is_never_a_bare_nothing(
+    fell: tuple[str, ...], said: str
+) -> None:
+    """Without names a cut circle says the search failed; a refusal is named a refusal."""
+
+    def empty(*_args: Any, on_indexer: Any = None) -> Any:
+        nothing = NothingFoundError("по запросу «Выживший» ничего не нашлось")
+        nothing.whole, nothing.refused = False, fell
+        raise nothing
+
+    with pytest.raises(RefusedError) as refusal:
+        searching(
+            Config(prowlarr_apikey="KEY"),
+            "Выживший",
+            empty,
+            lambda _config: Choice(CAUTIOUS, "тест"),
+            lambda *_a: None,
+            lambda results: results,
+        )
+    assert refusal.value.word == said

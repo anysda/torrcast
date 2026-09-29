@@ -38,6 +38,7 @@ from hass.search_results import search_results
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.cli.parse_args import parse_args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
@@ -115,11 +116,21 @@ def searching(
     try:
         plans = circle(query) if warm is None else warm.take_live(query, circle)
     except NothingFoundError as nothing:
-        # «Nothing found» is the catalogue's word only when every indexer answered; a cut
-        # circle says so and names who fell out (:mod:`torrcast.domain.nothing_found`).
-        cut = nothing_found(args.title_query, nothing.banned, silent=nothing.silent)
-        raise RefusedError(str(nothing if nothing.whole else cut)) from nothing
+        raise RefusedError(_nothing(args.title_query, nothing)) from nothing
     except TorrcastError as refusal:
         raise RefusedError(str(refusal)) from refusal
     remember(args.title_query, [(plan.picture.key, _named(plan.picture)) for plan in plans])
     return offer_within(named, search_results(plans, enter_take(plans, args.title_query).number))
+
+
+def _nothing(query: str, nothing: NothingFoundError) -> str:
+    """«Nothing found» is the catalogue's word only when every indexer answered.
+
+    A cut circle names who fell out (:mod:`torrcast.domain.nothing_found`); one that cannot
+    name them says the search failed rather than blame the catalogue.
+    """
+    if nothing.whole:
+        return str(nothing)
+    if not (nothing.banned or nothing.refused or nothing.silent):
+        return phrase("web.search.failed")
+    return str(nothing_found(query, nothing.banned, nothing.refused, nothing.silent))

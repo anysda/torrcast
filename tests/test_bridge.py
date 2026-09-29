@@ -850,11 +850,12 @@ _CARS = [
 ]
 
 
-def _real_search(answers: dict[str, list[Any]]) -> Callable[..., list[Any]]:
+def _real_search(answers: dict[str, list[Any]], whole: bool = False) -> Callable[..., list[Any]]:
     """Поиск, идущий тем же кругом, что и консоль - только клиент индексеров свой.
 
     Настоящий :func:`search_circle`, настоящая сборка меню - ничего заново тут не
     придумано, подделан только заход в сеть (:mod:`tests.usecases.discover.world`).
+    ``whole`` - клиент ручается, что ответил каждый индексер.
     """
 
     def search(
@@ -862,6 +863,8 @@ def _real_search(answers: dict[str, list[Any]]) -> Callable[..., list[Any]]:
     ) -> list[Any]:
         wire_catalogue()
         client = Indexer(answers=answers)
+        if whole:
+            client.whole = lambda: True  # type: ignore[attr-defined]
         return search_circle(
             config,
             args,
@@ -958,7 +961,7 @@ def test_a_search_refusal_carries_the_products_own_words(
     warm = WarmCache(circle=lambda _q: [], blurbs=lambda _p: None, spawn=lambda _job: None)
     monkeypatch.setattr("hass.bridge.WARM", warm)
     bridge = _bridge(
-        FakePlaybackSession(), search=_real_search({}), settings=lambda: _SEARCH_CONFIG
+        FakePlaybackSession(), search=_real_search({}, whole=True), settings=lambda: _SEARCH_CONFIG
     )
 
     with pytest.raises(RefusedError) as refusal:
