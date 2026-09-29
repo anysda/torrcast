@@ -857,7 +857,9 @@ def _real_search(answers: dict[str, list[Any]]) -> Callable[..., list[Any]]:
     придумано, подделан только заход в сеть (:mod:`tests.usecases.discover.world`).
     """
 
-    def search(config: Config, args: Args, progress: Any, profile: Profile = CAUTIOUS) -> list[Any]:
+    def search(
+        config: Config, args: Args, progress: Any, profile: Profile = CAUTIOUS, **hooks: Any
+    ) -> list[Any]:
         wire_catalogue()
         client = Indexer(answers=answers)
         return search_circle(
@@ -867,6 +869,7 @@ def _real_search(answers: dict[str, list[Any]]) -> Callable[..., list[Any]]:
             profile,
             indexer=lambda *_a, **_k: client,
             passport=lambda *_a, **_k: Origin(),
+            **hooks,
         )
 
     return search

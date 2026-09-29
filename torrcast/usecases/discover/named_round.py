@@ -8,6 +8,7 @@ rows keep the namesakes and the rest of the franchise on the screen as before.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
@@ -34,6 +35,9 @@ class NamedRound:
     def __init__(self, source: IndexerClient) -> None:
         self.source = source
         self.known: MapPicture | None = None
+        #: Set once the viewer's text has answered: its rows alone make the tiles, so the
+        #: list can be judged while the names are still in flight.
+        self.typed = threading.Event()
         self._named: list[IndexerClient] = []
 
     @property
@@ -88,7 +92,10 @@ class NamedRound:
         with ThreadPoolExecutor(max_workers=3, thread_name_prefix="named-round") as pool:
             typed = pool.submit(_ask, client, name)
             asked = self._names(pool, spawn, on_indexer, name, query)
-            raw = typed.result()
+            try:
+                raw = typed.result()
+            finally:
+                self.typed.set()
             if not raw and not asked:
                 # A map still being built on a cold start names the picture a moment later,
                 # and a text nobody answered leaves time to ask by its names.

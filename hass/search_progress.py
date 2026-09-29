@@ -26,21 +26,17 @@ from typing import TYPE_CHECKING
 from hass import searching
 from hass.catalog_merge import catalog_merge
 from hass.catalog_tiles import CatalogTiles
+from hass.peek_client import peek_client
 from hass.redress import redress
 from hass.refused_error import RefusedError
 from hass.search_job import POSTERS_BY, SearchJob, _Shared
-from hass.search_results import _hit
 from hass.searching import Detect, Offer, Remember
 from hass.shown_covers import _Covers, shown_covers
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.menu_order import menu_order
 from torrcast.domain.profile import Profile
-from torrcast.domain.raw_result import RawResult
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
-from torrcast.usecases.discover.named_round import NamedRound
-from torrcast.usecases.discover.recognized_pick import recognized_pick
 from torrcast.usecases.discover.search_circle import search_circle
 
 if TYPE_CHECKING:
@@ -98,14 +94,7 @@ def _preview(
 
 def _peek(query: str, job: SearchJob) -> list[JsonValue]:
     """Находки по тому, что клиент индексеров уже держит в руках."""
-    peek = getattr(job.client, "inflight", None)
-    raw: list[RawResult] = peek() if peek is not None else []
-    named = job.client.named_inflight() if isinstance(job.client, NamedRound) else []
-    if not raw and not named:
-        return []
-    known = job.client.known if isinstance(job.client, NamedRound) else None
-    found = menu_order(recognized_pick(query, raw, named, known)[1])
-    return [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
+    return peek_client(query, job.client)
 
 
 def search_progress(

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
+
+import pytest
 
 from tests.usecases.discover.world import Indexer, row
 from torrcast.domain.facts.map_picture import MapPicture
@@ -111,3 +114,40 @@ def test_one_client_of_the_names_carries_them_all_to_the_joined_indexer() -> Non
         (["Интерстеллар 2014"], ["Интерстеллар 2014 | Interstellar 2014"]),
         (["Interstellar 2014"], [""]),
     ]
+
+
+class _Held(Indexer):
+    def __init__(self, gate: threading.Event) -> None:
+        super().__init__()
+        self.gate = gate
+
+    def search(self, query: str) -> list[RawResult]:
+        self.gate.wait(2.0)
+        return []
+
+
+@pytest.mark.machine
+def test_the_viewers_text_is_known_while_the_names_are_still_asked() -> None:
+    _configure_recognize(lambda _query, _wait: _INTERSTELLAR)
+    gate = threading.Event()
+    seen = threading.Event()
+    source = Indexer(answers={"интерстелар": [_ROW]})
+    first = NamedRound(source)
+    typed_in: list[bool] = []
+
+    def watch(_client: object) -> None:
+        def wait() -> None:
+            typed_in.append(first.typed.wait(1.0))
+            seen.set()
+
+        threading.Thread(target=wait).start()
+
+    asked = threading.Thread(
+        target=first.ask,
+        args=(ToldIndexer(source), lambda: _Held(gate), watch, "Интерстелар", "Интерстелар"),
+    )
+    asked.start()
+    seen.wait(1.5)
+    gate.set()
+    asked.join()
+    assert typed_in == [True], "the viewer's text answered, and the round kept it to itself"

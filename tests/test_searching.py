@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,6 +26,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS, Profile
 from torrcast.domain.tune import tune
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
@@ -42,7 +44,15 @@ _CARS = [
 ]
 
 
-def _search(config: Config, args: Args, progress: Any, profile: Profile) -> list[Plan]:
+def _search(
+    config: Config,
+    args: Args,
+    progress: Any,
+    profile: Profile,
+    /,
+    *,
+    on_indexer: Callable[[IndexerClient], None] | None = None,
+) -> list[Plan]:
     """Тот же круг поиска, что у консоли, с подделанным клиентом индексеров."""
     wire_catalogue()
     client = Indexer(answers={"тачки": _CARS})
@@ -53,6 +63,7 @@ def _search(config: Config, args: Args, progress: Any, profile: Profile) -> list
         profile,
         indexer=lambda *_a, **_k: client,
         passport=lambda *_a, **_k: Origin(),
+        on_indexer=on_indexer,
     )
 
 
@@ -124,7 +135,9 @@ def test_the_search_step_judges_by_the_receivers_own_profile() -> None:
     """Список судится про тот приёмник, на который поедет показ (TC-241), а не вслепую."""
     seen: list[tuple[Config, Profile]] = []
 
-    def watching(config: Config, args: Args, progress: Any, profile: Profile) -> list[Plan]:
+    def watching(
+        config: Config, args: Args, progress: Any, profile: Profile, /, **_k: Any
+    ) -> list[Plan]:
         seen.append((config, profile))
         return _search(config, args, progress, profile)
 
@@ -158,7 +171,9 @@ def test_a_card_after_the_search_step_takes_its_circle_without_a_second_trip() -
     """🔴 ``/api/search`` и следом ``/api/card`` той же картины прошли индексеры дважды: +3.6 с."""
     asked: list[str] = []
 
-    def counted(config: Config, args: Args, progress: Any, profile: Profile) -> list[Plan]:
+    def counted(
+        config: Config, args: Args, progress: Any, profile: Profile, /, **_k: Any
+    ) -> list[Plan]:
         asked.append(args.title_query)
         return _search(config, args, progress, profile)
 
@@ -178,7 +193,9 @@ def test_the_search_step_after_a_restart_counts_a_fresh_circle_instead_of_the_di
     """Выдача HA шла свежим кругом; общий кэш отдавал ей круг с диска возрастом до суток."""
     asked: list[str] = []
 
-    def counted(config: Config, args: Args, progress: Any, profile: Profile) -> list[Plan]:
+    def counted(
+        config: Config, args: Args, progress: Any, profile: Profile, /, **_k: Any
+    ) -> list[Plan]:
         asked.append(args.title_query)
         return _search(config, args, progress, profile)
 

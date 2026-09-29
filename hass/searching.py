@@ -29,9 +29,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
+from hass.early_verdict import early_verdict
 from hass.hit_posters import hits
 from hass.offer_within import offer_within
 from hass.refused_error import RefusedError
+from hass.search import Search as Search  # the bridge takes it from here
 from hass.search_results import search_results
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
@@ -39,21 +41,17 @@ from torrcast.cli.parse_args import parse_args
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.profile import Profile
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
-from torrcast.ports.progress.progress import Progress
 from torrcast.ports.progress.slot import progress
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 
 if TYPE_CHECKING:
-    from torrcast.domain.args import Args
     from torrcast.usecases.select.plan import Plan
 
-#: Чем ищется выдача: тот же круг поиска, что у показа, либо ответ подделки в тесте.
-Search = Callable[[Config, "Args", Progress, Profile], list["Plan"]]
+
 #: Кто такой приёмник на том конце: паспорт устройства или ключ из настроек.
 Detect = Callable[[Config], Choice]
 #: Куда ложится показанный порядок картин: ключ и имя под их номерами.
@@ -106,7 +104,11 @@ def searching(
     args = parse_args([query])
 
     def circle(_query: str) -> list[Plan]:
-        return search(tune(config, chosen.profile), args, progress(), chosen.profile)
+        # The verdict starts on the viewer's text, beside the names (:mod:`hass.early_verdict`).
+        early = early_verdict(query, named)
+        return search(
+            tune(config, chosen.profile), args, progress(), chosen.profile, on_indexer=early
+        )
 
     try:
         plans = circle(query) if warm is None else warm.take_live(query, circle)
