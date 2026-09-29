@@ -146,6 +146,10 @@ _PLAY_START_WAIT: Final = 90000.0
 _FRAME_BAR: Final = 5.0
 _EPISODES_BAR: Final = 2.0
 _WATCH_SECONDS: Final = 180.0
+#: Стык серий: от штатного ``ended`` до первого кадра следующей серии. Без него пункт 8
+#: зеленел при стыке 9.67 с - ожидание загрузки до кадра прибор относит к самому
+#: переходу (``bridge``), а не к подгрузам, и судить его обязан отдельным числом.
+_JOIN_BAR: Final = 3.0
 #: Сколько зритель ждёт кнопку «Играть» на карточке, которую он уже открыл. Число
 #: взято из цели, а не со стенда: это та же терпимость, что у холодной карточки
 #: (:data:`_COLD_CARD`), и кнопка показа не имеет права приезжать позже описания.
@@ -2358,6 +2362,26 @@ def _bridge_steps(meter: dict[str, Any]) -> str:
     return f" ({', '.join(said)})" if said else ""
 
 
+def _autoplay_ok(
+    pairs: tuple[tuple[Any, Any], tuple[Any, Any]],
+    frame: float | None,
+    gap: float | None,
+    rows_ready: bool,
+    waits: list[Any],
+) -> bool:
+    """Приговор автопереходу: серия сменилась, кадр был, стык в пороге, подгрузов нет."""
+    before, after = pairs
+    return (
+        None not in after
+        and after != before
+        and frame is not None
+        and gap is not None
+        and gap <= _JOIN_BAR
+        and rows_ready
+        and not waits
+    )
+
+
 def check_8_autoplay(ctx: Ctx) -> Result:
     """Автопереход: перемотка к концу → плашка с отсчётом → через 10 с следующая серия.
 
@@ -2442,18 +2466,13 @@ def check_8_autoplay(ctx: Ctx) -> Result:
     )
     waits, total, unseen = _wait_stalls(ctx, _WATCH_SECONDS) if frame is not None else ([], 0.0, [])
     rows_ready = rows_waited <= _PLAY_READY_BAR
-    ok = (
-        None not in after_pair
-        and after_pair != before_pair
-        and frame is not None
-        and rows_ready
-        and not waits
-    )
+    ok = _autoplay_ok((before_pair, after_pair), frame, gap, rows_ready, waits)
     detail = (
         f"s1e1 (строки серий ждали {rows_waited:.1f} с, порог {_PLAY_READY_BAR:.0f}); "
         f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
         f"кадр следующей серии {frame!r} с от плашки"
         + ("" if gap is None else f", {gap:.2f} с от ended{_bridge_steps(meter)}")
+        + f" (порог {_JOIN_BAR:.0f})"
         + f"; ожиданий загрузки до кадра {len(meter.get('bridge') or [])}"
         + f"; подгрузы после кадра за {_WATCH_SECONDS:.0f} с: "
         f"{len(waits)}, {total:.1f} с" + _unseen_note(unseen)

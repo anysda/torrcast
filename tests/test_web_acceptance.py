@@ -225,6 +225,17 @@ def test_автопереход_берёт_кадр_после_следующе�
     assert meter["nextPlaying"] == 4.1
 
 
+@pytest.mark.parametrize(("gap", "ok"), [(1.82, True), (3.0, True), (9.67, False), (None, False)])
+def test_автопереход_судит_стык_от_ended_до_кадра(gap: float | None, ok: bool) -> None:
+    """Стык 9.67 с без подгрузов после кадра - красный: переход судится своим числом."""
+    module = acceptance()
+    pairs = ((1, 1), (1, 2))
+
+    assert module._autoplay_ok(pairs, 11.5, gap, True, []) is ok
+    assert module._autoplay_ok(pairs, 11.5, 1.82, True, [(1.0, 0.2)]) is False
+    assert module._autoplay_ok(((1, 1), (1, 1)), 11.5, 1.82, True, []) is False
+
+
 def test_серия_контроля_не_прибита_к_s2e1() -> None:
     module = acceptance()
 
