@@ -13,13 +13,16 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.kind import Kind
 from torrcast.domain.picture import Picture
 from torrcast.domain.spoken_title import spoken_title
+from torrcast.ports.state_store.slot import store
 from torrcast.runtime.menu_facts import MenuFacts
 from web.answer import Answer
 from web.card_details import CardDetails
 from web.early_picture import early_picture
+from web.early_seasons import early_seasons
 from web.kin_ahead import KIN_AHEAD
 from web.rating_score import rating_score
 from web.request import Request
+from web.route_year import route_year as _year
 
 _PARTIAL = "X-Torrcast-Partial"
 #: Долгий переспрос ждёт независимые от круга источники не дольше секунды. Первый ответ
@@ -102,6 +105,7 @@ def preview(
     :meth:`WarmCache.take` за раздачами. Как только круг готов, GET соберёт полную карточку.
     Прогревает круг СТРОКОЙ: прямая ссылка несёт пустой ``query`` (владелец, TC-1334).
     Обложка судится по фактам: без этого прямая ссылка ждала её весь круг раздач (5-10 с).
+    Серии судятся каталогом по раннему пулу (:mod:`web.early_seasons`).
     """
     title = request.query.get("title", "").strip()
     probe = request.query.get("query", "").strip() or title
@@ -113,12 +117,15 @@ def preview(
         return None
     getattr(warm, "hint", warm.ask)(probe)
     facts = _facts.of(title, year, kind)
+    # A series from the history lists its episodes by the bookmark before any indexer answers.
+    entry = store().load().get(key) if kind == "tv" else None
+    own = Picture(title, year, cast(Kind, kind))
 
-    def look() -> tuple[Any, bool, list[JsonValue] | None, list[Any], tuple[str | None, bool]]:
+    def look() -> tuple[Any, bool, list[JsonValue] | None, list[Any], tuple[str | None, bool], Any]:
         fact, told = facts.ready(title, year), facts.answered(title, year)
         kin = _related_of(related, title, kind == "tv", fact, told, year)
-        art = poster(Picture(title, year, cast(Kind, kind))) if poster else (None, False)
-        return fact, told, kin, getattr(early_picture(probe, key), "releases", []), art
+        art, pool = poster(own) if poster else (None, False), early_picture(probe, key)
+        return fact, told, kin, getattr(pool, "releases", []), art, early_seasons(pool, entry, own)
 
     seen, wait = look(), request.query.get("wait") == "1"
     before, hold = seen, PATIENCE if wait else _ART if seen[4][1] else 0.0
@@ -130,7 +137,7 @@ def preview(
         # Справка, родня, обложка и раздачи едут порознь: перемена одной не стоит за другой.
         if (seen := look()) != before:
             break
-    fact, told, kin, early, (art, _judging) = seen
+    fact, told, kin, early, (art, _judging), (seasons, layout) = seen
     body: dict[str, JsonValue] = {
         "pick": 0,
         "title": title,
@@ -150,7 +157,8 @@ def preview(
         "resumable": False,
         "label": "",
         "playing": False,
-        "seasons": [],
+        "seasons": seasons,
+        "layout": [*layout],
         "related": _others(key, kin),
         "releases_count": len(early),
         "sources_count": CardDetails.sources_count(early),
@@ -160,15 +168,6 @@ def preview(
     # article. A final-looking answer here left such a card on "searching" forever.
     encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
     return Answer(200, encoded, extra=((_PARTIAL, "1"),))
-
-
-def _year(value: str) -> int | None:
-    """Год из строки маршрута, только правдоподобное целое."""
-    try:
-        year = int(value)
-    except ValueError:
-        return None
-    return year if 1800 <= year <= 3000 else None
 
 
 def _others(key: str, related: list[JsonValue] | None) -> list[JsonValue] | None:
@@ -197,4 +196,4 @@ def _related_of(
     return related.of(title, series)
 
 
-__all__ = ["preview", "time"]
+__all__ = ["_year", "preview", "time"]

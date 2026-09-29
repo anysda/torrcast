@@ -161,7 +161,7 @@ def _page_sends_the_tab_release() -> bool:
     """
     # Обработчик строки назван, потому что гашение по приговору его снимает
     # (:mod:`web.episode_absent`); тело `_play` у него прежнее.
-    row = "const play = () => TCCard._play(data, key, query,"
+    row = "TCCardSeries._wait(key, row) : TCCard._play(data, key,"
     bound = "if (!grey) row.addEventListener('click', play);" in SERIES_JS
     play = CARD_JS.split("  _play(data, key, query, voices, fromStart, season, episode) {", 1)[1]
     play = play.split("\n  },", 1)[0]

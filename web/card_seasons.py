@@ -48,7 +48,7 @@ def card_seasons(
     picture = plan.picture
     if picture.kind != "tv":
         return [], False, None, []
-    releases = _picture_releases(plan)
+    releases = _picture_releases(picture)
     numbers = {number for release in releases for number in _named_seasons(release)}
     saved = seasons_from_entry(entry) if entry is not None and entry.episodes else {}
     known, pending, layout = catalog.rows(picture, releases, saved) if catalog else ({}, False, [])
@@ -109,9 +109,8 @@ def _named_seasons(release: Release) -> tuple[int, ...]:
     return (release.season,) if release.season else ()
 
 
-def _picture_releases(plan: Plan) -> list[Release]:
+def _picture_releases(picture: Picture) -> list[Release]:
     """Не принять слившийся спин-офф за следующий сезон открытой картины."""
-    picture = plan.picture
     names = {slugify(name) for name in (picture.title, picture.original or "") if name}
     same_picture = [
         release

@@ -51,7 +51,7 @@ class SeriesCatalog:
     _ids: dict[str, tuple[str, float]] = field(default_factory=dict)
 
     def rows(
-        self, picture: Picture, releases: Sequence[Release], saved: Rows
+        self, picture: Picture, releases: Sequence[Release], saved: Rows, cold: float = COLD
     ) -> tuple[Rows, bool, list[int]]:
         """Серии по сезонам, «TVmaze ещё в пути» и числа серий списка чужой раздачам нумерации.
 
@@ -59,7 +59,8 @@ class SeriesCatalog:
         закладки ``saved`` ложатся поверх по номеру серии: серий каталога они не прячут.
         Список не как у раздач («Интерны» IMDb 60, 60, 61, 98) отдаётся с числами серий
         сезонов: строку показ ищет сквозным номером. Закладка считает серии раздачей, и
-        такому списку с ней не сойтись: тогда пусто, как вне каталога.
+        такому списку с ней не сойтись: тогда пусто, как вне каталога. ``cold`` - сколько
+        ждать молчащий TVmaze: ранний ответ карточки его не ждёт вовсе, только заводит.
         """
         key, moment = picture.key, self.clock()
         tconst, asked = self._ids.get(key, ("", float("-inf")))
@@ -68,7 +69,7 @@ class SeriesCatalog:
             self._ids[key] = (tconst, moment)
         if not tconst:
             return {}, False, []  # outside the catalogue the card keeps the release tables
-        aired, state = self.aired(tconst, COLD)
+        aired, state = self.aired(tconst, cold)
         pending = state is AiredState.UNKNOWN
         imdb = self.numbers(tconst) or {}
         layout, direct = series_layout(imdb, aired, releases, saved, self.now())
