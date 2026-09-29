@@ -82,7 +82,11 @@ class HitPosters(HitClaims):
         ]
 
     def urgent(self, results: list[JsonValue]) -> list[JsonValue]:
-        """:meth:`offer` видимого списка: его запросы идут впереди полок и «похожих»."""
+        """Приговор видимого списка; байты едут следом без задержки выдачи.
+
+        Имя остаётся в записи до следующего опроса. Страница отдаёт его только после
+        приземления байтов и меняет картинку в уже стоящей плитке, не перестраивая ряд.
+        """
         return self.offer(results, urgent=True)
 
     def settled(self, results: list[JsonValue]) -> list[JsonValue]:

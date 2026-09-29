@@ -17,6 +17,7 @@ const TCTile = {
     // `_swapBody` читает её как запасной ориентир фокуса лишь на экране поиска, но
     // полки и карточка-приёмник опознают плитку по тому же ключу (щуп приёмки, TC-1345).
     if (shape.key) tile.dataset.tcKey = shape.key;
+    if (shape.poster) tile.dataset.tcPoster = shape.poster;
     // Пометка для прогрева (`warm.js`) - запрос, круг которого этой плитке уже считают.
     // У полки это её собственный запрос, он же и откроет карточку. У выдачи поиска он
     // ОДИН на весь экран - набранный текст: греть по имени каждой плитки значило бы
@@ -65,7 +66,7 @@ const TCTile = {
         // Обложку и имя плитки карточка рисует сразу, до ответа сервера (`card.js`).
         try {
           sessionStorage.setItem('tc-art:' + shape.key, JSON.stringify({
-            poster: shape.poster || null, title: shape.title || '', year: shape.year || null }));
+            poster: tile.dataset.tcPoster || null, title: shape.title || '', year: shape.year || null }));
         } catch (_) { /* хранилище закрыто - карточка просто дождётся ответа */ }
         shape.onActivate(shape.key, shape.query, shape.facts);
       };
@@ -142,6 +143,17 @@ const TCTile = {
       return img;
     }
     return TCTile._noArt(shape.title);
+  },
+
+  // Поздняя обложка меняет только искусство своей уже стоящей плитки. Обработчики,
+  // фокус и место ряда остаются прежними, а карточка читает новое имя из data-атрибута.
+  setPoster(tile, poster, title) {
+    if (!tile || !poster || tile.dataset.tcPoster === poster) return;
+    const frame = tile.querySelector('.tc-tile-frame');
+    const old = frame && frame.querySelector('.tc-tile-art-img, .tc-tile-noart');
+    if (!old) return;
+    tile.dataset.tcPoster = poster;
+    old.replaceWith(TCTile._art({ poster, title }));
   },
 
   _noArt(title) {

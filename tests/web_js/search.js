@@ -81,13 +81,19 @@ const scenarios = {
       partial: false, postersPending: n < 2,
       results: [hit('cars', n > 1 ? { poster: 'cars.jpg' } : {})], finalBy: 2,
     }));
+    let swaps = 0;
+    const swap = p.home._swapBody;
+    p.home._swapBody = (next) => { swaps += 1; return swap(next); };
     await p.time.run(60000);
-    return { polls: p.polls, timers: p.time.pending(), screen: screen(p) };
+    return { polls: p.polls, swaps, timers: p.time.pending(), screen: screen(p) };
   },
 
   // Сервер твердит «обложки в пути» вечно: дозапрос кончается потолком сервера.
   async posterCap() {
-    const p = search(() => ({ partial: false, postersPending: true, results: TEN, postersBy: 20 }));
+    const p = search((_, at) => ({
+      partial: false, postersPending: at < 20000, results: TEN,
+      postersBy: Math.max(0, 20 - at / 1000),
+    }));
     await p.time.run(120000);
     return { postersBy: 20, polls: p.polls, timers: p.time.pending() };
   },

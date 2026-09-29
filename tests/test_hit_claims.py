@@ -119,14 +119,16 @@ def test_a_calm_empty_answer_is_a_miss_and_nothing_is_coming(tmp_path: Path) -> 
     assert len(source.judged) == 1
 
 
-def test_a_picture_has_landed_only_once_its_bytes_are_here(tmp_path: Path) -> None:
-    """Имя выдано по приговору, но плитка страницы получит его, когда байты лягут."""
+def test_a_named_picture_is_not_landed_before_its_bytes_arrive(tmp_path: Path) -> None:
+    """Следующий опрос знает имя поздней картинки, но страница до байтов её не покажет."""
     gate = threading.Event()
     source = FakeSource(gate=gate)
     posters = HitPosters(source, PosterShelf(home=lambda: tmp_path))
-    assert FIELD in posters.urgent([_row()])[0]  # type: ignore[operator]
-    assert not posters.landed(_row()) and posters.pending([_row()])
-    gate.set()
+    try:
+        assert FIELD in posters.urgent([_row()])[0]  # type: ignore[operator]
+        assert not posters.landed(_row()) and posters.pending([_row()])
+    finally:
+        gate.set()
     for _ in range(100):
         if posters.landed(_row()):
             break

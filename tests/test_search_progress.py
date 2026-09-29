@@ -208,6 +208,30 @@ def test_a_slow_poster_verdict_does_not_hold_the_preview_poll() -> None:
         gate.set()
 
 
+def test_a_ready_preview_stays_on_screen_while_its_verdict_runs() -> None:
+    """Один работающий verdict не закрывает уже видимый ряд другим опросом."""
+    wire_catalogue()
+    gate, verdict = threading.Event(), threading.Event()
+    search = _blocking_search(_PreviewClient(answers={"тачки": _CARS}, raw=_CARS), gate)
+
+    def offer(results: list[JsonValue]) -> list[JsonValue]:
+        verdict.wait(2.0)
+        return results
+
+    def poll() -> tuple[list[JsonValue], bool]:
+        return search_progress(_CONFIG, "тачки", _detect, _remember, search=search, offer=offer)
+
+    try:
+        deadline = time.monotonic() + 1.0
+        while not ((job := module._jobs.get("тачки")) and job.judging):
+            assert time.monotonic() < deadline, "превью так и не запустило приговор"
+            poll()
+        assert len(poll()[0]) == 2, "работающий verdict закрыл уже готовый ряд"
+    finally:
+        verdict.set()
+        gate.set()
+
+
 def test_a_cover_already_on_the_shelf_does_not_wait_for_the_verdict_of_its_batch(
     tmp_path: Path,
 ) -> None:

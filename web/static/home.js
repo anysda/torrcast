@@ -338,6 +338,8 @@ const TCHome = {
     let answered = false;
     let misses = 0;
     let asked = began;
+    let postersUntil = 0;
+    let pending = false;
     let said;
     do {
       asked = Date.now();
@@ -352,6 +354,9 @@ const TCHome = {
       if (said.failed) {
         // Сорванный опрос живого поиска (сервер уже отвечал) не сбой: сервер досчитывает
         // заход, и следующий опрос его застаёт. Сбой - только подряд `_POLL_TRIES` раз.
+        // После финала сорванный дозапрос обложек не отнимает готовый список, а поздний
+        // круг всё равно дослушивается ниже.
+        if (postersUntil) break;
         misses += 1;
         if (!answered || misses >= TCHome._POLL_TRIES) {
           TCHome._swapBody(TCHome._searchFailed(text, known));
@@ -362,16 +367,26 @@ const TCHome = {
         misses = 0;
         until = began + said.finalBy * 1000 + TCHome._FINAL_SLACK;
         known = TCHome._showHits(text, known, said);
-        if (!said.partial) break;
+        pending = !!said.refusalPending;
+        if (!said.partial) {
+          if (!said.postersPending || said.postersBy <= 0) break;
+          // Потолок назван сервером как остаток ОДНОГО захода, не нового отсчёта на
+          // каждую приехавшую картинку. Опрос за потолком сервер принимает за новый
+          // поиск и гонит второй круг по индексерам, поэтому последний опрос уходит
+          // ДО потолка, с запасом на дорогу туда.
+          postersUntil = Date.now() + said.postersBy * 1000 - TCHome._CAP_MARGIN;
+        }
       }
-      await new Promise((done) => setTimeout(done, known.length ? 400 : 150));
+      const step = known.length ? 400 : 150;
+      if (postersUntil && Date.now() + step > postersUntil) break;
+      await new Promise((done) => setTimeout(done, step));
       // Срок сверяется по НАЧАЛУ опроса: опрос, начатый до срока и застрявший за ним в
       // очереди браузера, иначе обрывал поиск за миг до финала (TC-1286).
-    } while (asked < until || misses > 0);
-    if (said.failed || said.partial) return;
+    } while (postersUntil || asked < until || misses > 0);
+    if (!postersUntil && (said.failed || said.partial)) return;
     // A torn poll here is survived as above: giving up on the first one left the empty
     // deadline list on screen as if the unfinished circle had found nothing.
-    for (let listening = said.refusalPending; listening;) {
+    for (let listening = pending; listening;) {
       await new Promise((done) => setTimeout(done, TCHome._REFUSAL_STEP));
       said = await TCApi.searchProgress(text);
       if (gone()) return;
@@ -390,16 +405,6 @@ const TCHome = {
       known = TCHome._showHits(text, known, said);
       listening = said.refusalPending;
     }
-    // Финал бывает раньше обложек: сервер называет, что они ещё в пути, и сколько секунд до
-    // его потолка. Потолок идёт от начала захода сервера, а заход бывает старше страницы:
-    // отсчёт от своего начала опрашивал за потолком и гнал новый круг поиска.
-    const postersUntil = Date.now() + said.postersBy * 1000;
-    while (said.postersPending && Date.now() + TCHome._POSTER_STEP <= postersUntil) {
-      await new Promise((done) => setTimeout(done, TCHome._POSTER_STEP));
-      said = await TCApi.searchProgress(text);
-      if (gone() || said.failed || said.partial) return;
-      known = TCHome._showHits(text, known, said);
-    }
   },
 
   // Ответ опроса на экран: тот же экран не пересобирается, у стоящих обложек нет причины
@@ -408,8 +413,11 @@ const TCHome = {
   _showHits(text, known, said) {
     const merged = TCHome._mergeHits(known, said.results, said.partial);
     TCHome._found = { query: text, results: merged };
-    if (TCHome._screenOf(merged, said.partial) !== TCHome._shownHits) {
+    if (TCHome._shownHits === ' ' || TCHome._layoutOf(merged) !== TCHome._layoutOf(known)) {
       TCHome._swapBody(TCHome._searchResults(merged, said.partial));
+    } else {
+      TCHome._patchPosters(merged);
+      TCHome._patchSearchState(said.partial);
     }
     return merged;
   },
@@ -417,17 +425,44 @@ const TCHome = {
   // Запас сверх срока сервера: опрос, начатый перед самым сроком, и его дорога назад.
   _FINAL_SLACK: 2000,
 
+  // Последний дозапрос обложек уходит за столько до потолка сервера: дорога опроса
+  // туда и округление срока в заголовке до десятой секунды.
+  _CAP_MARGIN: 1000,
+
   // Сколько сорванных опросов подряд живой поиск переживает до экрана сбоя.
   _POLL_TRIES: 3,
-
-  // Шаг дозапроса обложек после финала.
-  _POSTER_STEP: 2500,
 
   // The server already gave the ordinary final; this hears only how its late circle ended.
   _REFUSAL_STEP: 1000,
 
   _screenOf(results, partial) {
     return JSON.stringify([results, !!partial]);
+  },
+
+  _layoutOf(results) {
+    return JSON.stringify(results.map((hit) => {
+      const copy = { ...hit };
+      delete copy.poster;
+      return copy;
+    }));
+  },
+
+  _patchPosters(results) {
+    const tiles = document.querySelectorAll('[data-tc-group="search-results"]');
+    results.forEach((hit, index) => {
+      if (hit.poster) TCTile.setPoster(tiles[index], hit.poster, hit.shown || hit.title);
+    });
+  },
+
+  _patchSearchState(partial) {
+    if (partial) return;
+    const body = document.getElementById('tc-body');
+    const line = body && body.querySelector('.tc-searching');
+    if (line) line.remove();
+    const frame = body && body.querySelector('[data-tc-group="search-results"] .tc-tile-frame');
+    if (frame && !frame.querySelector('.tc-tile-best')) {
+      frame.appendChild(TCTile._badge('tc-tile-best', TC.say('web.search.best_match')));
+    }
   },
 
   // Выдача пересобирается целиком на каждом дописывании находок, а фокус клавиатуры

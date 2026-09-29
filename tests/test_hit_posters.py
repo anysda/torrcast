@@ -119,6 +119,27 @@ def test_the_list_does_not_wait_for_the_bytes_of_the_pictures(tmp_path: Path) ->
     assert hits.read(name) == (POSTER, "image/jpeg")
 
 
+def test_the_visible_batch_keeps_names_until_its_posters_arrive(tmp_path: Path) -> None:
+    """Поздняя картинка остаётся адресуемой следующему опросу, не задерживая ряд."""
+    gate = threading.Event()
+    hits = _hits(tmp_path, FakeSource(pages={"Тачки": ["Cars"], "Оно": ["It"]}, gate=gate))
+    try:
+        began = time.monotonic()
+        offered = hits.urgent([_row(), _row("Оно", 2017)])
+        took = time.monotonic() - began
+
+        assert took < _QUICK
+        assert all(isinstance(row, dict) and FIELD in row for row in offered)
+        assert not any(hits.landed(row) for row in offered if isinstance(row, dict))
+        gate.set()
+        deadline = time.monotonic() + _SETTLE
+        while not all(hits.landed(row) for row in offered) and time.monotonic() < deadline:
+            threading.Event().wait(0.02)
+        assert all(hits.landed(row) for row in offered)
+    finally:
+        gate.set()
+
+
 def test_a_picture_without_a_title_stays_a_line(tmp_path: Path) -> None:
     """Названия нет - имени картинки нет, и строка остаётся строкой без заглушки."""
     hits = _hits(tmp_path, FakeSource())
@@ -312,5 +333,6 @@ def test_a_picture_lands_without_waiting_for_the_slowest_of_its_batch(tmp_path: 
             threading.Event().wait(0.02)
         assert hits.landed(cars), "доехавшая обложка ждала самую медленную картинку пачки"
         assert not hits.landed(it) and hits.pending([it])
+        assert isinstance(it, dict) and FIELD in it, "доехавшей позже обложке не дали имени"
     finally:
         gate.set()

@@ -21,8 +21,8 @@ RUNNER = Path(__file__).resolve().parent / "web_js" / "search.js"
 EMPTY_STEP_MS, HITS_STEP_MS = 150, 400
 #: Сверх срока сервера страница ждёт не больше этого: опрос перед сроком и его дорога.
 PAST_DEADLINE_MS = 3000
-#: Шаг дозапроса обложек после финала, пока сервер говорит, что они в пути.
-POSTER_STEP_MS = 2500
+# Запас страницы до потолка обложек сервера (``TCHome._CAP_MARGIN``).
+CAP_MARGIN_MS = 1000
 
 
 @pytest.fixture(scope="module")
@@ -90,20 +90,24 @@ def test_a_final_equal_to_the_last_preview_still_shows_best_match(facts: dict[st
 
 
 @pytest.mark.machine
-def test_a_poster_finished_after_the_final_reaches_its_tile(facts: dict[str, Any]) -> None:
+def test_a_final_answer_polls_for_posters_without_replacing_its_tiles(
+    facts: dict[str, Any],
+) -> None:
     after = _scenario(facts, "posterAfterFinal")
-    gaps = [later - earlier for earlier, later in pairwise(after["polls"])]
-    assert gaps == [POSTER_STEP_MS + 30] * 2, "дозапрос шёл не шагом или после «обложки пришли»"
+    assert len(after["polls"]) == 3, after["polls"]
+    assert after["swaps"] == 1, "поздняя обложка пересобрала весь #tc-body"
     assert after["screen"]["keys"] == ["cars"]
-    assert "web.tile.no_art" not in after["screen"]["text"], "готовая обложка не заменила заглушку"
-    assert after["timers"] == 0, "дозапрос обложек стал бесконечным опросом"
+    assert "web.tile.no_art" not in after["screen"]["text"], "поздняя обложка не встала в плитку"
+    assert after["timers"] == 0, "после финала остался таймер дозапроса обложек"
 
 
 @pytest.mark.machine
 def test_posters_said_to_be_coming_forever_stop_at_the_server_cap(facts: dict[str, Any]) -> None:
     cap = _scenario(facts, "posterCap")
     assert cap["polls"][-1] <= cap["postersBy"] * 1000, f"дозапрос шёл до {cap['polls'][-1]} мс"
-    assert len(cap["polls"]) == 1 + (cap["postersBy"] * 1000 - 30) // (POSTER_STEP_MS + 30)
+    assert cap["polls"][-1] > cap["postersBy"] * 1000 - 2 * CAP_MARGIN_MS, (
+        f"дозапрос бросили задолго до потолка сервера: {cap['polls']}"
+    )
     assert cap["timers"] == 0, "после потолка у страницы остались живые таймеры"
 
 
@@ -114,7 +118,7 @@ def test_the_poster_cap_counts_from_the_final_answer(facts: dict[str, Any]) -> N
     Заход сервера бывает старше страницы, и опрос за его потолком гнал новый круг поиска."""
     cap = _scenario(facts, "posterCapFromFinal")
     assert cap["polls"][-1] <= cap["capAt"], f"дозапрос шёл за потолком сервера: {cap['polls']}"
-    assert cap["polls"][-1] > cap["capAt"] - 2 * POSTER_STEP_MS, (
+    assert cap["polls"][-1] > cap["capAt"] - 2 * CAP_MARGIN_MS, (
         f"дозапрос бросили задолго до потолка сервера: {cap['polls']}"
     )
     assert cap["timers"] == 0
