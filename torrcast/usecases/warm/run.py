@@ -177,10 +177,10 @@ def _run(
             _state.spot_out(first, state.vault.path(first), donor, state.cap, state.container)
         donor.unlink(missing_ok=True)
         state.vault.touch()
-    if state.misgrid >= 0 or state.handed:
+    if state.misgrid >= 0 or state.handed or state.stopped:
         # Заход, вставший не туда, кладёт мимо сетки весь свой участок: доводить его
-        # до конца значит намолотить ещё сотню таких же кусков. Заход, отданный
-        # следующей серии (:meth:`Warmer.packed`), снят нами - это не обрыв сети.
+        # до конца значит намолотить ещё сотню таких же кусков. Заход, отданный следующей
+        # серии (:meth:`Warmer.packed`) или снятый концом показа, - не обрыв сети.
         return
     got = max(0, min(last, packer.edge) - first + 1)
     spent = _state._environment.monotonic() - began

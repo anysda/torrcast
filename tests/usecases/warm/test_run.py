@@ -453,3 +453,37 @@ def test_a_run_handed_to_the_next_episode_ends_quietly(tmp_path: Path) -> None:
     assert packers[0].stopped, "отданный заход остался жить"
     assert warm.breaks == 0 and 5.0 not in fake.slept, "снятие заходом приняли за обрыв сети"
     assert not warm.barren, "снятый заход записан пустым"
+
+
+def test_a_run_stopped_by_the_end_of_the_show_is_no_network_break(tmp_path: Path) -> None:
+    """Конец показа снимает заход - в журнале нет «прогрев оборвался», счёт обрывов стоит.
+
+    Стык серий: досмотренная серия гасит прогрев следующей, и журнал называл это обрывом
+    сети на 0-й минуте, а нитка ещё пять секунд спала перед выходом.
+    """
+    said: list[str] = []
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    fake = world(**parts)
+    warm = warmer(tmp_path, log=said.append)
+    start = parts["packer"].start
+
+    def _stopping(*args: Any, **kwargs: Any) -> _Packer:
+        packer = cast(_Packer, start(*args, **kwargs))
+        publish = packer.publish
+
+        def _publish() -> None:
+            publish()
+            if packer.edge == 1:
+                warm.stop()
+
+        packer.publish = _publish  # type: ignore[method-assign]
+        packer.poll = lambda: -15 if packer.stopped else None  # type: ignore[method-assign]
+        return packer
+
+    parts["packer"].start = staticmethod(_stopping)
+
+    _run(warm, 0, warm.grid.count - 1)
+
+    assert not any("оборвался" in line for line in said), "конец показа назван обрывом сети"
+    assert warm.breaks == 0 and 5.0 not in fake.slept, "конец показа принят за обрыв сети"
