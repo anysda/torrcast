@@ -24,6 +24,7 @@ from torrcast.usecases.next_season import _next_season, _prepared_next
 from torrcast.usecases.playback._next_warmer import _next_warmer
 from torrcast.usecases.playback._play import _play
 from torrcast.usecases.playback.voice_source import voice_source
+from torrcast.usecases.prepared_next import PreparedNext
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _own_torrent
@@ -52,6 +53,7 @@ def _worker_loop(
     *,
     play: Callable[..., int] = _play,
     next_season: Callable[..., bool] = _next_season,
+    prepare: Callable[..., PreparedNext | None] = _prepared_next,
 ) -> int:
     """Сам цикл показа: серия за серией, пока сериал не кончится. Раздачи, которые он
     поднял, складываются в ``mine`` — их убирает :func:`_cmd_worker` на выходе.
@@ -59,9 +61,11 @@ def _worker_loop(
     Конец раздачи сезона - не конец цикла: досмотренному сезону цикл сперва ищет
     следующий (:func:`torrcast.usecases.next_season._next_season`) и играет его с первой серии.
 
-    Сам показ серии и поиск следующего сезона названы аргументами с боевым умолчанием:
-    работа этой единицы - очередь серий, учёт раздачи и то, с какими числами показ зовут,
-    а не HLS, ffmpeg, приёмник и поиск за ними.
+    Сам показ серии, ранний поиск за краем раздачи (``prepare``) и поиск следующего
+    сезона названы аргументами с боевым умолчанием: работа этой единицы - очередь серий,
+    учёт раздачи и то, с какими числами показ зовут, а не HLS, ffmpeg, приёмник и поиск
+    за ними. Ранний поиск доходит до ``next_season`` всегда, и подставным тоже: иначе
+    стенд проверял бы путь, которого в бою нет.
     """
     magnet, torrent_hash = "", ""
     files = []
@@ -93,7 +97,7 @@ def _worker_loop(
         entry = _duration(key, entry, source)
         journal().mark("длительность")
         supply.file_index, supply.duration = entry.file_idx, entry.dur
-        prepared = _prepared_next(config, key, torrserver, profile, entry)
+        prepared = prepare(config, key, torrserver, profile, entry)
         watch = Watch(key=key, entry=entry, nearing_end=prepared.start if prepared else None)
         title = " ".join(filter(None, (entry.spoken, entry.label)))
         # 🔴 Подпись показа - единственное, что уезжает на ЭКРАН, и подмена озвучки
@@ -155,11 +159,7 @@ def _worker_loop(
         # серию внутри пака. Не нашёлся - строка уже сказана, и показ заканчивается.
         searched = False
         if following is None and watch.done:
-            searched = (
-                next_season(config, key, torrserver, profile, prepared=prepared)
-                if next_season is _next_season
-                else next_season(config, key, torrserver, profile)
-            )
+            searched = next_season(config, key, torrserver, profile, prepared=prepared)
         if following is None and watch.done and searched:
             # Записанное поиском играется, даже если это раздача одной серии: подписи у
             # такой записи нет (:attr:`Entry.label`), но это найденная следующая серия.

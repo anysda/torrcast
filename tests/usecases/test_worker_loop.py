@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -35,7 +36,7 @@ from torrcast.ports.receiver import Receiver
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases import worker_loop
 from torrcast.usecases.following import _following
-from torrcast.usecases.next_season import _next_season
+from torrcast.usecases.next_season import _prepared_next
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.worker_loop import _worker_loop
@@ -224,7 +225,7 @@ def test_a_finished_season_is_continued_by_the_next_one(
 
     searches: list[str] = []
 
-    def next_season(_config: object, asked: str, *_rest: object) -> bool:
+    def next_season(_config: object, asked: str, *_rest: object, **_kw: object) -> bool:
         searches.append(asked)
         if len(searches) > 1:
             return False  # шестого сезона в природе нет
@@ -538,8 +539,9 @@ def test_a_lone_episode_is_continued_by_the_episode_the_catalogue_names(
     """Раздача одной серии доиграна - цикл юнита сам ищет и играет следующую серию.
 
     Раньше одиночная серия сериалом не считалась (:attr:`Entry.serial`), и юнит на её конце
-    гас молча. Поиск тут настоящий (:func:`_next_season`), подставные у него только круг
-    раздач, стенд отбора и каталог сериала.
+    гас молча. Поиск тут настоящий и тот же, что в бою: ранний (:func:`_prepared_next`),
+    заведённый сторожем у титров, и его ответ, взятый :func:`_next_season` на конце серии.
+    Подставные у него только круг раздач, стенд отбора и каталог сериала.
     """
     key = "tv:сериал:2020"
     state = FakeStateStore()
@@ -561,6 +563,10 @@ def test_a_lone_episode_is_continued_by_the_episode_the_catalogue_names(
         _c: object, _s: object, _a: object, title: str, _clock: object, watch: Any, **_kw: object
     ) -> int:
         played.append((watch.entry.season, watch.entry.episode))
+        watch.see(watch.entry.dur - 5.0)  # титры: сторож заводит ранний поиск
+        assert searching.wait(5), "у титров поиск не начался"
+        searching.clear()
+        early.append(list(asked))
         watch.done = True
         keeper = state_slot.store()
         now = keeper.load()
@@ -573,9 +579,12 @@ def test_a_lone_episode_is_continued_by_the_episode_the_catalogue_names(
     second = TorrFile(index=0, name="сериал/s08e02.mkv", size=8 * 1024**3)
     prep.video, prep.files = second, [second]
     asked: list[str] = []
+    early: list[list[str]] = []
+    searching = threading.Event()
 
     def circle(_config: object, args: Any, *_rest: object, **_kw: object) -> list[Any]:
         asked.append(str(args.episode))
+        searching.set()
         if len(asked) > 1:
             raise NotFoundError("раздач s8e3 нет")
         return [plan]
@@ -589,8 +598,8 @@ def test_a_lone_episode_is_continued_by_the_episode_the_catalogue_names(
         [],
         CAUTIOUS,
         play=play,
-        next_season=partial(
-            _next_season,
+        prepare=partial(
+            _prepared_next,
             circle=circle,
             stand=lambda *_a, **_k: seasons_mirror._Bench(prep),  # type: ignore[arg-type]
             series=seasons_mirror.RICK,
@@ -599,4 +608,5 @@ def test_a_lone_episode_is_continued_by_the_episode_the_catalogue_names(
 
     assert code == 0
     assert asked == ["s8e2", "s8e3"], "следующая названа каталогом и запрошена поиском"
+    assert early == [["s8e2"], ["s8e2", "s8e3"]], "каждый поиск шёл у титров, до конца серии"
     assert played == [(8, 1), (8, 2)], "s8e2 юнит сыграл сам"
