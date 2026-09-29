@@ -161,6 +161,8 @@ MODULE_MIRRORS: Final = {
     "hass/resuming.py": "tests/test_bridge.py",
     "torrcast/usecases/discover/_plan_menu.py": "tests/usecases/discover/test_search_circle.py",
     "web/card_seasons.py": "tests/test_card.py",
+    "web/parted.py": "tests/test_circle_memory.py",
+    "web/poorer_circle.py": "tests/test_circle_memory.py",
     "web/route_year.py": "tests/test_preview.py",
 }
 #: Файлы интеграции Home Assistant, форму которых задаёт не наша раскладка, а сам

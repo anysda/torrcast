@@ -26,6 +26,8 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.discover.cut_circle import CutCircle
 from torrcast.usecases.discover.told_circle import ToldCircle
 from web.circle_disk import CircleDisk
+from web.parted import parted
+from web.poorer_circle import poorer_circle
 from web.torn_circle import TornCircle
 
 if TYPE_CHECKING:
@@ -126,12 +128,12 @@ class CircleMemory:
         """Запомнить непустую находку; пустая - не находка, урезанная - на минуту.
 
         Неполный круг (:meth:`poorer`) живой полный не вытесняет, а без него живёт минуту.
-        Круг, где ответил не каждый спрошенный индексер (:func:`_part`), спрашивающему сам
+        Круг, где ответил не каждый спрошенный индексер (:func:`parted`), спрашивающему сам
         ответ минуту (:meth:`plans`): фон и экран держат его свой срок и сети не зовут.
         """
         if not plans:
             return
-        key, poorer, part = self.key(query), self.poorer(query, plans), _part(plans)
+        key, poorer, part = self.key(query), self.poorer(query, plans), parted(plans)
         ttl = EMPTY_TTL if poorer or isinstance(plans, CutCircle) else self.ttl
         with self._lock:
             self._landed[key] = (plans, self.clock() + (EMPTY_TTL if part else ttl))
@@ -150,11 +152,7 @@ class CircleMemory:
         ноль, пришедший раньше неё (JacRed: 0 за 3060 мс), а число строк честно гуляет.
         A whole circle always replaces a marked entry; a part one only when it lost no source.
         """
-        told = plans.told if isinstance(plans, ToldCircle) else []
-        kept = self.disk.told(self.key(query)) if self.disk is not None and told else None
-        if not kept or self.disk is None or (self.disk.part(self.key(query)) and not _part(plans)):
-            return False
-        return bool(_sources(kept) - _sources(told))
+        return poorer_circle(self.disk, self.key(query), plans)
 
     def revive(self, query: str) -> list[Plan] | None:
         """Круг с диска, собранный заново без сети; ``None`` - записи нет или она стара."""
@@ -183,7 +181,7 @@ class CircleMemory:
             return
         key = self.key(query)
         full = self.disk.told(key) is not None and not self.disk.part(key)
-        self.disk.keep(key, told, part=_part(plans) and not full)
+        self.disk.keep(key, told, part=parted(plans) and not full)
 
     def refuse(self, query: str, error: TorrcastError) -> None:
         """Запомнить, чем кончился круг, на :data:`EMPTY_TTL`.
@@ -195,22 +193,8 @@ class CircleMemory:
             self._empty[self.key(query)] = (error, self.clock() + EMPTY_TTL)
 
 
-def _part(plans: list[Plan]) -> bool:
-    """A circle some asked indexer did not answer: cut short, silent, or refusing.
-
-    One Prowlarr took out of reach was not asked, and it does not make the circle part.
-    """
-    return isinstance(plans, CutCircle) or (isinstance(plans, ToldCircle) and not plans.heard)
-
-
 def _whole(error: TorrcastError) -> bool:
     return isinstance(error, NotFoundError) and error.whole
-
-
-def _sources(told: list[Told]) -> set[str]:
-    return {
-        name for said in told for row in said[4] for name in (*row.indexers, row.indexer) if name
-    }
 
 
 __all__ = ["EMPTY_TTL", "CircleMemory"]
