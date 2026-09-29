@@ -17,13 +17,14 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receivers import Receivers
+from torrcast.ports.state_store.slot import store
 from torrcast.ports.stream_source import StreamSource
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.usecases.playback._play import _play
 from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.stopped import _on_term
-from torrcast.usecases.torrents import _own_torrent, _release_torrents
+from torrcast.usecases.torrents import _own_torrent, _park_torrent, _release_torrents
 from torrcast.usecases.worker_loop import _worker_loop
 
 #: Внешний мир юнита показа. Всё это кладёт композиционный корень
@@ -134,10 +135,27 @@ def _cmd_worker(key: str, here: bool = False, *, play: Callable[..., int] = _pla
             config, key, torrserver, receiver, supply, mine, chosen.profile, play=play
         )
     finally:
-        gone = _release_torrents(config, mine)
+        # Закладку «Играть» продолжит этой же раздачей: снесённая, она заново читала
+        # метаданные 4.4 с. Остаётся она закладке, а не показу
+        # (:func:`_park_torrent`).
+        keep, stale = _parked(key, mine)
+        gone = _release_torrents(config, [h for h in [*mine, stale] if h and h != keep])
         # Раздачи больше нет - и записи о ней тоже: следующему запуску убирать нечего.
         # А вот если служба смолчала, раздача жива, и запись о ней - единственное, чем её
         # потом снести (:func:`_release_orphans`): такой хэш забывать нельзя.
-        if not mine or mine[-1] in gone:
-            with contextlib.suppress(TorrcastError):  # не вправе провалить сам выход
+        with contextlib.suppress(TorrcastError):  # не вправе провалить сам выход
+            if keep or stale in gone:
+                _park_torrent(key, keep)
+            if keep or not mine or mine[-1] in gone:
                 _own_torrent(key, "")
+
+
+def _parked(key: str, mine: list[str]) -> tuple[str, str]:
+    """Раздача, которую продолжит закладка (:func:`web.voice_lookup._bookmark`), и прежняя."""
+    with contextlib.suppress(TorrcastError):
+        entry = store().load().get(key)
+        if entry is not None:
+            resumes = mine and not entry.done and (entry.serial or entry.resumable)
+            keep = mine[-1] if resumes else ""
+            return keep, entry.parked if entry.parked != keep else ""
+    return "", ""

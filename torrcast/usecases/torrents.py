@@ -72,6 +72,17 @@ def _own_torrent(key: str, torrent_hash: str) -> None:
     store().save(state)
 
 
+def _park_torrent(key: str, torrent_hash: str) -> None:
+    """Отметить раздачу, оставленную показом закладке (:attr:`Entry.parked`); пусто - снять."""
+    state = store().load()
+    entry = state.get(key)
+    if entry is None or entry.parked == torrent_hash:
+        return
+    entry.parked = torrent_hash
+    state.entries[key] = entry  # не через put: запись свежей делает показ, а не уборка
+    store().save(state)
+
+
 def _release_orphans(config: Config) -> None:
     """Убрать раздачу, чей хозяин умер не по-людски: SIGKILL по таймауту, паника, ребут.
 
@@ -92,16 +103,21 @@ def _release_orphans(config: Config) -> None:
     state = store().load()
     # Сирота, которую прямо сейчас держит этот процесс (карточка читает её дорожки), живая.
     orphans = {k: e.torrent for k, e in state if e.torrent and not CLAIMS.claimed(e.torrent)}
-    if not orphans:  # обычный случай, и он не стоит ни одного вопроса systemd
+    # Раздача, оставленная закладке, живёт до следующего запуска, если её не держит страница.
+    parked = {k: e.parked for k, e in state if e.parked and not CLAIMS.claimed(e.parked)}
+    if not orphans and not parked:  # обычный случай, и он не стоит ни одного вопроса systemd
         return
     if unit().active():  # показ идёт - раздача под ним живая, и она не сирота
         return
-    gone = set(_release_torrents(config, list(orphans.values())))
+    gone = set(_release_torrents(config, [*orphans.values(), *parked.values()]))
     if not gone:  # службы нет - сироты остались сиротами, и запись о них тоже
         return
     for key, torrent_hash in orphans.items():
         if torrent_hash in gone:  # не через put: уборка мусора не делает запись «свежей»
             state.entries[key].torrent = ""
+    for key, torrent_hash in parked.items():
+        if torrent_hash in gone:
+            state.entries[key].parked = ""
     store().save(state)
 
 
