@@ -17,6 +17,7 @@ from tests.usecases.rank.releases import media, track
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.select.plan import Plan
@@ -155,6 +156,15 @@ def test_a_shelf_reads_an_infrastructure_failure_as_unknown(
     lookup = _lookup(monkeypatch, _Bench(InfraError("source down")), spawn=_sync)
 
     assert lookup.shelf_of(_PLAN, "film", _CONFIG) == (None, False, False)
+
+
+def test_a_shelf_reads_a_release_without_tracks_as_a_known_empty_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Стенд дочитал раздачу и дорожек не нашёл - это честный ответ, а не отказ источника."""
+    lookup = _lookup(monkeypatch, _Bench(NotFoundError("no tracks")), spawn=_sync)
+
+    assert lookup.shelf_of(_PLAN, "film", _CONFIG) == (None, False, True)
 
 
 _KEPT = Release(raw_name="Film 2010 1080p", title="Film", magnet="magnet:?xt=urn:btih:" + "a" * 40)
