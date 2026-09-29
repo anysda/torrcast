@@ -8,6 +8,10 @@
 const TCPlayer = {
   MAX_RETRIES: 3,
   POLL_MS: 2000,
+  //: Ящик есть, кадра нет: фаза подъёма («жду плеер») обязана доехать до экрана
+  //: раньше кадра, а окно её бывает короче двух секунд (замер 30-09: 1.5 с).
+  //: Ответ ``/api/state`` стоит около 11 мс ЦП, чаще - только в этом окне.
+  UNFRAMED_POLL_MS: 500,
   POSITION_MS: 2000,
   ENDED_MS: 250,
   ENDED_WAIT_MS: 30000,
@@ -149,14 +153,19 @@ const TCPlayer = {
         if (!TCPlayer._url) {
           if (refused) TCPlayer._screenRefused(state.refusal);
           else TCPlayer._screenPreparing(state);
-        } else if (!TCPlayer._framed && !TCPlayer._counting
-          && TCPlayer._overlay.querySelector('.tc-preparing')) {
+        } else if (TCPlayer._unframedPreparing()) {
           if (refused) TCPlayer._screenRefused(state.refusal);
           else TCPlayer._screenBuffering();
         }
       }
-      await TCPlayer._sleep(TCPlayer.POLL_MS);
+      await TCPlayer._sleep(TCPlayer._unframedPreparing() ? TCPlayer.UNFRAMED_POLL_MS : TCPlayer.POLL_MS);
     }
+  },
+
+  //: Ящик есть, кадра нет, а на экране подготовка: подъём ещё ведёт экран.
+  _unframedPreparing() {
+    return !!TCPlayer._url && !TCPlayer._framed && !TCPlayer._counting
+      && !!TCPlayer._overlay.querySelector('.tc-preparing');
   },
 
   //: Единственная дверь позиции браузера в продукт (§7.2): пока идёт показ, а не то,

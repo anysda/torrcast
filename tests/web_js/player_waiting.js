@@ -68,6 +68,28 @@ async function plaque() {
   return screen(p);
 }
 
+// Упаковка кончилась между двумя опросами двухсекундного темпа: экран обязан узнать
+// об этом до следующего двухсекундного опроса, а частить только в окне без кадра.
+async function pace() {
+  let box = null;
+  let st = { state: 'starting', has_next: null, start: { waited: 1, here: true, packed: false } };
+  const p = player({ box: () => box, state: () => st });
+  p.mount();
+  await p.time.run(3000);
+  const beforeBox = p.calls.statePolls;
+  box = BOX;
+  await p.time.run(5000);
+  st = { state: 'starting', has_next: null, start: { waited: 5, here: true, packed: true } };
+  await p.time.run(5700);
+  const soon = screen(p).title;
+  st = { state: 'playing', has_next: null, start: null };
+  p.video.dispatch('playing');
+  await p.time.run(6000);
+  const framed = p.calls.statePolls;
+  await p.time.run(16000);
+  return { beforeBox, soon, afterFrame: p.calls.statePolls - framed };
+}
+
 async function main() {
   const facts = {
     here: await lift(true, 'frame'),
@@ -76,6 +98,7 @@ async function main() {
     died: await lift(true, 'refused'),
     quiet: await lift(true, 'quiet'),
     plaque: await plaque(),
+    pace: await pace(),
   };
   process.stdout.write(JSON.stringify(facts) + '\n');
   process.exit(0);

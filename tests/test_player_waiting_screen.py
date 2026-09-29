@@ -71,3 +71,12 @@ def test_a_start_that_ends_without_a_frame_leaves_the_waiting_screen(
 
 def test_the_next_episode_plaque_is_not_covered(facts: dict[str, Any]) -> None:
     assert facts["plaque"] == {"title": None, "buffering": False, "refused": False, "next": True}
+
+
+def test_the_waiting_phase_reaches_the_screen_before_the_next_slow_poll(
+    facts: dict[str, Any],
+) -> None:
+    seen = facts["pace"]
+    assert seen["soon"] == WAITING, "фаза «жду плеер» ждала двухсекундного опроса"
+    assert seen["beforeBox"] <= 2, f"частый опрос до ящика: {seen['beforeBox']} за 3 с"
+    assert seen["afterFrame"] <= 5, f"частый опрос после кадра: {seen['afterFrame']} за 10 с"
