@@ -188,4 +188,5 @@ def test_a_packed_episode_hands_the_chain_over_before_its_own_warming_ends(
     assert warm.after is following, "цепочка ждала прогрева уже упакованной серии"
     assert following.slack == PACKED_SLACK, "следующую серию заморозил хвост текущей"
     assert not following._must_yield(), "прогрев следующей серии замер перед стыком"
+    assert following.ahead and not warm.ahead, "прогрев не знает, что он у следующей серии"
     quiet(warm)

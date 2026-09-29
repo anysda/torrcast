@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import torrcast.usecases.warm._state as _state
 from torrcast.usecases.warm.chain import _ask_follow, _chain, _nap
 from torrcast.usecases.warm.forecast import _forecast
+from torrcast.usecases.warm.head_spot import _head_spot
 from torrcast.usecases.warm.lay_heavy import _lay_heavy
 from torrcast.usecases.warm.line import _line
 from torrcast.usecases.warm.missing import _missing, _pending
@@ -82,6 +83,11 @@ class Warmer(_State):
                 if self.handed:
                     self._chain()
                     return
+                head = _head_spot(self)
+                if head is not None:
+                    # Копия поверх нужна перекоду ради звука (:func:`_run`), поэтому сперва она.
+                    self._run(head, head, spot=self.vault.have(head))
+                    continue
                 job = self._missing()
                 if job is None:
                     left = self._spots_left()

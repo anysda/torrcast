@@ -207,3 +207,32 @@ def test_a_packed_episode_leaves_its_head_cold_and_moves_to_the_next(tmp_path: P
     assert taken == [0], "после передачи нитка грела отданную серию дальше"
     assert warm.after is following, "следующая серия не взялась в работу"
     quiet(warm)
+
+
+def test_a_heavy_start_is_recoded_before_the_rest_of_the_film(tmp_path: Path) -> None:
+    """Копию тяжелее потолка показ не берёт: без перекода на стыке он ждёт живой перекод."""
+    world()
+    taken: list[tuple[int, int, bool]] = []
+
+    class Laying(Warmer):
+        def _run(self, first: int, last: int, spot: bool = False) -> None:
+            taken.append((first, last, spot))
+            if spot:
+                self.vault.spot(first).touch()
+            else:
+                lay(self.vault, first)
+            self.stopped = len(taken) > 2
+
+    warm = warmer(
+        tmp_path,
+        kind=Laying,
+        spots=(0,),
+        spot_encode=cast(Any, object()),
+        slack=GUARD_HIGH + 1.0,
+        ahead=True,
+    )
+
+    warm._work()
+
+    last = warm.grid.count - 1
+    assert taken == [(0, 0, False), (0, 0, True), (1, last, False)], "старт остался копией"

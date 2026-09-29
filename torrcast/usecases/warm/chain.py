@@ -43,6 +43,7 @@ def _chain(state: _State) -> None:
     # первой: она и старше, и досматривать её ещё полчаса (:attr:`Vault.keep`).
     following.vault.keep = following.vault.keep | {state.vault.key}
     state.after = following
+    following.ahead = True
     following.slack = state.slack
     # Кодировщик живых кусков у показа один на всех, и уступать ему обязана вся
     # цепочка: прогрев следующей серии жжёт тот же процессор, что и прогрев этой.
