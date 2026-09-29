@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from tests.usecases.discover.world import Indexer, row
 from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.infra_error import InfraError
@@ -83,3 +85,29 @@ def test_a_map_built_a_moment_late_still_names_a_text_nobody_answered() -> None:
     first = NamedRound(source)
     raw, named = first.ask(ToldIndexer(source), spawn, None, "Интерстелар", "Интерстелар")
     assert (raw, len(named), len(spawned)) == ([], 2, 3)
+
+
+class _Joint(Indexer):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.joints: list[str] = []
+
+    def beside(self, joint: str) -> None:
+        self.joints.append(joint)
+
+
+def test_one_client_of_the_names_carries_them_all_to_the_joined_indexer() -> None:
+    _configure_recognize(lambda _query, _wait: _INTERSTELLAR)
+    spawned: list[_Joint] = []
+
+    def spawn() -> _Joint:
+        spawned.append(_Joint(answers={"интерстеллар 2014": [_ROW]}))
+        return spawned[-1]
+
+    source = spawn()
+    NamedRound(source).ask(ToldIndexer(source), spawn, None, "Интерстелар", "Интерстелар")
+    assert [(one.asked, one.joints) for one in spawned] == [
+        (["Интерстелар"], []),
+        (["Интерстеллар 2014"], ["Интерстеллар 2014 | Interstellar 2014"]),
+        (["Interstellar 2014"], [""]),
+    ]

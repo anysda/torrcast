@@ -77,3 +77,26 @@ def test_empty_query_does_not_dump_the_catalog() -> None:
         pytest.fail("API must not be called")
 
     assert adapter.search("", fetch) == []
+
+
+def _rows(*keys: str) -> dict[str, Any]:
+    return {"results": [{"title": key, "magnet": "magnet:?xt=urn:btih:" + key} for key in keys]}
+
+
+def test_joined_names_are_asked_apart_and_answered_together() -> None:
+    answers = {"Тачки 2006": _rows("a1", "a2", "both"), "Cars 2006": _rows("both", "b1")}
+    asked: list[str] = []
+
+    def fetch(_origin: str, query: str) -> Any:
+        asked.append(query)
+        return answers[query]
+
+    rows = adapter.search("Тачки 2006 | Cars 2006", fetch)
+    assert sorted(asked) == ["Cars 2006", "Тачки 2006"]
+    assert [row["title"] for row in rows] == ["a1", "both", "a2", "b1"]
+
+
+def test_the_joint_is_the_one_torrcast_sends() -> None:
+    from torrcast.domain.joint_query import JOINT
+
+    assert adapter.JOINT == JOINT

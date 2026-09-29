@@ -8,7 +8,9 @@ import subprocess
 import sys
 import urllib.parse
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from itertools import zip_longest
 from typing import Any
 
 # One origin, and that is measured, not overlooked: the catalog's other public names are
@@ -42,12 +44,33 @@ def _json(origin: str, query: str) -> Any:
 Fetch = Callable[[str, str], Any]
 
 
+#: What joins several texts of one request; torrcast's ``torrcast.domain.joint_query.JOINT``.
+JOINT = " | "
+
+
 def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
     """Return usable magnets; an absent API is an empty optional source.
 
     `fetch` carries its production default, so the handler calls this with one argument
     and the behaviour is unchanged; a stand can hand in answers without a network.
+
+    A query of several texts joined by `JOINT` is the picture's names asked at once:
+    Prowlarr paces requests to one host two seconds apart, so the names come in one
+    request and go to the API in parallel. The rows are interleaved text by text, so a
+    cut of the joined answer by the caller's limit still keeps every text.
     """
+    texts = [text.strip() for text in query.split(JOINT) if text.strip()]
+    if len(texts) < 2:
+        return _search(query, fetch)
+    with ThreadPoolExecutor(len(texts)) as pool:
+        answers = list(pool.map(lambda text: _search(text, fetch), texts))
+    rows: dict[str, dict[str, Any]] = {}
+    for row in (row for tier in zip_longest(*answers) for row in tier if row is not None):
+        rows.setdefault(row["magnet"], row)
+    return list(rows.values())
+
+
+def _search(query: str, fetch: Fetch) -> list[dict[str, Any]]:
     if not query.strip():
         return []
     for origin in ORIGINS:

@@ -16,6 +16,7 @@ from typing import Final
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.joint_query import JOINT
 from torrcast.domain.own_release import own_release
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
@@ -111,13 +112,19 @@ class NamedRound:
     ) -> list[Future[ToldIndexer]]:
         """Ask the indexers by the names of the picture the map knows ``query`` to be."""
         self.known = _search_state._search_recognize(query, RECOGNIZE_WAIT) if query else None
-        asked = [pool.submit(self._one, spawn(), text) for text in _texts(self.known, name)]
+        texts = _texts(self.known, name)
+        # One client carries all the names to the indexer that takes them joined; the
+        # others leave it alone (:mod:`~torrcast.domain.joint_query`).
+        joints = [JOINT.join(texts) if not each else "" for each in range(len(texts))]
+        asked = [pool.submit(self._one, spawn(), *pair) for pair in zip(texts, joints, strict=True)]
         if asked:
             _notify(on_indexer, self)
         return asked
 
-    def _one(self, source: IndexerClient, text: str) -> ToldIndexer:
+    def _one(self, source: IndexerClient, text: str, joint: str) -> ToldIndexer:
         self._named.append(source)
+        if (beside := getattr(source, "beside", None)) is not None:
+            beside(joint)
         told = ToldIndexer(source)
         # The viewer's text answers for the catalogue's health; a name only adds rows.
         with suppress(InfraError):

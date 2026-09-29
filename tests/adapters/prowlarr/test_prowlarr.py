@@ -427,7 +427,12 @@ class _UnavailableCircle(IndexerCircle):
     """Круг по индексерам, который всегда кончается их недоступностью."""
 
     def run(
-        self, pairs: Sequence[Indexer], query: str, limit: int, cap: float = 0.0
+        self,
+        pairs: Sequence[Indexer],
+        query: str,
+        limit: int,
+        cap: float = 0.0,
+        joint: str | None = None,
     ) -> tuple[list[list[RawResult]], InfraError | None]:
         self.lost.extend(("Knaben", "RuTor"))
         return [], _IndexersUnavailableError("каталог временно недоступен")

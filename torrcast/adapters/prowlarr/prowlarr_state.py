@@ -78,6 +78,16 @@ class _State:
         #: секунду стоит замеренных 2.0-4.0 с (круг ждёт каждого опорного отдельно), и
         #: раздать его каждому значило бы дать молчуну не сузить каталог, а затормозить путь.
         self.over_goal: bool = False
+        #: A client of the picture's names (:meth:`beside`); ``None`` for the viewer's text.
+        self.joint: str | None = None
+
+    def beside(self, joint: str) -> None:
+        """Ask the picture's names beside the viewer's text (:mod:`~torrcast.domain.joint_query`).
+
+        ``joint`` is what the indexer taking joined texts gets from this client: all the
+        names at once, or nothing when another client of the same names carries them.
+        """
+        self.joint = joint
 
     @property
     def answered(self) -> set[str]:

@@ -109,11 +109,11 @@ class Prowlarr(_State):
         cap = self.first_cap if self._first else self.circle_cap()
         self._first = False
         self._circle.begin()
-        got, why_lost = self._circle.run(first, query, limit, cap)
+        got, why_lost = self._circle.run(first, query, limit, cap, self.joint)
         fallback = bool(later) and anime_fallback(len(merge(*got)), bool(got))
         if fallback:
             # Фолбэк - тоже второй круг, и цель он тратит наравне с добором.
-            more, err = self._circle.run(later, query, limit, self.circle_cap())
+            more, err = self._circle.run(later, query, limit, self.circle_cap(), self.joint)
             got += more
             why_lost = why_lost or err
         self.silent = tuple(self._circle.lost)

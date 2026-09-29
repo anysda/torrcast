@@ -13,6 +13,8 @@ from torrcast.adapters.prowlarr.spawn_ask import _Ask, spawn_ask
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.indexer_budget import indexer_budget
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.joint_query import joint_query
+from torrcast.domain.quorum_indexer import quorum_indexer
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.wait_indexer import wait_indexer
 
@@ -89,9 +91,16 @@ class IndexerCircle:
         return tuple(ask.name for ask in self._late if not ask.done.is_set() or ask.rows is None)
 
     def run(
-        self, pairs: Sequence[Indexer], query: str, limit: int, cap: float = 0.0
+        self,
+        pairs: Sequence[Indexer],
+        query: str,
+        limit: int,
+        cap: float = 0.0,
+        joint: str | None = None,
     ) -> tuple[list[list[RawResult]], InfraError | None]:
         """Один круг: каждому свой запрос в свой бюджет, все разом.
+
+        ``joint`` - круг имён картины (:func:`~torrcast.domain.joint_query.joint_query`).
 
         ``cap`` - потолок бюджета для этого круга: у первого свой
         (:data:`~torrcast.domain.circle_budget.FIRST_CIRCLE_TIMEOUT`, TC-1046), у каждого
@@ -115,10 +124,17 @@ class IndexerCircle:
         Возвращает выдачи и причину последней потери - она понадобится, если смолчат все.
         """
         began = time.monotonic()
-        asked = [self._spawn(query, limit, num, name, cap) for num, name in pairs]
+        texts = [(num, name, joint_query(name, query, joint)) for num, name in pairs]
+        asked = [self._spawn(text, limit, num, name, cap) for num, name, text in texts if text]
         if self._begun <= 1:
             self._asked.extend(asked)
-        core = [ask for ask in asked if wait_indexer(ask.name)] or asked
+        # A circle of the picture's names only adds rows: the viewer's text answers for
+        # the catalogue's health, so the quorum does not hold it.
+        core = [
+            ask
+            for ask in asked
+            if wait_indexer(ask.name) and (joint is None or not quorum_indexer(ask.name))
+        ] or asked
         for ask in core:
             # Every budget runs from the circle's start: waiting one after another from
             # the call added the first answer's seconds to the next silent one's budget.
