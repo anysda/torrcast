@@ -236,3 +236,33 @@ def test_a_heavy_start_is_recoded_before_the_rest_of_the_film(tmp_path: Path) ->
 
     last = warm.grid.count - 1
     assert taken == [(0, 0, False), (0, 0, True), (1, last, False)], "старт остался копией"
+
+
+def test_the_start_recode_is_announced_landed_only_after_it_is_on_disk(tmp_path: Path) -> None:
+    """Стык ждёт :attr:`landing`: выставленное раньше метки отдало бы кадр живому перекоду."""
+    world()
+    seen: list[tuple[bool, bool]] = []
+
+    class Laying(Warmer):
+        def _run(self, first: int, last: int, spot: bool = False) -> None:
+            landing = self.landing
+            seen.append((spot, landing is not None and not landing.is_set()))
+            if spot:
+                self.vault.spot(first).touch()
+            else:
+                lay(self.vault, first)
+            self.stopped = spot
+
+    warm = warmer(
+        tmp_path,
+        kind=Laying,
+        spots=(0,),
+        spot_encode=cast(Any, object()),
+        slack=GUARD_HIGH + 1.0,
+        ahead=True,
+    )
+
+    warm._work()
+
+    assert seen == [(False, False), (True, True)], "перекод старта шёл без отметки «ложится»"
+    assert warm.landing is not None and warm.landing.is_set(), "лёгший перекод не отмечен"

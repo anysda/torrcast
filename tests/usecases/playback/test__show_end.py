@@ -19,6 +19,7 @@ from torrcast.ports.state_store.slot import store
 from torrcast.usecases.playback._show_end import _close_show, _handover, _say_whole
 from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.revive_playback._hold import _hold
+from torrcast.usecases.warm.settings import HANDOVER_LAND
 from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
@@ -109,7 +110,9 @@ def _remember(key: str) -> None:
     store().save(state)
 
 
-def _watched_to_the_end(key: str, out: Path, closed: bool) -> RemoteClosedReceiver:
+def _watched_to_the_end(
+    key: str, out: Path, closed: bool, warmer: _FakeWarmer | None = None
+) -> RemoteClosedReceiver:
     """Досмотреть серию настоящим кругом опроса; ``closed`` - убрал ли показ зритель.
 
     Признак приходит от приёмника и едет в сторож :func:`_closed`-ом, как в бою: рука
@@ -122,7 +125,13 @@ def _watched_to_the_end(key: str, out: Path, closed: bool) -> RemoteClosedReceiv
         [(2569.0, "PLAYING", False), (0.0, "UNKNOWN", closed)], dur=2600.0
     )
     _hold(cast(Receiver, receiver), feed_with_segments(out), watch, clock=FakeClock(now=1000.0))
-    _close_show(watch, None, cast(Receiver, receiver), feed_with_segments(out / "конец"), _Server())
+    _close_show(
+        watch,
+        cast(Warmer, warmer),
+        cast(Receiver, receiver),
+        feed_with_segments(out / "конец"),
+        _Server(),
+    )
     return receiver
 
 
@@ -151,10 +160,14 @@ class _FakeWarmer:
 
     def __init__(self) -> None:
         self.stopped = 0
+        self.handed: list[float] = []
         self.vault = _FakeVault()
 
     def stop(self) -> None:
         self.stopped += 1
+
+    def hand_over(self, within: float) -> None:
+        self.handed.append(within)
 
 
 def test_a_show_closed_by_the_viewer_quits_the_app_though_the_next_episode_waits(
@@ -172,11 +185,20 @@ def test_a_show_closed_by_the_viewer_quits_the_app_though_the_next_episode_waits
     _remember("tv:домохозяйки-пультом:2020")
     _remember("tv:домохозяйки-сама:2020")
 
-    by_remote = _watched_to_the_end("tv:домохозяйки-пультом:2020", tmp_path / "пульт", closed=True)
-    by_itself = _watched_to_the_end("tv:домохозяйки-сама:2020", tmp_path / "сама", closed=False)
+    remote_warm, own_warm = _FakeWarmer(), _FakeWarmer()
+    by_remote = _watched_to_the_end(
+        "tv:домохозяйки-пультом:2020", tmp_path / "пульт", closed=True, warmer=remote_warm
+    )
+    by_itself = _watched_to_the_end(
+        "tv:домохозяйки-сама:2020", tmp_path / "сама", closed=False, warmer=own_warm
+    )
 
     assert by_remote.stopped == [True], "воля зрителя - приложение приёмника закрываем"
     assert by_itself.stopped == [False], "тот же конец без пульта - это стык серий"
+    assert (remote_warm.handed, remote_warm.stopped) == ([], 1), "стыка нет - прогрев гаснет весь"
+    assert (own_warm.handed, own_warm.stopped) == ([HANDOVER_LAND], 0), (
+        "на стыке перекод старта следующей серии обязан долечь"
+    )
 
 
 def test_a_watched_show_clears_the_warm_vault_and_says_so(

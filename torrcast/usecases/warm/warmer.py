@@ -5,11 +5,13 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 import torrcast.usecases.warm._state as _state
 from torrcast.usecases.warm.chain import _ask_follow, _chain, _nap
 from torrcast.usecases.warm.forecast import _forecast
+from torrcast.usecases.warm.hand_over import _hand_over
 from torrcast.usecases.warm.head_spot import _head_spot
 from torrcast.usecases.warm.lay_heavy import _lay_heavy
 from torrcast.usecases.warm.line import _line
@@ -31,6 +33,10 @@ class Warmer(_State):
     понадобится раньше всего, — потом голова фильма, если начали с середины. Внутри
     каждого куска работы это ОДИН прогон ffmpeg от края до края (см. заголовок модуля).
     """
+
+    def hand_over(self, within: float) -> None:
+        """Стык серий: погасить, дав перекоду старта следующей лечь (:func:`_hand_over`)."""
+        _hand_over(self, within)
 
     def packed(self) -> None:
         """Живая упаковка дошла до конца файла: прогрев отдаёт раздачу следующей серии.
@@ -86,7 +92,13 @@ class Warmer(_State):
                 head = _head_spot(self)
                 if head is not None:
                     # Копия поверх нужна перекоду ради звука (:func:`_run`), поэтому сперва она.
-                    self._run(head, head, spot=self.vault.have(head))
+                    spot = self.vault.have(head)
+                    landing = self.landing = threading.Event() if spot else None
+                    try:
+                        self._run(head, head, spot=spot)
+                    finally:
+                        if landing is not None:
+                            landing.set()  # после метки: :meth:`hand_over` ждёт её
                     continue
                 job = self._missing()
                 if job is None:

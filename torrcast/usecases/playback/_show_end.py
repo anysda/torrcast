@@ -21,6 +21,7 @@ from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.following import _following
 from torrcast.usecases.playback._show_blame import _blame_the_end
 from torrcast.usecases.playback.stream_server import StreamServer
+from torrcast.usecases.warm.settings import HANDOVER_LAND
 from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
@@ -72,8 +73,12 @@ def _close_show(
             dur=round(watch.entry.dur, 1),
             watched=bool(watch.done),
         )
+    handover = _handover(watch)
     if warmer is not None:
-        warmer.stop()
+        if handover:
+            warmer.hand_over(HANDOVER_LAND)  # идущий перекод старта следующей серии доляжет
+        else:
+            warmer.stop()
         # Досмотрено - прогретое стирается: держать на диске фильм,
         # который уже посмотрели, незачем. Прерванный показ прогретое сохраняет:
         # `cast` завтра продолжит с диска и без сети.
@@ -89,7 +94,7 @@ def _close_show(
         # таймаута простоя и оттягивает автовыключение.
         # Исключение ровно одно - стык серий: следующая серия грузится в то же
         # приложение, и гасить его между ними значит моргать экраном на каждой.
-        receiver.stop(quit_app=not _handover(watch))
+        receiver.stop(quit_app=not handover)
     feed.stop()
     server.stop()
 
