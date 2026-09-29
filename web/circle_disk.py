@@ -57,9 +57,18 @@ class CircleDisk:
         except (KeyError, TypeError, ValueError):
             return None
 
-    def keep(self, key: str, told: list[Told]) -> None:
-        """Записать круг; лишнее по счёту и по байтам вытесняется от старых."""
-        entry = {"at": self.clock(), "told": [_row(said) for said in told]}
+    def part(self, key: str) -> bool:
+        """Is the kept circle one not every asked indexer answered (:meth:`keep`)."""
+        with self._lock:
+            entry = self._load().get(key)
+        return isinstance(entry, dict) and entry.get("part") is True
+
+    def keep(self, key: str, told: list[Told], part: bool = False) -> None:
+        """Записать круг; лишнее по счёту и по байтам вытесняется от старых.
+
+        ``part`` marks a circle not every asked indexer answered: it gives way to any next one.
+        """
+        entry = {"at": self.clock(), "told": [_row(said) for said in told], "part": part}
         with self._lock:
             rows = self._load()
             rows.pop(key, None)

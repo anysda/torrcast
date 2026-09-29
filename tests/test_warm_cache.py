@@ -485,7 +485,7 @@ def test_after_a_restart_a_repeat_is_served_from_disk_and_refreshed_by_one_backg
     tmp_path: Path,
 ) -> None:
     """🔴 Холодный процесс гнал круг заново, хотя тот же запрос считался минуту назад."""
-    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD, whole=True))
     _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
     held: list[Callable[[], None]] = []
     cache, replayed = _restarted(tmp_path, circle, held.append)
@@ -508,7 +508,7 @@ def test_a_remembered_refusal_does_not_outrank_the_circle_kept_on_disk(tmp_path:
     же путь той же `take` запись с диска сети ПРЕДПОЧИТАЕТ: отказ был единственным
     местом, где молчание сети перевешивало её записанный ответ.
     """
-    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD, whole=True))
     _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
     cache, replayed = _restarted(tmp_path, circle, _sync)
     cache._memory.refuse("Interstellar", NotFoundError("ничего не нашлось"))
@@ -519,7 +519,7 @@ def test_a_remembered_refusal_does_not_outrank_the_circle_kept_on_disk(tmp_path:
 
 def test_a_remembered_refusal_still_goes_up_when_the_disk_kept_nothing(tmp_path: Path) -> None:
     """Записи нет - отказ остаётся отказом, и сеть вторым кругом не тревожится."""
-    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD, whole=True))
     cache, replayed = _restarted(tmp_path, circle, _sync)
     cache._memory.refuse("Interstellar", NotFoundError("ничего не нашлось"))
 
@@ -529,19 +529,23 @@ def test_a_remembered_refusal_still_goes_up_when_the_disk_kept_nothing(tmp_path:
     assert (circle.asked, replayed) == ([], [])
 
 
-def test_a_cut_circle_is_not_written_to_disk(tmp_path: Path) -> None:
+def test_a_screen_after_a_restart_revives_a_cut_circle_without_the_indexers(
+    tmp_path: Path,
+) -> None:
+    """🔴 Cut circles never reached the disk, and every home screen after a restart asked the
+    network for them again; on disk they lie marked, for the screen to warm offline."""
     circle = _Circle(answer=CutCircle([_PLAN], _TOLD))
     _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
-
     cache, replayed = _restarted(tmp_path, circle, _sync)
-    cache.take("Interstellar")
 
-    assert (circle.asked, replayed) == (["Interstellar", "Interstellar"], [])
+    assert cache.ask(["Interstellar"]) == 1
+    assert (circle.asked, replayed) == (["Interstellar"], ["Interstellar"])
+    assert CircleDisk(path=lambda: tmp_path / "circles.json").part("Interstellar")
 
 
 def test_a_screen_after_a_restart_is_warmed_from_disk_without_the_indexers(tmp_path: Path) -> None:
     """Плитки экрана после перезапуска гнали по кругу каждая, хотя круги лежали на диске."""
-    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD, whole=True))
     _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
     cache, replayed = _restarted(tmp_path, circle, _sync)
 
@@ -557,7 +561,7 @@ def test_a_background_refresh_with_a_silent_source_keeps_the_full_circle(tmp_pat
         ("search", "Тачки", 0.0, (), [RawResult("Cars 2006", "b", indexer="RuTor")]),
     ]
     silent = [said for said in full if said[4][0].indexer != "JacRed"]
-    circle = _Circle(answer=ToldCircle([_PLAN], full))
+    circle = _Circle(answer=ToldCircle([_PLAN], full, whole=True))
     _restarted(tmp_path, circle, _sync, full)[0].take("Тачки")
     circle.answer = ToldCircle([_SHOWN], silent)
     held: list[Callable[[], None]] = []

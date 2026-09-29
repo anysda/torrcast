@@ -17,11 +17,13 @@ if TYPE_CHECKING:
 class ToldCircle(list["Plan"]):
     """Планы и запись ответов каталога, по которой круг собирается заново без сети."""
 
-    def __init__(self, plans: Iterable[Plan] = (), told: list[Told] | None = None) -> None:
+    def __init__(
+        self, plans: Iterable[Plan] = (), told: list[Told] | None = None, whole: bool = False
+    ) -> None:
         super().__init__(plans)
         self.told: list[Told] = told or []
         #: Ответил ли каждый спрошенный индексер (:mod:`torrcast.usecases.discover.circle_watch`).
-        self.whole = False
+        self.whole = whole
 
 
 __all__ = ["ToldCircle"]

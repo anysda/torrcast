@@ -13,7 +13,7 @@ def test_a_card_opened_on_a_circle_from_disk_refreshes_it_in_the_background(
     tmp_path: Path,
 ) -> None:
     """🔴 Карточка будила круг с диска фоном, и живого круга за ним не шло: пул стоял старым."""
-    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD, whole=True))
     _restarted(tmp_path, circle, _sync)[0].take("Interstellar")
     held: list[Callable[[], None]] = []
     cache, replayed = _restarted(tmp_path, circle, held.append)

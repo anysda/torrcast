@@ -1,5 +1,9 @@
 """Память кругов раздач: найденное на срок, отказ круга на минуту, диск на сутки.
 
+Круг, где ответил не каждый спрошенный индексер, живёт в памяти минуту, а на диске лежит с
+меткой: экран после минуты и после перезапуска поднимает его без сети, а любой следующий
+круг его сменяет. Полный круг на диске неполный сменяет, только если не беднее его.
+
 Пустой ответ помнится коротко, по образцу Torrentio (``addon/lib/cache.js``, Apache-2.0,
 github.com/TheBeastLT/torrentio-scraper): без памяти отказа каждый переспрос карточки
 картины без раздач заново гнал круг по индексерам, раз в секунду, пока открыта страница.
@@ -119,11 +123,13 @@ class CircleMemory:
         """Запомнить непустую находку; пустая - не находка, урезанная - на минуту.
 
         Неполный круг (:meth:`poorer`) живой полный не вытесняет, а без него живёт минуту.
+        Круг, где ответил не каждый индексер (:func:`_part`), тоже живёт минуту: его плитки
+        не весь каталог, и следующий запрос после неё спрашивает сеть заново.
         """
         if not plans:
             return
         key, poorer = self.key(query), self.poorer(query, plans)
-        ttl = EMPTY_TTL if poorer or isinstance(plans, CutCircle) else self.ttl
+        ttl = EMPTY_TTL if poorer or _part(plans) else self.ttl
         with self._lock:
             self._landed[key] = (plans, self.clock() + ttl)
             self._revived.discard(key)
@@ -141,7 +147,9 @@ class CircleMemory:
         """
         told = plans.told if isinstance(plans, ToldCircle) else []
         kept = self.disk.told(self.key(query)) if self.disk is not None and told else None
-        return bool(kept) and bool(_sources(kept or []) - _sources(told))
+        if not kept or self.disk is None or self.disk.part(self.key(query)):
+            return False
+        return bool(_sources(kept) - _sources(told))
 
     def revive(self, query: str) -> list[Plan] | None:
         """Круг с диска, собранный заново без сети; ``None`` - записи нет или она стара."""
@@ -161,12 +169,16 @@ class CircleMemory:
         return plans
 
     def store(self, query: str, plans: list[Plan]) -> None:
-        """Записать полный круг на диск; урезанный, неполный и пустой туда не идут."""
+        """Записать круг на диск, если он не беднее лежащего; пустой туда не идёт.
+
+        Неполный ложится с меткой; сменив не беднее себя полный, он стоит за полный.
+        """
         told = plans.told if isinstance(plans, ToldCircle) else []
-        if self.disk is None or not plans or not told or isinstance(plans, CutCircle):
+        if self.disk is None or not plans or not told or self.poorer(query, plans):
             return
-        if not self.poorer(query, plans):
-            self.disk.keep(self.key(query), told)
+        key = self.key(query)
+        full = self.disk.told(key) is not None and not self.disk.part(key)
+        self.disk.keep(key, told, part=_part(plans) and not full)
 
     def refuse(self, query: str, error: TorrcastError) -> None:
         """Запомнить, чем кончился круг, на :data:`EMPTY_TTL`.
@@ -176,6 +188,11 @@ class CircleMemory:
         """
         with self._lock:
             self._empty[self.key(query)] = (error, self.clock() + EMPTY_TTL)
+
+
+def _part(plans: list[Plan]) -> bool:
+    """A circle that not every indexer answered: cut short, or some source kept silent."""
+    return isinstance(plans, CutCircle) or (isinstance(plans, ToldCircle) and not plans.whole)
 
 
 def _whole(error: TorrcastError) -> bool:

@@ -63,3 +63,14 @@ def test_a_broken_file_is_a_miss_not_a_failure(tmp_path: Path) -> None:
     (tmp_path / "circles.json").write_text('{"тачки": {"at": 1e12, "told": [["search"]]}}')
 
     assert _disk(tmp_path, [0.0]).told("тачки") is None
+
+
+def test_the_mark_of_a_cut_circle_outlives_a_restart_and_an_old_entry_has_none(
+    tmp_path: Path,
+) -> None:
+    now = [0.0]
+    _disk(tmp_path, now).keep("тачки", _TOLD, part=True)
+    (tmp_path / "old.json").write_text('{"вверх": {"at": 0.0, "told": []}}')
+
+    assert _disk(tmp_path, now).part("тачки")
+    assert not CircleDisk(path=lambda: tmp_path / "old.json", clock=lambda: 0.0).part("вверх")

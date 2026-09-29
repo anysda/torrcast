@@ -194,7 +194,7 @@ def test_a_card_show_plays_the_card_circle_revived_from_disk_at_once(
 
     def _counted(query: str) -> list[Plan]:
         network.append(query)
-        return ToldCircle(circle, _TOLD)
+        return ToldCircle(circle, _TOLD, whole=True)
 
     def _warm(spawn: Callable[[Callable[[], None]], None]) -> WarmCache:
         return WarmCache(

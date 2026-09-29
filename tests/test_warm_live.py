@@ -16,7 +16,7 @@ def _on_disk(tmp_path: Path, circle: _Circle, told: list[Told] = _TOLD) -> None:
 
 def test_a_screen_circle_from_disk_taken_by_a_card_is_refreshed_once(tmp_path: Path) -> None:
     """🔴 Экран согрел плитку с диска, карточка взяла её готовой, и обновления не было."""
-    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD, whole=True))
     _on_disk(tmp_path, circle)
     cache, _ = _restarted(tmp_path, circle, _sync)
     cache.ask(["Interstellar"])
@@ -28,12 +28,12 @@ def test_a_screen_circle_from_disk_taken_by_a_card_is_refreshed_once(tmp_path: P
 
 def test_the_renewal_does_not_take_a_circle_revived_from_disk(tmp_path: Path) -> None:
     """🔴 В пуле с диска не было единственной играющей раздачи строки s2e1."""
-    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD))
+    circle = _Circle(answer=ToldCircle([_PLAN], _TOLD, whole=True))
     _on_disk(tmp_path, circle)
     cache, _ = _restarted(tmp_path, circle, _sync)
     cache.ask(["Interstellar"])
     assert cache.ready("Interstellar") == [_PLAN]
-    circle.answer = ToldCircle([_SHOWN], _TOLD)
+    circle.answer = ToldCircle([_SHOWN], _TOLD, whole=True)
 
     assert cache.take_live("Interstellar") == [_SHOWN]
     assert circle.asked == ["Interstellar", "Interstellar"]
@@ -58,7 +58,7 @@ def test_a_poorer_live_refresh_is_what_the_renewal_takes_while_the_card_keeps_th
         ("search", "Interstellar", 0.0, (), [RawResult("Interstellar", "a", indexer="JacRed")]),
         ("search", "Interstellar", 0.0, (), [RawResult("Interstellar", "b", indexer="RuTor")]),
     ]
-    circle = _Circle(answer=ToldCircle([_PLAN], full))
+    circle = _Circle(answer=ToldCircle([_PLAN], full, whole=True))
     _on_disk(tmp_path, circle, full)
     circle.answer = ToldCircle([_SHOWN], full[1:])
     cache, _ = _restarted(tmp_path, circle, _sync, full)
