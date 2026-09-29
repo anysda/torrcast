@@ -25,6 +25,9 @@ class _Shelf:
         ask = _about(record)
         return ask is not None and _name(ask) in self._landed
 
+    def has(self, name: str) -> bool:
+        return name in self._landed
+
     def pending(self, _records: Sequence[JsonValue]) -> bool:
         return False
 

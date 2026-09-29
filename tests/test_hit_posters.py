@@ -140,6 +140,28 @@ def test_the_visible_batch_keeps_names_until_its_posters_arrive(tmp_path: Path) 
         gate.set()
 
 
+def test_a_serial_special_can_use_its_ready_parent_poster(tmp_path: Path) -> None:
+    """У спецвыпуска без своей картины берётся лишь готовая обложка его сериала."""
+    parent = {
+        **_row("Призрак в доспехах: У истоков", 2013, "tv"),
+        "original": "Ghost in the Shell Arise",
+    }
+    special = {
+        **_row("Призрак в доспехах: Истоки", 2013, "tv"),
+        "original": "Ghost in the Shell Arise",
+    }
+    source = FakeSource(pages={str(parent["title"]): ["parent"]})
+    hits = _hits(tmp_path, source)
+    rows = hits.urgent([parent, special])
+    deadline = time.monotonic() + _SETTLE
+    while not hits.landed(rows[0]) and time.monotonic() < deadline:
+        threading.Event().wait(0.02)
+    rows = hits.urgent([parent, special])
+    parent_row, special_row = (row for row in rows if isinstance(row, dict))
+
+    assert parent_row[FIELD] == special_row[FIELD]
+
+
 def test_a_picture_without_a_title_stays_a_line(tmp_path: Path) -> None:
     """Названия нет - имени картинки нет, и строка остаётся строкой без заглушки."""
     hits = _hits(tmp_path, FakeSource())

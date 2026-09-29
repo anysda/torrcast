@@ -33,6 +33,7 @@ from hass.picture_type import picture_type
 from hass.poster_parts import poster_parts
 from hass.poster_shelf import PosterShelf
 from hass.poster_source import PosterSource
+from hass.serial_parent_posters import _ready_posters, serial_parent_posters
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.json_value import JsonValue
 
@@ -87,7 +88,7 @@ class HitPosters(HitClaims):
         Имя остаётся в записи до следующего опроса. Страница отдаёт его только после
         приземления байтов и меняет картинку в уже стоящей плитке, не перестраивая ряд.
         """
-        return self.offer(results, urgent=True)
+        return serial_parent_posters(self.offer(results, urgent=True), self.has)
 
     def settled(self, results: list[JsonValue]) -> list[JsonValue]:
         """:meth:`offer` фоновой сборки: имя остаётся только у тех, чьи байты уже легли.
@@ -98,12 +99,7 @@ class HitPosters(HitClaims):
         """
         offered = self.offer(results)
         self._arrive([_name(ask) for ask in map(_about, offered) if ask], _SETTLE_BY)
-        return [
-            {name: value for name, value in record.items() if name != FIELD}
-            if isinstance(record, dict) and FIELD in record and not self.landed(record)
-            else record
-            for record in offered
-        ]
+        return _ready_posters(serial_parent_posters(offered, self.has), self.has)
 
     def landed(self, record: JsonValue) -> bool:
         """Байты картинки этой записи уже здесь: плитка не ждёт их на маршруте."""

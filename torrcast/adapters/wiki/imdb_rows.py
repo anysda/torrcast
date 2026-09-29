@@ -19,7 +19,7 @@ from torrcast.domain.slugify import slugify
 #: и обложка игры под именем одноимённого фильма была бы ровно той чужой картинкой.
 KINDS: Final = {
     "movie": frozenset({"movie", "tvMovie", "tvSpecial", "short", "video"}),
-    "tv": frozenset({"tvSeries", "tvMiniSeries"}),
+    "tv": frozenset({"tvSeries", "tvMiniSeries", "tvMovie", "tvSpecial"}),
 }
 
 

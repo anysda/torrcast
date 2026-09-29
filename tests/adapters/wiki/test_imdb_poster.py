@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
+
 from tests.fakes.json_client import FakeJsonClient
 from torrcast.adapters.wiki.imdb_poster import ImdbPoster
 from torrcast.adapters.wiki.poster_files import POSTER_WIDTH
@@ -227,6 +229,18 @@ def test_a_picture_with_one_name_is_asked_by_its_own_title() -> None:
     """
     imdb, _ = _imdb({"Bob's Burgers": [_row("tt1561755", "Bob's Burgers", 2011, "tvSeries")]})
     ask = Ask("Bob's Burgers", 2011, "tv")
+    assert imdb.wanted([ask], 5.0) == {ask: [SMALL, RAW]}
+
+
+@pytest.mark.parametrize("kind", ["tvMovie", "tvSpecial"])
+def test_a_serial_special_keeps_its_own_exact_poster(kind: str) -> None:
+    """OVA и спецвыпуск не теряют обложку только из-за типа IMDb.
+
+    Послабления года или имени тут нет: родительскую обложку нельзя угадать по соседней
+    плитке, поэтому берётся лишь постер самой записи, подтверждённой источником.
+    """
+    imdb, _ = _imdb({"Ghost Shell Special": [_row("tt1234567", "Ghost Shell Special", 2021, kind)]})
+    ask = Ask("Призрак: спецвыпуск", 2021, "tv", "Ghost Shell Special")
     assert imdb.wanted([ask], 5.0) == {ask: [SMALL, RAW]}
 
 

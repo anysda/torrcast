@@ -27,6 +27,8 @@ class _Covers(Protocol):
 
     def landed(self, record: JsonValue) -> bool: ...
 
+    def has(self, name: str) -> bool: ...
+
     def pending(self, records: Sequence[JsonValue]) -> bool: ...
 
     def due(self, records: Sequence[JsonValue]) -> bool: ...
@@ -40,6 +42,9 @@ def shown_covers(results: list[JsonValue], covers: _Covers) -> list[JsonValue]:
 def _covered(record: JsonValue, covers: _Covers) -> JsonValue:
     """Запись с именем картинки, если её байты здесь, и без имени, если их ещё нет."""
     if not isinstance(record, dict):
+        return record
+    named = record.get(FIELD)
+    if isinstance(named, str) and covers.has(named):
         return record
     if covers.landed(record):
         ask = _about(record)
