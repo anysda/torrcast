@@ -1795,8 +1795,8 @@ _METER_JS: Final = (
   if (old) old.stop();
   const meter = {
     born: performance.now(), frame: null, start: null, playing: [], waits: [], waiting: null,
-    seen: [], shown: false, armed: null, nextEnded: null, nextEmptied: null, nextLoaded: null,
-    nextPlaying: null, nextFrame: null,
+    seen: [], spots: [], bridge: [], shown: false, armed: null, nextEnded: null,
+    nextEmptied: null, nextLoaded: null, nextPlaying: null, nextFrame: null,
   };
   const spinnerSeen = """
     + _SPINNER_SEEN_JS
@@ -1828,7 +1828,27 @@ _METER_JS: Final = (
       // Повторный `waiting` посреди открытой заминки её не перезапускает: иначе и длительность
       // укорачивалась бы, и уже пойманный в кадре спиннер забывался бы.
       if (meter.frame === null || meter.waiting !== null) return;
+      // Между штатным `ended` и первым кадром следующей серии `<video>` пуст и грузит
+      // новую ленту: это сам переход, его длину судит «ended -> кадр», а не счёт
+      // подгрузов, который по заданию начинается ПОСЛЕ кадра. Факт не теряется.
+      if (meter.nextEnded !== null && meter.nextFrame === null) {
+        meter.bridge.push(+at().toFixed(2));
+        return;
+      }
       meter.waiting = at(); meter.shown = false;
+      // Паспорт заминки: где головка и сколько плёнки было впереди. Без него `waiting`
+      // не привязать ни к куску упаковки, ни к стыку серий.
+      const pos = video.currentTime;
+      let ahead = 0;
+      for (let i = 0; i < video.buffered.length; i += 1) {
+        if (video.buffered.start(i) <= pos + 0.5 && video.buffered.end(i) > pos) {
+          ahead = video.buffered.end(i) - pos;
+        }
+      }
+      meter.spots.push({
+        at: +meter.waiting.toFixed(2), pos: +pos.toFixed(2), ahead: +ahead.toFixed(2),
+        next: meter.nextFrame !== null,
+      });
     });
     video.addEventListener('ended', () => {
       if (meter.armed !== null && meter.nextEnded === null) meter.nextEnded = at();
@@ -1855,7 +1875,7 @@ _METER_JS: Final = (
     meter.armed = (performance.now() - meter.born) / 1000;
     meter.nextEnded = null; meter.nextEmptied = null; meter.nextLoaded = null;
     meter.nextPlaying = null; meter.nextFrame = null; meter.waits = []; meter.waiting = null;
-    meter.seen = []; meter.shown = false;
+    meter.seen = []; meter.spots = []; meter.bridge = []; meter.shown = false;
   };
   meter.stop = () => { observer.disconnect(); painting = false; };
   window.__tcAcceptanceMeter = meter;
@@ -2326,6 +2346,18 @@ def check_7_series(ctx: Ctx) -> Result:
     return Result(7, "Сериал", ok, None, detail)
 
 
+def _bridge_steps(meter: dict[str, Any]) -> str:
+    """Раскладка стыка серий от ``ended``: когда вкладка опустела и когда взяла данные."""
+    ended = meter.get("nextEnded")
+    steps = [("emptied", meter.get("nextEmptied")), ("loadeddata", meter.get("nextLoaded"))]
+    said = [
+        f"{name} +{value - ended:.2f}"
+        for name, value in steps
+        if isinstance(value, int | float) and isinstance(ended, int | float)
+    ]
+    return f" ({', '.join(said)})" if said else ""
+
+
 def check_8_autoplay(ctx: Ctx) -> Result:
     """Автопереход: перемотка к концу → плашка с отсчётом → через 10 с следующая серия.
 
@@ -2401,7 +2433,13 @@ def check_8_autoplay(ctx: Ctx) -> Result:
         if None not in after_pair and after_pair != before_pair:
             break
         ctx.page.wait_for_timeout(1000)
-    frame, _ = _next_frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
+    frame, meter = _next_frame_measure(ctx, _PLAY_START_WAIT / 1000.0)
+    ended, armed = meter.get("nextEnded"), meter.get("armed")
+    gap = (
+        frame - (ended - armed)
+        if frame is not None and isinstance(ended, int | float) and isinstance(armed, int | float)
+        else None
+    )
     waits, total, unseen = _wait_stalls(ctx, _WATCH_SECONDS) if frame is not None else ([], 0.0, [])
     rows_ready = rows_waited <= _PLAY_READY_BAR
     ok = (
@@ -2414,9 +2452,15 @@ def check_8_autoplay(ctx: Ctx) -> Result:
     detail = (
         f"s1e1 (строки серий ждали {rows_waited:.1f} с, порог {_PLAY_READY_BAR:.0f}); "
         f"плашка появилась; серия по /api/state: {before_pair} -> {after_pair}; "
-        f"кадр следующей серии {frame!r} с, подгрузы за {_WATCH_SECONDS:.0f} с: "
+        f"кадр следующей серии {frame!r} с от плашки"
+        + ("" if gap is None else f", {gap:.2f} с от ended{_bridge_steps(meter)}")
+        + f"; ожиданий загрузки до кадра {len(meter.get('bridge') or [])}"
+        + f"; подгрузы после кадра за {_WATCH_SECONDS:.0f} с: "
         f"{len(waits)}, {total:.1f} с" + _unseen_note(unseen)
     )
+    if waits or unseen:
+        spots = ctx.page.evaluate("(window.__tcAcceptanceMeter || {}).spots || []")
+        detail += f"; заминки (миг, позиция, впереди, после кадра): {spots}"
     return Result(8, "Автопереход", ok, None, detail)
 
 
