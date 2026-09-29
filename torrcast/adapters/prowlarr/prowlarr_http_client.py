@@ -27,7 +27,16 @@ class ProwlarrHttpClient:
     """Сетевая механика Prowlarr без политики выбора бюджета."""
 
     def new_session(self) -> _HttpSession:
-        return requests.Session()
+        """Сессия поиска, которая не держит соединений между запросами.
+
+        Сессия живёт весь поиск и дольше - её носят опоздавшие круга и превью, - а
+        Prowlarr сам закрывает простаивающее соединение через пару минут. Пул
+        keep-alive держал бы такой сокет полуоткрытым (CLOSE-WAIT), пока сессию не
+        соберёт сборщик мусора: за десять минут работы полок их набиралась сотня.
+        """
+        session = requests.Session()
+        session.headers["Connection"] = "close"
+        return session
 
     def get_json(self, session: Any, url: str, timeout: float, base_url: str) -> Any:
         response: Any = None
