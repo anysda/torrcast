@@ -281,8 +281,12 @@ const TCPlayer = {
   //: hls.js (414 КБ, 40 мс разбора) не стоит в `index.html`: там он держал первый кадр
   //: любой страницы, а нужен только показу. Грузится с `mount` и ждётся в `_attach`.
   //: Не загрузился - второй попытки нет, `_attach` уходит в родной `<video>`.
+  //: Файл не тянется только там, где hls.js сам не нашёл бы источника: его выбор -
+  //: `ManagedMediaSource || MediaSource || WebKitMediaSource` (у iPhone с iOS 17.1 есть
+  //: лишь первый, и без hls.js пропадают `startPosition` закладки и потолок запаса вкладки).
   _hlsLoad() {
-    if (TCPlayer.ready() || TCPlayer._hlsTried || typeof MediaSource === 'undefined') return null;
+    const source = window.ManagedMediaSource || window.MediaSource || window.WebKitMediaSource;
+    if (TCPlayer.ready() || TCPlayer._hlsTried || !source) return null;
     if (!TCPlayer._hlsWait) {
       TCPlayer._hlsWait = new Promise((done) => {
         const tag = document.createElement('script');

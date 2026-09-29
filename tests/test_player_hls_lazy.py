@@ -50,3 +50,12 @@ def test_the_player_loads_hls_once_and_attaches_the_last_stream(stood: dict[str,
 
 def test_a_failed_hls_file_falls_back_to_the_native_video(stood: dict[str, Any]) -> None:
     assert stood["failed"] == {"tags": 1, "src": "/hls/only.m3u8"}, stood["failed"]
+
+
+def test_a_phone_with_only_managed_media_source_loads_hls(stood: dict[str, Any]) -> None:
+    """iOS 17.1+: без hls.js закладка играла бы с начала, а запас вкладки был бы без потолка."""
+    assert stood["managed"] == {"tags": ["/static/hls-1.5.17.min.js"], "src": ""}, stood["managed"]
+
+
+def test_a_browser_without_any_media_source_plays_natively(stood: dict[str, Any]) -> None:
+    assert stood["bare"] == {"tags": 0, "src": "/hls/old.m3u8"}, stood["bare"]

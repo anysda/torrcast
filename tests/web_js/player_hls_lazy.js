@@ -19,12 +19,13 @@ function hlsStub(made) {
   return Hls;
 }
 
-function stand() {
+// `sources` - какие конструкторы MSE есть у браузера: по умолчанию настольный `MediaSource`.
+function stand(sources = { MediaSource: function MediaSource() {} }) {
   const tags = [];
   const ctx = {
     console,
     addEventListener() {},
-    MediaSource: function MediaSource() {},
+    ...sources,
     document: {
       addEventListener() {},
       head: { appendChild(tag) { tags.push(tag); return tag; } },
@@ -71,6 +72,22 @@ async function failed() {
   return { tags: tags.length, src: player._video.src };
 }
 
+// iPhone с iOS 17.1+: `MediaSource` нет, есть только `ManagedMediaSource` - hls.js
+// с ним играет, значит файл обязан грузиться. Без всякого MSE файл не тянется.
+function managed() {
+  const { tags, player } = stand({ ManagedMediaSource: function ManagedMediaSource() {} });
+  player._attach('/hls/phone.m3u8', 42);
+  return { tags: tags.map((t) => t.src), src: player._video.src };
+}
+
+function bare() {
+  const { tags, player } = stand({});
+  player._attach('/hls/old.m3u8', 0);
+  return { tags: tags.length, src: player._video.src };
+}
+
 (async () => {
-  process.stdout.write(JSON.stringify({ loaded: await loaded(), failed: await failed() }));
+  process.stdout.write(JSON.stringify({
+    loaded: await loaded(), failed: await failed(), managed: managed(), bare: bare(),
+  }));
 })();
