@@ -6,9 +6,9 @@
 снабжает. Играет лучшая из годных на ту секунду. Замер стенда 15-09: №2 прошёл ffprobe
 на 4.19 с, а осуждения №1 (vc1) ждали до 12.86 с.
 
-Запасной, уже осуждённый, смены не даёт, и тогда греется следующий по очереди
-(:func:`_widen`): «Призрак в доспехах» ждал молчащий №1 все 20 с, потому что №2 был без
-русского звука, а годный №3 до своей попытки не грелся вовсе.
+Запасной, осуждённый или ещё читающийся, смены не даёт, и тогда греется следующий по
+очереди (:func:`_widen`): «Призрак в доспехах» ждал молчащий №1 все 20 с, потому что №2 был
+без русского звука, а годный №3 до своей попытки не грелся вовсе.
 """
 
 from __future__ import annotations
@@ -127,17 +127,17 @@ def _read(
 
 
 def _widen(bench: _BenchTrouble, plan: Plan, args: Args, spares: list[int]) -> None:
-    """Все запасные осуждены: греть следующего по очереди, но не шире :data:`PICK_FRONT`.
+    """Годного запасного нет: греть следующего по очереди, но не шире :data:`PICK_FRONT`.
 
-    Осуждён - прочитан и негоден; ещё читающий карту не осуждён, его ждут.
+    Срок прошёл, и узкий фронт первой попытки счастливому пути уже не служит: запасной,
+    который ещё читается, третьего не держит. «Призрак в доспехах»: японский №2 на 40 ГБ
+    читался 13.5 с, и годный №3 до того не грелся вовсе - кадр через 28.5 с.
     """
     if not spares or len(spares) >= PICK_FRONT - 1:
         return
     for number in spares:
         spare = bench.preps.get((plan.picture.key, number))
-        if spare is None or not spare.ready.is_set() or _fit(bench, plan, spare):
-            return
-        if spare.mapped is not None and not spare.mapped.is_set():
+        if spare is None or (spare.ready.is_set() and _fit(bench, plan, spare)):
             return
     queue = plan.candidates(args)
     after = queue.index(spares[-1]) + 1 if spares[-1] in queue else len(queue)

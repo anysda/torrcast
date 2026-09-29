@@ -151,11 +151,39 @@ def test_a_younger_release_whose_keyframe_map_is_still_read_does_not_jump_the_qu
         return reading if f"hash-{_POOL[1].magnet}/" in source_url else taken
 
     composition.use_warm_file(monkeypatch, warm)
-    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, _RUS))
+    bench = Bench(Torrents(), prober=_prober(top_answers, 1.2, _RUS, _RUS, _ENG))
 
     prep = bench.resolve(plan(_POOL), _ASKED, Said())
 
     assert prep.number == 1
+
+
+@pytest.mark.machine
+def test_a_spare_still_read_after_the_deadline_does_not_hold_back_the_next_release(
+    monkeypatch: pytest.MonkeyPatch, top_answers: threading.Event
+) -> None:
+    """🔴 №2 ещё читается, №3 годен: после срока №3 греется и играет, а не ждёт №2.
+
+    «Призрак в доспехах» - японский №2 на 40 ГБ читался 13.5 с, годный №3
+    до того не грелся, кадр через 28.5 с.
+    """
+    monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
+    reading = threading.Event()
+    taken = threading.Event()
+    taken.set()
+
+    def warm(source_url: str, **_: object) -> threading.Event:
+        return reading if f"hash-{_POOL[1].magnet}/" in source_url else taken
+
+    composition.use_warm_file(monkeypatch, warm)
+    bench = Bench(Torrents(), prober=_prober(top_answers, 30.0, _RUS, _RUS, _RUS))
+    began = time.monotonic()
+
+    prep = bench.resolve(plan(_POOL), _ASKED, Said())
+
+    assert prep.number == 3
+    assert time.monotonic() - began < 3.0
+    reading.set()
 
 
 @pytest.mark.machine
