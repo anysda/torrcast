@@ -29,9 +29,10 @@ from hass.catalog_tiles import CatalogTiles
 from hass.peek_client import peek_client
 from hass.redress import redress
 from hass.refused_error import RefusedError
+from hass.search_first_screen import search_first_screen
 from hass.search_job import FAILED, POSTERS_BY, REFUSAL_BY, SearchJob, _Shared
 from hass.searching import Detect, Offer, Remember
-from hass.shown_covers import _Covers, shown_covers
+from hass.shown_covers import _Covers
 from torrcast.domain.config import Config
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import Profile
@@ -154,7 +155,7 @@ def search_progress(
         job.settle(_preview(query, job, offer, done=True))
     if not job.done:
         preview = _preview(query, job, offer)
-        return (preview if covers is None else shown_covers(preview, covers)), True
+        return (preview if covers is None else search_first_screen(job, preview, covers)), True
     failed = job.error is None and job.timed_out and not job.results and not job.late(REFUSAL_BY)
     if failed or (job.error is not None and job.error.key == FAILED.key):
         # A failed search is not an answer to keep: «Try again» gets a job of its own, which
@@ -172,7 +173,8 @@ def search_progress(
     job.promised = job.promised or covers.pending(job.results)
     if _coming(job, covers) and not job.judging and covers.due(job.results):
         redress(job, searching.OFFER if offer is None else offer)
-    return shown_covers(job.results, covers), False
+    shown = search_first_screen(job, job.results, covers)
+    return shown, bool(job.results) and not shown
 
 
 def _refusal_pending(query: str) -> bool:

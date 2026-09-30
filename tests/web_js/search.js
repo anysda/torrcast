@@ -88,6 +88,21 @@ const scenarios = {
     return { polls: p.polls, swaps, timers: p.time.pending(), screen: screen(p) };
   },
 
+  // Сервер держит первый ряд, пока ложатся его обложки: скелет стоит, ряд встаёт один раз.
+  async heldFirstRow() {
+    const p = page((n) => ({
+      partial: n < 5, results: n < 3 ? [] : [hit('cars', { poster: 'cars.jpg' })], finalBy: 12,
+    }), { latency: LATENCY });
+    p.home._query = 'тачки';
+    p.doc.getElementById('tc-body').replaceWith(p.home._searchLoading());
+    let swaps = 0;
+    const swap = p.home._swapBody;
+    p.home._swapBody = (next) => { swaps += 1; return swap(next); };
+    p.home._runSearch('тачки');
+    await p.time.run(60000);
+    return { polls: p.polls.length, swaps, screen: screen(p) };
+  },
+
   // Сервер твердит «обложки в пути» вечно: дозапрос кончается потолком сервера.
   async posterCap() {
     const p = search((_, at) => ({

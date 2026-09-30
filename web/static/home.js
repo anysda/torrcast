@@ -413,7 +413,10 @@ const TCHome = {
   _showHits(text, known, said) {
     const merged = TCHome._mergeHits(known, said.results, said.partial);
     TCHome._found = { query: text, results: merged };
-    if (TCHome._shownHits === ' ' || TCHome._layoutOf(merged) !== TCHome._layoutOf(known)) {
+    // The server holds the first row until its covers land: the skeleton already up stays.
+    if (!merged.length && said.partial && TCHome._shownHits === TCHome._LOADING) return merged;
+    const bare = TCHome._shownHits === ' ' || TCHome._shownHits === TCHome._LOADING;
+    if (bare || TCHome._layoutOf(merged) !== TCHome._layoutOf(known)) {
       TCHome._swapBody(TCHome._searchResults(merged, said.partial));
     } else {
       TCHome._patchPosters(merged);
@@ -431,6 +434,9 @@ const TCHome = {
 
   // Сколько сорванных опросов подряд живой поиск переживает до экрана сбоя.
   _POLL_TRIES: 3,
+
+  // The mark of the skeleton body that stands until the first row of a search.
+  _LOADING: 'loading',
 
   // The server already gave the ordinary final; this hears only how its late circle ended.
   _REFUSAL_STEP: 1000,
@@ -540,7 +546,7 @@ const TCHome = {
   _searchLoading() {
     TCHome._syncCount(null);
     // Тело - не выдача, и сравнение списков его не касается.
-    TCHome._shownHits = ' ';
+    TCHome._shownHits = TCHome._LOADING;
     const body = document.createElement('div');
     body.id = 'tc-body';
     body.appendChild(TCHome._searchingLine());

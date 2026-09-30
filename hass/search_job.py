@@ -90,6 +90,8 @@ class SearchJob(SearchPosterVerdict):
     #: Картины каталога под этот запрос (:mod:`hass.catalog_tiles`); без них - только раздачи.
     catalog: CatalogTiles | None = None
     started_at: float = field(default_factory=time.monotonic)
+    #: A poll has put this job's first row on screen: it is never held for covers again.
+    drawn: bool = False
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     #: One poster verdict of the job at a time: the source marks a picture only once it answers.
     _verdict: threading.Lock = field(default_factory=threading.Lock, repr=False)

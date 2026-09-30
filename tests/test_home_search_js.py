@@ -102,6 +102,17 @@ def test_a_final_answer_polls_for_posters_without_replacing_its_tiles(
 
 
 @pytest.mark.machine
+def test_a_first_row_held_for_its_covers_keeps_the_skeleton_and_is_drawn_once(
+    facts: dict[str, Any],
+) -> None:
+    held = _scenario(facts, "heldFirstRow")
+    assert held["polls"] == 6, held["polls"]
+    assert held["swaps"] == 1, "пустой придержанный ответ пересобрал скелет поиска"
+    assert held["screen"]["keys"] == ["cars"]
+    assert held["screen"]["best"] == 1
+
+
+@pytest.mark.machine
 def test_posters_said_to_be_coming_forever_stop_at_the_server_cap(facts: dict[str, Any]) -> None:
     cap = _scenario(facts, "posterCap")
     assert cap["polls"][-1] <= cap["postersBy"] * 1000, f"дозапрос шёл до {cap['polls'][-1]} мс"
