@@ -22,7 +22,8 @@ from torrcast.domain.picture import Picture
 from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 from torrcast.usecases.shelves.fresh_shelf import LIMIT
 from web.build_shelf import build_shelf
-from web.built_by_rule import FIELD, RULE, built_by_rule
+from web.built_by_rule import FIELD, RULE
+from web.cold import SHELVES, cold
 from web.drop_count import DropCount
 from web.shelf_judge import Verdict, shelf_judge
 from web.shelf_lane import shelf_lane
@@ -30,8 +31,6 @@ from web.shelf_pictures import shelf_pictures
 from web.shelf_seeds import shelf_seeds
 from web.shelf_tiles import Offer, PassportOf, Playable, shelf_tiles
 
-#: Порядок полок: первой руки берут «Новинки», как и прежде шла сборка.
-SHELVES: Final = ("fresh", "popular")
 #: Сколько холодный заход ждёт доезда обложек, прежде чем считать очередь полки полной:
 #: гонка источников отвечает за 1.5 с, опоздавшие ложатся до ~24 с (:mod:`hass.both_posters`).
 FILL_BY: Final = 25.0
@@ -91,9 +90,8 @@ class ShelfPass:
 
     @property
     def early(self) -> bool:
-        """Холодный заход: тело не собрано этим правилом или без полки, показ до приговоров."""
-        body, whole = self.current, all(self.current.get(shelf) for shelf in SHELVES)
-        return self.cache.early and not (body.get("built_at") and built_by_rule(body) and whole)
+        """Холодный заход (:func:`web.cold.cold`): показ до приговоров."""
+        return self.cache.early and cold(self.current)
 
     def run(self) -> dict[str, JsonValue]:  # the page flags burn only for a cold pass
         self.cache.filling = self.cache.settling = self.early

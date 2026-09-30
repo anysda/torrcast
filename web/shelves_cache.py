@@ -23,6 +23,7 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
+from web.cold import cold
 from web.drop_count import DropCount
 from web.min_tiles import min_tiles
 from web.publish_shelf import Warm, publish_shelf
@@ -43,10 +44,6 @@ def _daemon(job: Callable[[], None]) -> None:
 
 def _no_warm(_targets: object, _later: object) -> None:
     """Без проводки сборка не трогает очередь кругов."""
-
-
-def _nothing_arriving(_records: list[JsonValue]) -> bool:
-    return False  # без проводки обложки не едут: холодный заход не ждёт их доезда
 
 
 @dataclass
@@ -78,7 +75,7 @@ class ShelvesCache:
     #: дожидаясь байтов, ``landed`` - записи с уже легшими, ``arriving`` - едет ли ещё чья-то.
     ask: Offer | None = None
     landed: Offer = lambda records: records
-    arriving: Callable[[list[JsonValue]], bool] = _nothing_arriving
+    arriving: Callable[[list[JsonValue]], bool] = lambda _records: False
     workers: int = 1
     early: bool = False
     filling: bool = field(default=False, repr=False, compare=False)
@@ -101,11 +98,12 @@ class ShelvesCache:
             return self._body
 
     def start(self) -> None:
-        """Фон встаёт один раз: со службой (:mod:`web.warm_saved`) или первым обращением."""
+        """Фон встаёт один раз; холодное тело (:mod:`web.cold`) метит ответ сборкой сразу."""
         with self._lock:
             if self._started:
                 return
             self._started = True
+        self.filling = self.settling = self.early and cold(self._body or self._load())
         self.spawn(self._loop)
 
     def _loop(self) -> None:
@@ -123,6 +121,8 @@ class ShelvesCache:
             self._rebuild()
         except Exception:
             traceback.print_exc()
+        finally:  # a feed that never answered must not leave the counter on
+            self.filling = self.settling = False
 
     def _rebuild(self) -> None:
         """Собрать обе полки заново; отказ ленты не роняет цикл - следующий час свой.
