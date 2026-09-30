@@ -41,6 +41,9 @@ from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.worker_loop import _worker_loop
 
+#: Источник выбора профиля, с которым юнит зовёт цикл (:func:`torrcast.domain.for_tab.for_tab`).
+_HOW = "замеренная вкладка chromium-linux"
+
 
 def test_metadata_budget_of_the_unit_stays_where_it_was() -> None:
     assert WORKER_META == 60.0
@@ -72,10 +75,10 @@ def test_the_loop_pins_the_thresholds_snapshot_to_the_session_start_record(
     state_slot.install(state)
     tape = Tape()
     journal_slot.install(tape)
-    asked: list[tuple[Config, Profile]] = []
+    asked: list[tuple[Config, Profile, str]] = []
 
-    def snapshot(config: Config, profile: Profile) -> dict[str, object]:
-        asked.append((config, profile))
+    def snapshot(config: Config, profile: Profile, how: str) -> dict[str, object]:
+        asked.append((config, profile, how))
         return {
             "profile_source": "паспорт приёмника",
             "thresholds": {"burst": 60.0},
@@ -93,11 +96,12 @@ def test_the_loop_pins_the_thresholds_snapshot_to_the_session_start_record(
         FakeStreamSource(),
         [],
         CAUTIOUS,
+        how=_HOW,
         play=lambda *args, **kwargs: 0,
     )
 
     assert code == 0
-    assert asked == [(config, CAUTIOUS)], "снимок снят с настроек и профиля серии"
+    assert asked == [(config, CAUTIOUS, _HOW)], "снимок снят с настроек, профиля и выбора серии"
     start: list[dict[str, Any]] = tape.named("session/session_start")
     assert len(start) == 1, "запись о начале сеанса одна на серию"
     assert start[0]["profile"] == "q70d"
@@ -137,6 +141,7 @@ def _shown(entry: Entry, engine: FakeTorrentEngine) -> tuple[str, dict[str, Any]
         FakeStreamSource(),
         [],
         CAUTIOUS,
+        how=_HOW,
         play=play,
     )
     return seen[0]
@@ -256,6 +261,7 @@ def test_a_finished_season_is_continued_by_the_next_one(
         FakeStreamSource(),
         [],
         CAUTIOUS,
+        how=_HOW,
         play=play,
         next_season=next_season,
     )
@@ -335,6 +341,7 @@ def test_a_show_closed_by_the_remote_moves_the_bookmark_without_raising_the_rece
         FakeStreamSource(),
         [],
         CAUTIOUS,
+        how=_HOW,
         play=play,
     )
 
@@ -408,6 +415,7 @@ def test_a_show_closed_by_the_remote_on_the_credits_does_not_raise_the_receiver(
         FakeStreamSource(),
         [],
         CAUTIOUS,
+        how=_HOW,
         play=play,
     )
 
@@ -475,6 +483,7 @@ def test_a_stream_that_ended_by_itself_hands_over_at_once_and_costs_no_extra_pol
         FakeStreamSource(),
         [],
         CAUTIOUS,
+        how=_HOW,
         play=play,
     )
 
@@ -523,6 +532,7 @@ def test_a_naturally_ended_show_still_raises_the_next_episode(
         FakeStreamSource(),
         [],
         CAUTIOUS,
+        how=_HOW,
         play=play,
     )
 
@@ -597,6 +607,7 @@ def test_a_lone_episode_is_continued_by_the_episode_the_catalogue_names(
         FakeStreamSource(),
         [],
         CAUTIOUS,
+        how=_HOW,
         play=play,
         prepare=partial(
             _prepared_next,

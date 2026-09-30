@@ -136,7 +136,15 @@ def _cmd_worker(
     mine: list[str] = []
     try:
         return _worker_loop(
-            config, key, torrserver, receiver, supply, mine, chosen.profile, play=play
+            config,
+            key,
+            torrserver,
+            receiver,
+            supply,
+            mine,
+            chosen.profile,
+            how=chosen.how,
+            play=play,
         )
     finally:
         # Закладку «Играть» продолжит этой же раздачей: снесённая, она заново читала

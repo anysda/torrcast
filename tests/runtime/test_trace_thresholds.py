@@ -10,6 +10,7 @@ import pytest
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.chromecast.scan.device import Device
 from torrcast.domain.config import Config
+from torrcast.domain.for_tab import for_tab
 from torrcast.domain.profile import ANDROID_TV
 from torrcast.domain.tune import tune
 from torrcast.runtime.trace_thresholds import trace_thresholds
@@ -26,7 +27,7 @@ def test_the_snapshot_keeps_the_named_profile_and_the_explicit_config_key(
     monkeypatch.setenv("TORRCAST_CONFIG", str(path))
     raw = Config.from_json(json.loads(path.read_text("utf-8")))
 
-    snapshot = trace_thresholds(tune(raw, ANDROID_TV), ANDROID_TV)
+    snapshot = trace_thresholds(tune(raw, ANDROID_TV), ANDROID_TV, detector.detect(raw).how)
 
     assert snapshot["profile_source"] == "manually named: receiver_profile=androidtv"
     assert snapshot["threshold_sources"]["recode_head_wait"] == "written in the config"  # type: ignore[index]
@@ -43,7 +44,7 @@ def test_the_snapshot_does_not_name_a_profile_the_config_never_named(
     raw = Config(receiver_profile="bogus")
     chosen = detector.detect(raw)
 
-    snapshot = trace_thresholds(tune(raw, chosen.profile), chosen.profile)
+    snapshot = trace_thresholds(tune(raw, chosen.profile), chosen.profile, chosen.how)
 
     assert snapshot["profile_source"] == 'no profile named "bogus" - falling back to cautious'
 
@@ -56,7 +57,7 @@ def test_a_config_broken_by_hand_mid_show_does_not_kill_the_session(
     path.write_text('{"receiver_profile": "androidtv",}', encoding="utf-8")
     monkeypatch.setenv("TORRCAST_CONFIG", str(path))
 
-    assert trace_thresholds(Config(), ANDROID_TV) == {"profile_source": "config not read"}
+    assert trace_thresholds(Config(), ANDROID_TV, "any") == {"profile_source": "config not read"}
 
 
 def test_a_profile_from_the_receiver_passport_is_named_a_passport(
@@ -74,7 +75,9 @@ def test_a_profile_from_the_receiver_passport_is_named_a_passport(
     )
     detector.forget()
     try:
-        snapshot = trace_thresholds(Config(), ANDROID_TV)
+        snapshot = trace_thresholds(
+            Config(), ANDROID_TV, detector.detect(Config(tv="10.0.0.77")).how
+        )
     finally:
         detector.forget()
 
@@ -93,9 +96,27 @@ def test_a_handwritten_key_equal_to_the_cautious_default_is_named_ignored(
     monkeypatch.setenv("TORRCAST_CONFIG", str(path))
     raw = Config.from_json(json.loads(path.read_text("utf-8")))
 
-    snapshot = trace_thresholds(tune(raw, ANDROID_TV), ANDROID_TV)
+    snapshot = trace_thresholds(tune(raw, ANDROID_TV), ANDROID_TV, detector.detect(raw).how)
 
     assert snapshot["thresholds"]["recode_at_mbit"] == 28.0  # type: ignore[index]
     assert snapshot["threshold_sources"]["recode_at_mbit"] == (  # type: ignore[index]
         "written in the config, but equal to the cautious one - profile androidtv"
     )
+
+
+def test_a_measured_tab_is_the_source_the_snapshot_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Вкладка без приставки: играет её профиль, и источник в ленте - она, а не
+    «приёмника с паспортом нет - беру осторожный» от детектора, не знающего её ключа."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"receiver": "browser"}), encoding="utf-8")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
+    raw = Config(receiver="browser")
+    alone = detector.detect(raw)
+    chosen = for_tab(alone, raw, "chromium-linux")
+
+    snapshot = trace_thresholds(tune(raw, chosen.profile), chosen.profile, chosen.how)
+
+    assert chosen.how != alone.how
+    assert snapshot["profile_source"] == chosen.how

@@ -34,10 +34,10 @@ from torrcast.usecases.watch import Watch
 #: Чем снимается снимок порогов серии: какими числами играем и откуда взято каждое.
 #: Собрать его может только тот, кто видит и настройки, и приёмник, поэтому кладёт сюда
 #: композиционный корень (:mod:`torrcast.runtime.wire`).
-_worker_thresholds: Callable[[Config, Profile], dict[str, object]]
+_worker_thresholds: Callable[[Config, Profile, str], dict[str, object]]
 
 
-def _configure_worker_loop(thresholds: Callable[[Config, Profile], dict[str, object]]) -> None:
+def _configure_worker_loop(thresholds: Callable[[Config, Profile, str], dict[str, object]]) -> None:
     """Назначить, чем цикл снимает пороги начала серии."""
     global _worker_thresholds
     _worker_thresholds = thresholds
@@ -52,6 +52,7 @@ def _worker_loop(
     mine: list[str],
     profile: Profile,
     *,
+    how: str,
     play: Callable[..., int] = _play,
     next_season: Callable[..., bool] = _next_season,
     prepare: Callable[..., PreparedNext | None] = _prepared_next,
@@ -117,7 +118,7 @@ def _worker_loop(
             title=title,
             pos=round(entry.pos, 1),
             profile=profile.key,
-            **_worker_thresholds(config, profile),
+            **_worker_thresholds(config, profile, how),
         )
         print(
             phrase("worker.now_playing", tag=session_tag, title=title, pos=_hms(entry.pos)),
