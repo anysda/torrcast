@@ -48,7 +48,10 @@ async function lift(here, end) {
   }
   await p.time.run(13000);
   const over = screen(p);
+  // Заминка после кадра: ``<video>`` стоит (``readyState`` 2), и срок тишины вышел.
+  p.video.readyState = 2;
   p.video.dispatch('waiting');
+  await p.time.run(13000 + p.ctx.TCPlayer.STALL_SHOW_MS);
   return { packing, packed, stalled, later, over, afterWaiting: screen(p) };
 }
 

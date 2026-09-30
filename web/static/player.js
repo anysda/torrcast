@@ -17,6 +17,11 @@ const TCPlayer = {
   ENDED_WAIT_MS: 30000,
   DRIFT_S: 5,
   TRIM_RATE: 0.75,
+  //: Заминка после первого кадра молчит, пока короче этого срока. Перемотка на место и
+  //: стык кусков дают ``waiting`` на 20-80 мс (смок 30-09), и «Buffering_» мигал на кадр-
+  //: другой поверх идущей плёнки. 300 мс - вчетверо выше худшей такой вспышки и ниже порога,
+  //: на котором пауза читается зрителем как остановка: настоящая заминка видна через 0.3 с.
+  STALL_SHOW_MS: 300,
 
   ready() {
     return typeof window.Hls !== 'undefined' && window.Hls.isSupported();
@@ -51,6 +56,7 @@ const TCPlayer = {
     TCPlayer._ordered = false;
     TCPlayer._seeking = false;
     TCPlayer._seekTimer = null;
+    TCPlayer._stallTimer = null;
     TCPlayer._pendingBox = null;
     TCPlayer._nextStop = null;
 
@@ -70,6 +76,7 @@ const TCPlayer = {
     TCPlayer._video = video;
     TCPlayer._hlsLoad();
     video.addEventListener('playing', () => {
+      clearTimeout(TCPlayer._stallTimer);
       TCPlayer._framed = true;
       TCPlayer._ordered = false;
       // Заминка-и-возобновление ПОСРЕДИ отсчёта не должна стирать плашку из DOM
@@ -80,8 +87,17 @@ const TCPlayer = {
       TCPlayer._sendPosition();
     });
     // Отказ подъёма - последнее слово: заминка мёртвого потока его не перебивает.
+    // После кадра - через ``STALL_SHOW_MS`` и только если плёнка всё ещё стоит.
+    const stalled = () => !TCPlayer._counting && !TCPlayer._overlay.querySelector('.tc-refused');
     video.addEventListener('waiting', () => {
-      if (!TCPlayer._counting && !TCPlayer._overlay.querySelector('.tc-refused')) TCPlayer._screenBuffering();
+      clearTimeout(TCPlayer._stallTimer);
+      if (!TCPlayer._framed) {
+        if (stalled()) TCPlayer._screenBuffering();
+        return;
+      }
+      TCPlayer._stallTimer = setTimeout(() => {
+        if (TCPlayer._video === video && video.readyState < 3 && stalled()) TCPlayer._screenBuffering();
+      }, TCPlayer.STALL_SHOW_MS);
     });
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
     video.addEventListener('ended', () => {
