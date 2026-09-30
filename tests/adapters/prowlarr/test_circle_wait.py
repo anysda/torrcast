@@ -142,6 +142,17 @@ def test_a_lone_core_of_names_that_answers_first_ends_the_circle() -> None:
     assert elapsed < 1.0, f"waited {elapsed:.2f} s for YTS after JacRed answered"
 
 
+@pytest.mark.machine
+def test_a_lone_rutor_of_names_is_waited_past_the_others() -> None:
+    """RuTor's names answer a pace behind its text, inside the circle: they choose the picture."""
+    rutor, yts = _Ask("RuTor", 5.0), _Ask("YTS", 5.0)
+    threading.Timer(0.1, yts.done.set).start()
+    threading.Timer(0.6, rutor.done.set).start()
+    core, elapsed = _waited([rutor, yts])
+    assert core == [rutor], "the others' answer does not end a circle whose core is RuTor"
+    assert elapsed >= 0.5, f"ended at {elapsed:.2f} s, before RuTor answered"
+
+
 def test_a_lone_core_of_the_viewers_text_is_waited_alone() -> None:
     jacred, yts = _Ask("JacRed", 0.0), _Ask("YTS", 0.0)
     yts.done.set()

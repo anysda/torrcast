@@ -9,6 +9,7 @@ from typing import Final
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK, DownBook
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
 from torrcast.domain.is_down import IN_TIME
+from torrcast.domain.joint_query import _joint_indexer
 from torrcast.domain.quorum_indexer import quorum_indexer
 from torrcast.domain.wait_indexer import wait_indexer
 
@@ -67,6 +68,9 @@ def circle_wait(
     row among them, lost seven with three rows between them, and shortened ten circles
     (7015 to 881 ms, 7004 to 5662). What it brings later comes late, and a circle ended by
     the others does not tell it silent: it was not waited its whole budget.
+    Only JacRed ends so: RuTor's names too start a pace behind its text, but answer inside the
+    circle, and a circle the others ended lost the rows that choose the picture (stand 30.09,
+    RuTor's "Начало 2010" +2.11 to +3.12 s, the circle ended by YTS at +3.04 chose Batman).
 
     The viewer's text waits the quorum only ``grace`` seconds past the rest of its core once
     the pool has rows: Knaben's own answer took 5-8 s where the others were in within a
@@ -84,7 +88,7 @@ def circle_wait(
     alive = [ask for ask in asked if ask.name not in down]
     core = live or ([] if held else alive or waited or list(asked))
     others = [ask for ask in alive if ask not in live]
-    if names and len(live) == 1 and others and not held:
+    if names and len(live) == 1 and _joint_indexer(live[0].name) and others and not held:
         core = _first(live[0], others, began + live[0].budget + slack)
     elif not names and not held:
         core = _past_the_quorum(core, asked, began + slack, grace)
