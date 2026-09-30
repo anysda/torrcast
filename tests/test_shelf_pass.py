@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -151,3 +152,32 @@ def test_the_preview_hides_a_tile_judged_unplayable_and_keeps_an_unknown_one(
 
     assert sorted(_titles(cache._body, "fresh")) == ["Картина 00", "Картина 02"]
     assert sorted(_titles(cache._body, "popular")) == ["Картина 00", "Картина 02"]
+
+
+def test_a_cold_shelf_stops_growing_once_its_counter_is_off(tmp_path: Path) -> None:
+    """Счётчик погас - состав застыл: обложка, легшая позже, полку уже не меняет."""
+    cache = _cache(tmp_path, 3)
+    late: list[str] = []
+    cache.landed = lambda records: [
+        {**record, "poster": "p"} if isinstance(record, dict) and late else record
+        for record in records
+    ]
+    cache.arriving = lambda _records: True
+    shown = ShelfPass(cache, _rows(3), _MOMENT, {})
+    shown.pictures = {s: shelf_pictures(s, shown.rows, torrent_catalogue, _MOMENT) for s in SHELVES}
+    seeds = {s: shelf_seeds(shown.pictures[s]) for s in SHELVES}
+    shown._joint, shown._fresh = seeds["fresh"] + seeds["popular"], len(seeds["fresh"])
+    shown._deadline = time.monotonic() + 60
+
+    late.append("p")
+    shown._lanes()
+    assert shown._growing()
+    assert all("poster" in tile for tile in shown.looked["fresh"] if isinstance(tile, dict))
+
+    late.clear()
+    shown._deadline = time.monotonic() - 1
+    assert not shown._growing()
+    late.append("p")
+    before = shown.looked
+    shown._lanes()
+    assert shown.looked is before

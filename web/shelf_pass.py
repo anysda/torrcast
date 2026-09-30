@@ -95,8 +95,7 @@ class ShelfPass:
         body = self.current
         return self.cache.early and (body.get("built_at") is None or not built_by_rule(body))
 
-    def run(self) -> dict[str, JsonValue]:
-        """Собрать обе полки; флаги страницы горят только на время холодного захода."""
+    def run(self) -> dict[str, JsonValue]:  # the page flags burn only for a cold pass
         self.cache.filling = self.cache.settling = self.early
         try:
             return self._run()
@@ -130,8 +129,7 @@ class ShelfPass:
         )
         return {FIELD: RULE, "built_at": self.now.isoformat(), **self.done}
 
-    def filling(self) -> bool:
-        """Полкам ещё прибавится видимого: страница держит счётчик загрузки."""
+    def filling(self) -> bool:  # the shelves will still show more: the page keeps its counter
         waiting = [shelf for shelf in SHELVES if shelf not in self.done]
         if any(shelf not in self.shown for shelf in waiting):
             return True
@@ -141,8 +139,12 @@ class ShelfPass:
         self.looked = {"fresh": offered[: self._fresh], "popular": offered[self._fresh :]}
 
     def _growing(self) -> bool:
-        joint = self._joint
-        return bool(joint) and time.monotonic() < self._deadline and self.cache.arriving(joint)
+        """Обложки ещё едут; кончились - состав полок застыл: счётчик погас, полка не растёт."""
+        if self._joint and not (
+            time.monotonic() < self._deadline and self.cache.arriving(self._joint)
+        ):
+            self._joint = []
+        return bool(self._joint)
 
     def _lanes(self) -> list[list[tuple[str, str]]]:
         if self._joint:
@@ -165,12 +167,10 @@ class ShelfPass:
         self.cache.filling = self.filling()
 
     def _known(self, _query: str, key: str) -> Verdict:
-        """Приговор, если уже вынесен; нет его - «не знаю», и плитка стоит."""
-        return self.verdicts.get(key)
+        return self.verdicts.get(key)  # not judged yet is «unknown», and the tile stays
 
     def _offered(self, shelf: str) -> Offer:
-        """Обложки уже спрошены: отбор плиток берёт ответ, а не спрашивает заново."""
-        return lambda _seeds: self.looked[shelf]
+        return lambda _seeds: self.looked[shelf]  # covers already asked: take the answer
 
     def _close(self, index: int) -> None:
         """Полке ждать больше нечего: проверенная полка, клеймо - у последней закрытой."""
