@@ -54,6 +54,7 @@ class _Shown:
         tab: str = "",
     ) -> int:
         self.launched.append((saved.label, about))
+        self.tabs.append(tab)
         return EXIT_OK
 
     def resume(
@@ -115,6 +116,22 @@ def test_the_tab_that_asked_is_handed_to_the_resumed_show() -> None:
     args = Args(query=["кино"], here=True, tab="gecko-linux")
 
     assert _continue(Config(), "movie:кино:1999", entry(), args, _Clock(), **shown.calls) == EXIT_OK
+    assert shown.tabs == ["gecko-linux"]
+
+
+@pytest.mark.parametrize(
+    "asked",
+    [
+        Args(query=["шоу"], here=True, tab="gecko-linux"),
+        Args(query=["шоу", "s1e3"], here=True, tab="gecko-linux", card_release="a" * 40),
+    ],
+    ids=["continue", "card-row"],
+)
+def test_the_tab_that_asked_is_handed_to_the_series_show(asked: Args) -> None:
+    """Сериал вкладки, «Продолжить» и строка серии, играет теми порогами, что грели голову."""
+    saved, shown = entry(magnet="magnet:?xt=urn:btih:" + "a" * 40, **_SERIES), _Shown()
+
+    assert _continue(Config(), "tv:шоу", saved, asked, _Clock(), **shown.calls) == EXIT_OK
     assert shown.tabs == ["gecko-linux"]
 
 

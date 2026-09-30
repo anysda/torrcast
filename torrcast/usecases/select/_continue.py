@@ -96,7 +96,7 @@ def _continue(
             entry = entry.jump(first[0], first[1]) or entry
         if _buried(config, entry, args, own, dead):
             return None  # записанная раздача больше не играется - ищем другую
-        code = launch(config, key, entry, _about(entry), clock, args.dry, args.here)
+        code = launch(config, key, entry, _about(entry), clock, args.dry, args.here, args.tab)
         own.handed = not args.dry
         return code
     finally:
