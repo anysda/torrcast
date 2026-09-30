@@ -27,6 +27,18 @@ class StalledAmazon:
 
 
 @dataclass
+class SilentAmazon(StalledAmazon):
+    """The IMDb host sits on every file for the whole timeout, as a cold host that lost DNS."""
+
+    def fetch(self, address: str, timeout: float) -> bytes:
+        if "media-amazon" in address:
+            self.asked.append(address)
+            threading.Event().wait(timeout)
+            raise TimeoutError("The read operation timed out")
+        return super().fetch(address, timeout)
+
+
+@dataclass
 class HeldWiki(FakeSource):
     """Википедия, чей ответ задержан: гонку ряда выигрывает IMDb."""
 
@@ -54,6 +66,16 @@ def test_a_stalled_imdb_host_hands_the_tile_to_the_loser_wikipedia_poster() -> N
     threading.Timer(0.2, first.gate.set).start()
     assert both.bodies(wanted, 5.0) == {THERE: PICTURE}
     assert files.asked == [IMDB, IMDB_FULL, WIKI]
+
+
+def test_a_silent_imdb_host_costs_the_tile_one_timeout_before_the_spare() -> None:
+    """Rollback (no stalled-host skip): the raw IMDb file doubles the wait for the spare."""
+    files, first = SilentAmazon(), HeldWiki({THERE: [WIKI]})
+    both = _raced(first, FakeSource({THERE: [IMDB, IMDB_FULL]}), files)
+    wanted = both.wanted([THERE], 0.3)
+    first.gate.set()
+    assert both.bodies(wanted, 0.3) == {THERE: PICTURE}
+    assert files.asked == [IMDB, WIKI]
 
 
 def test_a_bytes_miss_asks_no_source_api_again() -> None:

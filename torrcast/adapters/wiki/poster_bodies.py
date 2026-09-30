@@ -8,9 +8,11 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Final
+from urllib.parse import urlsplit
 
 from torrcast.domain.facts.ask import Ask
 from torrcast.ports.bytes_client import BytesClient
@@ -19,6 +21,10 @@ from torrcast.ports.journal.slot import journal
 #: Сколько картинок качается разом. Сами байты - самый долгий шаг из всех: запросов на
 #: список уходит полдесятка, а картинок десяток, и подряд они складывались бы в секунды.
 _LANES: Final = 4
+#: Which share of its timeout a refusal has to take to read as a silent host, not a quick "no".
+#: A 404 or a TLS alert comes back in milliseconds; a host that sat on the request for most of
+#: its allowance will sit on the picture's next address too, and the spare waits behind it.
+_STALLED: Final = 0.75
 
 
 class PosterBodies:
@@ -53,13 +59,24 @@ class PosterBodies:
         loaded: dict[str, bytes | None],
         guard: threading.Lock,
     ) -> bytes | None:
-        """Байты первого адреса, который их отдал; молчат все - ``None``."""
+        """Байты первого адреса, который их отдал; молчат все - ``None``.
+
+        A host that stalled on one address is not asked for the picture's next one: IMDb names
+        two files on the same host, and a cold dead host cost the tile twice its timeout before
+        the other source's spare (:mod:`hass.spare_bodies`) got its turn.
+        """
+        stalled: set[str] = set()
         for address in addresses:
+            if urlsplit(address).netloc in stalled:
+                continue
             with guard:
                 seen = address in loaded
                 body = loaded.get(address)
             if not seen:
+                began = time.monotonic()
                 body = self._body(address, timeout)
+                if not body and time.monotonic() - began >= _STALLED * timeout:
+                    stalled.add(urlsplit(address).netloc)
                 with guard:
                     loaded[address] = body
             if body:

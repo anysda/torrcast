@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 
 from tests.fakes.journal import Tape
@@ -23,9 +24,13 @@ class FakeBytesClient:
     bodies: dict[str, bytes] = field(default_factory=dict)
     broken: set[str] = field(default_factory=set)
     asked: list[str] = field(default_factory=list)
+    silent: set[str] = field(default_factory=set)
 
     def fetch(self, address: str, timeout: float) -> bytes:
         self.asked.append(address)
+        if address in self.silent:
+            threading.Event().wait(timeout)
+            raise TimeoutError("The read operation timed out")
         if address in self.broken:
             raise OSError("оборвалось")
         return self.bodies.get(address, b"")
@@ -78,3 +83,20 @@ def test_a_silent_address_names_its_refusal_in_the_journal(tape: Tape) -> None:
     assert len(missed) == 1, "промах байтов назван в следе ровно один раз"
     assert missed[0]["address"] == SMALL
     assert "OSError" in str(missed[0]["refusal"])
+
+
+OTHER = "https://upload.wikimedia.org/one.jpg"
+
+
+def test_a_host_that_stalled_is_not_asked_for_the_pictures_next_file() -> None:
+    """Rollback (no stalled-host skip): the tile sits out the silent host twice before the spare."""
+    files = FakeBytesClient({OTHER: PICTURE}, silent={SMALL, RAW})
+    assert PosterBodies(files).bodies({HERE: [SMALL, RAW, OTHER]}, 0.2) == {HERE: PICTURE}
+    assert files.asked == [SMALL, OTHER]
+
+
+def test_a_quick_refusal_still_tries_the_same_hosts_next_file() -> None:
+    """A 404 on the resized name is an answer, not a stall: the raw file is still asked."""
+    files = FakeBytesClient({RAW: PICTURE}, broken={SMALL})
+    assert PosterBodies(files).bodies({HERE: [SMALL, RAW]}, 5.0) == {HERE: PICTURE}
+    assert files.asked == [SMALL, RAW]
