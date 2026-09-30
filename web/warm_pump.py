@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Protocol
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
+from web.start_first import start_first
 from web.warm_priority import _hint
 
 if TYPE_CHECKING:
@@ -43,7 +44,11 @@ class _Cache(Protocol):
 
 
 def _pump(cache: _Cache) -> None:
-    """Take from the queue until it ends, giving way to a live request.
+    """Take from the queue until it ends, giving way to a live request and a show start.
+
+    A background circle adds its releases to TorrServer and reads their heads, the same
+    swarm reads a starting show waits for (:mod:`web.start_first`). The card's own hand
+    (:func:`_rush`) does not wait: it is the person's click.
 
     A screen is warmed from disk offline. A card (the urgent queue) woke a circle from disk:
     the show starts on it at once, and it is refreshed from the network right behind, so a
@@ -51,6 +56,7 @@ def _pump(cache: _Cache) -> None:
     """
     try:
         while True:
+            start_first()
             cache._quiet()
             with cache._cond:
                 if not cache._urgent and not cache._queue:
