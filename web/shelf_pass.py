@@ -34,6 +34,8 @@ from web.shelf_tiles import Offer, PassportOf, Playable, shelf_tiles
 #: Сколько холодный заход ждёт доезда обложек, прежде чем считать очередь полки полной:
 #: гонка источников отвечает за 1.5 с, опоздавшие ложатся до ~24 с (:mod:`hass.both_posters`).
 FILL_BY: Final = 25.0
+#: Ни одна обложка не легла, а они в пути (тишина 429): ждать до потолка, а не заглушки до часа.
+SILENT_BY: Final = 120.0
 
 
 class _Cache(Protocol):
@@ -139,9 +141,9 @@ class ShelfPass:
 
     def _growing(self) -> bool:
         """Обложки ещё едут; кончились - состав полок застыл: счётчик погас, полка не растёт."""
-        if self._joint and not (
-            time.monotonic() < self._deadline and self.cache.arriving(self._joint)
-        ):
+        bare = not any(map(shelf_lane, self.looked.values()))
+        waiting = time.monotonic() < self._deadline + (SILENT_BY - FILL_BY if bare else 0.0)
+        if self._joint and not (waiting and self.cache.arriving(self._joint)):
             self._joint = []
         return bool(self._joint)
 
@@ -173,19 +175,18 @@ class ShelfPass:
 
     def _close(self, index: int) -> None:
         """Полке ждать больше нечего: проверенная полка, клеймо - у последней закрытой."""
-        shelf = SHELVES[index]
-        drops = DropCount()
+        shelf, cache, drops = SHELVES[index], self.cache, DropCount()
         judged = drops.wrap(
             lambda query, key: (
-                self.verdicts[key] if key in self.verdicts else self.cache.playable(query, key)
+                self.verdicts[key] if key in self.verdicts else cache.playable(query, key)
             )
         )
         tiles = build_shelf(
             shelf,
             self.rows,
-            self.cache.catalogue,
+            cache.catalogue,
             self._offered(shelf),
-            self.cache.passport,
+            cache.passport,
             judged,
             self.now,
         )
@@ -196,4 +197,4 @@ class ShelfPass:
             self.cache.filling = self.filling()
 
 
-__all__ = ["FILL_BY", "SHELVES", "ShelfPass"]
+__all__ = ["FILL_BY", "SHELVES", "SILENT_BY", "ShelfPass"]

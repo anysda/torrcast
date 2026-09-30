@@ -12,7 +12,7 @@ from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from web.built_by_rule import FIELD, RULE
-from web.shelf_pass import SHELVES, ShelfPass
+from web.shelf_pass import FILL_BY, SHELVES, SILENT_BY, ShelfPass
 from web.shelf_pictures import shelf_pictures
 from web.shelf_seeds import shelf_seeds
 from web.shelves_cache import ShelvesCache
@@ -181,6 +181,29 @@ def test_a_cold_shelf_stops_growing_once_its_counter_is_off(tmp_path: Path) -> N
     before = shown.looked
     shown._lanes()
     assert shown.looked is before
+
+
+def test_a_shelf_without_a_single_cover_waits_out_the_silence(tmp_path: Path) -> None:
+    """Шторм 429 дольше ``FILL_BY``: ни одна обложка не легла, и полка ждёт, а не заглушки.
+
+    Заход закрывал обе полки плитками без обложек и гасил счётчик; обложки легли бы
+    только следующим часом (живой шторм 15 с: 56 плиток, 0 картинок до конца замера).
+    """
+    cache = _cache(tmp_path, 3)
+    cache.landed = lambda records: records
+    cache.arriving = lambda _records: True
+    shown = ShelfPass(cache, _rows(3), _MOMENT, {})
+    shown.pictures = {s: shelf_pictures(s, shown.rows, torrent_catalogue, _MOMENT) for s in SHELVES}
+    seeds = {s: shelf_seeds(shown.pictures[s]) for s in SHELVES}
+    shown._joint, shown._fresh = seeds["fresh"] + seeds["popular"], len(seeds["fresh"])
+    shown._lanes()
+
+    shown._deadline = time.monotonic() - 1
+    assert shown._growing()
+    assert shown.filling()
+
+    shown._deadline = time.monotonic() - (SILENT_BY - FILL_BY) - 1
+    assert not shown._growing()
 
 
 def test_a_saved_shelf_missing_one_row_is_rebuilt_as_cold(tmp_path: Path) -> None:
