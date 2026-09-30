@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from tests.test_shelf_pass import _cache as _pass_cache
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.infra_error import InfraError
@@ -70,3 +71,24 @@ def test_a_whole_body_of_this_rule_starts_without_the_mark(tmp_path: Path) -> No
     cache.get()
 
     assert (cache.filling, cache.settling) == (False, False)
+
+
+def _retry_marks(tmp_path: Path, plays: bool) -> list[tuple[bool, bool]]:
+    cache = _pass_cache(tmp_path, 3)
+    cache.attempts = 2
+    marks: list[tuple[bool, bool]] = []
+    cache.sleep = lambda _pause: marks.append((cache.filling, cache.settling))
+    cache.playable = lambda _query, _key: plays
+    cache._pass()
+    assert (cache.filling, cache.settling) == (False, False)
+    return marks
+
+
+def test_an_empty_shelf_keeps_the_mark_through_the_next_feed_attempt(tmp_path: Path) -> None:
+    """Rollback (the pass clears the mark): the page stops asking and stays on the empty shelf."""
+    assert _retry_marks(tmp_path, plays=False) == [(True, True)]
+
+
+def test_whole_shelves_drop_the_mark_before_the_next_feed_attempt(tmp_path: Path) -> None:
+    """Rollback (the mark kept to the build's end): the counter hangs over full shelves."""
+    assert _retry_marks(tmp_path, plays=True) == [(False, False)]

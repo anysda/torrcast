@@ -95,10 +95,11 @@ class ShelfPass:
 
     def run(self) -> dict[str, JsonValue]:  # the page flags burn only for a cold pass
         self.cache.filling = self.cache.settling = self.early
-        try:
-            return self._run()
-        finally:
-            self.cache.filling = self.cache.settling = False
+        body = self._run()
+        # A shelf closed empty is fetched again by the next feed attempt: the page keeps asking.
+        empty = not all(self.done.get(shelf) for shelf in SHELVES)
+        self.cache.filling = self.cache.settling = self.early and empty
+        return body
 
     def _run(self) -> dict[str, JsonValue]:
         cache = self.cache
