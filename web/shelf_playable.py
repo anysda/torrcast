@@ -59,6 +59,7 @@ from torrcast.usecases.select.plan import Plan
 from web.built_by_rule import RULE
 from web.card_warm import CardWarm
 from web.heard import Heard
+from web.start_first import start_first
 from web.verdict_disk import VerdictDisk
 from web.voice_lookup import VoiceLookup
 from web.warm_wiring import WARM
@@ -92,6 +93,9 @@ class ShelfPlayable:
     circle: Circle
     voices: Voices
     alive: Alive = _alive
+    #: Разбор раздачи ждёт идущий подъём показа (:mod:`web.start_first`): приговор, начатый
+    #: до клика, иначе читает метаданные тем же TorrServer, что и запуск.
+    first: Callable[[], None] = start_first
     #: Диск, переживающий рестарт (:class:`web.verdict_disk.VerdictDisk`); ``None`` в
     #: тестах - память тогда живёт ровно на процесс, как и раньше.
     disk: VerdictDisk | None = None
@@ -141,6 +145,7 @@ class ShelfPlayable:
             return None
         if not plan.ranked:
             return False
+        self.first()
         heard, pending, known = self.voices(plan, query, config)
         if pending or not known:
             return None
