@@ -73,6 +73,69 @@ def _until(poll: Any, seconds: float) -> tuple[list[Any], float]:
     return results, time.monotonic() - began
 
 
+def _answers(poll: Any, seconds: float) -> tuple[list[tuple[list[Any], bool]], float]:
+    """Все ответы опроса шагом страницы до первого ряда; ответы и секунды от первого опроса."""
+    began, said = time.monotonic(), [poll()]
+    while not said[-1][0] and time.monotonic() - began < seconds:
+        threading.Event().wait(0.02)
+        said.append(poll())
+    return said, time.monotonic() - began
+
+
+def _finished_early(tmp_path: Path, source: _Source) -> Any:
+    """Заход, чей круг кончился задолго до срока ряда, а байты обложек ещё у источника."""
+    gate = threading.Event()
+    gate.set()
+    poll = _poller(tmp_path, source, gate)
+    poll()
+    job = module._jobs["тачки"]
+    while not job.done and time.monotonic() - job.started_at < FIRST_SCREEN_BY / 2:
+        threading.Event().wait(0.01)
+    assert job.done, "круг не кончился до срока: проверяется не та ветка опроса"
+    return poll
+
+
+def test_a_finished_search_holds_its_row_until_the_covers_land(tmp_path: Path) -> None:
+    """Готовый заход не отдаёт ряд без обложек и не называет пустой придержанный ответ финалом."""
+    wire_catalogue()
+    source = _Source()
+    try:
+        poll = _finished_early(tmp_path, source)
+        held, _spent = _answers(poll, FIRST_SCREEN_BY / 4)
+        assert held[-1] == ([], True), "готовый заход отдал ряд без обложек или пустой финал"
+        source.bytes_go.set()
+        said, spent = _answers(poll, FIRST_SCREEN_BY)
+        results, partial = said[-1]
+        assert all(answer == ([], True) for answer in said[:-1]), said
+        assert [hit["title"] for hit in results] == ["Тачки", "Тачки 2"]
+        assert all(hit.get("poster") for hit in results), "ряд вышел без легших обложек"
+        assert partial is False
+        assert spent < FIRST_SCREEN_BY / 2, "ряд ждал срока, а не своих обложек"
+    finally:
+        source.bytes_go.set()
+
+
+def test_a_finished_search_with_a_stuck_cover_shows_its_row_at_the_deadline(
+    tmp_path: Path,
+) -> None:
+    """Застрявший источник у готового захода: пустой частичный ответ до срока, потом ряд."""
+    wire_catalogue()
+    source = _Source()
+    try:
+        poll = _finished_early(tmp_path, source)
+        job = module._jobs["тачки"]
+        said, _spent = _answers(poll, FIRST_SCREEN_BY + 1.0)
+        results, partial = said[-1]
+        assert all(answer == ([], True) for answer in said[:-1]), said
+        assert [hit["title"] for hit in results] == ["Тачки", "Тачки 2"]
+        assert [hit.get("poster") for hit in results] == [None, None]
+        assert partial is False
+        waited = time.monotonic() - job.started_at
+        assert FIRST_SCREEN_BY - 0.1 <= waited < FIRST_SCREEN_BY + 0.5, waited
+    finally:
+        source.bytes_go.set()
+
+
 def test_the_first_row_waits_for_its_covers_and_comes_with_them(tmp_path: Path) -> None:
     """🔴 Ядро: ряд не выходит серым, пока байты его обложек в пути, и выходит с ними."""
     wire_catalogue()

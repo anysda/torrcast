@@ -38,8 +38,12 @@ def search_first_screen(
 
 
 def _coming(job: SearchJob, shown: list[JsonValue], covers: _Covers) -> bool:
-    """Чья-то обложка ещё может лечь: приговор идёт или не начат, байты или повтор в пути."""
-    unjudged = any(
+    """Чья-то обложка ещё может лечь: приговор идёт или не начат, байты или повтор в пути.
+
+    Приговор готового захода уже в его списке (:meth:`SearchJob.run`), а не в ``posters``:
+    без ``done`` ряд захода, кончившегося раньше срока, ждал бы весь срок и с легшими байтами.
+    """
+    unjudged = not job.done and any(
         isinstance(hit, dict)
         and _about(hit) is not None
         and str(hit.get("key", "")) not in job.posters
