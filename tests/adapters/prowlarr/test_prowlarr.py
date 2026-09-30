@@ -291,6 +291,24 @@ def _swarm_of(client: Prowlarr) -> _Swarm:
     return session
 
 
+@pytest.mark.machine
+def test_feed_within_asks_each_indexer_and_a_stuck_one_costs_only_the_deadline() -> None:
+    """Лента полок со сроком: каждый включённый индексер своим запросом, молчун не держит."""
+    client = _swarm(hold={3})  # Nyaa.si молчит до отмашки, как в замере 30-09
+
+    began = time.monotonic()
+    client.feed(limit=50, within=0.3)
+    spent = time.monotonic() - began
+    _swarm_of(client).gate.set()
+    for thread in threading.enumerate():
+        if thread.name.startswith("feed-apart"):
+            thread.join(5)
+
+    assert spent < 2.0
+    assert sorted(_asked(client)) == ["1", "2", "3"]
+    assert all("query=" not in url for url in _swarm_of(client).urls)
+
+
 def _asked(client: Prowlarr) -> list[str]:
     """Кого спросили персональным запросом - по номерам, в порядке круга.
 

@@ -27,6 +27,12 @@ def _playable(query: str, key: str) -> bool | None:
     return PLAYABLE.of(query, key, load_config())
 
 
+#: Сколько секунд лента полок ждёт индексеры врозь: залипший стоит только этого срока.
+#: Замер на стенде: Knaben под нагрузкой холодного старта отвечает до 7-8 с, а повторы
+#: Nyaa.si на 502 держали общий запрос 43-53 с. Восемь секунд срезали Knaben и полку.
+_FEED_WITHIN = 15.0
+
+
 def _feed(limit: int) -> list[FeedRow]:
     """Лента Prowlarr по настройкам с диска - читаются они тут, а не при импорте модуля.
 
@@ -36,7 +42,8 @@ def _feed(limit: int) -> list[FeedRow]:
     спрашивает ни разу (TC-1110).
     """
     settings = load_config()
-    return Prowlarr(settings.prowlarr_url, settings.prowlarr_apikey).feed(limit)
+    prowlarr = Prowlarr(settings.prowlarr_url, settings.prowlarr_apikey)
+    return prowlarr.feed(limit, within=_FEED_WITHIN)
 
 
 #: Обложки холодного захода полок: путь видимой выдачи поиска, байты по мере приезда.

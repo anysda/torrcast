@@ -98,3 +98,30 @@ def test_a_cold_build_shows_covers_as_they_land_and_judges_with_one_hand() -> No
     assert wired == (posters.ask, posters.landed, posters.arriving)
     assert cache.early
     assert cache.workers == 1
+
+
+def test_the_shelf_feed_asks_the_indexers_apart_with_a_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Лента полок идёт врозь со сроком: общий запрос ждал бы самый медленный индексер."""
+    asked: list[tuple[int, float | None]] = []
+
+    class _Prowlarr:
+        def __init__(self, _url: str, _key: str) -> None:
+            pass
+
+        def feed(self, limit: int, within: float | None = None) -> list[object]:
+            asked.append((limit, within))
+            return []
+
+    class _Settings:
+        prowlarr_url = "http://p"
+        prowlarr_apikey = "k"
+
+    monkeypatch.setattr(shelves_module, "Prowlarr", _Prowlarr)
+    monkeypatch.setattr(shelves_module, "load_config", _Settings)
+
+    shelves_module._feed(300)
+
+    assert asked == [(300, shelves_module._FEED_WITHIN)]
+    assert 0 < shelves_module._FEED_WITHIN < 30  # срок ленты - часть 30 с до полной полки

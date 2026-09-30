@@ -20,16 +20,18 @@ from torrcast.adapters.prowlarr.search_url import SEARCH_PATH
 FEED_CATEGORIES: Final = (2000, 5000, 100003)
 
 
-def feed_url(base_url: str, apikey: str, limit: int) -> str:
+def feed_url(base_url: str, apikey: str, limit: int, indexer: int | None = None) -> str:
     """Адрес ленты последних раздач: тот же агрегат, но без ``query``.
 
     Замерено на живом стенде: агрегат ``/api/v1/search`` без строки поиска отдаёт
     последние раздачи всех индексеров одним запросом (107 строк от 5 индексеров) -
     отдельного кругового опроса (:meth:`torrcast.adapters.prowlarr.prowlarr.Prowlarr._apart`)
-    лента не заводит, он ей не нужен.
+    лента не заводит, он ей не нужен. С ``indexer`` - лента одного индексера
+    (:func:`~torrcast.adapters.prowlarr.feed_apart.feed_apart`).
     """
     cats = "".join(f"&categories={c}" for c in FEED_CATEGORIES)
-    return f"{base_url}{SEARCH_PATH}?apikey={quote(apikey)}&type=search&limit={limit}{cats}"
+    one = f"&indexerIds={indexer}" if indexer is not None else ""
+    return f"{base_url}{SEARCH_PATH}?apikey={quote(apikey)}&type=search&limit={limit}{cats}{one}"
 
 
 __all__ = ["FEED_CATEGORIES", "feed_url"]

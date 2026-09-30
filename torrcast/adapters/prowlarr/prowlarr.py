@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from torrcast.adapters.prowlarr.circle_trace import circle_trace
+from torrcast.adapters.prowlarr.feed_apart import feed_apart
 from torrcast.adapters.prowlarr.feed_url import feed_url
 from torrcast.adapters.prowlarr.from_feed_json import from_feed_json
 from torrcast.adapters.prowlarr.from_json import from_json
@@ -50,16 +51,18 @@ class Prowlarr(_State):
             raise nothing_found(query, self.banned, refused, self.silent)
         return results
 
-    def feed(self, limit: int = 200) -> list[FeedRow]:
-        """Раздачи ленты без строки поиска: одним запросом, за все индексеры сразу.
+    def feed(self, limit: int = 200, within: float | None = None) -> list[FeedRow]:
+        """Раздачи ленты без строки поиска; без ``within`` - одним общим запросом (TC-1110).
 
-        Полкам «Новинки»/«Популярное» (TC-1110) не нужен круг врозь (:meth:`_apart`) -
-        он платит за самый медленный индексер целиком поиска, а тут спешить некуда:
-        полки строятся раз в час фоном, и молчаливый ответит в следующий раз. Пустая
-        лента - не отказ каталога: индексеры делают паузы между выдачей новых раздач,
-        и с пустым списком справится сама полка.
+        С ``within`` врозь, молчун стоит только срока (:mod:`.feed_apart`).
         """
-        return from_feed_json(self._api.get_json(feed_url(self.base_url, self.apikey, limit)))
+        known = self._roster.known() if within is not None else ()
+        if within is None or not known:
+            return from_feed_json(self._api.get_json(feed_url(self.base_url, self.apikey, limit)))
+        self._api.open()  # сессия поднимается ДО потоков: ленивая сборка внутри них - гонка
+        usable = self._roster.usable(known)[0]
+        urls = [feed_url(self.base_url, self.apikey, limit, number) for number, _name in usable]
+        return feed_apart(self._api.get_json, urls, within)
 
     def late(self, wait: float = 0.0) -> list[RawResult]:
         """Выдача опоздавших: круг ушёл по опорным, а эти доехали уже потом (TC-118)."""

@@ -24,3 +24,9 @@ def test_the_feed_url_carries_movie_tv_and_other_categories() -> None:
 
 def test_the_limit_travels_on_the_wire_as_asked() -> None:
     assert "&limit=300" in feed_url("http://p", "k", 300)
+
+
+def test_one_indexer_is_asked_by_its_number() -> None:
+    """Лента врозь спрашивает индексер по номеру; без номера - общий запрос."""
+    assert feed_url("http://p", "k", 200, 3).endswith("&indexerIds=3")
+    assert "indexerIds" not in feed_url("http://p", "k", 200)
