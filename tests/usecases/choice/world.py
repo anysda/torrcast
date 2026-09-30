@@ -105,9 +105,12 @@ def plan(
     )
 
 
-def parts(*named: tuple[str, int | None, int]) -> list[Plan]:
-    """Франшиза тройками «название, год, сиды лучшей годной раздачи картины»."""
-    return [plan(title, year, seeders=seeders) for title, year, seeders in named]
+def parts(*named: tuple[str, int | None, int], original: str | None = None) -> list[Plan]:
+    """Франшиза тройками «название, год, сиды лучшей годной раздачи картины».
+
+    ``original`` - общий оригинал всех картин: так в меню выглядят ремейки одной вещи.
+    """
+    return [plan(title, year, seeders=seeders, original=original) for title, year, seeders in named]
 
 
 class Waited(Facts):

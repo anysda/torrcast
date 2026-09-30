@@ -56,7 +56,11 @@ class SwitchBench(Bench):
 
 def invisible_man() -> list[Plan]:
     """«Человек-невидимка»: 1933 год формально жив, а играть ему нечем; 2020 - играет."""
-    return parts(("Человек-невидимка", 1933, 12), ("Человек-невидимка", 2020, 140))
+    return parts(
+        ("Человек-невидимка", 1933, 12),
+        ("Человек-невидимка", 2020, 140),
+        original="The Invisible Man",
+    )
 
 
 def test_the_show_walks_over_to_the_live_namesake_by_itself_and_says_so_out_loud() -> None:

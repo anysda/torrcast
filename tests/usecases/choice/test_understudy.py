@@ -26,7 +26,11 @@ def test_a_live_namesake_is_the_one_that_finishes_the_evening_instead() -> None:
     Отказ там был честен про картину и неправдой про вечер: кино с этим именем в
     каталоге есть, и оно играет.
     """
-    invisible = parts(("Человек-невидимка", 1933, 12), ("Человек-невидимка", 2020, 140))
+    invisible = parts(
+        ("Человек-невидимка", 1933, 12),
+        ("Человек-невидимка", 2020, 140),
+        original="The Invisible Man",
+    )
 
     spare = understudy(invisible, invisible[0], _FILM)
 
@@ -57,7 +61,7 @@ def test_a_series_never_stands_in_for_a_film_of_the_same_name() -> None:
 
 def test_a_dead_namesake_is_no_understudy_and_the_refusal_stays_the_refusal() -> None:
     """Тёзка мертва - уходить некуда: живость дублёра меряется тем же порогом."""
-    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 2))
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 2), original="The Mummy")
 
     assert understudy(mummy, mummy[0], _FILM) is None
 
@@ -74,7 +78,9 @@ def test_of_several_namesakes_the_liveliest_one_is_taken_and_the_circle_ends_the
 
     Лишний заход стоит человеку секунд, а цель пути - десять секунд до картинки.
     """
-    mummy = parts(("Мумия", 1999, 8), ("Мумия", 2017, 58), ("Мумия", 2026, 300))
+    mummy = parts(
+        ("Мумия", 1999, 8), ("Мумия", 2017, 58), ("Мумия", 2026, 300), original="The Mummy"
+    )
 
     spare = understudy(mummy, mummy[0], _FILM)
 
@@ -83,10 +89,76 @@ def test_of_several_namesakes_the_liveliest_one_is_taken_and_the_circle_ends_the
 
 def test_a_plan_that_is_not_in_the_menu_at_all_gets_no_understudy() -> None:
     """Картины нет в списке - искать ей тёзку не по чему, и это не догадка."""
-    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58), original="The Mummy")
     stranger = plan("Дюна", 2021, seeders=90)
 
     assert understudy(mummy, stranger, _FILM) is None
+
+
+def test_a_film_of_another_original_under_the_same_russian_name_is_no_understudy() -> None:
+    """🔴 «Оно» 2017 («It») уходило к «Оно» 2014 («It Follows»): прокат назвал одинаково.
+
+    Одно русское имя - не одно произведение. Уход только при том же оригинале.
+    """
+    it = [
+        plan("Оно", 2017, seeders=12, original="It"),
+        plan("Оно", 2014, seeders=140, original="It Follows"),
+    ]
+
+    assert understudy(it, it[0], _FILM) is None
+
+
+def test_a_remake_with_the_same_original_still_finishes_the_evening() -> None:
+    """«Король Лев» 2019 и 1994 - оба «The Lion King»: ремейк той же вещи, уход остаётся."""
+    lion = parts(("Король Лев", 2019, 12), ("Король Лев", 1994, 140), original="The Lion King")
+
+    spare = understudy(lion, lion[0], _FILM)
+
+    assert spare is not None and spare.picture.year == 1994
+
+
+def test_the_original_is_compared_normalised() -> None:
+    """Регистр и знаки препинания в оригинале не делают из ремейка другую вещь."""
+    invisible = [
+        plan("Человек-невидимка", 1933, seeders=12, original="The Invisible Man"),
+        plan("Человек-невидимка", 2020, seeders=140, original="the invisible man."),
+    ]
+
+    spare = understudy(invisible, invisible[0], _FILM)
+
+    assert spare is not None and spare.picture.year == 2020
+
+
+def test_without_an_original_on_either_side_there_is_no_understudy() -> None:
+    """Оригинала нет хотя бы у одной стороны - произведение не доказано, будет отказ."""
+    bare = parts(("Человек-невидимка", 1933, 12), ("Человек-невидимка", 2020, 140))
+    half = [
+        plan("Человек-невидимка", 1933, seeders=12, original="The Invisible Man"),
+        plan("Человек-невидимка", 2020, seeders=140),
+    ]
+    other_half = [
+        plan("Человек-невидимка", 1933, seeders=12),
+        plan("Человек-невидимка", 2020, seeders=140, original="The Invisible Man"),
+    ]
+
+    assert understudy(bare, bare[0], _FILM) is None
+    assert understudy(half, half[0], _FILM) is None
+    assert understudy(other_half, other_half[0], _FILM) is None
+
+
+def test_the_year_filter_of_the_queue_leaves_the_understudy_its_own_releases() -> None:
+    """Очередь дублёра судится годом ЕГО картины: раздачи 2020 года у картины 2020 годны."""
+    invisible = parts(
+        ("Человек-невидимка", 1933, 12),
+        ("Человек-невидимка", 2020, 140),
+        original="The Invisible Man",
+    )
+
+    spare = understudy(invisible, invisible[0], _FILM)
+
+    assert spare is invisible[1]
+    queue = spare.candidates(_FILM)
+    assert queue and all(spare.ranked[n - 1].year == 2020 for n in queue)
 
 
 def _rezero(asked: Episode) -> list[Plan]:
@@ -141,6 +213,7 @@ def test_an_episode_no_twin_has_is_a_refusal_not_a_walk() -> None:
 
 
 def test_without_an_episode_the_namesake_stays_the_liveliest_by_title() -> None:
+    """Сверка оригинала - правило кино: сериал без серии уходит к тёзке по имени."""
     menu = _rezero(Episode(2, 18))
     for shown in menu:
         shown.series = None

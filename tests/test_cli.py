@@ -1837,11 +1837,15 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
 
 
 def _franchise_plan(
-    title: str, year: int | None, releases: list[Release], kind: Kind = "movie"
+    title: str,
+    year: int | None,
+    releases: list[Release],
+    kind: Kind = "movie",
+    original: str | None = None,
 ) -> Any:
 
     return Plan(
-        picture=Picture(title=title, year=year, kind=kind, releases=releases),
+        picture=Picture(title=title, year=year, kind=kind, releases=releases, original=original),
         ranked=rank_releases(releases, RUNTIME, 20.0),
         runtime=RUNTIME,
         warn_mbit=20.0,
@@ -2838,13 +2842,15 @@ def _invisible_man() -> list[Any]:
     """Меню «человек-невидимка»: 1933 год формально жив, а играть им нечем.
 
     Одна раздача на девять сид - порог живости она проходит, очереди за ней нет. Рядом
-    стоит тёзка 2020 года: две раздачи, 210 и 90 сид.
+    стоит тёзка 2020 года: две раздачи, 210 и 90 сид. Оригинал у обеих «The Invisible
+    Man»: это одна вещь, снятая дважды.
     """
     return [
         _franchise_plan(
             "Человек-невидимка",
             1933,
             [rel(name="The Invisible Man 1933 BDRip", size_gb=1.5, seeders=9)],
+            original="The Invisible Man",
         ),
         _franchise_plan(
             "Человек-невидимка",
@@ -2853,6 +2859,7 @@ def _invisible_man() -> list[Any]:
                 rel(name="Человек-невидимка 2020 WEB-DL 1080p", size_gb=4.2, seeders=210),
                 rel(name="Человек-невидимка 2020 BDRip 1080p", size_gb=8.0, seeders=90),
             ],
+            original="The Invisible Man",
         ),
     ]
 
