@@ -64,11 +64,17 @@ def _bookmark_key(state: WatchState, card: str) -> str | None:
     bookmark lay under ``movie:тачки:2006`` (stand, 30-09-2026). Missed, «Play» went to the
     circle and started the film from zero over the saved place. A bookmark of the same kind
     and year answers when the card's name is its title or original, and only when it is one.
+
+    Without a year only the card's own key answers. The key of such a picture already carries
+    its original (:attr:`torrcast.domain.picture.Picture.key`), and one shared name is no proof:
+    ``tv:дом:0`` is not ``tv:дом-house:0``, and the wrong one would start from its place.
     """
     if state.get(card) is not None:
         return card
     kind, _, rest = card.partition(":")
     name, _, year = rest.rpartition(":")
+    if year == "0":
+        return None
     named = [
         key
         for key, entry in state.entries.items()

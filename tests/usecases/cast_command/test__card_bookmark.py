@@ -193,3 +193,27 @@ def test_another_year_or_two_namesakes_are_not_the_card_s_bookmark() -> None:
     state.put("movie:это:2017", entry(title="Это", original="It"))
     assert _bookmark_key(state, "movie:it:2017") is None
     assert _bookmark_key(state, "movie:оно:2017") == "movie:оно:2017"
+
+
+@pytest.mark.parametrize(
+    ("saved", "card", "kind", "title", "original"),
+    [
+        pytest.param("tv:дом-house:0", "tv:дом:0", "tv", "Дом", "House", id="series"),
+        pytest.param("movie:оно-it:0", "movie:it:0", "movie", "Оно", "It", id="film"),
+    ],
+)
+def test_without_a_year_one_shared_name_is_not_the_card_s_bookmark(
+    played: list[tuple[str, str, str, float]],
+    saved: str,
+    card: str,
+    kind: str,
+    title: str,
+    original: str,
+) -> None:
+    """Nothing tells two yearless pictures apart: the circle answers, the bookmark stays."""
+    _remember(saved, entry(kind=kind, title=title, original=original))
+    asked, choose = _circle()
+
+    assert _cmd_play(_card(picture=card), choose=choose) == EXIT_OK
+    assert len(asked) == 1 and played == []
+    assert _bookmark_key(watch_store().load(), saved) == saved
