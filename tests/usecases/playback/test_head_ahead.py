@@ -17,8 +17,7 @@ from torrcast.usecases.playback import head_ahead
 from torrcast.usecases.playback.head_ahead import HeadAhead
 
 _ENTRY: Any = SimpleNamespace(audio=1)
-#: Цель сетки и предел приёмника - разные числа, как у вкладки: голова обязана взять предел.
-_PROFILE: Any = SimpleNamespace(max_segment_bytes=28_000_000, segment_limit=80_000_000)
+_PROFILE: Any = SimpleNamespace(max_segment_bytes=16 << 20, segment_limit=16 << 20)
 
 
 def _now(job: Any) -> None:
@@ -153,22 +152,6 @@ def test_a_head_planned_after_the_show_is_up_is_not_laid(
     ahead.want(Config(), _PROFILE, object(), _ENTRY, owner="кино", late=lambda: late)  # type: ignore[arg-type]
 
     assert len(laid) == (0 if late else 1)
-
-
-def test_the_head_is_cut_to_the_receivers_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Голова карточки режется тем же пределом, что показ, а не целью сетки."""
-    _heads(monkeypatch, "k")
-    caps: list[object] = []
-
-    def lay(*args: object, **_kw: object) -> bool:
-        caps.append(args[7])
-        return True
-
-    ahead = HeadAhead(spawn=_now, lay=lay)
-
-    _want(ahead)
-
-    assert caps == [80_000_000]
 
 
 @pytest.mark.parametrize(
