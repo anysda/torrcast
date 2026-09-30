@@ -39,7 +39,8 @@ _ASK: Final = "ask"
 _HELD: Final = "held"
 _CLAIMED: Final = "claimed"
 #: Приговор идёт у спокойного пути (история, полки, «похожие»), а спрашивает видимый ряд: он
-#: не ждёт чужую очередь за Википедией по 8-14 с, а судит картину и сам, своей гонкой.
+#: не ждёт чужую очередь за Википедией по 8-14 с, а судит картину и сам, своей гонкой. Один
+#: раз на заявку: следующий показ того же ряда получает :data:`_HELD` и не ждёт.
 _BESIDE: Final = "beside"
 
 
@@ -55,8 +56,8 @@ class HitClaims:
         self._tried: dict[str, float] = {}
         self._again: dict[str, tuple[int, float]] = {}
         self._judging: dict[str, threading.Event] = {}
-        #: Заявки спокойного пути: видимый ряд судит эти картины рядом, а не ждёт их.
-        self._calm: set[str] = set()
+        #: Заявки спокойного пути -> видимый ряд уже судил картину рядом (один раз на заявку).
+        self._calm: dict[str, bool] = {}
         self._late_names: set[str] = set()
         self._landed: set[str] = set()
 
@@ -108,10 +109,11 @@ class HitClaims:
         """
         with self._lock:
             state = {ask: self._known(_name(ask), urgent) for ask in asks}
-            for ask in (ask for ask, one in state.items() if one is _ASK):
-                self._judging[_name(ask)] = threading.Event()
-                if not urgent:
-                    self._calm.add(_name(ask))
+            for ask, one in state.items():
+                if one is _BESIDE or (one is _ASK and not urgent):
+                    self._calm[_name(ask)] = one is _BESIDE
+                if one is _ASK:
+                    self._judging[_name(ask)] = threading.Event()
         for ask in [ask for ask, one in state.items() if one is _ASK]:
             name = _name(ask)
             kept = self._shelf.read(name)
@@ -119,7 +121,7 @@ class HitClaims:
                 continue
             with self._lock:
                 self._keep(name, kept)
-                self._calm.discard(name)
+                self._calm.pop(name, None)
                 event = self._judging.pop(name)
             state[ask] = _READY
             event.set()
@@ -129,7 +131,9 @@ class HitClaims:
         if self._holds(name):
             return _READY
         if name in self._judging:
-            return _BESIDE if urgent and name in self._calm else _CLAIMED
+            if not urgent or name not in self._calm:
+                return _CLAIMED
+            return _HELD if self._calm[name] else _BESIDE
         if name in self._late_names:
             return _HELD
         now = self._now()
@@ -141,37 +145,11 @@ class HitClaims:
         """Снять заявки: ждущие их просыпаются и читают вынесенный приговор."""
         with self._lock:
             events = [self._judging.pop(_name(ask), None) for ask in asks]
-            self._calm.difference_update(_name(ask) for ask in asks)
+            for ask in asks:
+                self._calm.pop(_name(ask), None)
         for event in events:
             if event is not None:
                 event.set()
-
-    def _book(
-        self,
-        asked: Sequence[Ask],
-        said: dict[Ask, list[str]] | None,
-        later: Sequence[Ask],
-        beside: Sequence[Ask],
-        troubled: bool,
-        calm_at: float,
-    ) -> dict[Ask, list[str]]:
-        """Записать приговор; вернуть адреса тех, чьи байты ещё никто не везёт.
-
-        Судей двое, когда видимый ряд пошёл рядом (:data:`_BESIDE`): байты везёт первый назвавший
-        адрес, а промах картины рядом пишет только хозяин заявки."""
-        found: dict[Ask, list[str]] = {}
-        with self._lock:
-            self._late_names.update(_name(ask) for ask in later)
-            for ask in (ask for ask in asked if ask not in later):
-                name, pages = _name(ask), (said or {}).get(ask)
-                if self._holds(name):
-                    continue
-                if pages:
-                    self._pending[name] = threading.Event()
-                    found[ask] = pages
-                elif ask not in beside:
-                    self._missed(name, troubled or ask not in (said or {}), calm_at)
-        return found
 
     def _holds(self, name: str) -> bool:
         """Под замком: байты картины здесь или уже едут."""

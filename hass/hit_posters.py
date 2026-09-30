@@ -27,6 +27,7 @@ from collections.abc import Callable, Sequence
 
 from hass.facts_weather import FactsWeather, _CalmWeather, _Weather
 from hass.hit_ask import _about, _name
+from hass.hit_book import hit_book
 from hass.hit_claims import _ASK, _BESIDE, _CLAIMED, _KEEP, _RETRY, _WAIT, HitClaims
 from hass.late_posters import late_posters
 from hass.picture_source import picture_source
@@ -138,7 +139,7 @@ class HitPosters(HitClaims):
         troubled = said is None or self._weather.troubled_since(began)
         late = getattr(self._source_of(urgent), "finish_urgent", None) if urgent else None
         later = [ask for ask in asked if callable(late) and ask not in (said or {})]
-        found = self._book(asked, said, later, beside, troubled, self._weather.calm_at())
+        found = hit_book(self, asked, said, later, beside, troubled, self._weather.calm_at())
         if found:
             threading.Thread(target=self._fill, args=(found, urgent), daemon=True).start()
         if later:

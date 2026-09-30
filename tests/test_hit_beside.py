@@ -19,6 +19,7 @@ from hass.late_posters import Land
 from tests.test_hit_posters import _SETTLE, FakeSource, _hits, _row
 from tests.test_late_posters import _until
 from torrcast.domain.facts.ask import Ask
+from torrcast.domain.json_value import JsonValue
 
 
 class _TwoPaths(FakeSource):
@@ -39,7 +40,10 @@ class _TwoPaths(FakeSource):
             self.entered.set()
             self.opened.wait(_SETTLE)
             return super().wanted(asks, timeout)
-        return super().wanted(asks, timeout) if self.race else {}
+        if self.race:
+            return super().wanted(asks, timeout)
+        self.judged.extend(asks)
+        return {}
 
     def finish_urgent(
         self, asks: Sequence[Ask], timeout: float, land: Land
@@ -75,7 +79,7 @@ def test_the_visible_row_does_not_wait_for_a_calm_verdict(tmp_path: Path) -> Non
 
 @pytest.mark.machine
 def test_two_verdicts_of_one_picture_fetch_its_bytes_once(tmp_path: Path) -> None:
-    """Rollback (``_book`` without the carried check): the calm answer fetches the bytes again."""
+    """Rollback (``hit_book`` without the carried check): the calm answer loads the bytes again."""
     source = _TwoPaths()
     hits, calm = _calm_first(tmp_path, source)
     hits.urgent([_row()])
@@ -113,3 +117,23 @@ def test_a_late_answer_for_a_landed_picture_fetches_nothing(tmp_path: Path) -> N
     assert _until(lambda: not hits._late_names)
     threading.Event().wait(0.2)
     assert len(source.loaded) == 1, "the late answer fetched the landed picture again"
+
+
+@pytest.mark.machine
+def test_a_growing_row_asks_the_source_beside_a_calm_claim_once(tmp_path: Path) -> None:
+    """Rollback (every show judges beside): a row growing to five lines raced the source 5 times.
+
+    Each race was IMDb plus Wikipedia (429 on a cold stand) and one more late-landing thread.
+    """
+    source = _TwoPaths(race=False)
+    hits, calm = _calm_first(tmp_path, source)
+    rows: list[JsonValue] = [_row(), *(_row(f"Film {n}", 2000 + n) for n in range(4))]
+    for shown in range(1, len(rows) + 1):
+        began = time.monotonic()
+        hits.urgent(rows[:shown])
+        assert time.monotonic() - began < 1.0, "the row waited for the calm verdict"
+    asked = sum(ask.title == "Тачки" for ask in source.judged)
+    source.opened.set()
+    source.finished.set()
+    calm.join(_SETTLE)
+    assert asked == 1, f"the source was asked beside the calm claim {asked} times"
