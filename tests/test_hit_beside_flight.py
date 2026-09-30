@@ -1,8 +1,8 @@
 """Mirror for a picture judged beside a calm claim while the verdicts are still in flight.
 
 The history asks its covers ahead of the background (``offer(ahead=True)``) but still as a
-calm claim: the visible row must judge beside it, and the shelf must see the beside verdict
-as arriving after the owner lets go.
+calm claim: the visible row must judge beside it, the shelf must see the beside verdict as
+arriving after the owner lets go, and one empty answer must not be booked as a miss twice.
 """
 
 from __future__ import annotations
@@ -35,6 +35,15 @@ class _Gated(FakeSource):
         self.entered[turn].set()
         self.opened[turn].wait(_SETTLE)
         return super().wanted(asks, timeout) if turn else {}
+
+
+class _SilentFirst(_TwoPaths):
+    """The calm verdict ends in silence too: an unknown miss, not a real one."""
+
+    def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
+        first = self.first
+        said = super().wanted(asks, timeout)
+        return {} if first else said
 
 
 @pytest.mark.machine
@@ -72,3 +81,20 @@ def test_a_beside_verdict_stays_arriving_after_the_owner_lets_go(tmp_path: Path)
     row.join(_SETTLE)
     assert _until(lambda: hits.landed(_row()))
     assert not hits.arriving([_row()])
+
+
+@pytest.mark.machine
+def test_one_silent_picture_counts_one_unknown_miss(tmp_path: Path) -> None:
+    """Rollback (``late_posters`` books beside asks): one silence counted twice, retries halved."""
+    source = _SilentFirst(race=False)
+    hits = _hits(tmp_path, source)
+    calm = threading.Thread(target=hits.offer, args=([_row()],), daemon=True)
+    calm.start()
+    assert source.entered.wait(_SETTLE)
+    hits.urgent([_row()])
+    source.opened.set()
+    calm.join(_SETTLE)
+    source.finished.set()
+    assert _until(lambda: not hits._late_names)
+    tries = [count for count, _ in hits._again.values()]
+    assert tries == [1], f"one silent answer was booked as {tries} unknown misses"

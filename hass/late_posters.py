@@ -17,8 +17,13 @@ def late_posters(
     asks: list[Ask],
     finish: Callable[[Sequence[Ask], float, Land], dict[Ask, list[str]]],
     timeout: float,
+    beside: Sequence[Ask] = (),
 ) -> None:
-    """Land every late hit as its source answers; a silent source is unknown, not a miss."""
+    """Land every late hit as its source answers; a silent source is unknown, not a miss.
+
+    A miss of a picture judged ``beside`` a calm claim is booked by the claim's owner alone
+    (:func:`hass.hit_book.hit_book`): booked here too, one empty answer counted twice.
+    """
     began = owner._now()
 
     def land(found: dict[Ask, list[str]]) -> None:
@@ -42,6 +47,8 @@ def late_posters(
             if _name(ask) in owner._late_names:
                 # Only the in-flight mark: a real miss another verdict booked meanwhile stays.
                 owner._late_names.discard(_name(ask))
+                if ask in beside:
+                    continue
                 unknown = troubled or ask not in (answered or {})
                 owner._missed(_name(ask), unknown, owner._weather.calm_at())
 
