@@ -19,7 +19,7 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store.slot import store as watch_store
-from torrcast.usecases.cast_command._card_bookmark import _card_bookmark
+from torrcast.usecases.cast_command._card_bookmark import _bookmark_key, _card_bookmark
 from torrcast.usecases.cast_command._cmd_play import _cmd_play
 from torrcast.usecases.start_clock import _Clock
 
@@ -172,3 +172,24 @@ def test_a_dead_recorded_release_is_buried_and_the_circle_takes_over(
 
     assert _cmd_play(_card(), choose=choose) == EXIT_OK
     assert len(asked) == 1 and asked[0].buried("magnet:?xt=urn:btih:dd")
+
+
+def test_the_bookmark_under_the_other_name_of_the_picture_answers_the_card(
+    played: list[tuple[str, str, str, float]],
+) -> None:
+    """The circle named the film by its original: the saved place is found, not overwritten."""
+    _remember("movie:тачки:2006", entry(title="Тачки", original="Cars", pos=2955.0))
+
+    assert _cmd_play(_card(picture="movie:cars:2006"), choose=_never) == EXIT_OK
+    assert played == [("continue", "movie:тачки:2006", "magnet:?xt=кино", 2955.0)]
+
+
+def test_another_year_or_two_namesakes_are_not_the_card_s_bookmark() -> None:
+    """A remake of another year is another picture, and two candidates name nobody."""
+    state = WatchState()
+    state.put("movie:оно:1990", entry(title="Оно", original="It"))
+    assert _bookmark_key(state, "movie:it:2017") is None
+    state.put("movie:оно:2017", entry(title="Оно", original="It"))
+    state.put("movie:это:2017", entry(title="Это", original="It"))
+    assert _bookmark_key(state, "movie:it:2017") is None
+    assert _bookmark_key(state, "movie:оно:2017") == "movie:оно:2017"

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from torrcast.domain.slugify import slugify
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.usecases.cast_command._bookmark import _from_start
 from torrcast.usecases.cast_command._picked_serial import _picked_serial
@@ -33,25 +34,49 @@ def _card_bookmark(config: Config, state: WatchState, args: Args, *, clock: _Clo
     The branches are those of :func:`torrcast.usecases.cast_command._bookmark._continue_picked`
     that do not need the circle: from the start, a started series, a started film. A named
     release, a menu, a pick number and a named episode still go the usual way. ``None`` sends
-    the start to the circle as before: no record (an old bookmark under another key among
-    them), no release in it, a finished film, or a recorded release that no longer plays,
+    the start to the circle as before: no record under any name of the card's picture
+    (:func:`_bookmark_key`), no release in it, a finished film, or a release that no longer plays,
     which :func:`_continue` buries out loud, so the circle and the bookmark after it skip it.
     """
     own = args.pinned or args.menu or args.pick is not None or args.episode is not None
     if not args.picture or own:
         return None
-    started = state.get(args.picture)
-    if started is None or not started.magnet or args.buried(started.magnet):
+    key = _bookmark_key(state, args.picture)
+    started = None if key is None else state.get(key)
+    if key is None or started is None or not started.magnet or args.buried(started.magnet):
         return None
     title = spoken_title(started.title, started.original or args.picture_original)
     if started.serial and not args.from_start:
-        return _picked_serial(config, state, args.picture, title, None, args=args, clock=clock)
+        return _picked_serial(config, state, key, title, None, args=args, clock=clock)
     shown = replace(started, title=title)
     if args.from_start:
-        return _from_start(config, args.picture, shown, args=args, clock=clock)
+        return _from_start(config, key, shown, args=args, clock=clock)
     if not started.resumable:
         return None
-    return _continue(config, args.picture, shown, args=args, clock=clock)
+    return _continue(config, key, shown, args=args, clock=clock)
+
+
+def _bookmark_key(state: WatchState, card: str) -> str | None:
+    """The key the card's picture is bookmarked under: its own, or the one of its other name.
+
+    The circle names one picture by either of its names, so the card and the bookmark can
+    hold different keys: the card opened from the search as ``movie:cars:2006`` while the
+    bookmark lay under ``movie:тачки:2006`` (stand, 30-09-2026). Missed, «Play» went to the
+    circle and started the film from zero over the saved place. A bookmark of the same kind
+    and year answers when the card's name is its title or original, and only when it is one.
+    """
+    if state.get(card) is not None:
+        return card
+    kind, _, rest = card.partition(":")
+    name, _, year = rest.rpartition(":")
+    named = [
+        key
+        for key, entry in state.entries.items()
+        if key.partition(":")[0] == kind
+        and key.rpartition(":")[2] == year
+        and name in {slugify(entry.title), slugify(entry.original or "")}
+    ]
+    return named[0] if len(named) == 1 else None
 
 
 __all__ = ["_card_bookmark"]
