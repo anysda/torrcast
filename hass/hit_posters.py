@@ -10,8 +10,7 @@
 Приговор по статье отвечал «да» и той картине, у которой статья есть, а обложки в ней
 нет: имя картинки уезжало в выдачу, а байтов за ним не было никогда.
 
-Сами байты едут следом, фоном, и ложатся на полку (:class:`hass.poster_shelf.PosterShelf`),
-общую с картинкой играющего (:class:`hass.posters.Posters`).
+Байты едут следом, фоном, на полку, общую с играющим (:class:`hass.posters.Posters`).
 
 Приговор о картине идёт ОДИН на всех: превью, финал поиска и полки, спросившие о той же
 картине, пока он в пути, ждут его, а не зовут второй (:mod:`hass.hit_claims`). Промах
@@ -35,6 +34,7 @@ from hass.picture_type import picture_type
 from hass.poster_parts import poster_parts
 from hass.poster_shelf import PosterShelf
 from hass.poster_source import PosterSource
+from hass.quiet_wait import quiet_wait
 from hass.serial_parent_posters import _ready_posters, serial_parent_posters
 from hass.wait_each import wait_each
 from torrcast.domain.facts.ask import Ask
@@ -68,10 +68,16 @@ class HitPosters(HitClaims):
     ) -> list[JsonValue]:
         """Те же записи выдачи; имя картинки - только у тех, у кого картинка будет.
 
-        Список этим задержан ровно на приговор: один-два запроса на всю пачку. Сами
-        байты ждать нельзя - это уже секунды, и их человек ждал бы, глядя в пустое меню.
-        Приговор о той же картине, уже идущий у другого, ждётся, а не зовётся второй раз.
+        Список задержан ровно на приговор, не на байты; идущий у другого приговор ждётся.
+        История (``ahead``) пережидает короткую тишину источника (:mod:`hass.quiet_wait`).
         """
+        if ahead:
+            return quiet_wait(self, results, lambda: self._offer(results, ahead=True))
+        return self._offer(results, urgent)
+
+    def _offer(
+        self, results: list[JsonValue], urgent: bool = False, ahead: bool = False
+    ) -> list[JsonValue]:
         asks = [_about(record) for record in results]
         state = self._claim(list(dict.fromkeys(a for a in asks if a)), urgent)
         fresh = [ask for ask, one in state.items() if one is _ASK]
@@ -109,9 +115,7 @@ class HitPosters(HitClaims):
         return _ready_posters(serial_parent_posters(offered, self.has), self.has)
 
     def read(self, name: str) -> tuple[bytes, str] | None:
-        """Байты картинки и её тип; она ещё в пути - подождать, но не бесконечно.
-
-        Список этим не задержан: он ушёл человеку раньше, и ждёт картинку браузер.
+        """Байты картинки и её тип; она ещё в пути - подождать (ждёт браузер, не список).
 
         🔴 Полка спрашивается последней, и без неё плитка оставалась битой при живых
         байтах на диске (TC-1029): имя выдаётся по полке, а память моста короче списка.
@@ -163,11 +167,7 @@ class HitPosters(HitClaims):
         poster_parts(wanted, lambda part: self._land(part, urgent, ahead))
 
     def _land(self, wanted: dict[Ask, list[str]], urgent: bool, ahead: bool = False) -> None:
-        """Байты одной части и раздача их ждущим.
-
-        Приговор уже назвал адрес, и байты не доехали - источник промолчал (обрыв чтения у
-        IMDb), а не «картинки нет»: спросить снова, не больше :data:`~hass.hit_claims._ATTEMPTS`.
-        """
+        """Байты одной части ждущим; не доехали при названном адресе - молчание, не промах."""
         try:
             bodies = self._source_of(urgent, ahead).bodies(wanted, _TIMEOUT)
         except Exception:
@@ -192,8 +192,7 @@ class HitPosters(HitClaims):
         return made
 
 
-#: Мост держит один список находок на всех: имя, выданное поиском, спрашивают потом
-#: отдельным запросом за картинкой (:meth:`hass.posters.Posters.read`).
+#: Один список находок на всех: имя из поиска спрашивают потом (:meth:`hass.posters.Posters.read`).
 hits = HitPosters()
 
 __all__ = ["FIELD", "_KEEP", "_RETRY", "_WAIT", "HitPosters", "hits"]
