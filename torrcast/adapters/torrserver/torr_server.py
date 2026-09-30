@@ -154,14 +154,14 @@ class TorrServer:
         return disconnect_timeout(self.base_url, self._post)
 
     def listed(self, torrent_hash: str) -> bool:
+        return torrent_hash.casefold() in self.hashes()
+
+    def hashes(self) -> set[str]:
+        """Хэши всех раздач в базе службы, закрытые (``drop``) тоже, в нижнем регистре."""
         payload = self._post("/torrents", {"action": "list"})
         if not isinstance(payload, list):
             raise ServerDownError(phrase("torrserver.unexpected_answer_list"))
-        want = torrent_hash.casefold()
-        return any(
-            isinstance(item, dict) and str(item.get("hash", "")).casefold() == want
-            for item in payload
-        )
+        return {str(i["hash"]).casefold() for i in payload if isinstance(i, dict) and i.get("hash")}
 
     def drop(self, torrent_hash: str) -> bool:
         return self._torrent_action("rem", torrent_hash)

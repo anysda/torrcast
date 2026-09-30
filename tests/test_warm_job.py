@@ -21,3 +21,11 @@ def test_the_job_of_a_record_is_its_file_at_its_bookmark() -> None:
     job = WarmJob.of(engine, entry, "hash")
 
     assert job == WarmJob("magnet:a", "http://fake/hash/1", 660.0, "s01e02.mkv")
+
+
+def test_no_metadata_or_no_name_of_the_file_is_no_job() -> None:
+    """Пустое имя грело бы раздачу, о которой служба ещё ничего не знает, наугад."""
+    entry = Entry(title="Рик", magnet="magnet:a", pos=660.0, dur=1300.0, file_idx=1)
+
+    assert WarmJob.of(FakeTorrentEngine(), entry, "hash") is None
+    assert WarmJob.of(FakeTorrentEngine(torrent_files=[TorrFile(1, "")]), entry, "hash") is None

@@ -5,14 +5,13 @@
 закрыл по ``TorrentDisconnectTimeout`` или снёс конец показа, служба заново сводит с пирами
 4-36 с. Главная называет ключи плиток «Продолжить», карточка - свой ключ, раз в
 :data:`BEAT`; держатель поднимает их записанные раздачи и не даёт службе их закрыть, пока
-страница зовёт. Отпущенная закрывается с кэшем на диске (:class:`ParkingEngine`).
+страница зовёт. Отпущенная из первых записей ряда закрывается с кэшем на диске
+(:class:`ParkingEngine`), прочая сносится; выпавшие из первых сносит :mod:`web.record_sweep`.
 
-Заводятся они по одной: двадцать раздач истории, поднятые разом, тянули метаданные живой
-раздачи 15-19 с вместо 0.2-3 с (мимо torrcast), и «Играть» с закладки ждала 22.8 с.
-Следующая заводится, когда прошлая ответила метаданными; первым идёт ключ, названный
-страницей первым. Мёртвую раздачу держатель отпускает и не трогает :data:`MUTE`. Первые
-записи ряда (их байты читает до клика :class:`web.record_warm.RecordWarm`) очереди не ждут
-и без метаданных заводятся снова.
+Заводятся они по очереди: двадцать раздач разом тянули метаданные живой 15-19 с вместо
+0.2-3 с, и «Играть» с закладки ждала 22.8 с. Следующая ждёт метаданных прошлой, первым идёт
+ключ, названный страницей первым; мёртвую держатель не трогает :data:`MUTE`. Первые записи
+ряда (их греет :class:`web.record_warm.RecordWarm`) очереди не ждут и заводятся снова.
 """
 
 from __future__ import annotations
@@ -25,15 +24,17 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from torrcast.adapters.torrserver.torr_server import TorrServer
+from torrcast.domain.continue_row import WARM_ROW, continue_row
 from torrcast.domain.entry import Entry
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.parking_engine import ParkingEngine
 from torrcast.ports.state_store.slot import store
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.select_bench._bench_keep import _keep_step, _Timed
 from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show
+from web.record_release import record_release
 from web.record_warm import RecordWarm
+from web.sweep_later import sweep_later
 from web.warm_job import WarmJob
 
 #: Как часто страница называет свои записи; то же число стоит в ``web/static/warm.js``.
@@ -71,6 +72,8 @@ class RecordHold:
     wait: Callable[[float], object] = time.sleep
     spawn: Callable[[Callable[[], None]], None] = _thread
     warmer: RecordWarm = field(default_factory=RecordWarm)
+    sweep: Callable[[str], None] = sweep_later
+    _swept: tuple[str, ...] | None = field(default=None, repr=False)
     _keys: dict[str, str] = field(default_factory=dict, repr=False)
     _lease: dict[str, float] = field(default_factory=dict, repr=False)
     _held: set[str] = field(default_factory=set, repr=False)
@@ -81,6 +84,7 @@ class RecordHold:
     def touch(self, base_url: str, keys: list[str]) -> int:
         """Продлить аренду записей этих ключей; сколько раздач начали держать заново."""
         entries = self.entries()
+        row = tuple(continue_row(entries)[:WARM_ROW])
         found = [(key, entries.get(key)) for key in keys[:HOLD_MAX]]
         keyed = {entry.magnet: key for key, entry in reversed(found) if entry and entry.magnet}
         magnets = list(dict.fromkeys(entry.magnet for _, entry in found if entry and entry.magnet))
@@ -96,7 +100,11 @@ class RecordHold:
                     fresh.append(magnet)
             named = [magnet for magnet in magnets if magnet in self._queue]
             self._queue = named + [m for m in self._queue if m not in named] + fresh
-        self.warmer.name(magnets)
+            moved, self._swept = row != self._swept, row
+        # Цели прогрева - первые записи ряда; карточка и вторая вкладка их не переписывают.
+        self.warmer.name([entries[key].magnet for key in row if entries[key].magnet])
+        if moved:
+            self.sweep(base_url)
         for magnet in fresh:
             self.spawn(lambda magnet=magnet: self._hold(base_url, magnet))  # type: ignore[misc]
         return len(fresh)
@@ -137,10 +145,7 @@ class RecordHold:
                     self._mute[magnet] = self.clock() + MUTE
             free = bool(torrent_hash) and CLAIMS.unclaim(torrent_hash, self)
             if free and not _held_by_show(torrent_hash):
-                with contextlib.suppress(TorrcastError):
-                    # Не снос: он стирал кэш службы, и кусок закладки шёл из роя до 30 с.
-                    close = engine.park if isinstance(engine, ParkingEngine) else engine.drop
-                    close(torrent_hash)
+                record_release(engine, torrent_hash, keep=self.warmer.wants(magnet))
             with self._lock:
                 self._held.discard(magnet)
 
@@ -177,18 +182,13 @@ class RecordHold:
         """Предложить прогреву файл записи с её закладки; закладка сдвинулась - снова."""
         wanted = bool(torrent_hash) and self.warmer.wants(magnet)
         entry = self.entries().get(self._keys.get(magnet, "")) if wanted else None
-        with contextlib.suppress(TorrcastError):
-            if entry is None or entry.magnet != magnet:
-                return
-            self.warmer.offer(WarmJob.of(engine, entry, torrent_hash))
+        if entry and entry.magnet == magnet:
+            with contextlib.suppress(TorrcastError):
+                if job := WarmJob.of(engine, entry, torrent_hash):
+                    self.warmer.offer(job)
 
     def _renew(self, engine: TorrentEngine, magnet: str) -> str:
-        """Поднять раздачу и продлить её срок; служба промолчала - спросит следующий шаг.
-
-        ``add`` идемпотентен и один будит раздачу, лежащую в базе службы: её туда кладёт
-        и закрытие по сроку, и снос в конце показа. ``get`` продлевает срок живой
-        (:mod:`torrcast.usecases.select_bench._bench_keep`).
-        """
+        """Разбудить раздачу (``add``) и продлить срок (``get``); молчание - до следующего шага."""
         with contextlib.suppress(TorrcastError):
             torrent_hash = CLAIMS.adding(magnet, self, engine.add)
             engine.files(torrent_hash)

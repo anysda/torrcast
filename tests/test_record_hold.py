@@ -30,12 +30,14 @@ class _Page:
         self.spawned: list[Callable[[], None]] = []
         self.warming: list[Callable[[], None]] = []
         self.warmed: list[tuple[str, float, str]] = []
+        self.swept: list[str] = []
         self.holder = RecordHold(
             engines=lambda base_url, timeout: engine,
             entries=lambda: entries,
             clock=lambda: self.now,
             wait=self.wait,
             spawn=self.spawned.append,
+            sweep=self.swept.append,
             warmer=warmer or RecordWarm(self._warm, lambda: False, spawn=self.warming.append),
         )
         self.on_wait: Callable[[], None] = lambda: None

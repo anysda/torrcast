@@ -73,6 +73,12 @@ def test_saved_home_shelves_warm_before_the_bridge_starts_serving() -> None:
     assert "from web.warm_saved import warm_saved" in MAIN_SOURCE
 
 
+def test_history_releases_left_by_the_last_run_are_swept_at_start() -> None:
+    """Запаркованные до перезапуска раздачи лежали в базе службы с кэшем до первого касания."""
+    assert "sweep_later(load_config().torrserver_url)" in MAIN_SOURCE
+    assert "from web.sweep_later import sweep_later" in MAIN_SOURCE
+
+
 def test_the_package_is_named_in_every_list_that_ships_it() -> None:
     assert PYPROJECT["project"]["scripts"]["torrcast-ha"] == "hass.main:main"
     assert "hass" in PYPROJECT["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"]

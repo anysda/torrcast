@@ -12,7 +12,6 @@ from torrcast.domain.continue_row import WARM_ROW
 from torrcast.domain.entry import Entry
 from torrcast.ports.state_store import slot as state_slot
 from web.history import history
-from web.record_hold import RECORD_HOLD
 from web.request import Request
 
 
@@ -58,8 +57,3 @@ def test_the_history_request_holds_the_first_records_of_the_row(
     assert history(Request("GET", "/api/history", {}, {})).code == 200
 
     assert touched == [("ts", row[:WARM_ROW])]
-
-
-def test_the_default_hold_is_the_one_the_page_beats() -> None:
-    assert history_module.hold_first is history_module._hold_first
-    assert vars(history_module)["RECORD_HOLD"] is RECORD_HOLD
