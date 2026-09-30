@@ -25,8 +25,12 @@ def late_posters(
         with owner._lock:
             for ask in found:
                 _settle(owner, _name(ask))
+            # Another verdict judging the same picture beside this one may carry its bytes already.
+            fresh = {ask: pages for ask, pages in found.items() if not owner._holds(_name(ask))}
+            for ask in fresh:
                 owner._pending[_name(ask)] = threading.Event()
-        threading.Thread(target=owner._fill, args=(found, True), daemon=True).start()
+        if fresh:
+            threading.Thread(target=owner._fill, args=(fresh, True), daemon=True).start()
 
     try:
         answered: dict[Ask, list[str]] | None = finish(asks, timeout, land)

@@ -38,6 +38,9 @@ _READY: Final = "ready"
 _ASK: Final = "ask"
 _HELD: Final = "held"
 _CLAIMED: Final = "claimed"
+#: Приговор идёт у спокойного пути (история, полки, «похожие»), а спрашивает видимый ряд: он
+#: не ждёт чужую очередь за Википедией по 8-14 с, а судит картину и сам, своей гонкой.
+_BESIDE: Final = "beside"
 
 
 class HitClaims:
@@ -52,13 +55,15 @@ class HitClaims:
         self._tried: dict[str, float] = {}
         self._again: dict[str, tuple[int, float]] = {}
         self._judging: dict[str, threading.Event] = {}
+        #: Заявки спокойного пути: видимый ряд судит эти картины рядом, а не ждёт их.
+        self._calm: set[str] = set()
         self._late_names: set[str] = set()
         self._landed: set[str] = set()
 
     def named(self, name: str) -> bool:
         """Имя картинки можно выдавать: байты здесь или уже едут."""
         with self._lock:
-            return name in self._made or name in self._pending or name in self._landed
+            return self._holds(name)
 
     def has(self, name: str) -> bool:
         """Байты картинки лежат здесь или на полке, и маршрут отдаст их без ожидания."""
@@ -94,7 +99,7 @@ class HitClaims:
             again = self._again.get(name)
             return again is not None and name not in self._judging and self._now() >= again[1]
 
-    def _claim(self, asks: Sequence[Ask]) -> dict[Ask, str]:
+    def _claim(self, asks: Sequence[Ask], urgent: bool = False) -> dict[Ask, str]:
         """Состояние каждой картины; незаявленные и неизвестные заявляются за спросившим.
 
         Пачка заявляется одним проходом под замком: по картине за раз превью и финал делили
@@ -102,9 +107,11 @@ class HitClaims:
         нашлось на ней, снимается с заявки готовым.
         """
         with self._lock:
-            state = {ask: self._known(_name(ask)) for ask in asks}
+            state = {ask: self._known(_name(ask), urgent) for ask in asks}
             for ask in (ask for ask, one in state.items() if one is _ASK):
                 self._judging[_name(ask)] = threading.Event()
+                if not urgent:
+                    self._calm.add(_name(ask))
         for ask in [ask for ask, one in state.items() if one is _ASK]:
             name = _name(ask)
             kept = self._shelf.read(name)
@@ -112,16 +119,17 @@ class HitClaims:
                 continue
             with self._lock:
                 self._keep(name, kept)
+                self._calm.discard(name)
                 event = self._judging.pop(name)
             state[ask] = _READY
             event.set()
         return state
 
-    def _known(self, name: str) -> str:
-        if name in self._made or name in self._pending or name in self._landed:
+    def _known(self, name: str, urgent: bool = False) -> str:
+        if self._holds(name):
             return _READY
         if name in self._judging:
-            return _CLAIMED
+            return _BESIDE if urgent and name in self._calm else _CLAIMED
         if name in self._late_names:
             return _HELD
         now = self._now()
@@ -133,30 +141,46 @@ class HitClaims:
         """Снять заявки: ждущие их просыпаются и читают вынесенный приговор."""
         with self._lock:
             events = [self._judging.pop(_name(ask), None) for ask in asks]
+            self._calm.difference_update(_name(ask) for ask in asks)
         for event in events:
             if event is not None:
                 event.set()
 
-    def _await(self, asks: Sequence[Ask], limit: float) -> None:
-        """Дождаться чужих заявок на эти картины, но не дольше ``limit`` на всех."""
-        deadline = time.monotonic() + limit
-        for ask in asks:
-            with self._lock:
-                event = self._judging.get(_name(ask))
-            if event is not None:
-                event.wait(max(0.0, deadline - time.monotonic()))
+    def _book(
+        self,
+        asked: Sequence[Ask],
+        said: dict[Ask, list[str]] | None,
+        later: Sequence[Ask],
+        beside: Sequence[Ask],
+        troubled: bool,
+        calm_at: float,
+    ) -> dict[Ask, list[str]]:
+        """Записать приговор; вернуть адреса тех, чьи байты ещё никто не везёт.
 
-    def _arrive(self, names: Sequence[str], limit: float) -> None:
-        """Дождаться байтов тех из картинок, что ещё в пути, но не дольше ``limit`` на всех."""
-        deadline = time.monotonic() + limit
-        for name in names:
-            with self._lock:
-                event = self._pending.get(name)
-            if event is not None:
-                event.wait(max(0.0, deadline - time.monotonic()))
+        Судей двое, когда видимый ряд пошёл рядом (:data:`_BESIDE`): байты везёт первый назвавший
+        адрес, а промах картины рядом пишет только хозяин заявки."""
+        found: dict[Ask, list[str]] = {}
+        with self._lock:
+            self._late_names.update(_name(ask) for ask in later)
+            for ask in (ask for ask in asked if ask not in later):
+                name, pages = _name(ask), (said or {}).get(ask)
+                if self._holds(name):
+                    continue
+                if pages:
+                    self._pending[name] = threading.Event()
+                    found[ask] = pages
+                elif ask not in beside:
+                    self._missed(name, troubled or ask not in (said or {}), calm_at)
+        return found
+
+    def _holds(self, name: str) -> bool:
+        """Под замком: байты картины здесь или уже едут."""
+        return name in self._made or name in self._pending or name in self._landed
 
     def _missed(self, name: str, unknown: bool, calm_at: float) -> None:
-        """Записать промах под замком: настоящий держится долго, неизвестный - до тишины."""
+        """Промах под замком: настоящий держится долго, неизвестный - до тишины; легшей нет."""
+        if name in self._made or name in self._landed:
+            return
         tries = self._again.get(name, (0, 0.0))[0] + 1
         if unknown and tries < _ATTEMPTS:
             self._again[name] = (tries, calm_at)

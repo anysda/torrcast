@@ -27,7 +27,7 @@ from collections.abc import Callable, Sequence
 
 from hass.facts_weather import FactsWeather, _CalmWeather, _Weather
 from hass.hit_ask import _about, _name
-from hass.hit_claims import _ASK, _CLAIMED, _KEEP, _RETRY, _WAIT, HitClaims
+from hass.hit_claims import _ASK, _BESIDE, _CLAIMED, _KEEP, _RETRY, _WAIT, HitClaims
 from hass.late_posters import late_posters
 from hass.picture_source import picture_source
 from hass.picture_type import picture_type
@@ -35,6 +35,7 @@ from hass.poster_parts import poster_parts
 from hass.poster_shelf import PosterShelf
 from hass.poster_source import PosterSource
 from hass.serial_parent_posters import _ready_posters, serial_parent_posters
+from hass.wait_each import wait_each
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.json_value import JsonValue
 
@@ -70,13 +71,14 @@ class HitPosters(HitClaims):
         Приговор о той же картине, уже идущий у другого, ждётся, а не зовётся второй раз.
         """
         asks = [_about(record) for record in results]
-        state = self._claim(list(dict.fromkeys(a for a in asks if a)))
+        state = self._claim(list(dict.fromkeys(a for a in asks if a)), urgent)
         fresh = [ask for ask, one in state.items() if one is _ASK]
         try:
-            self._judge(fresh, urgent)
+            self._judge(fresh, urgent, [ask for ask, one in state.items() if one is _BESIDE])
         finally:
             self._release(fresh)
-        self._await([ask for ask, one in state.items() if one is _CLAIMED], _TIMEOUT + 1.0)
+        claimed = [_name(ask) for ask, one in state.items() if one is _CLAIMED]
+        wait_each(self._lock, self._judging, claimed, _TIMEOUT + 1.0)
         known = {ask for ask in state if self.named(_name(ask))}
         return [
             {**record, FIELD: _name(ask)} if isinstance(record, dict) and ask in known else record
@@ -99,7 +101,8 @@ class HitPosters(HitClaims):
         останавливали опрос поиска на той же вкладке (TC-1286). Байты ждёт фон, а не человек.
         """
         offered = self.offer(results)
-        self._arrive([_name(ask) for ask in map(_about, offered) if ask], _SETTLE_BY)
+        names = [_name(ask) for ask in map(_about, offered) if ask]
+        wait_each(self._lock, self._pending, names, _SETTLE_BY)
         return _ready_posters(serial_parent_posters(offered, self.has), self.has)
 
     def read(self, name: str) -> tuple[bytes, str] | None:
@@ -120,28 +123,22 @@ class HitPosters(HitClaims):
         body = body or self._shelf.read(name)
         return (body, picture_type(body)) if body else None
 
-    def _judge(self, fresh: list[Ask], urgent: bool) -> None:
+    def _judge(self, fresh: list[Ask], urgent: bool, beside: Sequence[Ask] = ()) -> None:
         """Приговор пачке заявленных картин; ответ в минуту отказов - не промах.
 
         Картины, о которых источник промолчал (нет в ответе), - не промах: видимый ряд
         дожидается их уже идущих запросов (:mod:`hass.late_posters`), остальные спросят снова.
+        ``beside`` - картины чужого спокойного приговора, которые видимый ряд судит и сам.
         """
-        if not fresh:
+        asked = [*fresh, *beside]
+        if not asked:
             return
         began = self._now()
-        said = self._answer(fresh, urgent)
+        said = self._answer(asked, urgent)
         troubled = said is None or self._weather.troubled_since(began)
-        found = {ask: pages for ask, pages in (said or {}).items() if pages and ask in fresh}
         late = getattr(self._source_of(urgent), "finish_urgent", None) if urgent else None
-        later = [ask for ask in fresh if callable(late) and ask not in (said or {})]
-        with self._lock:
-            self._late_names.update(_name(ask) for ask in later)
-            for ask in (ask for ask in fresh if ask not in later):
-                if ask in found:
-                    self._pending[_name(ask)] = threading.Event()
-                else:
-                    unknown = troubled or ask not in (said or {})
-                    self._missed(_name(ask), unknown, self._weather.calm_at())
+        later = [ask for ask in asked if callable(late) and ask not in (said or {})]
+        found = self._book(asked, said, later, beside, troubled, self._weather.calm_at())
         if found:
             threading.Thread(target=self._fill, args=(found, urgent), daemon=True).start()
         if later:

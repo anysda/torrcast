@@ -65,7 +65,7 @@ def test_the_preview_and_the_final_share_one_verdict(tmp_path: Path) -> None:
     source = _GatedSource()
     posters = HitPosters(source, PosterShelf(home=lambda: tmp_path))
     said: list[list[JsonValue]] = []
-    first = threading.Thread(target=lambda: said.append(posters.offer([_row()])))
+    first = threading.Thread(target=lambda: said.append(posters.urgent([_row()])))
     first.start()
     assert source.entered.wait(_SETTLE)
     second = threading.Thread(target=lambda: said.append(posters.urgent([_row()])))
@@ -165,7 +165,7 @@ def test_two_askers_of_one_list_do_not_split_it_between_them(tmp_path: Path) -> 
     source = FakeSource(pages={"Тачки": ["Cars"], "Тачки 2": ["Cars 2"]})
     posters = HitPosters(source, shelf)
     both, back = [_row(), _row("Тачки 2", 2011)], [_row("Тачки 2", 2011), _row()]
-    first = threading.Thread(target=posters.offer, args=(both,))
+    first = threading.Thread(target=posters.urgent, args=(both,))
     first.start()
     assert shelf.reading.wait(_SETTLE)
     second = threading.Thread(target=posters.urgent, args=(back,))
