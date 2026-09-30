@@ -40,7 +40,8 @@ def late_posters(
     with owner._lock:
         for ask in asks:
             if _name(ask) in owner._late_names:
-                _settle(owner, _name(ask))
+                # Only the in-flight mark: a real miss another verdict booked meanwhile stays.
+                owner._late_names.discard(_name(ask))
                 unknown = troubled or ask not in (answered or {})
                 owner._missed(_name(ask), unknown, owner._weather.calm_at())
 

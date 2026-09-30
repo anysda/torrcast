@@ -159,6 +159,8 @@ class HitClaims:
         """Промах под замком: настоящий держится долго, неизвестный - до тишины; легшей нет."""
         if name in self._made or name in self._landed:
             return
+        if unknown and self._now() < self._tried.get(name, 0.0):
+            return  # настоящий промах в силе: молчание другого судьи его не отменяет
         tries = self._again.get(name, (0, 0.0))[0] + 1
         if unknown and tries < _ATTEMPTS:
             self._again[name] = (tries, calm_at)

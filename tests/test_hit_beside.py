@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from hass.hit_claims import _RETRY
 from hass.hit_posters import FIELD, HitPosters
 from hass.late_posters import Land
 from tests.test_hit_posters import _SETTLE, FakeSource, _hits, _row
@@ -137,3 +138,28 @@ def test_a_growing_row_asks_the_source_beside_a_calm_claim_once(tmp_path: Path) 
     source.finished.set()
     calm.join(_SETTLE)
     assert asked == 1, f"the source was asked beside the calm claim {asked} times"
+
+
+@pytest.mark.machine
+def test_a_silent_late_race_keeps_the_calm_paths_real_miss(tmp_path: Path) -> None:
+    """Rollback (the late race lifting the ban): the real miss read as unknown, asked twice more.
+
+    The calm path owns the claim and its answer "no cover" holds for :data:`_RETRY`; the row's
+    race beside it that ends in silence is no answer at all and must not reopen the picture.
+    """
+    source = _TwoPaths(race=False)
+    source.pages = {}
+    hits, calm = _calm_first(tmp_path, source)
+    hits.urgent([_row()])
+    source.opened.set()
+    calm.join(_SETTLE)
+    source.finished.set()
+    assert _until(lambda: not hits._late_names)
+    name = next(iter(hits._tried))
+    assert hits._tried[name] - hits._now() > _RETRY - 1.0, "the late race lifted the real miss"
+    assert not hits.pending([_row()]), "the page keeps polling a picture that has no cover"
+    asked = len(source.judged)
+    for _ in range(3):
+        hits.urgent([_row()])
+    assert not hits.due([_row()])
+    assert len(source.judged) == asked, "the row asked the source again inside the real miss"
