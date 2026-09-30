@@ -116,6 +116,21 @@ def test_a_slow_name_does_not_hold_the_viewer_s_text() -> None:
     assert [row["title"] for row in rows] == ["a1", "b1"]
 
 
+@pytest.mark.machine
+def test_the_names_leave_only_once_the_viewer_s_text_has_answered() -> None:
+    """The API slows and refuses texts that come at once: the viewer's goes alone."""
+    events: list[str] = []
+
+    def fetch(_origin: str, query: str) -> Any:
+        events.append("ask " + query)
+        time.sleep(0.05)
+        events.append("got " + query)
+        return _rows(query)
+
+    adapter.search("Тачки | Тачки 2006 | Cars 2006", fetch)
+    assert events[:2] == ["ask Тачки", "got Тачки"], events
+
+
 def test_the_joint_is_the_one_torrcast_sends() -> None:
     from torrcast.domain.joint_query import JOINT
 

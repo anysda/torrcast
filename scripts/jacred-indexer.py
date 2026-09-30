@@ -66,16 +66,20 @@ def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list
     The first text leads: torrcast puts the viewer's own there, and the others wait no more
     than `grace` past its answer. Waiting all of them made the viewer's rows wait the slowest
     name, mostly empty: the joined request's median was 3.3 s where the text alone took 0.65.
+    The others leave only once it has answered: the API slows and refuses texts that come at
+    once. On the stand (30.09, nine pairs in turn) the viewer's text asked with its two names
+    took 0.91 s in the median and was refused with 429 three times; asked first, 0.55 s and
+    never refused. With all three at once torrcast's warm runs hit the 5 s cut 7 times in 15.
     """
     texts = [text.strip() for text in query.split(JOINT) if text.strip()]
     if len(texts) < 2:
         return _search(query, fetch)
-    pool = ThreadPoolExecutor(len(texts))
-    asked = [pool.submit(_search, text, fetch) for text in texts]
+    first = _search(texts[0], fetch)
+    pool = ThreadPoolExecutor(len(texts) - 1)
+    asked = [pool.submit(_search, text, fetch) for text in texts[1:]]
     pool.shutdown(wait=False)  # a text past the grace ends on its own curl cut, unread
-    asked[0].result()
-    wait(asked[1:], timeout=grace)
-    answers = [each.result() for each in asked if each.done()]
+    wait(asked, timeout=grace)
+    answers = [first, *(each.result() for each in asked if each.done())]
     rows: dict[str, dict[str, Any]] = {}
     for row in (row for tier in zip_longest(*answers) for row in tier if row is not None):
         rows.setdefault(row["magnet"], row)
