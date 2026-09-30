@@ -38,7 +38,10 @@ def circle_wait(
 
     One the ``book`` holds down (:mod:`torrcast.domain.is_down`) is asked and not
     waited: a silent Knaben held every circle 7.0 s for nothing. When every one of the core
-    is down there is nobody better to wait, and the circle waits them as it did. A core one
+    is down, the circle waits the others asked, as a circle without a core does: in a
+    circle of names JacRed is often the only core, and a down one held it to its 5 s zero.
+    Only when every one asked is down there is nobody better to wait, and the circle waits
+    them as it did. A down one that answers still revives, waited or not. A core one
     the circle gave up on after the whole first circle's wait is a silence told at once:
     its thread may live 45 s more, and a restart before that would never tell it.
     """
@@ -49,7 +52,8 @@ def circle_wait(
     )
     waited = [ask for ask in asked if _core(ask.name, names=names)]
     live = [ask for ask in waited if ask.name not in down]
-    core = live or waited or ([] if held else list(asked))
+    alive = [ask for ask in asked if ask.name not in down]
+    core = live or ([] if held else alive or waited or list(asked))
     for ask in core:
         # Every budget runs from the circle's start: waiting one after another from
         # the call added the first answer's seconds to the next silent one's budget.

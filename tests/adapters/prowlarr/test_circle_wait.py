@@ -79,6 +79,17 @@ def test_a_down_core_does_not_hold_the_circle(tmp_path: Path) -> None:
     assert elapsed < 1.0, f"waited {elapsed:.2f} s for a source that is down"
 
 
+@pytest.mark.machine
+def test_a_circle_of_names_with_its_only_core_down_waits_the_others(tmp_path: Path) -> None:
+    """The year circle: Knaben is no core there, and a down JacRed held it to its 5 s zero."""
+    jacred, knaben, yts = _Ask("JacRed", 5.0), _Ask("Knaben", 5.0), _Ask("YTS", 5.0)
+    threading.Timer(0.1, knaben.done.set).start()
+    threading.Timer(0.2, yts.done.set).start()
+    core, elapsed = _waited([jacred, knaben, yts], book=_down(tmp_path, "JacRed"))
+    assert core == [knaben, yts], "JacRed is asked, not waited: its rows come late if at all"
+    assert elapsed < 1.0, f"waited {elapsed:.2f} s for a source that is down"
+
+
 def test_a_core_all_down_is_waited_as_before(tmp_path: Path) -> None:
     knaben, rutor = _Ask("Knaben", 0.0), _Ask("RuTor", 0.0)
     book = _down(tmp_path, "Knaben", "RuTor")
