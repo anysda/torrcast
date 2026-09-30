@@ -9,14 +9,22 @@ from __future__ import annotations
 
 from torrcast.adapters.stream_pack.settle_start import SEEK_BACK_TRIES
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS
-from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
+from torrcast.domain.hls_wait import ENTRY_TIMEOUT, KEYS_WAIT, PILOT_TIMEOUT
 from torrcast.domain.start_settings import START_SLACK
 from torrcast.domain.start_timeout import START_TIMEOUT
 from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
 from torrcast.usecases.start_budget import START_BUDGET
 
 #: Потолки всех фаз, которые юнит проходит от запуска до первого ``PLAYING``.
-PHASES = (WORKER_META, WORKER_DUR, KEYS_WAIT, PILOT_TIMEOUT, START_SLACK, START_TIMEOUT)
+PHASES = (
+    WORKER_META,
+    WORKER_DUR,
+    KEYS_WAIT,
+    ENTRY_TIMEOUT,
+    PILOT_TIMEOUT,
+    START_SLACK,
+    START_TIMEOUT,
+)
 
 
 def test_the_budget_is_the_sum_of_the_phases_and_not_a_number_taken_with_a_margin() -> None:
