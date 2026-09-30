@@ -12,7 +12,7 @@ function tiles(prefix, count) {
   return Array.from({ length: count }, (_, at) => ({ key: prefix + at, title: prefix + at }));
 }
 
-function make(answers) {
+function make(answers, history = async () => []) {
   const doc = new Document();
   const root = doc.createElement('main');
   root.id = 'tc-root';
@@ -48,7 +48,7 @@ function make(answers) {
   const steps = [];
   let asked = 0;
   ctx.TCApi = {
-    history: async () => [],
+    history,
     shelves: async () => {
       // The page's view of the previous answer, taken when it asks for the next one.
       if (asked > 0) steps.push(look(ctx, doc));
@@ -73,6 +73,8 @@ function look(ctx, doc) {
     skeleton: body ? body.querySelectorAll('.tc-tile-skeleton').length > 0 : false,
     empty: body ? body.querySelectorAll('.tc-shelf-empty').length : 0,
     loading: !!ctx.TCHome._assembling,
+    continued: count('shelf-continue'),
+    waits: body ? body.children.filter((shelf) => shelf.dataset.tcWaits === 'continue').length : 0,
   };
 }
 
@@ -101,7 +103,23 @@ async function main() {
   await slow.ctx.TCHome.mount(slow.root);
   await settle(slow);
 
+  // История отвечает долго (на холодном стенде до 10 с): полки встают без неё, а её
+  // лента потом занимает место своего скелета.
+  let told = null;
+  const late = make([
+    { partial: true, fresh: tiles('f', 3) },
+    { fresh: tiles('f', 3), popular: tiles('p', 3) },
+  ], () => new Promise((done) => { told = done; }));
+  const mounted = late.ctx.TCHome.mount(late.root);
+  await settle(late);
+  const lateBefore = look(late.ctx, late.doc);
+  told([{ key: 'h0', title: 'h0' }]);
+  await mounted;
+  await settle(late);
+
   process.stdout.write(JSON.stringify({
+    lateBefore,
+    lateAfter: look(late.ctx, late.doc),
     coldSteps: cold.steps,
     coldFinal,
     coldAsked: cold.count(),

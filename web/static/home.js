@@ -78,9 +78,16 @@ const TCHome = {
     // что играет телевизор, не зависят. Плашка «сейчас идёт» встанет на шапку сама,
     // когда state и ящик доедут.
     TCHome._stateLater(root);
-    const [history, shelves] = await Promise.all([TCApi.history(), TCApi.shelves()]);
+    // Полки не ждут истории: на холодном старте ``/api/history`` сам спрашивает обложки
+    // и отвечает до 10 с, а пришедшие плитки должны встать сразу. Успела история к
+    // ответу полок - тело собирается целиком, нет - «Продолжить» стоит скелетом до неё.
+    const poll = TCHome._shelfPoll;
+    let history = null;
+    const heard = TCApi.history().then((said) => { history = said; return said; });
+    const shelves = await TCApi.shelves();
     if (!document.body.contains(root) || location.pathname !== '/') return;
     TCHome._lastHistory = history;
+    if (history === null) TCHome._historyLater(root, poll, heard);
     TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
     const assembling = !TCHome._query && (!!shelves.partial || !!shelves.torn);
     TCHome._wear(assembling);
@@ -88,11 +95,21 @@ const TCHome = {
     // лента: историю сервер назвал первым же ответом. Пришедшие плитки встают сразу,
     // даже пока полки собираются: скелеты готового не прячут.
     if (TCHome._bare(shelves)) {
-      TCHome._wornContinue(history);
+      if (history !== null) TCHome._wornContinue(history);
     } else {
       TCHome._showShelves(shelves, true);
     }
     if (TCHome._unsettled(shelves)) TCHome._waitShelves(root, TCHome._shelfPoll);
+  },
+
+  // Опоздавшая история встаёт своей лентой на место скелета, полки не трогаются.
+  async _historyLater(root, mine, heard) {
+    const history = await heard;
+    if (mine !== TCHome._shelfPoll || !document.body.contains(root) || location.pathname !== '/') {
+      return;
+    }
+    TCHome._lastHistory = history;
+    if (!TCHome._query) TCHome._wornContinue(history);
   },
 
   // Цел ли экран для памяти (`kept.js`): тело есть и ни один скелет не стоит - ни
@@ -150,15 +167,14 @@ const TCHome = {
     const body = document.getElementById('tc-body');
     const first = body && body.firstElementChild;
     if (!first) return;
-    const current = first.querySelector('[data-tc-group="shelf-continue"]') ? first : null;
+    const current = first.querySelector('[data-tc-group="shelf-continue"]')
+      || first.dataset.tcWaits === 'continue' ? first : null;
     if (history.length === 0) {
       if (current) current.remove();
-      else if (first.matches('.shelf-loading')) first.remove();
       return;
     }
     const shelf = TCHome._continue(history);
     if (current) current.replaceWith(shelf);
-    else if (first.matches('.shelf-loading')) first.replaceWith(shelf);
     else body.prepend(shelf);
   },
 
@@ -267,11 +283,20 @@ const TCHome = {
   _loadingBody() {
     const body = document.createElement('div');
     body.id = 'tc-body';
-    for (const key of ['web.shelf.continue_watching', 'web.shelf.new', 'web.shelf.popular']) {
+    body.appendChild(TCHome._continueWaits());
+    for (const key of ['web.shelf.new', 'web.shelf.popular']) {
       body.appendChild(TCHome._shelf(key, 'shelf-loading', Array.from({ length: 6 },
         () => ({ loading: true }))));
     }
     return body;
+  },
+
+  // Скелет «Продолжить», пока история не пришла: его и только его сменит лента истории.
+  _continueWaits() {
+    const shelf = TCHome._shelf('web.shelf.continue_watching', 'shelf-loading',
+      Array.from({ length: 6 }, () => ({ loading: true })));
+    shelf.dataset.tcWaits = 'continue';
+    return shelf;
   },
 
   _search() {
@@ -762,7 +787,8 @@ const TCHome = {
     TCHome._shownHome = TCHome._homeKey(history, shelves, filling);
     const body = document.createElement('div');
     body.id = 'tc-body';
-    if (history.length > 0) body.appendChild(TCHome._continue(history));
+    if (history === null) body.appendChild(TCHome._continueWaits());
+    else if (history.length > 0) body.appendChild(TCHome._continue(history));
     for (const [key, group, tiles] of [['web.shelf.new', 'shelf-new', shelves.fresh],
       ['web.shelf.popular', 'shelf-popular', shelves.popular]]) {
       body.appendChild(filling && tiles.length === 0

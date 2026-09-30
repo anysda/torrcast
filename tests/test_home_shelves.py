@@ -48,3 +48,13 @@ def test_a_long_cold_build_is_waited_for_not_abandoned() -> None:
     assert facts["slowAsked"] == 51, "опрос бросил сборку, не дождавшись полок"
     assert (facts["slowFinal"]["fresh"], facts["slowFinal"]["popular"]) == (2, 2)
     assert not facts["slowFinal"]["loading"]
+
+
+@pytest.mark.machine
+def test_the_shelves_do_not_wait_for_a_slow_history() -> None:
+    facts = _facts()
+    before, after = facts["lateBefore"], facts["lateAfter"]
+    assert (before["fresh"], before["popular"]) == (3, 3), "полки ждали ответа истории"
+    assert (before["continued"], before["waits"]) == (0, 1), "без истории нет скелета её ленты"
+    assert (after["continued"], after["waits"]) == (1, 0), "история не встала на место скелета"
+    assert (after["fresh"], after["popular"]) == (3, 3)
