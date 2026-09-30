@@ -29,6 +29,7 @@ def configure(
     map_trusted: Callable[[str], bool],
     map_lied: Callable[[str], None],
     map_entry: Callable[[str, float], float],
+    opens_clean: Callable[[str, float], bool | None],
 ) -> None:
     """Передать сценарию имена сегментов, медиатракт упаковки, уборку, часы и подъём в стороне."""
     _state.segment_name = segment_name
@@ -46,3 +47,4 @@ def configure(
     _state.map_trusted = map_trusted
     _state.map_lied = map_lied
     _state.map_entry = map_entry
+    _state.opens_clean = opens_clean

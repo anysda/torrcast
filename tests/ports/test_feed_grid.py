@@ -1,11 +1,11 @@
-"""Договор сетки для ленты: слой сценариев знает о ней ровно эти восемь имён."""
+"""Договор сетки для ленты: слой сценариев знает о ней ровно эти девять имён."""
 
 from __future__ import annotations
 
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.ports.feed_grid import FeedGrid
 
-ASKED = ("count", "duration", "origin", "start", "end", "span", "slot_at", "manifest")
+ASKED = ("count", "duration", "origin", "on_keys", "start", "end", "span", "slot_at", "manifest")
 
 
 def test_the_port_names_exactly_what_the_feed_asks_of_a_grid() -> None:

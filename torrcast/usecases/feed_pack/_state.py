@@ -56,6 +56,7 @@ map_lied: Callable[[str], None]
 #: спрашивают никогда. Лента одна видит факт нарезки, и ей одной нужно знать, кому этот
 #: факт предъявлять (:func:`torrcast.usecases.feed_pack.feed_astray._astray`).
 map_entry: Callable[[str, float], float]
+opens_clean: Callable[[str, float], bool | None]
 
 #: Часы ленты - слот, как и всё остальное здесь; заполняет его та же :func:`configure`.
 #:

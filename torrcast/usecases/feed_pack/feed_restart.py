@@ -13,6 +13,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.pack_run.pack_factory import PackShrink
+from torrcast.usecases.feed_pack.feed_clean import _recode_whole
 from torrcast.usecases.feed_pack.feed_heading import _heading, _left
 from torrcast.usecases.feed_pack.feed_segment import _have, _stocked
 
@@ -177,7 +178,7 @@ def _begin(state: _State, want: float, shrink: PackShrink) -> float:
         # (:func:`torrcast.usecases.feed_pack.feed_seam._seam`) или запрос следующего места.
         state.door = head  # и обещать её можно: она лежит или ляжет
         return want
-    if want <= 0.0 or state.encode is not None:
+    if want <= 0.0 or state.encode is not None or _recode_whole(state, want):
         _restart(state, state.grid.slot_at(want), shrink)
         return want
     seek, at = _state.settle_start(state.source, want)
