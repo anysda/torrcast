@@ -213,3 +213,23 @@ def test_the_thread_cedes_the_cores_to_the_head_being_laid(tmp_path: Path) -> No
     assert started == [(1, 3)], "голова легла, а нитка так и стоит"
     assert state.head_at > 0.0, "срок головы прогона съеден уступкой"
     assert state.ceded is None, "нитка спрашивает про давно лёгшую голову"
+
+
+def test_the_sweep_keeps_the_head_and_the_piece_the_publisher_is_stuck_on(tmp_path: Path) -> None:
+    """Уборка позади показа не трогает голову прогона и придержанный кусок.
+
+    На перемотке место показа уже новое, а приёмник всё ещё ждёт кусок старого: стереть
+    его - выпустить тот ужатием. Остальное позади окна уходит, как всегда.
+    """
+    state = _state(tmp_path)
+    state.played = 200.0
+    state.head, state.blocked = 1, 2
+    for slot in (0, 1, 2):
+        (tmp_path / f"v{slot}.ts").write_bytes(b"x")
+
+    def _sleep(seconds: float) -> None:
+        state.stopped = True
+
+    _work(state, pick=lambda seen: None, nap=_sleep)
+
+    assert sorted(path.name for path in tmp_path.glob("v*.ts")) == ["v1.ts", "v2.ts"]
