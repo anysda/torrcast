@@ -11,6 +11,7 @@ from torrcast.adapters.prowlarr.ask_indexer import ask_indexer
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.search_url import search_url
+from torrcast.domain.cut_short import cut_short
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.is_down import IN_TIME
 from torrcast.domain.raw_result import RawResult
@@ -51,7 +52,9 @@ def spawn_ask(api: ProwlarrApi, query: str, limit: int, num: int, name: str, bud
         ask.done.set()
         if ask.judge.acquire(blocking=False):
             in_time = ask.rows is not None and ask.ms <= IN_TIME * 1000
-            DOWN_BOOK.hear(name, answered=in_time, where=book)
+            # A zero no sooner than the adapter's cut is the source giving up, not an answer.
+            gave_up = ask.rows == [] and bool(cut_short({name: 0}, {name: ask.ms}))
+            DOWN_BOOK.hear(name, answered=in_time and not gave_up, where=book)
 
     threading.Thread(target=work, daemon=True, name=f"idx-{name}").start()
     return ask

@@ -10,8 +10,12 @@ answer in time brings it back.
 The numbers come from the stand's trace of 315 circles (28-29.09): runs of Knaben's silence
 that ended in an answer were 1 (8 times), 2 (5), 3 (4) and longer (6), so one or two
 silences say nothing, and 96.7% of the gaps between two silences in a row were within half
-an hour (98.4% within an hour). Prowlarr's own back-off keeps the idea of a ladder
-(GPL-3.0, only the idea is taken): it will not hold an indexer out on its first failure.
+an hour (98.4% within an hour). JacRed's adapter gives up with an empty list at its cut
+(:mod:`torrcast.domain.cut_short`), and such a zero is a silence here: over 1224 circles
+(28-30.09) its runs of silence or cut zeros that ended in an answer were 1 (122), 2 (35),
+3 (25) and longer (36), every gap within half an hour. Prowlarr's own back-off keeps the
+idea of a ladder (GPL-3.0, only the idea is taken): it will not hold an indexer out on its
+first failure.
 """
 
 from __future__ import annotations
