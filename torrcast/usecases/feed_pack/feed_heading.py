@@ -84,3 +84,19 @@ def _laying(state: _State, slot: int) -> bool:
         return False
     fresh = _state.clock_port.monotonic() - since < HEAD_WAIT
     return fresh and head_work(state.vault.head().parent, slot).exists()
+
+
+def _left(state: _State, slot: int) -> None:
+    """Упаковка встаёт на ``slot`` мимо головы: ни ждать её, ни уступать ей ядра больше незачем.
+
+    Подъём упаковки за головой (``slot`` на ней или сразу за ней) - тот же показ, и уступка
+    стоит. Перемотка - нет: кодировщик иначе не брал новое место, пока старая голова не
+    ляжет (до :data:`HEAD_WAIT`), а срок головы нового места всё это время стоял.
+    """
+    place = state.heading[0]
+    if place < 0 or slot in (place, place + 1):
+        return
+    state.heading = (-1, 0.0)  # и уступка кодировщика (:func:`_laying`) снимается с ним
+    if state.recoder is not None and not _have(state, place):
+        state.recoder.done.discard(place)
+    journal().mark("голову бросили перемоткой", слот=place, на=slot)

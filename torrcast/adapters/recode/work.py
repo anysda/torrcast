@@ -51,7 +51,7 @@ def _ceding(state: _State) -> bool:
         state.head_at = time.monotonic()
         return True
     state.ceded = None
-    state._say("голова показа легла - кодировщик берётся за своё")
+    state._say("голову показа больше не ждут - кодировщик берётся за своё")
     return False
 
 

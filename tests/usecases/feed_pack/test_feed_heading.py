@@ -241,3 +241,24 @@ def test_a_head_on_the_shelf_takes_no_cores_from_the_coder(tmp_path: Path, journ
     _heading(show, 0)
 
     assert show.recoder.ceded == []
+
+
+def test_a_seek_away_from_the_head_being_laid_stops_the_ceding(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Перемотка с кладущейся головы: кодировщик берётся за новое место, а не ждёт её.
+
+    Без этого нитка уступала ядра старой голове до 20 с, всё это время сдвигая срок
+    головы нового места, и его копию держали вместо картинки.
+    """
+    show, _, _ = _begun(tmp_path, laying=True)
+    busy = show.recoder.ceded[0]
+    show.restart(1)
+    assert busy() is True, "подъём упаковки за головой отпустил её ядра"
+
+    show.restart(3)
+
+    assert busy() is False, "перемотка ждёт голову места, с которого ушли"
+    assert show.recoder.heads[-1] == 3
+    assert _awaiting(show, 0) is False, "покинутую голову ждут по запросу"
+    assert show.recoder.done == set(), "не лёгшую покинутую голову кодировщик не возьмёт"

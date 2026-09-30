@@ -13,7 +13,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.pack_run.pack_factory import PackShrink
-from torrcast.usecases.feed_pack.feed_heading import _heading
+from torrcast.usecases.feed_pack.feed_heading import _heading, _left
 from torrcast.usecases.feed_pack.feed_segment import _have, _stocked
 
 if TYPE_CHECKING:
@@ -56,6 +56,7 @@ def _restart(
     # ⚠️ Кодировщик узнаёт о новом месте показа ПЕРВЫМ делом, до пробного прогона
     # (0.5-1.7 с): голову прогона он обязан начать не позже упаковщика, иначе
     # придерживать её копию будет нечего и первый сегмент уйдёт тяжёлым.
+    _left(state, slot)
     if state.recoder is not None:
         state.recoder.opening(first)
     # ⚠️ Перекодирующему прогону пробный не нужен и вреден: по ``-ss`` он встаёт точно,
