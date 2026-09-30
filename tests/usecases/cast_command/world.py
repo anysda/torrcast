@@ -10,12 +10,12 @@ from torrcast.usecases.select.plan import Plan
 GB = 1024**3
 
 
-def release(name: str = "Кино / Movie (1999) BDRip 1080p") -> Release:
+def release(name: str = "Кино / Movie (1999) BDRip 1080p", year: int = 1999) -> Release:
     """Раздача, которой хватает на план и на запись показа."""
     return Release(
         raw_name=name,
         title="Кино",
-        year=1999,
+        year=year,
         quality="1080p",
         codec="H.264",
         voices=("Дубляж",),
@@ -40,7 +40,7 @@ def plans(count: int = 3) -> list[Plan]:
     """Меню франшизы из ``count`` частей: у каждой части свой ключ и живая раздача."""
     menu = []
     for n in range(1, count + 1):
-        one = release(f"Тачки {n} / Cars {n} ({2005 + n}) BDRip 1080p")
+        one = release(f"Тачки {n} / Cars {n} ({2005 + n}) BDRip 1080p", 2005 + n)
         menu.append(
             Plan(
                 picture=Picture(title=f"Тачки {n}", year=2005 + n, releases=[one]),

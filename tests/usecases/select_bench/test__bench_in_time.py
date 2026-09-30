@@ -245,10 +245,10 @@ def test_the_show_does_not_wait_again_for_a_swarm_the_card_waited_out(
     """🔴 Карточка прождала молчащий №1 весь свой срок: показ его заново не ждёт.
 
     «Призрак в доспехах» - карточка ждала №1 20 с, показ завёл его заново и
-    ждал ещё 10, а №3 (ТВ-2, другого года, подменой не берётся) стоял готовым.
+    ждал ещё 10, а №3 (соседнего года, подменой не берётся) стоял готовым.
     """
     monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
-    pool = [_POOL[0], _POOL[1], replace(_POOL[2], year=2004)]
+    pool = [_POOL[0], _POOL[1], replace(_POOL[2], year=2000)]
     bench = Bench(Torrents(), prober=_prober(top_answers, 30.0, _RUS, _ENG, _RUS), pick_budget=1.0)
     with pytest.raises(NotFoundError):
         bench.resolve(plan(pool), _ASKED, Said())
@@ -271,7 +271,7 @@ def test_a_recounted_circle_waits_for_its_new_top_though_the_card_waited_out_tha
     показ счёл бы прожданным новый №1 лишь за то, что карточка не дождалась старого.
     """
     monkeypatch.setattr(_bench_in_time, "PICK_IN_TIME", 0.2)
-    pool = [_POOL[0], _POOL[1], replace(_POOL[2], year=2004)]
+    pool = [_POOL[0], _POOL[1], replace(_POOL[2], year=2000)]
     newcomer = rel(name="new | Дубляж", seeders=500)
     read = _prober(top_answers, 30.0, _RUS, _ENG, _RUS)
 

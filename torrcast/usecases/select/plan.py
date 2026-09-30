@@ -8,9 +8,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain._series import _Series
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
-from torrcast.domain.foreign_work import foreign_work
 from torrcast.domain.info_hash import info_hash
-from torrcast.domain.later_form import later_form
 from torrcast.domain.map_episodes import map_episodes
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
@@ -19,6 +17,7 @@ from torrcast.usecases.rank.is_candidate import is_candidate
 from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.select._plan_fields import _PlanFields
 from torrcast.usecases.select._voice_first import _voice_first
+from torrcast.usecases.select.foreign_release import foreign_release
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -54,10 +53,10 @@ class Plan(_PlanFields):
         Безусловной остаётся одна очередь - названная человеком (``--release N``): это
         его явное решение, а не подмена, и судить его воротами нечего.
 
-        Огрызков в очереди нет вовсе (:func:`misses_episode`): тратить на них метаданные
-        по DHT незачем — раздача уже своим именем сказала «нужной серии тут нет», и это
-        5-40 с за заранее известный отказ. Отбраковка не молчаливая: кого выкинули,
-        печатает :attr:`skipped`.
+        Огрызков в очереди нет вовсе (:func:`misses_episode`): раздача уже своим именем
+        сказала «нужной серии тут нет», а метаданные по DHT - это 5-40 с за известный
+        отказ; кого выкинули, печатает :attr:`skipped`. Нет в ней и раздач кино другого
+        года (:func:`other_year`): «It Follows» 2014 в пуле «Оно» 2017 - чужая картина.
 
         При открытых воротах (:attr:`loose`) в очередь идут и молчаливые имена: у
         картины иначе нет ни одного живого кандидата, а судить молчание всё равно
@@ -115,7 +114,7 @@ class Plan(_PlanFields):
                 self.last_resort,
                 self.copy_hevc,
             )
-            and not self._elsewhere(r)
+            and not foreign_release(r, self.picture, self.want)
         ]
         queue = _voice_first(self.picture, self.ranked, queue) + self._dubbed_tail(queue)
         # Раздача, которую человек видел на карточке, спрашивается первой - если ворота её
@@ -175,19 +174,11 @@ class Plan(_PlanFields):
             for n, r in enumerate(self.ranked, start=1)
             if n not in seen
             and r.dubbed
-            and not self._elsewhere(r)
+            and not foreign_release(r, self.picture, self.want)
             and is_candidate(
                 r, self.runtime, self.warn_mbit, True, self.hard_mbit, True, self.copy_hevc
             )
         ]
-
-    def _elsewhere(self, release: Release) -> bool:
-        """Серии тут нет: имя её не обещает или раздача другой работы (:func:`foreign_work`)."""
-        want, picture = self.want, self.picture
-        return misses_episode(release, want) or (
-            want is not None
-            and (foreign_work(release, picture) or later_form(release, picture, want))
-        )
 
     @property
     def want(self) -> Episode | None:

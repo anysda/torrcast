@@ -1239,7 +1239,7 @@ def test_a_native_picture_still_plays_its_only_unnamed_track(
     «Бригаду» никто не озвучивал, она так и снята: гонять по такой очереди гейт русской
     озвучки значило бы искать перевод русского фильма на русский.
     """
-    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
+    ranked = [replace(rel(name=f"r{n}", seeders=100 - 10 * n), year=2002) for n in range(2)]
     probe = _tracks(ranked, "und", "rus")
     picture = Picture(title="Бригада", year=2002, releases=ranked, native=True)
     plan = Plan(picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0)
@@ -1267,7 +1267,7 @@ def test_a_foreign_picture_whose_original_is_hieroglyphs_keeps_the_voice_gate(
     безымянная: ту теперь играют сама по себе при любом происхождении (🔴 TC-1288), и
     точку про иероглифы этим случаем было бы не проверить - гейт вообще не спросили бы.
     """
-    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
+    ranked = [replace(rel(name=f"r{n}", seeders=100 - 10 * n), year=1997) for n in range(2)]
     ambiguous = (AudioTrack(0, "und", None), AudioTrack(1, "jpn", "Original"))
     probe = _reads(
         ranked,

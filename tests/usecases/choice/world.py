@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, TypeVar, cast
 
 from torrcast.adapters.choice_environment import environment
@@ -89,7 +89,8 @@ def plan(
 
     ``season`` - какой сезон плану нужен; без него серии у картины нет, как у фильма.
     """
-    ranked = pool if pool is not None else [film(f"{title} {year} WEB-DL 1080p", seeders=seeders)]
+    own = replace(film(f"{title} {year} WEB-DL 1080p", seeders=seeders), year=year)
+    ranked = pool if pool is not None else [own]
     return Plan(
         picture=Picture(
             title=title, year=year, kind=kind, part=part, original=original, releases=ranked
