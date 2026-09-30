@@ -29,7 +29,7 @@ def test_a_viewers_circle_starts_at_once_whatever_the_queue() -> None:
 
 @pytest.mark.machine
 def test_a_warmup_starts_only_when_the_live_search_ends() -> None:
-    slots = HostSlots()
+    slots = HostSlots(quiet=0.0)
     held: list[float] = []
     live = slots.live()
     live.__enter__()
@@ -44,7 +44,7 @@ def test_a_warmup_starts_only_when_the_live_search_ends() -> None:
 
 @pytest.mark.machine
 def test_a_warmup_waits_out_its_hosts_queue_and_only_theirs() -> None:
-    slots = HostSlots(pace=0.4)
+    slots = HostSlots(pace=0.4, quiet=0.0)
     slots.take("YTS", 6.0)
     slots.take("YTS", 6.0)
     assert _held(slots, ["RuTor"]) < 0.05, "another host has its own queue"
@@ -61,10 +61,32 @@ def test_a_warmup_is_not_starved_by_live_searches_for_good() -> None:
 @pytest.mark.machine
 def test_a_warmup_waits_for_the_request_still_in_flight_to_its_host() -> None:
     # Prowlarr runs YTS 2.5 s apart, not two: the drawn slot is free before the host is.
-    slots = HostSlots(pace=0.0)
+    slots = HostSlots(pace=0.0, quiet=0.0)
     done = threading.Event()
     slots.take("YTS", 6.0)
     slots.sent("YTS", done)
     threading.Timer(0.4, done.set).start()
     assert _held(slots, ["RuTor"]) < 0.05, "another host's request does not hold it"
     assert 0.3 < _held(slots, ["YTS"]) < 1.0, "the warmup queued behind a request in flight"
+
+
+@pytest.mark.machine
+def test_a_warmup_does_not_go_to_its_host_just_after_a_live_search() -> None:
+    # A request cannot be taken back: the warmup that left first held the next search's host.
+    slots = HostSlots(quiet=0.5)
+    with slots.live():
+        pass
+    assert 0.4 < _held(slots, ["YTS"]) < 1.0, "the warmup went out on the heels of a search"
+
+
+@pytest.mark.machine
+def test_a_search_that_comes_puts_the_warmup_off_again() -> None:
+    slots = HostSlots(quiet=0.5)  # the start of the process counts as a search just ended
+    held: list[float] = []
+    warm = threading.Thread(target=lambda: held.append(_held(slots, ["YTS"])))
+    warm.start()
+    time.sleep(0.3)
+    with slots.live():
+        time.sleep(0.1)
+    warm.join(3.0)
+    assert held and 0.8 < held[0] < 1.4, held

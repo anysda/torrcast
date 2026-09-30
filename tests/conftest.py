@@ -634,6 +634,7 @@ def _own_claims(monkeypatch: pytest.MonkeyPatch) -> None:
 def _own_host_slots(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prowlarr's queue is the process's: a neighbour's requests would hold this test's slots."""
     monkeypatch.setattr(HOST_SLOTS, "_free", {})
+    monkeypatch.setattr(HOST_SLOTS, "_quiet", 0.0)  # warm tests measure the queue, not the pause
 
 
 @pytest.fixture

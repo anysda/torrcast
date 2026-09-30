@@ -16,6 +16,12 @@ runs and none of its hosts has a request of ours still in flight, so it holds on
 most ahead of a viewer. The drawn slots alone did not do: Prowlarr runs YTS 2.5 s apart, not
 two, and warmup circles spaced by the picture still stacked YTS half a second per circle
 (three restarts: 12, 12 and 13 silences, every circle leaving YTS late).
+
+A request cannot be taken back, so a warmup must not send one a search is about to need.
+After a restart the saved screen's circle left 0.68 s before the first search, and the
+search's JacRed text started a whole pace behind it (+1.32 s, the warmup's at -0.67 s). A
+warmup circle now also waits out :data:`QUIET` without a live search, counted from the
+start of the process and again from the end of every search.
 """
 
 from __future__ import annotations
@@ -35,14 +41,21 @@ PACE: Final = 2.0
 MOST: Final = 60.0
 #: How often a waiting warmup looks at the queues again while no live search ends.
 LOOK: Final = 0.25
+#: Seconds without a live search before a warmup circle starts: the next search of one process
+#: came within 15.2 s of the one before in nine cases of ten (2925 on the stand, median 6.0 s).
+QUIET: Final = 15.0
 
 
 class HostSlots:
     """When each indexer's next slot starts, as drawn by the requests this process sent."""
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic, pace: float = PACE) -> None:
+    def __init__(
+        self, clock: Callable[[], float] = time.monotonic, pace: float = PACE, quiet: float = QUIET
+    ) -> None:
         self._clock = clock
         self._pace = pace
+        self._quiet = quiet
+        self._calm = clock()  # the start of the process counts as a search just ended
         self._lock = threading.Lock()
         self._free: dict[str, float] = {}
         self._flight: dict[str, list[threading.Event]] = {}
@@ -82,13 +95,15 @@ class HostSlots:
         finally:
             with self._turn:
                 self._live -= 1
+                self._calm = self._clock()
                 self._turn.notify_all()
 
     def give_way(self, names: Sequence[str], most: float = MOST) -> float:
         """The moment (:func:`time.monotonic`) a circle to ``names`` may start.
 
-        A viewer's circle is never held. A warmup circle waits until no live search runs and
-        none of its hosts has a queue or a request in flight, ``most`` seconds at the longest.
+        A viewer's circle is never held. A warmup circle waits until no live search ran for
+        :data:`QUIET` and none of its hosts has a queue or a request in flight, ``most``
+        seconds at the longest.
         """
         if not WARMUP.get():
             return time.monotonic()
@@ -100,9 +115,11 @@ class HostSlots:
                 flying = any(
                     not one.is_set() for name in names for one in self._flight.get(name, [])
                 )
-                if (self._live == 0 and lag <= 0 and not flying) or now >= began + most:
+                still = self._calm + self._quiet - now
+                calm = self._live == 0 and still <= 0
+                if (calm and lag <= 0 and not flying) or now >= began + most:
                     break
-                self._turn.wait(min(began + most - now, max(lag, LOOK)))
+                self._turn.wait(min(began + most - now, max(lag, still, LOOK)))
         if (held := now - began) > LOOK:
             journal().emit("search", "warmup_gave_way", held=round(held, 2), names=list(names))
         return time.monotonic()
@@ -111,4 +128,4 @@ class HostSlots:
 #: The one queue picture of the process: the clients live one search each.
 HOST_SLOTS: Final = HostSlots()
 
-__all__ = ["HOST_SLOTS", "LOOK", "MOST", "PACE", "HostSlots"]
+__all__ = ["HOST_SLOTS", "LOOK", "MOST", "PACE", "QUIET", "HostSlots"]
