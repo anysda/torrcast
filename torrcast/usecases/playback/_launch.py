@@ -70,7 +70,7 @@ def _launch(
         print(phrase("playback.dry_run_no_cast", about=about))
         return EXIT_OK
     refuse_called_off()
-    _refuse_hopeless(config, entry)
+    _refuse_hopeless(config, entry, tab)
     out = hls_root(config.hls_dir)
     owner = LaunchOwner.claim(out)  # до погашения прошлого: его ожидание узнает, что снято
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по

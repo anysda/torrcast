@@ -9,10 +9,11 @@ import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.for_tab import for_tab
 from torrcast.domain.not_found_error import NotFoundError
 
 
-def _refuse_hopeless(config: Config, entry: Entry) -> None:
+def _refuse_hopeless(config: Config, entry: Entry, tab: str = "") -> None:
     """Отказать ДО юнита, если этой записи на этом приёмнике картинки не видать.
 
     🔴 Случай ровно один, и он живой (TC-157): кадр 4К приёмник не берёт вовсе - ни в чужом кодеке,
@@ -30,8 +31,10 @@ def _refuse_hopeless(config: Config, entry: Entry) -> None:
     телевизор», код 2 и ни слова о причине. Теперь причина печатается за доли секунды, а ffmpeg и
     раздача не поднимаются вовсе.
 
-    Молчим там, где не знаем: кадр ноль — это записи прежних версий, они играются как раньше."""
-    profile = _state.detect_profile(config).profile
+    Молчим там, где не знаем: кадр ноль — это записи прежних версий, они играются как раньше.
+    Предел кадра берётся у того профиля, которым сыграет юнит: ``tab`` - ключ вкладки,
+    попросившей показ (:func:`torrcast.domain.tab_key.tab_key`)."""
+    profile = for_tab(_state.detect_profile(config), config, tab).profile
     if not entry.frame or entry.frame <= profile.recode_frame:
         return
     if config.recode:

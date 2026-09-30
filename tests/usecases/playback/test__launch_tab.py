@@ -27,3 +27,26 @@ def test_resume_hands_the_tab_key_to_the_launch(monkeypatch: pytest.MonkeyPatch)
 
     assert code == 0
     assert tabs == ["gecko-linux"]
+
+
+def test_the_launch_judges_a_hopeless_frame_by_the_tab(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Отказ до юнита судит профилем вкладки, которым сыграет юнит, а не детектором без неё."""
+    tabs: list[str] = []
+
+    class JudgedError(Exception):
+        pass
+
+    def refuse(config: Config, entry: Entry, tab: str = "") -> None:
+        tabs.append(tab)
+        raise JudgedError
+
+    monkeypatch.setattr(launch_module, "refuse_called_off", lambda: None)
+    monkeypatch.setattr(launch_module, "_refuse_hopeless", refuse)
+    entry = Entry(title="Кино", magnet="magnet:?xt=1", frame=2160)
+
+    with pytest.raises(JudgedError):
+        launch_module._launch(
+            Config(), "movie:кино", entry, "Кино", _Clock(), here=True, tab="gecko-linux"
+        )
+
+    assert tabs == ["gecko-linux"]
