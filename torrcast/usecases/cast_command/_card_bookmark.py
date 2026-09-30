@@ -37,13 +37,15 @@ def _card_bookmark(config: Config, state: WatchState, args: Args, *, clock: _Clo
     the start to the circle as before: no record under any name of the card's picture
     (:func:`_bookmark_key`), no release in it, a finished film, or a release that no longer plays,
     which :func:`_continue` buries out loud, so the circle and the bookmark after it skip it.
+    Nothing buries a release before this call: a card start is a menu start, and the early
+    bookmark exits of the play command are closed to it.
     """
     own = args.pinned or args.menu or args.pick is not None or args.episode is not None
     if not args.picture or own:
         return None
     key = _bookmark_key(state, args.picture)
     started = None if key is None else state.get(key)
-    if key is None or started is None or not started.magnet or args.buried(started.magnet):
+    if key is None or started is None or not started.magnet:
         return None
     title = spoken_title(started.title, started.original or args.picture_original)
     if started.serial and not args.from_start:
