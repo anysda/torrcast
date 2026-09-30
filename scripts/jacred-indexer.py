@@ -8,7 +8,7 @@ import subprocess
 import sys
 import urllib.parse
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import zip_longest
 from typing import Any
@@ -46,9 +46,13 @@ Fetch = Callable[[str, str], Any]
 
 #: What joins several texts of one request; torrcast's ``torrcast.domain.joint_query.JOINT``.
 JOINT = " | "
+#: Seconds the other texts of a joined request still get once its first text has answered.
+#: Prowlarr History on the stand (06-30.09, 23835 texts asked of JacRed alone): a text still
+#: answering past 1.0 s brought rows in 19.9% of all, past 1.5 s in 10.7%, past 2.0 s 4.9%.
+NAMES_GRACE = 1.5
 
 
-def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
+def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list[dict[str, Any]]:
     """Return usable magnets; an absent API is an empty optional source.
 
     `fetch` carries its production default, so the handler calls this with one argument
@@ -58,12 +62,20 @@ def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
     Prowlarr paces requests to one host two seconds apart, so the names come in one
     request and go to the API in parallel. The rows are interleaved text by text, so a
     cut of the joined answer by the caller's limit still keeps every text.
+
+    The first text leads: torrcast puts the viewer's own there, and the others wait no more
+    than `grace` past its answer. Waiting all of them made the viewer's rows wait the slowest
+    name, mostly empty: the joined request's median was 3.3 s where the text alone took 0.65.
     """
     texts = [text.strip() for text in query.split(JOINT) if text.strip()]
     if len(texts) < 2:
         return _search(query, fetch)
-    with ThreadPoolExecutor(len(texts)) as pool:
-        answers = list(pool.map(lambda text: _search(text, fetch), texts))
+    pool = ThreadPoolExecutor(len(texts))
+    asked = [pool.submit(_search, text, fetch) for text in texts]
+    pool.shutdown(wait=False)  # a text past the grace ends on its own curl cut, unread
+    asked[0].result()
+    wait(asked[1:], timeout=grace)
+    answers = [each.result() for each in asked if each.done()]
     rows: dict[str, dict[str, Any]] = {}
     for row in (row for tier in zip_longest(*answers) for row in tier if row is not None):
         rows.setdefault(row["magnet"], row)

@@ -2,6 +2,8 @@
 
 import importlib.util
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -94,6 +96,24 @@ def test_joined_names_are_asked_apart_and_answered_together() -> None:
     rows = adapter.search("Тачки 2006 | Cars 2006", fetch)
     assert sorted(asked) == ["Cars 2006", "Тачки 2006"]
     assert [row["title"] for row in rows] == ["a1", "both", "a2", "b1"]
+
+
+def test_a_slow_name_does_not_hold_the_viewer_s_text() -> None:
+    """The first text is the viewer's: a name past the grace is left, one inside it kept."""
+    free = threading.Event()
+    answers = {"Тачки 2006": _rows("a1"), "Cars 2006": _rows("b1"), "Cars 2006 slow": _rows("c1")}
+
+    def fetch(_origin: str, query: str) -> Any:
+        if query.endswith("slow"):
+            free.wait(5.0)
+        return answers[query]
+
+    began = time.monotonic()
+    rows = adapter.search("Тачки 2006 | Cars 2006 | Cars 2006 slow", fetch, grace=0.2)
+    took = time.monotonic() - began
+    free.set()
+    assert took < 2.0, "the slow name held the answer"
+    assert [row["title"] for row in rows] == ["a1", "b1"]
 
 
 def test_the_joint_is_the_one_torrcast_sends() -> None:
