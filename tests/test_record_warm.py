@@ -47,16 +47,28 @@ class _Hand:
             self.spawned.pop(0)()
 
 
-def test_the_page_order_decides_and_the_records_go_one_by_one() -> None:
+def test_each_first_record_of_the_row_gets_its_own_hand() -> None:
+    """По одной третья запись ждала двух соседок по 10-28 с и не успевала к клику."""
     hand = _Hand()
     hand.warm.name(["a", "b", "c"])
     hand.warm.offer(_job("b"))
     hand.warm.offer(_job("a"))
 
-    assert len(hand.spawned) == 1, "одна рука: вторая делила бы полосу роя"
+    assert len(hand.spawned) == 2, "каждая запись ряда греется сама, не в очереди"
     hand.run()
 
-    assert hand.warmed == [("a.mkv", True), ("b.mkv", True)], "страница назвала «a» первой"
+    assert sorted(hand.warmed) == [("a.mkv", True), ("b.mkv", True)]
+
+
+def test_a_record_being_warmed_gets_no_second_hand() -> None:
+    hand = _Hand()
+    hand.warm.name(["a"])
+    hand.warm.offer(_job("a"))
+    hand.warm.offer(_job("a", at=900.0))  # закладка сдвинулась, пока рука ещё не дошла
+
+    assert len(hand.spawned) == 1, "две руки читали бы одну раздачу дважды"
+    hand.run()
+    assert hand.warmed == [("a.mkv", True)]
 
 
 def test_only_the_first_records_of_the_row_are_warmed() -> None:
@@ -120,19 +132,19 @@ def test_a_show_that_starts_midway_stops_the_warming() -> None:
     assert hand.warmed == [("a.mkv", False), ("a.mkv", True)], "брошенная догревается после"
 
 
-def test_the_card_record_takes_the_hand_from_a_record_warming_below_it() -> None:
+def test_a_record_the_page_pushed_out_of_the_row_stops_warming() -> None:
     hand = _Hand()
-    hand.warm.name(["a", "b"])
+    hand.warm.name(["b"])
     hand.warm.offer(_job("b"))
 
-    def card_opened() -> None:
+    def row_moved() -> None:
         hand.during = lambda: None
-        hand.warm.offer(_job("a"))
+        hand.warm.name(["x", "y", "z"])
 
-    hand.during = card_opened
+    hand.during = row_moved
     hand.run()
 
-    assert hand.warmed == [("b.mkv", False), ("a.mkv", True), ("b.mkv", True)]
+    assert hand.warmed == [("b.mkv", False)], "за первыми записями - только метаданные"
 
 
 def test_a_released_record_is_dropped_from_the_queue() -> None:

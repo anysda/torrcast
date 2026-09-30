@@ -3,13 +3,14 @@
 Держатель (:mod:`web.record_hold`) поднимает раздачи записей ради метаданных, но байтов
 не читает, и «Продолжить» платил с клика за первые куски роя: карту опорных кадров,
 голову файла и кусок у закладки, до 36 с на стенде. Та же цепочка до клика
-(:func:`torrcast.adapters.stream_pack.warm_file.warm_file`) даёт кадр за 2.5-4 с.
+(:func:`torrcast.adapters.stream_pack.warm_file.warm_file`) даёт кадр за 2-3.5 с.
 
 Греются первые :data:`~torrcast.domain.continue_row.WARM_ROW` записей, какие назвала
-страница (карточка первой), и строго по одной: одна раздача получает всю полосу, а клик
-достаётся одной плитке. Прогрев уступает живому показу: пока юнит показа жив, новый не
-начинается, начатый бросается на следующем мегабайте. Прогретая запись второй раз не
-греется, пока не сдвинулась закладка.
+страница, каждая своей рукой. По одной они шли 10-28 с каждая, и третья не успевала к
+клику за минуту: упор в задержку кусков роя, а не в полосу (4 МБ/с на три раздачи).
+Прогрев уступает живому показу: пока юнит показа жив, новый не начинается, начатый
+бросается на следующем мегабайте. Прогретая запись второй раз не греется, пока не
+сдвинулась закладка.
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ class RecordWarm:
     _order: list[str] = field(default_factory=list, repr=False)
     _ready: dict[str, WarmJob] = field(default_factory=dict, repr=False)
     _done: set[tuple[str, str, int]] = field(default_factory=set, repr=False)
-    _running: bool = field(default=False, repr=False)
+    _busy: set[str] = field(default_factory=set, repr=False)
     _seen: tuple[float, bool] = field(default=(-STEP, False), repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -84,45 +85,47 @@ class RecordWarm:
 
     def _start(self) -> None:
         with self._lock:
-            if self._running or self._pick() is None:
-                return
-            self._running = True
-        self.spawn(self._run)
+            idle = [m for m in self._order if m in self._ready and m not in self._busy]
+            self._busy.update(idle)
+        for magnet in idle:
+            self.spawn(partial(self._run, magnet))
 
-    def _pick(self) -> WarmJob | None:
-        return next((self._ready[m] for m in self._order if m in self._ready), None)
+    def _pick(self, magnet: str) -> WarmJob | None:
+        return self._ready.get(magnet) if magnet in self._order else None
 
-    def _first(self, job: WarmJob) -> bool:
-        """Греть ли дальше: запись всё ещё первая в очереди и показа нет."""
+    def _still(self, job: WarmJob) -> bool:
+        """Греть ли дальше: запись всё ещё ждёт этого прогрева и показа нет."""
         with self._lock:
-            ahead = self._pick() == job
-        return ahead and not self._show()
+            wanted = self._pick(job.magnet) == job
+        return wanted and not self._show()
 
     def _show(self) -> bool:
         """Идёт ли показ; юнит спрашивается не чаще :data:`STEP` - прогрев зовёт на мегабайт."""
-        at, live = self._seen
+        with self._lock:
+            at, live = self._seen
         now = self.clock()
         if now - at >= STEP:
             live = self.showing()
-            self._seen = (now, live)
+            with self._lock:
+                self._seen = (now, live)
         return live
 
-    def _run(self) -> None:
+    def _run(self, magnet: str) -> None:
         while True:
             with self._lock:
-                job = self._pick()
+                job = self._pick(magnet)
                 if job is None:
-                    self._running = False
+                    self._busy.discard(magnet)
                     return
             if self._show():
                 self.wait(STEP)
                 continue
             began = self.clock()
             finished = threading.Event()
-            alive = partial(self._first, job)
+            alive = partial(self._still, job)
             self.warm(job.source, at=job.at, alive=alive, name=job.name, done=finished)
             finished.wait()
-            whole = self._first(job)
+            whole = self._still(job)
             spent = round(self.clock() - began, 2)
             place = round(job.at)
             journal().mark("прогрев записи", файл=job.name, место=place, целиком=whole, за=spent)
