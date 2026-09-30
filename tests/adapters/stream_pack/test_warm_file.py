@@ -11,10 +11,13 @@ import pytest
 
 from torrcast.adapters.stream_pack.warm_file import warm_file
 from torrcast.domain.film_keys import FilmKeys
+from torrcast.domain.frames.mkv.ids import CUES_CHUNK
 from torrcast.domain.warm_open import HEAD_OPEN, HEAD_WARM
 
 #: Замер начала ленты в ряду прогретых кусков: его место в порядке и есть договор.
 MEASURED = (-1, -1)
+#: Где индекс mkv у подставного файла.
+CUES = 4 << 30
 
 
 @dataclass
@@ -36,6 +39,9 @@ class Watch:
         self.asked.append(MEASURED)
         return 0.0
 
+    def cues_of(self, url: str) -> int | None:
+        return CUES
+
     def keys_of(self, url: str) -> FilmKeys:
         if self.keys is None:
             raise OSError("карта не снялась")
@@ -54,8 +60,9 @@ def test_from_the_start_only_the_head_is_warmed() -> None:
     """С нуля греется начало, и только оно: место позиции и есть начало."""
     watch = Watch(FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "mp4"))
     warm_file(
-        "http://торрент/поток", keys_of=watch.keys_of, warm=watch.warm, origin_of=watch.origin_of
-    )
+        "http://торрент/поток", keys_of=watch.keys_of, warm=watch.warm, origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
+    )  # fmt: skip
     watch.wait(2)
     time.sleep(0.1)
     assert watch.asked == [(0, HEAD_WARM), MEASURED]
@@ -75,6 +82,7 @@ def test_the_middle_warms_the_header_and_the_place_of_the_position() -> None:
         keys_of=watch.keys_of,
         warm=watch.warm,
         origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
     )
     watch.wait(3)
     assert watch.asked == [(0, HEAD_OPEN["mp4"]), MEASURED, (500 << 20, HEAD_WARM)]
@@ -90,6 +98,7 @@ def test_the_head_is_sized_by_the_container_of_the_map() -> None:
         keys_of=watch.keys_of,
         warm=watch.warm,
         origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
     )
     watch.wait(2)
     assert watch.asked[0] == (0, HEAD_OPEN["mkv"])
@@ -106,6 +115,7 @@ def test_an_old_map_takes_the_container_from_the_name_of_the_file() -> None:
         keys_of=watch.keys_of,
         warm=watch.warm,
         origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
     )
     watch.wait(2)
     assert watch.asked[0] == (0, HEAD_OPEN["mkv"])
@@ -121,6 +131,7 @@ def test_a_map_that_did_not_come_still_warms_the_head() -> None:
         keys_of=watch.keys_of,
         warm=watch.warm,
         origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
     )
     watch.wait(1)
     time.sleep(0.1)
@@ -138,6 +149,7 @@ def test_a_release_the_show_gave_up_on_is_not_warmed_further() -> None:
         keys_of=watch.keys_of,
         warm=watch.warm,
         origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
     )
     time.sleep(0.2)
     assert watch.asked == [], "прогрев пошёл по релизу, от которого показ уже отказался"
@@ -153,6 +165,7 @@ def test_the_returned_event_marks_a_map_taken_or_refused() -> None:
             keys_of=watch.keys_of,
             warm=watch.warm,
             origin_of=watch.origin_of,
+            cues_of=watch.cues_of,
         )
         assert mapped.wait(3.0), "карта кончилась, а событие не встало"
 
@@ -175,6 +188,7 @@ def test_a_file_no_map_is_read_from_does_not_hold_the_pick(name: str, waits: boo
     mapped = warm_file(
         "http://торрент/поток", name=name, keys_of=keys_of, warm=watch.warm,
         origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
     )  # fmt: skip
     assert reading.wait(3.0), "разбор карты не пошёл"
     assert mapped.is_set() is not waits
@@ -202,6 +216,7 @@ def test_done_rises_after_the_place_of_the_position_even_when_it_fails() -> None
         keys_of=watch.keys_of,
         warm=warm,
         origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
         done=done,
     )
 
@@ -209,3 +224,26 @@ def test_done_rises_after_the_place_of_the_position_even_when_it_fails() -> None
     assert not done.wait(0.2), "встало до конца прогрева места закладки"
     let_go.set()
     assert done.wait(3), "отказ роя тоже конец цепочки"
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(("kind", "warms"), [("mkv", True), ("mp4", False)])
+def test_the_middle_of_an_mkv_warms_its_cues_after_the_header(kind: str, warms: bool) -> None:
+    """ffmpeg с ``-ss`` читает индекс mkv вторым; карта из кэша его не читает.
+
+    Холодный индекс при прогретой закладке стоил кадру 7.4 с ожидания куска хвоста.
+    Положительный контроль - mp4: у него индекс в голове, лишнего чтения быть не должно.
+    """
+    watch = Watch(FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], kind))
+    warm_file(
+        "http://торрент/поток",
+        at=240.0,
+        keys_of=watch.keys_of,
+        warm=watch.warm,
+        origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
+    )
+    watch.wait(4 if warms else 3)
+    time.sleep(0.1)
+    cues = [(CUES, CUES_CHUNK)] if warms else []
+    assert watch.asked == [(0, HEAD_OPEN[kind]), *cues, MEASURED, (500 << 20, HEAD_WARM)]

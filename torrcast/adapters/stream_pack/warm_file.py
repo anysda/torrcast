@@ -8,12 +8,14 @@ from collections.abc import Callable
 from typing import Any
 
 from torrcast.adapters.stream_pack.container_of import container_of
+from torrcast.adapters.stream_pack.cues_at import cues_at
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.head_open import head_open
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
 from torrcast.adapters.stream_pack.pull_head import pull_head
 from torrcast.adapters.stream_pack.warm_at import warm_at
 from torrcast.domain.film_keys import FilmKeys
+from torrcast.domain.frames.mkv.ids import CUES_CHUNK
 from torrcast.domain.warm_open import HEAD_WARM
 
 
@@ -26,6 +28,7 @@ def warm_file(
     keys_of: Callable[[str], FilmKeys] = film_keys,
     warm: Callable[[str, int, int, Any], int] = warm_at,
     origin_of: Callable[[str], float] = pack_origin,
+    cues_of: Callable[[str], int | None] = cues_at,
     done: threading.Event | None = None,
 ) -> threading.Event:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
@@ -46,6 +49,9 @@ def warm_file(
     размер головы по контейнеру. ``warm`` уезжает и в :func:`pull_head`: прогрев головы и
     прогрев места - одна и та же работа, и на стенде их видит один наблюдатель.
     ``origin_of`` - замер начала ленты: живой ffprobe, стенду не нужный.
+    ``cues_of`` - где у mkv индекс: ffmpeg с ``-ss`` читает его вторым, после заголовка.
+    Карта из кэша torrcast хвоста не читает, а кэш TorrServer живёт отдельно, и индекс
+    бывал холодным при прогретой закладке: кадр ждал кусок хвоста 7.4 с.
 
     Возвращает событие «карта снята или отказана»: без карты сетки нет, и отбор в срок
     (:func:`torrcast.usecases.select_bench._bench_in_time._fit`) ждёт его у подмены.
@@ -78,9 +84,14 @@ def warm_file(
         offset = keys.byte_at(at) if keys is not None and at > 0 else 0
         # Контейнер знает карта; у карты из кэша прошлой версии его нет - тогда спрашиваем
         # имя файла раздачи, оно у показа всегда под рукой.
-        head = head_open((keys.kind if keys is not None else "") or container_of(name))
+        kind = (keys.kind if keys is not None else "") or container_of(name)
+        head = head_open(kind)
         with contextlib.suppress(Exception):
             pull_head(source_url, head if offset else HEAD_WARM, alive, warm=warm)
+        with contextlib.suppress(Exception):
+            live = offset and kind == "mkv" and (alive is None or alive())
+            if live and (cues := cues_of(source_url)) is not None:
+                warm(source_url, cues, CUES_CHUNK, alive)
         # Голова уже в рою, и ffprobe начала ленты стоит тут долей секунды; показ, отдельный
         # процесс, возьмёт замер с полки (:func:`pack_origin`), а не станет в очередь за своим.
         with contextlib.suppress(Exception):
