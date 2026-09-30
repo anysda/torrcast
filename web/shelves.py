@@ -15,6 +15,7 @@ from web.answer import Answer
 from web.request import Request
 from web.shelf_playable import PLAYABLE
 from web.shelves_cache import ShelvesCache
+from web.start_first import start_first
 from web.warm_wiring import TARGETS
 
 
@@ -22,8 +23,10 @@ def _playable(query: str, key: str) -> bool | None:
     """Плитка играет, если фоновый отбор раздачи нашёл рабочую дорожку (TC-1343).
 
     Трёхсоставный приговор (:data:`web.shelf_playable.Verdict`) идёт наружу как есть -
-    «не знаю» решает :func:`web.shelf_tiles._covered`, не эта проводка.
+    «не знаю» решает :func:`web.shelf_tiles._covered`, не эта проводка. Идущий подъём
+    показа приговор пропускает вперёд (:mod:`web.start_first`).
     """
+    start_first()
     return PLAYABLE.of(query, key, load_config())
 
 

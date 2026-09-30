@@ -125,3 +125,20 @@ def test_the_shelf_feed_asks_the_indexers_apart_with_a_deadline(
 
     assert asked == [(300, shelves_module._FEED_WITHIN)]
     assert 0 < shelves_module._FEED_WITHIN < 30  # срок ленты - часть 30 с до полной полки
+
+
+def test_a_shelf_verdict_lets_a_show_start_go_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+
+    class _Playable:
+        @staticmethod
+        def of(query: str, key: str, _config: object) -> bool:
+            order.append(f"verdict {query} {key}")
+            return True
+
+    monkeypatch.setattr(shelves_module, "start_first", lambda: order.append("start first"))
+    monkeypatch.setattr(shelves_module, "PLAYABLE", _Playable)
+    monkeypatch.setattr(shelves_module, "load_config", lambda: None)
+
+    assert shelves_module._playable("q", "k") is True
+    assert order == ["start first", "verdict q k"]
