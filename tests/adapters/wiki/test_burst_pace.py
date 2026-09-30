@@ -1,6 +1,6 @@
 """Checks the short-window pace of Wikipedia requests on a fake clock."""
 
-from torrcast.adapters.wiki.burst_pace import MOST, WINDOW, BurstPace
+from torrcast.adapters.wiki.burst_pace import MOST, RESERVE, WINDOW, BurstPace
 
 
 class _Clock:
@@ -40,3 +40,15 @@ def test_a_steady_pace_under_the_share_never_waits() -> None:
     for _ in range(240):
         assert pace.admit(0.0)
         clock.now += 0.25
+
+
+def test_a_card_text_leaves_the_reserve_to_pictures() -> None:
+    """Covers queued 21 s behind card texts: a text stops short, a picture takes the rest."""
+    clock = _Clock()
+    pace = BurstPace(clock, clock.pause)
+    assert all(pace.admit(0.0, background=True) for _ in range(MOST - RESERVE))
+    assert not pace.admit(0.0, background=True), "a card text took a reserved slot"
+    assert all(pace.admit(0.0) for _ in range(RESERVE))
+    assert not pace.admit(0.0)
+    assert pace.admit(WINDOW, background=True)
+    assert clock.now == 1000.0 + WINDOW, "a card text went before its share aged out"

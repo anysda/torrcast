@@ -18,6 +18,7 @@ from hass.posters import ROUTE, Posters
 from tests.test_hit_posters import FakeSource
 from torrcast.adapters.ffmpeg.frame_shot import frame_shot
 from torrcast.adapters.wiki.imdb_poster import ImdbPoster
+from torrcast.adapters.wiki.urgent_client import UrgentClient
 from torrcast.adapters.wiki.wiki_poster import WikiPoster
 from torrcast.domain.facts.ask import Ask
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
@@ -542,9 +543,10 @@ def test_by_default_the_poster_is_looked_for_in_both_real_sources() -> None:
     assert isinstance(source.first, WikiPoster), "первой отвечает Википедия"
     assert isinstance(source.second, ImdbPoster), "молчащих добирает IMDb"
     assert found.__name__ == "poster"
-    assert source.first.client is FACTS.client
-    assert source.first.files is FACTS.client
-    assert source.second.client is FACTS.client
+    view = source.first.client
+    assert isinstance(view, UrgentClient) and not view.urgent, "полка просит спокойно"
+    assert view.client is FACTS.client, "под видом картинок - тот же клиент справки"
+    assert source.first.files is view and source.second.client is view
     assert made._frame is frame_shot, "запасной путь тоже собран настоящим"
 
 

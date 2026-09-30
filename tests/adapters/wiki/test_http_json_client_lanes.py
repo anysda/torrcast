@@ -8,7 +8,7 @@ import time
 import pytest
 
 from torrcast.adapters.wiki import http_json_client
-from torrcast.adapters.wiki.burst_pace import MOST
+from torrcast.adapters.wiki.burst_pace import MOST, RESERVE
 from torrcast.adapters.wiki.http_json_client import HttpJsonClient
 
 
@@ -84,16 +84,21 @@ def test_a_wikipedia_burst_waits_but_a_click_and_wikidata_do_not(
     assert client.get("query.wikidata.org", "/sparql", {}, {}, 0.0, urgent=True) == {}
 
 
-def test_a_background_refusal_troubles_only_the_background(
+def test_a_card_text_refusal_leaves_covers_untroubled_and_the_reserve_free(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Refused card extracts made the visible row's empty answers unknown: it asked them again."""
+    """Refused card texts made cover answers unknown: the row asked again until 37 s."""
     _peak(monkeypatch, "ru.wikipedia.org", callers=1)
     client = HttpJsonClient("torrcast/test")
-    for _ in range(MOST):
-        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, urgent=True)
+    for _ in range(MOST - RESERVE):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0)
     began = time.monotonic()
     with pytest.raises(OSError):
         client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0)
-    assert client.troubled_since(began), "a background verdict read the refusal as an answer"
+    assert not client.troubled_since(began), "a card text refusal troubled the cover verdicts"
+    for _ in range(RESERVE):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, cover=True)
+    with pytest.raises(OSError):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, cover=True)
+    assert client.troubled_since(began), "a calm cover verdict read the refusal as an answer"
     assert not client.troubled_since(began, urgent=True), "the visible row waits on no refusal"

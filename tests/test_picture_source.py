@@ -45,5 +45,11 @@ def test_an_ahead_source_asks_calmly_through_the_front_lanes() -> None:
     source, calm = picture_source(ahead=True), picture_source()
     assert not source.urgent
     assert isinstance(source.first, WikiPoster) and isinstance(calm.first, WikiPoster)
-    assert isinstance(source.first.client, UrgentClient)
-    assert not isinstance(calm.first.client, UrgentClient)
+    assert isinstance(source.first.client, UrgentClient) and source.first.client.urgent
+    assert isinstance(calm.first.client, UrgentClient) and not calm.first.client.urgent
+
+
+def test_a_calm_source_marks_its_requests_as_pictures() -> None:
+    """Полка просила обложки наравне с текстами карточек и ждала их в окне Википедии 21 с."""
+    calm = picture_source()
+    assert isinstance(calm.first, WikiPoster) and isinstance(calm.first.client, UrgentClient)

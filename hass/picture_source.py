@@ -23,7 +23,7 @@ def picture_source(urgent: bool = False, ahead: bool = False) -> BothPosters:
     только о промахах первого, и ответ полный. Так спрашивает «Продолжить»: он не
     переспрашивается, и картинка, не названная в первом ответе, не встала бы вовсе.
     """
-    client = UrgentClient(FACTS.client) if urgent or ahead else FACTS.client
+    client = UrgentClient(FACTS.client, urgent or ahead)
     return BothPosters(
         WikiPoster(client, client),
         ImdbPoster(client, client, FACTS.catalogue),

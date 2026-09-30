@@ -1,4 +1,4 @@
-"""Вид общего клиента Wikimedia для видимого списка: его запросы идут впереди фона."""
+"""Вид общего клиента Wikimedia для картинок: срочный у видимого списка, спокойный у полок."""
 
 from __future__ import annotations
 
@@ -8,13 +8,16 @@ from torrcast.adapters.wiki.http_json_client import HttpJsonClient
 
 
 class UrgentClient:
-    """Те же запросы, но срочные: полка и прогрев справки ждут, пока идут они.
+    """Те же запросы, помеченные как картинки: в коротком окне Википедии они раньше текстов.
 
+    Срочный вид (видимый список) ещё и держит полку с прогревом справки, пока идут его
+    запросы; спокойный (полки и карточка) стоит позади него, но впереди текстов карточек.
     Клиент без срочности (подделка пробы) проходит сквозь вид как есть.
     """
 
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, urgent: bool = True) -> None:
         self.client = client
+        self.urgent = urgent
 
     def get(
         self,
@@ -26,12 +29,14 @@ class UrgentClient:
         foreground: bool = False,
     ) -> Any:
         if isinstance(self.client, HttpJsonClient):
-            return self.client.get(host, path, params, headers, timeout, foreground, urgent=True)
+            return self.client.get(
+                host, path, params, headers, timeout, foreground, urgent=self.urgent, cover=True
+            )
         return self.client.get(host, path, params, headers, timeout, foreground=foreground)
 
     def fetch(self, address: str, timeout: float) -> bytes:
         if isinstance(self.client, HttpJsonClient):
-            return self.client.fetch(address, timeout, urgent=True)
+            return self.client.fetch(address, timeout, urgent=self.urgent)
         return bytes(self.client.fetch(address, timeout))
 
     def warm(self, host: str) -> None:

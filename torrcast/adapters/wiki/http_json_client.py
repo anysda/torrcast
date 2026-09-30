@@ -56,15 +56,20 @@ class HttpJsonClient(AddressMemory):
         timeout: float,
         foreground: bool = False,
         urgent: bool = False,
+        cover: bool = False,
     ) -> Any:
-        """Выполняет GET и разбирает JSON; неуспех оставляет исключением."""
+        """Выполняет GET и разбирает JSON; неуспех оставляет исключением.
+
+        ``cover`` - запрос картинки: в коротком окне Википедии он идёт раньше текстов карточек.
+        """
         with self._lock:
             lanes = self._requests.setdefault(host, RequestLanes.for_host(host))
-        paced = foreground or not host.endswith("wikipedia.org") or self._pace.admit(timeout)
+        text = not (urgent or cover)
+        paced = foreground or not host.endswith("wikipedia.org") or self._pace.admit(timeout, text)
         if not paced and urgent:
             self._minute.stumbled(host)  # a local refusal: the silence proves nothing
-        elif not paced:
-            self._calm_refused = self._minute.clock()
+        elif not paced and cover:
+            self._calm_refused = self._minute.clock()  # no cover verdict reads a card text
         admitted = paced and self._minute.admit(host, timeout, foreground, urgent)
         if not admitted or not lanes.acquire(timeout, foreground or urgent):
             raise OSError(f"{host}: request lane unavailable after {timeout:.1f} s")

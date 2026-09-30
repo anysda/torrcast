@@ -45,3 +45,18 @@ def test_a_fake_client_passes_through_the_view() -> None:
     view = UrgentClient(_Fake())
     assert view.get("h", "/", {}, {}, 1.0, foreground=True) == {"foreground": True}
     assert view.fetch("a", 1.0) == b"a"
+
+
+def test_both_views_mark_pictures_and_only_one_is_urgent() -> None:
+    """Картинки полки идут раньше текстов карточек, но позади видимого списка."""
+    client = HttpJsonClient("torrcast/test")
+    said: list[dict[str, Any]] = []
+
+    def get(*_args: Any, **kwargs: Any) -> Any:
+        said.append(kwargs)
+        return {}
+
+    client.get = get  # type: ignore[method-assign]
+    UrgentClient(client).get("ru.wikipedia.org", "/w/api.php", {}, {}, 1.0)
+    UrgentClient(client, urgent=False).get("ru.wikipedia.org", "/w/api.php", {}, {}, 1.0)
+    assert [(one["urgent"], one["cover"]) for one in said] == [(True, True), (False, True)]

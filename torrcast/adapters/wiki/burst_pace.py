@@ -11,10 +11,16 @@ from typing import Final
 WINDOW: Final = 10.0
 #: Requests per :data:`WINDOW`: under the smallest burst that drew a 429, 1.5 times dev's peak.
 MOST: Final = 50
+#: Slots of the window a card text never takes: a cold shelf's covers queued 21 s behind
+#: some 290 intros and articles, and the page kept its counter to 37 s.
+RESERVE: Final = 20
 
 
 class BurstPace:
-    """At most :data:`MOST` requests per :data:`WINDOW`; the rest waits, never past its timeout."""
+    """At most :data:`MOST` requests per :data:`WINDOW`; the rest waits, never past its timeout.
+
+    A ``background`` request (a card text, not a picture) stops :data:`RESERVE` slots earlier.
+    """
 
     def __init__(
         self,
@@ -26,21 +32,22 @@ class BurstPace:
         self.sent: deque[float] = deque()
         self.lock = threading.Lock()
 
-    def admit(self, timeout: float) -> bool:
+    def admit(self, timeout: float, background: bool = False) -> bool:
         """Take a slot of the window; ``False`` when none frees within ``timeout``."""
         deadline = self.clock() + timeout
+        room = MOST - RESERVE if background else MOST
         while True:
             with self.lock:
                 now = self.clock()
                 while self.sent and now - self.sent[0] >= WINDOW:
                     self.sent.popleft()
-                if len(self.sent) < MOST:
+                if len(self.sent) < room:
                     self.sent.append(now)
                     return True
-                free = self.sent[0] + WINDOW
+                free = self.sent[len(self.sent) - room] + WINDOW
                 if free > deadline:
                     return False
             self.pause(max(0.01, free - now))
 
 
-__all__ = ["MOST", "WINDOW", "BurstPace"]
+__all__ = ["MOST", "RESERVE", "WINDOW", "BurstPace"]
