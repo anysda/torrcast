@@ -36,6 +36,8 @@ class _Ask:
     #: Taken by whoever tells the book how this ask went: the circle that stopped waiting
     #: for it, or the thread when it ends. One ask is one outcome, never two.
     judge: threading.Lock = field(default_factory=threading.Lock)
+    #: The circle stopped waiting for it inside its budget: the others had brought rows.
+    waived: bool = False
 
 
 #: Requests on their way, by URL: one text goes to one indexer once at a time. Two circles of

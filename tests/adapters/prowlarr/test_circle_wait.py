@@ -146,3 +146,38 @@ def test_a_lone_core_of_the_viewers_text_is_waited_alone() -> None:
     jacred, yts = _Ask("JacRed", 0.0), _Ask("YTS", 0.0)
     yts.done.set()
     assert circle_wait([jacred, yts], names=False, began=0.0, slack=0.0) == [jacred]
+
+
+def _answer(ask: _Ask, after: float, rows: int) -> None:
+    def said() -> None:
+        ask.rows = [object()] * rows  # type: ignore[list-item]
+        ask.done.set()
+
+    threading.Timer(after, said).start()
+
+
+@pytest.mark.machine
+def test_a_slow_quorum_does_not_hold_rows_the_others_brought(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Knaben's own answer took 5-8 s where RuTor and JacRed were in within a second."""
+    monkeypatch.setattr(circle_wait_module, "IN_TIME", 0.0)
+    book = DownBook(lambda: tmp_path / "down.json")
+    for _ in range(DOWN_AFTER):
+        knaben, rutor = _Ask("Knaben", 5.0), _Ask("RuTor", 5.0)
+        _answer(rutor, 0.1, rows=2)
+        core, elapsed = _waited([knaben, rutor], names=False, book=book, grace=0.2)
+        assert core == [rutor], "Knaben comes late, as one the circle did not wait"
+        assert 0.3 <= elapsed < 0.8, f"waited {elapsed:.2f} s, not the grace past RuTor"
+    assert book.down() == frozenset(), "a quorum cut by the grace is not told silent"
+
+
+@pytest.mark.machine
+def test_an_empty_pool_waits_the_quorum_whole() -> None:
+    """Without the quorum an empty list proves nothing: no film or no catalogue."""
+    knaben, rutor = _Ask("Knaben", 5.0), _Ask("RuTor", 5.0)
+    _answer(rutor, 0.1, rows=0)
+    _answer(knaben, 0.6, rows=1)
+    core, elapsed = _waited([knaben, rutor], names=False, grace=0.2)
+    assert core == [knaben, rutor] and knaben.done.is_set()
+    assert elapsed >= 0.6, f"gave up on the quorum after {elapsed:.2f} s with nothing to show"

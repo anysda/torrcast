@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
+from typing import Final
 
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK, DownBook
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
@@ -14,6 +15,13 @@ from torrcast.domain.wait_indexer import wait_indexer
 #: How often a lone core's wait looks whether the others have all answered.
 _STEP = 0.05
 
+#: Seconds the viewer's text still waits the quorum once the rest of its core has answered
+#: and the pool has rows. Prowlarr History on the stand (06-30.09, 22083 texts asked of
+#: Knaben with RuTor or JacRed): Knaben ended after the last of them by more than 0.5 s in
+#: 35.7%, 1.0 s in 26.2%, 1.5 s in 19.4%, 3.0 s in 14.2%. Past a second the tail hardly
+#: thins: a Knaben not in by then mostly came seconds later (p90 5.2 s behind the others).
+QUORUM_GRACE: Final = 1.0
+
 
 def circle_wait(
     asked: Sequence[_Ask],
@@ -23,6 +31,7 @@ def circle_wait(
     slack: float,
     unsent: Sequence[tuple[str, float]] = (),
     book: DownBook = DOWN_BOOK,
+    grace: float = QUORUM_GRACE,
 ) -> list[_Ask]:
     """Wait for the circle's core and return it; the rest answer in time or come late.
 
@@ -58,6 +67,12 @@ def circle_wait(
     row among them, lost seven with three rows between them, and shortened ten circles
     (7015 to 881 ms, 7004 to 5662). What it brings later comes late, and a circle ended by
     the others does not tell it silent: it was not waited its whole budget.
+
+    The viewer's text waits the quorum only ``grace`` seconds past the rest of its core once
+    the pool has rows: Knaben's own answer took 5-8 s where the others were in within a
+    second, and the viewer waited it for rows the others had already brought. It comes late,
+    as any other one the circle did not wait, and is not told silent. An empty pool still
+    waits it whole: without the quorum an empty list proves nothing.
     """
     down = book.down()
     held = max(
@@ -71,6 +86,8 @@ def circle_wait(
     others = [ask for ask in alive if ask not in live]
     if names and len(live) == 1 and others and not held:
         core = _first(live[0], others, began + live[0].budget + slack)
+    elif not names and not held:
+        core = _past_the_quorum(core, asked, began + slack, grace)
     for ask in core:
         # Every budget runs from the circle's start: waiting one after another from
         # the call added the first answer's seconds to the next silent one's budget.
@@ -92,8 +109,30 @@ def _first(one: _Ask, others: Sequence[_Ask], until: float) -> list[_Ask]:
     return list(others) if not one.done.is_set() and time.monotonic() < until else [one]
 
 
+def _past_the_quorum(
+    core: list[_Ask], asked: Sequence[_Ask], start: float, grace: float
+) -> list[_Ask]:
+    """Wait the rest of the core, then the quorum ``grace`` more if the pool has rows."""
+    quorum = [ask for ask in core if quorum_indexer(ask.name)]
+    rest = [ask for ask in core if ask not in quorum]
+    if not quorum or not rest:
+        return core
+    for ask in rest:
+        ask.done.wait(max(0.0, start + ask.budget - time.monotonic()))
+    if not any(ask.rows for ask in asked if ask.done.is_set()):
+        return core
+    until = time.monotonic() + grace
+    for ask in quorum:
+        ask.done.wait(max(0.0, min(until, start + ask.budget) - time.monotonic()))
+    # One its own budget ended before the grace did was waited whole: its silence is told.
+    kept = [ask for ask in core if ask in rest or ask.done.is_set() or start + ask.budget <= until]
+    for ask in core:
+        ask.waived = ask not in kept
+    return kept
+
+
 def _core(name: str, *, names: bool) -> bool:
     return wait_indexer(name) and not (names and quorum_indexer(name))
 
 
-__all__ = ["circle_wait"]
+__all__ = ["QUORUM_GRACE", "circle_wait"]

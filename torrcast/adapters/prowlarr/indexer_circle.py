@@ -45,6 +45,7 @@ class IndexerCircle:
         self.spent: dict[str, int] = {}
         #: Кто не уложился в свой бюджет, в порядке круга.
         self.lost: list[str] = []
+        self.waived: list[str] = []  # quorum the viewer's text stopped waiting for (circle_wait)
         #: 🔴 TC-510. Кто ответил нам за ЭТОТ поиск - хоть строкой, хоть честным нулём.
         #: Копится по всем кругам поиска, а не по последнему: клиент живёт ровно один
         #: поиск, и вопрос «было ли чем искать» - вопрос о поиске целиком.
@@ -147,11 +148,10 @@ class IndexerCircle:
         for ask in asked:
             if id(ask) not in done:  # опоздал, но не потерян: доедет доливом
                 self._late.append(ask)
-                # Опорного уже прождали весь бюджет круга. На пути к показу это честное
-                # «молчит», даже если фоновый запрос позднее привезёт строки. Остальных
-                # круг не держал вовсе, поэтому раньше личного срока молчунами не зовём.
-                if ask in core:
-                    self.lost.append(ask.name)
+                # A core one was waited the circle's whole budget: an honest "silent" on the
+                # way to the screen. A quorum the grace let go is missed, but not silent.
+                if ask in core or ask.waived:
+                    (self.lost if ask in core else self.waived).append(ask.name)
                 continue
             self.spent[ask.name] = ask.ms
             if ask.rows is None:

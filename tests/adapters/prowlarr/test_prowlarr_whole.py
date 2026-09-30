@@ -100,6 +100,21 @@ def test_a_tail_the_circle_went_on_without_leaves_it_heard_but_not_whole() -> No
         client.late(wait=5.0)
 
 
+@pytest.mark.machine
+def test_a_quorum_the_grace_let_go_leaves_the_circle_part_but_not_silent() -> None:
+    """The memory must not keep a circle without the quorum's rows as the catalogue."""
+    client = _swarm(rows=2, hold={1})
+    try:
+        began = time.monotonic()
+        client.search("матрица")
+        assert time.monotonic() - began < 3.0, "the others brought rows: the grace ends it"
+        assert client.waiting() == ("Knaben",)
+        assert (client.heard(), client.silent) == (False, ())
+    finally:
+        _swarm_of(client).gate.set()
+        client.late(wait=5.0)
+
+
 def _settled(want: frozenset[str]) -> frozenset[str]:
     """The threads tell the book right after their flag: give them a moment."""
     deadline = time.monotonic() + 2.0
