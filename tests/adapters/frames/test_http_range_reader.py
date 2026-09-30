@@ -79,3 +79,20 @@ def test_a_body_cut_short_is_named_a_silent_swarm() -> None:
     with pytest.raises(SwarmSilentError, match="cannot read the head of the file"):
         reader.read(0, 4096)
     assert (reader.taken, reader.requests) == (0, 0), "оборванный кусок зачлись как взятый"
+
+
+def test_a_refused_read_leaves_its_wait_in_the_trace_too() -> None:
+    """Отказ роя - самое долгое ожидание карты (до ``timeout``), и след его не теряет."""
+    tape = _Marks()
+    journal_slot.install(tape)
+
+    def silent(request: Any, timeout: float) -> _Answer:
+        raise TimeoutError("timed out")
+
+    reader = HttpRangeReader("https://example.test/movie.mkv", 17.0, silent)
+    with pytest.raises(SwarmSilentError):
+        reader.read(7 << 20, 4096)
+
+    rows = [facts for name, facts in tape.rows if name == "карта: запрос"]
+    assert [(row["мб"], row["кб"]) for row in rows] == [(7, 0)], "место отказа и ноль байт"
+    assert rows[0]["отказ"], "причина отказа названа"

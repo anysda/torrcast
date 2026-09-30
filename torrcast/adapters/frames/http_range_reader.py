@@ -11,6 +11,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.swarm_silent_error import SwarmSilentError
 from torrcast.domain.why import why
 from torrcast.ports.journal.slot import journal
+from torrcast.ports.json_value import JsonValue
 
 
 class HttpRangeReader:
@@ -47,13 +48,23 @@ class HttpRangeReader:
         # служба закрывает поток на полуслове, когда куска у неё так и не оказалось,
         # и ``http.client`` роняет это отдельной ветвью, мимо ``OSError``.
         except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
-            raise SwarmSilentError(phrase("frames.head_unreadable", reason=why(exc))) from exc
+            # Отказ - это самое долгое ожидание из всех (до ``timeout``), и в след он
+            # обязан попасть так же, как удачный заход, иначе окно карты снова нечему
+            # приписать.
+            reason = why(exc)
+            self._mark(offset, 0, began, отказ=reason)
+            raise SwarmSilentError(phrase("frames.head_unreadable", reason=reason)) from exc
         self.taken += len(data)
         self.requests += 1
+        self._mark(offset, len(data), began)
+        return data
+
+    def _mark(self, offset: int, size: int, began: float, **more: JsonValue) -> None:
+        """Отметка следа на заход: место, сколько пришло и сколько ждали."""
         journal().mark(
             "карта: запрос",
             мб=offset >> 20,
-            кб=len(data) >> 10,
+            кб=size >> 10,
             мс=round((time.monotonic() - began) * 1000),
+            **more,
         )
-        return data
