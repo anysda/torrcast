@@ -8,6 +8,7 @@ import contextlib
 from collections.abc import Sequence
 
 from torrcast.domain.config import Config
+from torrcast.domain.continue_row import WARM_ROW, continue_row
 from torrcast.domain.probe_settings import PROBE_TIMEOUT
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.show_unit.slot import unit
@@ -99,12 +100,20 @@ def _release_orphans(config: Config) -> None:
     🔴 Забывается хэш только вместе с раздачей. Служба, которая не ответила, ничего не
     убрала, а запись - единственное, чем эту раздачу вообще можно снести: стерев её за
     молчание, мы делали сироту вечной. Не убралось - не забываем, попробуем в другой раз.
+
+    Раздача закладки из первых :data:`~torrcast.domain.continue_row.WARM_ROW` записей ряда
+    «Продолжить» остаётся: служба сама закроет её по сроку и кэш на диске сохранит, а снос
+    стирал и его, и следующее «Продолжить» тянуло кусок закладки из роя заново (до 30 с).
+    Выпавшая из них сносится: кэш показа - до ``CacheSize`` службы на раздачу.
     """
     state = store().load()
     # Сирота, которую прямо сейчас держит этот процесс (карточка читает её дорожки), живая.
     orphans = {k: e.torrent for k, e in state if e.torrent and not CLAIMS.claimed(e.torrent)}
     # Раздача, оставленная закладке, живёт до следующего запуска, если её не держит страница.
-    parked = {k: e.parked for k, e in state if e.parked and not CLAIMS.claimed(e.parked)}
+    row = continue_row(state.entries)[:WARM_ROW]
+    parked = {
+        k: e.parked for k, e in state if e.parked and k not in row and not CLAIMS.claimed(e.parked)
+    }
     if not orphans and not parked:  # обычный случай, и он не стоит ни одного вопроса systemd
         return
     if unit().active():  # показ идёт - раздача под ним живая, и она не сирота

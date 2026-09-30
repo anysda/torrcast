@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from hass.hit_posters import hits
+from torrcast.domain.continue_row import continue_row
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.ports.state_store.slot import store
@@ -19,8 +20,7 @@ def history(_request: Request) -> Answer:
     показа: карточка не заводит своего хранилища, а читает то, что уже пишет продукт.
     """
     entries = store().load().entries
-    fresh = sorted(entries.items(), key=lambda kv: kv[1].updated, reverse=True)
-    items: list[JsonValue] = [_item(key, entry) for key, entry in fresh if not entry.watched]
+    items: list[JsonValue] = [_item(key, entries[key]) for key in continue_row(entries)]
     # «Продолжить» не витрина рекомендаций: новая запись обязана вернуться сразу,
     # даже когда у старых уже есть обложки, а у неё приговор картинки отрицательный.
     # Клиент честно рисует такую плитку типографским блоком. `_covered` годится для

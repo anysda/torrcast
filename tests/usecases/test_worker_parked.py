@@ -10,6 +10,8 @@ from tests.fakes import composition
 from tests.usecases.test_worker import KEY, _dropped, _own_show, _played
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.state import State
+from torrcast.domain.continue_row import WARM_ROW
+from torrcast.domain.entry import Entry
 from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _release_orphans
 from torrcast.usecases.worker import _cmd_worker
@@ -61,12 +63,22 @@ class _Service:
         return True
 
 
+def _park(fresher: int) -> None:
+    """Закладка «Брата» с оставленной раздачей и ``fresher`` записей ряда свежее неё."""
+    state = State.load()
+    state.entries[KEY].parked = "hash"
+    state.entries[KEY].updated = "2026-09-01T00:00:00+00:00"
+    for n in range(fresher):
+        state.entries[f"movie:{n}:2000"] = Entry(
+            title=str(n), magnet=f"magnet:?xt={n}", updated=f"2026-09-2{n}T00:00:00+00:00"
+        )
+    state.save()
+
+
 def test_the_next_start_takes_a_parked_release_the_page_does_not_hold(
     show_unit: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state = State.load()
-    state.entries[KEY].parked = "hash"
-    state.save()
+    _park(fresher=WARM_ROW)
     service = _Service()
     composition.use_engines(monkeypatch, service)
     show_unit.alive = False
@@ -80,13 +92,26 @@ def test_the_next_start_takes_a_parked_release_the_page_does_not_hold(
 
     _release_orphans(load_config())
 
-    assert (service.dropped, _entry().parked) == (["hash"], "")
+    assert (service.dropped, _entry().parked) == (["hash"], ""), "выпала из первых - снос"
+
+
+def test_a_parked_release_of_the_first_resumes_keeps_its_disk_cache(
+    show_unit: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«Интерстеллар»: снос стирал кэш закладки, и «Продолжить» тянуло её из роя 36 с."""
+    _park(fresher=WARM_ROW - 1)
+    service = _Service()
+    composition.use_engines(monkeypatch, service)
+    show_unit.alive = False
+
+    _release_orphans(load_config())
+
+    assert (service.dropped, _entry().parked) == ([], "hash")
 
 
 def test_stop_leaves_the_release_the_unit_parked() -> None:
     """«Завершить» сносил раздачу ещё раз после юнита, и закладка снова ждала метаданные."""
     from torrcast.adapters.unit_playback_session import _left
-    from torrcast.domain.entry import Entry
 
     torrent_hash = "4f2c1a90bd9e3f1fbaa1a8b8b7c0d1e2f3a4b5c6"
     entry = Entry(title="Брат", magnet=f"magnet:?xt=urn:btih:{torrent_hash}")

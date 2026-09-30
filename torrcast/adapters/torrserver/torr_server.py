@@ -164,8 +164,15 @@ class TorrServer:
         )
 
     def drop(self, torrent_hash: str) -> bool:
+        return self._torrent_action("rem", torrent_hash)
+
+    def park(self, torrent_hash: str) -> bool:
+        """Закрыть раздачу, кэш на диске оставить: ``drop`` службы, в отличие от ``rem``."""
+        return self._torrent_action("drop", torrent_hash)
+
+    def _torrent_action(self, action: str, torrent_hash: str) -> bool:
         try:
-            self._post("/torrents", {"action": "rem", "hash": torrent_hash}, json_body=False)
+            self._post("/torrents", {"action": action, "hash": torrent_hash}, json_body=False)
         except InfraError:
             return False
         return True

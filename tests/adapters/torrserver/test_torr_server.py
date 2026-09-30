@@ -155,3 +155,14 @@ def test_the_metadata_budget_counts_the_warm_up_too() -> None:
         _Mute(clock, wait).wait_files("hash", timeout=20.0, grace=wait)
 
     assert clock.now < 41.0, "бюджет метаданных отсчитан от добавления раздачи"
+
+
+def test_a_parked_release_is_closed_and_its_disk_cache_kept() -> None:
+    """``rem`` стирал кэш раздачи на диске: закладка тянула свой кусок из роя заново."""
+    server = _Recording()
+
+    assert server.park("abc") is True
+    assert server.body == {"action": "drop", "hash": "abc"}
+
+    assert server.drop("abc") is True
+    assert server.body == {"action": "rem", "hash": "abc"}, "снос остаётся сносом"
