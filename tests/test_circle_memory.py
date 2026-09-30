@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from tests.test_warm_cache import _PLAN, _SHOWN, _sync
+from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover.cut_circle import CutCircle
@@ -171,3 +172,20 @@ def test_a_cut_circle_does_not_replace_a_richer_cut_one_but_a_whole_one_always_d
     assert (disk.told("Начало"), disk.part("Начало")) == (richer, True)
     memory.store("Начало", ToldCircle([_PLAN], thin, whole=True))
     assert (disk.told("Начало"), disk.part("Начало")) == (thin, False), "a whole circle wins"
+
+
+def test_a_circle_without_a_down_source_is_not_poorer(tmp_path: Path) -> None:
+    """Knaben down: its rows on disk no longer hold every new circle on a minute."""
+    rows = [RawResult("Тачки", "a", indexer="Knaben"), RawResult("Тачки", "b", indexer="RuTor")]
+    kept: list[Told] = [("search", "Тачки", 0.0, (), rows)]
+    thin: list[Told] = [("search", "Тачки", 0.0, (), rows[1:])]
+    disk = CircleDisk(path=lambda: tmp_path / "circles.json")
+    memory = CircleMemory(clock=lambda: 0.0, ttl=300.0, disk=disk)
+    disk.keep("Тачки", kept)
+
+    memory.store("Тачки", ToldCircle([_PLAN], thin))
+    assert disk.told("Тачки") == kept, "a Knaben that is only late keeps its rows"
+    for _ in range(3):
+        DOWN_BOOK.hear("Knaben", answered=False)
+    memory.store("Тачки", ToldCircle([_PLAN], thin))
+    assert disk.told("Тачки") == thin, "a down Knaben is no loss"
