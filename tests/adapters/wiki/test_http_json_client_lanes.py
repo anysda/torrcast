@@ -8,6 +8,7 @@ import time
 import pytest
 
 from torrcast.adapters.wiki import http_json_client
+from torrcast.adapters.wiki.burst_pace import MOST
 from torrcast.adapters.wiki.http_json_client import HttpJsonClient
 
 
@@ -65,3 +66,19 @@ def test_wikipedia_gets_three_requests_at_once(monkeypatch: pytest.MonkeyPatch) 
 def test_wikidata_keeps_its_five(monkeypatch: pytest.MonkeyPatch) -> None:
     """Долгий SPARQL Wikidata не сужается заодно с Википедией."""
     assert _peak(monkeypatch, "query.wikidata.org") == 5
+
+
+def test_a_wikipedia_burst_waits_but_a_click_and_wikidata_do_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cold shelf sent 74-120 requests in ten seconds and drew 429s: the rest waits."""
+    _peak(monkeypatch, "ru.wikipedia.org", callers=1)
+    client = HttpJsonClient("torrcast/test")
+    for _ in range(MOST):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, urgent=True)
+    began = time.monotonic()
+    with pytest.raises(OSError):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, urgent=True)
+    assert client.troubled_since(began), "a local refusal read as an answer"
+    assert client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, foreground=True) == {}
+    assert client.get("query.wikidata.org", "/sparql", {}, {}, 0.0, urgent=True) == {}

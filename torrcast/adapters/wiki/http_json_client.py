@@ -10,6 +10,7 @@ from typing import Any, Final
 from urllib.parse import urlencode, urlsplit
 
 from torrcast.adapters.wiki.address_memory import AddressMemory, _getaddrinfo
+from torrcast.adapters.wiki.burst_pace import BurstPace
 from torrcast.adapters.wiki.kept_connections import KeptConnections
 from torrcast.adapters.wiki.minute_budget import UPLOAD_HOST, MinuteBudget
 from torrcast.adapters.wiki.request_lanes import RequestLanes
@@ -38,6 +39,7 @@ class HttpJsonClient(AddressMemory):
         self._images = RequestLanes(IMAGE_LANES)
         self._kept = KeptConnections()
         self._minute = MinuteBudget()  # one per process: Wikimedia counts its sites together
+        self._pace = BurstPace()  # Wikipedia refuses a burst the minute budget lets through
         self.troubled_since = self._minute.troubled_since
         self.calm_at = self._minute.calm_at
 
@@ -54,7 +56,10 @@ class HttpJsonClient(AddressMemory):
         """Выполняет GET и разбирает JSON; неуспех оставляет исключением."""
         with self._lock:
             lanes = self._requests.setdefault(host, RequestLanes.for_host(host))
-        admitted = self._minute.admit(host, timeout, foreground, urgent)
+        paced = foreground or not host.endswith("wikipedia.org") or self._pace.admit(timeout)
+        if not paced:
+            self._minute.stumbled(host)  # a local refusal: the silence proves nothing
+        admitted = paced and self._minute.admit(host, timeout, foreground, urgent)
         if not admitted or not lanes.acquire(timeout, foreground or urgent):
             raise OSError(f"{host}: request lane unavailable after {timeout:.1f} s")
         connection: Any = None
