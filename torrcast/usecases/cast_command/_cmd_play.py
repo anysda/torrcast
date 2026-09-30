@@ -19,6 +19,7 @@ from torrcast.ports.journal.slot import journal
 from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.usecases.cast_command._account_watched import _account_watched
 from torrcast.usecases.cast_command._bookmark import _from_start, _kept_place
+from torrcast.usecases.cast_command._card_bookmark import _card_bookmark
 from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._default_query import _default_query
 from torrcast.usecases.cast_command._entry_of import _entry_of
@@ -48,6 +49,7 @@ def _cmd_play(
     restart: Callable[..., int | None] = _from_start,
     resume: Callable[..., int | None] = _continue,
     choose: Callable[..., Chosen] = _choose,
+    card: Callable[..., int | None] = _card_bookmark,
     head: HeadAhead = HEAD,
 ) -> int:
     """Счастливый путь: запрос → «какой фильм?» → «какая озвучка?» → показ.
@@ -128,6 +130,11 @@ def _cmd_play(
             if kept is not None:
                 found_entry, args, resumed = kept
 
+    # The card's key finds its bookmark with no circle: the recorded release plays, and the
+    # search stays the fallback for a missing or dead one (:func:`_card_bookmark`).
+    code = card(config, state, args, clock=clock)
+    if code is not None:
+        return code
     picked = choose(config, args, chosen, state, live, clock)
     if isinstance(picked, int):
         return picked  # закладка выбранной картины ответила показом сама

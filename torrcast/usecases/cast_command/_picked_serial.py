@@ -25,7 +25,7 @@ def _picked_serial(
     state: WatchState,
     key: str,
     title: str,
-    bench: Bench,
+    bench: Bench | None,
     *,
     args: Args,
     clock: _Clock,
@@ -50,7 +50,8 @@ def _picked_serial(
         return None
     # Бухгалтерия пишет в состояние - ей даётся сама запись, а не копия с именем для экрана.
     entry = _account_watched(state, (key, saved))[0][1]
-    bench.drop_all()
+    if bench is not None:  # the card's bookmark answers before any bench is warmed
+        bench.drop_all()
     code = _continue(config, key, replace(entry, title=title), args=args, clock=clock)
     if code is None and args.buried(entry.magnet) and entry.label and not entry.done:
         args.query.append(entry.label)

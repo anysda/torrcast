@@ -143,7 +143,7 @@ def _continue_picked(
         key = plan.picture.key
         return _picked_serial(config, state, key, started.title, bench, args=args, clock=clock)
     if started.serial or not started.resumable or args.buried(started.magnet):
-        if args.from_menu and started.resumable:
+        if args.from_menu and started.resumable and not args.buried(started.magnet):
             # Голова строки называет ту дверь, которой вошли: картину выбрали в меню, её
             # закладка здесь не отвечает, и показ с нуля перепишет сохранённое место под
             # тем же ключом. Потеря та же, что у названного руками релиза выше, - хвост общий.

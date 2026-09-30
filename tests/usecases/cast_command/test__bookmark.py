@@ -165,6 +165,28 @@ def test_a_menu_picked_series_at_another_named_episode_says_it_drops_the_place(
     assert said in capsys.readouterr().out
 
 
+def test_a_buried_bookmark_does_not_promise_to_lose_its_place(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The recorded release no longer plays: the search keeps its place, so no line of loss."""
+    saved = entry()
+    args = Args(query=["кино"], menu=True)
+    args.bury(saved.magnet)
+
+    code = _continue_picked(
+        Config(),
+        _state_with(saved),
+        cast(Any, plan()),
+        Bench(),  # type: ignore[arg-type]
+        args=args,
+        clock=_Clock(),
+    )
+
+    assert code is None
+    said = phrase("bookmark.picked_in_menu", title="Кино", pos="1:00:00")
+    assert said not in capsys.readouterr().out
+
+
 def test_a_menu_picked_picture_without_a_bookmark_stays_silent(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
