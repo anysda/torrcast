@@ -85,4 +85,5 @@ def ru() -> dict[str, str]:
         "rank.reason_source": "источник не HD",
         "rank.reason_quiet": "имя молчит о качестве",
         "rank.reason_pinned": "релиз назван руками",
+        "rank.reason_buried": "уже не сыграла в этом запуске",
     }

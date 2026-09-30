@@ -90,4 +90,5 @@ def en() -> dict[str, str]:
         "rank.reason_source": "source is not HD",
         "rank.reason_quiet": "the name says nothing about quality",
         "rank.reason_pinned": "release named by hand",
+        "rank.reason_buried": "already failed to play in this run",
     }

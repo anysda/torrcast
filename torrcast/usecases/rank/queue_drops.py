@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Protocol
 
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.drop_reason import _Judged, drop_reason
-from torrcast.usecases.rank.off_season import _pinned, off_season
+from torrcast.usecases.rank.off_season import _buried, _pinned, off_season
 
 
 class _Counted(_Judged, Protocol):
@@ -16,7 +17,9 @@ class _Counted(_Judged, Protocol):
     off_season: int
 
 
-def queue_drops(plan: _Counted, queue: list[int], pinned: bool = False) -> dict[str, int]:
+def queue_drops(
+    plan: _Counted, queue: list[int], pinned: bool = False, buried: Collection[int] = ()
+) -> dict[str, int]:
     """Сколько раздач картины выкинуто до очереди и по каким причинам.
 
     Считается ПО ПУЛУ КАРТИНЫ, а не по :attr:`Plan.ranked`: раздачи, у которых нет
@@ -30,6 +33,11 @@ def queue_drops(plan: _Counted, queue: list[int], pinned: bool = False) -> dict[
 
     ``pinned`` — релиз назван руками (``--release N``), и остальные не «выкинуты», а не
     спрошены: причин отбора у них нет.
+
+    ``buried`` - номера раздач, которых очередь пустила бы, не будь они похоронены в этом
+    запуске (:meth:`~torrcast.domain.args.Args.bury`). Похороны судятся в очереди
+    последними, после чужого и ворот, и объяснение у них своё: воротная причина у раздачи,
+    ворота прошедшей, была бы неправдой.
     """
     counts: dict[str, int] = {}
     if plan.off_season:
@@ -38,6 +46,7 @@ def queue_drops(plan: _Counted, queue: list[int], pinned: bool = False) -> dict[
     for number, release in enumerate(plan.ranked, start=1):
         if number in taken:
             continue
-        why = _pinned() if pinned else drop_reason(release, plan)
+        why = _pinned() if pinned else _buried() if number in buried else ""
+        why = why or drop_reason(release, plan)
         counts[why] = counts.get(why, 0) + 1
     return counts

@@ -8,7 +8,7 @@ from tests.usecases.rank.releases import RUNTIME, rel
 from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
-from torrcast.usecases.rank.off_season import _disc, _heavy, _pinned, off_season
+from torrcast.usecases.rank.off_season import _buried, _disc, _heavy, _pinned, off_season
 from torrcast.usecases.rank.queue_drops import queue_drops
 
 
@@ -47,3 +47,9 @@ def test_a_hand_named_release_leaves_the_rest_unasked_not_dropped() -> None:
 def test_a_queue_that_took_everyone_counts_nothing() -> None:
     plan = Plan(ranked=[rel(name="первый"), rel(name="второй")])
     assert queue_drops(plan, [1, 2]) == {}
+
+
+def test_a_release_buried_in_this_run_has_its_own_reason() -> None:
+    """Очередь пустила бы её, не будь она похоронена: причина - похороны, а не ворота."""
+    plan = Plan(ranked=[rel(name="похороненный"), rel(name="взятый")])
+    assert queue_drops(plan, [2], buried={1}) == {_buried(): 1}

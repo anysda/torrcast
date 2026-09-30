@@ -53,3 +53,7 @@ def _quiet() -> str:
 
 def _pinned() -> str:
     return phrase("rank.reason_pinned")
+
+
+def _buried() -> str:
+    return phrase("rank.reason_buried")

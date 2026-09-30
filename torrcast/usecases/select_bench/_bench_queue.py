@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.catalogs.phrase import phrase
@@ -33,7 +34,10 @@ def _bench_queue(plan: Plan, args: Args) -> list[int]:
     человека ход - всё это :func:`unfit_line`.
     """
     queue = plan.candidates(args)
-    drops = queue_drops(plan, queue, pinned=args.release is not None)
+    # Похороненная раздача прошла бы и чужое, и ворота: её причина - похороны, а не ворота.
+    whole = plan.candidates(replace(args, dead_hash="")) if args.dead_hash else queue
+    buried = set(whole) - set(queue)
+    drops = queue_drops(plan, queue, pinned=args.release is not None, buried=buried)
     journal().emit(
         "select",
         "queue",

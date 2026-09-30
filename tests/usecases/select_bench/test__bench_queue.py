@@ -99,3 +99,30 @@ def test_the_queue_event_names_each_head_release_with_seeds_size_and_dub_claim()
     assert fields["lineup"] == [
         {"n": 1, "seeds": 40, "mb": 2048, "dub": True, "name": "Кино (2019) BDRip 1080p Дубляж"}
     ]
+
+
+def test_a_release_buried_in_this_run_is_counted_as_buried_not_by_the_gates() -> None:
+    """Похороны судятся последними: прошедшая ворота раздача - «уже не сыграла».
+
+    Раздача, которую и ворота не пустили бы, остаётся с воротной причиной: порядок тот же,
+    что у отсева в очереди (:meth:`Plan.candidates`).
+    """
+    fine = rel(name="Кино (1999) BDRip 1080p", seeders=90)
+    disc = rel(name="Кино BDMV", seeders=80)
+    other = rel(name="Кино (1999) WEB-DL 1080p", seeders=70)
+    asked = Args(query=["кино"])
+    asked.bury(fine.magnet)
+    noted = _Noted()
+    install(noted)
+    try:
+        queue = _bench_queue(plan([fine, disc, other]), asked)
+        asked.bury(disc.magnet)
+        _bench_queue(plan([fine, disc, other]), asked)
+    finally:
+        install(Silent())
+
+    assert queue == [3]
+    assert [fields["dropped"] for _, fields in noted.events] == [
+        {phrase("rank.reason_buried"): 1, phrase("rank.reason_disc"): 1},
+        {phrase("rank.reason_disc"): 1},
+    ]
