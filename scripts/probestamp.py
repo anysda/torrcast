@@ -50,6 +50,7 @@ TOOLS: Final = frozenset(
         "decodebench",
         "staleprobe",
         "leftprobe",
+        "tabprobe",
         UNNAMED,
     }
 )
