@@ -24,6 +24,7 @@ from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _silenced
 from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.select_bench._bench_heir import _heir
 from torrcast.usecases.select_bench._bench_supply import _supply_verdict
 
 if TYPE_CHECKING:
@@ -100,11 +101,12 @@ def _awaited(
             return prep
         refuse_called_off()
         progress.phase(prefix + prep.phase)
+        heir = _heir(bench, plan, args, prep)
         for number in (*spares, *_read(bench, plan, args, prep.number, spares)):
             ready = bench.preps.get((plan.picture.key, number))
-            if ready is not None and ready.ready.is_set() and _fit(bench, plan, ready):
-                journal().emit("select", "in_time", waited=prep.number, took=number)
-                ready.hurried = True
+            if ready and ready.ready.is_set() and _fit(bench, plan, ready, heir=number == heir):
+                journal().emit("select", "in_time", waited=prep.number, took=number, heir=heir)
+                ready.hurried = number != heir  # наследника очередь взяла бы сама
                 return ready
         _widen(bench, plan, args, spares)
     bench._wait(prep, progress, prefix=prefix, limit=limit)
@@ -162,8 +164,8 @@ def _spent(prep: _Prep) -> bool:
     return prep.ready.is_set() and (prep.mapped is None or prep.mapped.is_set())
 
 
-def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep) -> bool:
-    """Годна ли готовая раздача показу теми же мерками, что и в очереди."""
+def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep, *, heir: bool = False) -> bool:
+    """Годна ли готовая раздача показу мерками очереди; ``heir`` - :func:`_heir`."""
     trouble = bench._trouble(
         prep,
         pinned=False,
@@ -188,7 +190,7 @@ def _fit(bench: _BenchTrouble, plan: Plan, prep: _Prep) -> bool:
     # Подмена покупает время, а кусок тяжелее потолка приёмника пережимается на ходу: 22.5 Мбит
     # «Выжившего» отдали первый сегмент за 4.4 с вместо 0.6 у копии (стенд 15-09).
     heavy = prep.media and prep.video and prep.media.weight_mbit(prep.video.size) > plan.recode_at
-    if plan.recode_at > 0 and heavy:
+    if plan.recode_at > 0 and heavy and not heir:
         return False
     ratio = _supply_verdict(bench.profile, prep)[0]
     return ratio < 0 or ratio >= bench.profile.supply_ratio
