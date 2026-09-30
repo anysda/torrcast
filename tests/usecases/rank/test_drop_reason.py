@@ -16,7 +16,6 @@ from torrcast.usecases.rank.off_season import (
     _extras,
     _heavy,
     _hevc,
-    _no_episode,
     _quiet,
     _small,
     _source,
@@ -39,7 +38,7 @@ class Plan:
 
 def test_the_missing_episode_is_judged_before_everything_else() -> None:
     piece = rel(name="огрызок BDMV", kind="tv", seasons=(1,), episodes=(1,))
-    assert drop_reason(piece, Plan(want=Episode(1, 5))) == _no_episode()
+    assert drop_reason(piece, Plan(want=Episode(1, 5))) == phrase("rank.reason_no_episode")
 
 
 def test_the_gates_name_the_step_that_threw_the_release_out() -> None:

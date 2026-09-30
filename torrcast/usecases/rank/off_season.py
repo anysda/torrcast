@@ -15,10 +15,6 @@ def off_season() -> str:
     return phrase("rank.reason_off_season")
 
 
-def _no_episode() -> str:
-    return phrase("rank.reason_no_episode")
-
-
 def _disc() -> str:
     return phrase("rank.reason_disc")
 

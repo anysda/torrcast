@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.rank.off_season import (
     _codec,
     _disc,
     _extras,
     _heavy,
     _hevc,
-    _no_episode,
     _pinned,
     _quiet,
     _small,
@@ -27,7 +27,7 @@ def _russian_ladder(_russian_product: None) -> None:
 def test_the_words_are_the_same_ones_cast_log_prints() -> None:
     """Порядок слов один на весь код: иначе `cast log` объяснял бы отказ иначе."""
     assert off_season() == "нужного сезона нет"
-    assert _no_episode() == "нужной серии нет по имени"
+    assert phrase("rank.reason_no_episode") == "нужной серии нет по имени"
     assert _disc() == "образ диска"
     assert _extras() == "дополнительные материалы, а не сама картина"
     assert _heavy() == "тяжелее потолка"
@@ -43,7 +43,7 @@ def test_no_two_reasons_share_a_word() -> None:
     """Свёртка считает причины ключом: две одинаковые строки слились бы в одну."""
     reasons = (
         off_season(),
-        _no_episode(),
+        phrase("rank.reason_no_episode"),
         _disc(),
         _extras(),
         _heavy(),

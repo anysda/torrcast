@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.foreign_work import foreign_work
 from torrcast.domain.later_form import later_form
@@ -10,11 +9,14 @@ from torrcast.domain.other_year import other_year
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.misses_episode import misses_episode
-from torrcast.usecases.rank.off_season import _no_episode
 
 
 def foreign_reason(release: Release, picture: Picture, want: Episode | None) -> str:
-    """Причина, по которой раздача не наша; пусто - наша.
+    """Ключ каталога причины, по которой раздача не наша; пусто - наша.
+
+    Отдаётся ключ, а не надпись: очередь отбора зовёт суд на каждую раздачу пула, а
+    собирать строку ей незачем. Надпись по ключу (:func:`~torrcast.domain.catalogs.
+    phrase.phrase`) собирает только тот, кто объяснение правда выводит.
 
     Кино другого года (:func:`other_year`), нужной серии нет по имени
     (:func:`misses_episode`), другая работа франшизы (:func:`foreign_work`) или более
@@ -24,13 +26,13 @@ def foreign_reason(release: Release, picture: Picture, want: Episode | None) -> 
     объясняют той причиной, на которой её и выкинули, а не первой подошедшей из ворот.
     """
     if other_year(release, picture):
-        return phrase("rank.reason_other_year")
+        return "rank.reason_other_year"
     if misses_episode(release, want):
-        return _no_episode()
+        return "rank.reason_no_episode"
     if want is not None and foreign_work(release, picture):
-        return phrase("rank.reason_other_work")
+        return "rank.reason_other_work"
     if want is not None and later_form(release, picture, want):
-        return phrase("rank.reason_later_form")
+        return "rank.reason_later_form"
     return ""
 
 

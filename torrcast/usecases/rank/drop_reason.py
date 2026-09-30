@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
@@ -61,7 +62,7 @@ def drop_reason(release: Release, plan: _Judged) -> str:
     первой подошедшей причиной ворот - «кодек не тот», хотя кодек у неё годный.
     """
     if foreign := foreign_reason(release, plan.picture, plan.want):
-        return foreign
+        return phrase(foreign)
     if is_disc(release):
         return _disc()
     if is_extra(release, plan.runtime):

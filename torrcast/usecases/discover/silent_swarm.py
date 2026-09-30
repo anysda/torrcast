@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.rank.foreign_reason import foreign_reason
-from torrcast.usecases.rank.off_season import _no_episode
 from torrcast.usecases.rank.over_ceiling import over_ceiling
 
 if TYPE_CHECKING:
@@ -93,7 +92,7 @@ def silent_swarm(
     # несколько сразу, а называется та, на которой её и выкинули.
     # Чужая раздача (другая картина или серии нет) судится первой, как и в очереди.
     alien = [foreign_reason(r, plan.picture, plan.want) for r in untouched]
-    no_episode = alien.count(_no_episode())
+    no_episode = alien.count("rank.reason_no_episode")
     other = len(alien) - alien.count("") - no_episode
     heavy = [
         r
