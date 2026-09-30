@@ -91,9 +91,9 @@ class ShelfPass:
 
     @property
     def early(self) -> bool:
-        """Холодный заход: тело ещё не собрано этим правилом, и показ идёт до приговоров."""
-        body = self.current
-        return self.cache.early and (body.get("built_at") is None or not built_by_rule(body))
+        """Холодный заход: тело не собрано этим правилом или без полки, показ до приговоров."""
+        body, whole = self.current, all(self.current.get(shelf) for shelf in SHELVES)
+        return self.cache.early and not (body.get("built_at") and built_by_rule(body) and whole)
 
     def run(self) -> dict[str, JsonValue]:  # the page flags burn only for a cold pass
         self.cache.filling = self.cache.settling = self.early

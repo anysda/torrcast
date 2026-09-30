@@ -181,3 +181,27 @@ def test_a_cold_shelf_stops_growing_once_its_counter_is_off(tmp_path: Path) -> N
     before = shown.looked
     shown._lanes()
     assert shown.looked is before
+
+
+def test_a_saved_shelf_missing_one_row_is_rebuilt_as_cold(tmp_path: Path) -> None:
+    """Тело этого правила без одной полки не тёплое: пустая полка встаёт до приговоров.
+
+    Такое тело оставляет прежняя сборка, опубликовавшая одну полку и не дошедшая до
+    второй: выкатка поверх него держала «Популярное» пустым до конца приговоров.
+    """
+    cache = _cache(tmp_path, 3)
+    cache._rebuild()
+    assert cache._body is not None
+    cache._body = {**cache._body, "popular": []}
+    seen: list[list[str]] = []
+
+    def playable(_query: str, _key: str) -> bool:
+        seen.append(_titles(cache._body, "popular"))
+        return True
+
+    cache.playable = playable
+    cache._rebuild()
+
+    assert len(seen[0]) == 3
+    assert cache._body is not None and cache._body[FIELD] == RULE
+    assert len(_titles(cache._body, "popular")) == 3
