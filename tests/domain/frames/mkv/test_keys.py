@@ -104,7 +104,7 @@ def test_a_lying_index_hands_its_honest_byte_row_to_the_verdict() -> None:
 def test_an_honest_index_passes_the_frame_check() -> None:
     """Честный индекс: пробы находят IDR, карта строится, цена - запрос на каждую пробу."""
     cues = [(0, 1024, 1), (2000, 2048, 1), (4000, 3072, 1), (6000, 4096, 1)]
-    data, base = Matroska(cues=cues).bytes()
+    data, base = Matroska(cues=cues, cues_last=True).bytes()
     reader = Served(data)
     found = keys(reader, reader.read(0, HEAD))
 
@@ -226,15 +226,33 @@ def test_a_liar_whose_real_frames_line_up_with_the_shares_is_caught_too() -> Non
 
 
 def test_an_index_honest_only_at_the_head_is_caught_at_the_end_of_the_tape() -> None:
-    """Честное начало не выкупает врущее продолжение: вторая пара стоит в конце ленты.
+    """Честное начало не выкупает врущее продолжение: вторая пара стоит у индекса в конце.
 
     Одна пара в голове смотрит туда же, куда сверка карты с прогоном, - в первую границу
     сетки, - и такой файл проходил бы обе проверки, а сетка вставала бы на призраки
     дальше первой минуты.
     """
     cues = [(k * 2000, 65536 + k * 1024, 1) for k in range(384)]
-    data, _base = Matroska(cues=cues, lies_after=192).bytes()
+    data, _base = Matroska(cues=cues, lies_after=192, cues_last=True).bytes()
     reader = Served(data)
 
     with pytest.raises(InfraError, match="lies"):
         keys(reader, reader.read(0, HEAD))
+
+
+def test_an_index_in_the_head_does_not_send_the_probe_to_the_far_tail() -> None:
+    """Индекс в голове - проба хвоста не читает: показу он не нужен, а рой держит его долго.
+
+    Заход в дальний хвост холодной раздачи стоит до отказа роя (``SwarmSilentError``,
+    до 120 с), и всё это время старт показа ждёт. Цена названа вслух: у такого файла
+    враньё только в хвосте пробой не ловится.
+    """
+    cues = [(k * 2000, 65536 + k * 1024, 1) for k in range(384)]
+    data, base = Matroska(cues=cues, lies_after=192).bytes()
+    reader = Served(data)
+
+    found = keys(reader, reader.read(0, HEAD))
+
+    far = [offset for offset, _ in reader.asked if offset >= base + 65536 + 2 * 1024]
+    assert far == [], f"проба ушла за голову в хвост: {far}"
+    assert len(found.points) == 384

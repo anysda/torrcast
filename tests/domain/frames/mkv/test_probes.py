@@ -12,6 +12,10 @@ from torrcast.domain.frames.mkv.cue import Cue
 from torrcast.domain.frames.mkv.probes import REACH, probes
 from torrcast.domain.warm_open import HEAD_WARM
 
+#: Индекс лежит за последним кластером, в хвосте файла: так его кладёт большинство
+#: муксеров, и так лежали все четыре файла замера 30-09.
+TAIL = 1 << 40
+
 
 def _index(count: int, inside: int = 0) -> list[Cue]:
     """Индекс из ``count`` точек: своя точка на свой кластер, шаг по байтам ровный."""
@@ -24,7 +28,7 @@ def test_the_probes_are_two_neighbour_pairs_and_not_shares_of_the_tape() -> None
     Ровно этим соседство и берёт выравненного вруна: настоящий опорный кадр у него стоит
     через ровный шаг, а два соседа в один шаг не помещаются.
     """
-    picked = probes(_index(384))
+    picked = probes(_index(384), TAIL)
 
     where = [point.at for point, _ in picked]
     assert len(picked) == 4, "две пары - каждая лишняя проба это Range-запрос на старте"
@@ -33,7 +37,7 @@ def test_the_probes_are_two_neighbour_pairs_and_not_shares_of_the_tape() -> None
 
 
 def test_the_first_pair_reads_the_head_and_the_second_the_end_of_the_tape() -> None:
-    """Первая пара - в начале ленты, вторая - в самом конце, перед индексом.
+    """Первая пара - в начале ленты, вторая - у индекса, а он лежит в самом конце.
 
     Лента по мегабайту на точку: середина лежит в 192 МБ от начала, то есть в месте
     раздачи, куда первый сегмент не ходит, и заход туда оплачивается только пробой. Голову
@@ -42,15 +46,32 @@ def test_the_first_pair_reads_the_head_and_the_second_the_end_of_the_tape() -> N
     """
     row = [Cue(Point(k * 2.0, 4096 + k * (1 << 20), 1), 0) for k in range(384)]
 
-    picked = probes(row)
+    picked = probes(row, TAIL)
 
     assert all(point.offset < HEAD_WARM for point, _ in picked[:2]), "первая пара в голове"
     assert [point.at for point, _ in picked[2:]] == [764.0, 766.0], "вторая - в конце ленты"
 
 
+def test_the_second_pair_sits_next_to_the_index_wherever_the_muxer_put_it() -> None:
+    """Вторая пара берётся у индекса: эти байты рой отдал только что, и заход туда дёшев.
+
+    Индекс в голове - вторая пара совпадает с первой, и хвост не читается вовсе: заход в
+    дальний хвост холодной раздачи держал бы старт до отказа роя (до 120 с), а показу эти
+    байты не нужны. Индекс посередине файла - пара рядом с ним, а не в конце ленты.
+    """
+    row = [Cue(Point(k * 2.0, 4096 + k * (1 << 20), 1), 0) for k in range(384)]
+
+    head = probes(row, 1024)
+    middle = probes(row, row[200].point.offset + 4096)
+
+    assert len(head) == 2, "индекс в голове - пара одна, хвост не читается"
+    assert all(point.offset < HEAD_WARM for point, _ in head), "проба не уходит из головы"
+    assert [point.at for point, _ in middle[2:]] == [400.0, 402.0], "пара у самого индекса"
+
+
 def test_a_lying_step_that_divides_the_old_shares_does_not_divide_a_pair() -> None:
     """Шаг 48 делит середину и четверти нацело, а пару - нет: одна из двух ему чужая."""
-    picked = probes(_index(2880))
+    picked = probes(_index(2880), TAIL)
 
     for pair in (picked[:2], picked[2:]):
         numbers = [round(point.at / 2.0) for point, _ in pair]
@@ -66,7 +87,7 @@ def test_a_probe_is_not_spent_on_a_block_it_would_not_reach() -> None:
     row = _index(40)
     row = [cue if k < 8 else Cue(cue.point, REACH) for k, cue in enumerate(row)]
 
-    picked = probes(row)
+    picked = probes(row, TAIL)
 
     assert all(inside < REACH for _, inside in picked), "проба смотрит туда, где что-то видно"
 
@@ -75,7 +96,7 @@ def test_a_pair_never_asks_the_same_block_twice() -> None:
     """Две точки на один кластер без места внутри - это один блок и одна проба впустую."""
     row = [Cue(Point(k * 2.0, 4096 + (k // 2) * 8192, 1), 0) for k in range(40)]
 
-    picked = probes(row)
+    picked = probes(row, TAIL)
 
     for (one, _), (other, _) in (picked[:2], picked[2:]):
         assert one.offset != other.offset, "пара спрашивает два разных кадра"
@@ -83,7 +104,7 @@ def test_a_pair_never_asks_the_same_block_twice() -> None:
 
 def test_the_pair_is_taken_in_time_order_whatever_order_the_index_lay_in() -> None:
     """Соседство считается по времени: индекс вправе лежать вперемешку, пара - нет."""
-    picked = probes(list(reversed(_index(40))))
+    picked = probes(list(reversed(_index(40))), TAIL)
 
     where = [point.at for point, _ in picked]
     assert where[1] - where[0] == 2.0
@@ -92,4 +113,4 @@ def test_the_pair_is_taken_in_time_order_whatever_order_the_index_lay_in() -> No
 
 def test_too_few_points_are_not_worth_a_request() -> None:
     """Точек меньше четырёх - карту всё равно отвергнет сетка, платить рою незачем."""
-    assert probes(_index(3)) == []
+    assert probes(_index(3), TAIL) == []

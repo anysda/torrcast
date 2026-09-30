@@ -87,8 +87,9 @@ def _ghost(cues: list[Cue], facts: Head, reader: Reader) -> str | None:
     блока, который назвала точка (:attr:`~torrcast.domain.frames.mkv.cue.Cue.inside`):
     первый видеоблок кластера бывает чужим кадром, и тогда проверка судит не то, о чём
     говорит точка. Куда ставить пробы, решает :func:`~torrcast.domain.frames.mkv.probes.
-    probes` - это соседние пары в начале и в конце ленты: пара ловит вруна счётом, а не
-    удачей, а две пары ловят и того, кто честен только в голове.
+    probes` - это соседние пары в начале ленты и у самого индекса: пара ловит вруна
+    счётом, а не удачей, а вторая пара ловит и того, кто честен только в голове, но не
+    уводит пробу в хвост, который показу не нужен.
 
     Не проверяем и верим, когда файл не назвал дорожку видео или когда кодек нам не по
     зубам: ``None`` у :func:`key_frame` - это «не разобрать», а не призрак.
@@ -96,7 +97,7 @@ def _ghost(cues: list[Cue], facts: Head, reader: Reader) -> str | None:
     if facts.video is None:
         return None
     own = [cue for cue in cues if cue.point.track == facts.video]
-    for cue in probes(own):
+    for cue in probes(own, facts.cues_at or 0):
         at, offset, _ = cue.point
         if key_frame(reader, offset, facts.video, facts.codec, cue.inside) is False:
             return phrase("frames.mkv_cues_lie", at=f"{at:.3f}")

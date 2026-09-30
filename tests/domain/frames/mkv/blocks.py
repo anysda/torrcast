@@ -107,6 +107,9 @@ class Matroska:
     before: int = 0
     #: Муксер назвал место блока внутри кластера (``CueRelativePosition``).
     relative: bool = False
+    #: ``Cues`` лежат после кластеров, в хвосте файла, а не в голове перед ними: так
+    #: кладёт индекс большинство муксеров, и так лежали все файлы замера 30-09.
+    cues_last: bool = False
 
     def inside(self) -> int:
         """Смещение названного блока от начала данных кластера; ноль - муксер смолчал."""
@@ -191,21 +194,31 @@ class Matroska:
         payload += ident(SIMPLE_BLOCK) + b"\x40"
         return elem(CLUSTER, payload)
 
-    def bytes(self) -> tuple[bytes, int]:
-        """Файл целиком и абсолютное смещение данных ``Segment`` в нём."""
-        body = self._info() + self._tracks() + b"\x00" * self.padding
-        # Ширина размеров постоянна, поэтому адрес Cues считается с первой же сборки.
-        at = len(self._seek_head(0)) + len(body)
-        payload = self._seek_head(at) + body + self._cues()
+    def _clusters(self, start: int) -> bytes:
+        """Кластеры по точкам индекса; ``start`` - где они начинаются от данных ``Segment``."""
+        out = b""
         by_offset: dict[int, list[tuple[int, int]]] = {}
         for cue_at, offset, track in self.cues:
             by_offset.setdefault(offset, []).append((cue_at, track))
         for ordinal, offset in enumerate(sorted(by_offset)):
-            if offset < len(payload):
+            if offset < start + len(out):
                 raise ValueError(f"точка Cues ссылается внутрь головы: {offset}")
-            payload += b"\x00" * (offset - len(payload))
+            out += b"\x00" * (offset - start - len(out))
             found = by_offset[offset]
-            payload += self._cluster(found[0][0], sorted({t for _, t in found}), ordinal)
+            out += self._cluster(found[0][0], sorted({t for _, t in found}), ordinal)
+        return out
+
+    def bytes(self) -> tuple[bytes, int]:
+        """Файл целиком и абсолютное смещение данных ``Segment`` в нём."""
+        body = self._info() + self._tracks() + b"\x00" * self.padding
+        cues = self._cues()
+        # Ширина размеров постоянна, поэтому адрес Cues считается с первой же сборки.
+        lead = len(self._seek_head(0)) + len(body)
+        if self.cues_last:
+            clusters = self._clusters(lead)
+            payload = self._seek_head(lead + len(clusters)) + body + clusters + cues
+        else:
+            payload = self._seek_head(lead) + body + cues + self._clusters(lead + len(cues))
         head = elem(EBML_HEADER, b"\x00" * 8)
         segment = ident(SEGMENT) + length(len(payload)) + payload
         return head + segment, len(head) + len(ident(SEGMENT)) + 8
