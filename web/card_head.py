@@ -9,8 +9,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from torrcast.domain.magnet_hash import magnet_hash
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.journal.slot import journal
@@ -52,7 +54,24 @@ def card_head(
     except TorrcastError as exc:  # не собралась запись - клик заведёт голову сам
         journal().mark("голова с карточки не собралась", почему=type(exc).__name__)
         return
-    HEAD.want(tune(config, profile), profile, engine, entry, owner=plan.picture.key)
+    HEAD.want(
+        tune(config, profile), profile, engine, entry, owner=plan.picture.key, late=_shown(entry)
+    )
+
+
+def _shown(entry: Entry) -> Callable[[], bool]:
+    """Показ этой раздачи уже поднят: клик пришёл раньше, чем голова карточки спланирована.
+
+    Отметку показа ставит юнит, подняв раздачу (:meth:`WatchState.showing`), и свою
+    голову показ тогда кодирует сам - вторая рядом делила бы с ним ядра.
+    """
+    torrent = magnet_hash(entry.magnet)
+
+    def late() -> bool:
+        live = watch_store().load().showing()
+        return live is not None and magnet_hash(live[1].magnet) == torrent
+
+    return late
 
 
 __all__ = ["card_head"]

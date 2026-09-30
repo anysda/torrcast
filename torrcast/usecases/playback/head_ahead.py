@@ -61,14 +61,23 @@ class HeadAhead:
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def want(
-        self, config: Config, profile: Profile, engine: TorrentEngine, entry: Entry, owner: str = ""
+        self,
+        config: Config,
+        profile: Profile,
+        engine: TorrentEngine,
+        entry: Entry,
+        owner: str = "",
+        late: Callable[[], bool] | None = None,
     ) -> None:
         """Греть голову записи ``entry`` фоном; прежняя другая голова снимается.
 
         ``owner`` - картина карточки, чей уход голову снимает; пусто - голова показа, её
-        не снимает никто. Та же голова, спрошенная показом, переходит к нему.
+        не снимает никто. Та же голова, спрошенная показом, переходит к нему. ``late`` -
+        не опоздала ли голова к уже поднятому показу: холодный план ждёт карту кадров, и
+        голова, начатая после клика, не фора показу, а сосед по ядрам (Интерстеллар с
+        закладки: первый сегмент 20.1 с против 10.9 без неё).
         """
-        self.spawn(lambda: self._run(config, profile, engine, entry, owner))
+        self.spawn(lambda: self._run(config, profile, engine, entry, owner, late))
 
     def drop(self, owner: str) -> None:
         """Снять голову карточки ``owner``: карточка ушла, играть её не будут."""
@@ -80,12 +89,21 @@ class HeadAhead:
         job.halt.set()
 
     def _run(
-        self, config: Config, profile: Profile, engine: TorrentEngine, entry: Entry, owner: str
+        self,
+        config: Config,
+        profile: Profile,
+        engine: TorrentEngine,
+        entry: Entry,
+        owner: str,
+        late: Callable[[], bool] | None = None,
     ) -> None:
         try:
             head = _plan(config, profile, engine, entry)
         except TorrcastError as exc:  # заранее: не вышло - показ возьмёт голову сам
             journal().mark("голова заранее не собралась", почему=type(exc).__name__)
+            return
+        if head is not None and late is not None and late():
+            journal().mark("голова опоздала к показу", слот=head.slot)
             return
         with self._lock:
             old = self._job

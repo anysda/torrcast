@@ -136,6 +136,24 @@ def test_a_failed_plan_lays_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert laid == []
 
 
+@pytest.mark.parametrize("late", [True, False], ids=["late", "ahead"])
+def test_a_head_planned_after_the_show_is_up_is_not_laid(
+    monkeypatch: pytest.MonkeyPatch, late: bool
+) -> None:
+    """Холодный план кончился после клика: показ кодирует голову сам, вторая - сосед по ядрам."""
+    _heads(monkeypatch, "k")
+    laid: list[object] = []
+
+    def lay(*args: object, **_kw: object) -> bool:
+        laid.append(args)
+        return True
+
+    ahead = HeadAhead(spawn=_now, lay=lay)
+    ahead.want(Config(), _PROFILE, object(), _ENTRY, owner="кино", late=lambda: late)  # type: ignore[arg-type]
+
+    assert len(laid) == (0 if late else 1)
+
+
 @pytest.mark.parametrize(
     "config",
     [replace(Config(), warm=False), replace(Config(), recode=False)],
