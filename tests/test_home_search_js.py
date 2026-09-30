@@ -163,6 +163,28 @@ def test_a_lost_search_keeps_its_tiles_and_try_again_focuses_the_first(
 
 
 @pytest.mark.machine
+@pytest.mark.parametrize("end", ["network", "server", "refused", "empty"])
+def test_a_held_first_row_skeleton_gives_way_to_how_the_search_ended(
+    facts: dict[str, Any], end: str
+) -> None:
+    held = _scenario(facts, "heldThenEnd")
+    ended = held[end]
+    assert ended["polls"] >= 4, ended["polls"]
+    assert ended["skeletons"] == 0, "скелет придержанного ряда остался на экране"
+    assert ended["screen"]["searching"] == 0, "строка «Ищем…» осталась после конца поиска"
+    assert ended["timers"] == 0, "после конца поиска у страницы остались таймеры опроса"
+    text = ended["screen"]["text"]
+    if end in ("network", "server"):
+        assert ended["screen"]["failed"] == 1
+        assert "web.search.failed" in text
+    elif end == "refused":
+        assert held["reason"]["key"] in text
+        assert ended["screen"]["failed"] == 0
+    else:
+        assert "web.search.empty" in text
+
+
+@pytest.mark.machine
 @pytest.mark.parametrize("name", ["failedNetwork", "failedServer"])
 def test_a_failed_search_never_draws_the_empty_result(facts: dict[str, Any], name: str) -> None:
     failed = _scenario(facts, name)

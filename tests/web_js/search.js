@@ -103,6 +103,29 @@ const scenarios = {
     return { polls: p.polls.length, swaps, screen: screen(p) };
   },
 
+  // Скелет придержанного ряда уступает любому концу поиска: сбою, отказу или пустому финалу.
+  async heldThenEnd() {
+    const reason = { key: 'web.search.no_season_releases', values: { title: 'Wednesday', season: 9 } };
+    const ends = {
+      network: { reject: true },
+      server: { status: 500 },
+      refused: { status: 409, body: { error: 'search_refused', reason } },
+      empty: { partial: false, results: [], finalBy: 12 },
+    };
+    const out = { reason };
+    for (const [name, end] of Object.entries(ends)) {
+      const p = page((n) => (n < 3 ? { partial: true, results: [], finalBy: 12 } : end),
+        { latency: LATENCY });
+      p.home._query = 'тачки';
+      p.doc.getElementById('tc-body').replaceWith(p.home._searchLoading());
+      p.home._runSearch('тачки');
+      await p.time.run(60000);
+      const skeletons = p.doc.querySelectorAll('#tc-body .tc-tile-skeleton').length;
+      out[name] = { polls: p.polls.length, timers: p.time.pending(), skeletons, screen: screen(p) };
+    }
+    return out;
+  },
+
   // Сервер твердит «обложки в пути» вечно: дозапрос кончается потолком сервера.
   async posterCap() {
     const p = search((_, at) => ({
