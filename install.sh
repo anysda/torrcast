@@ -1941,7 +1941,12 @@ prune_torrcast() {  # $1 - каталог установленного паке�
 # фиксирован сортировкой, поэтому два каталога сравниваются построчно. Считаем ВСЕ файлы,
 # а не только .py: колесо везёт всё, что лежит в пакете, и лишний .json или .yml в
 # site-packages - такой же файл без пары в дереве, как и лишний модуль.
+#
+# Метку сборки (`adapters/health/build_id.py`) слепок берёт с плейсхолдером на месте клейма:
+# хук колеса (`scripts/hatch_build_id_hook.py`) вшивает в копию venv хэш `HEAD`, когда рядом
+# лежит `.git`, и установка из `git clone` падала здесь на честно собранном пакете.
 py_manifest() {  # $1 — каталог пакета torrcast
+    local mark='adapters/health/build_id.py'
     (
         cd "$1" || return 1
         LC_ALL=C find . -name __pycache__ -prune -o -type f -print0 |
@@ -1949,8 +1954,19 @@ py_manifest() {  # $1 — каталог пакета torrcast
                 LC_ALL=C sort -z | xargs -0 shasum -a 256
             else
                 LC_ALL=C sort -z | xargs -0r sha256sum
+            fi |
+            if [ -f "$mark" ]; then
+                sed "s|^[0-9a-f]*  \./$mark\$|$(unbaked_digest "$mark")  ./$mark|"
+            else
+                cat
             fi
     )
+}
+
+unbaked_digest() {  # $1 — файл метки сборки; sha256 с плейсхолдером вместо клейма
+    sed -E 's/^BAKED_BUILD_ID: str \| None = .*$/BAKED_BUILD_ID: str | None = None/' "$1" |
+        if [ "${OS_FAMILY:-linux}" = macos ]; then shasum -a 256; else sha256sum; fi |
+        cut -d' ' -f1
 }
 
 # Сверка «что реально лежит в venv» ↔ «что лежит в репе». Без неё установка врёт:
