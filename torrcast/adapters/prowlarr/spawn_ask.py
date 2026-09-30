@@ -38,17 +38,52 @@ class _Ask:
     judge: threading.Lock = field(default_factory=threading.Lock)
 
 
+#: Requests on their way, by URL: one text goes to one indexer once at a time. Two circles of
+#: one search sent Knaben the same text 4 s apart, and the second stood behind the first there.
+_FLYING: dict[str, _Ask] = {}
+_FLYING_LOCK = threading.Lock()
+
+
+def _in_flight(api: ProwlarrApi, query: str, limit: int, num: int) -> _Ask | None:
+    """The ask already on its way with this very request, if there is one."""
+    with _FLYING_LOCK:
+        return _FLYING.get(search_url(api.base_url, api.apikey, query, limit, num))
+
+
+def _follow(twin: _Ask, budget: float) -> _Ask:
+    """Wait the request already on its way instead of sending it again.
+
+    The answer is the twin's, and so is its one verdict to the book (``judge``): one request
+    is one outcome, whichever circle tells it.
+    """
+    ask = _Ask(name=twin.name, budget=budget, judge=twin.judge)
+
+    def work() -> None:
+        twin.done.wait()
+        ask.rows = None if twin.rows is None else list(twin.rows)
+        ask.ms, ask.err = twin.ms, twin.err
+        ask.done.set()
+
+    threading.Thread(target=work, daemon=True, name=f"idx-{twin.name}").start()
+    return ask
+
+
 def spawn_ask(api: ProwlarrApi, query: str, limit: int, num: int, name: str, budget: float) -> _Ask:
     """Пустить один индексер отдельным потоком и вернуть место под его ответ."""
     ask = _Ask(name=name, budget=budget)
     url = search_url(api.base_url, api.apikey, query, limit, num)
     book = DOWN_BOOK.where()
+    with _FLYING_LOCK:
+        _FLYING[url] = ask
 
     def work() -> None:
         # Бюджет ``ask`` отвечает только за критический путь. Сам запрос живёт в
         # личный срок индексера, чтобы потолок второго круга не обрывал быстрый
         # ответ на границе, а поздний ответ опорного мог доехать в долив.
         ask.rows, ask.ms, ask.err = ask_indexer(api.get_json, url, response_budget(name))
+        with _FLYING_LOCK:
+            if _FLYING.get(url) is ask:
+                del _FLYING[url]
         ask.done.set()
         if ask.judge.acquire(blocking=False):
             in_time = ask.rows is not None and ask.ms <= IN_TIME * 1000
