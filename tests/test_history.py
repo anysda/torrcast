@@ -16,20 +16,22 @@ from web.answer import JSON
 from web.history import history
 from web.request import Request
 
+#: Как история звала приговор: ``ahead`` каждого вызова.
+_AHEAD: list[bool] = []
+
+
+def _offer(records: list[JsonValue], ahead: bool = False) -> list[JsonValue]:
+    _AHEAD.append(ahead)
+    return [
+        {**record, "poster": "abc"} if isinstance(record, dict) else record for record in records
+    ]
+
 
 @pytest.fixture(autouse=True)
 def _posters(monkeypatch: pytest.MonkeyPatch) -> None:
     """История зовёт приговор обложек, но тесты не ходят в сеть."""
-    monkeypatch.setattr(
-        history_module,
-        "hits",
-        SimpleNamespace(
-            offer=lambda records: [
-                {**record, "poster": "abc"} if isinstance(record, dict) else record
-                for record in records
-            ]
-        ),
-    )
+    _AHEAD.clear()
+    monkeypatch.setattr(history_module, "hits", SimpleNamespace(offer=_offer))
 
 
 @pytest.fixture(autouse=True)
@@ -171,7 +173,7 @@ def test_history_keeps_a_new_bookmark_without_a_poster(
     state_slot.install(fake)
     seen: list[dict[str, JsonValue]] = []
 
-    def _offer(records: list[JsonValue]) -> list[JsonValue]:
+    def _offer(records: list[JsonValue], ahead: bool = False) -> list[JsonValue]:
         seen.extend(record for record in records if isinstance(record, dict))
         return [
             {**record, "poster": "abc"}
@@ -205,9 +207,25 @@ def test_history_keeps_the_shelf_when_the_poster_source_is_fully_silent(
     )
     fake.save(state)
     state_slot.install(fake)
-    monkeypatch.setattr(history_module, "hits", SimpleNamespace(offer=lambda records: records))
+    monkeypatch.setattr(
+        history_module, "hits", SimpleNamespace(offer=lambda records, ahead=False: records)
+    )
 
     items = _asked()["items"]
 
     assert [item["title"] for item in items] == ["Два", "Один"]
     assert all("poster" not in item for item in items)
+
+
+def test_the_history_asks_its_covers_ahead_of_the_background() -> None:
+    """Холодная полка главной спрашивает срочно, и фоновая история стояла за ней 5-16 с."""
+    fake = FakeStateStore()
+    state = fake.load()
+    state.entries["movie:cars:2006"] = Entry(
+        "Cars", "magnet:cars", kind="movie", pos=10.0, dur=100.0, updated="2026-01-01"
+    )
+    fake.save(state)
+    state_slot.install(fake)
+
+    assert len(_asked()["items"]) == 1
+    assert _AHEAD == [True]

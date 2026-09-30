@@ -39,7 +39,9 @@ def history(_request: Request) -> Answer:
     # Клиент честно рисует такую плитку типографским блоком. `_covered` годится для
     # ограниченных рекомендаций, где следующая обложка может занять её место, но тут
     # он выбрасывал ровно только что начатую картину из полного списка истории.
-    offered = hits.offer(items)
+    # Приговор спокойный, но впереди фона: холодная полка главной спрашивает свои десятки
+    # картин срочно, и фоновый вопрос «Продолжить» стоял за всей её очередью (4.8-15.6 с).
+    offered = hits.offer(items, ahead=True)
     public = [_public(item) for item in offered if isinstance(item, dict)]
     return Answer(200, json.dumps({"items": public}, ensure_ascii=False).encode("utf-8"))
 

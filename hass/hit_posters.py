@@ -60,11 +60,12 @@ class HitPosters(HitClaims):
         weather: _Weather | None = None,
     ) -> None:
         super().__init__(PosterShelf() if shelf is None else shelf, now)
-        self._source = source
-        self._urgent_source = source
+        self._sources = dict.fromkeys(("calm", "urgent", "ahead"), source)
         self._weather = weather or (FactsWeather() if source is None else _CalmWeather())
 
-    def offer(self, results: list[JsonValue], urgent: bool = False) -> list[JsonValue]:
+    def offer(
+        self, results: list[JsonValue], urgent: bool = False, ahead: bool = False
+    ) -> list[JsonValue]:
         """Те же записи выдачи; имя картинки - только у тех, у кого картинка будет.
 
         Список этим задержан ровно на приговор: один-два запроса на всю пачку. Сами
@@ -75,7 +76,8 @@ class HitPosters(HitClaims):
         state = self._claim(list(dict.fromkeys(a for a in asks if a)), urgent)
         fresh = [ask for ask, one in state.items() if one is _ASK]
         try:
-            self._judge(fresh, urgent, [ask for ask, one in state.items() if one is _BESIDE])
+            beside = [ask for ask, one in state.items() if one is _BESIDE]
+            self._judge(fresh, urgent, beside, ahead=ahead)
         finally:
             self._release(fresh)
         claimed = [_name(ask) for ask, one in state.items() if one is _CLAIMED]
@@ -124,7 +126,9 @@ class HitPosters(HitClaims):
         body = body or self._shelf.read(name)
         return (body, picture_type(body)) if body else None
 
-    def _judge(self, fresh: list[Ask], urgent: bool, beside: Sequence[Ask] = ()) -> None:
+    def _judge(
+        self, fresh: list[Ask], urgent: bool, beside: Sequence[Ask] = (), ahead: bool = False
+    ) -> None:
         """Приговор пачке заявленных картин; ответ в минуту отказов - не промах.
 
         Картины, о которых источник промолчал (нет в ответе), - не промах: видимый ряд
@@ -135,37 +139,37 @@ class HitPosters(HitClaims):
         if not asked:
             return
         began = self._now()
-        said = self._answer(asked, urgent)
+        said = self._answer(asked, self._source_of(urgent, ahead))
         troubled = said is None or self._weather.troubled_since(began)
         late = getattr(self._source_of(urgent), "finish_urgent", None) if urgent else None
         later = [ask for ask in asked if callable(late) and ask not in (said or {})]
         found = hit_book(self, asked, said, later, beside, troubled, self._weather.calm_at())
         if found:
-            threading.Thread(target=self._fill, args=(found, urgent), daemon=True).start()
+            threading.Thread(target=self._fill, args=(found, urgent, ahead), daemon=True).start()
         if later:
             threading.Thread(
                 target=late_posters, args=(self, later, late, _TIMEOUT), daemon=True
             ).start()
 
-    def _answer(self, asks: Sequence[Ask], urgent: bool) -> dict[Ask, list[str]] | None:
+    def _answer(self, asks: Sequence[Ask], source: PosterSource) -> dict[Ask, list[str]] | None:
         """Приговор на всю пачку; ``None`` - источник МОЛЧИТ, а не «постеров нет»."""
         try:
-            return self._source_of(urgent).wanted(asks, _TIMEOUT)
+            return source.wanted(asks, _TIMEOUT)
         except Exception:
             return None
 
-    def _fill(self, wanted: dict[Ask, list[str]], urgent: bool) -> None:
+    def _fill(self, wanted: dict[Ask, list[str]], urgent: bool, ahead: bool = False) -> None:
         """Байты пачки частями (:mod:`hass.poster_parts`): доехавшая ложится, не ждя медленной."""
-        poster_parts(wanted, lambda part: self._land(part, urgent))
+        poster_parts(wanted, lambda part: self._land(part, urgent, ahead))
 
-    def _land(self, wanted: dict[Ask, list[str]], urgent: bool) -> None:
+    def _land(self, wanted: dict[Ask, list[str]], urgent: bool, ahead: bool = False) -> None:
         """Байты одной части и раздача их ждущим.
 
         Приговор уже назвал адрес, и байты не доехали - источник промолчал (обрыв чтения у
         IMDb), а не «картинки нет»: спросить снова, не больше :data:`~hass.hit_claims._ATTEMPTS`.
         """
         try:
-            bodies = self._source_of(urgent).bodies(wanted, _TIMEOUT)
+            bodies = self._source_of(urgent, ahead).bodies(wanted, _TIMEOUT)
         except Exception:
             bodies = {}
         for ask in wanted:
@@ -181,14 +185,11 @@ class HitPosters(HitClaims):
             if waiting is not None:
                 waiting.set()
 
-    def _source_of(self, urgent: bool = False) -> PosterSource:
-        if urgent:
-            if self._urgent_source is None:
-                self._urgent_source = picture_source(urgent=True)
-            return self._urgent_source
-        if self._source is None:
-            self._source = picture_source()
-        return self._source
+    def _source_of(self, urgent: bool = False, ahead: bool = False) -> PosterSource:
+        kind = "urgent" if urgent else "ahead" if ahead else "calm"
+        made = self._sources[kind] or picture_source(**({} if kind == "calm" else {kind: True}))
+        self._sources[kind] = made
+        return made
 
 
 #: Мост держит один список находок на всех: имя, выданное поиском, спрашивают потом

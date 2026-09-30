@@ -376,3 +376,21 @@ def test_a_picture_lands_without_waiting_for_the_slowest_of_its_batch(tmp_path: 
         assert isinstance(it, dict) and FIELD in it, "доехавшей позже обложке не дали имени"
     finally:
         gate.set()
+
+
+def test_an_ahead_offer_takes_its_own_source_for_the_verdict_and_the_bytes(
+    tmp_path: Path,
+) -> None:
+    """``ahead`` - свой источник и на приговор, и на байты; спокойный вызов его не трогает."""
+    calm, ahead = FakeSource(), FakeSource()
+    hits = _hits(tmp_path, calm)
+    hits._sources["ahead"] = ahead
+
+    offered = hits.offer([_row()], ahead=True)[0]
+    assert isinstance(offered, dict)
+    name = str(offered.get(FIELD))
+    assert hits.read(name) is not None
+    assert (len(ahead.judged), len(ahead.loaded), calm.calls) == (1, 1, 0)
+
+    hits.offer([_row("Другое", 2001)])
+    assert (calm.calls, ahead.calls) == (1, 1)

@@ -15,12 +15,15 @@ from torrcast.adapters.wiki.wiki_poster import WikiPoster
 from torrcast.runtime.facts_wiring import FACTS
 
 
-def picture_source(urgent: bool = False) -> BothPosters:
+def picture_source(urgent: bool = False, ahead: bool = False) -> BothPosters:
     """Источник картинок моста: оба источника по порядку доверия.
 
     ``urgent`` - картинки видимого списка: их запросы идут впереди полок и «похожих».
+    ``ahead`` - те же полосы впереди фона, но спокойный порядок: второй источник спрашивается
+    только о промахах первого, и ответ полный. Так спрашивает «Продолжить»: он не
+    переспрашивается, и картинка, не названная в первом ответе, не встала бы вовсе.
     """
-    client = UrgentClient(FACTS.client) if urgent else FACTS.client
+    client = UrgentClient(FACTS.client) if urgent or ahead else FACTS.client
     return BothPosters(
         WikiPoster(client, client),
         ImdbPoster(client, client, FACTS.catalogue),

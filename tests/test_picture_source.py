@@ -9,6 +9,7 @@ from hass.hit_posters import HitPosters
 from hass.picture_source import picture_source
 from hass.posters import Posters
 from torrcast.adapters.wiki.imdb_poster import ImdbPoster
+from torrcast.adapters.wiki.urgent_client import UrgentClient
 from torrcast.adapters.wiki.wiki_poster import WikiPoster
 
 
@@ -37,3 +38,12 @@ def test_the_card_of_the_playing_picture_takes_the_very_same_place(
     source = picture_source()
     monkeypatch.setattr("hass.posters.picture_source", lambda: source)
     assert Posters()._poster == source.poster
+
+
+def test_an_ahead_source_asks_calmly_through_the_front_lanes() -> None:
+    """Порядок спокойный (IMDb только о промахах), а полосы - впереди фона, как у срочного."""
+    source, calm = picture_source(ahead=True), picture_source()
+    assert not source.urgent
+    assert isinstance(source.first, WikiPoster) and isinstance(calm.first, WikiPoster)
+    assert isinstance(source.first.client, UrgentClient)
+    assert not isinstance(calm.first.client, UrgentClient)
