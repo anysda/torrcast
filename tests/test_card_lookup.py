@@ -73,6 +73,28 @@ def test_a_tile_key_answers_when_only_the_year_drifted() -> None:
     assert card_lookup([plan], "tv:укрытие:2026") == (plan, 1)
 
 
+def test_a_film_of_another_year_does_not_answer_to_the_film_key() -> None:
+    """🔴 У кино год - год премьеры, а не вывод набора раздач: другой год - другое кино.
+
+    Круг «Оно» без картины 2017 года держит «Оно приходит за тобой / It Follows» 2014,
+    и ключ ``movie:оно:2017`` отвечал ею по совпавшему роду: карточка «Оно» играла чужое
+    кино. Ремейк - то же самое: «Король Лев» 2019 не отвечает на ключ 1994 года.
+    """
+    it_follows = _plan("Оно", 2014, "It Follows")
+    remake = _plan("Король Лев", 2019, "The Lion King")
+
+    assert card_lookup([it_follows], "movie:оно:2017") == (None, 0)
+    assert card_lookup([remake], "movie:король-лев:1994") == (None, 0)
+
+
+def test_a_film_answers_through_the_festival_year_and_through_an_unknown_year() -> None:
+    """Год фестиваля и год проката расходятся на один; ключ без года не судится."""
+    plan = _plan("Оно", 2017, "It")
+
+    assert card_lookup([plan], "movie:оно:2016") == (plan, 1)
+    assert card_lookup([plan], "movie:оно:0") == (plan, 1)
+
+
 def test_a_tile_key_answers_when_only_the_kind_drifted() -> None:
     """Род выводится из имён раздач, и узкий набор полки зовёт сериал кино.
 

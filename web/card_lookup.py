@@ -11,6 +11,7 @@ from dataclasses import replace
 from difflib import SequenceMatcher
 from typing import Final
 
+from torrcast.domain.own_release import YEAR_SLACK
 from torrcast.domain.picture import Picture
 from torrcast.domain.picture_names import picture_names
 from torrcast.usecases.select.plan import Plan
@@ -44,6 +45,11 @@ def card_lookup(plans: list[Plan], key: str) -> tuple[Plan | None, int]:
     совпавшая полностью картина всегда обходит съехавшую, а равные разбирает порядок
     круга. Тёзка, у которой разошлись ОБЕ части, остаётся отдельной картиной: «Похищение»
     1993 года на ключ сериала не отвечает.
+
+    🔴 Кино с обеих сторон и годы разошлись дальше :data:`YEAR_SLACK` - это тоже другая
+    картина, а не съехавший вывод: «Оно» 2014 года (It Follows) на ключ «Оно» 2017 не
+    отвечает, даже когда 2017 в круге нет. Съезд года из-за разных наборов раздач
+    бывает у сериала, у кино год - это год премьеры.
     """
     best_score, best_number = 0, 0
     for number, plan in enumerate(plans, start=1):
@@ -66,6 +72,8 @@ def _score(picture: Picture, key: str) -> int:
     best = 0
     for own in _keys(picture):
         own_kind, own_slug, own_year = _parts(own)
+        if _other_film(kind, own_kind, year, own_year):
+            continue
         matched = (own_kind == kind) + (own_year == year)
         if own_slug == slug:
             best = max(best, matched + 1 if matched else 0)
@@ -74,6 +82,13 @@ def _score(picture: Picture, key: str) -> int:
             # с точным именем её обходит.
             best = max(best, 1)
     return best
+
+
+def _other_film(kind: str, own_kind: str, year: str, own_year: str) -> bool:
+    """Оба ключа - кино, оба с годом, и годы дальше друг от друга :data:`YEAR_SLACK`."""
+    if kind != "movie" or own_kind != "movie" or not year.isdigit() or not own_year.isdigit():
+        return False
+    return int(year) != 0 and int(own_year) != 0 and abs(int(year) - int(own_year)) > YEAR_SLACK
 
 
 def _near(own: str, asked: str) -> bool:
