@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from tests.usecases.discover.world import Indexer, row
+from torrcast.adapters.prowlarr.warmup import WARMUP, warmup
 from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.raw_result import RawResult
@@ -214,3 +215,25 @@ def test_the_typed_text_reaches_the_host_before_the_picture_names() -> None:
         ToldIndexer(source), lambda: _Host(arrived, 0.0), None, "Интерстелар", "Интерстелар"
     )
     assert arrived[0] == "Интерстелар", arrived
+
+
+class _Marked(Indexer):
+    def __init__(self, marks: list[bool]) -> None:
+        super().__init__(answers={"интерстеллар 2014": [_ROW]})
+        self.marks = marks
+
+    def search(self, query: str) -> list[RawResult]:
+        self.marks.append(WARMUP.get())
+        return super().search(query)
+
+
+def test_a_warmups_mark_reaches_every_ask_of_the_round() -> None:
+    # The round asks from its own pool; a warmup's circle there must still give way to a viewer.
+    _configure_recognize(lambda _query, _wait: _INTERSTELLAR)
+    marks: list[bool] = []
+    source = _Marked(marks)
+    with warmup():
+        NamedRound(source).ask(
+            ToldIndexer(source), lambda: _Marked(marks), None, "Интерстелар", "Интерстелар"
+        )
+    assert marks == [True, True, True], marks

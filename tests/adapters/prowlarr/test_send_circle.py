@@ -39,3 +39,10 @@ def test_a_name_behind_the_queue_comes_back_unsent_with_its_budget() -> None:
     names, unsent = _sent(slots, "", cap=4.0)
     assert names == ["Knaben"], "RuTor waits behind the queue, JacRed is carried by another client"
     assert unsent == [("RuTor", 3.0)]
+
+
+def test_every_sent_request_is_in_flight_at_its_host_until_it_ends() -> None:
+    slots = HostSlots(_Clock())
+    _sent(slots, None)
+    assert sorted(slots._flight) == ["JacRed", "Knaben", "RuTor"], "a warmup could not see them"
+    assert all(one.is_set() for flying in slots._flight.values() for one in flying)

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from typing import TYPE_CHECKING, Protocol
 
+from torrcast.adapters.prowlarr.warmup import warmup
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
@@ -65,7 +66,8 @@ def _pump(cache: _Cache) -> None:
                 query = cache._urgent.pop(0) if urgent else cache._queue.pop(0)
                 stale = _claim(cache, query)
             if stale is not None:
-                _turn(cache, query, stale, urgent)
+                with nullcontext() if urgent else warmup():
+                    _turn(cache, query, stale, urgent)
     finally:
         with cache._cond:
             cache._running -= 1

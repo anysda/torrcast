@@ -7,17 +7,34 @@ drew the third slot at every host, four seconds in, and a three-second budget co
 see its answer; on the stand, with searches under four seconds, the next search's own text
 drew its slot behind that one and went silent too, a query after another. The queue lives in
 Prowlarr across searches, so its picture lives here, in the process, and not in one client.
+
+The viewer goes first in these queues (:meth:`HostSlots.give_way`). After a restart the saved
+screen's warmup queued sixteen requests at YTS; the last ones started past YTS's six-second
+budget and the book counted the source as down (three restarts: 17, 12 and 13 silences),
+although YTS answered each one in 0.4 s. A warmup circle now starts only when no live search
+runs and none of its hosts has a request of ours still in flight, so it holds one slot at
+most ahead of a viewer. The drawn slots alone did not do: Prowlarr runs YTS 2.5 s apart, not
+two, and warmup circles spaced by the picture still stacked YTS half a second per circle
+(three restarts: 12, 12 and 13 silences, every circle leaving YTS late).
 """
 
 from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from typing import Final
+
+from torrcast.adapters.prowlarr.warmup import WARMUP
+from torrcast.ports.journal.slot import journal
 
 #: Prowlarr's pause between two requests to one host.
 PACE: Final = 2.0
+#: Longest a warmup circle gives way: live searches back to back do not starve it for good.
+MOST: Final = 60.0
+#: How often a waiting warmup looks at the queues again while no live search ends.
+LOOK: Final = 0.25
 
 
 class HostSlots:
@@ -28,6 +45,9 @@ class HostSlots:
         self._pace = pace
         self._lock = threading.Lock()
         self._free: dict[str, float] = {}
+        self._flight: dict[str, list[threading.Event]] = {}
+        self._turn = threading.Condition(self._lock)
+        self._live = 0
 
     def take(self, name: str, budget: float, *, spare: bool = False) -> bool:
         """Draw ``name``'s next slot for a request waited ``budget`` seconds.
@@ -44,8 +64,51 @@ class HostSlots:
             self._free[name] = start + self._pace
             return True
 
+    def sent(self, name: str, done: threading.Event) -> None:
+        """A request to ``name`` is in flight until ``done`` is set."""
+        with self._lock:
+            self._flight[name] = [
+                *(one for one in self._flight.get(name, []) if not one.is_set()),
+                done,
+            ]
+
+    @contextmanager
+    def live(self) -> Iterator[None]:
+        """A viewer's search runs while this block does: warmup circles wait for its end."""
+        with self._turn:
+            self._live += 1
+        try:
+            yield
+        finally:
+            with self._turn:
+                self._live -= 1
+                self._turn.notify_all()
+
+    def give_way(self, names: Sequence[str], most: float = MOST) -> float:
+        """The moment (:func:`time.monotonic`) a circle to ``names`` may start.
+
+        A viewer's circle is never held. A warmup circle waits until no live search runs and
+        none of its hosts has a queue or a request in flight, ``most`` seconds at the longest.
+        """
+        if not WARMUP.get():
+            return time.monotonic()
+        began = self._clock()
+        with self._turn:
+            while True:
+                now = self._clock()
+                lag = max((self._free.get(name, now) - now for name in names), default=0.0)
+                flying = any(
+                    not one.is_set() for name in names for one in self._flight.get(name, [])
+                )
+                if (self._live == 0 and lag <= 0 and not flying) or now >= began + most:
+                    break
+                self._turn.wait(min(began + most - now, max(lag, LOOK)))
+        if (held := now - began) > LOOK:
+            journal().emit("search", "warmup_gave_way", held=round(held, 2), names=list(names))
+        return time.monotonic()
+
 
 #: The one queue picture of the process: the clients live one search each.
 HOST_SLOTS: Final = HostSlots()
 
-__all__ = ["HOST_SLOTS", "PACE", "HostSlots"]
+__all__ = ["HOST_SLOTS", "LOOK", "MOST", "PACE", "HostSlots"]

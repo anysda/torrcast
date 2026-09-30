@@ -17,6 +17,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
+from contextvars import copy_context
 from typing import Final
 
 import torrcast.usecases.discover._search_state as _search_state
@@ -109,7 +110,7 @@ class NamedRound:
         An empty ``query`` recognizes nothing: the round is then the plain search of ``name``.
         """
         with ThreadPoolExecutor(max_workers=3, thread_name_prefix="named-round") as pool:
-            typed = pool.submit(_ask, client, name)
+            typed = pool.submit(copy_context().run, _ask, client, name)
             asked = self._names(pool, spawn, on_indexer, name, query)
             try:
                 raw = typed.result()
@@ -143,7 +144,11 @@ class NamedRound:
         # One client carries all the names to the indexer that takes them joined; the
         # others leave it alone (:mod:`~torrcast.domain.joint_query`).
         joints = [JOINT.join(texts) if not each else "" for each in range(len(texts))]
-        asked = [pool.submit(self._one, spawn(), *pair) for pair in zip(texts, joints, strict=True)]
+        # Each ask carries the caller's context: a warmup's circle gives way in its pool too.
+        asked = [
+            pool.submit(copy_context().run, self._one, spawn(), text, joint)
+            for text, joint in zip(texts, joints, strict=True)
+        ]
         if asked:
             _notify(on_indexer, self)
         return asked

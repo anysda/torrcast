@@ -41,6 +41,7 @@ def send_circle(
         cut = min(budgets(name), cap) if cap else budgets(name)
         if slots.take(name, cut, spare=joint is not None):
             asked.append(spawn_ask(api, text, limit, num, name, cut))
+            slots.sent(name, asked[-1].done)
         else:
             unsent.append((name, cut))
     return asked, unsent

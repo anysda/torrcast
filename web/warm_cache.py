@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS
 from torrcast.domain.not_found_error import NotFoundError
 from web.circle_disk import CircleDisk
 from web.circle_memory import CircleMemory
@@ -41,7 +42,6 @@ LIMIT: Final = 40
 PATIENCE: Final = 5.0
 #: Сколько живой запрос ждёт круг, который уже считает фон, прежде чем считать сам.
 BUSY_WAIT: Final = 30.0
-
 
 #: Кто считает круг, кто греет справку и кто уносит работу в фон (:mod:`web.warm_wiring`).
 Circle = Callable[[str], "list[Plan]"]
@@ -86,8 +86,7 @@ class WarmCache:
         """
         key = query.strip()
         with self._cond:
-            # Only a running circle is waited for (a queued one is taken over), and a kept
-            # circle being refreshed in the background is not waited for at all.
+            # Only a running circle is waited for; a kept one refreshed behind is not.
             self._cond.wait_for(
                 lambda: key not in self._busy or self.ready(query) is not None, BUSY_WAIT
             )
@@ -190,7 +189,8 @@ class WarmCache:
         with self._cond:
             self._live += 1
         try:
-            yield
+            with HOST_SLOTS.live():  # the adapter's queues: the warmup's circle in flight waits too
+                yield
         finally:
             with self._cond:
                 self._live -= 1

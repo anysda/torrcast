@@ -129,7 +129,7 @@ class IndexerCircle:
 
         Возвращает выдачи и причину последней потери - она понадобится, если смолчат все.
         """
-        began = time.monotonic()
+        began = self.slots.give_way([name for _num, name in pairs])
         asked, unsent = send_circle(
             self.api, self.slots, pairs, query, limit, joint=joint, budgets=self.budget_of, cap=cap
         )
