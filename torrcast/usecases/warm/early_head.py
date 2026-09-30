@@ -34,11 +34,14 @@ def _lay_head(state: _State) -> bool:
     head = _head_spot(state)
     if head is None:
         return False
-    # Копия поверх нужна перекоду ради звука (:func:`_run`), поэтому сперва она.
-    spot = state.vault.have(head)
-    landing = state.landing = threading.Event() if spot else None
+    # Копия поверх нужна перекоду ради звука (:func:`_run`), поэтому сперва она. При
+    # сплошном перекоде копии нет: первый же заход и есть кусок, который возьмёт показ.
+    whole = state.encode is not None
+    spot = not whole and state.vault.have(head)
+    final = whole or spot
+    landing = state.landing = threading.Event() if final else None
     nice, rate = state.nice, state.rate
-    state.nice = min(nice, HEAD_NICE) if spot else nice
+    state.nice = min(nice, HEAD_NICE) if final else nice
     state.rate = max(rate, HEAD_RATE)
     try:
         state._run(head, head, spot=spot)

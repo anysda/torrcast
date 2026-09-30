@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.warm.world import warmer
+from tests.usecases.warm.world import lay, warmer
 from torrcast.usecases.warm.head_spot import _head_spot
 
 if TYPE_CHECKING:
@@ -40,3 +40,15 @@ def test_the_current_episode_does_not_recode_what_the_show_already_gave(tmp_path
     warm = warmer(tmp_path, began_at=3, spots=(3,), spot_encode=object())
 
     assert _head_spot(warm) is None, "прогрев текущей серии перекодирует уже отданный старт"
+
+
+def test_a_wholly_recoded_next_start_is_taken_first_until_it_lies_on_the_shelf(
+    tmp_path: Path,
+) -> None:
+    """Сплошной перекод: старт следующей серии - первая работа, пока его нет на полке."""
+    warm = warmer(tmp_path, began_at=2, encode=object(), ahead=True)
+
+    assert _head_spot(warm) == 2, "старт следующей серии ждал бы цепочки до самого стыка"
+    lay(warm.vault, 2)
+    assert _head_spot(warm) is None, "лёгший старт взялся бы второй раз"
+    assert _head_spot(warmer(tmp_path, encode=object())) is None, "у текущей старт отдал показ"

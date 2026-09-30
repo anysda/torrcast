@@ -21,10 +21,17 @@ def _head_spot(state: _State) -> int | None:
 
     Только у прогрева следующей серии (:attr:`ahead`): у текущей стартовый кусок живой показ
     уже отдал, и перекодировать его первым - пустая работа в самом тесном окне показа.
+
+    При сплошном перекоде (:attr:`encode`) стартовый кусок - такой же перекод, и ждать
+    цепочки ему нельзя тем же образом: зритель, перемотавший серию к концу, встречал стык
+    без единого куска следующей (замер на HEVC: 3.2 с живого перекода старта после конца
+    серии). Кусок лёг на полку - работа сделана.
     """
     head = state.began_at
-    if not state.ahead:
+    if not state.ahead or head in state.hopeless:
         return None  # у текущей серии этот кусок уже отдал живой показ
-    if state.spot_encode is None or head not in state.spots or head in state.hopeless:
+    if state.encode is not None:
+        return None if state.vault.have(head) else head
+    if state.spot_encode is None or head not in state.spots:
         return None
     return None if state.vault.spot(head).exists() else head

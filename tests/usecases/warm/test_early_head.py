@@ -236,3 +236,27 @@ def test_after_a_seek_to_the_end_the_step_waits_for_a_frame_there(tmp_path: Path
 
     assert asked == [1401.8], "шаг к следующей серии раньше кадра на новом месте"
     assert _TAKEN[-1] == (0, True, HEAD_NICE)
+
+
+def test_a_wholly_recoded_next_start_is_laid_once_under_priority_and_awaited(
+    tmp_path: Path,
+) -> None:
+    """Сплошной перекод: один заход кладёт старт, и стык серий ждёт именно его.
+
+    Замер на HEVC («Футурама», перемотка к концу серии): без этого шага старт следующей
+    серии перекодировался живым 3.2 с после конца текущей.
+    """
+    world()
+    warm = _current(tmp_path)
+    _TAKEN.clear()
+    following = warmer(
+        tmp_path, kind=_Laying, vault=vault(tmp_path, key="следующая"), encode=cast("Any", object())
+    )
+    warm.follow = lambda: following
+
+    _early_head(warm)
+
+    assert _TAKEN == [(0, False, HEAD_NICE)], "старт сплошного перекода не лёг заранее"
+    assert following.vault.have(0)
+    assert following.landing is not None and following.landing.is_set(), "стык его не ждёт"
+    assert following.thread is None, "остальная следующая серия отобрала бы раздачу у текущей"
