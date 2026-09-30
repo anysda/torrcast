@@ -21,6 +21,7 @@ from torrcast.usecases.playback.head_ahead import HEAD
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.domain.config import Config
+    from torrcast.domain.entry import Entry
     from torrcast.domain.profile import Profile
     from torrcast.ports.torrent_engine import TorrentEngine
     from torrcast.usecases.select._prep import _Prep
@@ -28,12 +29,26 @@ if TYPE_CHECKING:
 
 
 def card_head(
-    config: Config, profile: Profile, engine: TorrentEngine, plan: Plan, prep: _Prep, args: Args
+    config: Config,
+    profile: Profile,
+    engine: TorrentEngine,
+    plan: Plan,
+    prep: _Prep,
+    args: Args,
+    kept: Entry | None = None,
 ) -> None:
-    """Завести голову раздачи, которую отбор карточки оставил греться."""
+    """Завести голову раздачи, которую отбор карточки оставил греться.
+
+    ``kept`` - закладка, которую продолжит «Играть» (:meth:`WatchState.bookmark_key`): показ
+    получит её запись как есть, и голова ложится по ней, с её места и дорожки, под тем же
+    ключом полки. Запись по выбору отбора качала бы и резала раздачу, которую не сыграют.
+    """
     try:
-        state = watch_store().load()
-        entry, _audio = _entry_of(state, state.find(args.title_query), plan, prep, args)
+        if kept is not None:
+            entry = kept
+        else:
+            state = watch_store().load()
+            entry, _audio = _entry_of(state, state.find(args.title_query), plan, prep, args)
     except TorrcastError as exc:  # не собралась запись - клик заведёт голову сам
         journal().mark("голова с карточки не собралась", почему=type(exc).__name__)
         return

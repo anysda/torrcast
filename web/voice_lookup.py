@@ -88,8 +88,8 @@ class VoiceLookup:
             self._pending.add(key)
         if start:
             release = mark or (heard.release if heard is not None else "")
-            at = live.pos if mark and live is not None else 0.0
-            self.spawn(lambda: self._build(plan, query, config, release, bool(mark), label, at))
+            kept = live if mark else None
+            self.spawn(lambda: self._build(plan, query, config, release, kept, label))
         if known:
             return heard, False
         with self._lock:
@@ -118,16 +118,15 @@ class VoiceLookup:
         query: str,
         config: Config,
         release: str = "",
-        pinned: bool = False,
+        kept: Entry | None = None,
         label: str = "",
-        resume: float = 0.0,
     ) -> None:
         """Отобрать раздачу, прочитать её дорожки и оставить греться только выбранную.
 
-        ``pinned`` - раздачу назвала закладка: отбор, взявший другую, дорожек не отдаёт,
-        потому что сыграет не она, а меню чужих дорожек соврало бы. ``resume`` - место
-        закладки: «Оно» продолжалось с 395 с, а прогрев карточки тянул начало файла, и
-        первый сегмент ждал рой 7.8 с.
+        ``kept`` - закладка, которую продолжит «Играть»: отбор, взявший другую раздачу,
+        дорожек не отдаёт (меню чужих дорожек соврало бы), прогрев тянет её место («Оно»
+        продолжалось с 395 с, а прогрев тянул начало файла, и первый сегмент ждал рой
+        7.8 с), и голова показа кладётся по её записи, а не по выбору отбора.
         """
         heard: Heard | None = None
         words = [query, label] if label else [query]
@@ -137,13 +136,13 @@ class VoiceLookup:
 
         def make() -> Bench:
             bench = Bench(engines, choose=file_picker(args), profile=profile, lends=True)
-            bench.resume = resume
+            bench.resume = kept.pos if kept is not None else 0.0
             return bench
 
         warm, fresh = self.warms.open(plan.picture.key, make)
         prep = None
         left = released = False
-        failed = False
+        failed, pinned = False, kept is not None
         try:
             if fresh:
                 native_picture(plan.picture, query)
@@ -166,8 +165,8 @@ class VoiceLookup:
             foreign = pinned and prep is not None and info_hash(prep.release) != release
             if fresh and not released:  # чужую закладке раздачу не греют: играть её не будут
                 self.warms.finish(warm, None if foreign else prep)
-                if prep is not None and not pinned and not left:
-                    self.head(config, profile, engines, plan, prep, args)
+                if prep is not None and not foreign and not left:
+                    self.head(config, profile, engines, plan, prep, args, kept)
             if prep is not None and not foreign:
                 release = info_hash(prep.release)
                 heard = Heard(

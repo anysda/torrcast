@@ -339,15 +339,29 @@ def test_a_finished_card_pick_starts_the_head_of_the_release_it_keeps_warm(
     lookup.of(_PLAN, "film", _CONFIG)
 
     assert len(heads) == 1
-    config, profile, _engines, plan, prep, args = heads[0]
+    config, profile, _engines, plan, prep, args, kept = heads[0]
     assert config is _CONFIG and profile.key == "q70d" and plan is _PLAN
-    assert prep.found is _MEDIA and args.title_query == "film"
+    assert prep.found is _MEDIA and args.title_query == "film" and kept is None
 
 
-def test_a_bookmark_card_starts_no_head(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Закладка играет со своего места, а голова кладётся с начала файла: греть нечего."""
+def test_a_bookmark_card_lays_the_head_of_the_bookmark_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«Играть» продолжит закладку: голова - её запись и место, не выбор отбора."""
     heads: list[tuple[Any, ...]] = []
     bench = _Bench(_MEDIA, release=_KEPT)
+    lookup = _lookup(monkeypatch, bench, spawn=_sync, head=lambda *args: heads.append(args))
+    live = _live()
+
+    lookup.of(_KEPT_PLAN, "film", _CONFIG, live)
+
+    assert len(heads) == 1 and heads[0][-1] is live
+
+
+def test_a_pick_foreign_to_the_bookmark_lays_no_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Отбор взял не раздачу закладки: играть её не будут, и греть её голову незачем."""
+    heads: list[tuple[Any, ...]] = []
+    bench = _Bench(_MEDIA)
     lookup = _lookup(monkeypatch, bench, spawn=_sync, head=lambda *args: heads.append(args))
 
     lookup.of(_KEPT_PLAN, "film", _CONFIG, _live())

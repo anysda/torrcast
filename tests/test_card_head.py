@@ -10,6 +10,7 @@ import pytest
 import web.card_head
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
@@ -57,3 +58,23 @@ def test_an_entry_that_does_not_build_lays_no_head(monkeypatch: pytest.MonkeyPat
     card_head(Config(), CAUTIOUS, "engine", _PLAN, "prep", parse_args(["кино"]))  # type: ignore[arg-type]
 
     assert wanted == []
+
+
+def test_a_bookmark_card_lays_the_bookmark_entry_as_the_show_gets_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Голова закладки - её запись как есть: тот же ключ полки, что у показа с места."""
+    wanted = _heads(monkeypatch)
+
+    def picked(*_args: object) -> Any:
+        return pytest.fail("the circle's pick is not what «Play» resumes")
+
+    monkeypatch.setattr(web.card_head, "_entry_of", picked)
+    kept = Entry("Тачки", "magnet:?xt=urn:btih:aa", pos=2955.0, dur=6960.0, audio=2)
+
+    card_head(Config(), ANDROID_TV, "engine", _PLAN, "prep", parse_args(["cars"]), kept)  # type: ignore[arg-type]
+
+    assert len(wanted) == 1
+    tuned, profile, _engine, got, kwargs = wanted[0]
+    assert (tuned, profile, got) == (tune(Config(), ANDROID_TV), ANDROID_TV, kept)
+    assert kwargs == {"owner": "movie:кино:1999"}
