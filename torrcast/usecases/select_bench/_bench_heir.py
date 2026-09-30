@@ -22,10 +22,12 @@ def _heir(bench: _BenchTrouble, plan: Plan, args: Args, waited: _Prep) -> int | 
     тоже с перекодом, только позже. «Оно» (стенд 30-09): №6 молчал все 20 с бюджета, а
     готовый №33 стоял рядом 14 с и сыграл всё равно. Наследнику тяжесть не помеха.
 
-    Ждомая, у которой метаданные есть и которая просто долго читается, наследника не
-    получает: там ответ близок, и правило подмены прежнее.
+    Ожидаемая, у которой метаданные есть и которая просто долго читается, наследника не
+    получает: там ответ близок, и правило подмены прежнее. «Есть» значит пришёл список
+    файлов, а не отметка :attr:`_Prep.meta`: её ставят после снятия спроса с TorrServer, и
+    этот запрос бывает долгим, а раздача всё это время уже не молчит.
     """
-    if waited.meta or bench.clock() - waited.started < HEIR_SILENCE:
+    if waited.files or bench.clock() - waited.started < HEIR_SILENCE:
         return None
     queue = plan.candidates(args)
     at = queue.index(waited.number) + 1 if waited.number in queue else len(queue)

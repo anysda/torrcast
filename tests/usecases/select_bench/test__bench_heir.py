@@ -148,6 +148,21 @@ def test_a_heavy_next_release_waits_for_a_top_whose_metadata_came_after_the_dead
 
 
 @pytest.mark.machine
+def test_a_top_with_files_is_not_silent_while_its_supply_sample_hangs() -> None:
+    """Список файлов пришёл сразу, а снятие спроса у TorrServer висит 1.5 с: верх не молчит.
+
+    Отметка :attr:`_Prep.meta` встаёт только после этого запроса, и по ней верх выглядел бы
+    безмолвным дольше порога, хотя метаданные у него давно есть.
+    """
+    read = probes(_POOL, _RUS, _HEAVY, _HEAVY)
+    torrents = _Late(meta=0.0, status=1.5)
+
+    prep = _bench(torrents, read).resolve(plan(_POOL, recode_at=10.0), _ASKED, Said())
+
+    assert prep.number == 1
+
+
+@pytest.mark.machine
 def test_a_heavy_release_that_is_not_next_in_the_queue_does_not_inherit(
     released: threading.Event,
 ) -> None:
