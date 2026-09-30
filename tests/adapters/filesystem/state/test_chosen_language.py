@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import torrcast.adapters.filesystem.state.chosen_language as chosen_language_module
+import torrcast.domain.catalogs.tongue as tongue_module
 from torrcast.adapters.filesystem.state.chosen_language import chosen_language
 from torrcast.adapters.filesystem.state.config_path import config_path
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 
 
@@ -100,3 +104,64 @@ def test_a_language_changed_by_another_process_is_heard_without_a_restart(
     clock.now += chosen_language_module._GLANCE
 
     assert chosen_language() == "ru"
+
+
+class _SavedMidRead:
+    """Путь настройки, на первом `str` которого соседний поток пишет язык (`cast --en`).
+
+    Так проба мержера (три потока надписей и поток записи) ловит гонку не за десять
+    секунд случая, а на первом же зове: запись встаёт ровно между шагами чтения снимка.
+    """
+
+    def __init__(self, real: Path) -> None:
+        self.real, self.fired = real, False
+
+    def __str__(self) -> str:
+        if not self.fired:
+            self.fired = True
+            writer = threading.Thread(target=save_config, args=(Config(language="en"),))
+            writer.start()
+            writer.join()
+        return str(self.real)
+
+    def __fspath__(self) -> str:
+        return str(self.real)
+
+
+@pytest.mark.machine
+def test_a_language_written_by_another_thread_mid_read_does_not_break_a_phrase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    save_config(Config(language="ru"))
+    monkeypatch.setattr(tongue_module, "_TONGUE", chosen_language)
+    assert phrase("rank.reason_disc") == "образ диска"
+    racing = _SavedMidRead(config_path())
+    monkeypatch.setattr(chosen_language_module, "config_path", lambda: racing)
+
+    assert phrase("rank.reason_disc") == "образ диска", "начатое чтение договаривает своё"
+    assert racing.fired, "запись посреди чтения не случилась - проба ничего не проверила"
+    assert phrase("rank.reason_disc") == "disc image", "следующая надпись слышит запись"
+
+
+@pytest.mark.machine
+def test_a_read_overtaken_by_a_save_does_not_pin_the_old_language(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Читатель прочёл файл до записи соседа: старый язык он отдаёт, но не запоминает."""
+    clock = _Clock()
+    monkeypatch.setattr(chosen_language_module, "time", clock)
+    save_config(Config(language="ru"))
+    real = load_config
+
+    def overtaken() -> Config:
+        read = real()
+        monkeypatch.setattr(chosen_language_module, "load_config", real)
+        writer = threading.Thread(target=save_config, args=(Config(language="en"),))
+        writer.start()
+        writer.join()
+        return read
+
+    monkeypatch.setattr(chosen_language_module, "load_config", overtaken)
+
+    assert chosen_language() == "ru"
+    assert chosen_language() == "en", "запись соседа не ждёт окна сверки"

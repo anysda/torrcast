@@ -17,8 +17,16 @@ from torrcast.domain.torrcast_error import TorrcastError
 #: получал бы английский на живой и вполне читаемой русской установке.
 _asking = threading.local()
 #: Последний прочитанный язык, отпечаток файла, из которого он прочитан, и когда
-#: отпечаток сверяли в последний раз (часы :func:`time.monotonic`).
-_seen: list[tuple[tuple[str, int, int, int], str, float]] = []
+#: отпечаток сверяли в последний раз (часы :func:`time.monotonic`). Снимок неизменяемый
+#: и меняется только целиком: читатель берёт его ОДИН раз и дальше смотрит в свою
+#: копию. Проверка «запись есть» и чтение записи отдельными шагами роняли надпись
+#: ``IndexError``-ом, когда бот писал язык (``cast --ru``) из соседнего потока.
+_last: tuple[tuple[str, int, int, int], str, float] | None = None
+#: Сколько раз снимок забывали записью настройки. Читатель запоминает прочитанное,
+#: только если счёт не сдвинулся, пока он читал: начавший до записи иначе закрепил бы
+#: старый язык на всё окно сверки. Сверка счёта и замена снимка идут одним шагом.
+_epoch = 0
+_swap = threading.Lock()
 #: Сколько секунд язык верят без сверки с файлом. Надпись спрашивает язык на каждом
 #: зове, и даже один ``stat`` на надпись копился на пути старта показа; чужой процесс
 #: (``cast language``) меняет язык живого показа не позже этого окна.
@@ -27,7 +35,18 @@ _GLANCE = 1.0
 
 def _forget_language() -> None:
     """Забыть прочитанный язык: запись настройки из этого же процесса видна сразу."""
-    _seen.clear()
+    global _last, _epoch
+    with _swap:
+        _last = None
+        _epoch += 1
+
+
+def _keep(epoch: int, now: tuple[tuple[str, int, int, int], str, float]) -> None:
+    """Запомнить прочитанное, только если настройку не писали, пока файл читали."""
+    global _last
+    with _swap:
+        if _epoch == epoch:
+            _last = now
 
 
 def chosen_language() -> str:
@@ -57,18 +76,16 @@ def chosen_language() -> str:
     try:
         path = config_path()
         now = time.monotonic()
-        if _seen and _seen[0][0][0] == str(path) and now - _seen[0][2] < _GLANCE:
-            return _seen[0][1]
+        epoch, last = _epoch, _last
+        if last is not None and last[0][0] == str(path) and now - last[2] < _GLANCE:
+            return last[1]
         try:
             stat = os.stat(path)
             stamp = (str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino)
         except OSError:
             return load_config().language
-        if _seen and _seen[0][0] == stamp:
-            _seen[:] = [(stamp, _seen[0][1], now)]
-            return _seen[0][1]
-        language = load_config().language
-        _seen[:] = [(stamp, language, now)]
+        language = last[1] if last is not None and last[0] == stamp else load_config().language
+        _keep(epoch, (stamp, language, now))
         return language
     except TorrcastError:
         return EN
