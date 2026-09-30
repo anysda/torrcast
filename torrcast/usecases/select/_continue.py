@@ -82,7 +82,8 @@ def _continue(
             own.handed = not args.dry  # показ пошёл и раздача та же - дальше она его
             return code
         entry = _voiced(config, entry, args, own)
-        if args.episode is not None:  # `cast киберпанк s2e5` - прыжок по кэшу раздачи
+        # `cast киберпанк s2e5` - прыжок по кэшу раздачи; серия закладки остаётся на месте
+        if args.episode is not None and not entry.holds(args.episode):
             jumped = entry.jump(args.episode.season, args.episode.episode)
             if jumped is None:
                 return None  # серии в этой раздаче нет - честно идём искать релиз сезона

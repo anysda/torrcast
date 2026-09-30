@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from torrcast.domain._playing import EntryKind as EntryKind
 from torrcast.domain._playing import _Playing
@@ -21,6 +22,9 @@ from torrcast.domain.json_rows import json_rows
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.spoken_title import spoken_title
 from torrcast.domain.watch_ratios import WATCHED_RATIO
+
+if TYPE_CHECKING:
+    from torrcast.domain.episode import Episode
 
 __all__ = ["Entry", "EntryKind"]
 
@@ -106,6 +110,17 @@ class Entry(_Playing):
             if len(item) >= 2 and item[0] == season and item[1] == episode:
                 return at
         return -1
+
+    def holds(self, named: Episode | None) -> bool:
+        """Отвечает ли запросу место закладки: серия не названа или названа её же с местом.
+
+        Так серию закладки обещает её строка на карточке («продолжит отсюда»). Досмотренная
+        серия места не держит: строка у неё «просмотрено», и играет она с начала, как другие.
+        """
+        if named is None:
+            return True
+        own = (named.season, named.episode) == (self.season, self.episode)
+        return own and self.resumable and not self.watched
 
     def jump(self, season: int, episode: int) -> Entry | None:
         """Прыжок на серию в пределах уже выбранной раздачи: ни поиска, ни вопросов.

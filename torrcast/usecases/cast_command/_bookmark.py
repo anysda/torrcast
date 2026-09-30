@@ -102,12 +102,10 @@ def _continue_picked(
     картину, и ручной релиз играет его с начала) и сериал, которому человек сам назвал
     ДРУГУЮ серию, - тогда место закладки не поднимается, и строка обязана это сказать.
 
-    Дверь меню (``--menu``, ``--pick N``) у начатого сериала без названной серии отвечает
-    местом закладки (:func:`_picked_serial`), как и запрос без ручек: этой дверью входит
-    кнопка «Играть» веба, и прежний путь с первой серии стирал сохранённое место под тем же
-    ключом (TC-1203). Строка о потере осталась меню с названной серией - там место правда
-    не поднимается: причиной названа та дверь, которой вошли («картина выбрана в меню»), а
-    хвост о потере общий. Начатый фильм из меню продолжается, как и без ручек.
+    Меню (``--menu``, ``--pick N``) у начатого сериала без серии или с серией закладки
+    (:meth:`Entry.holds`) отвечает её местом (:func:`_picked_serial`): так входят «Играть»
+    веба (TC-1203) и строка её серии («продолжит отсюда»). Меню с ДРУГОЙ серией места не
+    поднимает и говорит это, назвав дверь («картина выбрана в меню»). Фильм продолжается.
     """
     started = state.get(plan.picture.key)
     if started is None:
@@ -137,7 +135,7 @@ def _continue_picked(
     if (
         started.serial
         and args.from_menu
-        and args.episode is None
+        and started.holds(args.episode)
         and not args.buried(started.magnet)
     ):
         key = plan.picture.key
@@ -170,10 +168,11 @@ def _plays_recorded(state: WatchState, plan: Plan, args: Args) -> bool:
     started = state.get(plan.picture.key)
     if started is None or args.pinned or args.buried(started.magnet):
         return False
+    answers = args.from_menu if started.serial else started.resumable
     return (
         args.from_start
         or _gone_bookmark(plan, started, args)
-        or (args.episode is None and (args.from_menu if started.serial else started.resumable))
+        or (started.holds(args.episode) and answers)
     )
 
 
