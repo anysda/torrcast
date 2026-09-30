@@ -18,6 +18,8 @@ def circle_trace(
     late: Sequence[str],
     budgets: Mapping[str, float],
     cut: Sequence[str] = (),
+    names: bool = False,
+    held_ms: int = 0,
 ) -> None:
     """Записать круг целиком: кто сколько отдал, кто смолчал, кто ещё в пути.
 
@@ -30,6 +32,9 @@ def circle_trace(
     причину, по которой каталог урезан, за словом «молчит». Бюджет у каждого свой
     (TC-226), поэтому в фазе он назван поимённо: иначе «молчит YTS, бюджет 20 с» врало бы
     про то, сколько круг на нём простоял.
+
+    ``names`` - круг имён картины (у него своё ядро), ``held_ms`` - сколько круг держал
+    поиск от отправки до ухода с тем, что успело: по этим двум видно, какой круг держал шаг.
     """
     emit(
         "search",
@@ -41,6 +46,8 @@ def circle_trace(
         fallback=fallback,
         late=list(late),
         cut=list(cut),
+        names=names,
+        held_ms=held_ms,
     )
     if banned:
         mark("индексеры", заблокированы=list(banned))

@@ -409,6 +409,9 @@ def test_trace_carries_per_indexer_milliseconds(journal: Path) -> None:
     took = row["ms"]
     assert set(took) == {"Knaben", "RuTor", "Nyaa.si"}
     assert all(isinstance(ms, int) and ms >= 0 for ms in took.values())
+    # Which circle held the step: the viewer's text here, held as long as its slowest core.
+    assert row["names"] is False
+    assert isinstance(row["held_ms"], int) and 0 < row["held_ms"] >= max(took.values()) - 1
 
 
 def test_all_indexers_silent_is_infra_not_empty_result() -> None:

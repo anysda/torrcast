@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from torrcast.adapters.prowlarr.circle_trace import circle_trace
 from torrcast.adapters.prowlarr.feed_apart import feed_apart
 from torrcast.adapters.prowlarr.feed_url import feed_url
@@ -117,10 +119,9 @@ class Prowlarr(_State):
         known, self.banned = self._roster.usable(known)
         first, later = circle_indexers(known, query)
         if self.joint is not None:
-            # A Latin name asks the anime indexers at once: romaji is the only text that
-            # finds an anime typed in Cyrillic, and they are not the core, so a silent one
-            # comes late instead of holding the round for a second circle. A Cyrillic name
-            # leaves them to the viewer's text rather than take Nyaa's first slot for nothing.
+            # A Latin name asks the anime indexers at once: romaji alone finds an anime typed
+            # in Cyrillic, and a silent one, not core, comes late instead of holding a second
+            # circle. A Cyrillic name leaves them to the viewer's text and Nyaa's slot free.
             first, later = (first if CYRILLIC_RE.search(query) else (*first, *later)), ()
         # 🔴 TC-228: каждый следующий круг идёт в остаток цели (:meth:`spare`), но не ниже
         # пола (:attr:`cap_floor`): второй заход раньше платил хвост первого плюс свой
@@ -131,6 +132,7 @@ class Prowlarr(_State):
         cap = self.first_cap if self._first else self.circle_cap()
         self._first = False
         self._circle.begin()
+        began = time.monotonic()
         got, why_lost = self._circle.run(first, query, limit, cap, self.joint)
         fallback = bool(later) and anime_fallback(len(merge(*got)), bool(got))
         if fallback:
@@ -151,8 +153,7 @@ class Prowlarr(_State):
         # стоило им по 2.1 с, и у двух из них опоздавший вёз ту самую картину, которой не
         # хватало, опаздывая на 0.2 с. Ждём остаток цели: секунды тут покупают не скорость
         # показа, а выбор между «ничего не нашлось» и картиной.
-        # A client of the picture's names shows nothing by itself: the viewer's text
-        # does, and waiting here only held the whole round for seconds.
+        # A names client shows nothing by itself: waiting here held the whole round.
         waiting = self.waiting()
         if not any(got) and self.joint is None and (rows := self.late(wait=self.spare())):
             got.append(rows)
@@ -165,6 +166,8 @@ class Prowlarr(_State):
             late=waiting,
             cut=self.cut,
             budgets={name: self.budget_of(name) for name in self.silent},
+            names=self.joint is not None,
+            held_ms=round((time.monotonic() - began) * 1000),
         )
         if not got and self.answered:
             # 🔴 TC-510. Круг пуст, но в этом поиске нам уже отвечали: значит молчит не
