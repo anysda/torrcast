@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from tests.usecases.feed_pack.world import factory, feed, grid, packer, tract, vault
 from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.stream_pack.grid import Grid
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -117,3 +118,23 @@ def test_without_a_recoder_nothing_is_asked(tmp_path: Path, journal: Path) -> No
 
     assert seen == ["проба"]
     assert show.encode is None
+
+
+def test_a_grid_laid_on_the_keyframe_map_is_not_asked(tmp_path: Path, journal: Path) -> None:
+    """Сетка по принятой карте опорных кадров: вход копией есть у каждого слота.
+
+    Карту с не-IDR входами отвергает её же сторож, так что сверка тут - лишний ffmpeg,
+    а её «нет» увело бы в сплошной перекод показ, который играет копией.
+    """
+    seen: list[str] = []
+    _stand(False, seen)
+    coder = _Recoder()
+    keys = Grid.on_keyframes([float(at) for at in range(0, 600, 10)], 600.0)
+    assert keys.on_keys
+    show = feed(tmp_path, grid=keys, recoder=coder)
+
+    show.begin(177.837)
+
+    assert not [said for said in seen if said.startswith("вход")]
+    assert show.encode is None and not coder.stopped
+    assert show.recoder is not None
