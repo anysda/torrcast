@@ -214,3 +214,14 @@ def test_a_down_rest_still_silent_leaves_the_quorum_waited(tmp_path: Path) -> No
     late.join()
     assert core == [knaben] and not knaben.waived
     assert 0.55 <= elapsed < 1.2, f"waited the quorum {elapsed:.2f} s, not its budget"
+
+
+@pytest.mark.machine
+def test_rows_that_come_after_the_rest_open_the_grace() -> None:
+    """RuTor ended empty, YTS brought its rows later: Knaben held "Cars" to +14.2 s."""
+    knaben, rutor, yts = _Ask("Knaben", 5.0), _Ask("RuTor", 5.0), _Ask("YTS", 5.0)
+    _answer(rutor, 0.1, rows=0)
+    _answer(yts, 0.4, rows=2)
+    core, elapsed = _waited([knaben, rutor, yts], names=False, grace=0.2)
+    assert core == [rutor] and knaben.waived, "Knaben comes late once the pool has rows"
+    assert 0.55 <= elapsed < 1.2, f"waited {elapsed:.2f} s, not the grace past YTS's rows"

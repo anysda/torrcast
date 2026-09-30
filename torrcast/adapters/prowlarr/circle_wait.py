@@ -76,7 +76,9 @@ def circle_wait(
     the pool has rows: Knaben's own answer took 5-8 s where the others were in within a
     second, and the viewer waited it for rows the others had already brought. It comes late,
     as any other one the circle did not wait, and is not told silent. An empty pool still
-    waits it whole: without the quorum an empty list proves nothing. When the rest of the core
+    waits it, whole unless rows come: without the quorum an empty list proves nothing, and the
+    grace runs from the first rows. The pool was empty when RuTor ended silent, YTS brought 21
+    rows 1.7 s later, and "Cars" waited Knaben to +14.2 s (stand 30.09). When the rest of the core
     is down, the grace opens once each of them has answered: the book held RuTor down after a
     run of silences, and the viewer waited Knaben 7 s past RuTor's and JacRed's 179 rows. A
     circle of names never waits the quorum, not even when its whole core is down.
@@ -138,8 +140,10 @@ def _past_the_quorum(
         if any(not ask.done.is_set() and start + ask.budget <= time.monotonic() for ask in lagging):
             return core
         quorum[0].done.wait(_STEP)
-    if not any(ask.rows for ask in asked if ask.done.is_set()):
-        return core
+    while not any(ask.rows for ask in asked if ask.done.is_set()):
+        if all(ask.done.is_set() or start + ask.budget <= time.monotonic() for ask in quorum):
+            return core
+        quorum[0].done.wait(_STEP)
     until = time.monotonic() + grace
     for ask in quorum:
         ask.done.wait(max(0.0, min(until, start + ask.budget) - time.monotonic()))
