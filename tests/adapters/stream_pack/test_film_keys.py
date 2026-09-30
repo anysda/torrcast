@@ -130,19 +130,30 @@ def test_the_lock_stays_alive_while_its_holder_works() -> None:
 
     Иначе сосед, заглянувший на середине долгого разбора, увидит протухший замок и
     полезет читать тот же хвост вторым потоком - ровно то, ради чего замок и заведён.
+
+    Сторожится сам ход mtime, а не «свежесть в миг взгляда»: взгляд со сроком 0.3 с
+    зависел от того, успеет ли поток хранителя проснуться под нагрузкой гейта, и падал
+    там, где код был верен. Ход mtime от скорости машины не зависит: хранитель либо
+    трогает замок, либо нет. Читатель ждёт трёх сдвигов, а срок ожидания лишь
+    ограничивает красный прогон и на зелёный не влияет.
     """
     ttl = 0.3  # 60 с в проде: столько не ждём
     lock = _keys_cache(URL).with_suffix(".lock")
-    alive: list[bool] = []
+    stamps: list[int] = []
 
     def slow(url: str) -> KeyMap:
-        for _tick in range(6):  # 0.6 с работы против 0.3 с жизни замка
-            time.sleep(0.1)
-            alive.append(_fetching(lock, ttl))
+        stamps.append(lock.stat().st_mtime_ns)
+        deadline = time.monotonic() + 30.0
+        while len(stamps) < 4 and time.monotonic() < deadline:
+            time.sleep(0.02)
+            if (now := lock.stat().st_mtime_ns) != stamps[-1]:
+                stamps.append(now)
+        assert _fetching(lock, 3600.0), "замок пропал под работающим читателем"
         return _map()
 
     film_keys(URL, keys_of=slow, lock_ttl=ttl)
-    assert all(alive), f"замок протух под работающим читателем: {alive}"
+    assert len(stamps) == 4, f"замок не освежался под работающим читателем: {stamps}"
+    assert stamps == sorted(stamps), f"mtime замка шёл назад: {stamps}"
     assert not lock.exists(), "замок обязан сниматься после записи кэша"
 
 
