@@ -118,6 +118,39 @@ def test_one_client_of_the_names_carries_them_all_to_the_joined_indexer() -> Non
     ]
 
 
+class _Along(_Joint):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.carried: list[str] = []
+
+    def along(self, names: str) -> None:
+        self.carried.append(names)
+
+
+@pytest.mark.parametrize("built", [True, False])
+def test_the_viewers_text_carries_the_names_to_the_joined_indexer_on_a_built_map(
+    built: bool,
+) -> None:
+    # Asked apart, JacRed's names began two seconds after its text began (Prowlarr's pace).
+    _configure_recognize(lambda _query, wait: _INTERSTELLAR if built or wait else None)
+    spawned: list[_Along] = []
+
+    def spawn() -> _Along:
+        spawned.append(_Along(answers={"интерстеллар 2014": [_ROW]}))
+        return spawned[-1]
+
+    source = spawn()
+    NamedRound(source).ask(ToldIndexer(source), spawn, None, "Интерстелар", "Интерстелар")
+    joined = "Интерстеллар 2014 | Interstellar 2014"
+    assert source.carried == ([joined] if built else [])
+    assert [one.joints for one in spawned[1:]] == ([[""], [""]] if built else [[joined], [""]])
+    assert sorted(query for one in spawned for query in one.asked) == [
+        "Interstellar 2014",
+        "Интерстелар",
+        "Интерстеллар 2014",
+    ], "the names still go to every other indexer by their own clients"
+
+
 class _Held(Indexer):
     def __init__(self, gate: threading.Event) -> None:
         super().__init__()

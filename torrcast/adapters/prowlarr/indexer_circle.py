@@ -103,14 +103,14 @@ class IndexerCircle:
         limit: int,
         cap: float = 0.0,
         joint: str | None = None,
+        along: str = "",
     ) -> tuple[list[list[RawResult]], InfraError | None]:
         """Один круг: каждому свой запрос в свой бюджет, все разом.
 
-        ``joint`` - круг имён картины (:func:`~torrcast.domain.joint_query.joint_query`).
-
         ``cap`` - потолок бюджета для этого круга: у первого свой
         (:data:`~torrcast.domain.circle_budget.FIRST_CIRCLE_TIMEOUT`, TC-1046), у каждого
-        следующего - остаток цели (TC-228). Ноль означает «потолка нет».
+        следующего - остаток цели (TC-228). Ноль означает «потолка нет». ``joint`` и
+        ``along`` - как у :func:`~torrcast.domain.joint_query.joint_query`.
 
         🔴 Потолок режет срок ОЖИДАНИЯ, а не сам ответ: запрос живёт своей полной жизнью
         (:func:`~torrcast.domain.response_budget.response_budget`), и упёршийся в потолок
@@ -131,7 +131,7 @@ class IndexerCircle:
         """
         began = self.slots.give_way([name for _num, name in pairs])
         asked, unsent = send_circle(
-            self.api, self.slots, pairs, query, limit, joint=joint, budgets=self.budget_of, cap=cap
+            self.api, self.slots, pairs, query, limit, joint, along, budgets=self.budget_of, cap=cap
         )
         self._unsent += [name for name, _budget in unsent]
         if self._begun <= 1:

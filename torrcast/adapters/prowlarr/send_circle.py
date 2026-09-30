@@ -17,8 +17,9 @@ def send_circle(
     pairs: Sequence[Indexer],
     query: str,
     limit: int,
-    *,
     joint: str | None,
+    along: str = "",
+    *,
     budgets: Callable[[str], float],
     cap: float,
 ) -> tuple[list[_Ask], list[tuple[str, float]]]:
@@ -31,11 +32,12 @@ def send_circle(
     A budget is the indexer's own, cut to the circle's ``cap`` when there is one.
     The unsent come back with their budgets: the circle is held for them as long as
     their doomed request would have held it, and nobody heard their rows.
+    ``along`` is the names the viewer's text takes to the indexer of joined texts.
     """
     asked: list[_Ask] = []
     unsent: list[tuple[str, float]] = []
     for num, name in pairs:
-        text = joint_query(name, query, joint)
+        text = joint_query(name, query, joint, along)
         if not text:
             continue
         cut = min(budgets(name), cap) if cap else budgets(name)

@@ -14,6 +14,13 @@ def test_the_viewers_text_is_asked_as_typed() -> None:
     assert joint_query("JacRed", "Тачки", None) == "Тачки"
 
 
+def test_the_viewers_text_takes_the_names_along_to_jacred_alone() -> None:
+    names = JOINT.join(["Тачки 2006", "Cars 2006"])
+    joined = JOINT.join(["Тачки", "Тачки 2006", "Cars 2006"])
+    assert joint_query("JacRed", "Тачки", None, names) == joined
+    assert joint_query("RuTor", "Тачки", None, names) == "Тачки"
+
+
 def test_an_empty_joint_leaves_jacred_out() -> None:
     assert joint_query("JacRed", "Cars 2006", "") == ""
 

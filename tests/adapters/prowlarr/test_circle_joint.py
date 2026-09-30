@@ -58,6 +58,19 @@ def test_the_viewers_text_asks_jacred_as_before() -> None:
     assert http.texts == {1: "Тачки", 4: "Тачки"}
 
 
+def test_the_viewers_text_carries_the_names_to_jacred_in_one_request() -> None:
+    circle, http = _circle()
+    circle.run([_KNABEN, _JACRED, _RUTOR], "Тачки", 100, along=_JOINT)
+    assert http.texts == {1: "Тачки", 2: "Тачки", 4: f"Тачки | {_JOINT}"}
+
+
+def test_only_the_first_circle_of_the_viewers_text_carries_the_names() -> None:
+    client = _swarm()
+    client.along(_JOINT)
+    client.search("Тачки")
+    assert client.carry() == "", "a later circle of this client would ask JacRed the names"
+
+
 @pytest.mark.machine
 @pytest.mark.parametrize(("joint", "held"), [(_JOINT, False), (None, True)])
 def test_the_quorum_holds_the_viewers_text_but_not_the_names(joint: str | None, held: bool) -> None:

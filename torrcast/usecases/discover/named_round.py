@@ -5,9 +5,9 @@ short name or a poor round of the viewer's text then costs nothing, because the 
 are asked «name year» and «original year» at once. The viewer's text is still asked: its
 rows keep the namesakes and the rest of the franchise on the screen as before.
 
-Prowlarr paces the requests to one host two seconds apart, in the order they arrive, so of
-two texts sent at once one waits. The viewer's text leaves first: its rows are the only ones
-making tiles and the ones the open card counts early (:func:`web.early_picture.early_picture`).
+Prowlarr paces the requests to one host two seconds apart, in the order they arrive. The
+viewer's text leaves first: its rows make the tiles and the open card counts them early
+(:func:`web.early_picture.early_picture`); JacRed's rows of the names ride in it (:meth:`_carry`).
 The names leave on its event, not after a pause: a slow list of indexers outlasts any pause.
 """
 
@@ -110,8 +110,9 @@ class NamedRound:
         An empty ``query`` recognizes nothing: the round is then the plain search of ``name``.
         """
         with ThreadPoolExecutor(max_workers=3, thread_name_prefix="named-round") as pool:
+            carried = self._carry(name, query)
             typed = pool.submit(copy_context().run, _ask, client, name)
-            asked = self._names(pool, spawn, on_indexer, name, query)
+            asked = self._names(pool, spawn, on_indexer, name, query, carried)
             try:
                 raw = typed.result()
             finally:
@@ -137,13 +138,13 @@ class NamedRound:
         on_indexer: Callable[[IndexerClient], None] | None,
         name: str,
         query: str,
+        carried: bool = False,
     ) -> list[Future[ToldIndexer]]:
         """Ask the indexers by the names of the picture the map knows ``query`` to be."""
         self.known = _search_state._search_recognize(query, RECOGNIZE_WAIT) if query else None
         texts = _texts(self.known, name)
-        # One client carries all the names to the indexer that takes them joined; the
-        # others leave it alone (:mod:`~torrcast.domain.joint_query`).
-        joints = [JOINT.join(texts) if not each else "" for each in range(len(texts))]
+        # JacRed gets the joined names from one client, or from the viewer's text (joint_query).
+        joints = ["" if carried or each else JOINT.join(texts) for each in range(len(texts))]
         # Each ask carries the caller's context: a warmup's circle gives way in its pool too.
         asked = [
             pool.submit(copy_context().run, self._one, spawn(), text, joint)
@@ -152,6 +153,14 @@ class NamedRound:
         if asked:
             _notify(on_indexer, self)
         return asked
+
+    def _carry(self, name: str, query: str) -> bool:
+        """Give the viewer's text the picture's names for JacRed; a cold map is not waited."""
+        along = getattr(self.source, "along", None)
+        texts = _texts(_search_state._search_recognize(query, 0.0), name) if along and query else []
+        if along and texts:
+            along(JOINT.join(texts))
+        return bool(texts)
 
     def _one(self, source: IndexerClient, text: str, joint: str) -> ToldIndexer:
         self._named.append(source)

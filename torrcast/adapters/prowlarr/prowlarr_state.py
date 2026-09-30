@@ -85,6 +85,8 @@ class _State:
         self.over_goal: bool = False
         #: A client of the picture's names (:meth:`beside`); ``None`` for the viewer's text.
         self.joint: str | None = None
+        #: The names the viewer's text takes to the indexer of joined texts (:meth:`along`).
+        self._along = ""
 
     def beside(self, joint: str) -> None:
         """Ask the picture's names beside the viewer's text (:mod:`~torrcast.domain.joint_query`).
@@ -93,6 +95,15 @@ class _State:
         names at once, or nothing when another client of the same names carries them.
         """
         self.joint = joint
+
+    def along(self, names: str) -> None:
+        """Let the viewer's text take the picture's joined ``names`` in its first circle."""
+        self._along = names
+
+    def carry(self) -> str:
+        """The names for this circle, once: a later circle of this client asks another text."""
+        names, self._along = self._along, ""
+        return names
 
     @property
     def answered(self) -> set[str]:

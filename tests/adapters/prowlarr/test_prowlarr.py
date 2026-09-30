@@ -454,6 +454,7 @@ class _UnavailableCircle(IndexerCircle):
         limit: int,
         cap: float = 0.0,
         joint: str | None = None,
+        along: str = "",
     ) -> tuple[list[list[RawResult]], InfraError | None]:
         self.lost.extend(("Knaben", "RuTor"))
         return [], _IndexersUnavailableError("каталог временно недоступен")
