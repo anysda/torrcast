@@ -20,9 +20,11 @@ from typing import Final
 from torrcast.domain._series import _Series
 from torrcast.domain.release import Release
 from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.ports.parking_engine import ParkingEngine
 from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show
+from web.record_hold import RECORD_HOLD
 
 #: Кто разносит фоновую сборку по потоку; в бою - настоящий поток-демон.
 Spawn = Callable[[Callable[[], None]], None]
@@ -63,6 +65,8 @@ class EpisodeLookup:
     engines: TorrentEngines
     spawn: Spawn = _daemon
     clock: Callable[[], float] = time.monotonic
+    #: Раздача первой записи «Продолжить»: её кэш греется под клик, сносить его нельзя.
+    keeps: Callable[[str], bool] = RECORD_HOLD.warmer.wants
     _table: dict[str, tuple[list[list[int]] | None, float]] = field(default_factory=dict)
     _failures: dict[str, int] = field(default_factory=dict)
     _pending: set[str] = field(default_factory=set)
@@ -120,7 +124,13 @@ class EpisodeLookup:
             # Ту же раздачу может держать показ или его отбор: сносится только ничья.
             free = bool(torrent_hash) and CLAIMS.unclaim(torrent_hash, self)
             if free and not _held_by_show(torrent_hash):
-                engine.drop(torrent_hash)
+                # Карточка сериала меж прогревом и кликом стирала бы прогретое снова.
+                close = (
+                    engine.park
+                    if isinstance(engine, ParkingEngine) and self.keeps(release.magnet)
+                    else engine.drop
+                )
+                close(torrent_hash)
             with self._lock:
                 table, until = self._remember(release.magnet, table, parsed)
                 self._table[release.magnet] = (table, until)
