@@ -17,12 +17,12 @@ def _refuse(address: str, timeout: float = 0.0) -> Device:
     raise AssertionError("паспорт спрашивать было не у кого")
 
 
-def _heavy_slots(config: Config) -> tuple[int, ...]:
-    """Слоты кодировщика для куска копии 21 Мбит/с на 10 с (26 МБ) и лёгкого за ним."""
+def _heavy_slots(config: Config, mbit: float = 21.0, span: float = 10.0) -> tuple[int, ...]:
+    """Слоты кодировщика для куска копии ``mbit`` на ``span`` секунд и лёгкого за ним."""
     chosen = ProfileDetector(ask=_refuse).detect(config)
     tuned = tune(config, chosen.profile)
-    lines = Grid(bounds=(0.0, 10.0), duration=20.0, on_keys=True)
-    weights = Weights(raw=(21.0, 4.0))
+    lines = Grid(bounds=(0.0, span), duration=2 * span, on_keys=True)
+    weights = Weights(raw=(mbit, 4.0))
     return _targets(weights, lines, tuned.recode_at_mbit, chosen.profile.max_segment_bytes)
 
 
@@ -73,3 +73,15 @@ def test_a_heavy_copy_is_no_longer_cut_for_the_tab() -> None:
     """Кусок 26 МБ на 21 Мбит/с вкладка играет копией, а телевизору его режут."""
     assert _heavy_slots(Config(receiver="browser")) == ()
     assert _heavy_slots(Config(receiver="browser", tv="10.0.0.50")) == (0,)
+
+
+def test_a_blu_ray_peak_plays_as_a_copy_in_the_tab() -> None:
+    """Пик BD-рипа 30.8 Мбит/с на 5 с (19 МБ) вкладке - копия, Android TV его пережимает."""
+    assert _heavy_slots(Config(receiver="browser"), mbit=30.8, span=5.0) == ()
+    androidtv = Config(receiver="browser", receiver_profile="androidtv")
+    assert _heavy_slots(androidtv, mbit=30.8, span=5.0) == (0,)
+
+
+def test_a_piece_over_the_byte_cap_is_still_recoded_for_the_tab() -> None:
+    """Потолок байтов вкладки остаётся: 30.8 Мбит/с на 10 с - это 38 МБ."""
+    assert _heavy_slots(Config(receiver="browser"), mbit=30.8, span=10.0) == (0,)

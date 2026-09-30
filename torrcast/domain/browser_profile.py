@@ -27,5 +27,10 @@ BROWSER: Final = ReceiverProfile(
     # снято: tabprobe · mpegts · TC-1259
     max_segment_bytes=28_000_000,  # снято: tabprobe · mpegts · TC-1259
     max_segment_seconds=15.0,  # снято: tabprobe · mpegts · TC-1259
-    recode_at_mbit=28.0,  # снято: tabprobe · mpegts · TC-1259
+    # Битрейт куска вкладке не декодер: avc1.640033 (5.1) MSE берёт, а потолок видео
+    # Blu-ray - 40 Мбит/с. На 28 вкладке пережимали пики обычного BD-рипа: «Оно» держало
+    # куски 29.7 и 30.8 Мбит/с, «Интерстеллар» - первый кусок 28.1 до первого кадра.
+    # Вес куска сторожит потолок байтов выше, он и остаётся поводом для перекода.
+    # снято: tabprobe · mpegts · TC-1259
+    recode_at_mbit=40.0,  # снято: tabprobe · mpegts · TC-1259
 )
