@@ -141,3 +141,58 @@ def test_a_request_broken_on_the_wire_is_trouble_not_an_answer(
         client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 1.0)
     assert client.troubled_since(start)
     assert client.calm_at() < start + 1.0
+
+
+class _Talk(http.server.BaseHTTPRequestHandler):
+    """Склад на HTTP/1.1: помнит порт каждого пришедшего соединения; может молча закрыть."""
+
+    protocol_version = "HTTP/1.1"
+    ports: ClassVar[list[int]] = []
+    hang_up: ClassVar[bool] = False
+
+    def do_GET(self) -> None:
+        _Talk.ports.append(self.client_address[1])
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+        self.close_connection = _Talk.hang_up
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        return None
+
+
+@pytest.mark.machine
+def test_requests_to_one_host_share_a_connection_and_survive_its_hang_up(
+    tls: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Дома каждое новое соединение теряло SYN и ждало повтора ядра секундами.
+
+    Три запроса подряд идут одним соединением; закрытое сервером молча соединение не
+    роняет запрос - он повторяется по новому.
+    """
+    _Talk.ports, _Talk.hang_up = [], False
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(tls[0], tls[1])
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", free_port()), _Talk)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True, name="talk").start()
+    monkeypatch.setattr(_IPv4Connection, "context", ssl.create_default_context(cafile=tls[0]))
+    client = HttpJsonClient(
+        "torrcast/test",
+        lambda host: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))],
+    )
+    where = f"127.0.0.1:{server.server_address[1]}"
+    try:
+        for _ in range(3):
+            assert client.get(where, "/w/api.php", {}, {}, 10.0) == {}
+        assert len(set(_Talk.ports)) == 1, f"три запроса открыли {len(set(_Talk.ports))} соединения"
+
+        _Talk.hang_up = True
+        assert client.get(where, "/w/api.php", {}, {}, 10.0) == {}
+        assert client.get(where, "/w/api.php", {}, {}, 10.0) == {}
+        assert len(set(_Talk.ports)) == 2
+    finally:
+        server.shutdown()
+        server.server_close()

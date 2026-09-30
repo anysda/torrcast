@@ -10,6 +10,7 @@ from typing import Any, Final
 from urllib.parse import urlencode, urlsplit
 
 from torrcast.adapters.wiki.address_memory import AddressMemory, _getaddrinfo
+from torrcast.adapters.wiki.kept_connections import KeptConnections
 from torrcast.adapters.wiki.minute_budget import UPLOAD_HOST, MinuteBudget
 from torrcast.adapters.wiki.request_lanes import RequestLanes
 
@@ -35,6 +36,7 @@ class HttpJsonClient(AddressMemory):
         #: Полосы у каждого хоста свои: долгий SPARQL полки не держит выдержки Википедии.
         self._requests: dict[str, RequestLanes] = {}
         self._images = RequestLanes(IMAGE_LANES)
+        self._kept = KeptConnections()
         self._minute = MinuteBudget()  # one per process: Wikimedia counts its sites together
         self.troubled_since = self._minute.troubled_since
         self.calm_at = self._minute.calm_at
@@ -55,20 +57,22 @@ class HttpJsonClient(AddressMemory):
         admitted = self._minute.admit(host, timeout, foreground, urgent)
         if not admitted or not lanes.acquire(timeout, foreground or urgent):
             raise OSError(f"{host}: request lane unavailable after {timeout:.1f} s")
-        connection: _IPv4Connection | None = None
+        connection: Any = None
         try:
-            connection = _IPv4Connection(host, timeout=timeout, resolver=self._resolve)
-            connection.request(
-                "GET",
+            connection, response = self._exchange(
+                host,
                 f"{path}?{urlencode(params)}",
-                headers={"User-Agent": self.user_agent, **headers},
+                {"User-Agent": self.user_agent, **headers},
+                timeout,
             )
-            response = connection.getresponse()
             if response.status == 429:
                 self._minute.throttled(host, response.getheader("Retry-After"))
             if response.status != 200:
                 raise OSError(f"{host} ответил {response.status}")
-            return json.loads(response.read())
+            said = json.loads(response.read())
+            self._kept.give(host, connection, response)
+            connection = None
+            return said
         except OSError:
             self._minute.stumbled(host)
             raise
@@ -102,19 +106,53 @@ class HttpJsonClient(AddressMemory):
             and self._images.acquire(timeout, urgent)
         ):
             raise OSError(f"{UPLOAD_HOST}: image lane unavailable after {timeout:.1f} s")
-        connection = _IPv4Connection(where.netloc, timeout=timeout, resolver=self._resolve)
+        connection: Any = None
         try:
-            connection.request("GET", path, headers={"User-Agent": self.user_agent})
-            response = connection.getresponse()
+            connection, response = self._exchange(
+                where.netloc, path, {"User-Agent": self.user_agent}, timeout
+            )
             if response.status == 429:
                 self._minute.throttled(where.netloc, response.getheader("Retry-After"))
             if response.status != 200:
                 raise OSError(f"{where.hostname}: HTTP {response.status}")
-            return response.read(_BODY_LIMIT)
+            body: bytes = response.read(_BODY_LIMIT)
+            self._kept.give(where.netloc, connection, response)
+            connection = None
+            return body
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
             if files:
                 self._images.release()
+
+    def _exchange(
+        self, host: str, path: str, headers: dict[str, str], timeout: float
+    ) -> tuple[Any, Any]:
+        """GET по живому соединению к хосту (:mod:`~torrcast.adapters.wiki.kept_connections`).
+
+        Закрытое сервером за время простоя соединение повторяется один раз уже новым: GET
+        безопасно послать снова. Срок запроса - свой, а не того, кто открыл соединение.
+        """
+        kept = self._kept.take(host)
+        if kept is not None:
+            kept.timeout = timeout
+            if kept.sock is not None:
+                kept.sock.settimeout(timeout)
+            try:
+                kept.request("GET", path, headers=headers)
+                return kept, kept.getresponse()
+            except (ConnectionError, http.client.HTTPException):
+                kept.close()
+            except BaseException:
+                kept.close()
+                raise
+        connection = _IPv4Connection(host, timeout=timeout, resolver=self._resolve)
+        try:
+            connection.request("GET", path, headers=headers)
+            return connection, connection.getresponse()
+        except BaseException:
+            connection.close()
+            raise
 
 
 class _IPv4Connection(http.client.HTTPSConnection):
