@@ -7,6 +7,10 @@ from typing import Final
 #: Wikimedia accepted five simultaneous requests during a live run; the sixth returns 429.
 #: The cap is per host: ru.wikipedia and query.wikidata.org answered 16 and 4 at once side by side.
 REQUEST_LANES: Final = 5
+#: Live connections answer Wikipedia in 0.25 s instead of 0.45 s with a handshake: five lanes
+#: then sent 17-21 requests a second and drew 5-11 429s per cold shelf. Three hold the old
+#: 10-12 a second, at which the same runs saw none.
+WIKIPEDIA_LANES: Final = 3
 
 
 class RequestLanes:
@@ -17,6 +21,11 @@ class RequestLanes:
         self.active = 0
         self.waiting_foreground = 0
         self.condition = threading.Condition()
+
+    @classmethod
+    def for_host(cls, host: str) -> "RequestLanes":
+        """Полосы хоста: Википедии уже, чем прочим (:data:`WIKIPEDIA_LANES`)."""
+        return cls(WIKIPEDIA_LANES if host.endswith("wikipedia.org") else REQUEST_LANES)
 
     def acquire(self, timeout: float, foreground: bool) -> bool:
         """Взять полосу, пропуская открывшуюся карточку перед фоновым хвостом.

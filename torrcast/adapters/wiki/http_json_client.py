@@ -53,7 +53,7 @@ class HttpJsonClient(AddressMemory):
     ) -> Any:
         """Выполняет GET и разбирает JSON; неуспех оставляет исключением."""
         with self._lock:
-            lanes = self._requests.setdefault(host, RequestLanes())
+            lanes = self._requests.setdefault(host, RequestLanes.for_host(host))
         admitted = self._minute.admit(host, timeout, foreground, urgent)
         if not admitted or not lanes.acquire(timeout, foreground or urgent):
             raise OSError(f"{host}: request lane unavailable after {timeout:.1f} s")
