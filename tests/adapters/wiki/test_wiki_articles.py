@@ -122,22 +122,26 @@ def test_a_name_spelled_otherwise_is_answered_within_the_same_budget() -> None:
     ТРЕТЬИМ кругом, в потолок справки эта очередь не влезала - человек читал «ничего не
     нашлось» о картине, которую справка отлично знает.
 
-    Здесь каждый круг стоит треть потолка: очередь из трёх не уложится, волна из двух
-    уложится. Проверяется именно результат в срок, а не порядок вызовов.
+    Запрос поиска и русская подсказка разбора описки встречаются у барьера на двоих: волной
+    оба в полёте и проходят его сразу, очередью первый ждёт второго до слома барьера, и оба
+    шага молчат. Потолок справки при этом с запасом, и от скорости машины ответ не зависит.
     """
-    round_trip = 0.3
     lain = page("Эксперименты Лэйн", LAIN, english="Serial Experiments Lain")
+    both = threading.Barrier(2, timeout=5.0)
 
     def wiki(host: str, path: str, params: dict[str, str]) -> Any:
-        time.sleep(round_trip)
-        if params.get("generator") == "prefixsearch":  # подсказчик знает написание
+        searched = params.get("gsrsearch", "")
+        suggested = params.get("gpssearch") == "эксперименты лейн"
+        if suggested or (searched and "intitle:" not in searched):
+            both.wait()  # поиск и подсказка второго шага обязаны быть в полёте разом
+        if suggested:  # имя знает только русская подсказка, остальные молчат
             return {"query": {"pages": [lain]}}
         return {"query": {"pages": []}}
 
     articles = _articles(FakeJsonClient(wiki), FakeNameCatalogue())
     passport = Passport(articles, FakeNameCatalogue(), FakeOriginStore(), FakeDateSource())
 
-    found = passport.of("эксперименты лейн", True, budget=round_trip * 2.5)
+    found = passport.of("эксперименты лейн", True, budget=30.0)
 
     assert found.title == "Serial Experiments Lain", "имя знает подсказчик, и оно обязано доехать"
     assert found.guessed, "имя лишь признано похожим - паспорт обязан это сказать"
