@@ -81,10 +81,11 @@ def spawn_ask(
 ) -> _Ask:
     """Пустить один индексер отдельным потоком и вернуть место под его ответ.
 
-    ``queued`` - seconds the request stands in Prowlarr's queue to the host: the budget and
-    the request's own life start when it leaves the queue, not when it is sent.
+    ``queued`` - seconds the request stands in Prowlarr's queue to the host: the request's
+    own life starts when it leaves the queue, not when it is sent. The circle's wait
+    ``budget`` comes whole from the caller, who knows whether it waits the queue too.
     """
-    ask = _Ask(name=name, budget=budget + queued)
+    ask = _Ask(name=name, budget=budget)
     url = search_url(api.base_url, api.apikey, query, limit, num)
     book = DOWN_BOOK.where()
     with _FLYING_LOCK:

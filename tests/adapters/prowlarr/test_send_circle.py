@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from tests.adapters.prowlarr.test_host_slots import _Clock
-from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _RUTOR, _Http
+from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _NYAA, _RUTOR, _Http
 from torrcast.adapters.prowlarr.host_slots import HostSlots
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.send_circle import send_circle
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
 
 _JACRED = (4, "JacRed")
-_BUDGETS = {"Knaben": 6.0, "RuTor": 3.0, "JacRed": 5.0}
+_BUDGETS = {"Knaben": 6.0, "RuTor": 3.0, "JacRed": 5.0, "Nyaa.si": 3.0}
 
 
 def _sent(slots: HostSlots, joint: str | None, cap: float = 0.0) -> tuple[list[str], object]:
@@ -94,3 +94,16 @@ def test_a_name_in_the_host_s_queue_gets_its_budget_past_its_slot() -> None:
     assert rutor.done.wait(1.0) and unsent == []
     assert rutor.budget == 3.0 + 2.0, "the circle waits it from its slot"
     assert http.budget[2] == 3.0 + 2.0, "and the request lives that long"
+
+
+def test_one_outside_the_core_waits_no_queue_but_its_request_lives_past_it() -> None:
+    """A circle with its core down waits every one: AniLibria's queue held it to 10.9 s."""
+    http, slots = _Http(), HostSlots(_Clock())
+    slots.take("Nyaa.si", 3.0)
+    api = ProwlarrApi("http://p", "KEY", http=http)
+    (nyaa,), _unsent = send_circle(
+        api, slots, [_NYAA], "Cars", 100, None, budgets=_BUDGETS.__getitem__, cap=0.0
+    )
+    assert nyaa.done.wait(1.0)
+    assert nyaa.budget == 3.0, "the circle does not wait its queue"
+    assert http.budget[3] == 3.0 + 2.0, "its late answer still comes"
