@@ -82,20 +82,17 @@ const TCHome = {
     if (!document.body.contains(root) || location.pathname !== '/') return;
     TCHome._lastHistory = history;
     TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
-    const assembling = !TCHome._query && !!shelves.partial;
+    const assembling = !TCHome._query && (!!shelves.partial || !!shelves.torn);
     TCHome._wear(assembling);
-    // Полки ещё собираются - тело остаётся скелетным, и меняется в нём ровно одна
-    // лента: историю сервер назвал первым же ответом, а ``partial`` приходит только с
-    // пустыми полками, так что готовых плиток скелеты не прячут.
-    if (assembling) {
+    // Полки ещё без единой плитки - тело остаётся скелетным, и меняется в нём ровно одна
+    // лента: историю сервер назвал первым же ответом. Пришедшие плитки встают сразу,
+    // даже пока полки собираются: скелеты готового не прячут.
+    if (TCHome._bare(shelves)) {
       TCHome._wornContinue(history);
     } else {
-      const body = document.getElementById('tc-body');
-      if (body && !TCHome._query) {
-        body.replaceWith(TCHome._body(history, TCHome._lastShelves));
-      }
+      TCHome._showShelves(shelves, true);
     }
-    if (shelves.partial) TCHome._waitShelves(root, TCHome._shelfPoll);
+    if (TCHome._unsettled(shelves)) TCHome._waitShelves(root, TCHome._shelfPoll);
   },
 
   // Цел ли экран для памяти (`kept.js`): тело есть и ни один скелет не стоит - ни
@@ -114,20 +111,16 @@ const TCHome = {
     if (mine !== TCHome._shelfPoll || !document.body.contains(root) || location.pathname !== '/') {
       return;
     }
-    if (shelves.partial) {
+    if (TCHome._bare(shelves)) {
       if (JSON.stringify(history) !== JSON.stringify(TCHome._lastHistory)) {
         TCHome._lastHistory = history;
         if (!TCHome._query) TCHome._wornContinue(history);
       }
-      TCHome._waitShelves(root, mine);
-      return;
+    } else {
+      TCHome._lastHistory = history;
+      TCHome._showShelves(shelves);
     }
-    TCHome._lastHistory = history;
-    TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
-    if (!TCHome._query && JSON.stringify([history, TCHome._lastShelves]) !== TCHome._shownHome) {
-      const body = document.getElementById('tc-body');
-      if (body) body.replaceWith(TCHome._body(history, TCHome._lastShelves));
-    }
+    if (TCHome._unsettled(shelves)) TCHome._waitShelves(root, mine);
   },
 
   // Плашка «сейчас идёт» доезжает позже полок и пересобирает шапку сама: ждать снимок
@@ -182,37 +175,63 @@ const TCHome = {
     }
   },
 
-  // Холодный старт: полки ещё собирает фон, и сервер отвечает пустыми с меткой
-  // ``X-Torrcast-Partial`` - тем же приёмом, что карточка (TC-1172): вкладка
-  // переспрашивает себя сама, и человек дожидается полок, не трогая её. Потолок - 36
-  // заходов по 5 с: добор коротких полок стоит фону до ~90 с (TC-1168). Лента не
-  // собралась вовсе - на экране остаётся честное «пока пусто», а не вечный опрос.
+  // Холодный старт: полки ещё собирает фон, и сервер метит ответ ``X-Torrcast-Partial``
+  // тем же приёмом, что карточка (TC-1172): вкладка переспрашивает себя сама, и человек
+  // дожидается полок, не трогая её. Плитки приходят частями - с обложкой, до приговора
+  // «играет ли», - и встают сразу; «Грузим_» держится ровно пока сервер говорит, что
+  // полкам ещё прибавится. Потолка нет: брошенный на 180 с опрос оставлял холодную
+  // главную пустой до перезагрузки. После показа приговоры ещё идут
+  // (``X-Torrcast-Settling``), и неиграющая плитка сходит без перезагрузки.
+  // Недошедший ответ (``torn``) экран не трогает: пустым он приходит не от полок.
   async _waitShelves(root, mine) {
-    for (let tries = 0; tries < 36; tries += 1) {
-      await new Promise((done) => setTimeout(done, 5000));
+    for (let tries = 0; ; tries += 1) {
+      await new Promise((done) => setTimeout(done, TCHome._shelfPause(tries)));
       if (mine !== TCHome._shelfPoll || !document.body.contains(root) || location.pathname !== '/') {
         return;
       }
       const shelves = await TCApi.shelves();
-      TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
-      if (!shelves.partial) break;
-    }
-    // Полки дособрались - или не дособрались за все 36 заходов. И там, и там сборки
-    // больше нет: тело встаёт тем, что пришло, а «Грузим_» уходит. Раньше этой секунды
-    // тело не трогается вовсе - недоехавший ответ приходит ПУСТЫМ, и подменять им
-    // скелеты значит написать «пока пусто» над лентой, которая едет (замер на живом
-    // приёмнике: полки приехали на 15.3 с, а надпись встала бы на 5.2 с).
-    // Тело меняется только на чистой главной: в выдаче поиска свои плитки, и доехавшие
-    // полки просто запоминаются - встанут при возврате на неё. Равное показанному
-    // тело не подменяется: у плиток на экране нет причины уезжать и собираться заново.
-    if (!TCHome._query) {
-      const body = document.getElementById('tc-body');
-      const fresh = [TCHome._lastHistory, TCHome._lastShelves];
-      if (body && JSON.stringify(fresh) !== TCHome._shownHome) {
-        body.replaceWith(TCHome._body(...fresh));
+      if (mine !== TCHome._shelfPoll || !document.body.contains(root) || location.pathname !== '/') {
+        return;
       }
+      if (shelves.torn) continue;
+      TCHome._showShelves(shelves);
+      const assembling = !TCHome._query && !!shelves.partial;
+      if (assembling !== TCHome._assembling) TCHome._wear(assembling);
+      if (!TCHome._unsettled(shelves)) return;
     }
-    TCHome._wear(false);
+  },
+
+  // Секунда, пока полки собираются (показ по мере прихода обложек), потом пять.
+  _shelfPause(tries) {
+    return tries < 120 ? 1000 : 5000;
+  },
+
+  // Полкам не показать ещё ни одной плитки: тело держит скелеты, а не «пока пусто».
+  _bare(shelves) {
+    return !!shelves.torn
+      || (!!shelves.partial && shelves.fresh.length === 0 && shelves.popular.length === 0);
+  },
+
+  _unsettled(shelves) {
+    return !!shelves.partial || !!shelves.settling || !!shelves.torn;
+  },
+
+  // Пришедшие полки на чистой главной; равное показанному тело не подменяется: у плиток
+  // на экране нет причины уезжать и собираться заново. В выдаче поиска свои плитки, и
+  // доехавшие полки просто запоминаются - встанут при возврате на главную.
+  _showShelves(shelves, force = false) {
+    const filling = !!shelves.partial;
+    TCHome._lastShelves = { fresh: shelves.fresh, popular: shelves.popular };
+    if (TCHome._query || TCHome._bare(shelves)) return;
+    const body = document.getElementById('tc-body');
+    const next = [TCHome._lastHistory, TCHome._lastShelves];
+    if (body && (force || TCHome._homeKey(...next, filling) !== TCHome._shownHome)) {
+      body.replaceWith(TCHome._body(...next, filling));
+    }
+  },
+
+  _homeKey(history, shelves, filling) {
+    return JSON.stringify([history, shelves]) + (filling ? ' filling' : '');
   },
 
   // Спросить, сколько источников у круга поиска. Ответ приходит из серверного кэша, и
@@ -733,20 +752,23 @@ const TCHome = {
       : results + ' · ' + TC.count('web.search.source', TCHome._sourcesCount);
   },
 
-  _body(history, shelves) {
+  // ``filling`` - полкам ещё прибавится: пустая пока полка стоит скелетом, а не «пока пусто».
+  _body(history, shelves, filling = false) {
     TCHome._lastHistory = history;
     TCHome._lastShelves = shelves;
     TCHome._syncCount(null);
     // Собранное тело запоминается СТРОКОЙ: тихий добор сравнивает с ней ответ и не
     // трогает экран, пока данные те же.
-    TCHome._shownHome = JSON.stringify([history, shelves]);
+    TCHome._shownHome = TCHome._homeKey(history, shelves, filling);
     const body = document.createElement('div');
     body.id = 'tc-body';
     if (history.length > 0) body.appendChild(TCHome._continue(history));
-    body.appendChild(TCHome._shelf('web.shelf.new', 'shelf-new',
-      shelves.fresh.map(TCHome._tileFrom)));
-    body.appendChild(TCHome._shelf('web.shelf.popular', 'shelf-popular',
-      shelves.popular.map(TCHome._tileFrom)));
+    for (const [key, group, tiles] of [['web.shelf.new', 'shelf-new', shelves.fresh],
+      ['web.shelf.popular', 'shelf-popular', shelves.popular]]) {
+      body.appendChild(filling && tiles.length === 0
+        ? TCHome._shelf(key, 'shelf-loading', Array.from({ length: 6 }, () => ({ loading: true })))
+        : TCHome._shelf(key, group, tiles.map(TCHome._tileFrom)));
+    }
     return body;
   },
 

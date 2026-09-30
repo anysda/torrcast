@@ -32,9 +32,12 @@ const TCApi = {
 
   // Полки на холодном старте ещё собирает фон, и сервер метит такой ответ заголовком
   // ``X-Torrcast-Partial`` (та же метка, что у карточки): ``partial: true`` значит
-  // «переспроси позже», и решает это тот, кто звал, - сама обёртка не ждёт.
+  // «переспроси позже», и решает это тот, кто звал, - сама обёртка не ждёт. Холодные
+  // полки приходят и частью, с плитками до приговоров «играет ли»: ``partial`` тогда
+  // значит «ещё прибавится», а ``settling`` - «плитка, которая не играет, ещё сойдёт».
   async shelves() {
-    const blank = { fresh: [], popular: [], partial: false };
+    // ``torn`` - ответа нет вовсе (сеть, 5xx): это не «полки пусты», а «спроси ещё».
+    const blank = { fresh: [], popular: [], partial: false, settling: false, torn: true };
     try {
       const said = await fetch('/api/shelves');
       if (!said.ok) return blank;
@@ -43,6 +46,7 @@ const TCApi = {
         fresh: Array.isArray(data && data.fresh) ? data.fresh : [],
         popular: Array.isArray(data && data.popular) ? data.popular : [],
         partial: said.headers.get('X-Torrcast-Partial') === '1',
+        settling: said.headers.get('X-Torrcast-Settling') === '1',
       };
     } catch (error) {
       return blank;
