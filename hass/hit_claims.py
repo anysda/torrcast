@@ -59,6 +59,8 @@ class HitClaims:
         #: Заявки спокойного пути -> видимый ряд уже судил картину рядом (один раз на заявку).
         self._calm: dict[str, bool] = {}
         self._late_names: set[str] = set()
+        #: Картины, которые видимый ряд судит рядом: хозяин заявки может снять её раньше.
+        self._beside: set[str] = set()
         self._landed: set[str] = set()
 
     def named(self, name: str) -> bool:
@@ -94,7 +96,7 @@ class HitClaims:
         """У кого-то из записей приговор или байты уже в пути; отложенный повтор не в счёт."""
         names = [_name(ask) for ask in map(_about, records) if ask is not None]
         with self._lock:
-            flying = (self._judging, self._pending, self._late_names)
+            flying = (self._judging, self._pending, self._late_names, self._beside)
             return any(name in part for name in names for part in flying)
 
     def due(self, records: Sequence[JsonValue]) -> bool:
@@ -121,6 +123,8 @@ class HitClaims:
                     self._calm[_name(ask)] = one is _BESIDE
                 if one is _ASK:
                     self._judging[_name(ask)] = threading.Event()
+                if one is _BESIDE:
+                    self._beside.add(_name(ask))
         for ask in [ask for ask, one in state.items() if one is _ASK]:
             name = _name(ask)
             kept = self._shelf.read(name)

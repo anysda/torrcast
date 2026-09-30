@@ -29,6 +29,7 @@ def hit_book(
     found: dict[Ask, list[str]] = {}
     with claims._lock:
         claims._late_names.update(_name(ask) for ask in later)
+        claims._beside.difference_update(_name(ask) for ask in beside)
         for ask in (ask for ask in asked if ask not in later):
             name, pages = _name(ask), (said or {}).get(ask)
             if claims._holds(name):
