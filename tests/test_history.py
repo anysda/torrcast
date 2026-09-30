@@ -32,6 +32,12 @@ def _posters(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_hold(monkeypatch: pytest.MonkeyPatch) -> None:
+    """История заводит первые раздачи ряда, но тесты не ходят в TorrServer."""
+    monkeypatch.setattr(history_module, "hold_first", lambda keys: None)
+
+
 def _asked() -> dict[str, list[dict[str, JsonValue]]]:
     answer = history(Request("GET", "/api/history", {}, {}))
     assert answer.code == 200

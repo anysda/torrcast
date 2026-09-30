@@ -5,12 +5,23 @@ from __future__ import annotations
 import json
 
 from hass.hit_posters import hits
-from torrcast.domain.continue_row import continue_row
+from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.domain.continue_row import WARM_ROW, continue_row
 from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.ports.state_store.slot import store
 from web.answer import Answer
+from web.record_hold import RECORD_HOLD
 from web.request import Request
+
+
+def _hold_first(keys: list[str]) -> None:
+    RECORD_HOLD.touch(load_config().torrserver_url, keys[:WARM_ROW])
+
+
+#: Первые записи ряда заводятся уже при запросе истории, а не по зову плиток после
+#: отрисовки: метаданные холодной раздачи идут из роя 2-20 с, и ранний клик их ждал.
+hold_first = _hold_first
 
 
 def history(_request: Request) -> Answer:
@@ -20,7 +31,9 @@ def history(_request: Request) -> Answer:
     показа: карточка не заводит своего хранилища, а читает то, что уже пишет продукт.
     """
     entries = store().load().entries
-    items: list[JsonValue] = [_item(key, entries[key]) for key in continue_row(entries)]
+    row = continue_row(entries)
+    hold_first(row)
+    items: list[JsonValue] = [_item(key, entries[key]) for key in row]
     # «Продолжить» не витрина рекомендаций: новая запись обязана вернуться сразу,
     # даже когда у старых уже есть обложки, а у неё приговор картинки отрицательный.
     # Клиент честно рисует такую плитку типографским блоком. `_covered` годится для
