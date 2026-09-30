@@ -156,9 +156,9 @@ class Bridge:
             say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
         self._motion.commanded(command, arg)
 
-    def next(self, body: dict[str, JsonValue] | None = None) -> None:
+    def next(self, body: dict[str, JsonValue] | None = None, tab: str = "") -> None:
         """``POST /api/next``: следующая серия той же раздачи, названная запросом."""
-        if args := next_show(self._session, body or {}):
+        if args := next_show(self._session, body or {}, tab):
             self._start(args)
 
     def _start(self, args: list[str]) -> str:

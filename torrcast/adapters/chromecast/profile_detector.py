@@ -18,7 +18,7 @@ from torrcast.domain.by_key import by_key
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.for_passport import for_passport
-from torrcast.domain.profile import BROWSER, CAUTIOUS
+from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.health_config import HealthConfig
 
 if TYPE_CHECKING:
@@ -41,10 +41,10 @@ class ProfileDetector:
         self._ask = ask
 
     def detect(self, config: HealthConfig) -> Choice:
-        """Выбрать профиль: ручной ключ, вкладка без ТВ, иначе сохранённый или опрошенный паспорт.
+        """Выбрать профиль: ручной ключ, затем сохранённый или опрошенный паспорт.
 
-        Вкладка без ТВ - приёмник машины ``browser``, а в ``tv`` пусто или то же слово
-        ``browser`` (так его пишет ``cast --tv browser``): показ передать некому.
+        Вкладке без ТВ здесь достаётся осторожный: щедрые пороги она получает только
+        сказав, кто она (:func:`torrcast.domain.for_tab.for_tab`).
         """
         named = str(getattr(config, "receiver_profile", "") or "")
         if named:
@@ -56,9 +56,6 @@ class ProfileDetector:
                 )
             return Choice(CAUTIOUS, phrase("profile_detector.unknown_named_profile", name=named))
         address = str(config.tv or "")
-        if config.receiver == "browser" and address in ("", "browser"):
-            # Играет только вкладка, и передать показ некому: пороги телевизора ей ни к чему.
-            return Choice(BROWSER, phrase("profile_detector.browser_tab"))
         if config.receiver != "chromecast" or not address:
             return Choice(CAUTIOUS, phrase("profile_detector.no_passport_receiver"))
         if address not in self._seen:

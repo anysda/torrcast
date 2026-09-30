@@ -35,6 +35,7 @@ class _Bridge:
         self.refuse = ""
         self.pictures: dict[str, tuple[bytes, str]] = {}
         self.asked: list[str] = []
+        self.tabs: list[str] = []
 
     def state(self) -> dict[str, Any]:
         return {"state": "idle", "title": None}
@@ -61,6 +62,7 @@ class _Bridge:
         episode: int | None = None,
         from_start: bool = False,
         here: bool = False,
+        tab: str = "",
     ) -> str:
         if self.refuse:
             raise RefusedError(self.refuse)
@@ -73,6 +75,7 @@ class _Bridge:
                 "episode": episode,
                 "from_start": from_start,
                 "here": here,
+                **({"tab": tab} if tab else {}),
             }
         )
         return "deadbeef"
@@ -92,10 +95,11 @@ class _Bridge:
         self.asked.append(name)
         return self.pictures.get(name)
 
-    def next(self, body: dict[str, Any] | None = None) -> None:
+    def next(self, body: dict[str, Any] | None = None, tab: str = "") -> None:
         if self.refuse:
             raise RefusedError(self.refuse)
         self.nexted.append(body)
+        self.tabs.append(tab)
 
 
 @pytest.fixture
@@ -128,8 +132,10 @@ def _bytes(url: str) -> tuple[int, bytes, str]:
         return int(refusal.code), refusal.read(), refusal.headers.get("Content-Type", "")
 
 
-def _call(url: str, method: str = "GET", body: bytes | None = None) -> tuple[int, str]:
-    request = urllib.request.Request(url, data=body, method=method)
+def _call(
+    url: str, method: str = "GET", body: bytes | None = None, headers: dict[str, str] | None = None
+) -> tuple[int, str]:
+    request = urllib.request.Request(url, data=body, method=method, headers=headers or {})
     try:
         with urllib.request.urlopen(request, timeout=5) as answer:
             return int(answer.status), answer.read().decode("utf-8")

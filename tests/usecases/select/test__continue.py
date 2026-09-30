@@ -35,6 +35,7 @@ class _Shown:
     def __init__(self, verdict: str = "") -> None:
         self.launched: list[tuple[str, str]] = []
         self.resumed: list[str] = []
+        self.tabs: list[str] = []
         #: Приговор записанной раздаче: пусто - играет. Спрашивать про неё живую службу
         #: зеркалу нельзя: молчание отказавшего соединения читается как «играет», и любой
         #: из этих случаев зеленел бы сам собой, даже когда мерить уже нечего.
@@ -50,6 +51,7 @@ class _Shown:
         clock: _Clock,
         dry: bool = False,
         here: bool = False,
+        tab: str = "",
     ) -> int:
         self.launched.append((saved.label, about))
         return EXIT_OK
@@ -62,8 +64,10 @@ class _Shown:
         clock: _Clock,
         dry: bool = False,
         here: bool = False,
+        tab: str = "",
     ) -> int:
         self.resumed.append(saved.title)
+        self.tabs.append(tab)
         return EXIT_OK
 
     def dead(self, config: Config, saved: Entry, own: object) -> str:
@@ -103,6 +107,15 @@ def test_a_film_in_the_middle_is_resumed_without_a_single_question() -> None:
 
     assert code == EXIT_OK
     assert shown.resumed == ["Кино"]
+
+
+def test_the_tab_that_asked_is_handed_to_the_resumed_show() -> None:
+    """Продолжение вкладки играет её порогами: ключ ``--tab`` едет в юнит и тут."""
+    shown = _Shown()
+    args = Args(query=["кино"], here=True, tab="gecko-linux")
+
+    assert _continue(Config(), "movie:кино:1999", entry(), args, _Clock(), **shown.calls) == EXIT_OK
+    assert shown.tabs == ["gecko-linux"]
 
 
 def test_a_named_episode_is_not_answered_by_a_film_bookmark() -> None:

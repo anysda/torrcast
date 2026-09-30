@@ -33,10 +33,15 @@ class _PlayExtras(TypedDict, total=False):
     original: str
     release: str
     layout: str
+    tab: str
 
 
-def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
-    """Доводы показа поверх ``query``/``pick``, либо слово отказа."""
+def play_extras(body: dict[str, JsonValue], tab: str = "") -> _PlayExtras | str:
+    """Доводы показа поверх ``query``/``pick``, либо слово отказа.
+
+    ``tab`` - ключ вкладки из её куки (:func:`web.hear.hear`), а не из тела: сервер
+    сам собирает его из словаря движков и систем, и в ``argv`` чужое слово не попадёт.
+    """
     voice = body.get("voice")
     if voice is not None and not isinstance(voice, str):
         return "bad_voice"
@@ -76,6 +81,8 @@ def play_extras(body: dict[str, JsonValue]) -> _PlayExtras | str:
         extras["release"] = release.lower()
     if layout:
         extras["layout"] = layout
+    if tab:
+        extras["tab"] = tab
     if voice:
         extras["voice"] = voice
     if isinstance(season, int) and isinstance(episode, int):

@@ -56,7 +56,7 @@ class ShowEnvironment:
     read_landed: Callable[[Path, float], float]
     #: Подъём юнита показа и карта опорных кадров файла. Второй довод - ``here``: этот
     #: запуск играет у того, кто попросил показ, а не на ``Config.tv``.
-    start_unit: Callable[[str, bool], None]
+    start_unit: Callable[[str, bool, str], None]
     #: Медиатракт: сетка сегментов, раздача по http и оба кодировщика.
     grid: MediaGrids
     server: StreamServers

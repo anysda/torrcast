@@ -29,6 +29,7 @@ _FLAG: Final[Mapping[str, str]] = {
     "play_key": "--play-key",
     "upgrade": "--upgrade",
     "here": "--here",
+    "tab": "--tab",
     "picture": "--picture",
     "picture_original": "--picture-original",
     "card_release": "--card-release",
@@ -39,7 +40,7 @@ _FLAG: Final[Mapping[str, str]] = {
 #: точка входа (:func:`torrcast.cli.main.main`): для человека флаг понят и работы не
 #: отменяет. ``telegram``, ``upgrade`` и ``play_key`` показом не бывают вовсе - каждый
 #: уводит разбор в свою команду (:attr:`Args.command`), - и в ответе они не появятся.
-#: ``here`` - приёмник ЭТОГО запуска, его читает тот же показ, что и ``dry``.
+#: ``here`` - приёмник ЭТОГО запуска, ``tab`` - ключ его вкладки: их читает показ, как ``dry``.
 _READ_BY_PLAY: Final = frozenset(
     {
         "language",
@@ -51,6 +52,7 @@ _READ_BY_PLAY: Final = frozenset(
         "from_start",
         "dry",
         "here",
+        "tab",
         "picture",
         "picture_original",
         "card_release",
@@ -58,7 +60,7 @@ _READ_BY_PLAY: Final = frozenset(
     }
 )
 
-#: Умолчание поля и есть «флаг не назван»: у всех до одного оно ``None`` или ``False``.
+#: Умолчание поля и есть «флаг не назван»: ``None``, ``False`` или пустой ключ вкладки.
 _DEFAULT: Final[Mapping[str, object]] = {item.name: item.default for item in fields(Args)}
 
 

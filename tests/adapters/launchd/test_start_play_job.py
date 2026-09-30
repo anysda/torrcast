@@ -144,3 +144,13 @@ def test_a_job_that_did_not_start_is_told_about_out_loud(files: Path) -> None:
     """Не поднялось задание - беда наружу словами, а не молчаливый «показ пошёл»."""
     with pytest.raises(InfraError, match=r"job .* did not start"):
         start_play_job("ключ", call=_answers([], code=5))
+
+
+def test_the_tab_key_rides_into_the_job_and_silence_adds_nothing(files: Path) -> None:
+    """Ключ вкладки уходит заданию своим доводом; без ключа строка запуска как в ``dev``."""
+    start_play_job("ключ", True, "gecko-linux", call=_answers([]))
+    argv = _plist(files)["ProgramArguments"]
+    assert isinstance(argv, list) and argv[-3:] == ["--here", "--tab", "gecko-linux"]
+
+    start_play_job("ключ", True, call=_answers([]))
+    assert "--tab" not in str(_plist(files)["ProgramArguments"])

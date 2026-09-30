@@ -25,13 +25,16 @@ from torrcast.usecases.playback.hls_root import hls_root
 from web.tv_session import SESSION
 
 
-def next_show(session: PlaybackSession, body: dict[str, JsonValue]) -> list[str] | None:
+def next_show(
+    session: PlaybackSession, body: dict[str, JsonValue], tab: str = ""
+) -> list[str] | None:
     """argv запуска следующей серии; ``None`` - переход уже сделан, повторять нечего.
 
     Тело без пары сезон/серия - старый зов (Home Assistant, стрелка в карточке): он
     идёт той же дорогой, что и всегда. Кривая пара - отказ тем же словом
     ``bad_episode``, каким её отвечает ``POST /api/play``
-    (:func:`hass.play_extras.play_extras`).
+    (:func:`hass.play_extras.play_extras`). ``tab`` - ключ вкладки, продолжение у неё
+    получает тот же профиль, что её показ.
     """
     season, episode = _ended(body)
     if season is not None and episode is not None and _moved_on(session, season, episode):
@@ -39,7 +42,8 @@ def next_show(session: PlaybackSession, body: dict[str, JsonValue]) -> list[str]
     query = following(session)
     if query is None:
         raise RefusedError(NO_NEXT)
-    return play_argv(query, None, None, None, None, False, _to_browser())
+    here = _to_browser()
+    return play_argv(query, None, None, None, None, False, here, tab=tab if here else "")
 
 
 def _ended(body: dict[str, JsonValue]) -> tuple[int | None, int | None]:

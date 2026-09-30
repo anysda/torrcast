@@ -32,6 +32,7 @@ def test_every_field_a_person_names_has_its_flag_in_the_list() -> None:
         (["моана"], []),
         # Флаги показа: их он читает сам, и «продолжи последнее» ими не отменяется.
         (["--dry"], []),
+        (["--here", "--tab", "gecko-linux"], []),
         (["--new"], []),
         (["--menu"], []),
         (["--voice", "2"], []),

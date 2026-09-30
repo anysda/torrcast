@@ -34,6 +34,7 @@ from hass.refused_error import RefusedError
 from hass.search_job import FINAL_BY
 from torrcast.domain.json_value import JsonValue
 from web.answer_for import answer_for
+from web.hear import hear
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -59,11 +60,12 @@ class _Handler(BaseHTTPRequestHandler):
         if body is None:
             self._answer(400, {"error": "bad_json"})
             return
+        tab = hear(dict(self.headers.items()))  # вкладка говорит о себе кукой, HA - ничего
         if path not in (PLAY, CONTROL, NEXT, SEARCH, RESUME):
             self._offer(body)
             return
         try:
-            self._command(path, body)
+            self._command(path, body, tab)
         except RefusedError as refusal:
             self._answer(409, refusal.body())
 
@@ -83,10 +85,8 @@ class _Handler(BaseHTTPRequestHandler):
         """Строка запроса уходит в журнал процесса, а не в stderr россыпью."""
         print(f"{self.address_string()} {format % args}", flush=True)
 
-    # ------------------------------------------------------------------ внутреннее
-
-    def _command(self, path: str, body: dict[str, JsonValue]) -> None:
-        """Развести POST по мосту; отказ моста поднимается выше словом."""
+    def _command(self, path: str, body: dict[str, JsonValue], tab: str) -> None:
+        """Развести POST по мосту; отказ моста поднимается выше словом. ``tab`` - ключ вкладки."""
         if path == SEARCH:
             query = body.get("query")
             if not isinstance(query, str) or not query.strip():
@@ -116,7 +116,7 @@ class _Handler(BaseHTTPRequestHandler):
             if pick is not None and (type(pick) is not int or pick < 1):
                 self._answer(400, {"error": "bad_pick"})
                 return
-            extras = play_extras(body)
+            extras = play_extras(body, tab)
             if isinstance(extras, str):
                 self._answer(400, {"error": extras})
                 return
@@ -126,7 +126,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._answer(202, {"key": self.bridge.resume()})
             return
         if path == NEXT:
-            self.bridge.next(body)
+            self.bridge.next(body, tab)
             self._answer(204, None)
             return
         command, arg = body.get("cmd"), body.get("arg")

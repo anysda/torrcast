@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import torrcast.usecases.playback._show_state as _state
-from torrcast.domain.cancelled_error import CancelledError
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
@@ -24,6 +23,7 @@ from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.playback.launch_owner import LaunchOwner, _new_segment
 from torrcast.usecases.playback.place_kept import place_kept
 from torrcast.usecases.playback.refuse_called_off import refuse_called_off
+from torrcast.usecases.playback.yield_to_other import yield_to_other
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
@@ -32,7 +32,13 @@ from torrcast.usecases.still_playing import still_playing
 
 
 def _resume(
-    config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = False, here: bool = False
+    config: Config,
+    key: str,
+    entry: Entry,
+    clock: _Clock,
+    dry: bool = False,
+    here: bool = False,
+    tab: str = "",
 ) -> int:
     """Молча продолжить с записанных релиза, файла, дорожки и позиции.
 
@@ -40,7 +46,7 @@ def _resume(
     удалённый вопрос. После запуска он конкурировал бы с ffmpeg за тот же рой, поэтому
     молчаливое продолжение сразу передаётся владельцу показа."""
     journal().mark("ответы")  # ноль секундомера: на этом пути вопросов нет
-    return _launch(config, key, entry, _about(entry), clock, dry, here)
+    return _launch(config, key, entry, _about(entry), clock, dry, here, tab)
 
 
 def _launch(
@@ -51,13 +57,15 @@ def _launch(
     clock: _Clock,
     dry: bool = False,
     here: bool = False,
+    tab: str = "",
 ) -> int:
     """Показ уезжает в transient-юнит: ``cast`` завершился — показ продолжается.
 
     🔴 Отказ человека спрашивается на двух поворотах подъёма, и что он значит, названо
     в :mod:`torrcast.usecases.playback.refuse_called_off`: до юнита - здесь, а при уже
     живом юните - в ожидании картинки (:func:`_await_playing`). ``here`` - приёмник ЭТОГО
-    запуска - страница, а не ``config.tv``: юнит берёт это ключом командной строки."""
+    запуска - страница, а не ``config.tv``: юнит берёт это ключом командной строки,
+    как и ``tab`` - ключ вкладки, по которому юнит выбирает ей пороги."""
     if dry:
         print(phrase("playback.dry_run_no_cast", about=about))
         return EXIT_OK
@@ -91,7 +99,7 @@ def _launch(
     _state.forget_browser_box(out)
     _state.forget_browser_position(out)
     with place_kept(key, before, owner.taken_over):
-        _state.start_play_unit(key, here)
+        _state.start_play_unit(key, here, tab)
         journal().mark("юнит")
         with progress_bar() as progress:
             _await_playing(config, progress, start=entry.pos, owner=owner, here=here)
@@ -159,7 +167,7 @@ def _await_playing(
     deadline = clock.monotonic() + timeout
     packed = False
     while clock.monotonic() < deadline:
-        _yield_to_other(owner, progress)
+        yield_to_other(owner, progress)
         refuse_called_off(progress, unit)
         if flag.exists():
             journal().mark("картинка")
@@ -173,11 +181,11 @@ def _await_playing(
         waiting = "playback.waiting_player" if here else "playback.waiting_tv"
         progress.phase(phrase(waiting) if packed else phrase("playback.packing"))
         if not unit.active():
-            _yield_to_other(owner, progress)
+            yield_to_other(owner, progress)
             progress.phase("")
             raise InfraError(phrase("playback.did_not_start", why=unit.why()))
         clock.sleep(0.2)
-    _yield_to_other(owner, progress)
+    yield_to_other(owner, progress)
     progress.phase("")
     said = unit.why()
     landed = _state.read_landed(out, start)
@@ -190,10 +198,3 @@ def _await_playing(
         return
     unit.stop()
     raise InfraError(phrase("playback.did_not_start_timeout", secs=f"{timeout:.0f}", said=said))
-
-
-def _yield_to_other(owner: LaunchOwner | None, progress: Progress) -> None:
-    """Подъём снят чужим запуском - кончить ожидание отменой, не трогая чужой юнит."""
-    if owner is not None and owner.taken_over():
-        progress.phase("")
-        raise CancelledError(phrase("playback.abandoned"))

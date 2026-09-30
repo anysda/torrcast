@@ -1,4 +1,4 @@
-"""Профиль вкладки: кому он достаётся и что он вкладке больше не режет."""
+"""Профиль вкладки: кому он достаётся и что он замеренной вкладке больше не режет."""
 
 from __future__ import annotations
 
@@ -10,7 +10,9 @@ from torrcast.adapters.recode.targets import _targets
 from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.by_key import by_key
+from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
+from torrcast.domain.for_tab import for_tab
 from torrcast.domain.profile import ANDROID_TV, BROWSER, CAUTIOUS
 from torrcast.domain.tune import tune
 from torrcast.usecases.playback._recoder import _recoder
@@ -20,42 +22,49 @@ def _refuse(address: str, timeout: float = 0.0) -> Device:
     raise AssertionError("паспорт спрашивать было не у кого")
 
 
+#: Ключ вкладки, на которой пороги сняты: Chromium настольного Linux.
+_MEASURED = "chromium-linux"
+
+
+def _chosen(config: Config, tab: str = _MEASURED) -> Choice:
+    """Профиль показа, как его выбирают CLI и юнит: паспорт, затем поправка на вкладку."""
+    return for_tab(ProfileDetector(ask=_refuse).detect(config), config, tab)
+
+
 def _heavy_slots(config: Config, mbit: float = 21.0, span: float = 10.0) -> tuple[int, ...]:
     """Слоты кодировщика для куска копии ``mbit`` на ``span`` секунд и лёгкого за ним."""
-    chosen = ProfileDetector(ask=_refuse).detect(config)
+    chosen = _chosen(config)
     tuned = tune(config, chosen.profile)
     lines = Grid(bounds=(0.0, span), duration=2 * span, on_keys=True)
     weights = Weights(raw=(mbit, 4.0))
     return _targets(weights, lines, tuned.recode_at_mbit, chosen.profile.segment_limit)
 
 
-def test_a_tab_with_nobody_to_hand_over_to_gets_the_browser_profile() -> None:
-    """Приёмник - вкладка и ТВ не назван: пороги телевизора вкладке ни к чему."""
-    chosen = ProfileDetector(ask=_refuse).detect(Config(receiver="browser"))
+def test_the_detector_alone_keeps_the_tab_cautious_as_dev_did() -> None:
+    """Паспорт вкладке не выдаёт щедрых порогов: без её слова она осторожна, как в ``dev``."""
+    for tv in ("", "browser"):
+        chosen = ProfileDetector(ask=_refuse).detect(Config(receiver="browser", tv=tv))
+        assert chosen.profile is CAUTIOUS
 
-    assert chosen.profile is BROWSER
-    assert chosen.how
 
-
-def test_a_tab_named_by_cast_tv_browser_gets_it_too() -> None:
-    """``cast --tv browser`` пишет в ``tv`` само слово ``browser``: ТВ это не называет."""
-    config = Config(receiver="browser", tv="browser")
-
-    assert ProfileDetector(ask=_refuse).detect(config).profile is BROWSER
+def test_a_measured_tab_with_nobody_to_hand_over_to_gets_the_browser_profile() -> None:
+    """Вкладка замерена и ТВ не назван (или назван словом ``browser``): её пороги."""
+    for tv in ("", "browser"):
+        chosen = _chosen(Config(receiver="browser", tv=tv))
+        assert chosen.profile is BROWSER
+        assert _MEASURED in chosen.how
 
 
 def test_a_tab_next_to_a_named_tv_keeps_the_tv_profile() -> None:
     """«На ТВ» отдаёт телевизору тот же поток: при названном ТВ вкладка его не меняет."""
-    chosen = ProfileDetector(ask=_refuse).detect(Config(receiver="browser", tv="10.0.0.50"))
-
-    assert chosen.profile is CAUTIOUS
+    assert _chosen(Config(receiver="browser", tv="10.0.0.50")).profile is CAUTIOUS
 
 
 def test_a_named_profile_still_wins_over_the_tab() -> None:
-    """Ключ руками - последнее слово и для вкладки."""
+    """Ключ руками - последнее слово и для замеренной вкладки."""
     config = Config(receiver="browser", receiver_profile="androidtv")
 
-    assert ProfileDetector(ask=_refuse).detect(config).profile is ANDROID_TV
+    assert _chosen(config).profile is ANDROID_TV
 
 
 def test_the_browser_profile_is_registered_by_key() -> None:
@@ -108,7 +117,7 @@ def test_the_show_recoder_takes_the_tabs_limit(tmp_path: Path) -> None:
     """Кодировщик показа судит кусок пределом профиля: 30 МБ вкладке копия, приставке - нет."""
 
     def slots(config: Config) -> tuple[int, ...]:
-        chosen = ProfileDetector(ask=_refuse).detect(config)
+        chosen = _chosen(config)
         grid = Grid.uniform(300.0)
         tuned = tune(config, chosen.profile)
         profile = chosen.profile

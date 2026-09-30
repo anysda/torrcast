@@ -111,8 +111,8 @@ def test_the_first_segment_mark_waits_for_this_launchs_segment(
     monkeypatch.setattr(_show_state, "CLOCK", clock)
     composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
 
-    def start_unit(key: str, here: bool = False) -> None:
-        del key, here
+    def start_unit(key: str, here: bool = False, tab: str = "") -> None:
+        del key, here, tab
         show_unit.alive = True
 
     monkeypatch.setattr(_show_state, "start_play_unit", start_unit)
@@ -360,7 +360,7 @@ def test_a_new_launch_clears_a_dead_tab_sessions_leftover_box(
     write_web_box(out, url="http://x/dead.m3u8", title="Мёртвая вкладка", at=12.0, key="dead")
     write_web_position(out, "dead", 12.0, 900.0, "PLAYING", 0.0)
     composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
-    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False, tab="": None)
     composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
 
     _launch(
@@ -387,7 +387,7 @@ def test_a_relaunch_does_not_carry_a_past_sessions_frame_into_the_new_one(
     """
     composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
     monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
-    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False, tab="": None)
     composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
 
     key = "movie:кино"
@@ -412,7 +412,9 @@ def test_a_raise_the_person_called_off_never_reaches_the_unit(
     composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
     monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
     raised: list[str] = []
-    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: raised.append(key))
+    monkeypatch.setattr(
+        _show_state, "start_play_unit", lambda key, here=False, tab="": raised.append(key)
+    )
     composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
     abandon_slot.install(lambda: True)
 
@@ -510,7 +512,7 @@ def test_a_show_that_did_not_come_up_gives_the_saved_place_back(
     """
     composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
     monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
-    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False, tab="": None)
 
     def refused(*args: object, **kwargs: object) -> None:
         raise InfraError(phrase("playback.did_not_start", why="юнит выпал"))
@@ -540,7 +542,7 @@ def test_a_launch_hands_its_own_claim_to_the_wait(
     """
     composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
     monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
-    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False, tab="": None)
     handed: list[LaunchOwner | None] = []
 
     def waited(*args: object, owner: LaunchOwner | None = None, **kwargs: object) -> None:
@@ -557,3 +559,29 @@ def test_a_launch_hands_its_own_claim_to_the_wait(
     LaunchOwner.claim(hls_root(config.hls_dir))  # следующий запуск, веб или бот
 
     assert mine.taken_over() is True, "снятый подъём не узнал, что показ уже чужой"
+
+
+def test_the_tab_key_is_handed_to_the_unit_with_here(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ключ вкладки доходит до юнита: иначе он судил бы её порогами ``dev``."""
+    started: list[tuple[str, bool, str]] = []
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
+    monkeypatch.setattr(
+        _show_state,
+        "start_play_unit",
+        lambda key, here=False, tab="": started.append((key, here, tab)),
+    )
+    composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
+
+    _launch(
+        Config(hls_dir=str(tmp_path)),
+        "movie:кино",
+        Entry(title="Кино", magnet="magnet:?xt=1"),
+        "«Кино»",
+        _Clock(),
+        here=True,
+        tab="gecko-linux",
+    )
+
+    assert started == [("movie:кино", True, "gecko-linux")]

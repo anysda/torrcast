@@ -28,6 +28,7 @@ _JOB_PATH: Final = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sb
 def start_play_job(
     key: str,
     here: bool = False,
+    tab: str = "",
     unit: str = "",
     *,
     call: LaunchdCall = _launchd,
@@ -49,7 +50,8 @@ def start_play_job(
 
     ``here`` - этот запуск играет у того, кто попросил показ, а не на ``Config.tv``:
     заданию это уходит своим ключом командной строки (``--here``), а не файлом
-    настроек, который остаётся прежним для следующего показа.
+    настроек, который остаётся прежним для следующего показа. ``tab`` - ключ вкладки
+    этого запуска (``--tab``): по нему задание решает, заслужила ли она замеренные пороги.
 
     ``call`` - чем звать launchd; боевое умолчание одно и то же у всех команд задания
     (:data:`~torrcast.adapters.launchd._launchd_call.LaunchdCall`). Погашение прошлого
@@ -65,7 +67,7 @@ def start_play_job(
     env[_JOB_KEY_ENV] = key
     command = list(program) if program is not None else [
         sys.executable, "-m", "torrcast.runtime", "--play-key", key,
-        *(["--here"] if here else []),
+        *(["--here"] if here else []), *(["--tab", tab] if tab else []),
     ]  # fmt: skip
     _plist_path(unit).write_bytes(
         plistlib.dumps(

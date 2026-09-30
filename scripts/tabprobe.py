@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Что вкладка Chromium реально играет: кодеки MSE и живой показ до первого кадра.
+"""Что вкладка браузера реально играет: кодеки MSE и живой показ до первого кадра.
 
 Инструмент разработчика: в устанавливаемый пакет не входит. Гоняется на машине с
 Playwright (``PLAYWRIGHT_BROWSERS_PATH=/path/to/browsers``), как :mod:`decodebench`.
@@ -8,6 +8,7 @@ Playwright (``PLAYWRIGHT_BROWSERS_PATH=/path/to/browsers``), как :mod:`decode
     /path/to/python3 scripts/tabprobe.py codecs --card TC-1259
     /path/to/python3 scripts/tabprobe.py play --base http://host:8098 --query Up \\
         --picture movie:up:2009 --card TC-1259
+    /path/to/python3 scripts/tabprobe.py codecs --engine firefox --card TC-1259
 
 ``codecs`` спрашивает ``MediaSource.isTypeSupported`` по строкам типа, которые
 выдаёт наша упаковка и чужие релизы. ``play`` открывает ``/play``, зовёт показ во
@@ -111,6 +112,15 @@ def play(page: Any, args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+#: Как поднять движок, чтобы видео играло без жеста: у каждого своя ручка автоплея.
+#: WebKit Playwright на Linux - это GStreamer, а не AVFoundation Safari: iOS он не мерит.
+_LAUNCH: dict[str, dict[str, Any]] = {
+    "chromium": {"args": ["--autoplay-policy=no-user-gesture-required"]},
+    "firefox": {"firefox_user_prefs": {"media.autoplay.default": 0}},
+    "webkit": {},
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     """Прогнать щуп и напечатать ответ JSON и подпись прибора последней строкой."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -121,19 +131,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=float, default=90.0, help="ждать сдвиг часов, с")
     parser.add_argument("--watch", type=float, default=15.0, help="смотреть после сдвига, с")
     parser.add_argument("--card", default=None)
+    parser.add_argument("--engine", choices=tuple(_LAUNCH), default="chromium")
     args = parser.parse_args(argv)
     if args.mode == "play" and not (args.base and args.query):
         parser.error("play: нужны --base и --query")
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
+        browser = getattr(pw, args.engine).launch(**_LAUNCH[args.engine])
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         found: Any = codecs(page) if args.mode == "codecs" else play(page, args)
         version = browser.version
         browser.close()
-    print(json.dumps({"chromium": version, args.mode: found}, ensure_ascii=False, indent=1))
-    extra = [f"Chromium {version}"]
+    print(json.dumps({args.engine: version, args.mode: found}, ensure_ascii=False, indent=1))
+    extra = [f"{args.engine} {version}"]
     if args.mode == "play":
         extra.append(f"сдвиг {found['moved_s']} с, кадр {'да' if found['picture'] else 'НЕТ'}")
     print(stamp("tabprobe", "mpegts", run_where(args.card), extra))

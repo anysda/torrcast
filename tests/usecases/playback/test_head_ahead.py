@@ -159,7 +159,12 @@ def test_the_head_is_cut_to_the_receivers_limit(monkeypatch: pytest.MonkeyPatch)
     """Голова карточки режется тем же пределом, что показ, а не целью сетки."""
     _heads(monkeypatch, "k")
     caps: list[object] = []
-    ahead = HeadAhead(spawn=_now, lay=lambda *args, **_kw: bool(caps.append(args[7])))
+
+    def lay(*args: object, **_kw: object) -> bool:
+        caps.append(args[7])
+        return True
+
+    ahead = HeadAhead(spawn=_now, lay=lay)
 
     _want(ahead)
 

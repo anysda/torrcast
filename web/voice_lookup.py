@@ -14,7 +14,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
@@ -33,6 +32,7 @@ from torrcast.usecases.select_bench.bench import Bench
 from web.card_warm import CardWarm
 from web.episode_lookup import RETRY, Spawn
 from web.heard import Heard
+from web.tab_detect import tab_detect
 
 
 def _daemon(job: Callable[[], None]) -> None:
@@ -46,7 +46,7 @@ def _no_head(*_args: object) -> None:
 
 def _show_profile(config: Config) -> Profile:
     """Профиль, которым судит показ: карточка, судящая иначе, выбрала бы не ту раздачу."""
-    return detector.detect(config).profile
+    return tab_detect(config).profile
 
 
 @dataclass

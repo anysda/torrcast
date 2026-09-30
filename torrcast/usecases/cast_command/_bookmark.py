@@ -192,7 +192,7 @@ def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _C
     own = _Voiced()
     try:
         entry = _voiced(config, entry, args, own)
-        code = _launch(config, key, entry, _about(entry), clock, args.dry, args.here)
+        code = _launch(config, key, entry, _about(entry), clock, args.dry, args.here, args.tab)
         own.handed = not args.dry
         return code
     finally:

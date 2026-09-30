@@ -10,7 +10,8 @@ def en() -> dict[str, str]:
         "profile_detector.unknown_named_profile": (
             'no profile named "{name}" - falling back to cautious'
         ),
-        "profile_detector.browser_tab": "a browser tab plays and no TV is set - browser profile",
+        "profile_detector.browser_tab": "tab {tab} plays and no TV is set - its measured profile",
+        "profile_detector.tab_unmeasured": "tab {tab} is not measured - taking the cautious one",
         "profile_detector.no_passport_receiver": (
             "no receiver with a passport - falling back to cautious"
         ),

@@ -80,3 +80,13 @@ def test_a_unit_that_did_not_start_is_told_about_out_loud() -> None:
     """Не поднялся юнит - беда наружу словами, а не молчаливый «показ пошёл»."""
     with pytest.raises(InfraError, match=r"unit .* did not start"):
         start_play_unit("ключ", call=_answers([], code=1))
+
+
+def test_the_tab_key_rides_into_the_unit_and_silence_adds_nothing() -> None:
+    """Ключ вкладки уходит юниту своим доводом; без ключа строка запуска как в ``dev``."""
+    seen: list[tuple[str, ...]] = []
+    start_play_unit("ключ", True, "gecko-linux", call=_answers(seen))
+    assert list(seen[-1])[-5:] == ["--play-key", "ключ", "--here", "--tab", "gecko-linux"]
+
+    start_play_unit("ключ", True, call=_answers(seen))
+    assert "--tab" not in seen[-1]

@@ -372,7 +372,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     composition.use_prober(
         monkeypatch, lambda url, timeout=90.0, alive=None: Media(5978.0, MOANA2, "h264", 1080)
     )
-    composition.use_start_unit(monkeypatch, lambda key, here=False: None)
+    composition.use_start_unit(monkeypatch, lambda key, here=False, tab="": None)
     composition.use_await_playing(
         monkeypatch, lambda config, progress, timeout=120.0, start=0.0, owner=None, here=False: None
     )
@@ -513,7 +513,7 @@ def test_new_with_a_voice_overwrites_the_memory(
 def test_a_wrong_number_is_a_polite_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Дорожки с таким номером нет — честная строка и код «не нашли», а не показ."""
     composition.use_start_unit(
-        monkeypatch, lambda key, here=False: pytest.fail("вслепую не кастим")
+        monkeypatch, lambda key, here=False, tab="": pytest.fail("вслепую не кастим")
     )
     _answers(monkeypatch)
 
@@ -543,7 +543,7 @@ def test_the_voices_command_lists_and_exits(
     state.put(KEY, Entry(title="Моана 2", magnet="m", query="моана-2", voice="rus · MVO (TVShows)"))
     state.save()
     composition.use_start_unit(
-        monkeypatch, lambda key, here=False: pytest.fail("voices ничего не играет")
+        monkeypatch, lambda key, here=False, tab="": pytest.fail("voices ничего не играет")
     )
 
     assert main(["voices", "моана 2"]) == 0
@@ -683,7 +683,7 @@ def test_a_dry_run_with_a_voice_leaves_no_torrent_behind(monkeypatch: pytest.Mon
     _serial()
     _answers(monkeypatch)
     composition.use_start_unit(
-        monkeypatch, lambda key, here=False: pytest.fail("сухой прогон не кастит")
+        monkeypatch, lambda key, here=False, tab="": pytest.fail("сухой прогон не кастит")
     )
 
     assert main(["киберпанк", "--voice", "5", "--dry"]) == 0
@@ -704,7 +704,7 @@ def test_a_voice_torrent_is_handed_to_the_show_and_not_pulled_from_under_it(
     key = _serial()
     _answers(monkeypatch)
     started: list[str] = []
-    composition.use_start_unit(monkeypatch, lambda name, here=False: started.append(name))
+    composition.use_start_unit(monkeypatch, lambda name, here=False, tab="": started.append(name))
 
     assert main(["киберпанк", "--voice", "5"]) == 0
 
@@ -723,7 +723,7 @@ def test_a_voice_torrent_dies_with_the_show_that_never_started(
     _serial()
     _answers(monkeypatch)
 
-    def refuse(key: str, here: bool = False) -> None:
+    def refuse(key: str, here: bool = False, tab: str = "") -> None:
         raise InfraError("не запустился юнит torrcast-play")
 
     composition.use_start_unit(monkeypatch, refuse)

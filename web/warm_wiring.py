@@ -15,7 +15,6 @@ from urllib.parse import quote
 from hass.catalog_index import CatalogIndex
 from hass.catalog_picture import catalog_picture
 from hass.catalog_tiles import CatalogTiles
-from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.wiki.imdb_poster import _HOST
 from torrcast.cli.parse_args import parse_args
@@ -31,6 +30,7 @@ from web.kin_ahead import KIN_AHEAD
 from web.preview import _facts
 from web.prime import prime
 from web.related_lookup import RelatedLookup
+from web.tab_detect import tab_detect
 from web.warm_cache import WarmCache
 from web.warm_targets import WarmTargets
 
@@ -48,7 +48,7 @@ def _daemon(job: Callable[[], None]) -> None:
 def _search(query: str) -> list[Plan]:
     """Боевой круг: ровно тот же, каким ищет и карточка, и строка поиска."""
     config = load_config()
-    chosen = detector.detect(config)
+    chosen = tab_detect(config)
     return search_circle(
         tune(config, chosen.profile), parse_args([query]), progress(), chosen.profile
     )
@@ -57,7 +57,7 @@ def _search(query: str) -> list[Plan]:
 def _replay(query: str, told: list[Told]) -> list[Plan]:
     """Круг с диска: тот же разбор, но каталог отвечает записанным, без сети."""
     config = load_config()
-    chosen = detector.detect(config)
+    chosen = tab_detect(config)
     return search_circle(
         tune(config, chosen.profile),
         parse_args([query]),

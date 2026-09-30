@@ -8,7 +8,8 @@ def ru() -> dict[str, str]:
     return {
         "profile_detector.named_manually": "назван руками: receiver_profile={profile_key}",
         "profile_detector.unknown_named_profile": "профиля «{name}» нет - беру осторожный",
-        "profile_detector.browser_tab": "играет вкладка, ТВ не назван - профиль браузера",
+        "profile_detector.browser_tab": "вкладка {tab} замерена, ТВ не назван - профиль браузера",
+        "profile_detector.tab_unmeasured": "вкладка {tab} не замерена - беру осторожный",
         "profile_detector.no_passport_receiver": "приёмника с паспортом нет - беру осторожный",
         "profile_detector.no_response": "приёмник не ответил - беру осторожный",
         "profile_detector.no_introduction": "приёмник не представился - беру осторожный",

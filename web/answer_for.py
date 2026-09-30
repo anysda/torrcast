@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, unquote
 
 from torrcast.domain.json_value import JsonValue
 from web.answer import Answer
+from web.hear import hear
 from web.request import Request
 from web.routes import routes
 
@@ -23,6 +24,7 @@ def answer_for(
     тем же 404, каким отвечал до появления страницы. Тело нужно только маршрутам POST,
     и читает его сервер: сокет читается один раз, и делать это дважды нечем.
     """
+    hear(headers or {})  # карточка греет голову профилем той вкладки, что её открыла
     path, _, asked = target.partition("?")
     path = unquote(path)
     request = Request(method, path, _query(asked), body or {}, headers or {})

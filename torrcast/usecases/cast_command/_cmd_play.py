@@ -13,6 +13,7 @@ import torrcast.usecases.cast_command._play_state as _state
 from torrcast.domain.bitrate_mbit import bitrate_mbit
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_OK
+from torrcast.domain.for_tab import for_tab
 from torrcast.domain.track_studio import track_studio
 from torrcast.domain.tune import tune as tune_profile
 from torrcast.ports.journal.slot import journal
@@ -72,7 +73,9 @@ def _cmd_play(
     # какой кодек считается играбельным. Спрашивать о нём человека нечего: он выбирается
     # по паспорту устройства, а незнакомому приёмнику достаётся осторожный набор.
     # 🔴 И до ``here``: вкладка играет тот же поток, что и ТВ (иначе «На ТВ» - куски до 110 с).
-    chosen = _state._play_detect(config)
+    # Вкладка, сказавшая о себе ``--tab``, получает замеренные пороги, только если она их
+    # заслужила (:func:`torrcast.domain.for_tab.for_tab`); иначе - выбор ``dev``.
+    chosen = for_tab(_state._play_detect(config), config, args.tab)
     config = tune_profile(config, chosen.profile)
     # Страница просит показ себе - настройка машины остаётся прежней, играет только ЭТОТ запуск.
     config = replace(config, receiver="browser") if args.here else config
@@ -192,4 +195,4 @@ def _cmd_play(
             return EXIT_OK
         # Тяжёлая голова кодируется, пока поднимается юнит: он возьмёт её с полки.
         head.want(config, chosen.profile, _state._play_engines(config.torrserver_url), entry)
-        return _launch(config, plan.picture.key, entry, about, clock, here=args.here)
+        return _launch(config, plan.picture.key, entry, about, clock, here=args.here, tab=args.tab)

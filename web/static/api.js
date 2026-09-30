@@ -4,6 +4,22 @@
 // того же вида, что и настоящий ответ, и дать экрану показать штатное «пусто».
 'use strict';
 
+// Вкладка говорит серверу, что умеет, кукой ``tc_tab``: её несёт каждый запрос страницы,
+// и показ, и поиск. Щедрые пороги сервер даёт только вкладке, на которой они замерены
+// (``torrcast/domain/tab_key.py``), движок и систему он берёт из User-Agent.
+(function tellTheTab() {
+  try {
+    const said = [];
+    const source = window.MediaSource || window.ManagedMediaSource;
+    if (window.MediaSource) said.push('mse');
+    if (window.ManagedMediaSource) said.push('mms');
+    if (document.createElement('video').canPlayType('application/vnd.apple.mpegurl')) said.push('hls');
+    if (source && source.isTypeSupported('video/mp4; codecs="avc1.640033"')) said.push('avc51');
+    if (source && source.isTypeSupported('video/mp4; codecs="hvc1.1.6.L153.B0"')) said.push('hevc');
+    document.cookie = 'tc_tab=' + said.join('.') + '; path=/; SameSite=Strict';
+  } catch (error) { /* молчащая вкладка - осторожные пороги, как и без куки */ }
+})();
+
 const TCApi = {
   async state() {
     return TCApi._get('/api/state', null);

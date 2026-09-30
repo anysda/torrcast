@@ -35,7 +35,6 @@ from hass.offer_within import offer_within
 from hass.refused_error import RefusedError
 from hass.search import Search
 from hass.search_results import search_results
-from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.cli.parse_args import parse_args
 from torrcast.domain.catalogs.phrase import phrase
@@ -50,6 +49,7 @@ from torrcast.ports.progress.slot import progress
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
+from web.tab_detect import tab_detect
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -72,7 +72,7 @@ class _Warm(Protocol):
 #: Боевые исполнители шага - ровно те же, что у консоли. Кладёт их мост
 #: (:class:`hass.bridge.Bridge`), подделки называют щупы и зеркала.
 SEARCH: Search = search_circle
-DETECT: Detect = detector.detect
+DETECT: Detect = tab_detect
 REMEMBER: Remember = pins.remember_menu
 OFFER: Offer = hits.urgent
 

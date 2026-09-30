@@ -12,6 +12,7 @@ from dataclasses import replace
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
+from torrcast.domain.for_tab import for_tab
 from torrcast.domain.probe_settings import PROBE_TIMEOUT
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
@@ -53,7 +54,9 @@ def _configure_worker(
     _worker_detect = detect
 
 
-def _cmd_worker(key: str, here: bool = False, *, play: Callable[..., int] = _play) -> int:
+def _cmd_worker(
+    key: str, here: bool = False, tab: str = "", *, play: Callable[..., int] = _play
+) -> int:
     """Показ внутри transient-юнита: своей раздачей, своей упаковкой и своим сторожем.
 
     Руками не зовётся — это ``ExecStart`` юнита ``torrcast-play``. Всё, что нужно знать о
@@ -104,7 +107,8 @@ def _cmd_worker(key: str, here: bool = False, *, play: Callable[..., int] = _pla
     # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
     # 🔴 Спрашивается он ДО ``here``, по настройке машины: вкладка играет тот же поток, что
     # и ТВ, и «На ТВ» отдаёт приставке упаковку, сделанную под неё (ТЗ §7.5).
-    chosen = _worker_detect(config)
+    # Ключ вкладки (``--tab``) - та же поправка, что у CLI: замеренной вкладке - её пороги.
+    chosen = for_tab(_worker_detect(config), config, tab)
     journal().mark("профиль приёмника", как=chosen.how)
     config = tune(config, chosen.profile)
     if here:
