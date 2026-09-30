@@ -90,6 +90,13 @@ class HitClaims:
         """У кого-то из записей картинка ещё может приехать: приговор, байты или повтор."""
         return any(ask is not None and self.coming(_name(ask)) for ask in map(_about, records))
 
+    def arriving(self, records: Sequence[JsonValue]) -> bool:
+        """У кого-то из записей приговор или байты уже в пути; отложенный повтор не в счёт."""
+        names = [_name(ask) for ask in map(_about, records) if ask is not None]
+        with self._lock:
+            flying = (self._judging, self._pending, self._late_names)
+            return any(name in part for name in names for part in flying)
+
     def due(self, records: Sequence[JsonValue]) -> bool:
         """Кому-то из записей пора спросить приговор снова: тишина источника кончилась."""
         return any(ask is not None and self.ripe(_name(ask)) for ask in map(_about, records))

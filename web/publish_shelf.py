@@ -33,6 +33,7 @@ def publish_shelf(
     store: Store,
     path: Path,
     complete: bool,
+    unstamped: bool = False,
 ) -> None:
     """Publish a worthwhile candidate, warming only tiles that actually changed.
 
@@ -41,7 +42,15 @@ def publish_shelf(
     экран и не вправе заменить очередь единственного фонового рабочего.
     """
     candidate = shelf_candidate(
-        current, origin, shelf, tiles, drops, now=now, limit=limit, complete=complete
+        current,
+        origin,
+        shelf,
+        tiles,
+        drops,
+        now=now,
+        limit=limit,
+        complete=complete,
+        unstamped=unstamped,
     )
     if candidate is None:
         return

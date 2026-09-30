@@ -608,15 +608,18 @@ def test_rebuild_publishes_the_first_shelf_before_building_the_second(tmp_path: 
     cache = _cache(tmp_path, feed=lambda _limit: _many_rows(2))
     cache._body = _alien(2)
     seen: list[dict[str, JsonValue] | None] = []
+    store = cache._store
 
-    def playable(_query: str, _key: str) -> bool:
-        seen.append(cache._body)
-        return True
+    # Обе полки здесь из одних картин, и приговор картины спрашивается один раз на
+    # заход: «пока строятся популярные» видно по публикациям, а не по счёту приговоров.
+    def stored(body: dict[str, JsonValue]) -> None:
+        seen.append(body)
+        store(body)
 
-    cache.playable = playable
+    cache._store = stored  # type: ignore[method-assign]
     cache._rebuild()
 
-    during_popular = seen[2]
+    during_popular = seen[0]
     assert during_popular is not None
     assert during_popular[FIELD] == RULE - 1
     assert isinstance(during_popular["fresh"], list) and len(during_popular["fresh"]) == 4

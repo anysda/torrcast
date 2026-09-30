@@ -33,12 +33,15 @@ def test_warm_saved_starts_cached_visible_tiles(monkeypatch: pytest.MonkeyPatch)
         def warm(self, targets: object, later: object) -> None:
             warmed.append((targets, later))
 
+        def start(self) -> None:
+            warmed.append("started")
+
     state_slot.install(FakeStateStore())
     monkeypatch.setattr(web.warm_saved, "_cache", _Cache())
 
     web.warm_saved.warm_saved()
 
-    assert warmed == [([], [])]
+    assert warmed == [([], []), "started"]
 
 
 def test_continue_and_the_tiles_after_the_eighth_are_warmed_behind_the_screen(
@@ -55,6 +58,9 @@ def test_continue_and_the_tiles_after_the_eighth_are_warmed_behind_the_screen(
 
         def warm(self, targets: list[WarmTarget], later: list[WarmTarget]) -> None:
             warmed.append((targets, later))
+
+        def start(self) -> None:
+            """The rebuild itself is not this test's business."""
 
     fake = FakeStateStore()
     state = fake.load()
@@ -73,3 +79,27 @@ def test_continue_and_the_tiles_after_the_eighth_are_warmed_behind_the_screen(
     [(screen, later)] = warmed
     assert len(screen) == 16
     assert [target[2] for target in later] == ["Начало", "New 8", "Top 8", "New 9"]
+
+
+def test_a_cold_service_starts_building_the_shelves_before_anyone_asks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing on disk yet: nothing to warm, but the rebuild starts with the service."""
+    calls: list[str] = []
+
+    class _Cache:
+        def _load(self) -> dict[str, object]:
+            return {"built_at": None, "fresh": [], "popular": []}
+
+        def warm(self, targets: object, later: object) -> None:
+            calls.append("warm")
+
+        def start(self) -> None:
+            calls.append("start")
+
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr(web.warm_saved, "_cache", _Cache())
+
+    web.warm_saved.warm_saved()
+
+    assert calls == ["start"]

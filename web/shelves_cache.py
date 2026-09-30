@@ -23,12 +23,11 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
-from web.build_shelf import build_shelf
-from web.built_by_rule import FIELD, RULE
 from web.drop_count import DropCount
 from web.min_tiles import min_tiles
 from web.publish_shelf import Warm, publish_shelf
 from web.read_shelves import read_shelves
+from web.shelf_pass import ShelfPass
 from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable
 
 #: Кто приносит ленту последних раздач; в бою - :meth:`Prowlarr.feed`.
@@ -44,6 +43,10 @@ def _daemon(job: Callable[[], None]) -> None:
 
 def _no_warm(_targets: object, _later: object) -> None:
     """Без проводки сборка не трогает очередь кругов."""
+
+
+def _nothing_arriving(_records: list[JsonValue]) -> bool:
+    return False  # без проводки обложки не едут: холодный заход не ждёт их доезда
 
 
 @dataclass
@@ -71,13 +74,23 @@ class ShelvesCache:
     spawn: Spawn = _daemon
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    #: Холодный показ до приговоров (:mod:`web.shelf_pass`): ``ask`` спрашивает обложки не
+    #: дожидаясь байтов, ``landed`` - записи с уже легшими, ``arriving`` - едет ли ещё чья-то.
+    ask: Offer | None = None
+    landed: Offer = lambda records: records
+    arriving: Callable[[list[JsonValue]], bool] = _nothing_arriving
+    workers: int = 1
+    early: bool = False
+    filling: bool = field(default=False, repr=False, compare=False)
+    settling: bool = field(default=False, repr=False, compare=False)
+    _origin: dict[str, JsonValue] = field(default_factory=dict, repr=False, compare=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     _body: dict[str, JsonValue] | None = field(default=None, repr=False, compare=False)
     _started: bool = field(default=False, repr=False, compare=False)
 
     def get(self) -> dict[str, JsonValue]:
         """Тело ответа сразу: из памяти, а не с ним - с диска, а нет и там - пустые полки."""
-        self._ensure_started()
+        self.start()
         with self._lock:
             if self._body is not None:
                 return self._body
@@ -87,8 +100,8 @@ class ShelvesCache:
                 self._body = loaded
             return self._body
 
-    def _ensure_started(self) -> None:
-        """Фон встаёт один раз, при первом же обращении - не при создании предмета."""
+    def start(self) -> None:
+        """Фон встаёт один раз: со службой (:mod:`web.warm_saved`) или первым обращением."""
         with self._lock:
             if self._started:
                 return
@@ -119,7 +132,7 @@ class ShelvesCache:
         полную попытку. Добор останавливается САМ, не по абсолютной цели длины: заход
         без новых строк и без более полной полки следующего добавить уже не может.
 
-        Готовая полка публикуется сразу, не дожидаясь соседней (:meth:`_publish`), и
+        Готовая полка публикуется сразу, не дожидаясь соседней (:meth:`publish`), и
         публикация - отдельный вопрос: даже самая полная попытка может оказаться хуже
         уже опубликованной (:func:`web.worth_publishing.worth_publishing`), и
         тогда фон отступает молча, до следующего часа.
@@ -128,6 +141,7 @@ class ShelvesCache:
             origin = self._body
         if origin is None:
             origin = self._load()
+        self._origin = origin
         rows: dict[str, FeedRow] = {}
         best: dict[str, JsonValue] | None = None
         for attempt in range(self.attempts):
@@ -137,24 +151,9 @@ class ShelvesCache:
             try:
                 for row in self.feed(self.limit):
                     rows.setdefault(row.raw.info_hash.lower(), row)
-                now = self.clock()
-                body: dict[str, JsonValue] = {FIELD: RULE, "built_at": now.isoformat()}
-                for shelf in ("fresh", "popular"):
-                    # Свой счётчик приговоров у каждой полки: планка массового отсева
-                    # (:data:`web.worth_publishing.MASS_DROP`) меряет только её.
-                    drops = DropCount()
-                    tiles = build_shelf(
-                        shelf,
-                        list(rows.values()),
-                        self.catalogue,
-                        self.offer,
-                        self.passport,
-                        drops.wrap(self.playable),
-                        now,
-                    )
-                    body[shelf] = tiles
-                    # Готовая полка не ждёт ни соседнюю, ни проводку первого клика.
-                    self._publish(origin, shelf, tiles, now, drops)
+                with self._lock:
+                    current = self._body if self._body is not None else origin
+                body = ShelfPass(self, list(rows.values()), self.clock(), current).run()
             except TorrcastError:
                 continue
             grew = best is None or min_tiles(body) > min_tiles(best)
@@ -163,21 +162,21 @@ class ShelvesCache:
             if len(rows) == before and not grew:
                 break
 
-    def _publish(
+    def publish(
         self,
-        origin: dict[str, JsonValue],
         shelf: str,
         tiles: list[JsonValue],
-        now: datetime,
         drops: DropCount,
+        now: datetime,
+        complete: bool,
+        unstamped: bool = False,
     ) -> None:
-        """Поставить готовую полку, не снимая строящуюся соседнюю (:mod:`web.shelf_candidate`)."""
+        """Поставить полку, не снимая соседнюю (:mod:`web.shelf_candidate`)."""
         with self._lock:
-            current = self._body if self._body is not None else origin
-            complete = shelf == "popular"  # клеймо нового правила - по последней полке
+            current = self._body if self._body is not None else self._origin
         publish_shelf(
             current,
-            origin,
+            self._origin,
             shelf,
             tiles,
             drops,
@@ -187,6 +186,7 @@ class ShelvesCache:
             store=self._store,
             path=self.path,
             complete=complete,
+            unstamped=unstamped,
         )
 
     def _store(self, body: dict[str, JsonValue]) -> None:

@@ -9,11 +9,16 @@ from web.warm_targets import WarmTarget
 
 
 def warm_saved() -> None:
-    """Start disk-cached visible tiles, then Continue and later tiles, before a request."""
+    """Start disk-cached visible tiles, then Continue and later tiles, before a request.
+
+    The shelves rebuild starts here too, with the service: waiting for the first
+    ``GET /api/shelves`` made the person who opened the page pay for the whole cold build.
+    """
     saved = _cache._load()
     if saved.get("built_at") is not None:
         later = _continued() + shelf_warm_targets(saved, later=True)
         _cache.warm(shelf_warm_targets(saved), later)
+    _cache.start()
 
 
 def _continued() -> list[WarmTarget]:

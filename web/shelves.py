@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from hass.hit_posters import hits
+from hass.shelf_posters import ShelfPosters
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
@@ -38,8 +39,11 @@ def _feed(limit: int) -> list[FeedRow]:
     return Prowlarr(settings.prowlarr_url, settings.prowlarr_apikey).feed(limit)
 
 
-#: Кэш полок процесса - один на весь юнит показа; фон встаёт при первом же запросе,
-#: а не при импорте (см. :func:`_feed`).
+#: Обложки холодного захода полок: путь видимой выдачи поиска, байты по мере приезда.
+_POSTERS = ShelfPosters(hits)
+
+#: Кэш полок процесса - один на весь юнит показа; фон встаёт со службой (:mod:`web.warm_saved`),
+#: а не при импорте (см. :func:`_feed`). Холодный заход показывает плитки до приговоров.
 _cache = ShelvesCache(
     feed=_feed,
     catalogue=torrent_catalogue,
@@ -47,6 +51,11 @@ _cache = ShelvesCache(
     passport=FACTS.passport.of,
     playable=_playable,
     warm=TARGETS.prepare,
+    ask=_POSTERS.ask,
+    landed=_POSTERS.landed,
+    arriving=_POSTERS.arriving,
+    workers=3,
+    early=True,
 )
 
 
@@ -55,6 +64,9 @@ _cache = ShelvesCache(
 #: страница по ней переспрашивает сама, и открытая на холодном старте вкладка полки
 #: дожидается без перезагрузки.
 _PARTIAL = "X-Torrcast-Partial"
+#: Полки уже видны, но приговоры «играет ли» ещё идут (:mod:`web.shelf_pass`): плитка,
+#: которая не играет, сойдёт, и её место займёт следующая - страница переспрашивает реже.
+_SETTLING = "X-Torrcast-Settling"
 
 
 def shelves(_request: Request) -> Answer:
@@ -64,8 +76,12 @@ def shelves(_request: Request) -> Answer:
     """
     said = _cache.get()
     body = json.dumps(said, ensure_ascii=False).encode("utf-8")
-    extra = ((_PARTIAL, "1"),) if said.get("built_at") is None else ()
-    return Answer(200, body, extra=extra)
+    extra: list[tuple[str, str]] = []
+    if said.get("built_at") is None or _cache.filling:
+        extra.append((_PARTIAL, "1"))
+    if _cache.settling:
+        extra.append((_SETTLING, "1"))
+    return Answer(200, body, extra=tuple(extra))
 
 
 __all__ = ["shelves"]
