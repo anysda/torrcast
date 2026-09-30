@@ -9,7 +9,6 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.torrent_engine import FakeTorrentEngine
-from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.domain.android_tv_profile import ANDROID_TV
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
@@ -18,9 +17,12 @@ from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.episode_duration import _duration
+from torrcast.usecases.playback import _play as _play_module
 from torrcast.usecases.playback._next_warmer import _next_warmer
+from torrcast.usecases.playback._play import _play
 from torrcast.usecases.playback._tract import _tract
-from torrcast.usecases.playback.entry_layout import entry_layout
+from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.watch import Watch
 
 #: Приёмники, между которыми гуляет профиль вкладки: осторожный MPEG-TS, приставка fMP4
 #: и осторожный с потолком куска в 500 КБ - другая сетка при том же контейнере.
@@ -57,7 +59,41 @@ def _serial() -> Entry:
     )  # fmt: skip
 
 
-def _keys(tmp_path: Path, codec: str, profile: Profile) -> tuple[str, str]:
+class _TakenError(Exception):
+    """Ключ полки показа снят: дальше показ не нужен."""
+
+
+def _show_key(
+    config: Config, source: str, profile: Profile, monkeypatch: pytest.MonkeyPatch
+) -> str:
+    """Ключ полки показа - из тракта, который собрал сам :func:`_play`.
+
+    Показ зовётся так же, как его зовёт работник (``worker_loop``): запись дочитана
+    паспортом (:func:`_duration`), кодек, глубина, кадр и HDR - из неё. Сетку, перекод и вес
+    тракту передаёт ``_play``, поэтому любой его собственный пересказ записи - например,
+    раскладка с нулевым весом - меняет этот ключ.
+    """
+    shown = _duration("k", _serial().advance(), source)
+    keys: list[str] = []
+
+    def tract(*args: object, **kwargs: object) -> tuple[object, ...]:
+        built = _tract(*args, **kwargs)  # type: ignore[arg-type]
+        built[3].stop()
+        assert built[1] is not None
+        keys.append(built[1].vault.key)
+        raise _TakenError
+
+    monkeypatch.setattr(_play_module, "_tract", tract)
+    with pytest.raises(_TakenError):
+        _play(
+            config, source, 0, "s1e2", _Clock(), Watch(key="k", entry=shown),
+            receiver=_Screen(), codec=shown.codec, depth=shown.depth, frame=shown.frame,
+            hdr=shown.hdr, profile=profile, file_size=_FILES[1].size,
+        )  # fmt: skip
+    return keys[0]
+
+
+def _keys(tmp_path: Path, profile: Profile, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
     """Ключ полки прогрева следующей серии и ключ полки её же показа."""
     config = Config(
         recode=True, warm=True, warm_dir=str(tmp_path / "warm"),
@@ -65,19 +101,8 @@ def _keys(tmp_path: Path, codec: str, profile: Profile) -> tuple[str, str]:
     )  # fmt: skip
     engine = FakeTorrentEngine(torrent_files=list(_FILES))
     warm = _next_warmer(config, engine, "hash", _serial(), profile)
-    # Показ той же серии - боевым путём: запись дочитывает паспорт (_duration), раскладка
-    # идёт по записи (_play), тракт собирает прогрев показа (_tract).
-    source = engine.stream_url("hash", 1)
-    shown = _duration("k", _serial().advance(), source)
-    grid, whole = entry_layout(config, source, shown, profile, 91_000_000)
-    _recoder, show, _feed, server, _screen = _tract(
-        config, source, 0, "s1e2", hls_dir(str(tmp_path / "hls")), grid, whole, 0.0,
-        max(0.0, shown.vbps), False, _Screen(), profile=profile,
-        video_mbit_estimated=shown.vbps_estimated, codec=shown.codec, depth=shown.depth,
-    )  # fmt: skip
-    server.stop()
-    assert warm is not None and show is not None
-    return warm.vault.key, show.vault.key
+    assert warm is not None
+    return warm.vault.key, _show_key(config, engine.stream_url("hash", 1), profile, monkeypatch)
 
 
 @pytest.mark.parametrize("profile", _PROFILES, ids=lambda item: item.key)
@@ -94,7 +119,7 @@ def test_the_next_episode_warms_onto_the_shelf_its_show_reads(
     passport = Media(duration=1352.9, tracks=(), video=codec, height=720, width=960)
     composition.use_prober(monkeypatch, lambda source, **_: passport)
 
-    warm, show = _keys(tmp_path, codec, profile)
+    warm, show = _keys(tmp_path, profile, monkeypatch)
 
     assert warm == show
 
@@ -107,7 +132,7 @@ def test_a_new_receiver_profile_moves_the_warm_shelf_with_the_show(
     passport = Media(duration=1352.9, tracks=(), video=codec, height=720, width=960)
     composition.use_prober(monkeypatch, lambda source, **_: passport)
 
-    shelves = [_keys(tmp_path / item.key, codec, item) for item in _PROFILES]
+    shelves = [_keys(tmp_path / item.key, item, monkeypatch) for item in _PROFILES]
 
     assert all(warm == show for warm, show in shelves)
     assert len({warm for warm, _show in shelves}) == len(_PROFILES), shelves
