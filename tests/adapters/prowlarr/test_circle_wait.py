@@ -83,10 +83,9 @@ def test_a_down_core_does_not_hold_the_circle(tmp_path: Path) -> None:
 def test_a_circle_of_names_with_its_only_core_down_waits_the_others(tmp_path: Path) -> None:
     """The year circle: Knaben is no core there, and a down JacRed held it to its 5 s zero."""
     jacred, knaben, yts = _Ask("JacRed", 5.0), _Ask("Knaben", 5.0), _Ask("YTS", 5.0)
-    threading.Timer(0.1, knaben.done.set).start()
     threading.Timer(0.2, yts.done.set).start()
     core, elapsed = _waited([jacred, knaben, yts], book=_down(tmp_path, "JacRed"))
-    assert core == [knaben, yts], "JacRed is asked, not waited: its rows come late if at all"
+    assert core == [yts], "JacRed is asked, not waited, and the quorum never holds names"
     assert elapsed < 1.0, f"waited {elapsed:.2f} s for a source that is down"
 
 
@@ -159,12 +158,14 @@ def test_a_lone_core_of_the_viewers_text_is_waited_alone() -> None:
     assert circle_wait([jacred, yts], names=False, began=0.0, slack=0.0) == [jacred]
 
 
-def _answer(ask: _Ask, after: float, rows: int) -> None:
+def _answer(ask: _Ask, after: float, rows: int) -> threading.Timer:
     def said() -> None:
         ask.rows = [object()] * rows  # type: ignore[list-item]
         ask.done.set()
 
-    threading.Timer(after, said).start()
+    timer = threading.Timer(after, said)
+    timer.start()
+    return timer
 
 
 @pytest.mark.machine
@@ -192,3 +193,24 @@ def test_an_empty_pool_waits_the_quorum_whole() -> None:
     core, elapsed = _waited([knaben, rutor], names=False, grace=0.2)
     assert core == [knaben, rutor] and knaben.done.is_set()
     assert elapsed >= 0.6, f"gave up on the quorum after {elapsed:.2f} s with nothing to show"
+
+
+@pytest.mark.machine
+def test_a_down_rest_that_answers_opens_the_grace(tmp_path: Path) -> None:
+    """The book held RuTor down, and it brought its rows in a second: Knaben held them 7 s."""
+    knaben, rutor = _Ask("Knaben", 5.0), _Ask("RuTor", 5.0)
+    _answer(rutor, 0.1, rows=2)
+    core, elapsed = _waited([knaben, rutor], names=False, book=_down(tmp_path, "RuTor"), grace=0.2)
+    assert core == [] and knaben.waived, "Knaben comes late, as one the circle did not wait"
+    assert 0.3 <= elapsed < 0.8, f"waited {elapsed:.2f} s, not the grace past RuTor"
+
+
+@pytest.mark.machine
+def test_a_down_rest_still_silent_leaves_the_quorum_waited(tmp_path: Path) -> None:
+    """Nobody else answered: the quorum is waited its own budget, no less and no more."""
+    knaben, rutor = _Ask("Knaben", 0.6), _Ask("RuTor", 0.2)
+    late = _answer(knaben, 1.5, rows=1)
+    core, elapsed = _waited([knaben, rutor], names=False, book=_down(tmp_path, "RuTor"), grace=0.1)
+    late.join()
+    assert core == [knaben] and not knaben.waived
+    assert 0.55 <= elapsed < 1.2, f"waited the quorum {elapsed:.2f} s, not its budget"

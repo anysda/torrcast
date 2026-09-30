@@ -76,7 +76,10 @@ def circle_wait(
     the pool has rows: Knaben's own answer took 5-8 s where the others were in within a
     second, and the viewer waited it for rows the others had already brought. It comes late,
     as any other one the circle did not wait, and is not told silent. An empty pool still
-    waits it whole: without the quorum an empty list proves nothing.
+    waits it whole: without the quorum an empty list proves nothing. When the rest of the core
+    is down, the grace opens once each of them has answered: the book held RuTor down after a
+    run of silences, and the viewer waited Knaben 7 s past RuTor's and JacRed's 179 rows. A
+    circle of names never waits the quorum, not even when its whole core is down.
     """
     down = book.down()
     held = max(
@@ -86,12 +89,14 @@ def circle_wait(
     waited = [ask for ask in asked if _core(ask.name, names=names)]
     live = [ask for ask in waited if ask.name not in down]
     alive = [ask for ask in asked if ask.name not in down]
-    core = live or ([] if held else alive or waited or list(asked))
+    spare = [ask for ask in alive if not (names and quorum_indexer(ask.name))]
+    core = live or ([] if held else spare or waited or list(asked))
     others = [ask for ask in alive if ask not in live]
     if names and len(live) == 1 and _joint_indexer(live[0].name) and others and not held:
         core = _first(live[0], others, began + live[0].budget + slack)
     elif not names and not held:
-        core = _past_the_quorum(core, asked, began + slack, grace)
+        lagging = [ask for ask in waited if ask not in live]
+        core = _past_the_quorum(core, lagging, asked, began + slack, grace)
     for ask in core:
         # Every budget runs from the circle's start: waiting one after another from
         # the call added the first answer's seconds to the next silent one's budget.
@@ -114,15 +119,25 @@ def _first(one: _Ask, others: Sequence[_Ask], until: float) -> list[_Ask]:
 
 
 def _past_the_quorum(
-    core: list[_Ask], asked: Sequence[_Ask], start: float, grace: float
+    core: list[_Ask], lagging: Sequence[_Ask], asked: Sequence[_Ask], start: float, grace: float
 ) -> list[_Ask]:
-    """Wait the rest of the core, then the quorum ``grace`` more if the pool has rows."""
+    """Wait the rest of the core, then the quorum ``grace`` more if the pool has rows.
+
+    ``lagging`` are the rest of the core the book holds down: with no other rest they are
+    watched while the quorum is waited anyway, and count once every one of them answered.
+    """
     quorum = [ask for ask in core if quorum_indexer(ask.name)]
     rest = [ask for ask in core if ask not in quorum]
-    if not quorum or not rest:
+    if not quorum or not (rest or lagging):
         return core
     for ask in rest:
         ask.done.wait(max(0.0, start + ask.budget - time.monotonic()))
+    while not rest and not all(ask.done.is_set() for ask in lagging):
+        if all(ask.done.is_set() for ask in quorum):
+            return core
+        if any(not ask.done.is_set() and start + ask.budget <= time.monotonic() for ask in lagging):
+            return core
+        quorum[0].done.wait(_STEP)
     if not any(ask.rows for ask in asked if ask.done.is_set()):
         return core
     until = time.monotonic() + grace
