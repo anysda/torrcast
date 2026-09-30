@@ -83,7 +83,7 @@ def _warmer(
     # ключ не входит (:func:`warm_key`). Помеченные точечные куски убираются здесь, до
     # первого запроса сегмента, - показ читает прогретое раньше всего, и на его пути этой
     # проверке не место.
-    trimmed, freed = trim(vault, profile.max_segment_bytes, grid, spots)
+    trimmed, freed = trim(vault, profile.segment_limit, grid, spots)
     if trimmed:
         journal().mark("прогретое очищено", кусков=trimmed, байт=freed)
     relaid = vault.relay()
@@ -111,7 +111,7 @@ def _warmer(
         # «прогрето NN» называло то, что показ и правда возьмёт с диска
         # (:attr:`torrcast.usecases.warm.warmer.Warmer.warmed`,
         # :meth:`torrcast.usecases.feed_pack.feed.Feed._warm`).
-        cap=profile.max_segment_bytes,
+        cap=profile.segment_limit,
         # Второй потолок цели точечного перекода - тот же, которым его считает живой
         # кодировщик (:func:`torrcast.usecases.playback._recoder._recoder`): решение о куске
         # обязано выйти одним и тем же с обеих сторон.

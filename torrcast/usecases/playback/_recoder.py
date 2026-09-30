@@ -60,7 +60,7 @@ def _recoder(
         threshold=config.recode_at_mbit,
         # Потолок веса куска - тот же, которым меряет показ: у каждого приёмника свой
         # (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`).
-        cap=profile.max_segment_bytes,
+        cap=profile.segment_limit,
         # Куски кодировщика лежат рядом с кусками показа и зовутся так же: контейнер у
         # них обязан быть один, иначе готовый перекод для выкладки не существует.
         container=profile.segment_container,

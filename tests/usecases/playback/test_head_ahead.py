@@ -17,7 +17,7 @@ from torrcast.usecases.playback import head_ahead
 from torrcast.usecases.playback.head_ahead import HeadAhead
 
 _ENTRY: Any = SimpleNamespace(audio=1)
-_PROFILE: Any = SimpleNamespace(max_segment_bytes=16 << 20)
+_PROFILE: Any = SimpleNamespace(max_segment_bytes=16 << 20, segment_limit=16 << 20)
 
 
 def _now(job: Any) -> None:

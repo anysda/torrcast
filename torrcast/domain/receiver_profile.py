@@ -57,6 +57,11 @@ class ReceiverProfile:
     segment_container: SegmentContainer = MPEGTS
     recode_frame: int = 1080
     max_segment_bytes: int = 16_000_000
+    #: Вес куска, который приёмник уже не берёт, байты; ``0`` - это и есть
+    #: :attr:`max_segment_bytes`. Нужен там, где два числа расходятся: сетка целится в
+    #: ``max_segment_bytes`` (кусок полегче - раньше первый кадр), а режут и отбрасывают
+    #: кусок только за этим потолком (:attr:`segment_limit`).
+    refuse_segment_bytes: int = 0
     #: Потолок ДЛИНЫ одного куска, секунды; ``0`` - потолка нет и сетку держит только вес.
     #:
     #: 🔴 Это не про декодер, а про окно, которым приёмник забирает куски: он просит
@@ -152,6 +157,11 @@ class ReceiverProfile:
     def plays_copy(self, codec: str, depth: int = 0, frame: int = 0) -> bool:
         """Уедет ли файл на приёмник без перекодирования."""
         return self.verdict(codec, depth, frame) == COPY
+
+    @property
+    def segment_limit(self) -> int:
+        """Кусок тяжелее этого приёмнику не отдают копией: его пережимают или перепаковывают."""
+        return self.refuse_segment_bytes or self.max_segment_bytes
 
     @property
     def title(self) -> str:

@@ -117,7 +117,7 @@ class HeadAhead:
             old.halt.set()
         self.lay(
             head.vault, head.source, entry.audio, head.voice, head.grid, head.slot, head.encode,
-            profile.max_segment_bytes, MPEGTS, job.halt, splice=head.splice,
+            profile.segment_limit, MPEGTS, job.halt, splice=head.splice,
         )  # fmt: skip
         with self._lock:
             if self._job is job:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from torrcast.adapters.chromecast.profile_detector import ProfileDetector
 from torrcast.adapters.chromecast.scan.device import Device
 from torrcast.adapters.recode.targets import _targets
@@ -11,6 +13,7 @@ from torrcast.domain.by_key import by_key
 from torrcast.domain.config import Config
 from torrcast.domain.profile import ANDROID_TV, BROWSER, CAUTIOUS
 from torrcast.domain.tune import tune
+from torrcast.usecases.playback._recoder import _recoder
 
 
 def _refuse(address: str, timeout: float = 0.0) -> Device:
@@ -23,7 +26,7 @@ def _heavy_slots(config: Config, mbit: float = 21.0, span: float = 10.0) -> tupl
     tuned = tune(config, chosen.profile)
     lines = Grid(bounds=(0.0, span), duration=2 * span, on_keys=True)
     weights = Weights(raw=(mbit, 4.0))
-    return _targets(weights, lines, tuned.recode_at_mbit, chosen.profile.max_segment_bytes)
+    return _targets(weights, lines, tuned.recode_at_mbit, chosen.profile.segment_limit)
 
 
 def test_a_tab_with_nobody_to_hand_over_to_gets_the_browser_profile() -> None:
@@ -82,6 +85,36 @@ def test_a_blu_ray_peak_plays_as_a_copy_in_the_tab() -> None:
     assert _heavy_slots(androidtv, mbit=30.8, span=5.0) == (0,)
 
 
-def test_a_piece_over_the_byte_cap_is_still_recoded_for_the_tab() -> None:
-    """Потолок байтов вкладки остаётся: 30.8 Мбит/с на 10 с - это 38 МБ."""
-    assert _heavy_slots(Config(receiver="browser"), mbit=30.8, span=10.0) == (0,)
+def test_a_piece_the_tab_plays_is_not_cut_for_the_byte_cap() -> None:
+    """30.8 Мбит/с на 10 с - это 38 МБ: вкладке копия (предел 80), Android TV - перекод (28)."""
+    assert _heavy_slots(Config(receiver="browser"), mbit=30.8, span=10.0) == ()
+    androidtv = Config(receiver="browser", receiver_profile="androidtv")
+    assert _heavy_slots(androidtv, mbit=30.8, span=10.0) == (0,)
+
+
+def test_a_piece_over_the_tabs_limit_is_still_recoded() -> None:
+    """Предел вкладки остаётся: 30.8 Мбит/с на 25 с - это 96 МБ, 115 МБ Chromium не держит."""
+    assert _heavy_slots(Config(receiver="browser"), mbit=30.8, span=25.0) == (0,)
+
+
+def test_tv_profiles_refuse_what_their_grid_aims_at() -> None:
+    """У телевизоров цель сетки и предел - одно число, как было до профиля вкладки."""
+    for profile in (CAUTIOUS, ANDROID_TV):
+        assert profile.segment_limit == profile.max_segment_bytes
+    assert BROWSER.segment_limit > BROWSER.max_segment_bytes
+
+
+def test_the_show_recoder_takes_the_tabs_limit(tmp_path: Path) -> None:
+    """Кодировщик показа судит кусок пределом профиля: 30 МБ вкладке копия, приставке - нет."""
+
+    def slots(config: Config) -> tuple[int, ...]:
+        chosen = ProfileDetector(ask=_refuse).detect(config)
+        grid = Grid.uniform(300.0)
+        tuned = tune(config, chosen.profile)
+        profile = chosen.profile
+        made = _recoder("http://ts", 0, grid, tmp_path, tuned, video_mbit=24.0, profile=profile)
+        assert made is not None
+        return made.targets
+
+    assert slots(Config(receiver="browser", recode=True)) == ()
+    assert len(slots(Config(receiver="browser", receiver_profile="androidtv", recode=True))) == 30
