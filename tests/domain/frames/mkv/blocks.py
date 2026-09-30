@@ -94,6 +94,9 @@ class Matroska:
     #: точки подряд, 48 - выравненный врун, у которого настоящие кадры стоят ровным
     #: шагом и потому садятся ровно в фиксированные доли ленты.
     step: int = 1
+    #: С какой точки индекс начинает врать: до неё кадры настоящие, с неё - призраки.
+    #: Ноль - не начинает. Так выглядит файл, склеенный из честного начала и вруна.
+    lies_after: int = 0
     #: Блоки со включённым лейсингом: содержимое кадра не разобрать.
     laced: bool = False
     #: Край окна чтения режет заголовок блока пополам, а видеоблока в окне нет (TC-687).
@@ -161,6 +164,7 @@ class Matroska:
         if self.cut_header:
             return self._cut_cluster(at)
         real = not self.ghost and ordinal % self.step == 0
+        real = real and not (self.lies_after and ordinal >= self.lies_after)
         payload = elem(TIMESTAMP, uint(at)) + self._block(1, idr=not real) * self.before
         for track in tracks:
             payload += self._block(track, idr=real)

@@ -18,8 +18,8 @@ def _index(count: int, inside: int = 0) -> list[Cue]:
     return [Cue(Point(k * 2.0, 4096 + k * 8192, 1), inside) for k in range(count)]
 
 
-def test_the_two_probes_are_neighbours_and_not_shares_of_the_tape() -> None:
-    """Пробы стоят подряд: между ними нет ни одной точки, которую индекс мог бы подсунуть.
+def test_the_probes_are_two_neighbour_pairs_and_not_shares_of_the_tape() -> None:
+    """Пробы стоят парами подряд: между соседями нет точки, которую индекс мог бы подсунуть.
 
     Ровно этим соседство и берёт выравненного вруна: настоящий опорный кадр у него стоит
     через ровный шаг, а два соседа в один шаг не помещаются.
@@ -27,29 +27,34 @@ def test_the_two_probes_are_neighbours_and_not_shares_of_the_tape() -> None:
     picked = probes(_index(384))
 
     where = [point.at for point, _ in picked]
-    assert len(picked) == 2, "проб две - каждая лишняя это Range-запрос на старте"
+    assert len(picked) == 4, "две пары - каждая лишняя проба это Range-запрос на старте"
     assert where[1] - where[0] == 2.0, "соседние точки индекса, а не доли ленты"
+    assert where[3] - where[2] == 2.0, "и вторая пара - соседи"
 
 
-def test_the_pair_reads_the_head_the_first_segment_reads_anyway() -> None:
-    """Пара стоит в начале ленты, а не в середине: там рой и так отдаёт байты показу.
+def test_the_first_pair_reads_the_head_and_the_second_the_end_of_the_tape() -> None:
+    """Первая пара - в начале ленты, вторая - в самом конце, перед индексом.
 
     Лента по мегабайту на точку: середина лежит в 192 МБ от начала, то есть в месте
-    раздачи, куда первый сегмент не ходит, и заход туда оплачивается только пробой.
+    раздачи, куда первый сегмент не ходит, и заход туда оплачивается только пробой. Голову
+    рой отдаёт показу всё равно, а конец ленты лежит рядом с только что прочитанным
+    индексом. Одна пара в голове пропускала бы файл, честный только в начале.
     """
     row = [Cue(Point(k * 2.0, 4096 + k * (1 << 20), 1), 0) for k in range(384)]
 
     picked = probes(row)
 
-    assert all(point.offset < HEAD_WARM for point, _ in picked), "проба в голове, не в середине"
+    assert all(point.offset < HEAD_WARM for point, _ in picked[:2]), "первая пара в голове"
+    assert [point.at for point, _ in picked[2:]] == [764.0, 766.0], "вторая - в конце ленты"
 
 
 def test_a_lying_step_that_divides_the_old_shares_does_not_divide_a_pair() -> None:
     """Шаг 48 делит середину и четверти нацело, а пару - нет: одна из двух ему чужая."""
     picked = probes(_index(2880))
 
-    numbers = [round(point.at / 2.0) for point, _ in picked]
-    assert [n % 48 == 0 for n in numbers].count(True) <= 1, "обе на шаг вруна не сядут"
+    for pair in (picked[:2], picked[2:]):
+        numbers = [round(point.at / 2.0) for point, _ in pair]
+        assert [n % 48 == 0 for n in numbers].count(True) <= 1, "обе на шаг вруна не сядут"
 
 
 def test_a_probe_is_not_spent_on_a_block_it_would_not_reach() -> None:
@@ -70,9 +75,10 @@ def test_a_pair_never_asks_the_same_block_twice() -> None:
     """Две точки на один кластер без места внутри - это один блок и одна проба впустую."""
     row = [Cue(Point(k * 2.0, 4096 + (k // 2) * 8192, 1), 0) for k in range(40)]
 
-    (one, _), (other, _) = probes(row)
+    picked = probes(row)
 
-    assert one.offset != other.offset, "пара спрашивает два разных кадра"
+    for (one, _), (other, _) in (picked[:2], picked[2:]):
+        assert one.offset != other.offset, "пара спрашивает два разных кадра"
 
 
 def test_the_pair_is_taken_in_time_order_whatever_order_the_index_lay_in() -> None:
@@ -81,6 +87,7 @@ def test_the_pair_is_taken_in_time_order_whatever_order_the_index_lay_in() -> No
 
     where = [point.at for point, _ in picked]
     assert where[1] - where[0] == 2.0
+    assert where[3] - where[2] == 2.0
 
 
 def test_too_few_points_are_not_worth_a_request() -> None:

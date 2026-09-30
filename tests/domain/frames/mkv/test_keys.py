@@ -114,7 +114,7 @@ def test_an_honest_index_passes_the_frame_check() -> None:
         (4.0, base + 3072, 1),
         (6.0, base + 4096, 1),
     ]
-    assert reader.requests == 4, "голова, один заход за Cues и соседняя пара проб"
+    assert reader.requests == 6, "голова, один заход за Cues и две соседние пары проб"
 
 
 def test_an_honest_index_survives_a_cluster_with_several_video_frames() -> None:
@@ -219,6 +219,21 @@ def test_a_liar_whose_real_frames_line_up_with_the_shares_is_caught_too() -> Non
     step, count = 48, 384
     cues = [(k * 2000, 65536 + k * 1024, 1) for k in range(count)]
     data, _base = Matroska(cues=cues, step=step).bytes()
+    reader = Served(data)
+
+    with pytest.raises(InfraError, match="lies"):
+        keys(reader, reader.read(0, HEAD))
+
+
+def test_an_index_honest_only_at_the_head_is_caught_at_the_end_of_the_tape() -> None:
+    """Честное начало не выкупает врущее продолжение: вторая пара стоит в конце ленты.
+
+    Одна пара в голове смотрит туда же, куда сверка карты с прогоном, - в первую границу
+    сетки, - и такой файл проходил бы обе проверки, а сетка вставала бы на призраки
+    дальше первой минуты.
+    """
+    cues = [(k * 2000, 65536 + k * 1024, 1) for k in range(384)]
+    data, _base = Matroska(cues=cues, lies_after=192).bytes()
     reader = Served(data)
 
     with pytest.raises(InfraError, match="lies"):
