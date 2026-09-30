@@ -64,11 +64,26 @@ def _clusters() -> tuple[tuple[_Side, _Side], ...]:
 _CLUSTERS: Final = _clusters()
 
 
+#: Собранный каталог по коду языка: английский запасной под выбранным языком.
+_BOOKS: dict[str, dict[str, str]] = {}
+
+
+def _book(language: str) -> dict[str, str]:
+    """Каталог языка целиком, собранный один раз на процесс.
+
+    Надпись спрашивали на каждом шаге отбора, а каждая пересобирала все кластеры и на
+    каждом заново спрашивала язык: около 20 мс на одну строку. Каталоги в процессе не
+    меняются, меняется только выбранный язык, поэтому кэш держится по языку.
+    """
+    if (book := _BOOKS.get(language)) is None:
+        book = {}
+        for in_english, in_russian in _CLUSTERS:
+            book.update(in_english())
+            book.update(in_russian() if language == RU else {})
+        _BOOKS[language] = book
+    return book
+
+
 def phrase(key: str, **values: object) -> str:
     """Собрать надпись: ключ + значения по имени, на языке из :func:`tongue`."""
-    english: dict[str, str] = {}
-    spoken: dict[str, str] = {}
-    for in_english, in_russian in _CLUSTERS:
-        english.update(in_english())
-        spoken.update(in_russian() if tongue() == RU else in_english())
-    return spoken.get(key, english[key]).format(**values)
+    return _book(tongue())[key].format(**values)

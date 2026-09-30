@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 from torrcast.adapters.filesystem.state.config_path import config_path
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -15,8 +16,18 @@ from torrcast.domain.torrcast_error import TorrcastError
 #: на процесс флаг гасил бы язык соседу - пока один поток читает настройку, второй
 #: получал бы английский на живой и вполне читаемой русской установке.
 _asking = threading.local()
-#: Последний прочитанный язык и отпечаток файла, из которого он прочитан.
-_seen: list[tuple[tuple[str, int, int, int], str]] = []
+#: Последний прочитанный язык, отпечаток файла, из которого он прочитан, и когда
+#: отпечаток сверяли в последний раз (часы :func:`time.monotonic`).
+_seen: list[tuple[tuple[str, int, int, int], str, float]] = []
+#: Сколько секунд язык верят без сверки с файлом. Надпись спрашивает язык на каждом
+#: зове, и даже один ``stat`` на надпись копился на пути старта показа; чужой процесс
+#: (``cast language``) меняет язык живого показа не позже этого окна.
+_GLANCE = 1.0
+
+
+def _forget_language() -> None:
+    """Забыть прочитанный язык: запись настройки из этого же процесса видна сразу."""
+    _seen.clear()
 
 
 def chosen_language() -> str:
@@ -44,17 +55,20 @@ def chosen_language() -> str:
         return EN
     _asking.busy = True
     try:
-        # One label asks the language on every call, and a search circle asks it about
-        # 1300 times: the file is read again only when its stamp changes.
+        path = config_path()
+        now = time.monotonic()
+        if _seen and _seen[0][0][0] == str(path) and now - _seen[0][2] < _GLANCE:
+            return _seen[0][1]
         try:
-            stat = os.stat(path := config_path())
+            stat = os.stat(path)
             stamp = (str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino)
         except OSError:
             return load_config().language
         if _seen and _seen[0][0] == stamp:
+            _seen[:] = [(stamp, _seen[0][1], now)]
             return _seen[0][1]
         language = load_config().language
-        _seen[:] = [(stamp, language)]
+        _seen[:] = [(stamp, language, now)]
         return language
     except TorrcastError:
         return EN

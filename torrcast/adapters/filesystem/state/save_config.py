@@ -8,6 +8,7 @@ import json
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
+from torrcast.adapters.filesystem.state.chosen_language import _forget_language
 from torrcast.adapters.filesystem.state.config_path import config_path
 from torrcast.adapters.filesystem.state.write_atomic import _write_atomic
 from torrcast.domain.catalogs.phrase import phrase
@@ -63,3 +64,4 @@ def save_config(config: Config) -> None:
     path = config_path()
     mine = {key: value for key, value in asdict(config).items() if key in OWNED_BY_HUMAN}
     _write_atomic(path, {**_stored(path), **mine})
+    _forget_language()
