@@ -18,6 +18,7 @@ from torrcast.domain.media import Media
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.contact_wait import ContactWait
+from torrcast.ports.json_value import JsonValue
 from torrcast.usecases.select_bench.bench import Bench
 
 
@@ -68,6 +69,37 @@ def _bench(torrents: Torrents, prober: Callable[..., Media]) -> Bench:
     return Bench(torrents, prober=prober, meta_budget=_META)
 
 
+class _Late(Torrents):
+    """Верх ранжира отдаёт метаданные через ``meta`` с, а свой спрос снимает за ``status`` с."""
+
+    def __init__(self, meta: float, status: float = 0.0) -> None:
+        super().__init__()
+        self.meta, self.slow = meta, status
+
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWait = 0.0
+    ) -> list[TorrFile]:
+        if torrent_hash == f"hash-{_POOL[0].magnet}":
+            time.sleep(self.meta)
+        return super().wait_files(torrent_hash, timeout, grace)
+
+    def status(self, torrent_hash: str) -> dict[str, JsonValue]:
+        if torrent_hash == f"hash-{_POOL[0].magnet}":
+            time.sleep(self.slow)
+        return super().status(torrent_hash)
+
+
+def _slow_top(read: Callable[..., Media]) -> Callable[..., Media]:
+    """ffprobe верха читает 1.5 с: ответ его пока не готов, а тяжёлый №2 уже прочитан."""
+
+    def slow(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        if f"hash-{_POOL[0].magnet}/" in source_url:
+            time.sleep(1.5)
+        return read(source_url, timeout=timeout, alive=alive)
+
+    return slow
+
+
 @pytest.mark.machine
 def test_a_heavy_next_release_takes_over_from_a_top_silent_without_metadata(
     released: threading.Event,
@@ -90,14 +122,27 @@ def test_a_heavy_next_release_takes_over_from_a_top_silent_without_metadata(
 @pytest.mark.machine
 def test_a_heavy_next_release_waits_for_a_top_that_has_metadata_and_reads_long() -> None:
     """Метаданные у старшей есть, ffprobe читает долго: ответ близок, тяжёлый ждёт очереди."""
-    read = probes(_POOL, _RUS, _HEAVY, _HEAVY)
-
-    def slow(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
-        if f"hash-{_POOL[0].magnet}/" in source_url:
-            time.sleep(1.5)
-        return read(source_url, timeout=timeout, alive=alive)
+    slow = _slow_top(probes(_POOL, _RUS, _HEAVY, _HEAVY))
 
     prep = _bench(Torrents(), slow).resolve(plan(_POOL, recode_at=10.0), _ASKED, Said())
+
+    assert prep.number == 1
+
+
+@pytest.mark.machine
+def test_a_heavy_next_release_waits_for_a_top_whose_metadata_came_after_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Метаданные верха пришли позже срока подмены, но раньше порога молчания: он живой.
+
+    Живые раздачи на стенде отдают метаданные за 0.3-8.1 с, и та, что ответила через 1 с при
+    сроке 0.2, наследника не порождает - иначе зритель получит тяжёлую копию с перекодом.
+    Окна по обе стороны секунды широкие: первая проверка после срока идёт на 0.4 с, порог 2 с.
+    """
+    monkeypatch.setattr(_bench_heir, "HEIR_SILENCE", 2.0)
+    read = _slow_top(probes(_POOL, _RUS, _HEAVY, _HEAVY))
+
+    prep = _bench(_Late(meta=1.0), read).resolve(plan(_POOL, recode_at=10.0), _ASKED, Said())
 
     assert prep.number == 1
 
