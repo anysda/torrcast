@@ -8,8 +8,9 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from hass.hit_ask import _about, _name
-from hass.hit_posters import FIELD
+from hass.hit_posters import FIELD, HitPosters
 from hass.late_posters import Land
+from hass.poster_shelf import PosterShelf
 from tests.test_hit_posters import _SETTLE, FakeSource, _hits, _named, _row
 from torrcast.domain.facts.ask import Ask
 
@@ -66,3 +67,35 @@ def test_a_race_that_never_answered_is_asked_again_not_held_as_a_miss(tmp_path: 
     assert _until(lambda: _name(ask) not in hits._late_names)
     source.deaf = False
     assert isinstance(_named(hits, row), str)
+
+
+class _BackgroundRefused:
+    """Only a background request was turned away: the visible row's race saw no refusal."""
+
+    def troubled_since(self, moment: float, urgent: bool = False) -> bool:
+        return not urgent
+
+    def calm_at(self) -> float:
+        return 0.0
+
+
+def test_a_race_answered_empty_beside_a_background_refusal_is_a_miss(tmp_path: Path) -> None:
+    """A refused card extract made this miss unknown, and the row re-asked it until 37 s."""
+
+    class EmptySource(FakeSource):
+        def wanted(self, asks: Sequence[Ask], timeout: float) -> dict[Ask, list[str]]:
+            return {}
+
+        def finish_urgent(
+            self, asks: Sequence[Ask], timeout: float, land: Land
+        ) -> dict[Ask, list[str]]:
+            return {ask: [] for ask in asks}
+
+    shelf = PosterShelf(home=lambda: tmp_path)
+    hits = HitPosters(EmptySource(), shelf, lambda: 0.0, _BackgroundRefused())
+    row = _row()
+    ask = _about(row)
+    assert ask is not None
+    hits.urgent([row])
+    assert _until(lambda: _name(ask) not in hits._late_names)
+    assert not hits.due([row]), "an answered race is asked again as if it were silent"

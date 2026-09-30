@@ -41,7 +41,7 @@ def late_posters(
         answered: dict[Ask, list[str]] | None = finish(asks, timeout, land)
     except Exception:
         answered = None
-    troubled = answered is None or owner._weather.troubled_since(began)
+    troubled = answered is None or owner._weather.troubled_since(began, urgent=True)
     with owner._lock:
         for ask in asks:
             if _name(ask) in owner._late_names:

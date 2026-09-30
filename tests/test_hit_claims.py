@@ -33,9 +33,10 @@ class _Storm:
 
     troubled: bool = True
     calm: float = 0.0
+    background: bool = False  # a pace refusal of a background request: urgent verdicts miss it
 
-    def troubled_since(self, moment: float) -> bool:
-        return self.troubled
+    def troubled_since(self, moment: float, urgent: bool = False) -> bool:
+        return self.troubled or (self.background and not urgent)
 
     def calm_at(self) -> float:
         return self.calm
@@ -117,6 +118,17 @@ def test_a_calm_empty_answer_is_a_miss_and_nothing_is_coming(tmp_path: Path) -> 
     clock.now += 10.0
     posters.urgent([_row()])
     assert len(source.judged) == 1
+
+
+def test_a_background_refusal_leaves_the_visible_verdict_its_miss(tmp_path: Path) -> None:
+    """Отказ фоновому запросу не делает неизвестным пустой ответ видимого ряда: он не спрашивал."""
+    storm = _Storm(troubled=False, background=True)
+    seen = _posters(tmp_path / "seen", FakeSource(pages={}), _Clock(), storm)
+    seen.urgent([_row()])
+    assert not seen.pending([_row()]), "видимый ряд ждёт картину, которой нет"
+    calm = _posters(tmp_path / "calm", FakeSource(pages={}), _Clock(), storm)
+    calm.offer([_row()])
+    assert calm.pending([_row()]), "фоновый приговор под отказом записал промах"
 
 
 def test_a_named_picture_is_not_landed_before_its_bytes_arrive(tmp_path: Path) -> None:

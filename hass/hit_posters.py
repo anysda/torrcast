@@ -144,7 +144,7 @@ class HitPosters(HitClaims):
             return
         began = self._now()
         said = self._answer(asked, self._source_of(urgent, ahead))
-        troubled = said is None or self._weather.troubled_since(began)
+        troubled = said is None or self._weather.troubled_since(began, urgent or ahead)
         late = getattr(self._source_of(urgent), "finish_urgent", None) if urgent else None
         later = [ask for ask in asked if callable(late) and ask not in (said or {})]
         found = hit_book(self, asked, said, later, beside, troubled, self._weather.calm_at())

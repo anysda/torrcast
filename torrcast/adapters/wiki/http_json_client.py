@@ -40,8 +40,12 @@ class HttpJsonClient(AddressMemory):
         self._kept = KeptConnections()
         self._minute = MinuteBudget()  # one per process: Wikimedia counts its sites together
         self._pace = BurstPace()  # Wikipedia refuses a burst the minute budget lets through
-        self.troubled_since = self._minute.troubled_since
+        self._calm_refused = float("-inf")  # a background request the pace turned away
         self.calm_at = self._minute.calm_at
+
+    def troubled_since(self, moment: float, urgent: bool = False) -> bool:
+        """A 429 or a refusal since ``moment``; a background refusal troubles only background."""
+        return self._minute.troubled_since(moment) or (not urgent and self._calm_refused >= moment)
 
     def get(
         self,
@@ -57,8 +61,10 @@ class HttpJsonClient(AddressMemory):
         with self._lock:
             lanes = self._requests.setdefault(host, RequestLanes.for_host(host))
         paced = foreground or not host.endswith("wikipedia.org") or self._pace.admit(timeout)
-        if not paced:
+        if not paced and urgent:
             self._minute.stumbled(host)  # a local refusal: the silence proves nothing
+        elif not paced:
+            self._calm_refused = self._minute.clock()
         admitted = paced and self._minute.admit(host, timeout, foreground, urgent)
         if not admitted or not lanes.acquire(timeout, foreground or urgent):
             raise OSError(f"{host}: request lane unavailable after {timeout:.1f} s")

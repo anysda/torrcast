@@ -9,8 +9,8 @@ from torrcast.runtime.facts_wiring import FACTS
 
 
 class _Told:
-    def troubled_since(self, moment: float) -> bool:
-        return moment <= 5.0
+    def troubled_since(self, moment: float, urgent: bool = False) -> bool:
+        return moment <= (3.0 if urgent else 5.0)
 
     def calm_at(self) -> float:
         return 42.0
@@ -21,6 +21,7 @@ def test_the_weather_is_the_one_of_the_shared_client(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(FACTS, "client", _Told())
     weather = FactsWeather()
     assert weather.troubled_since(1.0) and not weather.troubled_since(9.0)
+    assert not weather.troubled_since(4.0, urgent=True), "срочность до клиента не дошла"
     assert weather.calm_at() == 42.0
 
 

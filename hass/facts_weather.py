@@ -15,7 +15,7 @@ from torrcast.runtime.facts_wiring import FACTS
 class _Weather(Protocol):
     """Отказы источника на часах монотонного времени процесса."""
 
-    def troubled_since(self, moment: float) -> bool: ...
+    def troubled_since(self, moment: float, urgent: bool = False) -> bool: ...
 
     def calm_at(self) -> float: ...
 
@@ -23,9 +23,10 @@ class _Weather(Protocol):
 class FactsWeather:
     """Погода общего клиента справки; клиент без счёта отказов всегда спокоен."""
 
-    def troubled_since(self, moment: float) -> bool:
+    def troubled_since(self, moment: float, urgent: bool = False) -> bool:
+        """``urgent`` - the visible list's verdict: a background refusal did not touch it."""
         told = getattr(FACTS.client, "troubled_since", None)
-        return bool(told(moment)) if callable(told) else False
+        return bool(told(moment, urgent=urgent)) if callable(told) else False
 
     def calm_at(self) -> float:
         told = getattr(FACTS.client, "calm_at", None)
@@ -35,7 +36,8 @@ class FactsWeather:
 class _CalmWeather:
     """Источник-подделка: отказов не бывает, спрашивать можно сразу."""
 
-    def troubled_since(self, moment: float) -> bool:
+    def troubled_since(self, moment: float, urgent: bool = False) -> bool:
+        del urgent
         return moment < float("-inf")
 
     def calm_at(self) -> float:

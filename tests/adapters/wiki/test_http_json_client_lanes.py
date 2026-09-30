@@ -82,3 +82,18 @@ def test_a_wikipedia_burst_waits_but_a_click_and_wikidata_do_not(
     assert client.troubled_since(began), "a local refusal read as an answer"
     assert client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, foreground=True) == {}
     assert client.get("query.wikidata.org", "/sparql", {}, {}, 0.0, urgent=True) == {}
+
+
+def test_a_background_refusal_troubles_only_the_background(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refused card extracts made the visible row's empty answers unknown: it asked them again."""
+    _peak(monkeypatch, "ru.wikipedia.org", callers=1)
+    client = HttpJsonClient("torrcast/test")
+    for _ in range(MOST):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0, urgent=True)
+    began = time.monotonic()
+    with pytest.raises(OSError):
+        client.get("ru.wikipedia.org", "/w/api.php", {}, {}, 0.0)
+    assert client.troubled_since(began), "a background verdict read the refusal as an answer"
+    assert not client.troubled_since(began, urgent=True), "the visible row waits on no refusal"
