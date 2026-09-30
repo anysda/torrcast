@@ -1963,8 +1963,8 @@ py_manifest() {  # $1 — каталог пакета torrcast
     )
 }
 
-unbaked_digest() {  # $1 — файл метки сборки; sha256 с плейсхолдером вместо клейма
-    sed -E 's/^BAKED_BUILD_ID: str \| None = .*$/BAKED_BUILD_ID: str | None = None/' "$1" |
+unbaked_digest() {  # $1 — файл метки сборки; sha256 с плейсхолдером вместо клейма (только git-хэш)
+    sed -E 's/^BAKED_BUILD_ID: str \| None = "[0-9a-f]{7,40}"$/BAKED_BUILD_ID: str | None = None/' "$1" |
         if [ "${OS_FAMILY:-linux}" = macos ]; then shasum -a 256; else sha256sum; fi |
         cut -d' ' -f1
 }

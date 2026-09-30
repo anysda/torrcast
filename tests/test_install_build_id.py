@@ -57,3 +57,15 @@ def test_any_other_change_to_the_build_mark_still_differs(tmp_path: Path) -> Non
     tree = _package(tmp_path / "tree", _PLACEHOLDER)
     venv = _package(tmp_path / "venv", _PLACEHOLDER + "STALE = 1\n")
     assert _manifest(tree) != _manifest(venv)
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(
+    "stamp",
+    ['__import__("os").system("id")', '"abc"; STALE = 1', '"a4f5c43d0e1f"; STALE = 1'],
+)
+def test_only_a_git_hash_is_forgiven_as_the_stamp(tmp_path: Path, stamp: str) -> None:
+    """Rollback (the whole stamp line forgiven): code smuggled into the stamp reads as clean."""
+    tree = _package(tmp_path / "tree", _PLACEHOLDER)
+    venv = _package(tmp_path / "venv", f"BAKED_BUILD_ID: str | None = {stamp}\n")
+    assert _manifest(tree) != _manifest(venv)
