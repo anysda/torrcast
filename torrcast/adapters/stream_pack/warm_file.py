@@ -28,7 +28,7 @@ def warm_file(
     keys_of: Callable[[str], FilmKeys] = film_keys,
     warm: Callable[[str, int, int, Any], int] = warm_at,
     origin_of: Callable[[str], float] = pack_origin,
-    cues_of: Callable[[str], int | None] = cues_at,
+    cues_of: Callable[[str, Any], int | None] = cues_at,
     done: threading.Event | None = None,
 ) -> threading.Event:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
@@ -49,14 +49,15 @@ def warm_file(
     размер головы по контейнеру. ``warm`` уезжает и в :func:`pull_head`: прогрев головы и
     прогрев места - одна и та же работа, и на стенде их видит один наблюдатель.
     ``origin_of`` - замер начала ленты: живой ffprobe, стенду не нужный.
-    ``cues_of`` - где у mkv индекс: ffmpeg с ``-ss`` читает его вторым, после заголовка.
+    ``cues_of`` - где у mkv индекс: ffmpeg с ``-ss`` читает его вторым, после заголовка;
+    чтение головы уступает показу по тому же ``alive``.
     Карта из кэша torrcast хвоста не читает, а кэш TorrServer живёт отдельно, и индекс
     бывал холодным при прогретой закладке: кадр ждал кусок хвоста 7.4 с.
 
     Возвращает событие «карта снята или отказана»: без карты сетки нет, и отбор в срок
     (:func:`torrcast.usecases.select_bench._bench_in_time._fit`) ждёт его у подмены.
     ``done`` встаёт, когда вся цепочка кончилась: прогрев записей ряда
-    (:mod:`web.record_warm`) ведёт их по одной.
+    (:mod:`web.record_warm`) отмечает по нему прогретую запись.
     """
     mapped = threading.Event()
     if "." in name and not container_of(name):
@@ -90,7 +91,7 @@ def warm_file(
             pull_head(source_url, head if offset else HEAD_WARM, alive, warm=warm)
         with contextlib.suppress(Exception):
             live = offset and kind == "mkv" and (alive is None or alive())
-            if live and (cues := cues_of(source_url)) is not None:
+            if live and (cues := cues_of(source_url, alive)) is not None:
                 warm(source_url, cues, CUES_CHUNK, alive)
         # Голова уже в рою, и ffprobe начала ленты стоит тут долей секунды; показ, отдельный
         # процесс, возьмёт замер с полки (:func:`pack_origin`), а не станет в очередь за своим.

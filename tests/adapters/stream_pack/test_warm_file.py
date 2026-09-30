@@ -39,7 +39,7 @@ class Watch:
         self.asked.append(MEASURED)
         return 0.0
 
-    def cues_of(self, url: str) -> int | None:
+    def cues_of(self, url: str, alive: Any) -> int | None:
         return CUES
 
     def keys_of(self, url: str) -> FilmKeys:
@@ -60,9 +60,12 @@ def test_from_the_start_only_the_head_is_warmed() -> None:
     """С нуля греется начало, и только оно: место позиции и есть начало."""
     watch = Watch(FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "mp4"))
     warm_file(
-        "http://торрент/поток", keys_of=watch.keys_of, warm=watch.warm, origin_of=watch.origin_of,
+        "http://торрент/поток",
+        keys_of=watch.keys_of,
+        warm=watch.warm,
+        origin_of=watch.origin_of,
         cues_of=watch.cues_of,
-    )  # fmt: skip
+    )
     watch.wait(2)
     time.sleep(0.1)
     assert watch.asked == [(0, HEAD_WARM), MEASURED]
@@ -186,10 +189,13 @@ def test_a_file_no_map_is_read_from_does_not_hold_the_pick(name: str, waits: boo
 
     watch = Watch(None)
     mapped = warm_file(
-        "http://торрент/поток", name=name, keys_of=keys_of, warm=watch.warm,
+        "http://торрент/поток",
+        name=name,
+        keys_of=keys_of,
+        warm=watch.warm,
         origin_of=watch.origin_of,
         cues_of=watch.cues_of,
-    )  # fmt: skip
+    )
     assert reading.wait(3.0), "разбор карты не пошёл"
     assert mapped.is_set() is not waits
     release.set()
@@ -198,7 +204,7 @@ def test_a_file_no_map_is_read_from_does_not_hold_the_pick(name: str, waits: boo
 
 @pytest.mark.machine
 def test_done_rises_after_the_place_of_the_position_even_when_it_fails() -> None:
-    """Прогрев записей ведёт их по одной: следующая ждёт конца всей цепочки, а не карты."""
+    """Прогретой запись отмечают по ``done``: он ждёт конца всей цепочки, а не карты."""
     watch = Watch(FilmKeys(6000.0, [0.0, 3000.0], [0, 900 << 20], "mkv"))
     done, at_place, let_go = threading.Event(), threading.Event(), threading.Event()
 
