@@ -54,7 +54,9 @@ _cache = ShelvesCache(
     ask=_POSTERS.ask,
     landed=_POSTERS.landed,
     arriving=_POSTERS.arriving,
-    workers=3,
+    # Одна рука, как прежде: плитки и так видны до приговоров, а три руки кончали не раньше
+    # (темп задают TorrServer и сеть) и отнимали у запуска показа метаданные раздачи.
+    workers=1,
     early=True,
 )
 

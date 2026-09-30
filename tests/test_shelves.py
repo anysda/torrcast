@@ -89,12 +89,12 @@ def test_a_full_shelf_under_verdicts_is_settling_but_not_partial(
     assert answer.extra == (("X-Torrcast-Settling", "1"),)
 
 
-def test_a_cold_build_shows_covers_as_they_land_and_judges_in_parallel() -> None:
-    """Холодный заход: быстрый путь обложек поиска и несколько рук приговоров."""
+def test_a_cold_build_shows_covers_as_they_land_and_judges_with_one_hand() -> None:
+    """Холодный заход: быстрые обложки поиска; приговоры одной рукой - запуск показа не ждёт."""
     cache = shelves_module._cache
     posters = shelves_module._POSTERS
     assert posters == ShelfPosters(hits)
     wired = (cache.ask, cache.landed, cache.arriving)
     assert wired == (posters.ask, posters.landed, posters.arriving)
     assert cache.early
-    assert cache.workers > 1
+    assert cache.workers == 1
