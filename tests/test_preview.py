@@ -9,7 +9,10 @@ from dataclasses import dataclass
 import pytest
 
 import web.preview
+from tests.fakes.state_store import FakeStateStore
+from torrcast.domain.entry import Entry
 from torrcast.domain.picture import Picture
+from torrcast.ports.state_store import slot as state_slot
 from web.preview import _Poster, _year, preview
 from web.request import Request
 
@@ -506,3 +509,32 @@ def test_a_direct_link_gets_its_poster_before_the_release_circle(
     said, took = ask(lambda _picture: (None, True))
     assert said["poster"] is None
     assert took < 1.0, f"молчащий приговор держал первый ответ {took:.2f} с"
+
+
+def test_the_early_episode_rows_read_the_bookmark_play_resumes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tile named by the other name still lists the episodes by the saved place."""
+    fake = FakeStateStore()
+    state = fake.load()
+    saved = Entry("Доктор Хаус", "magnet:house", kind="tv", original="House", pos=300.0)
+    state.entries["tv:доктор-хаус:2004"] = saved
+    fake.save(state)
+    state_slot.install(fake)
+    seen: list[Entry | None] = []
+
+    def rows(_pool: object, entry: Entry | None, _own: object) -> tuple[list[object], list[int]]:
+        seen.append(entry)
+        return [], []
+
+    monkeypatch.setattr(web.preview, "early_seasons", rows)
+    request = Request(
+        method="GET",
+        path="/api/card/tv:house:2004",
+        query={"query": "House", "title": "House", "year": "2004", "kind": "tv"},
+        body={},
+    )
+
+    preview(request, "tv:house:2004", _Warm(), _Related())
+
+    assert seen and seen[0] is not None and seen[0].magnet == "magnet:house"

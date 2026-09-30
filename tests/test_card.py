@@ -793,6 +793,62 @@ def test_a_started_movie_carries_its_bookmark_position_in_the_body(
     assert body["pos"] == 612.0
 
 
+@pytest.mark.parametrize(
+    ("picture", "saved", "names", "shown"),
+    [
+        pytest.param(
+            Picture(title="Cars", year=2006),
+            "movie:тачки:2006",
+            ("Тачки", "Cars"),
+            2955.0,
+            id="cars",
+        ),
+        pytest.param(
+            Picture(title="Дом", year=None, kind="tv"),
+            "tv:дом-house:0",
+            ("Дом", "House"),
+            0.0,
+            id="yearless",
+        ),
+    ],
+)
+def test_the_card_names_the_bookmark_play_resumes(
+    monkeypatch: pytest.MonkeyPatch,
+    picture: Picture,
+    saved: str,
+    names: tuple[str, str],
+    shown: float,
+) -> None:
+    """The button and the place follow «Play»: the other name of a dated picture, no guess."""
+    _wired(monkeypatch, [Plan(picture=picture, ranked=[], runtime=0.0, warn_mbit=0.0)])
+    fake = FakeStateStore()
+    state = fake.load()
+    title, original = names
+    state.entries[saved] = Entry(
+        title,
+        "magnet:saved",
+        kind="tv" if picture.kind == "tv" else "movie",
+        original=original,
+        pos=2955.0,
+        dur=6960.0,
+    )
+    fake.save(state)
+    state_slot.install(fake)
+    on_tv: list[str] = []
+
+    def playing(key: str) -> bool:
+        on_tv.append(key)
+        return False
+
+    monkeypatch.setattr("web.card.playing_on_tv", playing)
+
+    code, body, _extra = _asked(picture.key, query=picture.title)
+
+    assert code == 200
+    assert (body["resumable"], body["pos"]) == (shown > 0, shown)
+    assert set(on_tv) == {saved if shown else picture.key}
+
+
 def test_a_never_opened_series_shows_episodes_once_the_release_is_parsed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

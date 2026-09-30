@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.usecases.cast_command.world import entry
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
 
@@ -113,3 +114,32 @@ def test_putting_a_record_stamps_it() -> None:
 
     state.drop("movie:a:2000")
     assert not state.entries
+
+
+def test_the_other_name_of_a_dated_picture_finds_its_bookmark() -> None:
+    """The circle named the film by its original: the card still finds the saved place."""
+    state = WatchState()
+    state.put("movie:тачки:2006", entry(title="Тачки", original="Cars"))
+    assert state.bookmark_key("movie:cars:2006") == "movie:тачки:2006"
+    assert state.bookmark_key("movie:тачки:2006") == "movie:тачки:2006"
+
+
+def test_another_year_or_two_namesakes_are_not_the_card_s_bookmark() -> None:
+    """A remake of another year is another picture, and two candidates name nobody."""
+    state = WatchState()
+    state.put("movie:оно:1990", entry(title="Оно", original="It"))
+    assert state.bookmark_key("movie:it:2017") is None
+    state.put("movie:оно:2017", entry(title="Оно", original="It"))
+    state.put("movie:это:2017", entry(title="Это", original="It"))
+    assert state.bookmark_key("movie:it:2017") is None
+    assert state.bookmark_key("movie:оно:2017") == "movie:оно:2017"
+
+
+def test_without_a_year_only_the_own_key_answers() -> None:
+    """One shared name does not tell two yearless pictures apart."""
+    state = WatchState()
+    state.put("tv:дом-house:0", entry(kind="tv", title="Дом", original="House"))
+    state.put("movie:оно-it:0", entry(title="Оно", original="It"))
+    assert state.bookmark_key("tv:дом:0") is None
+    assert state.bookmark_key("movie:it:0") is None
+    assert state.bookmark_key("tv:дом-house:0") == "tv:дом-house:0"

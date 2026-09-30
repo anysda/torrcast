@@ -19,7 +19,7 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store.slot import store as watch_store
-from torrcast.usecases.cast_command._card_bookmark import _bookmark_key, _card_bookmark
+from torrcast.usecases.cast_command._card_bookmark import _card_bookmark
 from torrcast.usecases.cast_command._cmd_play import _cmd_play
 from torrcast.usecases.start_clock import _Clock
 
@@ -184,17 +184,6 @@ def test_the_bookmark_under_the_other_name_of_the_picture_answers_the_card(
     assert played == [("continue", "movie:тачки:2006", "magnet:?xt=кино", 2955.0)]
 
 
-def test_another_year_or_two_namesakes_are_not_the_card_s_bookmark() -> None:
-    """A remake of another year is another picture, and two candidates name nobody."""
-    state = WatchState()
-    state.put("movie:оно:1990", entry(title="Оно", original="It"))
-    assert _bookmark_key(state, "movie:it:2017") is None
-    state.put("movie:оно:2017", entry(title="Оно", original="It"))
-    state.put("movie:это:2017", entry(title="Это", original="It"))
-    assert _bookmark_key(state, "movie:it:2017") is None
-    assert _bookmark_key(state, "movie:оно:2017") == "movie:оно:2017"
-
-
 @pytest.mark.parametrize(
     ("saved", "card", "kind", "title", "original"),
     [
@@ -216,4 +205,4 @@ def test_without_a_year_one_shared_name_is_not_the_card_s_bookmark(
 
     assert _cmd_play(_card(picture=card), choose=choose) == EXIT_OK
     assert len(asked) == 1 and played == []
-    assert _bookmark_key(watch_store().load(), saved) == saved
+    assert watch_store().load().bookmark_key(saved) == saved

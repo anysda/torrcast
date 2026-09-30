@@ -115,7 +115,8 @@ def _answer(
     """
     picture = plan.picture
     watch = store().load()
-    entry = watch.get(picture.key)
+    saved = watch.bookmark_key(picture.key) or picture.key  # the bookmark «Play» resumes
+    entry = watch.get(saved)
     if hint:
         facts = _facts.of(*hint)
     else:
@@ -123,12 +124,11 @@ def _answer(
         facts.foreground = True
         facts.start()
     until = time.monotonic() + wait
-    first, partial = _body(plan, config, pick, entry, facts, playing_on_tv(picture.key), hint, ask)
+    first, partial = _body(plan, config, pick, entry, facts, playing_on_tv(saved), hint, ask)
     body = first
     while (partial or (ask.voices and body.get("voices_pending"))) and time.monotonic() < until:
         time.sleep(_TICK)
-        on_tv = playing_on_tv(picture.key)
-        body, partial = _body(plan, config, pick, entry, facts, on_tv, hint, ask)
+        body, partial = _body(plan, config, pick, entry, facts, playing_on_tv(saved), hint, ask)
         if body != first:
             until = min(until, time.monotonic() + _SETTLE)
     extra = ((_PARTIAL, "1"),) if partial else ()

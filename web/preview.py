@@ -118,7 +118,8 @@ def preview(
     getattr(warm, "hint", warm.ask)(probe)
     facts = _facts.of(title, year, kind)
     # A series from the history lists its episodes by the bookmark before any indexer answers.
-    entry = store().load().get(key) if kind == "tv" else None
+    watch = store().load()
+    entry = watch.get(watch.bookmark_key(key) or key) if kind == "tv" else None
     own = Picture(title, year, cast(Kind, kind))
 
     def look() -> tuple[Any, bool, list[JsonValue] | None, list[Any], tuple[str | None, bool], Any]:

@@ -23,6 +23,34 @@ class WatchState:
     def get(self, key: str) -> Entry | None:
         return self.entries.get(key)
 
+    def bookmark_key(self, card: str) -> str | None:
+        """The key the card's picture is bookmarked under: its own, or the one of its other name.
+
+        The circle names one picture by either of its names, so the card and the bookmark can
+        hold different keys: the card opened from the search as ``movie:cars:2006`` while the
+        bookmark lay under ``movie:тачки:2006`` (stand, 30-09-2026). Missed, «Play» went to the
+        circle and started the film from zero over the saved place. A bookmark of the same kind
+        and year answers when the card's name is its title or original, and only when it is one.
+
+        Without a year only the card's own key answers. The key of such a picture already
+        carries its original (:attr:`torrcast.domain.picture.Picture.key`), and one shared name
+        is no proof: ``tv:дом:0`` is not ``tv:дом-house:0``, and the wrong one would play.
+        """
+        if card in self.entries:
+            return card
+        kind, _, rest = card.partition(":")
+        name, _, year = rest.rpartition(":")
+        if year == "0":
+            return None
+        named = [
+            key
+            for key, entry in self.entries.items()
+            if key.partition(":")[0] == kind
+            and key.rpartition(":")[2] == year
+            and name in {slugify(entry.title), slugify(entry.original or "")}
+        ]
+        return named[0] if len(named) == 1 else None
+
     def find(self, query: str) -> tuple[str, Entry] | None:
         """Запись по запросу пользователя, без похода в Prowlarr: сравниваем slug
         запроса с сохранённым запросом и со slug'ом в ключе; несколько — берём свежайшую.
