@@ -44,8 +44,15 @@ class ShelfPosters:
         return _ready_posters(serial_parent_posters(named, has), has)
 
     def arriving(self, results: list[JsonValue]) -> bool:
-        """Чья-то обложка из пачки ещё в пути: приговор или байты."""
-        return self.owner.arriving(results)
+        """Чья-то обложка из пачки ещё может приехать: в пути или отложена до тишины источника.
+
+        Пустой ответ в минуту 429 откладывает картину до конца тишины (:mod:`hass.hit_claims`),
+        и холодный заход, не считая её едущей, закрывал полку заглушками до следующего часа.
+        Тишина кончилась - пачка спрашивается снова тем же срочным путём.
+        """
+        if self.owner.due(results):
+            self.owner.offer(results, urgent=True)
+        return self.owner.pending(results)
 
 
 __all__ = ["ShelfPosters"]
