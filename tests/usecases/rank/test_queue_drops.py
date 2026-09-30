@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from tests.usecases.rank.releases import RUNTIME, rel
 from torrcast.domain.episode import Episode
+from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.off_season import _disc, _heavy, _pinned, off_season
 from torrcast.usecases.rank.queue_drops import queue_drops
@@ -16,6 +17,7 @@ class Plan:
     """Ровно то, что правило у плана и спрашивает."""
 
     ranked: list[Release] = field(default_factory=list)
+    picture: Picture = field(default_factory=lambda: Picture(title="Кино", year=1999))
     off_season: int = 0
     want: Episode | None = None
     runtime: float = RUNTIME

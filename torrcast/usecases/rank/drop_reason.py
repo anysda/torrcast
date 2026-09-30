@@ -5,17 +5,17 @@ from __future__ import annotations
 from typing import Protocol
 
 from torrcast.domain.episode import Episode
+from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
+from torrcast.usecases.rank.foreign_reason import foreign_reason
 from torrcast.usecases.rank.is_disc import is_disc
 from torrcast.usecases.rank.is_extra import is_extra
-from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.rank.off_season import (
     _codec,
     _disc,
     _extras,
     _heavy,
     _hevc,
-    _no_episode,
     _quiet,
     _small,
     _source,
@@ -26,11 +26,12 @@ from torrcast.usecases.rank.over_ceiling import over_ceiling
 class _Judged(Protocol):
     """План в объёме, которым судят одну раздачу: цель сериала и потолки отбора.
 
-    Полный :class:`torrcast.usecases.select.plan.Plan` сюда не приходит: правилу нужны шесть
+    Полный :class:`torrcast.usecases.select.plan.Plan` сюда не приходит: правилу нужны семь
     его полей, и ровно они названы. Тем же объёмом план видят счёт отсева и снижение
     ступени, которые это правило и зовут.
     """
 
+    picture: Picture
     runtime: float
     warn_mbit: float
     hard_mbit: float
@@ -53,9 +54,14 @@ def drop_reason(release: Release, plan: _Judged) -> str:
     Причины перечислены в том же порядке, в каком судит :meth:`Plan.candidates`, и
     каждая раздача получает ПЕРВУЮ подошедшую: у выкинутой их бывает несколько сразу,
     а объяснять человеку надо ту, на которой её и выкинули.
+
+    Первой судится чужая раздача (:func:`foreign_reason`): кино другого года, серии нет,
+    другая работа франшизы, поздняя форма. Пока этой ступени тут не было, «It Follows»
+    2014 года в пуле «Оно» 2017, выкинутая очередью как другая картина, подписывалась
+    первой подошедшей причиной ворот - «кодек не тот», хотя кодек у неё годный.
     """
-    if misses_episode(release, plan.want):
-        return _no_episode()
+    if foreign := foreign_reason(release, plan.picture, plan.want):
+        return foreign
     if is_disc(release):
         return _disc()
     if is_extra(release, plan.runtime):

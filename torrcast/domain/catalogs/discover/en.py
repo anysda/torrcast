@@ -68,6 +68,7 @@ def en() -> dict[str, str]:
             "nothing to show: {later} ({shown})"
         ),
         "discover.swarm_reason_no_episode": "no matching episode - {count}",
+        "discover.swarm_reason_other_picture": "another picture - {count}",
         "discover.swarm_reason_heavy": "heavier than the ceiling - {count}",
         "discover.swarm_untouched_unfit": (
             "{counts} - these are silent, and the rest have nothing playable ({reasons}), "

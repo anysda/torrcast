@@ -57,6 +57,8 @@ class Plan(_PlanFields):
         сказала «нужной серии тут нет», а метаданные по DHT - это 5-40 с за известный
         отказ; кого выкинули, печатает :attr:`skipped`. Нет в ней и раздач кино другого
         года (:func:`other_year`): «It Follows» 2014 в пуле «Оно» 2017 - чужая картина.
+        Чужое судится раньше ворот - в том же порядке, в каком отсев объясняет счёт
+        (:func:`drop_reason`).
 
         При открытых воротах (:attr:`loose`) в очередь идут и молчаливые имена: у
         картины иначе нет ни одного живого кандидата, а судить молчание всё равно
@@ -105,7 +107,8 @@ class Plan(_PlanFields):
         queue = [
             n
             for n, r in enumerate(self.ranked, start=1)
-            if is_candidate(
+            if not foreign_release(r, self.picture, self.want)
+            and is_candidate(
                 r,
                 self.runtime,
                 self.warn_mbit,
@@ -114,7 +117,6 @@ class Plan(_PlanFields):
                 self.last_resort,
                 self.copy_hevc,
             )
-            and not foreign_release(r, self.picture, self.want)
         ]
         queue = _voice_first(self.picture, self.ranked, queue) + self._dubbed_tail(queue)
         # Раздача, которую человек видел на карточке, спрашивается первой - если ворота её

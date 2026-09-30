@@ -8,8 +8,8 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.drop_reason import _Judged, drop_reason
+from torrcast.usecases.rank.foreign_reason import foreign_reason
 from torrcast.usecases.rank.is_disc import is_disc
-from torrcast.usecases.rank.misses_episode import misses_episode
 
 
 class _Stepped(_Judged, Protocol):
@@ -51,6 +51,9 @@ def stepdown_note(
     - ``в очередь не попал`` — выкинули воротами ещё до каста (:func:`drop_reason`);
     - ``рой мёртв`` — лучшее в выдаче есть, а сидов у него ноль: это не показ.
 
+    Раздача другой картины (:func:`foreign_reason`) ступенью выше не считается вовсе:
+    «It Follows» 2014 в 2160p не лучшее «Оно» 2017, а другое кино.
+
     Лучшего не было — строки нет вовсе: сообщать нечего, а лишняя строка на каждом
     показе обесценивает все остальные.
     """
@@ -62,7 +65,7 @@ def stepdown_note(
         for n, r in enumerate(plan.ranked, start=1)
         if n != number
         and r.height * STEP_RATIO > frame
-        and not misses_episode(r, plan.want)
+        and not foreign_reason(r, plan.picture, plan.want)
         and not is_disc(r)
     ]
     if not better:

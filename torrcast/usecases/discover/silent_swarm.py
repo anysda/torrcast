@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.usecases.rank.misses_episode import misses_episode
+from torrcast.usecases.rank.foreign_reason import foreign_reason
+from torrcast.usecases.rank.off_season import _no_episode
 from torrcast.usecases.rank.over_ceiling import over_ceiling
 
 if TYPE_CHECKING:
@@ -35,8 +36,9 @@ def silent_swarm(
     * потрогали всю выдачу до последней - молчат все, кого вообще можно было спросить,
       но сиды у них числились: это молчание роя, а не пустой каталог;
     * нетронутое осталось, но всё оно непригодно по уже ИЗВЕСТНЫМ признакам - нужной
-      серии нет по имени раздачи или она тяжелее потолка (TC-375): играть в нём
-      нечего, и строка говорит об этом прямо, ручного выбора не предлагая. Замер по
+      серии нет по имени раздачи, раздача другой картины или она тяжелее потолка
+      (TC-375): играть в нём нечего, и строка говорит об этом прямо, ручного выбора не
+      предлагая. Замер по
       сохранённым прогонам: у таких отказов 132 нетронутые раздачи из 195 не
       содержали запрошенной серии вовсе;
     * нетронутое осталось, и пригодное в нём есть - про него мы не знаем ничего, и
@@ -89,14 +91,16 @@ def silent_swarm(
     untouched = [r for n, r in enumerate(plan.ranked, start=1) if n not in queued]
     # Причины - в порядке суда отбора (:func:`drop_reason`): у выкинутой их бывает
     # несколько сразу, а называется та, на которой её и выкинули.
-    no_episode = [r for r in untouched if misses_episode(r, plan.want)]
+    # Чужая раздача (другая картина или серии нет) судится первой, как и в очереди.
+    alien = [foreign_reason(r, plan.picture, plan.want) for r in untouched]
+    no_episode = alien.count(_no_episode())
+    other = len(alien) - alien.count("") - no_episode
     heavy = [
         r
-        for r in untouched
-        if not misses_episode(r, plan.want)
-        and over_ceiling(r, plan.runtime, plan.warn_mbit, plan.hard_mbit)
+        for r, why in zip(untouched, alien, strict=True)
+        if not why and over_ceiling(r, plan.runtime, plan.warn_mbit, plan.hard_mbit)
     ]
-    if len(untouched) > len(no_episode) + len(heavy):
+    if len(untouched) > no_episode + other + len(heavy):
         seed = (
             phrase("discover.swarm_seed_some", peers=peers)
             if peers
@@ -114,7 +118,8 @@ def silent_swarm(
         return phrase(
             "discover.swarm_all_silent", counts=counts, peers=peers, later=later, shown=shown
         )
-    why = [phrase("discover.swarm_reason_no_episode", count=len(no_episode))] if no_episode else []
+    why = [phrase("discover.swarm_reason_other_picture", count=other)] if other else []
+    why += [phrase("discover.swarm_reason_no_episode", count=no_episode)] if no_episode else []
     why += [phrase("discover.swarm_reason_heavy", count=len(heavy))] if heavy else []
     return phrase(
         "discover.swarm_untouched_unfit",

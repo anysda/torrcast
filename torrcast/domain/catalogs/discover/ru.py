@@ -66,6 +66,7 @@ def ru() -> dict[str, str]:
             "(до {peers}), показывать нечего: {later} ({shown})"
         ),
         "discover.swarm_reason_no_episode": "нужной серии нет - {count}",
+        "discover.swarm_reason_other_picture": "другая картина - {count}",
         "discover.swarm_reason_heavy": "тяжелее потолка - {count}",
         "discover.swarm_untouched_unfit": (
             "{counts} - эти молчат, а остальным играть нечего ({reasons}), "

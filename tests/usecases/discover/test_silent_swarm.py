@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from tests.usecases.discover.world import franchise, row
@@ -79,3 +81,14 @@ def test_naming_a_release_turns_the_manual_choice_into_another_one() -> None:
     line = silent_swarm(plan, [1], 1, _SHOWN, picked=1)
 
     assert "выбери другой релиз" in line
+
+
+def test_an_untouched_film_of_another_year_offers_no_manual_choice() -> None:
+    """В нетронутом лежит только другая картина - выбирать руками её нельзя."""
+    plan = _plan(_rows(50, 40))
+    plan.ranked[1] = replace(plan.ranked[1], year=2014)
+
+    line = silent_swarm(plan, [1], 1, _SHOWN)
+
+    assert "выбери руками" not in line
+    assert "другая картина - 1" in line

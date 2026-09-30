@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 
 from tests.usecases.rank.releases import RUNTIME, media, rel
 from torrcast.domain.episode import Episode
+from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.stepdown_note import STEP_RATIO, stepdown_note
 
@@ -22,6 +23,7 @@ class Plan:
     """Ровно то, что правило у плана и спрашивает."""
 
     ranked: list[Release] = field(default_factory=list)
+    picture: Picture = field(default_factory=lambda: Picture(title="Кино", year=1999))
     want: Episode | None = None
     runtime: float = RUNTIME
     warn_mbit: float = 20.0
@@ -86,3 +88,12 @@ def test_a_neighbour_that_kept_silent_is_not_called_turned_down() -> None:
 
     assert said.endswith("не ответил")
     assert "отбраковали" not in said
+
+
+def test_a_film_of_another_year_is_not_a_step_above() -> None:
+    """«It Follows» 2014 в 2160p не лучшее «Оно» 2017, а другое кино: строки нет."""
+    taken = rel(name="взятый", quality="1080p")
+    other = replace(rel(name="It Follows (2014) 2160p", quality="2160p", seeders=59), year=2014)
+    plan = Plan([taken, other], Picture(title="Оно", year=1999))
+
+    assert stepdown_note(plan, 1, media(), [1]) == ""
