@@ -3516,6 +3516,7 @@ receiver_said() {  # $1 - адрес, $2 - имя (может быть пуст�
     # mock - headless-стенд, каста наружу у него нет вовсе, и «телевизор настроен»
     # про него было бы враньём: вид отдельный, надпись у него своя.
     if [ "$1" = mock ]; then ui_say R mock; return 0; fi
+    if [ "$1" = browser ]; then ui_say R browser; return 0; fi
     ui_say R "set$UI_TAB$2$UI_TAB$1"
     return 0
 }
@@ -3566,6 +3567,14 @@ setup_receiver() {
     if [ "$tv" = mock ]; then
         skip "receiver is already configured: mock" "приёмник уже настроен: mock"
         receiver_said "$tv" ''
+        return 0
+    fi
+    # Приёмник машины - вкладка браузера: это выбор человека (`cast --tv browser`), а не
+    # пустое место. Поиск тут переписал бы его: `cast --tv`, найдя в сети один ТВ, пишет
+    # `receiver: chromecast`, и после обновления вкладка играла бы под чужой приставкой.
+    if [ "$(jq -r '.receiver // empty' "$cfg")" = browser ]; then
+        skip "receiver is already configured: browser tab" "приёмник уже настроен: вкладка браузера"
+        receiver_said browser ''
         return 0
     fi
     [ -x "$BIN_DIR/cast" ] || return 0  # пакет не ставился - фаза torrcast выключена
@@ -4419,7 +4428,8 @@ ui_pick_help() {
 # --- блок про приёмник -------------------------------------------------------
 #: Что установка нашла и прописала. Приезжает каналом из фазы `receiver`, вида
 #: `set` (найден и прописан либо уже был в конфиге), `mock` (headless-стенд),
-#: `many` (нашлось несколько) и `none` (не нашлось никого). Пустой вид - фаза
+#: `browser` (приёмник - вкладка), `many` (нашлось несколько) и `none` (не нашлось
+#: никого). Пустой вид - фаза
 #: приёмника не работала вовсе, и экран остаётся ровно таким, каким был.
 UI_RECV_KIND=''; UI_RECV_NAME=''; UI_RECV_ADDR=''; UI_RECV_DEV=()
 RECV_LINES=(); RECV_H=0; RECV_GAP=0; RECV_X=0; RECV_Y=0
@@ -4430,6 +4440,7 @@ ui_recv() {  # $1 - вид, дальше через табуляцию имя и
   case $kind in
     set)  UI_RECV_KIND='set'; UI_RECV_NAME=${rest%%"$UI_TAB"*}; UI_RECV_ADDR=${rest#*"$UI_TAB"} ;;
     mock) UI_RECV_KIND=mock ;;
+    browser) UI_RECV_KIND=browser ;;
     none) UI_RECV_KIND=none ;;
     many) UI_RECV_KIND=many; UI_RECV_DEV=() ;;
     dev)  UI_RECV_DEV+=( "$rest" ) ;;
@@ -4577,6 +4588,11 @@ ui_recv_fill() {  # $1 - сколько строк можно занять; со
     mock)
       if [ "$LANGUAGE" = ru ]; then ui_recv_pick 'приёмник mock: headless-стенд, каста наружу нет' 'приёмник mock: каста наружу нет' 'mock: каста нет'
       else ui_recv_pick 'receiver mock: headless stand, no casting out' 'receiver mock: no casting out' 'mock: no casting'; fi
+      RECV_LINES=( "$LINE" )
+      ;;
+    browser)
+      if [ "$LANGUAGE" = ru ]; then ui_recv_pick 'приёмник: вкладка браузера, ТВ не ищу' 'приёмник: вкладка браузера' 'вкладка браузера'
+      else ui_recv_pick 'receiver: browser tab, no TV search' 'receiver: browser tab' 'browser tab'; fi
       RECV_LINES=( "$LINE" )
       ;;
     none)

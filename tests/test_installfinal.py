@@ -103,9 +103,14 @@ CASTS = {
     #: mock-стенд: звать `cast` не за чем вовсе, и отметка тут стоит ровно затем,
     #: чтобы вызов было видно, если его всё же сделают.
     "mock": _MARK + "exit 0\n",
+    #: Приёмник машины - вкладка, а в сети отзывается ТВ: поиск записал бы его и
+    #: `receiver: chromecast` поверх выбора человека. Отметка видна, если поиск всё же был.
+    "browser": _FOUND.format(name="Гостиная", addr=ADDR),
 }
 #: Что лежит в конфиге ДО фазы приёмника.
 BEFORE = {"again": ADDR, "stale_two": STALE, "stale_one": STALE, "mock": "mock"}
+#: Приёмник в конфиге ДО фазы приёмника; нет ключа - поля нет вовсе.
+RECEIVER = {"browser": "browser"}
 
 
 @dataclass(frozen=True)
@@ -184,7 +189,8 @@ def _run(
         (box / name).mkdir()
     tv = BEFORE.get(case)
     value = f'"{tv}"' if tv else "null"
-    (box / "cfg" / "config.json").write_text(f'{{"tv": {value}}}\n', encoding="utf-8")
+    kind = f', "receiver": "{RECEIVER[case]}"' if case in RECEIVER else ""
+    (box / "cfg" / "config.json").write_text(f'{{"tv": {value}{kind}}}\n', encoding="utf-8")
     called = box / "called"
     cast = box / "bin" / "cast"
     cast.write_text(CASTS[case].replace(_CALLED, str(called)), encoding="utf-8")
@@ -383,6 +389,8 @@ def test_a_differing_single_find_does_not_overwrite_the_configured_choice() -> N
         ("stale_one", 1),
         # mock-стенд: каста наружу нет вовсе, искать нечего, ноль запусков.
         ("mock", 0),
+        # Приёмник - вкладка браузера: выбор человека, искать ТВ ему поверх нечего.
+        ("browser", 0),
     ],
 )
 def test_the_search_runs_exactly_the_promised_number_of_times(case: str, times: int) -> None:
@@ -465,6 +473,17 @@ def test_a_mock_stand_is_not_called_a_configured_tv() -> None:
     line = shot.row("mock")
     assert line, f"про mock-стенд экран смолчал:\n{shot.show()}"
     assert "настроен" not in line, f"стенд назван настроенным телевизором:\n{shot.show()}"
+
+
+@pytest.mark.machine
+def test_a_browser_tab_machine_keeps_its_receiver() -> None:
+    """Приёмник - вкладка: ТВ в сети не подменяет её, и экран называет вкладку."""
+    shot = frame("browser")
+    _landed(shot)
+    _unbroken(shot)
+    assert shot.calls == 0, f"поиск переписал бы выбор человека:\n{shot.show()}"
+    assert shot.final_tv is None, f"в конфиг попал ТВ {shot.final_tv}"
+    assert shot.row("вкладка браузера"), f"про вкладку экран смолчал:\n{shot.show()}"
 
 
 @pytest.mark.machine

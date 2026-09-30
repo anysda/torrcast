@@ -34,6 +34,13 @@ def test_a_tab_with_nobody_to_hand_over_to_gets_the_browser_profile() -> None:
     assert chosen.how
 
 
+def test_a_tab_named_by_cast_tv_browser_gets_it_too() -> None:
+    """``cast --tv browser`` пишет в ``tv`` само слово ``browser``: ТВ это не называет."""
+    config = Config(receiver="browser", tv="browser")
+
+    assert ProfileDetector(ask=_refuse).detect(config).profile is BROWSER
+
+
 def test_a_tab_next_to_a_named_tv_keeps_the_tv_profile() -> None:
     """«На ТВ» отдаёт телевизору тот же поток: при названном ТВ вкладка его не меняет."""
     chosen = ProfileDetector(ask=_refuse).detect(Config(receiver="browser", tv="10.0.0.50"))

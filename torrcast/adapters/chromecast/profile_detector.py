@@ -43,7 +43,8 @@ class ProfileDetector:
     def detect(self, config: HealthConfig) -> Choice:
         """Выбрать профиль: ручной ключ, вкладка без ТВ, иначе сохранённый или опрошенный паспорт.
 
-        Вкладка без ТВ - приёмник машины ``browser`` и адрес ТВ пуст: показ передать некому.
+        Вкладка без ТВ - приёмник машины ``browser``, а в ``tv`` пусто или то же слово
+        ``browser`` (так его пишет ``cast --tv browser``): показ передать некому.
         """
         named = str(getattr(config, "receiver_profile", "") or "")
         if named:
@@ -55,7 +56,7 @@ class ProfileDetector:
                 )
             return Choice(CAUTIOUS, phrase("profile_detector.unknown_named_profile", name=named))
         address = str(config.tv or "")
-        if config.receiver == "browser" and not address:
+        if config.receiver == "browser" and address in ("", "browser"):
             # Играет только вкладка, и передать показ некому: пороги телевизора ей ни к чему.
             return Choice(BROWSER, phrase("profile_detector.browser_tab"))
         if config.receiver != "chromecast" or not address:
