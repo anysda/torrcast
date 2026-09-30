@@ -23,7 +23,9 @@ from web.record_warm import RecordWarm
 class _Page:
     """Часы, ожидание и очередь потоков держателя в руках теста."""
 
-    def __init__(self, entries: dict[str, Entry], engine: FakeTorrentEngine) -> None:
+    def __init__(
+        self, entries: dict[str, Entry], engine: FakeTorrentEngine, warmer: RecordWarm | None = None
+    ) -> None:
         self.now = 0.0
         self.spawned: list[Callable[[], None]] = []
         self.warming: list[Callable[[], None]] = []
@@ -34,7 +36,7 @@ class _Page:
             clock=lambda: self.now,
             wait=self.wait,
             spawn=self.spawned.append,
-            warmer=RecordWarm(warm=self._warm, showing=lambda: False, spawn=self.warming.append),
+            warmer=warmer or RecordWarm(self._warm, lambda: False, spawn=self.warming.append),
         )
         self.on_wait: Callable[[], None] = lambda: None
 

@@ -5,14 +5,14 @@
 закрыл по ``TorrentDisconnectTimeout`` или снёс конец показа, служба заново сводит с пирами
 4-36 с. Главная называет ключи плиток «Продолжить», карточка - свой ключ, раз в
 :data:`BEAT`; держатель поднимает их записанные раздачи и не даёт службе их закрыть, пока
-страница зовёт. Байты первых записей ряда читает до клика :class:`web.record_warm.RecordWarm`,
-отпущенная раздача закрывается с кэшем на диске службы
-(:meth:`torrcast.ports.parking_engine.ParkingEngine.park`).
+страница зовёт. Отпущенная закрывается с кэшем на диске (:class:`ParkingEngine`).
 
 Заводятся они по одной: двадцать раздач истории, поднятые разом, тянули метаданные живой
-раздачи 15-19 с вместо 0.2-3 с (мимо torrcast), и «Играть» с закладки ждала
-22.8 с. Следующая заводится, когда прошлая ответила метаданными; первой идёт ключ, который
-страница назвала первым. Мёртвую раздачу держатель отпускает и не трогает :data:`MUTE`.
+раздачи 15-19 с вместо 0.2-3 с (мимо torrcast), и «Играть» с закладки ждала 22.8 с.
+Следующая заводится, когда прошлая ответила метаданными; первым идёт ключ, названный
+страницей первым. Мёртвую раздачу держатель отпускает и не трогает :data:`MUTE`. Первые
+записи ряда (их байты читает до клика :class:`web.record_warm.RecordWarm`) очереди не ждут
+и без метаданных заводятся снова.
 """
 
 from __future__ import annotations
@@ -117,8 +117,7 @@ class RecordHold:
         держатель той же раздачи, и снос первого выдернет её из-под второго (TC-1285).
         """
         engine = self.engines(base_url, timeout=TIMEOUT)
-        torrent_hash = ""
-        dead = False
+        torrent_hash, dead = "", False
         try:
             step = _keep_step(engine.disconnect_timeout()) if isinstance(engine, _Timed) else BEAT
             while self._leased(magnet) and not self._turn(magnet):
@@ -132,54 +131,56 @@ class RecordHold:
                 torrent_hash = self._renew(engine, magnet) or torrent_hash
         finally:
             self.warmer.forget(magnet)
+            self._leave(magnet)
             with self._lock:
-                if magnet in self._queue:
-                    self._queue.remove(magnet)
                 if dead:
                     self._mute[magnet] = self.clock() + MUTE
             free = bool(torrent_hash) and CLAIMS.unclaim(torrent_hash, self)
             if free and not _held_by_show(torrent_hash):
                 with contextlib.suppress(TorrcastError):
-                    # Закрыть, а не снести: снос стирает кэш службы, и «Продолжить» тянул
-                    # кусок закладки из роя заново, до 30 с.
+                    # Не снос: он стирал кэш службы, и кусок закладки шёл из роя до 30 с.
                     close = engine.park if isinstance(engine, ParkingEngine) else engine.drop
                     close(torrent_hash)
             with self._lock:
                 self._held.discard(magnet)
 
     def _turn(self, magnet: str) -> bool:
+        """Черёд записи; первые записи ряда (их греет :attr:`warmer`) очереди не ждут."""
+        if self.warmer.wants(magnet):
+            return True
         with self._lock:
             return not self._queue or self._queue[0] == magnet
 
     def _wake(self, engine: TorrentEngine, magnet: str) -> tuple[str, bool]:
         """Завести раздачу и дождаться её метаданных; «мертва» - служба ответила, пиров нет."""
-        began = self.clock()
-        torrent_hash = ""
+        torrent_hash, began = "", self.clock()
         while self._leased(magnet):
             with contextlib.suppress(TorrcastError):
                 torrent_hash = torrent_hash or CLAIMS.adding(magnet, self, engine.add)
                 if engine.files(torrent_hash):
                     break
             if self.clock() - began >= COLD:
-                return torrent_hash, bool(torrent_hash)
+                if not self.warmer.wants(magnet):
+                    return torrent_hash, bool(torrent_hash)
+                # Не глушить: заведённая снова, она отдавала метаданные за 1-2 с.
+                self._leave(magnet)
+                torrent_hash, began = "", self.clock()
             self.wait(COLD_STEP)
-        with self._lock:
-            if magnet in self._queue:
-                self._queue.remove(magnet)
+        self._leave(magnet)
         return torrent_hash, False
+
+    def _leave(self, magnet: str) -> None:
+        with self._lock:
+            self._queue = [m for m in self._queue if m != magnet]
 
     def _offer(self, engine: TorrentEngine, magnet: str, torrent_hash: str) -> None:
         """Предложить прогреву файл записи с её закладки; закладка сдвинулась - снова."""
-        if not torrent_hash or not self.warmer.wants(magnet):
-            return
-        entry = self.entries().get(self._keys.get(magnet, ""))
-        if entry is None or entry.magnet != magnet:
-            return
+        wanted = bool(torrent_hash) and self.warmer.wants(magnet)
+        entry = self.entries().get(self._keys.get(magnet, "")) if wanted else None
         with contextlib.suppress(TorrcastError):
-            files = engine.files(torrent_hash)
-            name = next((f.name for f in files if f.index == entry.file_idx), "")
-            source = engine.stream_url(torrent_hash, entry.file_idx)
-            self.warmer.offer(WarmJob(magnet, source, entry.pos, name))
+            if entry is None or entry.magnet != magnet:
+                return
+            self.warmer.offer(WarmJob.of(engine, entry, torrent_hash))
 
     def _renew(self, engine: TorrentEngine, magnet: str) -> str:
         """Поднять раздачу и продлить её срок; служба промолчала - спросит следующий шаг.
