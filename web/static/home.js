@@ -100,6 +100,7 @@ const TCHome = {
       TCHome._showShelves(shelves, true);
     }
     if (TCHome._unsettled(shelves)) TCHome._waitShelves(root, TCHome._shelfPoll);
+    if (history !== null) TCHome._waitHistory(root, poll, history);
   },
 
   // Опоздавшая история встаёт своей лентой на место скелета, полки не трогаются.
@@ -110,6 +111,38 @@ const TCHome = {
     }
     TCHome._lastHistory = history;
     if (!TCHome._query) TCHome._wornContinue(history);
+    TCHome._waitHistory(root, mine, history);
+  },
+
+  // Ряд «Продолжить» ещё наполняется (сервер метит ответ, как у полок): история
+  // переспрашивается, пока метка стоит, но не дольше ``HISTORY_CEILING`` мс - ряд с навсегда
+  // отложенной картинкой не держит опрос вечно. Обложку в ряд ставит повторный спрос сам:
+  // созревший после тишины приговор будит он.
+  HISTORY_PAUSE: 2000,
+  HISTORY_CEILING: 120000,
+  _historyWaits: null,
+
+  async _waitHistory(root, mine, history) {
+    if (!history.partial || TCHome._historyWaits === mine) return;
+    TCHome._historyWaits = mine;
+    try {
+      const tries = TCHome.HISTORY_CEILING / TCHome.HISTORY_PAUSE;
+      for (let tried = 0; tried < tries; tried += 1) {
+        await new Promise((done) => setTimeout(done, TCHome.HISTORY_PAUSE));
+        if (mine !== TCHome._shelfPoll || !document.body.contains(root)
+          || location.pathname !== '/') return;
+        const said = await TCApi.history();
+        if (mine !== TCHome._shelfPoll || !document.body.contains(root)
+          || location.pathname !== '/') return;
+        if (JSON.stringify(said) !== JSON.stringify(TCHome._lastHistory)) {
+          TCHome._lastHistory = said;
+          if (!TCHome._query) TCHome._wornContinue(said);
+        }
+        if (!said.partial) return;
+      }
+    } finally {
+      if (TCHome._historyWaits === mine) TCHome._historyWaits = null;
+    }
   },
 
   // Цел ли экран для памяти (`kept.js`): тело есть и ни один скелет не стоит - ни
@@ -138,6 +171,7 @@ const TCHome = {
       TCHome._showShelves(shelves);
     }
     if (TCHome._unsettled(shelves)) TCHome._waitShelves(root, mine);
+    TCHome._waitHistory(root, mine, history);
   },
 
   // Плашка «сейчас идёт» доезжает позже полок и пересобирает шапку сама: ждать снимок

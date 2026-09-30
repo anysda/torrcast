@@ -14,6 +14,9 @@ from web.answer import Answer
 from web.record_hold import RECORD_HOLD
 from web.request import Request
 
+#: Метка ответа, у которого обложки ещё могут доехать (та же, что у :mod:`web.shelves`).
+_PARTIAL = "X-Torrcast-Partial"
+
 
 def _hold_first(keys: list[str]) -> None:
     RECORD_HOLD.touch(load_config().torrserver_url, keys[:WARM_ROW])
@@ -43,7 +46,12 @@ def history(_request: Request) -> Answer:
     # картин срочно, и фоновый вопрос «Продолжить» стоял за всей её очередью (4.8-15.6 с).
     offered = hits.offer(items, ahead=True)
     public = [_public(item) for item in offered if isinstance(item, dict)]
-    return Answer(200, json.dumps({"items": public}, ensure_ascii=False).encode("utf-8"))
+    body = json.dumps({"items": public}, ensure_ascii=False).encode("utf-8")
+    # Шторм отказов длиннее тишины `quiet_wait` отдаёт ряд без обложек, а приговор уходит
+    # в отложенный повтор. Та же метка «ещё наполняется», что у полок: страница по ней
+    # переспрашивает, и повторный спрос будит созревший приговор без перезагрузки.
+    extra = ((_PARTIAL, "1"),) if hits.pending(offered) else ()
+    return Answer(200, body, extra=extra)
 
 
 def _item(key: str, entry: Entry) -> dict[str, JsonValue]:

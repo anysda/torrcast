@@ -25,9 +25,22 @@ const TCApi = {
     return TCApi._get('/api/state', null);
   },
 
+  // Список «Продолжить»; ``partial`` на самом массиве - та же метка ``X-Torrcast-Partial``,
+  // что у полок: обложка кого-то из ряда ещё может доехать (отказы источника отложили
+  // приговор), и звавший переспрашивает сам. Сравнение списков через JSON метку не видит.
   async history() {
-    const said = await TCApi._get('/api/history', null);
-    return Array.isArray(said && said.items) ? said.items : [];
+    let items = [];
+    let partial = false;
+    try {
+      const said = await fetch('/api/history');
+      if (said.ok) {
+        const data = await said.json();
+        if (Array.isArray(data && data.items)) items = data.items;
+        partial = said.headers.get('X-Torrcast-Partial') === '1';
+      }
+    } catch (error) { /* нет ответа - пустой ряд, как и прежде */ }
+    items.partial = partial;
+    return items;
   },
 
   // Полки на холодном старте ещё собирает фон, и сервер метит такой ответ заголовком

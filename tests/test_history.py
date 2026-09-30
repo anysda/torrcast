@@ -27,11 +27,15 @@ def _offer(records: list[JsonValue], ahead: bool = False) -> list[JsonValue]:
     ]
 
 
+def _settled(_records: list[JsonValue]) -> bool:
+    return False
+
+
 @pytest.fixture(autouse=True)
 def _posters(monkeypatch: pytest.MonkeyPatch) -> None:
     """История зовёт приговор обложек, но тесты не ходят в сеть."""
     _AHEAD.clear()
-    monkeypatch.setattr(history_module, "hits", SimpleNamespace(offer=_offer))
+    monkeypatch.setattr(history_module, "hits", SimpleNamespace(offer=_offer, pending=_settled))
 
 
 @pytest.fixture(autouse=True)
@@ -182,7 +186,7 @@ def test_history_keeps_a_new_bookmark_without_a_poster(
             for record in records
         ]
 
-    monkeypatch.setattr(history_module, "hits", SimpleNamespace(offer=_offer))
+    monkeypatch.setattr(history_module, "hits", SimpleNamespace(offer=_offer, pending=_settled))
 
     items = _asked()["items"]
 
@@ -208,7 +212,9 @@ def test_history_keeps_the_shelf_when_the_poster_source_is_fully_silent(
     fake.save(state)
     state_slot.install(fake)
     monkeypatch.setattr(
-        history_module, "hits", SimpleNamespace(offer=lambda records, ahead=False: records)
+        history_module,
+        "hits",
+        SimpleNamespace(offer=lambda records, ahead=False: records, pending=_settled),
     )
 
     items = _asked()["items"]
