@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from tests.adapters.recode.grids import grid, keys
 from torrcast.adapters.recode.recoder_state import _State
 from torrcast.adapters.recode.weights import Weights
-from torrcast.adapters.recode.work import _work
+from torrcast.adapters.recode.work import CEDE_PAUSE, _work
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -188,3 +188,28 @@ def test_abandons_past_the_limit_give_the_job_up(tmp_path: Path) -> None:
 
     assert state.done == {0, 1, 2}, "за потолком повторов куски числятся сделанными"
     assert any("брошен" in line and "сдаюсь" in line for line in said)
+
+
+def test_the_thread_cedes_the_cores_to_the_head_being_laid(tmp_path: Path) -> None:
+    """Пока голову показа кладёт процесс страницы, нитка не берёт заходов, а срок головы стоит."""
+    state = _state(tmp_path)
+    laying = [True, True, False]
+    started: list[tuple[int, int]] = []
+    slept: list[float] = []
+    state.ceded = lambda: laying.pop(0)
+    state.head_at = 0.0
+
+    def _run(seen: _State, first: int, last: int) -> None:
+        started.append((first, last))
+        seen.stopped = True
+
+    def _sleep(seconds: float) -> None:
+        slept.append(seconds)
+        assert started == [], "заход взят, пока голову ещё кладут"
+
+    _work(state, pick=lambda seen: (1, 3), run=_run, nap=_sleep)
+
+    assert slept == [CEDE_PAUSE, CEDE_PAUSE]
+    assert started == [(1, 3)], "голова легла, а нитка так и стоит"
+    assert state.head_at > 0.0, "срок головы прогона съеден уступкой"
+    assert state.ceded is None, "нитка спрашивает про давно лёгшую голову"

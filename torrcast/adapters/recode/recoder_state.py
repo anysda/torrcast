@@ -99,6 +99,9 @@ class _State:
     #: (:func:`torrcast.usecases.feed_pack.feed_segment._stocked`). Такое место второй раз не
     #: кодируют и копию его не держат: показ берёт его с диска.
     stocked: Callable[[int], bool] = _unstocked
+    #: Пока отвечает ``True``, заходов не брать: ядра занимает голова показа, которую кладёт
+    #: процесс страницы (:meth:`Recoder.cede`). ``None`` - уступать некому.
+    ceded: Callable[[], bool] | None = None
 
     #: Где сейчас показ; обновляет :func:`torrcast.usecases.revive_playback._hold._hold`.
     played: float = 0.0

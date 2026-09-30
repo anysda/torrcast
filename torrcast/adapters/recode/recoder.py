@@ -73,6 +73,10 @@ class Recoder(_State):
         """Назвать, чей перекод уже лежит прогретым (:attr:`stocked`)."""
         self.stocked = stocked
 
+    def cede(self, busy: Callable[[], bool]) -> None:
+        """Не брать заходов, пока ``busy()``: голову кладёт процесс страницы (:attr:`ceded`)."""
+        self.ceded = busy
+
     def opening(self, slot: int) -> None:
         """Упаковка начинается заново с сегмента ``slot``
         (:meth:`torrcast.usecases.feed_pack.feed.Feed.restart`).

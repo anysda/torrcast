@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import torrcast.usecases.feed_pack._state as _state
@@ -45,6 +46,8 @@ def _heading(state: _State, slot: int) -> int:
     state.heading = (slot, _state.clock_port.monotonic())
     if state.recoder is not None:
         state.recoder.done.add(slot)  # кодировать это место кодировщику показа незачем
+        if laying:  # и соседнее - пока голова делит с ним ядра
+            state.recoder.cede(partial(_laying, state, slot))
     journal().mark("голова с полки", слот=slot, кладут=laying)
     return slot + 1
 
@@ -55,11 +58,9 @@ def _awaiting(state: _State, slot: int) -> bool:
     Заход головы кончился, а куска на полке нет - голова не легла, и место снова
     обычное: упаковка берёт его сама, и кодировщик тоже.
     """
-    place, since = state.heading
-    if place != slot or state.vault is None:
+    if state.heading[0] != slot or state.vault is None:
         return False
-    fresh = _state.clock_port.monotonic() - since < HEAD_WAIT
-    if fresh and head_work(state.vault.head().parent, slot).exists():
+    if _laying(state, slot):
         return True
     state.heading = (-1, 0.0)
     if _have(state, slot):
@@ -68,3 +69,18 @@ def _awaiting(state: _State, slot: int) -> bool:
         state.recoder.done.discard(slot)
     journal().mark("голову с полки не дождался", слот=slot)
     return False
+
+
+def _laying(state: _State, slot: int) -> bool:
+    """Голову ``slot`` ещё кладут и ждать её не бросили: кодировщику показа уступать ядра.
+
+    Замер на «Интерстелларе»: голова с кодировщиком показа рядом легла за 14.5 с против
+    8.7 с одна - за следующее место он брался сразу, пока картинку ждали на голове.
+    Гасить голову ради показа нельзя: её фора - всё, что человек выиграл, задержавшись
+    на карточке.
+    """
+    place, since = state.heading
+    if place != slot or state.vault is None:
+        return False
+    fresh = _state.clock_port.monotonic() - since < HEAD_WAIT
+    return fresh and head_work(state.vault.head().parent, slot).exists()

@@ -33,6 +33,27 @@ RETRY_PAUSE: Final = 2.0
 #: (:meth:`torrcast.adapters.recode.hold_bulky._hold_bulky`) и решает кусок сама.
 RETRY_LIMIT: Final = 3
 
+#: Шаг, с которым нитка смотрит, легла ли голова, ради которой она уступает ядра
+#: (:func:`_ceding`), секунды. Каждый шаг сверху - столько же лишнего чёрного экрана.
+CEDE_PAUSE: Final = 0.25
+
+
+def _ceding(state: _State) -> bool:
+    """Уступить ли ядра голове показа, которую кладёт процесс страницы (:attr:`ceded`).
+
+    Замер на «Интерстелларе» (21 Мбит/с, 4 ядра): голова одна ложится за 8.7 с, а рядом
+    с заходом кодировщика за следующее место - за 14.5 с; картинку ждут обе. Пока голову
+    кладут, срок головы прогона (:attr:`head_wait`) не идёт: её перекод ещё не начинали.
+    """
+    if state.ceded is None:
+        return False
+    if state.ceded():
+        state.head_at = time.monotonic()
+        return True
+    state.ceded = None
+    state._say("голова показа легла - кодировщик берётся за своё")
+    return False
+
 
 def _work(
     state: _State,
@@ -53,6 +74,9 @@ def _work(
     while not state.stopped:
         try:
             sweep_spare(state.spare, state.grid, state.played, state.done, state.container)
+            if _ceding(state):
+                nap(CEDE_PAUSE)
+                continue
             job = pick(state)
             if job is None:
                 abandons, abandoned = 0, None

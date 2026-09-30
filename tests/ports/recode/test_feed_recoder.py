@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -31,6 +32,7 @@ class _Recoder:
 
     def stop(self) -> None: ...
     def opening(self, slot: int) -> None: ...
+    def cede(self, busy: Callable[[], bool]) -> None: ...
     def note(self, slot: int, how: str) -> None: ...
     def after_recode(self, slot: int) -> bool:
         return False

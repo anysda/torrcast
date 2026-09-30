@@ -21,9 +21,13 @@ class _Recoder:
     spare: Any = None
     done: set[int] = field(default_factory=set)
     heads: list[int] = field(default_factory=list)
+    ceded: list[Any] = field(default_factory=list)
 
     def opening(self, slot: int) -> None:
         self.heads.append(slot)
+
+    def cede(self, busy: Any) -> None:
+        self.ceded.append(busy)
 
     def note(self, slot: int, how: str) -> None: ...
 
@@ -203,3 +207,37 @@ def test_a_whole_recode_packs_past_a_head_already_on_the_shelf(
 
     assert started == [1]
     assert settled == [], "сплошной перекод меряет вход пробным заходом"
+
+
+def test_the_show_coder_cedes_the_cores_while_the_head_is_laid(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Голову кладут: кодировщик показа не берёт соседнее место, пока она не ляжет.
+
+    Замер на «Интерстелларе»: рядом с его заходом голова легла за 14.5 с против 8.7 с.
+    """
+    clock = tract(now=100.0)
+    show = _show(tmp_path)
+    head_work(show.vault.dir, 0).mkdir()
+    _heading(show, 0)
+
+    assert len(show.recoder.ceded) == 1, "кодировщик делит ядра с кладущейся головой"
+    busy = show.recoder.ceded[0]
+    assert busy() is True
+    head_work(show.vault.dir, 0).rmdir()
+    lay(show.vault.dir, 0)
+    assert busy() is False, "легла голова, а кодировщик всё стоит"
+
+    head_work(show.vault.dir, 0).mkdir()
+    clock.now += HEAD_WAIT
+    assert busy() is False, "брошенный знак головы держит кодировщик вечно"
+
+
+def test_a_head_on_the_shelf_takes_no_cores_from_the_coder(tmp_path: Path, journal: Path) -> None:
+    """Положительный контроль: голова уже лежит, и уступать кодировщику некому."""
+    tract(now=100.0)
+    show = _show(tmp_path)
+    lay(show.vault.dir, 0)
+    _heading(show, 0)
+
+    assert show.recoder.ceded == []
