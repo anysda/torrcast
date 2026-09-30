@@ -67,9 +67,13 @@ def test_a_named_profile_still_wins_over_the_tab() -> None:
     assert _chosen(config).profile is ANDROID_TV
 
 
-def test_the_browser_profile_is_registered_by_key() -> None:
-    """Профиль лежит в реестре, иначе ключ ``browser`` руками даёт осторожный."""
-    assert by_key("browser") is BROWSER
+def test_the_browser_profile_cannot_be_named_by_hand() -> None:
+    """Пороги вкладки выдаёт только её замеренный ключ: ``receiver_profile: browser`` на машине
+    с Chromecast - неизвестное имя и осторожный, а не куски под браузер для телевизора."""
+    config = Config(receiver="chromecast", tv="10.0.0.77", receiver_profile="browser")
+
+    assert by_key("browser") is None
+    assert _chosen(config).profile is CAUTIOUS
 
 
 def test_chromium_gets_no_codec_it_cannot_decode() -> None:
