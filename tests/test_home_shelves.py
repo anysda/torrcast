@@ -58,3 +58,15 @@ def test_the_shelves_do_not_wait_for_a_slow_history() -> None:
     assert (before["continued"], before["waits"]) == (0, 1), "без истории нет скелета её ленты"
     assert (after["continued"], after["waits"]) == (1, 0), "история не встала на место скелета"
     assert (after["fresh"], after["popular"]) == (3, 3)
+
+
+@pytest.mark.machine
+def test_continue_watching_stands_once_while_the_shelves_assemble() -> None:
+    """История пришла, полки ещё пусты: её лента одна, скелет «Продолжить» ею сменён."""
+    facts = _facts()
+    assembling = facts["fastSteps"][:2]
+    shown = [(step["heads"], step["continued"], step["waits"]) for step in assembling]
+    assert shown == [(1, 12, 0), (1, 12, 0)], (
+        "скелет «Продолжить» остался второй полкой под лентой истории"
+    )
+    assert (facts["fastFinal"]["heads"], facts["fastFinal"]["continued"]) == (1, 12)

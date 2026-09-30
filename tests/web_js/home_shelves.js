@@ -75,6 +75,8 @@ function look(ctx, doc) {
     loading: !!ctx.TCHome._assembling,
     continued: count('shelf-continue'),
     waits: body ? body.children.filter((shelf) => shelf.dataset.tcWaits === 'continue').length : 0,
+    heads: body ? body.querySelectorAll('.tc-section')
+      .filter((title) => title.textContent === 'web.shelf.continue_watching').length : 0,
   };
 }
 
@@ -117,7 +119,19 @@ async function main() {
   await mounted;
   await settle(late);
 
+  // Смок сведённого dev: история отвечает сразу, а полки ещё пусты - «Продолжить» одна,
+  // её скелет сменён лентой, а не оставлен под ней вторым заголовком.
+  const fast = make([
+    { partial: true },
+    { partial: true },
+    { fresh: tiles('f', 3), popular: tiles('p', 3) },
+  ], async () => tiles('h', 12));
+  await fast.ctx.TCHome.mount(fast.root);
+  await settle(fast);
+
   process.stdout.write(JSON.stringify({
+    fastSteps: fast.steps,
+    fastFinal: look(fast.ctx, fast.doc),
     lateBefore,
     lateAfter: look(late.ctx, late.doc),
     coldSteps: cold.steps,
