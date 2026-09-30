@@ -273,3 +273,33 @@ def test_the_next_episode_is_prepared_from_the_first_frame(tmp_path: Path) -> No
 
     assert len(holds) == 1, "сборка следующей серии не завелась на первом кадре"
     assert not holds[0](), "без прогрева держать сборку нечем"
+
+
+class _Feed(_Part):
+    """Лента, которая начала показ и держит (или отцепила) хранилище прогрева."""
+
+    def __init__(self, said: list[str], vault: object) -> None:
+        super().__init__("feed", said)
+        self.vault = vault
+
+    def begin(self, want: float) -> float:
+        return want
+
+
+@pytest.mark.parametrize(("vault", "warmed"), [(object(), True), (None, False)])
+def test_the_warm_up_starts_only_while_the_feed_still_reads_its_vault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vault: object, warmed: bool
+) -> None:
+    """Лента ушла в сплошной перекод и отцепила хранилище - прогрев не поднимается.
+
+    Живьём на «Интерстелларе» 5212 МБ после «вход не IDR» прогрев шёл копией по слотам
+    17-1013, ел ~21% ЦП и складывал фильм туда, откуда его никто не читает.
+    """
+    said: list[str] = []
+    parts = (None, _Part("warmer", said), _Feed(said, vault), _Part("server", said), _Screening())
+    monkeypatch.setattr("torrcast.usecases.playback._play._tract", lambda *_a, **_k: parts)
+    monkeypatch.setattr("torrcast.usecases.playback._play._hold", lambda *_a, **_k: 0.0)
+
+    _play(_config(tmp_path), "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=_Screening())
+
+    assert ("warmer.start" in said) is warmed, said
