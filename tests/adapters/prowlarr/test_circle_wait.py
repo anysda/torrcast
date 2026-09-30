@@ -114,3 +114,35 @@ def test_a_short_wait_tells_nothing(tmp_path: Path) -> None:
     for _ in range(DOWN_AFTER):
         circle_wait([_Ask("Knaben", 1.0)], names=False, began=0.0, slack=0.0, book=book)
     assert book.down() == frozenset()
+
+
+@pytest.mark.machine
+def test_a_lone_core_of_names_ends_with_the_others(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The year circle: JacRed's names wait two seconds behind its text in Prowlarr."""
+    monkeypatch.setattr(circle_wait_module, "IN_TIME", 0.0)
+    book = DownBook(lambda: tmp_path / "down.json")
+    for _ in range(DOWN_AFTER):
+        jacred, knaben, yts = _Ask("JacRed", 5.0), _Ask("Knaben", 5.0), _Ask("YTS", 5.0)
+        threading.Timer(0.1, knaben.done.set).start()
+        threading.Timer(0.2, yts.done.set).start()
+        core, elapsed = _waited([jacred, knaben, yts], book=book)
+        assert core == [knaben, yts], "JacRed comes late: the others ended the circle"
+        assert elapsed < 1.0, f"waited {elapsed:.2f} s for JacRed after the others answered"
+    assert book.down() == frozenset(), "a circle the others ended does not tell JacRed silent"
+
+
+@pytest.mark.machine
+def test_a_lone_core_of_names_that_answers_first_ends_the_circle() -> None:
+    jacred, yts = _Ask("JacRed", 5.0), _Ask("YTS", 5.0)
+    threading.Timer(0.1, jacred.done.set).start()
+    core, elapsed = _waited([jacred, yts])
+    assert core == [jacred] and not yts.done.is_set(), "YTS only adds rows: it comes late"
+    assert elapsed < 1.0, f"waited {elapsed:.2f} s for YTS after JacRed answered"
+
+
+def test_a_lone_core_of_the_viewers_text_is_waited_alone() -> None:
+    jacred, yts = _Ask("JacRed", 0.0), _Ask("YTS", 0.0)
+    yts.done.set()
+    assert circle_wait([jacred, yts], names=False, began=0.0, slack=0.0) == [jacred]

@@ -11,6 +11,9 @@ from torrcast.domain.is_down import IN_TIME
 from torrcast.domain.quorum_indexer import quorum_indexer
 from torrcast.domain.wait_indexer import wait_indexer
 
+#: How often a lone core's wait looks whether the others have all answered.
+_STEP = 0.05
+
 
 def circle_wait(
     asked: Sequence[_Ask],
@@ -44,6 +47,17 @@ def circle_wait(
     them as it did. A down one that answers still revives, waited or not. A core one
     the circle gave up on after the whole first circle's wait is a silence told at once:
     its thread may live 45 s more, and a restart before that would never tell it.
+
+    A circle of names whose only live core is one source ends when that one answers or
+    when every other one asked has, whichever comes first. Its names go out with its text,
+    and Prowlarr runs the second request two seconds behind the first: with JacRed's origin
+    at its 5 s cut the answer could never come inside the circle's 7 s. On the stand (38
+    circles of names with JacRed and others, 30.09) JacRed alone held eleven to the end,
+    1.0 to 3.3 s after the last of the others had answered, and never answered in them.
+    Ending with the others kept 20 of its 27 answers in time, every one with more than one
+    row among them, lost seven with three rows between them, and shortened ten circles
+    (7015 to 881 ms, 7004 to 5662). What it brings later comes late, and a circle ended by
+    the others does not tell it silent: it was not waited its whole budget.
     """
     down = book.down()
     held = max(
@@ -54,6 +68,9 @@ def circle_wait(
     live = [ask for ask in waited if ask.name not in down]
     alive = [ask for ask in asked if ask.name not in down]
     core = live or ([] if held else alive or waited or list(asked))
+    others = [ask for ask in alive if ask not in live]
+    if names and len(live) == 1 and others and not held:
+        core = _first(live[0], others, began + live[0].budget + slack)
     for ask in core:
         # Every budget runs from the circle's start: waiting one after another from
         # the call added the first answer's seconds to the next silent one's budget.
@@ -64,6 +81,15 @@ def circle_wait(
         if ask.budget + slack >= IN_TIME and not ask.done.is_set() and ask.judge.acquire(False):
             book.hear(ask.name, answered=False)
     return core
+
+
+def _first(one: _Ask, others: Sequence[_Ask], until: float) -> list[_Ask]:
+    """Wait ``one`` until ``until``, or until every one of ``others`` has answered."""
+    while not one.done.is_set() and not all(ask.done.is_set() for ask in others):
+        if (left := until - time.monotonic()) <= 0:
+            break
+        one.done.wait(min(left, _STEP))
+    return list(others) if not one.done.is_set() and time.monotonic() < until else [one]
 
 
 def _core(name: str, *, names: bool) -> bool:
