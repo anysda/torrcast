@@ -10,6 +10,7 @@ from __future__ import annotations
 from torrcast.domain.frames.keymap.point import Point
 from torrcast.domain.frames.mkv.cue import Cue
 from torrcast.domain.frames.mkv.probes import REACH, probes
+from torrcast.domain.warm_open import HEAD_WARM
 
 
 def _index(count: int, inside: int = 0) -> list[Cue]:
@@ -28,6 +29,19 @@ def test_the_two_probes_are_neighbours_and_not_shares_of_the_tape() -> None:
     where = [point.at for point, _ in picked]
     assert len(picked) == 2, "проб две - каждая лишняя это Range-запрос на старте"
     assert where[1] - where[0] == 2.0, "соседние точки индекса, а не доли ленты"
+
+
+def test_the_pair_reads_the_head_the_first_segment_reads_anyway() -> None:
+    """Пара стоит в начале ленты, а не в середине: там рой и так отдаёт байты показу.
+
+    Лента по мегабайту на точку: середина лежит в 192 МБ от начала, то есть в месте
+    раздачи, куда первый сегмент не ходит, и заход туда оплачивается только пробой.
+    """
+    row = [Cue(Point(k * 2.0, 4096 + k * (1 << 20), 1), 0) for k in range(384)]
+
+    picked = probes(row)
+
+    assert all(point.offset < HEAD_WARM for point, _ in picked), "проба в голове, не в середине"
 
 
 def test_a_lying_step_that_divides_the_old_shares_does_not_divide_a_pair() -> None:
