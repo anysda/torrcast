@@ -97,6 +97,11 @@ class Recoder(_State):
         self.head_at = time.monotonic()
         self.edge = slot - 1
         self.played = self.grid.start(slot)
+        # Выкладка прошлого места снята, и её придержанная копия больше никого не держит.
+        # Оставь её - и заход за новым местом бросался бы ради чужого куска до
+        # :attr:`over_wait` (:func:`_run`), а голова перемотки шла бы ужатием.
+        for held in [piece for piece in self.stuck if piece != slot]:
+            self._unstick(held)
 
     def holding(self, slot: int, size: int = 0) -> bool:
         """Придержать ли копию куска ради перекода (:func:`_holding`)."""

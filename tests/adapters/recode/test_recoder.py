@@ -75,6 +75,18 @@ def test_a_new_run_rewinds_the_edge_and_marks_the_head(tmp_path: Path) -> None:
     assert recoder.head_at > 0.0
 
 
+def test_a_new_run_elsewhere_lets_go_of_the_copy_the_old_run_was_stuck_on(tmp_path: Path) -> None:
+    """Придержка прошлого места после перемотки держала бы заходы нового до предохранителя."""
+    recoder = _recoder(tmp_path)
+    recoder.stuck, recoder.blocked = {6: 1.0}, 6
+
+    recoder.opening(6)
+    assert (recoder.stuck, recoder.blocked) == ({6: 1.0}, 6), "то же место - та же придержка"
+
+    recoder.opening(20)
+    assert (recoder.stuck, recoder.blocked) == ({}, -1)
+
+
 def test_the_recoder_remembers_when_the_left_piece_changed_its_picture(tmp_path: Path) -> None:
     recoder = _recoder(tmp_path)
 

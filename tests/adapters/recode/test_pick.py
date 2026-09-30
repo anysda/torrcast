@@ -135,3 +135,27 @@ def test_a_lonely_heavy_piece_takes_no_warm_recoded_neighbour(tmp_path: Path) ->
     state.stocked = {4}.__contains__
 
     assert _pick(state) == (5, 5)
+
+
+def test_the_piece_the_publisher_is_stuck_on_goes_first_even_behind_the_viewer(
+    tmp_path: Path,
+) -> None:
+    """Перемотка до первого кадра: приёмник ещё ждёт старый кусок, а место показа уже там.
+
+    Живой замер («Интерстеллар», перемотка на 600 с через 2 с после клика): кодировщик
+    шёл за местом показа, бросал каждый заход ради вставшего куска позади и сдавался;
+    кусок ждал предохранителя 45 с, картинка на новом месте пришла через 67 с.
+    """
+    state = _state(tmp_path)
+    state.played = state.grid.start(20)
+    assert 3 in set(state.targets), "замер подобран неверно: кусок обязан быть тяжёлым"
+
+    job = _pick(state)
+    assert job is not None and job[0] >= 20, "без вставшей выкладки заход идёт от места показа"
+
+    state.blocked = 3
+    assert _pick(state) == (3, 3)
+
+    state.done.add(3)
+    job = _pick(state)
+    assert job is not None and job[0] >= 20, "на куске, где сдались, кодировщик не крутится"

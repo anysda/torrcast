@@ -177,6 +177,29 @@ def test_a_head_on_disk_does_not_abandon_the_run_that_works_ahead(
     assert run.stopped != "the head of the run matters more"
 
 
+def test_the_run_for_the_stuck_piece_is_not_dropped_as_a_rewind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Место показа ушло вперёд, а выкладка стоит на этом куске: его ждут прямо сейчас."""
+    state = _state(tmp_path)
+    state.stopped = False
+    run = fake_packer(tmp_path, first=12, edge=-1)
+    state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": lambda *a, **k: run}))
+    state.played = state.grid.end(14) + 1.0  # перемотали вперёд, а приёмник ждёт v12
+    state.blocked = 12
+    rounds: list[float] = []
+
+    def _round(seconds: float) -> None:
+        rounds.append(seconds)
+        state.stopped = len(rounds) >= 3
+
+    monkeypatch.setattr("torrcast.adapters.recode.run.time.sleep", _round)
+
+    assert _run(state, 12, 12) is None
+    assert len(rounds) == 3, "заход дожил до своего конца, а не бросился как перемотка"
+    assert run.stopped != "rewind"
+
+
 def test_an_abandoned_run_says_why_and_a_finished_one_says_nothing(tmp_path: Path) -> None:
     """Возврат захода - это причина броска; отработавший до конца заход молчит.
 

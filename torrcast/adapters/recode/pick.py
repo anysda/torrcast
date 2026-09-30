@@ -20,6 +20,13 @@ def _pick(state: _State) -> tuple[int, int] | None:
     # Считать от края упаковки, а не от показа: то, что уже выложено, перекодировать
     # поздно - приёмник это либо забрал, либо заберёт из tmpfs.
     here = max(state.grid.slot_at(state.played), state.edge + 1)
+    # Выкладка стоит на куске позади места показа: зритель перемотал до первого кадра,
+    # а приёмник всё ещё ждёт этот кусок. Место показа приходит от приёмника и уже
+    # врёт, заход за ним бросается ради вставшего куска (:func:`_run`), и без этого
+    # правила кусок ждал бы предохранителя :attr:`over_wait`.
+    stuck = state.blocked
+    if 0 <= stuck < here and stuck not in state.done and state.ready(stuck) is None:
+        return stuck, stuck
     horizon = state.played + state.ahead
     heavy = set(state.targets)
     quickest = state.pace.table()[-1][1]

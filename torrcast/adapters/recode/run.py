@@ -121,10 +121,12 @@ def _run(state: _State, first: int, last: int) -> str | None:
                     if state.job is not None:
                         state.job = (first, last, state.job[2] + stall, began, speed)
                 continue
-            # Перемотали за пределы этого захода - он больше не самый нужный.
+            # Перемотали за пределы этого захода - он больше не самый нужный. Кроме
+            # куска, на котором стоит выкладка: его ждут прямо сейчас, где бы ни было
+            # место показа (:func:`_pick`).
             gone = state.played > state.grid.end(last)
             far = state.played < state.grid.start(first) - state.ahead
-            if gone or far:
+            if (gone or far) and not first <= state.blocked <= last:
                 why = phrase("recode.rewind")
                 packer.stop(keep_files=True, reason=why)
                 return why
