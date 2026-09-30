@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING, Final
 
 from torrcast.adapters.recode.hold_head import _head_pending
+from torrcast.adapters.recode.pick import _wanted
 from torrcast.adapters.recode.preset_for import preset_for
 from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.yield_to_shrink import _yield_to_shrink
@@ -122,11 +123,10 @@ def _run(state: _State, first: int, last: int) -> str | None:
                         state.job = (first, last, state.job[2] + stall, began, speed)
                 continue
             # Перемотали за пределы этого захода - он больше не самый нужный. Кроме
-            # куска, на котором стоит выкладка: его ждут прямо сейчас, где бы ни было
-            # место показа (:func:`_pick`).
+            # куска, которого показ ждёт прямо сейчас, где бы ни было место (:func:`_wanted`).
             gone = state.played > state.grid.end(last)
             far = state.played < state.grid.start(first) - state.ahead
-            if (gone or far) and not first <= state.blocked <= last:
+            if (gone or far) and not first <= _wanted(state) <= last:
                 why = phrase("recode.rewind")
                 packer.stop(keep_files=True, reason=why)
                 return why

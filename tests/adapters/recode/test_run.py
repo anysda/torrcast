@@ -251,3 +251,26 @@ def test_the_run_cuts_and_names_its_pieces_in_the_container_of_the_receiver(
     assert seen[0][-1].endswith("v%d.m4s"), "имена кусков захода - имена контейнера показа"
     assert seen[0][seen[0].index("-segment_format") + 1] == "mp4"
     assert told[0]["container"] == FMP4, "и сам прогон обязан знать тот же контейнер"
+
+
+def test_the_run_for_the_awaited_head_is_not_dropped_as_a_rewind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Место показа ушло вперёд, а голову прогона ещё ждут: её заход доживает до конца."""
+    state = _state(tmp_path)
+    state.stopped = False
+    run = fake_packer(tmp_path, first=12, edge=-1)
+    state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": lambda *a, **k: run}))
+    state.played = state.grid.end(14) + 1.0
+    state.head, state.head_at, state.head_wait = 12, time.monotonic(), 12.0
+    assert 12 in set(state.targets), "замер подобран неверно: голова обязана быть тяжёлой"
+    rounds: list[float] = []
+
+    def _round(seconds: float) -> None:
+        rounds.append(seconds)
+        state.stopped = len(rounds) >= 3
+
+    monkeypatch.setattr("torrcast.adapters.recode.run.time.sleep", _round)
+
+    assert _run(state, 12, 12) is None
+    assert len(rounds) == 3, "заход головы дожил до своего конца, а не бросился как перемотка"

@@ -40,3 +40,19 @@ def test_the_sweep_looks_at_the_pieces_of_the_container_the_receiver_asked_for(
 
     assert not (tmp_path / "v0.m4s").exists() and not (tmp_path / "v1.m4s").exists()
     assert done == set()
+
+
+def test_the_piece_still_awaited_survives_the_sweep_behind_the_viewer(tmp_path: Path) -> None:
+    """Перемотка до первого кадра: место показа уже впереди, а приёмник ждёт старый кусок.
+
+    Живой замер: готовый перекод головы стирался на следующем круге, и кусок уходил ужатием.
+    """
+    lines = grid()
+    for slot in (0, 1):
+        (tmp_path / f"v{slot}.ts").write_bytes(b"x" * 1000)
+    done = {0, 1}
+
+    sweep_spare(tmp_path, lines, 200.0, done, keep=(1, -1))
+
+    assert (tmp_path / "v1.ts").exists() and done == {1}
+    assert not (tmp_path / "v0.ts").exists(), "всё остальное позади уходит как прежде"

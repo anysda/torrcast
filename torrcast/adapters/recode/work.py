@@ -73,7 +73,14 @@ def _work(
     abandoned: tuple[int, int] | None = None
     while not state.stopped:
         try:
-            sweep_spare(state.spare, state.grid, state.played, state.done, state.container)
+            sweep_spare(
+                state.spare,
+                state.grid,
+                state.played,
+                state.done,
+                state.container,
+                keep=(state.head, state.blocked),
+            )
             if _ceding(state):
                 nap(CEDE_PAUSE)
                 continue

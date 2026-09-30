@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.adapters.recode.hold_head import _head_pending
+
 if TYPE_CHECKING:
     from torrcast.adapters.recode.recoder_state import _State
 
@@ -20,13 +22,9 @@ def _pick(state: _State) -> tuple[int, int] | None:
     # Считать от края упаковки, а не от показа: то, что уже выложено, перекодировать
     # поздно - приёмник это либо забрал, либо заберёт из tmpfs.
     here = max(state.grid.slot_at(state.played), state.edge + 1)
-    # Выкладка стоит на куске позади места показа: зритель перемотал до первого кадра,
-    # а приёмник всё ещё ждёт этот кусок. Место показа приходит от приёмника и уже
-    # врёт, заход за ним бросается ради вставшего куска (:func:`_run`), и без этого
-    # правила кусок ждал бы предохранителя :attr:`over_wait`.
-    stuck = state.blocked
-    if 0 <= stuck < here and stuck not in state.done and state.ready(stuck) is None:
-        return stuck, stuck
+    wanted = _wanted(state)
+    if 0 <= wanted < here:
+        return wanted, wanted
     horizon = state.played + state.ahead
     heavy = set(state.targets)
     quickest = state.pace.table()[-1][1]
@@ -83,3 +81,18 @@ def _pick(state: _State) -> tuple[int, int] | None:
         if joined / quickest <= state.slack(first + 1):
             return first - 1, first + 1
     return first, last
+
+
+def _wanted(state: _State) -> int:
+    """Кусок, которого показ ждёт прямо сейчас: вставшая выкладка или голова прогона; иначе -1.
+
+    Перемотка до первого кадра: приёмник всё ещё ждёт кусок старого места, а место показа
+    он уже прислал новое. Заход за местом показа бросается ради этого куска (:func:`_run`),
+    и без этого правила кусок ждал предохранителя :attr:`over_wait`, а заходы за новым
+    местом сдавались и уходили ужатием. Живой замер («Интерстеллар», перемотка на 600 с
+    через 2 с после клика): картинка на новом месте через 66-86 с.
+    """
+    stuck = state.blocked
+    if stuck >= 0 and stuck not in state.done and state.ready(stuck) is None:
+        return stuck
+    return state.head if _head_pending(state) else -1

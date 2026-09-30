@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 from tests.adapters.recode.grids import grid, keys
@@ -159,3 +160,20 @@ def test_the_piece_the_publisher_is_stuck_on_goes_first_even_behind_the_viewer(
     state.done.add(3)
     job = _pick(state)
     assert job is not None and job[0] >= 20, "на куске, где сдались, кодировщик не крутится"
+
+
+def test_the_head_still_awaited_goes_first_even_behind_the_viewer(tmp_path: Path) -> None:
+    """Перемотка до первого кадра: голову прогона ждут, а место показа уже впереди.
+
+    Живой замер («Интерстеллар», перемотка на 600 с): кодировщик шёл за местом показа,
+    три раза бросал заход ради ждущей головы, сдавался и отдавал новое место ужатием.
+    """
+    state = _state(tmp_path)
+    state.played = state.grid.start(20)
+    state.head, state.head_at, state.head_wait = 3, time.monotonic(), 12.0
+
+    assert _pick(state) == (3, 3)
+
+    state.head_at -= 13.0
+    job = _pick(state)
+    assert job is not None and job[0] >= 20, "голову больше не ждут - заход от места показа"
