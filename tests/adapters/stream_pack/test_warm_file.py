@@ -180,3 +180,32 @@ def test_a_file_no_map_is_read_from_does_not_hold_the_pick(name: str, waits: boo
     assert mapped.is_set() is not waits
     release.set()
     assert mapped.wait(3.0)
+
+
+@pytest.mark.machine
+def test_done_rises_after_the_place_of_the_position_even_when_it_fails() -> None:
+    """Прогрев записей ведёт их по одной: следующая ждёт конца всей цепочки, а не карты."""
+    watch = Watch(FilmKeys(6000.0, [0.0, 3000.0], [0, 900 << 20], "mkv"))
+    done, at_place, let_go = threading.Event(), threading.Event(), threading.Event()
+
+    def warm(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
+        watch.warm(url, offset, upto, alive)
+        if offset:
+            at_place.set()
+            let_go.wait(3)
+            raise OSError("рой молчит")
+        return 0
+
+    warm_file(
+        "http://торрент/поток",
+        at=3000.0,
+        keys_of=watch.keys_of,
+        warm=warm,
+        origin_of=watch.origin_of,
+        done=done,
+    )
+
+    assert at_place.wait(3)
+    assert not done.wait(0.2), "встало до конца прогрева места закладки"
+    let_go.set()
+    assert done.wait(3), "отказ роя тоже конец цепочки"

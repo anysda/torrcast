@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 
@@ -15,6 +17,7 @@ from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.torrent_claims import CLAIMS
 from web.record_hold import BEAT, HOLD_MAX, LEASE, RecordHold
+from web.record_warm import RecordWarm
 
 
 class _Page:
@@ -23,12 +26,15 @@ class _Page:
     def __init__(self, entries: dict[str, Entry], engine: FakeTorrentEngine) -> None:
         self.now = 0.0
         self.spawned: list[Callable[[], None]] = []
+        self.warming: list[Callable[[], None]] = []
+        self.warmed: list[tuple[str, float, str]] = []
         self.holder = RecordHold(
             engines=lambda base_url, timeout: engine,
             entries=lambda: entries,
             clock=lambda: self.now,
             wait=self.wait,
             spawn=self.spawned.append,
+            warmer=RecordWarm(warm=self._warm, showing=lambda: False, spawn=self.warming.append),
         )
         self.on_wait: Callable[[], None] = lambda: None
 
@@ -39,6 +45,10 @@ class _Page:
     def run(self) -> None:
         while self.spawned:
             self.spawned.pop(0)()
+
+    def _warm(self, source: str, *, at: float, alive: Any, name: str, done: Any) -> None:
+        self.warmed.append((source, at, name))
+        done.set()
 
 
 def _live() -> FakeTorrentEngine:
@@ -150,3 +160,38 @@ def test_a_silent_service_leaves_nothing_to_drop_and_the_release_can_be_held_aga
 
     assert engine.dropped == []
     assert page.holder.touch("http://ts", ["a"]) == 1
+
+
+def test_a_held_record_is_warmed_at_its_bookmark(state: FakeStateStore) -> None:
+    """Держатель читал одни метаданные: кусок закладки «Продолжить» тянуло с клика."""
+    page = _Page({"a": _entry("magnet:a")}, _live())
+    page.holder.touch("http://ts", ["a"])
+
+    def warm_now() -> None:
+        while page.warming:
+            page.warming.pop(0)()
+
+    page.on_wait = warm_now
+    page.run()
+
+    assert page.warmed == [("http://fake/hash/0", 60.0, "Cars.mkv")]
+
+
+def test_a_released_record_is_closed_with_its_disk_cache_kept(state: FakeStateStore) -> None:
+    """Снос стирал кэш службы, и прогретое до клика уходило вместе с раздачей."""
+
+    @dataclass
+    class _Parking(FakeTorrentEngine):
+        parked: list[str] = field(default_factory=list)
+
+        def park(self, torrent_hash: str) -> bool:
+            self.parked.append(torrent_hash)
+            return True
+
+    engine = _Parking(torrent_files=[TorrFile(0, "Cars.mkv")])
+    page = _Page({"a": _entry("magnet:a")}, engine)
+    page.holder.touch("http://ts", ["a"])
+
+    page.run()
+
+    assert (engine.parked, engine.dropped) == (["hash"], [])

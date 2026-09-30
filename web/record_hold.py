@@ -5,7 +5,9 @@
 закрыл по ``TorrentDisconnectTimeout`` или снёс конец показа, служба заново сводит с пирами
 4-36 с. Главная называет ключи плиток «Продолжить», карточка - свой ключ, раз в
 :data:`BEAT`; держатель поднимает их записанные раздачи и не даёт службе их закрыть, пока
-страница зовёт. Читателя у раздачи нет, поэтому байты картины сами не тянутся.
+страница зовёт. Байты первых записей ряда читает до клика :class:`web.record_warm.RecordWarm`,
+отпущенная раздача закрывается с кэшем на диске службы
+(:meth:`torrcast.ports.parking_engine.ParkingEngine.park`).
 
 Заводятся они по одной: двадцать раздач истории, поднятые разом, тянули метаданные живой
 раздачи 15-19 с вместо 0.2-3 с (мимо torrcast), и «Играть» с закладки ждала
@@ -25,11 +27,14 @@ from typing import Final
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.entry import Entry
 from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.ports.parking_engine import ParkingEngine
 from torrcast.ports.state_store.slot import store
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.select_bench._bench_keep import _keep_step, _Timed
 from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show
+from web.record_warm import RecordWarm
+from web.warm_job import WarmJob
 
 #: Как часто страница называет свои записи; то же число стоит в ``web/static/warm.js``.
 BEAT: Final = 10.0
@@ -65,6 +70,8 @@ class RecordHold:
     clock: Callable[[], float] = time.monotonic
     wait: Callable[[float], object] = time.sleep
     spawn: Callable[[Callable[[], None]], None] = _thread
+    warmer: RecordWarm = field(default_factory=RecordWarm)
+    _keys: dict[str, str] = field(default_factory=dict, repr=False)
     _lease: dict[str, float] = field(default_factory=dict, repr=False)
     _held: set[str] = field(default_factory=set, repr=False)
     _queue: list[str] = field(default_factory=list, repr=False)
@@ -74,12 +81,14 @@ class RecordHold:
     def touch(self, base_url: str, keys: list[str]) -> int:
         """Продлить аренду записей этих ключей; сколько раздач начали держать заново."""
         entries = self.entries()
-        found = (entries.get(key) for key in keys[:HOLD_MAX])
-        magnets = list(dict.fromkeys(entry.magnet for entry in found if entry and entry.magnet))
+        found = [(key, entries.get(key)) for key in keys[:HOLD_MAX]]
+        keyed = {entry.magnet: key for key, entry in reversed(found) if entry and entry.magnet}
+        magnets = list(dict.fromkeys(entry.magnet for _, entry in found if entry and entry.magnet))
         fresh: list[str] = []
         with self._lock:
             now = self.clock()
             magnets = [magnet for magnet in magnets if self._mute.get(magnet, 0.0) <= now]
+            self._keys.update(keyed)
             for magnet in magnets:
                 self._lease[magnet] = now + LEASE
                 if magnet not in self._held:
@@ -87,6 +96,7 @@ class RecordHold:
                     fresh.append(magnet)
             named = [magnet for magnet in magnets if magnet in self._queue]
             self._queue = named + [m for m in self._queue if m not in named] + fresh
+        self.warmer.name(magnets)
         for magnet in fresh:
             self.spawn(lambda magnet=magnet: self._hold(base_url, magnet))  # type: ignore[misc]
         return len(fresh)
@@ -115,11 +125,13 @@ class RecordHold:
                 self.wait(COLD_STEP)
             torrent_hash, dead = self._wake(engine, magnet)
             while not dead:
+                self._offer(engine, magnet, torrent_hash)
                 self.wait(step)
                 if not self._leased(magnet):
                     break
                 torrent_hash = self._renew(engine, magnet) or torrent_hash
         finally:
+            self.warmer.forget(magnet)
             with self._lock:
                 if magnet in self._queue:
                     self._queue.remove(magnet)
@@ -128,7 +140,10 @@ class RecordHold:
             free = bool(torrent_hash) and CLAIMS.unclaim(torrent_hash, self)
             if free and not _held_by_show(torrent_hash):
                 with contextlib.suppress(TorrcastError):
-                    engine.drop(torrent_hash)
+                    # Закрыть, а не снести: снос стирает кэш службы, и «Продолжить» тянул
+                    # кусок закладки из роя заново, до 30 с.
+                    close = engine.park if isinstance(engine, ParkingEngine) else engine.drop
+                    close(torrent_hash)
             with self._lock:
                 self._held.discard(magnet)
 
@@ -152,6 +167,19 @@ class RecordHold:
             if magnet in self._queue:
                 self._queue.remove(magnet)
         return torrent_hash, False
+
+    def _offer(self, engine: TorrentEngine, magnet: str, torrent_hash: str) -> None:
+        """Предложить прогреву файл записи с её закладки; закладка сдвинулась - снова."""
+        if not torrent_hash or not self.warmer.wants(magnet):
+            return
+        entry = self.entries().get(self._keys.get(magnet, ""))
+        if entry is None or entry.magnet != magnet:
+            return
+        with contextlib.suppress(TorrcastError):
+            files = engine.files(torrent_hash)
+            name = next((f.name for f in files if f.index == entry.file_idx), "")
+            source = engine.stream_url(torrent_hash, entry.file_idx)
+            self.warmer.offer(WarmJob(magnet, source, entry.pos, name))
 
     def _renew(self, engine: TorrentEngine, magnet: str) -> str:
         """Поднять раздачу и продлить её срок; служба промолчала - спросит следующий шаг.

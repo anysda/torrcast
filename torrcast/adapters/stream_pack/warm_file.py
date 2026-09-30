@@ -26,6 +26,7 @@ def warm_file(
     keys_of: Callable[[str], FilmKeys] = film_keys,
     warm: Callable[[str, int, int, Any], int] = warm_at,
     origin_of: Callable[[str], float] = pack_origin,
+    done: threading.Event | None = None,
 ) -> threading.Event:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
 
@@ -48,6 +49,8 @@ def warm_file(
 
     Возвращает событие «карта снята или отказана»: без карты сетки нет, и отбор в срок
     (:func:`torrcast.usecases.select_bench._bench_in_time._fit`) ждёт его у подмены.
+    ``done`` встаёт, когда вся цепочка кончилась: прогрев записей ряда
+    (:mod:`web.record_warm`) ведёт их по одной.
     """
     mapped = threading.Event()
     if "." in name and not container_of(name):
@@ -57,6 +60,13 @@ def warm_file(
         mapped.set()
 
     def work() -> None:
+        try:
+            chain()
+        finally:
+            if done is not None:
+                done.set()
+
+    def chain() -> None:
         keys: FilmKeys | None = None
         try:
             with contextlib.suppress(Exception):  # не вышло: показ снимет карту сам
