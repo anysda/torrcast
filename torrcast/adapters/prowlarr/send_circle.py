@@ -33,6 +33,9 @@ def send_circle(
     The unsent come back with their budgets: the circle is held for them as long as
     their doomed request would have held it, and nobody heard their rows.
     ``along`` is the names the viewer's text takes to the indexer of joined texts.
+    A request that stands in the host's queue gets its budget past its slot: RuTor's names
+    left Prowlarr at +2.1 s and answered at +3.1 and +3.7, and a 3 s budget from the send
+    lost them and told the book RuTor was silent (stand 30.09, "Начало" chose Batman).
     A text already on its way to the indexer is not sent again: the circle waits that
     request (:func:`~torrcast.adapters.prowlarr.spawn_ask._follow`) and draws no slot.
     """
@@ -45,8 +48,8 @@ def send_circle(
         cut = min(budgets(name), cap) if cap else budgets(name)
         if (twin := _in_flight(api, text, limit, num)) is not None:
             asked.append(_follow(twin, cut))
-        elif slots.take(name, cut, spare=joint is not None):
-            asked.append(spawn_ask(api, text, limit, num, name, cut))
+        elif (queued := slots.draw(name, cut, spare=joint is not None)) is not None:
+            asked.append(spawn_ask(api, text, limit, num, name, cut, queued))
             slots.sent(name, asked[-1].done)
         else:
             unsent.append((name, cut))

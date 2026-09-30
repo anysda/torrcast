@@ -69,13 +69,17 @@ class HostSlots:
         starts at its budget or later could not answer in it, so it is not sent at all and
         leaves the slot to the next one. The viewer's text is always sent: it makes the tiles.
         """
+        return self.draw(name, budget, spare=spare) is not None
+
+    def draw(self, name: str, budget: float, *, spare: bool = False) -> float | None:
+        """As :meth:`take`, and the seconds the request stands in the host's queue."""
         with self._lock:
             now = self._clock()
             start = max(now, self._free.get(name, now))
             if spare and start - now >= budget:
-                return False
+                return None
             self._free[name] = start + self._pace
-            return True
+            return start - now
 
     def sent(self, name: str, done: threading.Event) -> None:
         """A request to ``name`` is in flight until ``done`` is set."""

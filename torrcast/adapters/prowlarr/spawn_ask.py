@@ -70,9 +70,21 @@ def _follow(twin: _Ask, budget: float) -> _Ask:
     return ask
 
 
-def spawn_ask(api: ProwlarrApi, query: str, limit: int, num: int, name: str, budget: float) -> _Ask:
-    """Пустить один индексер отдельным потоком и вернуть место под его ответ."""
-    ask = _Ask(name=name, budget=budget)
+def spawn_ask(
+    api: ProwlarrApi,
+    query: str,
+    limit: int,
+    num: int,
+    name: str,
+    budget: float,
+    queued: float = 0.0,
+) -> _Ask:
+    """Пустить один индексер отдельным потоком и вернуть место под его ответ.
+
+    ``queued`` - seconds the request stands in Prowlarr's queue to the host: the budget and
+    the request's own life start when it leaves the queue, not when it is sent.
+    """
+    ask = _Ask(name=name, budget=budget + queued)
     url = search_url(api.base_url, api.apikey, query, limit, num)
     book = DOWN_BOOK.where()
     with _FLYING_LOCK:
@@ -82,7 +94,7 @@ def spawn_ask(api: ProwlarrApi, query: str, limit: int, num: int, name: str, bud
         # Бюджет ``ask`` отвечает только за критический путь. Сам запрос живёт в
         # личный срок индексера, чтобы потолок второго круга не обрывал быстрый
         # ответ на границе, а поздний ответ опорного мог доехать в долив.
-        ask.rows, ask.ms, ask.err = ask_indexer(api.get_json, url, response_budget(name))
+        ask.rows, ask.ms, ask.err = ask_indexer(api.get_json, url, response_budget(name) + queued)
         with _FLYING_LOCK:
             if _FLYING.get(url) is ask:
                 del _FLYING[url]

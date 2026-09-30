@@ -81,3 +81,16 @@ def test_a_text_on_its_way_is_not_sent_again_but_waited() -> None:
     assert second.judge is first.judge, "one request tells the book one outcome"
     (third,), _ = ask()
     assert third.done.wait(2.0) and http.knaben == 2, "an ended request is asked anew"
+
+
+def test_a_name_in_the_host_s_queue_gets_its_budget_past_its_slot() -> None:
+    """RuTor's names left Prowlarr at +2.1 s: a 3 s budget from the send lost their rows."""
+    http, slots = _Http(), HostSlots(_Clock())
+    slots.take("RuTor", 3.0)
+    api = ProwlarrApi("http://p", "KEY", http=http)
+    (rutor,), unsent = send_circle(
+        api, slots, [_RUTOR], "Cars", 100, "", budgets=_BUDGETS.__getitem__, cap=0.0
+    )
+    assert rutor.done.wait(1.0) and unsent == []
+    assert rutor.budget == 3.0 + 2.0, "the circle waits it from its slot"
+    assert http.budget[2] == 3.0 + 2.0, "and the request lives that long"
