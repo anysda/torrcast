@@ -39,8 +39,8 @@ def test_the_recode_of_the_next_start_lands_before_the_next_episode_is_stopped(
 ) -> None:
     landing = threading.Event()
     show, following = _pair(tmp_path, landing)
+    began = time.monotonic()  # до таймера: перекод ляжет не раньше чем через 0.2 с от began
     threading.Timer(0.2, landing.set).start()
-    began = time.monotonic()
 
     _hand_over(show, 5.0)
 
