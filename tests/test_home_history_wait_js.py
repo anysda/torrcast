@@ -30,3 +30,4 @@ def test_continue_row_picks_up_covers_without_reload() -> None:
     # Потолок 120 с: первый ответ и 60 переспросов через 2 с.
     assert stuck["asked"] == 61, "вечно неполный ряд держит опрос без потолка"
     assert calm["asked"] == 1, "ряд без метки переспрашивался зря"
+    assert facts["twice"]["asked"] == 61, "второе ожидание при живом первом удвоило опрос"

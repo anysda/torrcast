@@ -15,7 +15,7 @@ function row(poster, partial) {
   return items;
 }
 
-async function run(answers) {
+async function run(answers, again = false) {
   const doc = new Document();
   const root = doc.createElement('main');
   root.id = 'tc-root';
@@ -45,6 +45,8 @@ async function run(answers) {
     shelves: async () => ({ ...SHELVES, partial: false, settling: false }),
   };
   await ctx.TCHome.mount(root);
+  // Возврат на главную (`_freshen`) зовёт ожидание снова, пока первое ещё идёт.
+  if (again) ctx.TCHome._waitHistory(root, ctx.TCHome._shelfPoll, answers[0]);
   for (let spin = 0; spin < 400; spin += 1) await new Promise((done) => setImmediate(done));
   const tile = doc.querySelector('[data-tc-group="shelf-continue"]');
   return { asked, poster: tile ? tile.dataset.tcPoster || null : null, pauses: [...new Set(pauses)] };
@@ -71,8 +73,9 @@ async function main() {
   const filled = await run([row(false, true), row(false, true), row(true, false)]);
   const stuck = await run([row(false, true)]);
   const calm = await run([row(false, false)]);
+  const twice = await run([row(false, true)], true);
   const api = { marked: await wrapped('1'), plain: await wrapped(null) };
-  process.stdout.write(JSON.stringify({ filled, stuck, calm, api }) + '\n');
+  process.stdout.write(JSON.stringify({ filled, stuck, calm, twice, api }) + '\n');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
