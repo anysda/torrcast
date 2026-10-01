@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -55,6 +56,21 @@ def test_the_answer_lands_in_the_place_kept_for_it_not_in_the_call() -> None:
     url, timeout = http.asked[0]
     assert url.endswith("&indexerIds=1"), "спрошен ровно тот индексер, которого назвали"
     assert timeout == response_budget("Knaben"), "запрос живёт личный срок, а не бюджет круга"
+
+
+def test_a_queued_request_leaves_half_a_pace_before_its_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prowlarr queues by arrival: a request drawn behind another must not get there first."""
+    held: list[float] = []
+    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=held.append))
+    http = _Http()
+    api = ProwlarrApi("http://p", "KEY", http=http)
+    for queued in (4.0, 0.5):
+        assert spawn_ask(api, "матрица", 100, 1, "Knaben", 7.0, queued).done.wait(2.0)
+    assert held == [3.0], "a slot 4 s off leaves at 3 s; one under half a pace leaves at once"
+    life = response_budget("Knaben")
+    assert [timeout for _url, timeout in http.asked] == [life + 1.0, life + 0.5]
 
 
 def test_a_zero_at_the_adapters_cut_is_a_silence_and_a_quick_one_an_answer(

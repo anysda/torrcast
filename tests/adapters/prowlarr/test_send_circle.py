@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from tests.adapters.prowlarr.test_host_slots import _Clock
 from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _NYAA, _RUTOR, _Http
+from torrcast.adapters.prowlarr import spawn_ask as spawn_ask_module
 from torrcast.adapters.prowlarr.host_slots import HostSlots
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.send_circle import send_circle
@@ -13,6 +17,14 @@ from torrcast.adapters.prowlarr.spawn_ask import _Ask
 
 _JACRED = (4, "JacRed")
 _BUDGETS = {"Knaben": 6.0, "RuTor": 3.0, "JacRed": 5.0, "Nyaa.si": 3.0}
+
+
+@pytest.fixture(autouse=True)
+def held(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """A queued request holds before it leaves (spawn_ask): here the hold is noted, not slept."""
+    holds: list[float] = []
+    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=holds.append))
+    return holds
 
 
 def _sent(slots: HostSlots, joint: str | None, cap: float = 0.0) -> tuple[list[str], object]:
@@ -83,7 +95,7 @@ def test_a_text_on_its_way_is_not_sent_again_but_waited() -> None:
     assert third.done.wait(2.0) and http.knaben == 2, "an ended request is asked anew"
 
 
-def test_a_name_in_the_host_s_queue_gets_its_budget_past_its_slot() -> None:
+def test_a_name_in_the_host_s_queue_gets_its_budget_past_its_slot(held: list[float]) -> None:
     """RuTor's names left Prowlarr at +2.1 s: a 3 s budget from the send lost their rows."""
     http, slots = _Http(), HostSlots(_Clock())
     slots.take("RuTor", 3.0)
@@ -93,10 +105,13 @@ def test_a_name_in_the_host_s_queue_gets_its_budget_past_its_slot() -> None:
     )
     assert rutor.done.wait(1.0) and unsent == []
     assert rutor.budget == 3.0 + 2.0, "the circle waits it from its slot"
-    assert http.budget[2] == 3.0 + 2.0, "and the request lives that long"
+    assert held == [1.0], "the request leaves half a pace before its slot"
+    assert http.budget[2] == 3.0 + 2.0 - 1.0, "and lives past its slot from there"
 
 
-def test_one_outside_the_core_waits_no_queue_but_its_request_lives_past_it() -> None:
+def test_one_outside_the_core_waits_no_queue_but_its_request_lives_past_it(
+    held: list[float],
+) -> None:
     """A circle with its core down waits every one: AniLibria's queue held it to 10.9 s."""
     http, slots = _Http(), HostSlots(_Clock())
     slots.take("Nyaa.si", 3.0)
@@ -106,4 +121,4 @@ def test_one_outside_the_core_waits_no_queue_but_its_request_lives_past_it() -> 
     )
     assert nyaa.done.wait(1.0)
     assert nyaa.budget == 3.0, "the circle does not wait its queue"
-    assert http.budget[3] == 3.0 + 2.0, "its late answer still comes"
+    assert held == [1.0] and http.budget[3] == 3.0 + 2.0 - 1.0, "its late answer still comes"

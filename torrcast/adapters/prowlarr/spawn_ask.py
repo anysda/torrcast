@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass, field
 
 from torrcast.adapters.prowlarr.ask_indexer import ask_indexer
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
+from torrcast.adapters.prowlarr.host_slots import PACE
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.search_url import search_url
 from torrcast.domain.cut_short import cut_short
@@ -84,6 +86,11 @@ def spawn_ask(
     ``queued`` - seconds the request stands in Prowlarr's queue to the host: the request's
     own life starts when it leaves the queue, not when it is sent. The circle's wait
     ``budget`` comes whole from the caller, who knows whether it waits the queue too.
+
+    A queued request leaves half a pace before its slot, not at once: Prowlarr queues by
+    arrival, and the names sent a few milliseconds after the viewer's text overtook it at
+    every host (stand 01.10: "Призрак в доспехах" left Knaben's queue at +4.24, behind both
+    names, and the show started at 12.7 s).
     """
     ask = _Ask(name=name, budget=budget)
     url = search_url(api.base_url, api.apikey, query, limit, num)
@@ -95,7 +102,10 @@ def spawn_ask(
         # Бюджет ``ask`` отвечает только за критический путь. Сам запрос живёт в
         # личный срок индексера, чтобы потолок второго круга не обрывал быстрый
         # ответ на границе, а поздний ответ опорного мог доехать в долив.
-        ask.rows, ask.ms, ask.err = ask_indexer(api.get_json, url, response_budget(name) + queued)
+        if (hold := max(0.0, queued - PACE / 2)) > 0:
+            time.sleep(hold)
+        life = response_budget(name) + queued - hold
+        ask.rows, ask.ms, ask.err = ask_indexer(api.get_json, url, life)
         with _FLYING_LOCK:
             if _FLYING.get(url) is ask:
                 del _FLYING[url]
