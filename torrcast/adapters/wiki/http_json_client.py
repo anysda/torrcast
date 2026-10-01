@@ -135,6 +135,9 @@ class HttpJsonClient(AddressMemory):
             self._kept.give(where.netloc, connection, response)
             connection = None
             return body
+        except TimeoutError:
+            self._stall(connection)  # a body frozen after its first bytes
+            raise
         finally:
             if connection is not None:
                 connection.close()
@@ -159,22 +162,30 @@ class HttpJsonClient(AddressMemory):
                 return kept, kept.getresponse()
             except (ConnectionError, http.client.HTTPException):
                 kept.close()
-            except BaseException:
+            except BaseException as fault:
+                self._stall(kept, fault)
                 kept.close()
                 raise
         connection = _IPv4Connection(host, timeout=timeout, resolver=self._resolve)
         try:
             connection.request("GET", path, headers=headers)
             return connection, connection.getresponse()
-        except BaseException:
+        except BaseException as fault:
+            self._stall(connection, fault)
             connection.close()
             raise
+
+    def _stall(self, connection: Any, fault: BaseException | None = None) -> None:
+        """A request that timed out on its address: the name is asked again (:meth:`stalled`)."""
+        if fault is None or isinstance(fault, TimeoutError):
+            self.stalled(getattr(connection, "host", ""), getattr(connection, "address", None))
 
 
 class _IPv4Connection(http.client.HTTPSConnection):
     """Устанавливает проверенное TLS-соединение строго по IPv4."""
 
     context: ssl.SSLContext = ssl.create_default_context()
+    address: str | None = None
 
     def __init__(self, host: str, timeout: float, resolver: Any) -> None:
         super().__init__(host, timeout=timeout)
@@ -182,6 +193,6 @@ class _IPv4Connection(http.client.HTTPSConnection):
 
     def connect(self) -> None:
         timeout = float(self.timeout) if self.timeout is not None else 1.2
-        address = self._resolver(self.host, timeout)
+        address = self.address = self._resolver(self.host, timeout)
         raw = socket.create_connection((address, self.port), self.timeout)
         self.sock = self.context.wrap_socket(raw, server_hostname=self.host)

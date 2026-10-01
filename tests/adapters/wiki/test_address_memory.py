@@ -175,3 +175,24 @@ def test_a_silent_name_never_gets_a_third_lookup() -> None:
         one.join(10.0)
     assert len(refused) == 2
     assert len(asked) == 2, f"one lookup and one spare per silent name, asked {asked}"
+
+
+def test_a_stalled_address_is_asked_again_and_passed_over() -> None:
+    """A CDN edge that froze a request is forgotten; the next answer skips it while it can."""
+    answers = [["9.9.9.9"], ["9.9.9.9", "8.8.8.8"], ["9.9.9.9"]]
+    asked: list[int] = []
+
+    def rotating(host: str) -> list[Any]:
+        asked.append(1)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (a, 0)) for a in answers.pop(0)]
+
+    client = AddressMemory(rotating)
+    assert client._resolve("cdn.example", 1.0) == "9.9.9.9"
+    assert client._resolve("cdn.example", 1.0) == "9.9.9.9", "a live address is kept"
+    client.stalled("cdn.example", "1.1.1.1")
+    assert client._resolve("cdn.example", 1.0) == "9.9.9.9", "another address does not evict"
+    client.stalled("cdn.example", "9.9.9.9")
+    assert client._resolve("cdn.example", 1.0) == "8.8.8.8"
+    client.stalled("cdn.example", "8.8.8.8")
+    assert client._resolve("cdn.example", 1.0) == "9.9.9.9", "nothing fresh left: the first"
+    assert len(asked) == 3

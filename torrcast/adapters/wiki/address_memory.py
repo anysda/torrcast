@@ -37,6 +37,7 @@ class AddressMemory:
         self._resolved: dict[str, tuple[float, str]] = {}
         self._looking: dict[str, list[threading.Thread]] = {}
         self._answered: dict[str, threading.Event] = {}
+        self._shunned: dict[str, dict[str, float]] = {}  # host -> stalled address -> until
         self._lock = threading.Lock()
 
     def warm(self, host: str) -> None:
@@ -86,6 +87,28 @@ class AddressMemory:
             raise OSError(f"{host}: address not resolved in {timeout:.1f} s")
         return found
 
+    def stalled(self, host: str, address: str | None) -> None:
+        """Forget an address that went silent mid-request and pass it over for a while.
+
+        A CDN name rotates edges, and one edge may freeze every connection after its first
+        bytes: kept for the whole TTL it starved every request to the name. The next request
+        asks again and takes the first answer not passed over; none left - the first one.
+        """
+        if address is None:
+            return
+        with self._lock:
+            self._shunned.setdefault(host, {})[address] = time.monotonic() + _RESOLVE_TTL
+            if self._resolved.get(host, (0.0, ""))[1] == address:
+                del self._resolved[host]
+
+    def _pick(self, host: str, info: list[Any]) -> str:
+        """The first answered address not passed over by :meth:`stalled`, else the first."""
+        now = time.monotonic()
+        with self._lock:
+            shunned = self._shunned.get(host, {})
+            fresh = [str(one[4][0]) for one in info if shunned.get(str(one[4][0]), 0.0) <= now]
+        return fresh[0] if fresh else str(info[0][4][0])
+
     def _known(self, host: str) -> str | None:
         """Адрес имени из памяти клиента, пока он не протух."""
         with self._lock:
@@ -110,8 +133,9 @@ class AddressMemory:
             with contextlib.suppress(OSError):
                 info = self.lookup(host)
                 if info:
+                    address = self._pick(host, info)
                     with self._lock:
-                        self._resolved[host] = (time.monotonic(), str(info[0][4][0]))
+                        self._resolved[host] = (time.monotonic(), address)
                     arrived.set()
             with self._lock:
                 mine = self._looking.get(host, [])
