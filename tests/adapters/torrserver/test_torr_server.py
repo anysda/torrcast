@@ -166,3 +166,20 @@ def test_a_parked_release_is_closed_and_its_disk_cache_kept() -> None:
 
     assert server.drop("abc") is True
     assert server.body == {"action": "rem", "hash": "abc"}, "снос остаётся сносом"
+
+
+class _Listing(TorrServer):
+    def __init__(self, payload: object) -> None:
+        super().__init__("http://torrserver")
+        self.payload = payload
+
+    def _post(self, path: str, body: dict[str, object], json_body: bool = True) -> object:
+        return self.payload
+
+
+def test_the_base_lists_hashes_in_lower_case_whatever_the_service_answers() -> None:
+    """Хэши из магнитов уборка сверяет в нижнем регистре: верхний не нашёлся бы никогда."""
+    server = _Listing([{"hash": "ABCDEF" * 6 + "0123"}, {"hash": ""}, "мусор"])
+
+    assert server.hashes() == {"abcdef" * 6 + "0123"}
+    assert server.listed("abcdef" * 6 + "0123")

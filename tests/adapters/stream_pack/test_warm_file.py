@@ -253,3 +253,30 @@ def test_the_middle_of_an_mkv_warms_its_cues_after_the_header(kind: str, warms: 
     time.sleep(0.1)
     cues = [(CUES, CUES_CHUNK)] if warms else []
     assert watch.asked == [(0, HEAD_OPEN[kind]), *cues, MEASURED, (500 << 20, HEAD_WARM)]
+
+
+@pytest.mark.machine
+def test_the_cues_read_yields_to_the_show_by_the_same_alive() -> None:
+    """Без ``alive`` чтение индекса вставало в очередь к рою впереди кадров живого показа."""
+    watch = Watch(FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "mkv"))
+    given: list[Any] = []
+
+    def cues_of(url: str, alive: Any) -> int | None:
+        given.append(alive)
+        return CUES
+
+    def alive() -> bool:
+        return True
+
+    warm_file(
+        "http://торрент/поток",
+        at=240.0,
+        alive=alive,
+        keys_of=watch.keys_of,
+        warm=watch.warm,
+        origin_of=watch.origin_of,
+        cues_of=cues_of,
+    )
+    watch.wait(4)
+
+    assert given == [alive]
