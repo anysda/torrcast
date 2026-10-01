@@ -21,15 +21,15 @@ TIMEOUT: Final = 10.0
 
 
 def _sweep_records(base_url: str) -> bool:
-    """Одна сверка; правда - она прошла, а не уступила показу и не упёрлась в молчание."""
+    """Одна сверка; правда - она прошла вся, а не уступила показу, держателю или молчанию."""
     if _showing():
         return False
     with contextlib.suppress(TorrcastError):
         engine = TorrServer(base_url, timeout=TIMEOUT)
-        gone = record_sweep(engine, store().load().entries, _held_by_show)
+        gone, whole = record_sweep(engine, store().load().entries, _held_by_show)
         if gone:
             journal().mark("уборка записей", снесено=len(gone))
-        return True
+        return whole
     return False
 
 
@@ -41,8 +41,9 @@ def _thread(work: Callable[[], None]) -> None:
 class SweepLater:
     """Сверка фоном по одной за раз; ряд считается убранным, только когда сверка прошла.
 
-    Пропущенная (идёт показ, служба молчит) не теряется: следующее касание того же ряда
-    зовёт её снова. Зовут касание ряда (:mod:`web.record_hold`) и старт службы.
+    Пропущенная или оборванная (идёт показ, служба молчит или не сносит, держатель ждал
+    замка) не теряется: следующее касание того же ряда зовёт её снова. Зовут касание ряда
+    (:mod:`web.record_hold`) и старт службы.
     """
 
     spawn: Callable[[Callable[[], None]], None] = _thread

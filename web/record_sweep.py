@@ -31,19 +31,37 @@ class _Listing(Protocol):
 
 def record_sweep(
     engine: _Listing, entries: Mapping[str, Entry], spared: Callable[[str], bool]
-) -> list[str]:
-    """Снести из базы службы раздачи истории вне первых записей ряда; что снесено.
+) -> tuple[list[str], bool]:
+    """Снести из базы службы раздачи истории вне первых записей ряда; что снесено и всё ли.
 
     ``spared`` - раздача занята сейчас: её держит показ, отбор или страница
     (:func:`torrcast.usecases.torrents._held_by_show`). Отпустит держатель - снесёт он сам.
     Спрашивается и сносится под замком отметок
     (:meth:`~torrcast.usecases.torrent_claims.TorrentClaims.dropping`): держатель, заводящий
     раздачу в ту же секунду, её не потеряет.
+
+    Сетевой ``rem`` идёт под этим замком, поэтому проход обрывается, когда служба снос не
+    приняла или держатель ждал замка
+    (:meth:`~torrcast.usecases.torrent_claims.TorrentClaims.waited`): заводящий ждёт один
+    снос, а не все. Остаток не теряется: оборванный проход - не «всё»,
+    и следующее касание ряда сверяет снова (:class:`web.sweep_later.SweepLater`).
     """
     first = {_torrent_hash(entries[key].magnet) for key in continue_row(entries)[:WARM_ROW]}
     ours = {_torrent_hash(entry.magnet) for entry in entries.values()} - first - {""}
+    refused: list[str] = []
 
     def free(torrent_hash: str) -> bool:
-        return not spared(torrent_hash) and engine.drop(torrent_hash)
+        if spared(torrent_hash):
+            return False
+        if engine.drop(torrent_hash):
+            return True
+        refused.append(torrent_hash)
+        return False
 
-    return [h for h in sorted(ours & engine.hashes()) if CLAIMS.dropping(h, free)]
+    gone: list[str] = []
+    for torrent_hash in sorted(ours & engine.hashes()):
+        if CLAIMS.dropping(torrent_hash, free):
+            gone.append(torrent_hash)
+        if refused or CLAIMS.waited():
+            return gone, False
+    return gone, True

@@ -155,3 +155,39 @@ def test_one_sweep_at_a_time(base: _Base) -> None:
     started.pop()()
     sweep(URL, ROW)
     assert len(started) == 1, "закончилась - следующий ряд сверяется"
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize("cut", ["refused", "waited"])
+def test_a_cut_sweep_leaves_the_rest_to_the_next_touch(
+    base: _Base, monkeypatch: pytest.MonkeyPatch, cut: str
+) -> None:
+    """🔴 Проход обрывается на первом сносе, который служба не приняла или пока ждал держатель.
+
+    Сетевой ``rem`` идёт под замком отметок, и проход до конца держал бы заводящего все
+    сносы. Оборванный ряд не считается убранным: остаток доубирает следующее касание.
+    """
+    real, tried = base.drop, []
+
+    def drop(torrent_hash: str) -> bool:
+        tried.append(torrent_hash)
+        if cut == "refused":
+            return False
+        waiter = threading.Thread(target=CLAIMS.claimed, args=(torrent_hash,))
+        waiter.start()
+        waiter.join(0.2)  # держатель встал на замке, пока идёт снос
+        return real(torrent_hash)
+
+    monkeypatch.setattr(base, "drop", drop)
+    sweep, started = _inline()
+    sweep(URL, ROW)
+    started.pop()()
+    assert tried == [_hash(WARM_ROW)], "проход не оборвался на первом сносе"
+
+    monkeypatch.setattr(base, "drop", real)
+    sweep(URL, ROW)
+    assert started, "оборванный ряд отмечен убранным, остаток потерян"
+    started.pop()()
+    assert sorted(base.listed) == [_hash(n) for n in range(WARM_ROW)]
+    sweep(URL, ROW)
+    assert started == [], "доубранный ряд снова не сверяется"

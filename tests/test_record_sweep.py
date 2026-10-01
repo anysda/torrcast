@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass, field
 
 import pytest
@@ -56,9 +57,10 @@ def test_releases_of_records_beyond_the_first_are_removed() -> None:
     foreign = "f" * 40  # раздача поиска или показа, не из истории
     base = _Base({_hash(n) for n in range(WARM_ROW + 2)} | {foreign})
 
-    gone = record_sweep(base, _entries(WARM_ROW + 2), lambda h: False)
+    gone, whole = record_sweep(base, _entries(WARM_ROW + 2), lambda h: False)
 
     assert gone == base.dropped == [_hash(WARM_ROW), _hash(WARM_ROW + 1)]
+    assert whole
     assert base.listed == {_hash(n) for n in range(WARM_ROW)} | {foreign}
 
 
@@ -73,7 +75,7 @@ def test_a_release_in_use_is_spared() -> None:
 def test_a_release_the_service_does_not_have_is_not_removed() -> None:
     base = _Base({_hash(0)})
 
-    assert record_sweep(base, _entries(WARM_ROW + 2), lambda h: False) == []
+    assert record_sweep(base, _entries(WARM_ROW + 2), lambda h: False) == ([], True)
     assert base.dropped == []
 
 
@@ -94,7 +96,7 @@ def test_a_record_with_a_base32_magnet_is_swept_by_its_hex() -> None:
     hexed = "000102030405060708090a0b0c0d0e0f10111213"
     base = _Base({_hash(n) for n in range(WARM_ROW)} | {hexed})
 
-    assert record_sweep(base, entries, lambda h: False) == [hexed]
+    assert record_sweep(base, entries, lambda h: False) == ([hexed], True)
 
 
 class _Holder:
@@ -124,3 +126,49 @@ def test_a_release_taken_between_the_check_and_the_drop_survives() -> None:
         assert late in base.listed, "снос выдернул раздачу из-под держателя"
     finally:
         CLAIMS.unclaim(late, holder)
+
+
+#: Сетевой ``rem`` медленной или глухой службы; живьём он 0.006-0.08 с.
+SLOW = 0.4
+
+
+@dataclass
+class _Stuck(_Base):
+    """Служба отвечает на список, а на ``rem`` тянет; ``answer`` - принят ли снос в итоге."""
+
+    answer: bool = False
+    began: threading.Event = field(default_factory=threading.Event)
+
+    def drop(self, torrent_hash: str) -> bool:
+        self.began.set()
+        time.sleep(SLOW)
+        return self.answer and super().drop(torrent_hash)
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize("answer", [False, True], ids=["deaf", "slow"])
+def test_an_add_waits_for_one_drop_not_for_the_whole_sweep(answer: bool) -> None:
+    """🔴 Сетевой ``rem`` идёт под замком отметок, и заводящий раздачу ждал все сносы прохода.
+
+    Синтетика 01-10-2026: четыре раздачи за рядом и ``rem`` по 5 с держали «Играть» 19 с,
+    глухой ``rem`` - 39 с. Замок не честный: уборка перехватывала его между сносами.
+    """
+    base, holder, ff = (
+        _Stuck({_hash(n) for n in range(WARM_ROW + 4)}, answer=answer),
+        _Holder(),
+        "f" * 40,
+    )
+    sweep = threading.Thread(
+        target=record_sweep, args=(base, _entries(WARM_ROW + 4), lambda h: False)
+    )
+    sweep.start()
+    assert base.began.wait(3)
+    asked = time.monotonic()
+    try:
+        CLAIMS.adding(f"magnet:?xt=urn:btih:{ff}", holder, lambda magnet: ff)
+        waited = time.monotonic() - asked
+    finally:
+        CLAIMS.unclaim(ff, holder)
+    sweep.join(10)
+
+    assert waited < SLOW + 0.25, f"заводящий ждал {waited:.2f} с при сносе {SLOW} с"

@@ -32,18 +32,31 @@ class TorrentClaims:
         #: Держатель - сам живой объект, а не запись о нём: стенд, брошенный на исключении
         #: без уборки, уходит сборщику мусора вместе со своими отметками.
         self._owners: dict[str, list[weakref.ref[object]]] = {}
+        #: Кто-то ждал замка, пока шёл последний снос (:meth:`waited`).
+        self._waited = False
+
+    @contextlib.contextmanager
+    def _held(self) -> Iterator[None]:
+        """Замок отметок; не взялся с ходу - держатель ждёт, и уборка ему уступит."""
+        if not self._lock.acquire(blocking=False):
+            self._waited = True
+            self._lock.acquire()
+        try:
+            yield
+        finally:
+            self._lock.release()
 
     def claim(self, torrent_hash: str, owner: object) -> None:
         """Отметить, что ``owner`` держит раздачу; пустой хэш не отмечается."""
         if not torrent_hash:
             return
-        with self._lock:
+        with self._held():
             owners = self._alive(torrent_hash, owner)
             self._owners[torrent_hash] = [*owners, weakref.ref(owner)]
 
     def unclaim(self, torrent_hash: str, owner: object) -> bool:
         """Снять отметку ``owner``; правда - других держателей в процессе не осталось."""
-        with self._lock:
+        with self._held():
             owners = self._alive(torrent_hash, owner)
             if owners:
                 self._owners[torrent_hash] = owners
@@ -53,7 +66,7 @@ class TorrentClaims:
 
     def claimed(self, torrent_hash: str) -> bool:
         """Держит ли раздачу кто-нибудь в этом процессе."""
-        with self._lock:
+        with self._held():
             return bool(self._alive(torrent_hash, None))
 
     def _alive(self, torrent_hash: str, but: object) -> list[weakref.ref[object]]:
@@ -89,7 +102,17 @@ class TorrentClaims:
         проверка его видит, либо заводит раздачу после сноса заново.
         """
         with self._lock:
+            self._waited = False
             return drop(torrent_hash)
+
+    def waited(self) -> bool:
+        """Ждал ли кто-нибудь замка, пока шёл последний :meth:`dropping`.
+
+        Замок не честный: уборка, сносящая раздачи подряд, перехватывает его между сносами,
+        и заводящий раздачу ждал бы все её сетевые ``rem``, а не один. Уборка спрашивает
+        это после каждого сноса и уступает.
+        """
+        return self._waited
 
     @contextlib.contextmanager
     def kept(self, torrent_hash: str, owner: object) -> Iterator[None]:
