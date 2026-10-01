@@ -34,13 +34,24 @@ class TorrentClaims:
         self._owners: dict[str, list[weakref.ref[object]]] = {}
         #: Кто-то ждал замка, пока шёл последний снос (:meth:`waited`).
         self._waited = False
+        #: Сколько держателей стоят на замке прямо сейчас: метку снос сбрасывает, а очередь
+        #: за ним видна по счёту. Счёт меняется под своим замком, иначе гонка ``+=`` теряла бы
+        #: приращение, и уборка уступала бы вечно.
+        self._waiting = 0
+        self._counting = threading.Lock()
 
     @contextlib.contextmanager
     def _held(self) -> Iterator[None]:
         """Замок отметок; не взялся с ходу - держатель ждёт, и уборка ему уступит."""
         if not self._lock.acquire(blocking=False):
-            self._waited = True
-            self._lock.acquire()
+            with self._counting:
+                self._waiting += 1
+            try:
+                self._waited = True
+                self._lock.acquire()
+            finally:
+                with self._counting:
+                    self._waiting -= 1
         try:
             yield
         finally:
@@ -110,9 +121,10 @@ class TorrentClaims:
 
         Замок не честный: уборка, сносящая раздачи подряд, перехватывает его между сносами,
         и заводящий раздачу ждал бы все её сетевые ``rem``, а не один. Уборка спрашивает
-        это после каждого сноса и уступает.
+        это после каждого сноса и уступает. Держатель, вставший в очередь ещё до сноса,
+        виден по счёту: метку снос стёр, а ждать он продолжает.
         """
-        return self._waited
+        return self._waited or self._waiting > 0
 
     @contextlib.contextmanager
     def kept(self, torrent_hash: str, owner: object) -> Iterator[None]:
