@@ -160,6 +160,41 @@ const scenarios = {
     return { sentLast, ...outcome(p) };
   },
 
+  // Отметка «Отмены» прошлого показа k1 в ящике нового показа k2: k2 обычный - плашка
+  // ставится, доклады отметку не несут, по нулю счёта открывается следующая серия k3.
+  async pastCancelDoesNotMarkTheNextShow() {
+    const { p, live, go } = stand({ key: 'k2', url: 'http://stand/b.m3u8', at: 0, last: 'k1' });
+    p.mount();
+    await go(200);
+    p.video.duration = 100;
+    p.tick(91);
+    const mounted = shown(p);
+    live.box = { key: 'k3', url: 'http://stand/c.m3u8', at: 0, tv: false, last: 'k1' };
+    live.refuse = true;
+    p.tick(95);
+    await go(12000);
+    const sentLast = p.calls.position.some((one) => one.last === true);
+    return { mounted, sentLast, ...outcome(p) };
+  },
+
+  // Показ k2 без следующей серии погас, «Отмены» не было, а в ящике лежит отметка
+  // прошлого показа k1: прежний шаг назад, карточка сериала не открывается.
+  async pastCancelDoesNotSendTheEndToTheCard() {
+    const { p, live, go, closed, end } = stand({ key: 'k2', url: 'http://stand/b.m3u8', at: 0, last: 'k1' });
+    live.state = { state: 'playing', has_next: false, season: 1, episode: 11, title: TITLE };
+    p.mount();
+    await go(200);
+    p.video.duration = 100;
+    p.tick(91);
+    const mounted = shown(p);
+    end();
+    await go(1500);
+    closed('k1');
+    await go(5000);
+    const sentLast = p.calls.position.some((one) => one.last === true);
+    return { mounted, sentLast, ...outcome(p) };
+  },
+
   // Счёт плашки - реальные секунды видео: лента вдруг короче обещанного (осталось 3 с) -
   // и счёт тут же 3, а не 8, и переход по нулю приходит с концом ленты.
   async countFollowsTheRealRemainder() {

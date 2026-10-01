@@ -96,3 +96,24 @@ def test_the_countdown_follows_the_real_seconds_of_the_video(facts: dict[str, An
     """Лента вдруг короче (осталось 3 с) - счёт сразу 3, переход приходит с её концом."""
     said = _scenario(facts, "countFollowsTheRealRemainder")
     assert said["seen"] == ["10", "9", "3", "2", "1", None]
+
+
+def test_a_cancel_mark_of_a_past_show_leaves_the_next_one_as_usual(
+    facts: dict[str, Any],
+) -> None:
+    """Отметка прошлого показа k1 в ящике k2: сверка ключа в `TCPlayerBox.apply`."""
+    said = _scenario(facts, "pastCancelDoesNotMarkTheNextShow")
+    assert said["mounted"] is True, "чужая отметка сняла плашку следующей серии"
+    assert said["sentLast"] is False, "чужая отметка ушла в доклады нового показа"
+    assert said["key"] == "k3", "по нулю счёта следующая серия не открылась"
+    assert said["card"] == []
+
+
+def test_a_cancel_mark_of_a_past_show_does_not_send_the_end_to_the_card(
+    facts: dict[str, Any],
+) -> None:
+    """Показ без следующей серии погас, в ящике отметка k1: сверка ключа в `_endOfShow`."""
+    said = _scenario(facts, "pastCancelDoesNotSendTheEndToTheCard")
+    assert said["sentLast"] is False
+    assert said["card"] == [], "чужая отметка увела конец показа в карточку сериала"
+    assert said["back"] > 0, "вместо прежнего шага назад - ничего"
