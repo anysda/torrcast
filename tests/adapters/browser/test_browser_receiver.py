@@ -12,6 +12,7 @@ from torrcast.adapters.browser.browser_receiver import (
     BrowserReceiver,
 )
 from torrcast.adapters.browser.read_web_box import read_web_box
+from torrcast.adapters.browser.read_web_last import read_web_last
 from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_last import write_web_last
 from torrcast.adapters.browser.write_web_position import write_web_position
@@ -144,6 +145,36 @@ def test_a_cancel_mark_of_a_past_show_does_not_close_the_next_one(tmp_path: Path
     write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
 
     assert receiver.position() == Position(119.0, 120.0, False, "IDLE")
+
+
+def test_a_new_show_erases_the_cancel_mark_of_the_past_one(tmp_path: Path) -> None:
+    """Иначе ящик вкладки (`web/box.py`) отдавал бы чужой ``last`` каждому следующему показу."""
+    receiver = BrowserReceiver(tmp_path, clock=FakeClock())
+    receiver.play("http://x/a.m3u8", title="t", at=0.0)
+    write_web_last(tmp_path, read_web_box(tmp_path)["key"])
+
+    receiver.play("http://x/b.m3u8", title="t", at=0.0)
+
+    assert read_web_last(tmp_path) == ""
+
+
+def test_the_cancel_mark_of_the_show_outlives_its_end_and_stop(tmp_path: Path) -> None:
+    """«Отмена», серия доиграла, показ закрыт и снят - отметка жива: по ней вторая и
+    перезагруженная вкладка уходят в карточку сериала (`web/static/player.js`)."""
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_last(tmp_path, key)
+    write_web_position(tmp_path, key=key, pos=100.0, dur=120.0, phase="playing", wall=clock.wall())
+    receiver.position()
+    write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
+    closed = receiver.position().closed
+
+    receiver.stop()
+
+    assert closed is True
+    assert read_web_last(tmp_path) == key
 
 
 def test_silence_short_of_lost_after_is_not_yet_declared_lost(tmp_path: Path) -> None:
