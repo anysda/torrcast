@@ -9,8 +9,10 @@ import pytest
 
 from tests.fakes.receiver import FakeReceiver
 from tests.fakes.state_store import FakeStateStore
+from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.write_web_box import write_web_box
+from torrcast.adapters.browser.write_web_last import write_web_last
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.position import Position
@@ -163,3 +165,19 @@ def test_a_cast_of_another_show_is_no_cast_for_this_tab_and_is_taken_down(
         assert not SESSION.active()
     finally:
         SESSION.stop()
+
+
+def test_a_cancel_mark_outlives_the_box_so_a_reloaded_tab_learns_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TC-1390: конец показа снимает ящик, а ключ «Отмены» вкладка всё ещё узнаёт."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="t", at=0.0, key="k1")
+    write_web_last(tmp_path, "k1")
+
+    live = json.loads(box(_get()).body)
+    clear_web_box(tmp_path)
+    after = json.loads(box(_get()).body)
+
+    assert live["last"] == "k1" and live["key"] == "k1"
+    assert after == {"tv": False, "tab": _TAB, "last": "k1"}

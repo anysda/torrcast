@@ -48,6 +48,9 @@ const TCPlayer = {
     TCPlayer._ending = false;
     TCPlayer._hasNext = false;
     TCPlayer._awaitNext = false;
+    //: «Отмена» на плашке (TC-1390): эта серия последняя, на её конце - карточка сериала.
+    TCPlayer._lastOne = false;
+    TCPlayer._closing = false;
     TCPlayer._last = null;
     TCPlayer._tvMark = null;
     TCPlayer._leftSent = false;
@@ -152,7 +155,7 @@ const TCPlayer = {
         //: Отказ поднять следующую серию - тот же экран отказа, что у первого подъёма.
         if (TCPlayer._ending && !TCPlayer._pendingBox && state.state === 'idle') {
           if (refused) TCPlayer._screenRefused(state.refusal);
-          else TCPlayer._leave();
+          else TCPlayer._endOfShow(TCPlayer._last);
         }
         TCPlayer._last = state;
         TCPlayer._render(state);
@@ -217,9 +220,9 @@ const TCPlayer = {
     if (!video || !TCPlayer._key) return;
     const phase = video.ended ? 'ended' : video.paused ? 'paused'
       : video.readyState < 3 ? 'buffering' : 'playing';
-    const code = await TCApi.position({
-      key: TCPlayer._key, phase, pos: video.currentTime || 0, dur: video.duration || 0,
-    });
+    const said = { key: TCPlayer._key, phase, pos: video.currentTime || 0, dur: video.duration || 0 };
+    if (TCPlayer._lastOne) said.last = true;  // каждым докладом: отметку держит сервер (`web/position.py`)
+    const code = await TCApi.position(said);
     //: 409 - ящик уже подменён другим показом, и это единственный сигнал о смене,
     //: который вкладка получает даром (`player-box.js`).
     if (code === 409) await TCPlayerBox.rebox(TCPlayer);
@@ -264,6 +267,7 @@ const TCPlayer = {
   _startNext() {
     if (TCPlayer._ending) return;
     TCPlayer._ending = true;
+    if (TCPlayer._lastOne) return;  // «Отмена» уже была (перезагрузка): конец разберёт `_endOfShow`
     if (!TCPlayer._hasNext) {
       if (TCPlayer._awaitNext) {
         TCPlayer._screenBuffering();
@@ -278,6 +282,7 @@ const TCPlayer = {
       TCPlayer._overlay,
       () => TCPlayer._playNext(),
       () => TCPlayer._cancelNext(),
+      () => TCPlayer._video.duration - TCPlayer._video.currentTime,
     );
   },
 
@@ -294,10 +299,49 @@ const TCPlayer = {
   //: условием заново - плашка возвращалась на «10» через четверть секунды после
   //: своей же «Отмена» (найдено ревью мержера 17-09-2026, до выката не дошло).
   //: Снимает флаг только `TCPlayerBox.apply()`, когда ящик правда сменится.
+  //:
+  //: Во вкладке «Отмена» - ещё и слово серверу (TC-1390, решение владельца по TC-1394):
+  //: следующую серию заводит показ, а не вкладка, и без слова он заводил её на `ended`.
+  //: Доклад уходит сразу, не ждёт очереди: серия может кончиться раньше счёта. На ТВ
+  //: показ ведёт приёмник, и «Отмена» остаётся местной, как была.
   _cancelNext() {
     TCPlayer._counting = false;
     TCPlayer._pendingBox = null;
     TCPlayer._clearOverlay();
+    if (TCPlayer._onTv) return;
+    TCPlayer._lastOne = true;
+    TCPlayer._sendPosition();
+  },
+
+  //: Показ кончился без следующей серии. После «Отмены» (своей, или чужой вкладки - её
+  //: ключ называет ящик) - карточка сериала, иначе прежний уход назад. ``prev`` - снимок
+  //: `/api/state` ДО погасшего: у `idle` названия картины уже нет.
+  async _endOfShow(prev) {
+    if (TCPlayer._closing) return;
+    TCPlayer._closing = true;
+    let last = TCPlayer._lastOne;
+    if (!last) {
+      const box = await TCApi.box();
+      last = !!box && !!box.last && box.last === TCPlayer._key;
+    }
+    if (last) await TCPlayer._openSeries(prev);
+    else TCPlayer._leave();
+  },
+
+  //: Карточка сериала тем же путём, что и плитка полки «Продолжить» (`home.js`
+  //: `_continue` -> `TCRouter.card`): закладка из `/api/history`, найденная по имени.
+  async _openSeries(prev) {
+    const title = (prev || {}).title;
+    const items = title ? await TCApi.history() : [];
+    const item = items.find((one) => (one.shown || one.title) === title);
+    if (!item) {
+      TCPlayer._leave();
+      return;
+    }
+    TCPlayer._callOff();
+    const facts = item.year && item.kind
+      ? { title: item.title, shown: item.shown || item.title, year: item.year, kind: item.kind } : null;
+    TCRouter.card(item.key, item.query || item.title, facts);
   },
 
   //: Серия, которая играет в эту секунду, поимённо - тело ``POST /api/next`` у кнопки

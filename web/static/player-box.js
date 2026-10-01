@@ -64,6 +64,12 @@ const TCPlayerBox = {
     TCPlayerBox._tv(player, !!box.tv);
     if (!box.url || !box.key || box.key === player._key) return false;
     if (box.key === sessionStorage.getItem(TCPlayerBox.STALE)) return false;
+    // Новый показ после «Отмены»: сервер успел завести следующую серию раньше слова
+    // вкладки (серия кончилась до клика). Не играем её - снимаем и в карточку сериала.
+    if (player._lastOne && player._key) {
+      player._endOfShow(player._last);
+      return true;
+    }
     // Ящик по заказу ЭТОЙ вкладки: уход до его первого кадра снимает показ (`_callOff`).
     player._ordered = sessionStorage.getItem(TCPlayerBox.STALE) !== null;
     TCPlayerBox.dropStale();
@@ -85,6 +91,8 @@ const TCPlayerBox = {
     // Потолок запаса вкладки ставится ДО `_attach`: он уходит в настройки `Hls`, а тот
     // создаётся ровно там и переживает весь показ.
     player._tab = box.tab || null;
+    // «Отмена» на этом показе уже была - в другой вкладке или до перезагрузки (TC-1390).
+    player._lastOne = !!box.last && box.last === box.key;
     // Новая серия имеет право на свою плашку отсчёта: она уже не та, что доигралa.
     // `_ending` снимается ЗДЕСЬ, а не раньше в `_playNext()` (`player.js`): до этой
     // строки видео могло ещё стоять на старой, уже прошедшей длительности, и снятый

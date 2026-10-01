@@ -24,6 +24,7 @@ from typing import Final
 
 from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.clear_web_position import clear_web_position
+from torrcast.adapters.browser.read_web_last import read_web_last
 from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.system_clock import CLOCK
@@ -186,8 +187,8 @@ class BrowserReceiver:
             return Position(self._held, dur, True, _LOST, stale=True)
         if phase == "paused":
             return Position(pos, dur, False, "PAUSED")
-        if phase == "ended":
-            return Position(pos, dur, False, "IDLE")
+        if phase == "ended":  # после «Отмены» на плашке - конец без следующей серии (TC-880)
+            return Position(pos, dur, False, "IDLE", closed=read_web_last(self.out) == self._key)
         if phase == "buffering":
             return Position(pos, dur, True, "BUFFERING")
         return Position(pos, dur, True, "PLAYING")

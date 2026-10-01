@@ -132,6 +132,8 @@ def test_cancel_removes_the_card_and_holds_off_the_transition(
     # Свежий ящик после «Отмена» находится и применяется как обычно.
     assert said["reboxResult"] is True, "rebox() после «Отмена» не нашла новый ящик"
     assert said["reboxedKey"] == "k3", "новый ящик после «Отмена» не применился"
+    # TC-1390: на ТВ «Отмена» остаётся местной - отметки последней серии вкладка не шлёт.
+    assert said["saidLast"] is False, "на ТВ вкладка сказала серверу «последняя серия»"
 
 
 @pytest.mark.machine

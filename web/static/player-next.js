@@ -11,7 +11,10 @@ const TCPlayerNext = {
   // ``onPlay`` зовётся и по истечении счётчика, и по клику «Смотреть» - ровно один раз.
   // Сервер он не зовёт: следующую серию ищет живой юнит, а ``onPlay`` лишь открывает
   // его новый ящик (`TCPlayer._playNext`).
-  mount(root, onPlay, onCancel) {
+  //:
+  //: ``remaining`` - сколько секунд видео осталось на самом деле. Счёт не больше этого
+  //: остатка (TC-1390): лента бывает короче обещанных 10 с, и «через 10» кончалось на 8-й.
+  mount(root, onPlay, onCancel, remaining) {
     const card = document.createElement('div');
     card.className = 'tc-next';
     card.dataset.tcNextEpisode = '1';
@@ -60,6 +63,11 @@ const TCPlayerNext = {
     now.focus();
 
     let left = TCPlayerNext.SECONDS;
+    const honest = () => {
+      const real = remaining ? remaining() : NaN;
+      if (real >= 0) left = Math.min(left, Math.ceil(real));
+    };
+    honest();
     const paint = () => {
       badge.textContent = TC.say('web.player.next_in', { n: left });
       fill.style.width = (100 * (TCPlayerNext.SECONDS - left)) / TCPlayerNext.SECONDS + '%';
@@ -73,6 +81,7 @@ const TCPlayerNext = {
     // мёртвой на «0» до следующей перерисовки (`card.remove()` не звался в этой ветке).
     const timer = setInterval(() => {
       left -= 1;
+      honest();
       if (left <= 0) {
         stop();
         onPlay();

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.fakes.receiver import FakeReceiver
+from torrcast.adapters.browser.read_web_last import read_web_last
 from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.browser.write_web_position import write_web_position
@@ -172,3 +173,51 @@ def test_the_first_playing_second_of_the_tab_measures_the_lift(
     position(_post({"key": "k1", "pos": 0.4, "dur": 120.0, "phase": "playing"}))
 
     assert START.seen() is None, "вкладка играет, а ожидание всё ещё на экране"
+
+
+def test_cancel_in_the_tab_marks_the_show_as_the_last_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«Отмена» на плашке (TC-1390): ключ показа ложится отметкой для приёмника-вкладки."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="u", title="t", at=0.0, key="k1")
+    plain = position(_post({"key": "k1", "pos": 30.0, "dur": 120.0, "phase": "playing"}))
+    before = read_web_last(tmp_path)
+
+    answer = position(
+        _post({"key": "k1", "pos": 31.0, "dur": 120.0, "phase": "playing", "last": True})
+    )
+
+    assert plain.code == 204 and before == "", "отметка без «Отмены»"
+    assert answer.code == 204
+    assert read_web_last(tmp_path) == "k1"
+
+
+def test_cancel_for_a_stale_key_marks_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="u", title="t", at=0.0, key="k2")
+
+    answer = position(_post({"key": "k1", "pos": 1.0, "dur": 2.0, "phase": "ended", "last": True}))
+
+    assert answer.code == 409
+    assert read_web_last(tmp_path) == ""
+
+
+def test_cancel_while_the_show_is_on_tv_leaves_the_next_episode_to_the_tv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Путь ТВ не меняется: переход там ведёт приёмник, отметки от вкладки нет."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="u", title="t", at=0.0, key="k1")
+    _casting(monkeypatch, key="k1")
+    try:
+        answer = position(
+            _post({"key": "k1", "pos": 30.0, "dur": 120.0, "phase": "ended", "last": True})
+        )
+    finally:
+        SESSION.stop()
+
+    assert answer.code == 204
+    assert read_web_last(tmp_path) == ""

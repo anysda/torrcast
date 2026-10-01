@@ -13,6 +13,7 @@ from torrcast.adapters.browser.browser_receiver import (
 )
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.read_web_position import read_web_position
+from torrcast.adapters.browser.write_web_last import write_web_last
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.domain.position import Position
 from torrcast.domain.profile import ANDROID_TV
@@ -110,6 +111,35 @@ def test_an_ended_report_is_read_as_idle_not_playing(tmp_path: Path) -> None:
     clock = FakeClock()
     receiver = BrowserReceiver(tmp_path, clock=clock)
     receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
+
+    assert receiver.position() == Position(119.0, 120.0, False, "IDLE")
+
+
+def test_an_ended_report_after_cancel_closes_the_show_without_a_next_episode(
+    tmp_path: Path,
+) -> None:
+    """«Отмена» на плашке (TC-1390): конец серии - закрытие зрителем, путь TC-880."""
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock)
+    receiver.play("http://x/out.m3u8", title="t", at=0.0)
+    key = read_web_box(tmp_path)["key"]
+    write_web_last(tmp_path, key)
+    write_web_position(tmp_path, key=key, pos=100.0, dur=120.0, phase="playing", wall=clock.wall())
+    playing = receiver.position()
+    write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
+
+    assert playing == Position(100.0, 120.0, True, "PLAYING"), "серия обязана доиграть"
+    assert receiver.position() == Position(119.0, 120.0, False, "IDLE", closed=True)
+
+
+def test_a_cancel_mark_of_a_past_show_does_not_close_the_next_one(tmp_path: Path) -> None:
+    clock = FakeClock()
+    receiver = BrowserReceiver(tmp_path, clock=clock)
+    receiver.play("http://x/a.m3u8", title="t", at=0.0)
+    write_web_last(tmp_path, read_web_box(tmp_path)["key"])
+    receiver.play("http://x/b.m3u8", title="t", at=0.0)
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
 

@@ -49,7 +49,7 @@ function player(server) {
   const overlayRoot = doc.body;
   const calls = {
     next: [], control: [], position: [], left: [], boxPolls: 0, statePolls: 0,
-    routerGo: [], historyBack: 0,
+    routerGo: [], historyBack: 0, card: [], history: 0,
   };
 
   const ctx = {
@@ -76,7 +76,10 @@ function player(server) {
     addEventListener() {},
     TC: { say: (key) => key, phrases: {} },
     TCTime: { clock: (s) => String(s) },
-    TCRouter: { go(path) { calls.routerGo.push(path); }, card() {} },
+    TCRouter: {
+      go(path) { calls.routerGo.push(path); },
+      card(key, query, facts) { calls.card.push([key, query, facts]); },
+    },
     Hls: hlsStub(time),
     TCApi: {
       async box() {
@@ -95,6 +98,12 @@ function player(server) {
         return server.position ? server.position(said) : 200;
       },
       left(said) { calls.left.push(said); },
+      // ``history()`` - закладки ``/api/history``; сценарий без них получает пустой список.
+      async history() {
+        calls.history += 1;
+        await new Promise((done) => time.setTimeout(done, latency));
+        return server.history ? server.history() : [];
+      },
       async next(ended) { calls.next.push(ended); return true; },
       async control(cmd, arg) { calls.control.push([cmd, arg]); return { ok: true }; },
       async toTv() { return true; },

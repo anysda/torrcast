@@ -12,6 +12,7 @@ import json
 from urllib.parse import urlsplit
 
 from torrcast.adapters.browser.read_web_box import read_web_box
+from torrcast.adapters.browser.read_web_last import read_web_last
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.usecases.playback.hls_root import hls_root
 from web.answer import Answer
@@ -55,7 +56,11 @@ def box(request: Request) -> Answer:
     # что применяет ящик (`web/static/player-box.js`), и второго похода на сервер ради
     # двух чисел заводить незачем.
     tab = {"seconds": settings.hls_tab_buffer, "bytes": int(settings.hls_tab_bytes * 1_000_000)}
-    return Answer(200, json.dumps({**seen, "tv": tv_live(seen), "tab": tab}).encode())
+    # ``last`` - ключ показа, на котором нажали «Отмену» следующей серии: перезагруженная и
+    # вторая вкладка сверяют его со своим ключом. Ящик конец показа снимает, а отметка живёт.
+    last = read_web_last(out)
+    said = {**seen, "tv": tv_live(seen), "tab": tab, **({"last": last} if last else {})}
+    return Answer(200, json.dumps(said).encode())
 
 
 def _tab_stream(seen: dict[str, object], configured_base: str) -> dict[str, object]:

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TypeGuard
 
 from torrcast.adapters.browser.read_web_box import read_web_box
+from torrcast.adapters.browser.write_web_last import write_web_last
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.system_clock import CLOCK
@@ -67,5 +68,9 @@ def position(request: Request) -> Answer:
     # его ключ отсеян выше отказом ``409``.
     if phase == "playing" and pos > 0:
         START.landed()
+    # «Отмена» на плашке следующей серии (TC-1390): эта серия доигрывает, а следующую
+    # показ не заводит. Ниже ТВ-ветки нарочно: каст переходит сам, как и прежде.
+    if body.get("last") is True:
+        write_web_last(out, key)
     write_web_position(out, key=key, pos=pos, dur=dur, phase=phase, wall=CLOCK.wall())
     return Answer(204, b"")

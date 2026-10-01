@@ -18,8 +18,8 @@ function buttons(p) {
 
 // Сериал: снимок называет серию, ``has_next`` взят от `hass/following.py`
 // (``None`` - фильм, последняя серия или тишина; тут наоборот, серия впереди есть).
-function seriesServer(episode = { season: 1, episode: 2 }) {
-  let box = { key: 'k1', url: 'http://stand/a.m3u8', at: 0 };
+function seriesServer(episode = { season: 1, episode: 2 }, tv = false) {
+  let box = { key: 'k1', url: 'http://stand/a.m3u8', at: 0, tv };
   return {
     server: {
       box: () => box,
@@ -63,7 +63,7 @@ const scenarios = {
     p.tick(88.9); // до конца 11.1 с - ещё не порог
     const beforeThreshold = !!overlayCard(p);
 
-    p.tick(94.5); // до конца 5.5 с - внутри обещанных 10, а не только внутри старой 1 с
+    p.tick(90.5); // до конца 9.5 с - внутри обещанных 10, а не только внутри старой 1 с
     const atThreshold = !!overlayCard(p);
 
     await p.time.run(9200); // девять тиков счётчика: 10 -> 1, карточка ещё висит
@@ -91,8 +91,11 @@ const scenarios = {
   // сбросить его вместе со счётом - иначе он остаётся сидеть в поле навсегда и позже
   // (`_playNext()`, следующая карточка) применится вместо свежего, замораживая кадр
   // (находка мержера: удалённая строка `_pendingBox = null;` в `_cancelNext()`).
+  //
+  //: Это путь ТВ (ящик с ``tv: true``): там «Отмена» местная, и следующую серию ведёт
+  //: приёмник. Во вкладке «Отмена» - слово серверу (`cancelInTab*` ниже, TC-1390).
   async seriesCancelHolds() {
-    const { server, setBox } = seriesServer();
+    const { server, setBox } = seriesServer(undefined, true);
     const p = player(server);
     p.mount();
     await p.time.run(200);
@@ -100,7 +103,7 @@ const scenarios = {
     p.tick(94.5);
     const mounted = !!overlayCard(p);
 
-    setBox({ key: 'k2', url: 'http://stand/b.m3u8', at: 0 });
+    setBox({ key: 'k2', url: 'http://stand/b.m3u8', at: 0, tv: true });
     p.ctx.TCPlayerBox.rebox(p.ctx.TCPlayer);
     await p.time.run(700); // ящик найден и лёг в _pendingBox, счёт ещё не дотикал
     const pendingKeyBeforeCancel = p.ctx.TCPlayer._pendingBox && p.ctx.TCPlayer._pendingBox.key;
@@ -117,7 +120,7 @@ const scenarios = {
 
     // Свежий ящик после «Отмена» находится и применяется как обычно - вкладка не
     // обязана виснуть на замёрзшем кадре навеки.
-    setBox({ key: 'k3', url: 'http://stand/c.m3u8', at: 0 });
+    setBox({ key: 'k3', url: 'http://stand/c.m3u8', at: 0, tv: true });
     let reboxResult = null;
     p.ctx.TCPlayerBox.rebox(p.ctx.TCPlayer).then((said) => { reboxResult = said; });
     await p.time.run(21200); // время у часов уже 20900 - лимит абсолютный, не длительность
@@ -128,6 +131,7 @@ const scenarios = {
       nextCalls: p.calls.next.length,
       pendingKeyBeforeCancel, pendingBoxAfterCancel,
       reboxResult, reboxedKey,
+      saidLast: p.calls.position.some((one) => one.last === true),
     };
   },
 
