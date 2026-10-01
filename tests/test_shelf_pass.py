@@ -207,6 +207,23 @@ def test_a_shelf_without_a_single_cover_waits_out_the_silence(tmp_path: Path) ->
     assert not shown._growing()
 
 
+def test_a_late_feed_does_not_push_the_first_cold_pass_past_its_start(tmp_path: Path) -> None:
+    """Лента пришла поздно: обложки ждут ``FILL_BY`` от старта фона, а не от вопроса.
+
+    Замер 01-10-2026: вопрос на 4.7 с, срок от него - 29.7 с, счётчик погас на 30.9 с.
+    """
+    cache = _cache(tmp_path, 3)
+    cache.arriving = lambda _records: True  # some cover is always still on its way
+    cache.playable = lambda _query, _key: True
+    cache.born = time.monotonic() - FILL_BY + 0.5
+    began = time.monotonic()
+
+    ShelfPass(cache, _rows(3), _MOMENT, {}).run()
+
+    assert time.monotonic() - began < 5.0
+    assert not cache.filling
+
+
 def test_a_saved_shelf_missing_one_row_is_rebuilt_as_cold(tmp_path: Path) -> None:
     """Тело этого правила без одной полки не тёплое: пустая полка встаёт до приговоров.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -377,6 +378,21 @@ def test_get_starts_the_background_loop_exactly_once(tmp_path: Path) -> None:
     cache.get()
 
     assert len(calls) == 1
+
+
+def test_the_background_start_is_the_moment_the_first_cold_pass_counts_from(
+    tmp_path: Path,
+) -> None:
+    """Старт фона помечен мигом: от него первый холодный заход считает срок обложек."""
+    cache = _cache(tmp_path, spawn=lambda job: None)
+    before = time.monotonic()
+
+    cache.get()
+    born = cache.born
+    cache.get()
+
+    assert before <= born <= time.monotonic()
+    assert cache.born == born
 
 
 def test_the_loop_rebuilds_then_sleeps_for_the_configured_period(tmp_path: Path) -> None:

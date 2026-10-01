@@ -79,6 +79,7 @@ class ShelvesCache:
     early: bool = False
     filling: bool = field(default=False, repr=False, compare=False)
     settling: bool = field(default=False, repr=False, compare=False)
+    born: float = field(default=0.0, repr=False, compare=False)
     _origin: dict[str, JsonValue] = field(default_factory=dict, repr=False, compare=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     _body: dict[str, JsonValue] | None = field(default=None, repr=False, compare=False)
@@ -102,6 +103,7 @@ class ShelvesCache:
             if self._started:
                 return
             self._started = True
+            self.born = time.monotonic()
         self.filling = self.settling = self.early and cold(self._body or self._load())
         self.spawn(self._loop)
 

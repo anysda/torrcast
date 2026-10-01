@@ -24,15 +24,13 @@ from web.build_shelf import build_shelf
 from web.built_by_rule import FIELD, RULE
 from web.cold import SHELVES, cold
 from web.drop_count import DropCount
+from web.fill_deadline import FILL_BY, fill_deadline
 from web.shelf_judge import Verdict, shelf_judge
 from web.shelf_lane import shelf_lane
 from web.shelf_pictures import shelf_pictures
 from web.shelf_seeds import shelf_seeds
 from web.shelf_tiles import Offer, PassportOf, Playable, shelf_tiles
 
-#: Сколько холодный заход ждёт доезда обложек, прежде чем считать очередь полки полной:
-#: гонка источников отвечает за 1.5 с, опоздавшие ложатся до ~24 с (:mod:`hass.both_posters`).
-FILL_BY: Final = 25.0
 #: Ни одна обложка не легла, а они в пути (тишина 429): ждать до потолка, а не заглушки до часа.
 SILENT_BY: Final = 120.0
 
@@ -42,6 +40,7 @@ class _Cache(Protocol):
 
     filling: bool
     settling: bool
+    born: float  # when the background started: the first cold pass counts from it
 
     @property
     def catalogue(self) -> TorrentCatalogue: ...
@@ -112,7 +111,7 @@ class ShelfPass:
         if self.early and cache.ask is not None:
             # One ask for both shelves: the covers race once, not twice in a row.
             self._joint, self._fresh = seeds["fresh"] + seeds["popular"], len(seeds["fresh"])
-            self._deadline = time.monotonic() + FILL_BY
+            self._deadline = fill_deadline(time.monotonic(), self.cache.born)
             self._split(cache.ask(self._joint))
         else:
             self.looked = {shelf: cache.offer(seeds[shelf]) for shelf in SHELVES}
