@@ -15,3 +15,6 @@ class NotFoundError(TorrcastError):
     banned: tuple[str, ...] = ()
     #: Who refused behind an empty page while the search ran: a refusal, not a silence.
     refused: tuple[str, ...] = ()
+    #: Every release the selection touched stayed silent: the swarm said nothing about the
+    #: picture, so the refusal is no verdict on it (:func:`web.voice_lookup.VoiceLookup.shelf_of`).
+    swarm: bool = False

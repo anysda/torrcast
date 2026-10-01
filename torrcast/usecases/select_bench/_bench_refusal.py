@@ -49,9 +49,11 @@ def _bench_refusal(
     offer = kin_line(plan.kin)
     tail = f"\n{offer}" if offer else ""
     if silents == len(tried) and tried:
-        raise NotFoundError(
+        silence = NotFoundError(
             silent_swarm(plan, queue, len(tried), f"{shown}{more}", picked=picked) + tail
         )
+        silence.swarm = True
+        raise silence
     refused = phrase("select_bench.refusal_none_fit", shown=shown, more=more)
     if tried and voiceless == len(tried):
         refused = phrase("select_bench.refusal_no_voice", count=len(tried))

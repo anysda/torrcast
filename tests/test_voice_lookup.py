@@ -169,6 +169,21 @@ def test_a_shelf_reads_a_release_without_tracks_as_a_known_empty_answer(
     assert lookup.shelf_of(_PLAN, "film", _CONFIG) == (None, False, True)
 
 
+def test_a_shelf_reads_a_queue_whose_swarms_all_kept_silent_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Рой не ответил ни у одной тронутой раздачи: о картине не известно ничего.
+
+    Под нагрузкой DHT так молчат и живые раздачи («Унабомбер» играл в 17 приговорах из 18),
+    и «не играет» снимало бы с полки годную плитку.
+    """
+    silence = NotFoundError("swarm kept silent")
+    silence.swarm = True
+    lookup = _lookup(monkeypatch, _Bench(silence), spawn=_sync)
+
+    assert lookup.shelf_of(_PLAN, "film", _CONFIG) == (None, False, False)
+
+
 _KEPT = Release(raw_name="Film 2010 1080p", title="Film", magnet="magnet:?xt=urn:btih:" + "a" * 40)
 _KEPT_PLAN = Plan(picture=_PICTURE, ranked=[_RELEASE, _KEPT], runtime=0, warn_mbit=0)
 

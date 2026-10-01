@@ -20,6 +20,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.magnet_hash import magnet_hash
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.pick_settings import PICK_BUDGET
 from torrcast.domain.profile import Profile
 from torrcast.domain.torrcast_error import TorrcastError
@@ -159,8 +160,8 @@ class VoiceLookup:
                 prep = warm.prep
         except InfraError:
             failed = True
-        except TorrcastError:
-            prep = None
+        except TorrcastError as refusal:  # промолчавший рой - не «дорожек нет», а «не знаю»
+            failed = isinstance(refusal, NotFoundError) and refusal.swarm
         finally:
             foreign = pinned and prep is not None and info_hash(prep.release) != release
             if fresh and not released:  # чужую закладке раздачу не греют: играть её не будут

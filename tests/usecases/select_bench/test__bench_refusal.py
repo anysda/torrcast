@@ -26,14 +26,17 @@ def test_a_queue_that_only_kept_silent_is_named_a_silent_swarm() -> None:
         _bench_refusal(plan(_RANKED), [1, 2, 3], tried, silents=2, exhausted=False, picked=None)
 
     assert "раздач в выдаче 3, потрогали 2" in str(refusal.value)
+    assert refusal.value.swarm, "молчание роя должно быть видно полке типом отказа, не текстом"
 
 
 def test_a_verdict_among_the_tried_makes_it_a_refusal_of_the_selection() -> None:
     """Хоть один приговор - и это уже отказ отбора, а не молчание роя."""
     tried = ["1 - тяжелее потолка", "2 - не дождались за 20 с"]
 
-    with pytest.raises(NotFoundError, match="годного релиза нет"):
+    with pytest.raises(NotFoundError, match="годного релиза нет") as refusal:
         _bench_refusal(plan(_RANKED), [1, 2, 3], tried, silents=1, exhausted=False, picked=None)
+
+    assert not refusal.value.swarm
 
 
 def test_an_unfinished_queue_offers_a_manual_choice() -> None:
