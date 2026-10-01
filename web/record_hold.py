@@ -34,7 +34,7 @@ from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show
 from web.record_release import record_release
 from web.record_warm import RecordWarm
-from web.sweep_later import sweep_later
+from web.sweep_later import SWEEP_LATER
 from web.warm_job import WarmJob
 
 #: Как часто страница называет свои записи; то же число стоит в ``web/static/warm.js``.
@@ -72,8 +72,7 @@ class RecordHold:
     wait: Callable[[float], object] = time.sleep
     spawn: Callable[[Callable[[], None]], None] = _thread
     warmer: RecordWarm = field(default_factory=RecordWarm)
-    sweep: Callable[[str], None] = sweep_later
-    _swept: tuple[str, ...] | None = field(default=None, repr=False)
+    sweep: Callable[[str, tuple[str, ...]], None] = field(default_factory=lambda: SWEEP_LATER)
     _keys: dict[str, str] = field(default_factory=dict, repr=False)
     _lease: dict[str, float] = field(default_factory=dict, repr=False)
     _held: set[str] = field(default_factory=set, repr=False)
@@ -100,11 +99,9 @@ class RecordHold:
                     fresh.append(magnet)
             named = [magnet for magnet in magnets if magnet in self._queue]
             self._queue = named + [m for m in self._queue if m not in named] + fresh
-            moved, self._swept = row != self._swept, row
         # Цели прогрева - первые записи ряда; карточка и вторая вкладка их не переписывают.
         self.warmer.name([entries[key].magnet for key in row if entries[key].magnet])
-        if moved:
-            self.sweep(base_url)
+        self.sweep(base_url, row)
         for magnet in fresh:
             self.spawn(lambda magnet=magnet: self._hold(base_url, magnet))  # type: ignore[misc]
         return len(fresh)

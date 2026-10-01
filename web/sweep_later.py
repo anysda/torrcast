@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Final
 
 from torrcast.adapters.torrserver.torr_server import TorrServer
@@ -18,20 +20,54 @@ from web.record_warm import _showing
 TIMEOUT: Final = 10.0
 
 
-def _sweep_records(base_url: str) -> None:
-    """Сверить базу службы с рядом; идёт показ - ничего не трогать до следующего раза."""
+def _sweep_records(base_url: str) -> bool:
+    """Одна сверка; правда - она прошла, а не уступила показу и не упёрлась в молчание."""
     if _showing():
-        return
+        return False
     with contextlib.suppress(TorrcastError):
-        gone = record_sweep(
-            TorrServer(base_url, timeout=TIMEOUT), store().load().entries, _held_by_show
-        )
+        engine = TorrServer(base_url, timeout=TIMEOUT)
+        gone = record_sweep(engine, store().load().entries, _held_by_show)
         if gone:
             journal().mark("уборка записей", снесено=len(gone))
+        return True
+    return False
 
 
-def sweep_later(base_url: str) -> None:
-    """:func:`_sweep_records` фоном: зовут её касание ряда и старт службы."""
-    threading.Thread(
-        target=_sweep_records, args=(base_url,), name="torrcast-record-sweep", daemon=True
-    ).start()
+def _thread(work: Callable[[], None]) -> None:
+    threading.Thread(target=work, name="torrcast-record-sweep", daemon=True).start()
+
+
+@dataclass
+class SweepLater:
+    """Сверка фоном по одной за раз; ряд считается убранным, только когда сверка прошла.
+
+    Пропущенная (идёт показ, служба молчит) не теряется: следующее касание того же ряда
+    зовёт её снова. Зовут касание ряда (:mod:`web.record_hold`) и старт службы.
+    """
+
+    spawn: Callable[[Callable[[], None]], None] = _thread
+    _done: tuple[str, ...] | None = field(default=None, repr=False)
+    _busy: bool = field(default=False, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def __call__(self, base_url: str, row: tuple[str, ...] = ()) -> None:
+        """Сверить базу службы под ряд ``row``, если он ещё не убран и сверка не идёт."""
+        with self._lock:
+            if self._busy or row == self._done:
+                return
+            self._busy = True
+        self.spawn(lambda: self._run(base_url, row))
+
+    def _run(self, base_url: str, row: tuple[str, ...]) -> None:
+        swept = False
+        try:
+            swept = _sweep_records(base_url)
+        finally:
+            with self._lock:
+                self._busy = False
+                if swept:
+                    self._done = row
+
+
+#: Сверка процесса: касания всех вкладок и старт службы идут через одну, не наперегонки.
+SWEEP_LATER: Final = SweepLater()

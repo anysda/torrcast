@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
+
+import pytest
 
 from torrcast.domain.continue_row import WARM_ROW
 from torrcast.domain.entry import Entry
+from torrcast.domain.torrent_hash import _torrent_hash
+from torrcast.usecases.torrent_claims import CLAIMS
 from web.record_sweep import record_sweep
 
 
@@ -42,6 +47,10 @@ class _Base:
         self.listed.discard(torrent_hash)
         return True
 
+    def add(self, magnet: str) -> str:
+        self.listed.add(_torrent_hash(magnet))
+        return _torrent_hash(magnet)
+
 
 def test_releases_of_records_beyond_the_first_are_removed() -> None:
     foreign = "f" * 40  # раздача поиска или показа, не из истории
@@ -76,3 +85,42 @@ def test_a_watched_record_leaves_the_row_and_its_release_goes() -> None:
     record_sweep(base, entries, lambda h: False)
 
     assert base.dropped == [_hash(0)]
+
+
+def test_a_record_with_a_base32_magnet_is_swept_by_its_hex() -> None:
+    """Без перевода в hex такая запись не убиралась, и её кэш лежал в службе вечно."""
+    entries = _entries(WARM_ROW + 1)
+    entries[f"k{WARM_ROW}"].magnet = "magnet:?xt=urn:btih:AAAQEAYEAUDAOCAJBIFQYDIOB4IBCEQT&dn=x"
+    hexed = "000102030405060708090a0b0c0d0e0f10111213"
+    base = _Base({_hash(n) for n in range(WARM_ROW)} | {hexed})
+
+    assert record_sweep(base, entries, lambda h: False) == [hexed]
+
+
+class _Holder:
+    """Держатель записи, заводящий её раздачу (:meth:`TorrentClaims.adding`)."""
+
+
+@pytest.mark.machine
+def test_a_release_taken_between_the_check_and_the_drop_survives() -> None:
+    """🔴 Гонка уборки на старте: держатель заводил плитку между проверкой и сносом.
+
+    Снос выдёргивал заведённую раздачу, держатель ждал её метаданных впустую и глушил
+    плитку на пять минут. Под замком отметок держатель заводит её после сноса заново.
+    """
+    late = _hash(WARM_ROW)
+    base, holder = _Base({_hash(n) for n in range(WARM_ROW + 1)}), _Holder()
+    magnet = f"magnet:?xt=urn:btih:{late}&dn=film"
+    took = threading.Thread(target=CLAIMS.adding, args=(magnet, holder, base.add))
+
+    def checked(torrent_hash: str) -> bool:
+        took.start()  # держатель пришёл сразу после проверки «ничья ли»
+        took.join(0.3)
+        return False
+
+    try:
+        record_sweep(base, _entries(WARM_ROW + 1), checked)
+        took.join(3)
+        assert late in base.listed, "снос выдернул раздачу из-под держателя"
+    finally:
+        CLAIMS.unclaim(late, holder)

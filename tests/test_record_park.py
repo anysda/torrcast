@@ -87,7 +87,7 @@ def test_twenty_home_openings_leave_no_more_than_the_first_records_in_the_servic
     base = _Base()
     page = _Page(entries, base)
 
-    def sweep_now(url: str) -> None:
+    def sweep_now(url: str, row: tuple[str, ...]) -> None:
         record_sweep(base, entries, CLAIMS.claimed)
 
     page.holder.sweep = sweep_now
@@ -102,17 +102,19 @@ def test_twenty_home_openings_leave_no_more_than_the_first_records_in_the_servic
     assert len(base.db) <= WARM_ROW, f"в базе службы {len(base.db)} раздач истории"
 
 
-def test_the_row_is_swept_once_per_change_of_its_first_records(state: FakeStateStore) -> None:
+def test_every_touch_hands_the_first_records_of_the_row_to_the_sweep(
+    state: FakeStateStore,
+) -> None:
+    """Сверку зовут с рядом: убран ли он, решает она сама (:class:`web.sweep_later.SweepLater`)."""
     entries = _row(WARM_ROW + 1)
     page = _Page(entries, _live())
-    for _ in range(5):
-        page.holder.touch(URL, ["k0"])
-    assert page.swept == [URL], "частые касания страницы не гоняют уборку"
+    page.holder.touch(URL, [f"k{WARM_ROW}"])  # карточка вне ряда ряд не меняет
 
     entries["new"] = _record(99, 999)
     page.holder.touch(URL, ["k0"])
 
-    assert page.swept == [URL, URL]
+    first = tuple(f"k{n}" for n in range(WARM_ROW))
+    assert page.swept == [(URL, first), (URL, ("new", *first[:-1]))]
 
 
 def test_a_card_or_a_second_tab_adds_a_hold_but_not_a_warm_target(state: FakeStateStore) -> None:

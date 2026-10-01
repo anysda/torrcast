@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import threading
 
 import pytest
 
@@ -84,3 +85,46 @@ def test_a_failed_add_leaves_no_claim() -> None:
         claims.adding(f"magnet:?xt=urn:btih:{'d' * 40}", show, add)
 
     assert claims.claimed("d" * 40) is False
+
+
+@pytest.mark.machine
+def test_dropping_asks_the_claims_again_and_holds_off_an_add_until_it_is_done() -> None:
+    """Проверка «ничья ли» внутри сноса спрашивает отметки снова: замок повторного входа."""
+    claims, holder = TorrentClaims(), _Owner()
+    order: list[str] = []
+
+    def add(magnet: str) -> str:
+        order.append("add")
+        return "e" * 40
+
+    took = threading.Thread(
+        target=claims.adding, args=(f"magnet:?xt=urn:btih:{'e' * 40}", holder, add)
+    )
+
+    def drop(torrent_hash: str) -> bool:
+        took.start()
+        took.join(0.3)
+        order.append("drop")
+        return not claims.claimed(torrent_hash)
+
+    dropped: list[bool] = []
+    sweep = threading.Thread(target=lambda: dropped.append(claims.dropping("e" * 40, drop)))
+    sweep.start()
+    sweep.join(3)
+    took.join(3)
+    assert dropped == [True], "проверка внутри сноса встала на своём же замке"
+    assert order == ["drop", "add"]
+
+
+def test_a_base32_magnet_is_claimed_by_the_hex_the_service_answers_with() -> None:
+    claims, holder = TorrentClaims(), _Owner()
+    seen: list[bool] = []
+    hexed = "000102030405060708090a0b0c0d0e0f10111213"
+
+    def add(magnet: str) -> str:
+        seen.append(claims.claimed(hexed))
+        return hexed
+
+    claims.adding("magnet:?xt=urn:btih:AAAQEAYEAUDAOCAJBIFQYDIOB4IBCEQT", holder, add)
+
+    assert seen == [True], "до ответа службы раздача уже отмечена своим hex"

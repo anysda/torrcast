@@ -18,6 +18,7 @@ from typing import Protocol
 from torrcast.domain.continue_row import WARM_ROW, continue_row
 from torrcast.domain.entry import Entry
 from torrcast.domain.torrent_hash import _torrent_hash
+from torrcast.usecases.torrent_claims import CLAIMS
 
 
 class _Listing(Protocol):
@@ -35,7 +36,14 @@ def record_sweep(
 
     ``spared`` - раздача занята сейчас: её держит показ, отбор или страница
     (:func:`torrcast.usecases.torrents._held_by_show`). Отпустит держатель - снесёт он сам.
+    Спрашивается и сносится под замком отметок
+    (:meth:`~torrcast.usecases.torrent_claims.TorrentClaims.dropping`): держатель, заводящий
+    раздачу в ту же секунду, её не потеряет.
     """
     first = {_torrent_hash(entries[key].magnet) for key in continue_row(entries)[:WARM_ROW]}
     ours = {_torrent_hash(entry.magnet) for entry in entries.values()} - first - {""}
-    return [h for h in sorted(ours & engine.hashes()) if not spared(h) and engine.drop(h)]
+
+    def free(torrent_hash: str) -> bool:
+        return not spared(torrent_hash) and engine.drop(torrent_hash)
+
+    return [h for h in sorted(ours & engine.hashes()) if CLAIMS.dropping(h, free)]

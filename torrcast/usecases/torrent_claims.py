@@ -20,13 +20,15 @@ from collections.abc import Callable, Iterator
 from typing import Final
 
 from torrcast.domain.magnet_hash import magnet_hash
+from torrcast.domain.torrent_hash import _torrent_hash
 
 
 class TorrentClaims:
     """Держатели раздач по хэшу: каждый ставит свою отметку и снимает только её."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        #: Повторный вход нужен сносу: его проверка «ничья ли» сама спрашивает :meth:`claimed`.
+        self._lock = threading.RLock()
         #: Держатель - сам живой объект, а не запись о нём: стенд, брошенный на исключении
         #: без уборки, уходит сборщику мусора вместе со своими отметками.
         self._owners: dict[str, list[weakref.ref[object]]] = {}
@@ -65,9 +67,10 @@ class TorrentClaims:
         ``add`` в TorrServer идемпотентен: раздача, которую прямо сейчас убирает другой
         держатель, отвечает на ``add`` своим хэшем - и снос, успевший между ответом и
         отметкой, выдёргивает её из-под нового держателя. Отметка по хэшу магнита стоит
-        раньше, поэтому такой снос её видит. Не вышло - отметка снимается.
+        раньше, поэтому такой снос её видит; base32-магнит отмечается тем hex, которым
+        раздачу называет служба. Не вышло - отметка снимается.
         """
-        early = magnet_hash(magnet)
+        early = _torrent_hash(magnet) or magnet_hash(magnet)
         self.claim(early, owner)
         torrent_hash = ""
         try:
@@ -77,6 +80,16 @@ class TorrentClaims:
             if early != torrent_hash:
                 self.unclaim(early, owner)
         return torrent_hash
+
+    def dropping(self, torrent_hash: str, drop: Callable[[str], bool]) -> bool:
+        """Проверить и снести раздачу под замком отметок: :meth:`adding` ждёт конца сноса.
+
+        Проверка «ничья ли» и снос врозь - окно гонки: держатель отмечал раздачу и заводил её
+        между ними, а снос выдёргивал её из-под него. Под замком держатель либо успел, и
+        проверка его видит, либо заводит раздачу после сноса заново.
+        """
+        with self._lock:
+            return drop(torrent_hash)
 
     @contextlib.contextmanager
     def kept(self, torrent_hash: str, owner: object) -> Iterator[None]:

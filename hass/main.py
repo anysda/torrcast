@@ -30,7 +30,7 @@ from torrcast.domain.version import __version__
 from torrcast.ports.abandon.slot import install as install_abandon
 from torrcast.runtime.wire import wire
 from web.show_stage import show_stage
-from web.sweep_later import sweep_later
+from web.sweep_later import SWEEP_LATER
 from web.warm_saved import warm_saved
 
 #: ``TORRCAST_HA_PORT=<порт>`` - слушать не 8479. Того же рода переопределение, что и
@@ -65,7 +65,7 @@ def main() -> int:
     warm_saved()
     # Раздачи истории, выпавшие из первых записей ряда до перезапуска, лежат в базе службы
     # с кэшем: убрать их, не дожидаясь первого касания страницы (:mod:`web.sweep_later`).
-    sweep_later(load_config().torrserver_url)
+    SWEEP_LATER(load_config().torrserver_url)
     # Сезоны и серии карточки берутся из индекса IMDb: служба освежает его сама.
     refresh_episodes()
     bridge = Bridge()
