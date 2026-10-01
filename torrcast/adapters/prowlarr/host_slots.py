@@ -19,9 +19,10 @@ two, and warmup circles spaced by the picture still stacked YTS half a second pe
 
 A request cannot be taken back, so a warmup must not send one a search is about to need.
 After a restart the saved screen's circle left 0.68 s before the first search, and the
-search's JacRed text started a whole pace behind it (+1.32 s, the warmup's at -0.67 s). A
-warmup circle now also waits out :data:`QUIET` without a live search, counted from the
-start of the process and again from the end of every search.
+search's JacRed text started a whole pace behind it (+1.32 s, the warmup's at -0.67 s). The
+warmup now also waits out :data:`QUIET` without a live search, counted from the start of the
+process and again from the end of every search (:meth:`HostSlots.still`), and it waits so
+before it takes a request: a viewer of the very request then counts it himself.
 """
 
 from __future__ import annotations
@@ -102,12 +103,22 @@ class HostSlots:
                 self._calm = self._clock()
                 self._turn.notify_all()
 
+    def still(self, began: float, most: float = MOST) -> float:
+        """Seconds the warmup still keeps off the network, waiting since ``began``.
+
+        It waits before it takes the next request, not in :meth:`give_way`: a taken request
+        made the viewer who asked for it wait the whole pause behind the warmup's claim (a
+        shelf tile on the stand: 18.5 s, against 5.0 s without the warmup).
+        """
+        with self._lock:
+            now = self._clock()
+            return min(self._calm + self._quiet - now, began + most - now)
+
     def give_way(self, names: Sequence[str], most: float = MOST) -> float:
         """The moment (:func:`time.monotonic`) a circle to ``names`` may start.
 
-        A viewer's circle is never held. A warmup circle waits until no live search ran for
-        :data:`QUIET` and none of its hosts has a queue or a request in flight, ``most``
-        seconds at the longest.
+        A viewer's circle is never held. A warmup circle waits until no live search runs and
+        none of its hosts has a queue or a request in flight, ``most`` seconds at the longest.
         """
         if not WARMUP.get():
             return time.monotonic()
@@ -119,11 +130,9 @@ class HostSlots:
                 flying = any(
                     not one.is_set() for name in names for one in self._flight.get(name, [])
                 )
-                still = self._calm + self._quiet - now
-                calm = self._live == 0 and still <= 0
-                if (calm and lag <= 0 and not flying) or now >= began + most:
+                if (self._live == 0 and lag <= 0 and not flying) or now >= began + most:
                     break
-                self._turn.wait(min(began + most - now, max(lag, still, LOOK)))
+                self._turn.wait(min(began + most - now, max(lag, LOOK)))
         if (held := now - began) > LOOK:
             journal().emit("search", "warmup_gave_way", held=round(held, 2), names=list(names))
         return time.monotonic()

@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
-from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, LOOK
 from torrcast.domain.not_found_error import NotFoundError
 from web.circle_disk import CircleDisk
 from web.circle_memory import CircleMemory
@@ -38,8 +38,6 @@ TTL: Final = 300.0
 WORKERS: Final = 1
 #: Потолок экрана: сорока плиток человек за раз не видит.
 LIMIT: Final = 40
-#: Сколько фоновый рабочий ждёт живого, прежде чем оглядеться заново.
-PATIENCE: Final = 5.0
 #: Сколько живой запрос ждёт круг, который уже считает фон, прежде чем считать сам.
 BUSY_WAIT: Final = 30.0
 
@@ -152,9 +150,10 @@ class WarmCache:
 
     def _quiet(self) -> None:
         """Дождаться, пока живой запрос отпустит сеть: фон второй в очереди, а не первый."""
+        began = time.monotonic()  # тишину после поиска фон ждёт, ещё не заняв запроса
         with self._cond:
-            while self._live > 0:
-                self._cond.wait(PATIENCE)
+            while self._live > 0 or (not self._urgent and HOST_SLOTS.still(began) > 0):
+                self._cond.wait(LOOK)
 
     @contextmanager
     def _counting(self, query: str) -> Iterator[None]:
@@ -197,4 +196,4 @@ class WarmCache:
                 self._cond.notify_all()
 
 
-__all__ = ["LIMIT", "PATIENCE", "TTL", "WORKERS", "Blurbs", "Circle", "Spawn", "WarmCache"]
+__all__ = ["LIMIT", "TTL", "WORKERS", "Blurbs", "Circle", "Spawn", "WarmCache"]
