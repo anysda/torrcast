@@ -14,6 +14,7 @@ from torrcast.adapters.prowlarr.host_slots import HostSlots
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.send_circle import send_circle
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
+from torrcast.domain.response_budget import response_budget
 
 _JACRED = (4, "JacRed")
 _BUDGETS = {"Knaben": 6.0, "RuTor": 3.0, "JacRed": 5.0, "Nyaa.si": 3.0}
@@ -122,3 +123,20 @@ def test_one_outside_the_core_waits_no_queue_but_its_request_lives_past_it(
     assert nyaa.done.wait(1.0)
     assert nyaa.budget == 3.0, "the circle does not wait its queue"
     assert held == [1.0] and http.budget[3] == 3.0 + 2.0 - 1.0, "its late answer still comes"
+
+
+def test_the_viewers_circle_waits_its_core_its_own_budget_past_any_queue(
+    held: list[float],
+) -> None:
+    """Knaben's text stood 3.2 s in the queue and held "Начало" to 12.3 s: dev waits 6."""
+    http, slots = _Http(), HostSlots(_Clock())
+    slots.take("Knaben", 6.0)
+    api = ProwlarrApi("http://p", "KEY", http=http)
+    (knaben,), _unsent = send_circle(
+        api, slots, [_KNABEN], "Cars", 100, None, budgets=_BUDGETS.__getitem__, cap=0.0
+    )
+    assert knaben.done.wait(1.0)
+    assert knaben.budget == 6.0, "the circle does not wait its queue"
+    assert held == [1.0] and http.budget[1] == response_budget("Knaben") + 1.0, (
+        "its late answer still comes"
+    )

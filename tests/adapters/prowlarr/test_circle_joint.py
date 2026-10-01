@@ -5,12 +5,14 @@ from __future__ import annotations
 import threading
 import time
 import urllib.parse
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _RUTOR, _Http
 from tests.adapters.prowlarr.test_prowlarr import _asked, _swarm, _swarm_of
+from torrcast.adapters.prowlarr import spawn_ask as spawn_ask_module
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
@@ -145,11 +147,18 @@ def test_a_latin_name_asks_the_anime_indexers_at_once(query: str, asked: list[st
 
 
 @pytest.mark.parametrize(("joint", "asked"), [(None, {1, 2}), ("", {1})])
-def test_a_name_behind_a_full_queue_is_not_sent(joint: str | None, asked: set[int]) -> None:
+def test_a_name_behind_a_full_queue_is_not_sent(
+    joint: str | None, asked: set[int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    held: list[float] = []  # a queued request holds before it leaves; here it is noted
+    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=held.append))
     circle, http = _circle()
     circle.slots.take("RuTor", 0.5)  # the slot the search before drew is still ahead
     circle.run([_KNABEN, _RUTOR], "Cars 2006", 100, joint=joint)
     assert set(http.texts) == asked
+    assert held == pytest.approx([1.0] if joint is None else [], abs=0.05), (
+        "the viewer's RuTor left half a pace early"
+    )
     assert "RuTor" not in circle.lost, "an unsent name is not a silent one"
 
 
