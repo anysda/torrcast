@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from hass.hit_ask import _about, _name
-from hass.hit_claims import _ATTEMPTS
+from hass.hit_claims import _ATTEMPTS, _PATIENCE
 from hass.hit_posters import FIELD, HitPosters
 from tests.test_hit_posters import _SETTLE, POSTER, FakeSource, _hits, _row
 from torrcast.domain.json_value import JsonValue
@@ -42,11 +42,13 @@ def test_a_poster_whose_bytes_timed_out_is_asked_again_and_lands(tmp_path: Path)
 
 
 def test_a_source_that_never_gives_bytes_stops_after_the_attempts(tmp_path: Path) -> None:
-    source = FakeSource(body=None)
-    hits = _hits(tmp_path, source, now=lambda: 0.0)
+    """Попытки кончились и терпение вышло: дальше обычный промах, а не вечный повтор."""
+    source, clock = FakeSource(body=None), [0.0]
+    hits = _hits(tmp_path, source, now=lambda: clock[0])
     rows: list[JsonValue] = [_row()]
     for _ in range(_ATTEMPTS):
         hits.offer(rows)
         _settle(hits, rows)
+        clock[0] += _PATIENCE / (_ATTEMPTS - 1)
     assert not hits.pending(rows), "молчащий источник байтов спрашивается без конца"
     assert len(source.loaded) == _ATTEMPTS, f"походов за байтами: {len(source.loaded)}"

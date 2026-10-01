@@ -7,7 +7,8 @@
 Промахов два. Настоящий (источник ответил, картинки нет) держится :data:`_RETRY`. Пустой
 ответ в минуту 429 или отказа по счёту - не ответ: картину спросят снова, когда тишина
 кончится, но не больше :data:`_ATTEMPTS` раз подряд, иначе источник, лежащий час, стоил бы
-запроса на каждую сборку полок.
+запроса на каждую сборку полок. Сдаться раньше :data:`_PATIENCE` от первого такого промаха
+нельзя: шторм 429 дольше трёх тишин иначе оставлял ряд «Продолжить» без обложек на пять минут.
 """
 
 from __future__ import annotations
@@ -26,6 +27,9 @@ from torrcast.domain.json_value import JsonValue
 _RETRY: Final = 300.0
 #: Сколько раз подряд картину спрашивают после пустого ответа в минуту отказов.
 _ATTEMPTS: Final = 3
+#: Сколько секунд от первого пустого ответа в минуту отказов картину ещё спрашивают; столько же
+#: страница переспрашивает историю.
+_PATIENCE: Final = 120.0
 #: Сколько ждёт запрос картинки, которая ещё в пути, секунды. Ждёт ОДИН запрос в своём
 #: потоке сервера; ни снимок, ни показ этого ожидания не видят.
 _WAIT: Final = 6.0
@@ -55,6 +59,7 @@ class HitClaims:
         self._pending: dict[str, threading.Event] = {}
         self._tried: dict[str, float] = {}
         self._again: dict[str, tuple[int, float]] = {}
+        self._first: dict[str, float] = {}
         self._judging: dict[str, threading.Event] = {}
         #: Заявки спокойного пути -> видимый ряд уже судил картину рядом (один раз на заявку).
         self._calm: dict[str, bool] = {}
@@ -173,16 +178,19 @@ class HitClaims:
         if unknown and self._now() < self._tried.get(name, 0.0):
             return  # настоящий промах в силе: молчание другого судьи его не отменяет
         tries = self._again.get(name, (0, 0.0))[0] + 1
-        if unknown and tries < _ATTEMPTS:
+        patient = self._now() < self._first.setdefault(name, self._now()) + _PATIENCE
+        if unknown and (tries < _ATTEMPTS or patient):
             self._again[name] = (tries, calm_at)
             return
         self._again.pop(name, None)
+        self._first.pop(name, None)
         self._tried[name] = self._now() + _RETRY
 
     def _keep(self, name: str, body: bytes) -> None:
         """Положить картинку готовой, вытеснив самую давнюю, если их стало много."""
         self._landed.add(name)
         self._again.pop(name, None)
+        self._first.pop(name, None)
         self._made[name] = body
         while len(self._made) > _KEEP:
             self._made.pop(next(iter(self._made)))

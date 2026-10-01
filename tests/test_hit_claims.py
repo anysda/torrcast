@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from hass.hit_claims import _ATTEMPTS, _RETRY
+from hass.hit_claims import _ATTEMPTS, _PATIENCE, _RETRY
 from hass.hit_posters import FIELD, HitPosters
 from hass.poster_shelf import PosterShelf
 from tests.test_hit_posters import FakeSource, _row
@@ -94,19 +94,19 @@ def test_an_empty_answer_under_429_is_asked_again_after_the_quiet(tmp_path: Path
     assert len(source.judged) == 2
 
 
-def test_a_source_down_for_long_is_asked_no_more_than_three_times(tmp_path: Path) -> None:
-    """Источник, лежащий дольше трёх попыток, дальше держится обычным промахом."""
+def test_a_source_down_for_long_is_asked_no_longer_than_the_patience(tmp_path: Path) -> None:
+    """Источник, лежащий дольше терпения (и трёх попыток), дальше держится обычным промахом."""
     source, clock, storm = FakeSource(pages={}), _Clock(), _Storm()
-    posters = _posters(tmp_path, source, clock, storm)
-    for _ in range(_ATTEMPTS + 2):
+    posters, step = _posters(tmp_path, source, clock, storm), _PATIENCE / (_ATTEMPTS + 1)
+    for _ in range(_ATTEMPTS + 4):
         storm.calm = clock.now
         posters.offer([_row()])
-        clock.now += 1.0
-    assert len(source.judged) == _ATTEMPTS
+        clock.now += step
+    assert len(source.judged) == _ATTEMPTS + 2, "сдался раньше терпения или спрашивает после"
     assert not posters.pending([_row()])
     clock.now += _RETRY
     posters.offer([_row()])
-    assert len(source.judged) == _ATTEMPTS + 1
+    assert len(source.judged) == _ATTEMPTS + 3
 
 
 def test_a_calm_empty_answer_is_a_miss_and_nothing_is_coming(tmp_path: Path) -> None:
