@@ -15,16 +15,17 @@ from torrcast.adapters.wiki.kept_connections import KeptConnections
 from torrcast.adapters.wiki.minute_budget import UPLOAD_HOST, MinuteBudget
 from torrcast.adapters.wiki.request_lanes import RequestLanes
 
-#: Потолок скачанного файла, байт. Постер шириной 500 точек весит сотню килобайт;
-#: мегабайт тут - запас, а не мера, и стоит он ровно затем, чтобы чужой ответ не мог
-#: занять память серва целиком.
+#: Потолок скачанного файла, байт: постер весит сотню килобайт, а память серва наша.
 _BODY_LIMIT: Final = 4 * 1024 * 1024
+#: Silence between body chunks that reads as a frozen edge, seconds: a live CDN streams the
+#: whole poster in tenths, a frozen one sends its first 16 KB and nothing else.
+BODY_SILENCE: Final = 3.0
 #: Сколько картинок Wikimedia качаем разом: больше двух их сервер файлов отвечает 429.
 IMAGE_LANES: Final = 2
 
 
 class HttpJsonClient(AddressMemory):
-    """HTTPS-клиент с прежней памятью IPv4-адресов на процесс и минутным счётом Wikimedia.
+    """HTTPS-клиент с памятью IPv4-адресов на процесс и минутным счётом Wikimedia.
 
     ``urgent`` - запрос видимого списка: он идёт впереди фона и не ждёт тишины дольше
     своего срока. Отказ по счёту или 429 клиент помнит (:meth:`troubled_since`): молчание
@@ -104,8 +105,7 @@ class HttpJsonClient(AddressMemory):
         (без него Wikimedia отвечает 429 уже на второй запрос подряд) и тот же
         проверенный TLS. Разбора тут нет: приезжает картинка, и разбирать в ней нечего.
 
-        Потолок :data:`_BODY_LIMIT` стоит на ЧТЕНИИ, а не на объявленной длине: чужой
-        ответ вправе соврать в ``Content-Length``, а память тут наша.
+        Потолок :data:`_BODY_LIMIT` и срок :data:`BODY_SILENCE` стоят на ЧТЕНИИ тела.
 
         Хост берётся вместе с портом (``netloc``, а не ``hostname``): в бою порт всегда
         подразумеваемый, а вот проба, поднявшая свой сервер, живёт на случайном - и
@@ -131,6 +131,8 @@ class HttpJsonClient(AddressMemory):
                 self._minute.throttled(where.netloc, response.getheader("Retry-After"))
             if response.status != 200:
                 raise OSError(f"{where.hostname}: HTTP {response.status}")
+            if getattr(connection, "wire", None) is not None:  # sock is gone on Connection: close
+                connection.wire.settimeout(min(timeout, BODY_SILENCE))
             body: bytes = response.read(_BODY_LIMIT)
             self._kept.give(where.netloc, connection, response)
             connection = None
@@ -195,4 +197,4 @@ class _IPv4Connection(http.client.HTTPSConnection):
         timeout = float(self.timeout) if self.timeout is not None else 1.2
         address = self.address = self._resolver(self.host, timeout)
         raw = socket.create_connection((address, self.port), self.timeout)
-        self.sock = self.context.wrap_socket(raw, server_hostname=self.host)
+        self.sock = self.wire = self.context.wrap_socket(raw, server_hostname=self.host)

@@ -6,12 +6,13 @@ import http.server
 import socket
 import ssl
 import threading
+import time
 from typing import Any, ClassVar
 
 import pytest
 
 from tests.conftest import free_port
-from torrcast.adapters.wiki.http_json_client import HttpJsonClient, _IPv4Connection
+from torrcast.adapters.wiki.http_json_client import BODY_SILENCE, HttpJsonClient, _IPv4Connection
 
 
 class _Edge(http.server.BaseHTTPRequestHandler):
@@ -28,7 +29,7 @@ class _Edge(http.server.BaseHTTPRequestHandler):
         if self.frozen:
             self.wfile.write(_Edge.poster[:16])
             self.wfile.flush()
-            _Edge.thaw.wait(5.0)
+            _Edge.thaw.wait(10.0)
             return
         self.wfile.write(_Edge.poster)
 
@@ -44,7 +45,8 @@ class _Frozen(_Edge):
 def test_a_frozen_edge_costs_one_request_not_the_whole_ttl(
     tls: tuple[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The name answers the frozen edge first; after its timeout the next fetch goes elsewhere.
+    """The name answers the frozen edge first: its body silence ends the fetch well before the
+    timeout, and the next fetch asks the name again and goes to the live edge.
 
     The stand met it live: two of six edges of the poster CDN froze each body at 16 KB, and
     the remembered address starved every IMDb cover of a cold start for ten minutes.
@@ -66,9 +68,12 @@ def test_a_frozen_edge_costs_one_request_not_the_whole_ttl(
     address = f"https://127.0.0.1:{port}/poster.jpg"
     _Edge.thaw.clear()
     try:
+        began = time.monotonic()
         with pytest.raises(TimeoutError):
-            client.fetch(address, 0.5)
-        assert client.fetch(address, 2.0) == _Edge.poster
+            client.fetch(address, 8.0)
+        spent = time.monotonic() - began
+        assert spent < BODY_SILENCE + 1.0, f"a frozen body held the fetch {spent:.1f} s"
+        assert client.fetch(address, 8.0) == _Edge.poster
     finally:
         _Edge.thaw.set()
         for server in servers:
