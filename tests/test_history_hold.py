@@ -17,7 +17,11 @@ from web.request import Request
 
 @pytest.fixture(autouse=True)
 def _posters(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(history_module, "hits", SimpleNamespace(offer=lambda records: records))
+    monkeypatch.setattr(
+        history_module,
+        "hits",
+        SimpleNamespace(offer=lambda records, ahead=False: records, pending=lambda _records: False),
+    )
 
 
 def _row(count: int) -> list[str]:

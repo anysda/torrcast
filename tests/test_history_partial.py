@@ -34,6 +34,7 @@ def _headers(monkeypatch: pytest.MonkeyPatch, coming: bool) -> dict[str, str]:
 
     fake = SimpleNamespace(offer=lambda records, ahead=False: records, pending=_pending)
     monkeypatch.setattr(history_module, "hits", fake)
+    monkeypatch.setattr(history_module, "hold_first", lambda keys: None)
     _bookmarked()
     answer = history(Request("GET", "/api/history", {}, {}))
     assert answer.code == 200
