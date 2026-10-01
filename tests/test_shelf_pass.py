@@ -9,6 +9,7 @@ from pathlib import Path
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.feed_row import FeedRow
+from torrcast.domain.feed_rows import FeedRows
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from web.built_by_rule import FIELD, RULE
@@ -228,3 +229,44 @@ def test_a_saved_shelf_missing_one_row_is_rebuilt_as_cold(tmp_path: Path) -> Non
     assert len(seen[0]) == 3
     assert cache._body is not None and cache._body[FIELD] == RULE
     assert len(_titles(cache._body, "popular")) == 3
+
+
+def _refill(tmp_path: Path, missed: int) -> tuple[ShelvesCache, list[tuple[bool, bool]]]:
+    """Первый заход приносит одну картину, второй - дюжину (m-b3: полка 1+1, потом 24+30)."""
+    cache, calls = _cache(tmp_path, 1), [0]
+
+    def feed(_limit: int) -> list[FeedRow]:
+        calls[0] += 1
+        return FeedRows(_rows(1 if calls[0] == 1 else 12), missed if calls[0] == 1 else 0)
+
+    seen: list[tuple[bool, bool]] = []
+    cache.feed, cache.attempts = feed, 2
+    cache.sleep = lambda _pause: seen.append((cache.filling, cache.settling))
+    later: list[bool] = []  # the fuller attempt is a warm one: its own pass must not put it out
+
+    def playable(_query: str, _key: str) -> bool:
+        if calls[0] == 2:
+            later.append(cache.filling)
+        return True
+
+    cache.playable = playable
+    cache._rebuild()
+    return cache, [*seen, (all(later), any(later))]
+
+
+def test_the_counter_stays_on_while_a_fuller_attempt_is_coming(tmp_path: Path) -> None:
+    """Лента недосчитала индексер: полка 1+1 - не «готово», счётчик горит через паузу добора."""
+    cache, seen = _refill(tmp_path, missed=1)
+
+    assert seen == [(True, True), (True, True)]
+    assert len(_titles(cache._body, "fresh")) > 1
+    assert not cache.filling and not cache.settling  # the last attempt puts it out
+
+
+def test_a_whole_feed_puts_the_counter_out_without_waiting_for_the_refill(
+    tmp_path: Path,
+) -> None:
+    """Ответили все индексеры: полнее не будет, счётчик гаснет сразу, а не через паузу."""
+    seen = _refill(tmp_path, missed=0)[1]
+
+    assert seen == [(False, False), (False, False)]

@@ -50,9 +50,8 @@ def _no_warm(_targets: object, _later: object) -> None:
 class ShelvesCache:
     """Полки в памяти и на диске: обновляет их фон раз в час, читает - каждый запрос.
 
-    Фон, сон и часы - подставные ради тестов (:mod:`tests.thread_guard` роняет тест,
-    следующий за тем, что оставил настоящий поток жить): подделка зовёт ``spawn`` и
-    ``sleep`` синхронно, ни разу не открывая настоящий сокет.
+    Фон, сон и часы подставные ради тестов (:mod:`tests.thread_guard` роняет тест после
+    живого потока): подделка зовёт ``spawn`` и ``sleep`` синхронно, без сокета.
     """
 
     feed: Feed
@@ -112,11 +111,8 @@ class ShelvesCache:
             self.sleep(self.every)
 
     def _pass(self) -> None:
-        """Одна пересборка; беда вне :class:`TorrcastError` роняет заход, а не поток.
-
-        Поток фона один на процесс: умри он от чужого исключения (ошибка разбора,
-        приговора, деления), полки застыли бы до рестарта молча.
-        """
+        """Одна пересборка; беда вне :class:`TorrcastError` роняет заход, а не поток:
+        он один на процесс, и умри он от чужого исключения, полки застыли бы молча."""
         try:
             self._rebuild()
         except Exception:
@@ -128,14 +124,12 @@ class ShelvesCache:
         """Собрать обе полки заново; отказ ленты не роняет цикл - следующий час свой.
 
         Молчащий индексер не приносит строк, и сборка выходит короче, чем могла бы: фон
-        добирает ленту ещё заходами, склеивая строки по хэшу раздачи, и берёт самую
-        полную попытку. Добор останавливается САМ, не по абсолютной цели длины: заход
-        без новых строк и без более полной полки следующего добавить уже не может.
-
-        Готовая полка публикуется сразу, не дожидаясь соседней (:meth:`publish`), и
-        публикация - отдельный вопрос: даже самая полная попытка может оказаться хуже
-        уже опубликованной (:func:`web.worth_publishing.worth_publishing`), и
-        тогда фон отступает молча, до следующего часа.
+        добирает ленту ещё заходами, склеивая строки по хэшу раздачи. Добор встаёт САМ:
+        заход без новых строк и без более полной полки следующего добавить не может.
+        Пока лента недосчитана (:class:`torrcast.domain.feed_rows.FeedRows`), счётчик
+        страницы горит и через паузу. Готовая полка публикуется сразу (:meth:`publish`),
+        но и самая полная попытка может оказаться хуже уже опубликованной
+        (:func:`web.worth_publishing.worth_publishing`) - тогда фон отступает до часа.
         """
         with self._lock:
             origin = self._body
@@ -149,11 +143,13 @@ class ShelvesCache:
                 self.sleep(self.retry_pause)
             before = len(rows)
             try:
-                for row in self.feed(self.limit):
+                fetched = self.feed(self.limit)
+                for row in fetched:
                     rows.setdefault(row.raw.info_hash.lower(), row)
                 with self._lock:
                     current = self._body if self._body is not None else origin
-                body = ShelfPass(self, list(rows.values()), self.clock(), current).run()
+                more = attempt + 1 < self.attempts and getattr(fetched, "missed", 0) > 0
+                body = ShelfPass(self, list(rows.values()), self.clock(), current, more=more).run()
             except TorrcastError:
                 continue
             grew = best is None or min_tiles(body) > min_tiles(best)

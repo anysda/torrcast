@@ -1,11 +1,10 @@
 """Один заход сборки обеих полок: на холодном экземпляре видимое раньше приговоров.
 
-Холодная полка ждала 85-254 с, из них около 87% - приговоры «играет ли» по одному
-(замер TC-1322). Холодный заход показывает плитки, как только легли байты обложки, и
-доводит приговоры фоном несколькими руками (:func:`web.shelf_judge.shelf_judge`): «не
-играет» снимает плитку, «не знаю» её не трогает (:func:`web.shelf_tiles._covered`).
-Тёплый заход до приговоров не показывает: на экране уже проверенная полка. Показ до
-приговоров идёт без клейма правила (:mod:`web.built_by_rule`).
+Холодная полка ждала 85-254 с, из них около 87% - приговоры «играет ли» (замер TC-1322).
+Холодный заход показывает плитки, как только легли байты обложки, и доводит приговоры
+фоном (:func:`web.shelf_judge.shelf_judge`): «не играет» снимает плитку, «не знаю» - нет
+(:func:`web.shelf_tiles._covered`). Тёплый до приговоров не показывает, холодный - без клейма
+(:mod:`web.built_by_rule`). Счётчик гаснет, когда полнее полка не станет (см. ``more``).
 """
 
 from __future__ import annotations
@@ -86,6 +85,7 @@ class ShelfPass:
     shown: dict[str, list[str]] = field(default_factory=dict)
     done: dict[str, list[JsonValue]] = field(default_factory=dict)
     verdicts: dict[str, Verdict] = field(default_factory=dict)
+    more: bool = False
     _joint: list[JsonValue] = field(default_factory=list)
     _fresh: int = 0
     _deadline: float = 0.0
@@ -95,12 +95,12 @@ class ShelfPass:
         """Холодный заход (:func:`web.cold.cold`): показ до приговоров."""
         return self.cache.early and cold(self.current)
 
-    def run(self) -> dict[str, JsonValue]:  # the page flags burn only for a cold pass
-        self.cache.filling = self.cache.settling = self.early
+    def run(self) -> dict[str, JsonValue]:  # flags burn for a cold pass or after a ``more`` one
+        on = self.cache.filling = self.cache.settling = self.early or self.cache.filling
         body = self._run()
-        # A shelf closed empty is fetched again by the next feed attempt: the page keeps asking.
+        # An empty shelf or a feed short of an indexer is fetched again: the page keeps asking.
         empty = not all(self.done.get(shelf) for shelf in SHELVES)
-        self.cache.filling = self.cache.settling = self.early and empty
+        self.cache.filling = self.cache.settling = on and (empty or self.more)
         return body
 
     def _run(self) -> dict[str, JsonValue]:

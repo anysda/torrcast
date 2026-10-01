@@ -47,6 +47,7 @@ def test_a_stuck_indexer_does_not_hold_the_ones_that_answered() -> None:
 
     assert spent < 1.5
     assert sorted(row.raw.title for row in rows) == ["Картина a 2026", "Картина b 2026"]
+    assert rows.missed == 1  # the stuck one may still fill the shelf on the next attempt
 
 
 @pytest.mark.machine
@@ -66,6 +67,7 @@ def test_nobody_in_time_waits_for_the_first_answer() -> None:
     _join_apart()
 
     assert [row.raw.title for row in rows] == ["Поздняя 2026"]
+    assert rows.missed == 1
 
 
 def test_all_failed_is_a_catalogue_failure() -> None:
@@ -82,3 +84,16 @@ def test_a_release_seen_by_two_indexers_is_one_row() -> None:
     _join_apart()
 
     assert len(rows) == 1
+    assert rows.missed == 0  # everyone answered: no fuller attempt to wait for
+
+
+def test_a_failed_indexer_is_missed_too() -> None:
+    def get(url: str) -> object:
+        if url == "down":
+            raise requests.ConnectionError("отказ")
+        return [_row("Раздача 2026", "e")]
+
+    rows = feed_apart(get, ["a", "down"], 1.0)
+    _join_apart()
+
+    assert rows.missed == 1

@@ -18,17 +18,19 @@ from typing import Any
 
 from torrcast.adapters.prowlarr.from_feed_json import from_feed_json
 from torrcast.domain.feed_row import FeedRow
+from torrcast.domain.feed_rows import FeedRows
 
 
 def _answered(ask: Future[Any]) -> bool:
     return ask.done() and ask.exception() is None
 
 
-def feed_apart(get: Callable[[str], Any], urls: Sequence[str], within: float) -> list[FeedRow]:
+def feed_apart(get: Callable[[str], Any], urls: Sequence[str], within: float) -> FeedRows:
     """Строки ленты от индексеров, ответивших за ``within`` секунд; раздача по хэшу одна.
 
     ``urls`` - адреса ленты, по одному на индексер; ``get`` - ответ по адресу. Опоздавшие
     дорабатывают в своих потоках и выбрасываются: ждать их - вернуть цену общего запроса.
+    Их и отказавших ответ считает в ``missed``: следующий заход может принести полку полнее.
     """
     pool = ThreadPoolExecutor(max(len(urls), 1), thread_name_prefix="feed-apart")
     asks = [pool.submit(get, url) for url in urls]
@@ -42,12 +44,12 @@ def feed_apart(get: Callable[[str], Any], urls: Sequence[str], within: float) ->
         failed = next((ask for ask in asks if ask in done and ask.exception() is not None), None)
         if failed is not None:
             raise failed.exception()  # type: ignore[misc]
-        return []
+        return FeedRows()
     rows: dict[str, FeedRow] = {}
     for ask in heard:
         for row in from_feed_json(ask.result()):
             rows.setdefault(row.raw.info_hash.lower(), row)
-    return list(rows.values())
+    return FeedRows(rows.values(), missed=len(asks) - len(heard))
 
 
 __all__ = ["feed_apart"]
