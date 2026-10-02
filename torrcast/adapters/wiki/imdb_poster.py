@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from time import monotonic
 from typing import Any, Final
 from urllib.parse import quote
 
@@ -49,6 +50,10 @@ _LANES: Final = 6
 #: Сколько ждём один ответ подсказчика. Он отвечает за 0.2-0.5 с, и ждать дольше нечего:
 #: за молчанием тут стоит не долгий поиск, а обрыв.
 _ASK_TIMEOUT: Final = 4.0
+#: Сколько ждём первую попытку; молчит дольше - спрашиваем заново по новому соединению. Из
+#: домашней сети соединение с подсказчиком глохло насовсем на восьмом запросе (стенд
+#: 02-10-2026, на каждом из пяти соединений пачки), а живой ответ шёл за 0.03-0.75 с.
+_FIRST_TRY: Final = 1.0
 
 
 class ImdbPoster:
@@ -179,6 +184,12 @@ class ImdbPoster:
         caller (:mod:`hass.both_posters`).
         """
         path = "/suggestion/x/" + quote(text, safe="") + ".json"
-        got = self.client.get(_HOST, path, {"includeVideos": "0"}, {}, min(timeout, _ASK_TIMEOUT))
+        began, budget, only = monotonic(), min(timeout, _ASK_TIMEOUT), {"includeVideos": "0"}
+        try:
+            got = self.client.get(_HOST, path, only, {}, min(budget, _FIRST_TRY))
+        except TimeoutError:
+            if budget <= _FIRST_TRY:
+                raise
+            got = self.client.get(_HOST, path, only, {}, budget - (monotonic() - began))
         found = got.get("d") if isinstance(got, dict) else None
         return [row for row in found if isinstance(row, dict)] if isinstance(found, list) else []
