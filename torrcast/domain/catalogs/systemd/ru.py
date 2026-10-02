@@ -11,4 +11,5 @@ def ru() -> dict[str, str]:
         "systemd.journal_empty": "в журнале пусто",
         "systemd.shelf.warmup_ordered": "полка {shelf}: заказан прогрев {count} плиток",
         "systemd.shelf.published": "полка {shelf}: опубликовано тело из {count} плиток",
+        "systemd.shelf.unplayable": "полка: «{query}» не играет, плитка {tile} снимается",
     }

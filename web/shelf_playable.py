@@ -53,6 +53,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from torrcast.adapters.torrserver.torr_server import TorrServer
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.select.plan import Plan
@@ -129,6 +130,8 @@ class ShelfPlayable:
         if verdict is None:
             return None
         self._verdicts[key] = (RULE, verdict)
+        if not verdict:  # the journal names every tile the shelf drops, and when
+            print(phrase("systemd.shelf.unplayable", query=query, tile=key), flush=True)
         if self.disk is not None and verdict:
             self.disk.keep(key, RULE, verdict)
         return verdict

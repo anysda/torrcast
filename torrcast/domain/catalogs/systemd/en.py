@@ -11,4 +11,5 @@ def en() -> dict[str, str]:
         "systemd.journal_empty": "the journal is empty",
         "systemd.shelf.warmup_ordered": "shelf {shelf}: warmup ordered for {count} tiles",
         "systemd.shelf.published": "shelf {shelf}: published body with {count} tiles",
+        "systemd.shelf.unplayable": 'shelf: "{query}" does not play, tile {tile} is dropped',
     }
