@@ -38,8 +38,10 @@ def send_circle(
     A request that stands in the host's queue gets its budget past its slot: RuTor's names
     left Prowlarr at +2.1 s and answered at +3.1 and +3.7, and a 3 s budget from the send
     lost them and told the book RuTor was silent (stand 30.09, "Начало" chose Batman).
-    Only a names circle's core gets the queue in its wait; the others get it in their
-    request's life alone. A circle with its core down waits every other one, and AniLibria
+    Only a names circle's core gets the queue in its wait, and never past the circle's
+    ``cap``: dev's circle of names ends at its cap, and a budget near it with the queue on top
+    could hold the viewer's answer nearly twice that. The others get it in their request's
+    life. A circle with its core down waits every other one, and AniLibria
     standing 7 s in the queue held "Выживший" to 10.9 s where dev ended at 7 (stand 01.10).
     The viewer's circle waits its own budgets: Knaben's text standing 3.2 s in the queue
     held "Начало" to 12.3 s, its rows came at 12.2 (stand 01.10).
@@ -57,9 +59,8 @@ def send_circle(
             asked.append(_follow(twin, cut))
         elif (queued := slots.draw(name, cut, spare=joint is not None)) is not None:
             core = joint is not None and wait_indexer(name) and not quorum_indexer(name)
-            asked.append(
-                spawn_ask(api, text, limit, num, name, cut + (queued if core else 0.0), queued)
-            )
+            wait = (min(cut + queued, cap) if cap else cut + queued) if core else cut
+            asked.append(spawn_ask(api, text, limit, num, name, wait, queued))
             slots.sent(name, asked[-1].done)
         else:
             unsent.append((name, cut))

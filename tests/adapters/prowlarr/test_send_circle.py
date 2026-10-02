@@ -140,3 +140,17 @@ def test_the_viewers_circle_waits_its_core_its_own_budget_past_any_queue(
     assert held == [1.0] and http.budget[1] == response_budget("Knaben") + 1.0, (
         "its late answer still comes"
     )
+
+
+def test_a_names_circle_never_waits_its_queue_past_the_circle_s_cap(held: list[float]) -> None:
+    """dev ends a circle of names at its cap: the host queue on top must not outlast it."""
+    http, slots = _Http(), HostSlots(_Clock())
+    slots.take("RuTor", 3.0)
+    slots.take("RuTor", 3.0)
+    api = ProwlarrApi("http://p", "KEY", http=http)
+    (rutor,), unsent = send_circle(
+        api, slots, [_RUTOR], "Cars", 100, joint="", budgets={"RuTor": 5.0}.__getitem__, cap=6.0
+    )
+    assert rutor.done.wait(1.0) and unsent == []
+    assert rutor.budget == 6.0, "the queue is waited only up to the circle's cap"
+    assert held == [3.0], "the request still leaves half a pace before its slot"
