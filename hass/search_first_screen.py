@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 #: Сколько первый ряд ждёт обложки своих плиток от начала захода, секунды.
 FIRST_SCREEN_BY: Final = 1.0
+#: Сколько плитка, выросшая после первого показа, ждёт свою обложку от первого появления, с.
+GROWN_BY: Final = 2.0
 
 
 def search_first_screen(
@@ -33,8 +35,34 @@ def search_first_screen(
     young = time.monotonic() - job.started_at < FIRST_SCREEN_BY
     if not job.drawn and shown and young and _coming(job, shown, covers):
         return []
+    if job.drawn and not job.done:
+        shown = _grown(job, shown, covers)
     job.drawn = job.drawn or bool(shown)
+    job.on_screen.update(_key(hit) for hit in shown)
     return shown
+
+
+def _grown(job: SearchJob, shown: list[JsonValue], covers: _Covers) -> list[JsonValue]:
+    """Ряд без плиток, выросших после первого показа и ждущих свою обложку до :data:`GROWN_BY`.
+
+    Страница кладёт обложку в уже стоящую плитку только одной общей пачкой (``home.js``,
+    ``_COVERS_BY``), и плитка, вставшая голой после пачки, так и осталась бы строкой. Её
+    обложка ложилась через 0.5-1.9 с после появления плитки (стенд 02-10-2026, 9 запросов).
+    """
+    now = time.monotonic()
+    kept = []
+    for hit in shown:
+        key = _key(hit)
+        if key and key not in job.on_screen:
+            since = job.appeared.setdefault(key, now)
+            if now - since < GROWN_BY and _coming(job, [hit], covers):
+                continue
+        kept.append(hit)
+    return kept
+
+
+def _key(hit: JsonValue) -> str:
+    return str(hit.get("key", "")) if isinstance(hit, dict) else ""
 
 
 def _coming(job: SearchJob, shown: list[JsonValue], covers: _Covers) -> bool:
@@ -52,4 +80,4 @@ def _coming(job: SearchJob, shown: list[JsonValue], covers: _Covers) -> bool:
     return job.judging or unjudged or covers.pending(shown)
 
 
-__all__ = ["FIRST_SCREEN_BY", "search_first_screen"]
+__all__ = ["FIRST_SCREEN_BY", "GROWN_BY", "search_first_screen"]
