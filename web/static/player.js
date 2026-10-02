@@ -486,6 +486,10 @@ const TCPlayer = {
       TCPlayer._screenLost(TCPlayer._retries);
       return;
     }
+    // Пока лента пересобирается, зритель видит заминку, а не стоящий кадр: отказ декодера
+    // не даёт ``waiting``, и до этой строки картинка молча стояла все повторы, а лента под
+    // ней падала в ноль («Оно» 2017 с закладки, Chromium, ``MEDIA_ERR_DECODE``).
+    if (!TCPlayer._counting && !TCPlayer._overlay.querySelector('.tc-refused')) TCPlayer._screenBuffering();
     TCPlayer._retryTimer = window.setTimeout(() => {
       TCPlayer._retryTimer = null;
       TCPlayer._attach(TCPlayer._url, TCPlayer._video.currentTime || 0);
