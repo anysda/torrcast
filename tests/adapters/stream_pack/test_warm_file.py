@@ -142,6 +142,33 @@ def test_a_map_that_did_not_come_still_warms_the_head() -> None:
 
 
 @pytest.mark.machine
+def test_a_map_refused_for_its_frames_still_warms_the_place_by_its_pointer() -> None:
+    """Отказ «индекс врёт» не отнимает смещений: место позиции греется по указателю с полки.
+
+    Живой замер на «Интерстелларе» 5212 МБ (BD-AVC, Cues врут про опорные кадры): запись с
+    закладкой 5000 с грела 32 МБ начала, показ ждал сверку входа и первый кусок из роя 6.5 с.
+    """
+    watch = Watch(None)
+    pointer = FilmKeys(600.0, [0.0, 100.0, 200.0], [0, 90 << 20, 500 << 20], "mkv")
+    warm_file(
+        "http://торрент/поток",
+        at=240.0,
+        keys_of=watch.keys_of,
+        warm=watch.warm,
+        origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
+        pointer_of=lambda url: pointer,
+    )
+    watch.wait(4)
+    assert watch.asked == [
+        (0, HEAD_OPEN["mkv"]),
+        (CUES, CUES_CHUNK),
+        MEASURED,
+        (500 << 20, HEAD_WARM),
+    ], "отвергнутая по кадрам карта знает, где лежит позиция"
+
+
+@pytest.mark.machine
 def test_a_release_the_show_gave_up_on_is_not_warmed_further() -> None:
     """Отвергнутый релиз дотягивать нельзя: он отъедает полосу у выбранного."""
     watch = Watch(FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "mp4"))

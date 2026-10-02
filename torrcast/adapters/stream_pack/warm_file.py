@@ -7,6 +7,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.container_of import container_of
 from torrcast.adapters.stream_pack.cues_at import cues_at
 from torrcast.adapters.stream_pack.film_keys import film_keys
@@ -14,9 +15,15 @@ from torrcast.adapters.stream_pack.head_open import head_open
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
 from torrcast.adapters.stream_pack.pull_head import pull_head
 from torrcast.adapters.stream_pack.warm_at import warm_at
+from torrcast.adapters.stream_pack.weigh_keys import weigh_keys
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.mkv.ids import CUES_CHUNK
 from torrcast.domain.warm_open import HEAD_WARM
+
+
+def _shelf_pointer(source_url: str) -> FilmKeys | None:
+    """Байтовый указатель файла с полки, в том числе карты, отвергнутой по кадрам."""
+    return weigh_keys(_keys_cache(source_url))
 
 
 def warm_file(
@@ -29,6 +36,7 @@ def warm_file(
     warm: Callable[[str, int, int, Any], int] = warm_at,
     origin_of: Callable[[str], float] = pack_origin,
     cues_of: Callable[[str, Any], int | None] = cues_at,
+    pointer_of: Callable[[str], FilmKeys | None] | None = None,
     done: threading.Event | None = None,
 ) -> threading.Event:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
@@ -53,6 +61,8 @@ def warm_file(
     чтение головы уступает показу по тому же ``alive``.
     Карта из кэша torrcast хвоста не читает, а кэш TorrServer живёт отдельно, и индекс
     бывал холодным при прогретой закладке: кадр ждал кусок хвоста 7.4 с.
+    ``pointer_of`` - байтовый указатель отвергнутой карты с полки: место позиции он знает
+    и тогда, когда сетки по карте не будет.
 
     Возвращает событие «карта снята или отказана»: без карты сетки нет, и отбор в срок
     (:func:`torrcast.usecases.select_bench._bench_in_time._fit`) ждёт его у подмены.
@@ -82,6 +92,12 @@ def warm_file(
             mapped.set()
         if alive is not None and not alive():
             return
+        if keys is None and at > 0:
+            # 🔴 Отказ «индекс врёт» отвергает кадры, а не смещения: указатель лежит на полке
+            # рядом с вердиктом. Без него запись с закладкой грела 32 МБ начала, а показ
+            # «Интерстеллара» 5212 МБ с 5000 с ждал сверку входа и первый кусок из роя 6.5 с.
+            with contextlib.suppress(Exception):
+                keys = (pointer_of or _shelf_pointer)(source_url)
         offset = keys.byte_at(at) if keys is not None and at > 0 else 0
         # Контейнер знает карта; у карты из кэша прошлой версии его нет - тогда спрашиваем
         # имя файла раздачи, оно у показа всегда под рукой.
