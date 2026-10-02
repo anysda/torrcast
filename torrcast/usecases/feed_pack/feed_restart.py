@@ -180,10 +180,15 @@ def _begin(state: _State, want: float, shrink: PackShrink) -> float:
         # (:func:`torrcast.usecases.feed_pack.feed_seam._seam`) или запрос следующего места.
         state.door = head  # и обещать её можно: она лежит или ляжет
         return want
-    if want <= 0.0 or state.encode is not None or _recode_whole(state, want):
+    asked = want > 0.0 and state.encode is None
+    verdict = _recode_whole(state, want) if asked else False
+    if not asked or verdict:
         _restart(state, state.grid.slot_at(want), shrink)
         return want
     seek, at = _state.settle_start(state.source, want)
+    if verdict is None and _recode_whole(state, want):  # пробный заход притянул место
+        _restart(state, state.grid.slot_at(want), shrink)
+        return want
     slot = state.grid.slot_at(at)
     start = want if at <= want and slot == state.grid.slot_at(want) else at
     journal().mark("вход показа", закладка=round(want, 3), вход=round(at, 3), с=round(start, 3))

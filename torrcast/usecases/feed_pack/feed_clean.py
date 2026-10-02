@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
 
 
-def _recode_whole(state: _State, want: float) -> bool:
+def _recode_whole(state: _State, want: float) -> bool | None:
     """Перевести показ на сплошной перекод, если копия с ``want`` не открывается чисто.
 
     🔴 Опорный кадр контейнера у BD-AVC с открытым GOP - I-срез без IDR, и кадры за ним
@@ -29,11 +29,18 @@ def _recode_whole(state: _State, want: float) -> bool:
     считает одно место.
 
     Ровная сетка по карте опорных кадров (``on_keys``) сюда не заходит: карту с не-IDR
-    входами отвергает её же сторож, и принятая карта - уже ответ. Не сверилось - показ
-    идёт прежним путём.
+    входами отвергает её же сторож, и принятая карта - уже ответ.
+
+    ``None`` - сверка не ответила (холодный рой не отдал место за её потолок), и решать
+    тут нечего: ``begin`` спрашивает ещё раз после пробного захода, который это место
+    уже притянул. Замер на «Интерстелларе» с 5000 с, TS холодный, рядом отбор карточки:
+    сверка молчала, копия вошла с 4990.694 без IDR - вкладка ни одного кадра.
     """
-    if not _copying(state) or _state.opens_clean(state.source, want) is not False:
+    if not _copying(state):
         return False
+    clean = _state.opens_clean(state.source, want)
+    if clean is not False:
+        return None if clean is None else False
     mbit = _switch(state, state.grid.slot_at(want))
     journal().mark("вход не IDR", закладка=round(want, 3), мбит=mbit)
     return True
