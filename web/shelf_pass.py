@@ -150,12 +150,13 @@ class ShelfPass:
             if keys != self.shown.get(shelf):
                 self.shown[shelf] = keys
                 self.ready.saw(shelf, tiles)
-                self.cache.publish(
-                    shelf, tiles, DropCount(), self.now, complete=False, unstamped=True
-                )
+                out = DropCount(dropped_keys=set(self.ready.condemned))  # no old tile in its place
+                self.cache.publish(shelf, tiles, out, self.now, complete=False, unstamped=True)
         self.cache.filling = self.ready.watch(self.filling())
 
     def _known(self, _query: str, key: str) -> Verdict:
+        if key in self.ready.condemn(self.verdicts):
+            return False
         return self.verdicts.get(key)  # not judged yet is «unknown», and the tile stays
 
     def _offered(self, shelf: str) -> Offer:
@@ -172,6 +173,7 @@ class ShelfPass:
         sources = (self.rows, cache.catalogue, self._offered(shelf), cache.passport)
         tiles = build_shelf(shelf, *sources, judged, self.now)
         self.done[shelf] = tiles = self.ready.keep(shelf, tiles, self.verdicts)
+        drops.dropped_keys |= self.ready.condemn(self.verdicts)
         self.ready.saw(shelf, tiles)
         last = len(self.done) == len(SHELVES)
         self.cache.publish(shelf, tiles, drops, self.now, complete=last, unstamped=self.early)

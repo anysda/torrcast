@@ -575,3 +575,84 @@ def test_a_tile_dropped_after_ready_is_not_replaced_by_a_new_one(tmp_path: Path)
     assert ready, "the counter went out during the pass"
     assert "Картина 00" not in " ".join(_titles(cache._body, "popular"))
     assert len(_titles(cache._body, "popular")) == LIMIT - 1
+
+
+_CONDEMNED = "movie:картина-00:2026"
+
+
+def _shows(cache: ShelvesCache) -> list[tuple[int, set[str], set[str]]]:
+    """Каждая публикация: (номер захода, плитки захода, плитки тела после неё)."""
+    shows: list[tuple[int, set[str], set[str]]] = []
+    publish, feed, asked = cache.publish, cache.feed, [0]
+
+    def counted(limit: int) -> FeedRows:
+        asked[0] += 1
+        return FeedRows(list(feed(limit)))
+
+    def watched(shelf: str, tiles: list[JsonValue], *args: object, **kwargs: object) -> None:
+        publish(shelf, tiles, *args, **kwargs)  # type: ignore[arg-type]
+        body = cache._body or {}
+        shown = body.get(shelf)
+        after = (
+            {str(t.get("key")) for t in shown if isinstance(t, dict)}
+            if isinstance(shown, list)
+            else set()
+        )
+        sent = {str(t.get("key")) for t in tiles if isinstance(t, dict)}
+        shows.append((asked[0], sent, after))
+
+    cache.feed, cache.publish = counted, watched  # type: ignore[method-assign]
+    return shows
+
+
+@pytest.mark.machine
+def test_a_condemned_tile_does_not_come_back_from_the_old_body(tmp_path: Path) -> None:
+    """«Не играет» снимает плитку и с экрана: тело прежнего правила её обратно не добивает.
+
+    Прежде заход до «готово» публиковал без снятых, и добивка из старого тела ставила
+    приговорённую плитку на её прежнее место, пока полку не закрывал приговор.
+    """
+    cache = _cache(tmp_path, 5)
+    old: dict[str, JsonValue] = {
+        shelf: [{"key": _CONDEMNED, "title": "Картина 00"}] for shelf in SHELVES
+    }
+    cache._body = {**old, "built_at": "2026-09-29T00:00:00+00:00", FIELD: RULE - 1}
+
+    def playable(_query: str, key: str) -> bool:
+        time.sleep(0.02)
+        return key != _CONDEMNED
+
+    cache.playable = playable
+    shows = _shows(cache)
+    cache._rebuild()
+
+    gone = next(i for i, (_a, sent, _after) in enumerate(shows) if _CONDEMNED not in sent)
+    back = [after for _a, _sent, after in shows[gone:] if _CONDEMNED in after]
+    assert not back, f"the condemned tile came back {len(back)} times"
+
+
+@pytest.mark.machine
+def test_a_condemned_tile_does_not_come_back_on_the_next_pass(tmp_path: Path) -> None:
+    """Приговор держится всю пересборку: следующий заход не показывает плитку до приговора.
+
+    Первый заход осудил все плитки ленты, полки пусты, и пересборка спрашивает ленту снова.
+    Прежде у второго захода приговоров ещё не было, и осуждённые вставали на полку.
+    """
+    cache = _cache(tmp_path, 5)
+    sizes = iter([5, 10])
+    cache.feed, cache.attempts = lambda _limit: _rows(next(sizes)), 2
+    condemned = {f"movie:картина-{index:02d}:2026" for index in range(5)}
+
+    def playable(_query: str, key: str) -> bool:
+        time.sleep(0.02)
+        return key not in condemned
+
+    cache.playable = playable
+    shows = _shows(cache)
+    cache._rebuild()
+
+    second = [(sent, after) for asked, sent, after in shows if asked == 2]
+    assert second, "the rebuild did not ask the feed again"
+    back = [sent | after for sent, after in second if (sent | after) & condemned]
+    assert not back, f"condemned tiles came back on the next pass: {back}"
+    assert _titles(cache._body, "fresh")

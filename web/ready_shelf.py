@@ -7,7 +7,8 @@
 погас, запоминается опубликованный состав полок, и до конца пересборки (все её заходы
 делят один :class:`ReadyShelf`) публикуется только он, без снятых приговором «не играет».
 Полку, которую приговоры опустошили, держать незачем: заморозка снимается, и пустая полка
-добирается, как до «готово».
+добирается, как до «готово». Приговорённая «не играет» плитка до конца пересборки на полку
+не возвращается ни из нового захода, ни добивкой из прежнего тела (:mod:`web._stale_tiles`).
 """
 
 from __future__ import annotations
@@ -30,6 +31,12 @@ class ReadyShelf:
     tiles: dict[str, list[JsonValue]] | None = None
     seen: dict[str, list[JsonValue]] = field(default_factory=dict)
     lit: bool = False  # the counter burned: a warm rebuild has no «ready» to keep
+    condemned: set[str] = field(default_factory=set)  # «does not play» for the whole rebuild
+
+    def condemn(self, verdicts: Mapping[str, bool | None]) -> set[str]:
+        """Запомнить приговорённых «не играет»: до конца пересборки им на полку не вернуться."""
+        self.condemned |= {key for key, verdict in verdicts.items() if verdict is False}
+        return self.condemned
 
     def saw(self, shelf: str, tiles: list[JsonValue]) -> None:
         """Запомнить то, что ушло на страницу: застывает именно оно."""
@@ -49,7 +56,8 @@ class ReadyShelf:
         """До «готово» - ``tiles``; после - застывшая полка без приговорённых «не играет»."""
         if self.tiles is None:
             return tiles
-        kept = [tile for tile in self.tiles.get(shelf, []) if verdicts.get(_key(tile)) is not False]
+        out = self.condemn(verdicts)
+        kept = [tile for tile in self.tiles.get(shelf, []) if _key(tile) not in out]
         if not kept:  # condemned to empty: no «ready» left to keep, a fuller attempt may follow
             self.tiles = None
             return kept
