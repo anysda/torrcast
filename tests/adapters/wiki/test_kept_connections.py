@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.wiki.kept_connections import FRESH_FOR, KEPT_PER_HOST, KeptConnections
+from torrcast.adapters.wiki.kept_connections import (
+    FRESH_FOR,
+    KEPT_PER_HOST,
+    USES,
+    KeptConnections,
+)
 
 
 class _Connection:
@@ -65,3 +70,25 @@ def test_no_more_than_the_host_limit_is_kept() -> None:
 
     assert connections[-1].closed
     assert not any(connection.closed for connection in connections[:-1])
+
+
+def test_a_connection_retires_before_the_answer_its_home_route_stalls_on() -> None:
+    """Из дома соединение к IMDb глохло на 9-10-м запросе: оно уходит раньше, после :data:`USES`."""
+    ((host, uses),) = USES.items()
+    kept, connection = KeptConnections(), _Connection()
+    for _ in range(uses - 1):
+        kept.give(host, connection, _Answer())
+        assert kept.take(host) is connection
+    assert not connection.closed
+    kept.give(host, connection, _Answer())
+    assert kept.take(host) is None, "отслужившее соединение пошло на новый запрос"
+    assert connection.closed
+
+
+def test_a_host_without_a_term_keeps_its_connection() -> None:
+    """У CDN затык на НОВОМ соединении: смена после шести ответов там множила бы затыки."""
+    kept, connection = KeptConnections(), _Connection()
+    for _ in range(3 * max(USES.values())):
+        kept.give("m.media-amazon.com", connection, _Answer())
+        assert kept.take("m.media-amazon.com") is connection
+    assert not connection.closed
