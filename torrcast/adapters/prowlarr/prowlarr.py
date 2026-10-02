@@ -117,9 +117,8 @@ class Prowlarr(_State):
         known, self.banned = self._roster.usable(known)
         first, later = circle_indexers(known, query)
         if self.joint is not None:
-            # A Latin name asks the anime indexers at once: romaji alone finds an anime typed
-            # in Cyrillic, and a silent one, not core, comes late instead of holding a second
-            # circle. A Cyrillic name leaves them to the viewer's text and Nyaa's slot free.
+            # A Latin name asks the anime indexers at once: romaji finds an anime typed in
+            # Cyrillic, and a silent one comes late. A Cyrillic name leaves them to its text.
             first, later = (first if CYRILLIC_RE.search(query) else (*first, *later)), ()
         # 🔴 TC-228: каждый следующий круг идёт в остаток цели (:meth:`spare`), но не ниже
         # пола (:attr:`cap_floor`): второй заход раньше платил хвост первого плюс свой
