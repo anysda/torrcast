@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 
+import pytest
+
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.feed_rows import FeedRows
 from torrcast.domain.raw_result import RawResult
@@ -27,8 +29,10 @@ def test_a_whole_feed_starts_nothing() -> None:
     assert not refill.short and not refill.pending() and refill.take() == []
 
 
-def test_an_indexer_that_answers_in_time_brings_its_rows() -> None:
-    """Недосчитанный ответил к сроку: строки забираются, недосчёта больше нет."""
+def test_an_indexer_that_answers_in_time_brings_its_rows(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Недосчитанный ответил к сроку: строки забираются, недосчёта больше нет, журнал - когда."""
     refill = FeedRefill(lambda _within: FeedRows([_row("Дюна 2021")]), time.monotonic() + 5)
 
     _finish(refill.start())
@@ -37,6 +41,9 @@ def test_an_indexer_that_answers_in_time_brings_its_rows() -> None:
     assert [row.raw.title for row in refill.take()] == ["Дюна 2021"]
     assert refill.take() == []
     assert not refill.short
+    journal = capsys.readouterr().out
+    assert "re-asking for" in journal or "переспрос ещё" in journal
+    assert "1 rows, missed 0" in journal or "дал 1 строк, недосчитано 0" in journal
 
 
 def test_a_refusing_indexer_is_re_asked_with_a_pause_until_the_deadline() -> None:

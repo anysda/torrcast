@@ -12,4 +12,6 @@ def ru() -> dict[str, str]:
         "systemd.shelf.warmup_ordered": "полка {shelf}: заказан прогрев {count} плиток",
         "systemd.shelf.published": "полка {shelf}: опубликовано тело из {count} плиток",
         "systemd.shelf.unplayable": "полка: «{query}» не играет, плитка {tile} снимается",
+        "systemd.shelf.feed_short": "полка: лента недосчитала индексер, переспрос ещё {within} с",
+        "systemd.shelf.feed_refilled": "полка: переспрос дал {count} строк, недосчитано {missed}",
     }

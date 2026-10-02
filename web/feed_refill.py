@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Final
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.feed_rows import Again
 
@@ -43,6 +44,8 @@ class FeedRefill:
 
     def _run(self) -> None:
         again = self.again
+        within = f"{self.until - time.monotonic():.1f}"
+        print(phrase("systemd.shelf.feed_short", within=within), flush=True)
         while again is not None and (left := self.until - time.monotonic()) > 0:
             began = time.monotonic()
             got = again(left)
@@ -50,6 +53,9 @@ class FeedRefill:
                 self._rows.extend(got)
                 self.short = got.missed > 0
             again = got.again
+            if got or again is None:  # the journal tells when the missed indexer came in
+                count, missed = len(got), got.missed
+                print(phrase("systemd.shelf.feed_refilled", count=count, missed=missed), flush=True)
             now = time.monotonic()
             if not got and again is not None:  # a quick refusal: wait out the pause
                 time.sleep(max(min(PAUSE - (now - began), self.until - now), 0.0))

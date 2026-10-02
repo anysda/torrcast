@@ -12,4 +12,6 @@ def en() -> dict[str, str]:
         "systemd.shelf.warmup_ordered": "shelf {shelf}: warmup ordered for {count} tiles",
         "systemd.shelf.published": "shelf {shelf}: published body with {count} tiles",
         "systemd.shelf.unplayable": 'shelf: "{query}" does not play, tile {tile} is dropped',
+        "systemd.shelf.feed_short": "shelf: the feed missed an indexer, re-asking for {within} s",
+        "systemd.shelf.feed_refilled": "shelf: the re-ask brought {count} rows, missed {missed}",
     }
