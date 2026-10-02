@@ -4,7 +4,8 @@
 Холодный заход показывает плитки, как только легли байты обложки, и доводит приговоры
 фоном (:func:`web.shelf_judge.shelf_judge`): «не играет» снимает плитку, «не знаю» - нет
 (:func:`web.shelf_tiles._covered`). Тёплый до приговоров не показывает, холодный - без клейма
-(:mod:`web.built_by_rule`). Счётчик гаснет, когда полнее полка не станет (см. ``more``).
+(:mod:`web.built_by_rule`). Счётчик гаснет, когда полнее полка не станет (см. ``more``), и
+дальше полка только усыхает (:mod:`web.ready_shelf`).
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from web.built_by_rule import FIELD, RULE
 from web.cold import SHELVES, cold
 from web.drop_count import DropCount
 from web.fill_deadline import FILL_BY, fill_deadline
+from web.ready_shelf import ReadyShelf
 from web.shelf_judge import Verdict, shelf_judge
 from web.shelf_lane import shelf_lane
 from web.shelf_pictures import shelf_pictures
@@ -88,6 +90,7 @@ class ShelfPass:
     _joint: list[JsonValue] = field(default_factory=list)
     _fresh: int = 0
     _deadline: float = 0.0
+    _ready: ReadyShelf = field(default_factory=ReadyShelf)
 
     @property
     def early(self) -> bool:
@@ -158,13 +161,14 @@ class ShelfPass:
                 continue
             offered, passport = self._offered(shelf), self.cache.passport
             tiles = shelf_tiles(self.pictures[shelf], offered, passport, self._known, LIMIT)
+            tiles = self._ready.keep(shelf, tiles)
             keys = [str(tile.get("key")) for tile in tiles if isinstance(tile, dict)]
             if keys != self.shown.get(shelf):
                 self.shown[shelf] = keys
                 self.cache.publish(
                     shelf, tiles, DropCount(), self.now, complete=False, unstamped=True
                 )
-        self.cache.filling = self.filling()
+        self.cache.filling = self._ready.watch(self.filling(), self.shown, self.done)
 
     def _known(self, _query: str, key: str) -> Verdict:
         return self.verdicts.get(key)  # not judged yet is «unknown», and the tile stays
@@ -180,20 +184,13 @@ class ShelfPass:
                 self.verdicts[key] if key in self.verdicts else cache.playable(query, key)
             )
         )
-        tiles = build_shelf(
-            shelf,
-            self.rows,
-            cache.catalogue,
-            self._offered(shelf),
-            cache.passport,
-            judged,
-            self.now,
-        )
-        self.done[shelf] = tiles
+        sources = (self.rows, cache.catalogue, self._offered(shelf), cache.passport)
+        tiles = build_shelf(shelf, *sources, judged, self.now)
+        self.done[shelf] = tiles = self._ready.keep(shelf, tiles)
         last = len(self.done) == len(SHELVES)
         self.cache.publish(shelf, tiles, drops, self.now, complete=last, unstamped=self.early)
         if self.early:
-            self.cache.filling = self.filling()
+            self.cache.filling = self._ready.watch(self.filling(), self.shown, self.done)
 
 
 __all__ = ["FILL_BY", "SHELVES", "SILENT_BY", "ShelfPass"]

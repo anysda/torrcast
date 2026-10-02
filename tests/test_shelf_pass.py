@@ -392,3 +392,30 @@ def test_a_cold_ask_at_the_window_edge_does_not_grow_the_shelf_after_ready(
 
     grew_after_ready = any(not on and n < seen[-1][1] for on, n in seen[1:-1])
     assert not grew_after_ready, f"shelf grew after the counter went out: {seen}"
+
+
+def test_a_tile_dropped_after_ready_is_not_replaced_by_a_new_one(tmp_path: Path) -> None:
+    """«Не играет» после «готово» полку только сужает: следующая картина места не занимает.
+
+    Замер 02-10-2026: счётчик погас на 26.2 с, приговор снял плитку на 36.2 с, и на полку
+    «Популярное» тут же встала новая картина - полка выросла после «готово».
+    """
+    cache = _cache(tmp_path, LIMIT + 1)
+    cache.playable = lambda _query, key: key != "movie:картина-00:2026"
+    ready: dict[str, set[str]] = {}
+    publish = cache.publish
+
+    def watched(shelf: str, tiles: list[JsonValue], *args: object, **kwargs: object) -> None:
+        publish(shelf, tiles, *args, **kwargs)  # type: ignore[arg-type]
+        keys = {str(tile.get("key")) for tile in tiles if isinstance(tile, dict)}
+        if shelf in ready:
+            assert keys <= ready[shelf], f"{shelf} grew after ready: {keys - ready[shelf]}"
+        if not cache.filling:
+            ready.setdefault(shelf, keys)
+
+    cache.publish = watched  # type: ignore[method-assign]
+    cache._rebuild()
+
+    assert ready, "the counter went out during the pass"
+    assert "Картина 00" not in " ".join(_titles(cache._body, "popular"))
+    assert len(_titles(cache._body, "popular")) == LIMIT - 1
