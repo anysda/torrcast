@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -403,15 +404,55 @@ def test_a_whole_feed_puts_the_counter_out_and_waits_the_hour(tmp_path: Path) ->
     assert _next_sleep(cache) == cache.every
 
 
+def _rebuild_under_the_page(cache: ShelvesCache) -> list[tuple[bool, dict[str, set[str]]]]:
+    """Пересборка глазами страницы: опрос ``X-Torrcast-Partial`` и плиток каждые 5 мс.
+
+    Страница гасит счётчик, когда у тела есть ``built_at`` и ``filling`` погас
+    (:mod:`web.shelves`); «готово» - первый такой опрос с непустым «Новым».
+    """
+    polls: list[tuple[bool, dict[str, set[str]]]] = []
+    stop = threading.Event()
+
+    def page() -> None:
+        while not stop.is_set():
+            body = cache._body or {}
+            partial = body.get("built_at") is None or cache.filling
+            keys = {
+                shelf: {str(t.get("key")) for t in body.get(shelf) or [] if isinstance(t, dict)}
+                for shelf in SHELVES
+            }
+            polls.append((partial, keys))
+            time.sleep(0.005)
+
+    poller = threading.Thread(target=page)
+    poller.start()
+    try:
+        cache._rebuild()
+        time.sleep(0.05)
+    finally:
+        stop.set()
+        poller.join()
+    return polls
+
+
+def _ready(polls: list[tuple[bool, dict[str, set[str]]]]) -> int:
+    ready = next(
+        (i for i, (partial, keys) in enumerate(polls) if not partial and keys["fresh"]), None
+    )
+    assert ready is not None, polls[-3:]
+    return ready
+
+
 @pytest.mark.machine
 @pytest.mark.parametrize("edge", [FILL_BY - 0.5, 1e6])
-def test_a_cold_ask_at_the_window_edge_does_not_grow_the_shelf_after_ready(
+def test_a_cold_ask_at_the_window_edge_is_whole_at_ready_and_does_not_grow(
     tmp_path: Path, edge: float
 ) -> None:
     """Проба мержера: первый заход - отказ каталога, второй спрашивает на краю окна.
 
-    Остаток окна в полсекунды закрывал полку на 3 плитках «Нового», счётчик гас, и
-    следующий заход дорастил её до 6 уже после «готово».
+    Половина обложек приходит сразу, вторая - через 1.3 с после вопроса. Остаток окна
+    в полсекунды закрывал полку на 3 плитках «Нового» из 6: страница видела «готово»
+    на тонкой полке. Здесь в миг «готово» полка целая, и после него не растёт.
     """
     cache = _cache(tmp_path, 6)
     cache.attempts = 3
@@ -436,26 +477,50 @@ def test_a_cold_ask_at_the_window_edge_does_not_grow_the_shelf_after_ready(
             for i, r in enumerate(records)
         ]
 
-    seen: list[tuple[bool, int]] = []
-
-    def sleep(_pause: float) -> None:
-        if len(calls) >= 2:
-            time.sleep(2.5)
-        fresh = cache._body.get("fresh") if cache._body else None
-        seen.append((cache.filling, len(_titles(cache._body, "fresh")) if fresh else 0))
-
     cache.feed = feed
-    cache.ask = cover
-    cache.landed = cover
-    cache.offer = cover
+    cache.ask = cache.landed = cache.offer = cover
     cache.arriving = lambda _records: time.monotonic() < late[0]
     cache.playable = lambda _query, _key: True
-    cache.sleep = sleep
-    cache._rebuild()
-    seen.append((cache.filling, len(_titles(cache._body, "fresh"))))
+    cache.filling = True  # what start() sets for a cold body
+    polls = _rebuild_under_the_page(cache)
 
-    grew_after_ready = any(not on and n < seen[-1][1] for on, n in seen[1:-1])
-    assert not grew_after_ready, f"shelf grew after the counter went out: {seen}"
+    ready = _ready(polls)
+    at_ready = polls[ready][1]
+    grew = {k for _p, keys in polls[ready:] for s in SHELVES for k in keys[s] - at_ready[s]}
+    assert len(at_ready["fresh"]) == 6, f"thin «ready»: {len(at_ready['fresh'])} of 6"
+    assert not grew, f"grew after ready: {sorted(grew)}"
+
+
+@pytest.mark.machine
+def test_a_verdict_after_ready_does_not_let_an_old_rule_tile_in(tmp_path: Path) -> None:
+    """Проба мержера: тело на диске собрано прежним правилом (подъём ``RULE`` или рестарт
+    посреди холодного захода). «Не играет» после «готово» снимает плитку, и прежде на её
+    место вставала старая плитка, которой страница не видела."""
+    cache = _cache(tmp_path, 5)
+    old = {
+        shelf: [
+            {"key": f"movie:старая-{shelf}-{i:02d}:2020", "title": f"Старая {i:02d}"}
+            for i in range(LIMIT)
+        ]
+        for shelf in SHELVES
+    }
+    cache._body = {**old, "built_at": "2026-09-29T00:00:00+00:00", FIELD: RULE - 1}
+    dropped = "movie:картина-00:2026"
+
+    def playable(_query: str, key: str) -> bool:
+        time.sleep(0.05)  # verdicts come after the covers, as on the stand
+        return key != dropped
+
+    cache.playable = playable
+    cache.filling = True
+    polls = _rebuild_under_the_page(cache)
+
+    ready = _ready(polls)
+    at_ready = polls[ready][1]
+    grew = {k for _p, keys in polls[ready:] for s in SHELVES for k in keys[s] - at_ready[s]}
+    assert dropped in at_ready["fresh"] | at_ready["popular"], "the verdict came before «ready»"
+    assert dropped not in polls[-1][1]["fresh"] | polls[-1][1]["popular"]
+    assert not grew, f"grew after ready: {sorted(grew)}"
 
 
 def test_a_tile_dropped_after_ready_is_not_replaced_by_a_new_one(tmp_path: Path) -> None:
