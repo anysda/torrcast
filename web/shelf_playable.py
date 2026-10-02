@@ -50,6 +50,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Final
 
 from torrcast.adapters.torrserver.torr_server import TorrServer
@@ -60,12 +61,14 @@ from torrcast.usecases.select.plan import Plan
 from web.built_by_rule import RULE
 from web.card_warm import CardWarm
 from web.heard import Heard
+from web.shelf_circle import shelf_circle
 from web.start_first import start_first
 from web.verdict_disk import VerdictDisk
 from web.voice_lookup import VoiceLookup
 from web.warm_wiring import WARM
 
-#: Круг раздач по запросу плитки; в бою - :meth:`web.warm_cache.WarmCache.take`.
+#: Круг раздач по запросу плитки; в бою - фоновый, за поиском зрителя
+#: (:func:`web.shelf_circle.shelf_circle`).
 Circle = Callable[[str], list[Plan]]
 #: Отбор дорожек; последнее поле - был ли пустой ответ честным, а не отказом источника.
 Voices = Callable[[Plan, str, Config], tuple["Heard | None", bool, bool]]
@@ -160,9 +163,12 @@ _WARM: Final = CardWarm()
 #: Отбор плитки полки: та же логика, что у карточки (:mod:`web.voice_lookup`), но
 #: синхронная и на своём стенде.
 _VOICES: Final = VoiceLookup(engines=TorrServer, warms=_WARM, spawn=_now)
-#: Боевой приговор: круг тот же, что у карточки и полки (:data:`web.warm_wiring.WARM`),
-#: память - на диске, переживает рестарт (:class:`web.verdict_disk.VerdictDisk`).
-PLAYABLE: Final = ShelfPlayable(circle=WARM.take, voices=_VOICES.shelf_of, disk=VerdictDisk())
+#: Боевой приговор: память кругов та же, что у карточки (:data:`web.warm_wiring.WARM`), но
+#: считает полка за поиском зрителя, а не впереди него; память приговоров - на диске,
+#: переживает рестарт (:class:`web.verdict_disk.VerdictDisk`).
+PLAYABLE: Final = ShelfPlayable(
+    circle=partial(shelf_circle, WARM), voices=_VOICES.shelf_of, disk=VerdictDisk()
+)
 
 
 __all__ = ["PLAYABLE", "PlayableOf", "ShelfPlayable", "Verdict"]

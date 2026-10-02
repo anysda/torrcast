@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, PACE, HostSlots
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, PACE, QUIET, HostSlots
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 
@@ -46,3 +46,16 @@ def test_the_process_keeps_one_queue() -> None:
         first.slots.take("RuTor", 3.0)
     assert not second.slots.take("RuTor", 3.0, spare=True), "a new search sees the old queue"
     assert "RuTor" in HOST_SLOTS._free
+
+
+def test_the_shelf_waits_only_behind_a_viewers_search() -> None:
+    clock = _Clock()
+    slots = HostSlots(clock)
+    assert slots.after_search(100.0) == 0.0, "the start of the process does not hold the shelf"
+    with slots.live():
+        clock.now += 70.0
+        assert slots.after_search(100.0) == -10.0, "a search does not hold it past MOST"
+        assert slots.after_search(170.0) == 60.0
+    assert slots.after_search(170.0) == QUIET
+    clock.now += QUIET
+    assert slots.after_search(170.0) == 0.0

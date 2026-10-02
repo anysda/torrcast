@@ -57,6 +57,7 @@ class HostSlots:
         self._pace = pace
         self._quiet = quiet
         self._calm = clock()  # the start of the process counts as a search just ended
+        self._ended: float | None = None  # the end of the last live search, none yet
         self._lock = threading.Lock()
         self._free: dict[str, float] = {}
         self._flight: dict[str, list[threading.Event]] = {}
@@ -101,7 +102,7 @@ class HostSlots:
         finally:
             with self._turn:
                 self._live -= 1
-                self._calm = self._clock()
+                self._calm = self._ended = self._clock()
                 self._turn.notify_all()
 
     def still(self, began: float, most: float = MOST) -> float:
@@ -114,6 +115,22 @@ class HostSlots:
         with self._lock:
             now = self._clock()
             return min(self._calm + self._quiet - now, began + most - now)
+
+    def after_search(self, began: float, most: float = MOST) -> float:
+        """Seconds a shelf's background circle still waits, waiting since ``began``.
+
+        As :meth:`still`, but only behind a viewer's search, running or ended under
+        :data:`QUIET` ago: the start of the process does not count, the shelf fills at once.
+        The shelf's circles went as a viewer's and stood in Prowlarr's host queues ahead of
+        him: his text started there 4.9 s after his search (median of 15 on the stand).
+        """
+        with self._lock:
+            now = self._clock()
+            if self._live:
+                return began + most - now
+            if self._ended is None:
+                return 0.0
+            return min(self._ended + self._quiet - now, began + most - now)
 
     def give_way(self, names: Sequence[str], most: float = MOST) -> float:
         """The moment (:func:`time.monotonic`) a circle to ``names`` may start.

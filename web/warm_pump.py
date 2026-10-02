@@ -167,4 +167,4 @@ def _named(broke: TorrcastError | OSError) -> TorrcastError:
     return broke if isinstance(broke, TorrcastError) else InfraError(str(broke))
 
 
-__all__ = ["_adopted", "_pump", "_rush"]
+__all__ = ["_adopted", "_claim", "_pump", "_rush", "_turn"]
