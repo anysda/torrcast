@@ -308,3 +308,25 @@ def test_focus_follows_a_hit_that_landed_in_a_catalog_tile(facts: dict[str, Any]
     slot = _scenario(facts, "slot")
     assert slot["before"] == "k"
     assert slot["after"]["focus"] == "k", f"фокус ушёл на {slot['after']['focus']}"
+
+
+def test_late_covers_of_standing_tiles_land_in_one_arrival(facts: dict[str, Any]) -> None:
+    """Обложки, пришедшие на разных опросах, встают за один проход, а не плитка за плиткой."""
+    once = _scenario(facts, "coversOnce")
+    painted = once["painted"]
+    assert sorted(one["key"] for one in painted) == ["a", "b"], painted
+    assert len({one["at"] for one in painted}) == 1, f"обложки встали рывками: {painted}"
+    assert once["noArt"] == [], "обложка не встала в плитку"
+    assert once["timers"] == 0
+
+
+def test_the_cover_arrival_leaves_at_its_deadline_and_late_ones_stay_placeholders(
+    facts: dict[str, Any],
+) -> None:
+    """Непришедшая обложка не держит пачку дольше срока; опоздавшая к пачке не встаёт кадром."""
+    late = _scenario(facts, "coversDeadline")
+    painted = late["painted"]
+    assert [one["key"] for one in painted] == ["b"], painted
+    assert late["coversBy"] <= painted[0]["at"] <= late["coversBy"] + HITS_STEP_MS * 2, painted
+    assert late["noArt"] == ["a"], "плитка без обложки к пачке получила её отдельным кадром"
+    assert late["screen"]["keys"] == ["a", "b"]

@@ -39,6 +39,25 @@ function search(answer, text = 'тачки') {
   return p;
 }
 
+// Когда какая плитка получила обложку в уже стоящую плитку, по виртуальным часам.
+function paints(p) {
+  const painted = [];
+  const set = p.ctx.TCTile.setPoster;
+  p.ctx.TCTile.setPoster = (tile, poster, title) => {
+    if (tile && poster && tile.dataset.tcPoster !== poster) {
+      painted.push({ key: picture(tile), at: p.time.now() });
+    }
+    return set.call(p.ctx.TCTile, tile, poster, title);
+  };
+  return painted;
+}
+
+// Плитки, что стоят с заглушкой «нет обложки».
+function noArt(p) {
+  return p.doc.querySelectorAll(LIVE)
+    .filter((tile) => tile.querySelector('.tc-tile-noart')).map(picture);
+}
+
 function focusKey(p, key) {
   const tile = p.doc.querySelectorAll(LIVE).find((one) => picture(one) === key);
   if (tile) tile.focus();
@@ -329,6 +348,32 @@ const scenarios = {
     const added = screen(p).focus;
     await p.time.run(60000);
     return { before, added, after: screen(p) };
+  },
+
+  // Обложки голых плиток приходят на разных опросах, а встают в плитки одной пачкой.
+  async coversOnce() {
+    const p = search((n) => ({
+      partial: n < 5, postersPending: false, finalBy: 12,
+      results: [
+        hit('a', n >= 2 ? { poster: 'a.jpg' } : {}),
+        hit('b', n >= 3 ? { poster: 'b.jpg' } : {}),
+        hit('c', { poster: 'c.jpg' }),
+      ],
+    }));
+    const painted = paints(p);
+    await p.time.run(60000);
+    return { painted, timers: p.time.pending(), screen: screen(p), noArt: noArt(p) };
+  },
+
+  // Одна обложка так и не пришла: пачка уходит к сроку, плитка без неё остаётся заглушкой.
+  async coversDeadline() {
+    const p = search((n, at) => ({
+      partial: at < 8000, postersPending: false, finalBy: 12,
+      results: [hit('a', at >= 4000 ? { poster: 'a.jpg' } : {}), hit('b', n >= 2 ? { poster: 'b.jpg' } : {})],
+    }));
+    const painted = paints(p);
+    await p.time.run(60000);
+    return { coversBy: p.home._COVERS_BY, painted, screen: screen(p), noArt: noArt(p) };
   },
 
   // Находка по раздаче садится в плитку каталога и меняет личность (`slot`), но не картину.

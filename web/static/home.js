@@ -411,6 +411,7 @@ const TCHome = {
     const gone = () => mine !== TCHome._token || TCHome._query !== text;
     TCHome._focusFirst = retried;
     const began = Date.now();
+    TCHome._covers = TCHome._coverGate(text, began);
     let until = began;
     let known = [];
     let answered = false;
@@ -494,13 +495,101 @@ const TCHome = {
     // The server holds the first row until its covers land: the skeleton already up stays.
     if (!merged.length && said.partial && TCHome._shownHits === TCHome._LOADING) return merged;
     const bare = TCHome._shownHits === ' ' || TCHome._shownHits === TCHome._LOADING;
+    const seen = TCHome._seen(merged);
     if (bare || TCHome._layoutOf(merged) !== TCHome._layoutOf(known)) {
-      TCHome._swapBody(TCHome._searchResults(merged, said.partial));
+      TCHome._swapBody(TCHome._searchResults(seen, said.partial));
     } else {
-      TCHome._patchPosters(merged);
+      TCHome._patchPosters(seen);
       TCHome._patchSearchState(said.partial);
     }
+    const gate = TCHome._covers;
+    if (gate) {
+      gate.final = !said.partial && !said.postersPending;
+      TCHome._mayFree(gate);
+    }
     return merged;
+  },
+
+  // Обложки поиска встают не больше чем двумя приходами (TC-1330): какие легли к плитке до
+  // её первого показа, встают вместе с ней, а обложки плиток, уже стоящих без картинки,
+  // копятся и встают ОДНИМ кадром. Поштучно, на каждом опросе, они въезжали рывками по
+  // 1-10 раз за поиск до 17 с (стенд 02-10-2026). Пачка уходит, когда ждать больше нечего:
+  // у каждой голой плитки обложка уже скачана браузером или финал сказал, что обложек в
+  // пути нет. Иначе она уходит к сроку `_COVERS_BY` от начала поиска с тем, что успело
+  // скачаться: недокачанная встала бы потом своим кадром. Плитка, не попавшая в пачку,
+  // остаётся строкой с заглушкой, а её обложка живёт в `_found` для возврата к поиску.
+  _COVERS_BY: 3000,
+
+  _covers: null,
+
+  _coverGate(query, began) {
+    return { query, until: began + TCHome._COVERS_BY, open: true, final: false,
+      bare: new Set(), held: new Map(), ready: new Set(), freed: new Map() };
+  },
+
+  // Список на экран: плитка, однажды вставшая без обложки, получает её только с пачкой.
+  _seen(results) {
+    const gate = TCHome._covers;
+    if (!gate || !results.length) return results;
+    const ids = TCHome._hitIds(results);
+    return results.map((hit, index) => {
+      const id = ids[index];
+      if (!gate.bare.has(id)) {
+        if (!hit.poster) gate.bare.add(id);
+        return hit;
+      }
+      if (hit.poster && gate.open) TCHome._fetchCover(gate, id, hit.poster);
+      const shown = { ...hit };
+      delete shown.poster;
+      if (gate.freed.has(id)) shown.poster = gate.freed.get(id);
+      return shown;
+    });
+  },
+
+  // Браузер качает обложку заранее, чтобы пачка встала одним кадром, а не по мере загрузки.
+  _fetchCover(gate, id, poster) {
+    if (gate.held.get(id) === poster) return;
+    gate.held.set(id, poster);
+    gate.ready.delete(id);
+    const done = () => {
+      if (gate.held.get(id) !== poster) return;
+      gate.ready.add(id);
+      TCHome._mayFree(gate);
+    };
+    if (typeof Image !== 'function') {
+      gate.ready.add(id);
+      return;
+    }
+    const art = new Image();
+    art.src = TCTile.posterUrl(poster);
+    if (art.decode) {
+      art.decode().then(done, done);
+    } else {
+      art.onload = done;
+      art.onerror = done;
+    }
+  },
+
+  _mayFree(gate) {
+    if (!gate.open || TCHome._covers !== gate) return;
+    const loaded = Array.from(gate.held.keys()).every((id) => gate.ready.has(id));
+    // Все голые плитки названы и скачаны: ждать больше нечего, пока ряд снова не вырастет.
+    const named = gate.held.size > 0 && Array.from(gate.bare).every((id) => gate.held.has(id));
+    if ((loaded && (gate.final || named)) || Date.now() >= gate.until) TCHome._freeCovers(gate);
+  },
+
+  // Пачка: все скачанные обложки голых плиток встают за один проход, дальше ворота закрыты.
+  _freeCovers(gate) {
+    gate.open = false;
+    for (const [id, poster] of gate.held) {
+      if (gate.ready.has(id)) gate.freed.set(id, poster);
+    }
+    const found = TCHome._found;
+    if (!gate.freed.size || TCHome._query !== gate.query || !found || found.query !== gate.query) {
+      return;
+    }
+    if (found.failed || found.refusal) return;
+    TCHome._patchPosters(TCHome._seen(found.results));
   },
 
   // Запас сверх срока сервера: опрос, начатый перед самым сроком, и его дорога назад.
@@ -671,7 +760,7 @@ const TCHome = {
     retry.addEventListener('click', () => TCHome._runSearch(text, true));
     body.append(failed, retry);
     if (known.length) {
-      const shown = TCHome._searchResults(known, true);
+      const shown = TCHome._searchResults(TCHome._seen(known), true);
       body.append(...Array.from(shown.children).filter((one) => !one.matches('.tc-searching')));
     }
     TCHome._shownHits = ' ';
@@ -692,7 +781,7 @@ const TCHome = {
     hint.textContent = TC.say('web.search.empty_hint');
     body.append(said, hint);
     if (known.length) {
-      const shown = TCHome._searchResults(known, true);
+      const shown = TCHome._searchResults(TCHome._seen(known), true);
       body.append(...Array.from(shown.children).filter((one) => !one.matches('.tc-searching')));
     }
     TCHome._shownHits = ' ';
