@@ -129,11 +129,11 @@ class ShelfPass:
         )
         return {FIELD: RULE, "built_at": self.now.isoformat(), **self.done}
 
-    def filling(self) -> bool:  # the shelves will still show more: the page keeps its counter
+    def filling(self) -> bool:  # the shelves may still change: the page keeps its counter
         waiting = [shelf for shelf in SHELVES if shelf not in self.done]
         if any(shelf not in self.shown for shelf in waiting):
             return True
-        return self._growing() and any(len(self.shown[shelf]) < LIMIT for shelf in waiting)
+        return bool(waiting) and self._growing()  # a full shelf still takes a higher cover
 
     def _split(self, offered: list[JsonValue]) -> None:
         self.looked = {"fresh": offered[: self._fresh], "popular": offered[self._fresh :]}

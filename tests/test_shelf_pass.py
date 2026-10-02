@@ -15,6 +15,7 @@ from torrcast.domain.feed_rows import FeedRows
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
+from torrcast.usecases.shelves.fresh_shelf import LIMIT
 from web.built_by_rule import FIELD, RULE
 from web.shelf_pass import FILL_BY, SHELVES, SILENT_BY, ShelfPass
 from web.shelf_pictures import shelf_pictures
@@ -185,6 +186,27 @@ def test_a_cold_shelf_stops_growing_once_its_counter_is_off(tmp_path: Path) -> N
     before = shown.looked
     shown._lanes()
     assert shown.looked is before
+
+
+def test_a_shelf_at_its_limit_keeps_the_counter_on_while_covers_still_arrive(
+    tmp_path: Path,
+) -> None:
+    """Полка набрала ``LIMIT`` плиток, а обложки едут: картина выше рангом ещё сменит хвост.
+
+    Замер 02-10-2026: счётчик погас на 16.2 с при 30+30, а на 18.2 и 19.2 с легли обложки
+    картин выше по рангу и вытеснили последние плитки - полка сменилась после «готово».
+    """
+    cache = _cache(tmp_path, 3)
+    cache.arriving = lambda _records: True
+    shown = ShelfPass(cache, _rows(3), _MOMENT, {})
+    shown._joint = [{"title": "Картина 00"}]
+    shown._deadline = time.monotonic() + 60
+    shown.shown = {shelf: [f"movie:{index}" for index in range(LIMIT)] for shelf in SHELVES}
+
+    assert shown.filling()
+
+    shown._deadline = time.monotonic() - SILENT_BY
+    assert not shown.filling()
 
 
 def test_a_shelf_without_a_single_cover_waits_out_the_silence(tmp_path: Path) -> None:
