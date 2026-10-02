@@ -19,6 +19,10 @@ import pytest
 RUNNER = Path(__file__).resolve().parent / "web_js" / "search.js"
 #: Шаги опроса из договора выдачи: пока показать нечего и когда уже есть что.
 EMPTY_STEP_MS, HITS_STEP_MS = 150, 400
+#: Окно общего прихода обложек от начала поиска, мс. Раньше 3 с пачка уходила бы без обложек,
+#: что ложатся на 2-3 с (медиана прихода 2.95 с); позже 4 с она снова стала бы ожиданием
+#: (стенд 02-10-2026, 45 заходов).
+COVERS_FROM_MS, COVERS_UNTIL_MS = 3000, 4000
 #: Сверх срока сервера страница ждёт не больше этого: опрос перед сроком и его дорога.
 PAST_DEADLINE_MS = 3000
 # Запас страницы до потолка обложек сервера (``TCHome._CAP_MARGIN``).
@@ -327,6 +331,6 @@ def test_the_cover_arrival_leaves_at_its_deadline_and_late_ones_stay_placeholder
     late = _scenario(facts, "coversDeadline")
     painted = late["painted"]
     assert [one["key"] for one in painted] == ["b"], painted
-    assert late["coversBy"] <= painted[0]["at"] <= late["coversBy"] + HITS_STEP_MS * 2, painted
+    assert COVERS_FROM_MS <= painted[0]["at"] <= COVERS_UNTIL_MS, f"пачка вне окна: {painted}"
     assert late["noArt"] == ["a"], "плитка без обложки к пачке получила её отдельным кадром"
     assert late["screen"]["keys"] == ["a", "b"]

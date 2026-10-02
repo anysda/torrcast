@@ -12,11 +12,16 @@ from typing import Any
 import pytest
 
 from torrcast.adapters.wiki import imdb_poster
-from torrcast.adapters.wiki.imdb_poster import _ASK_TIMEOUT, _FIRST_TRY, ImdbPoster
+from torrcast.adapters.wiki.imdb_poster import ImdbPoster
 from torrcast.domain.facts.ask import Ask
 
 RAW = "https://m.media-amazon.com/images/M/MV5BNWI5OTEzMzE@._V1_.jpg"
 ASK = Ask("Паразиты", 1999, "movie", "Les parasites")
+#: Живой ответ подсказчика шёл за 0.03-0.75 с; молчание дольше секунды - уже затык
+#: (стенд 02-10-2026).
+_SLOWEST_LIVE, _STALL_BY = 0.75, 1.0
+#: Срок подсказчика целиком и сколько из него обязан получить повтор по новому соединению.
+_DEADLINE, _RETRY_KEEPS = 4.0, 2.5
 ROW = {"id": "tt0233258", "l": "Les parasites", "y": 1999, "qid": "movie", "i": {"imageUrl": RAW}}
 
 
@@ -58,14 +63,16 @@ class _NoBytes:
 def test_a_stalled_lookup_is_asked_again_long_before_the_source_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Молчание первой попытки обрывается за :data:`_FIRST_TRY`, вторая идёт сразу."""
+    """Первая попытка обрывается примерно за секунду, повтору остаётся большая часть срока."""
     client = _Stalling(stalls=1)
     monkeypatch.setattr(imdb_poster, "monotonic", client.clock)
     found = ImdbPoster(client, _NoBytes()).wanted([ASK], 5.0)
     assert ASK in found, "заглохший запрос оставил картину без обложки"
-    assert client.waits[0] <= _FIRST_TRY < _ASK_TIMEOUT, client.waits
-    assert len(client.waits) == 2
-    assert client.waits[1] == _ASK_TIMEOUT - _FIRST_TRY, "повтор начал свой срок заново"
+    assert len(client.waits) == 2, client.waits
+    first, retry = client.waits
+    assert _SLOWEST_LIVE < first <= _STALL_BY, f"первая попытка ждёт {first} с"
+    assert retry >= _RETRY_KEEPS, f"повтору осталось {retry} с"
+    assert first + retry <= _DEADLINE, "повтор начал свой срок заново"
 
 
 def test_a_source_silent_twice_leaves_the_picture_unknown() -> None:

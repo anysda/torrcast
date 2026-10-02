@@ -373,7 +373,7 @@ const scenarios = {
     }));
     const painted = paints(p);
     await p.time.run(60000);
-    return { coversBy: p.home._COVERS_BY, painted, screen: screen(p), noArt: noArt(p) };
+    return { painted, screen: screen(p), noArt: noArt(p) };
   },
 
   // Находка по раздаче садится в плитку каталога и меняет личность (`slot`), но не картину.

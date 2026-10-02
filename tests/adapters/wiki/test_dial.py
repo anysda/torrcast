@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from torrcast.adapters.wiki import dial as dial_module
 from torrcast.adapters.wiki.dial import HEDGE, dial
 from torrcast.adapters.wiki.http_json_client import _IPv4Connection
 
@@ -22,6 +23,9 @@ from torrcast.adapters.wiki.http_json_client import _IPv4Connection
 _KERNEL_RETRY = 1.0
 #: Когда очередь приёма освобождается после первого SYN.
 _FREED_AT = 0.05
+#: Сколько сокетов один запрос вправе открыть на молчащий адрес: шесть картин ряда звонят
+#: разом, и без потолка их попытки за срок 4 с шли бы десятками.
+_SOCKETS_AT_MOST = 8
 
 
 @pytest.fixture
@@ -99,6 +103,31 @@ def test_a_silent_address_times_out_at_its_own_deadline(full_queue: int) -> None
         with pytest.raises(TimeoutError):
             dial("127.0.0.1", full_queue, 0.8)
         assert time.monotonic() - began < 0.8 + 0.2
+    finally:
+        for one in blocker:
+            one.close()
+
+
+@pytest.mark.machine
+def test_a_silent_address_opens_a_bounded_number_of_sockets(
+    full_queue: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Молчащий адрес получает не больше восьми попыток за запрос, сколько бы ни длился срок."""
+    opened: list[int] = []
+    attempt = dial_module._attempt
+
+    def counted(address: str, port: int, chooser: Any) -> socket.socket:
+        opened.append(port)
+        return attempt(address, port, chooser)
+
+    monkeypatch.setattr(dial_module, "_attempt", counted)
+    blocker: list[Any] = []
+    try:
+        time.sleep(_FREED_AT * 2)
+        blocker.append(socket.create_connection(("127.0.0.1", full_queue), 1.0))
+        with pytest.raises(TimeoutError):
+            dial("127.0.0.1", full_queue, HEDGE * (_SOCKETS_AT_MOST + 4))
+        assert len(opened) <= _SOCKETS_AT_MOST, f"на молчащий адрес открыто {len(opened)} сокетов"
     finally:
         for one in blocker:
             one.close()

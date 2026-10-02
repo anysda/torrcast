@@ -9,10 +9,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from hass.search_first_screen import GROWN_BY, search_first_screen
+from hass.search_first_screen import search_first_screen
 from hass.search_job import SearchJob
 from torrcast.domain.json_value import JsonValue
 
+#: Обложка выросшей плитки ложилась через 0.5-1.9 с после её появления (стенд 02-10-2026,
+#: 9 запросов): держать дольше 2 с значит держать саму находку, а не обложку.
+_LANDS_BY, _HOLD_AT_MOST = 1.5, 2.0
 A: JsonValue = {"key": "a", "title": "Alpha"}
 B: JsonValue = {"key": "b", "title": "Beta"}
 
@@ -62,8 +65,11 @@ def test_a_grown_tile_waits_only_until_its_deadline() -> None:
     covers = _Covers({"b"})
     job = _drawn(covers)
     assert _keys(search_first_screen(job, [A, B], covers)) == ["a"]
-    job.appeared["b"] -= GROWN_BY
-    assert _keys(search_first_screen(job, [A, B], covers)) == ["a", "b"], "плитку держат вечно"
+    job.appeared["b"] -= _LANDS_BY
+    assert _keys(search_first_screen(job, [A, B], covers)) == ["a"], "плитку отпустили до обложки"
+    job.appeared["b"] -= _HOLD_AT_MOST - _LANDS_BY
+    shown = _keys(search_first_screen(job, [A, B], covers))
+    assert shown == ["a", "b"], f"плитку держат дольше {_HOLD_AT_MOST} с"
 
 
 def test_a_tile_once_shown_is_never_held_again() -> None:

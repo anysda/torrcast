@@ -72,17 +72,26 @@ def test_no_more_than_the_host_limit_is_kept() -> None:
     assert not any(connection.closed for connection in connections[:-1])
 
 
+#: Последний ответ, который соединение с подсказчиком IMDb отдавало из дома: затык ловился на
+#: 9-10-м запросе соединения (стенд 02-10-2026, 30 затыков на 360 запросов, все там).
+_LAST_SAFE_ANSWER = 8
+
+
 def test_a_connection_retires_before_the_answer_its_home_route_stalls_on() -> None:
-    """Из дома соединение к IMDb глохло на 9-10-м запросе: оно уходит раньше, после :data:`USES`."""
-    ((host, uses),) = USES.items()
+    """Соединение к IMDb закрывается не позже 8-го ответа и на 9-й запрос не идёт."""
+    ((host, _),) = USES.items()
     kept, connection = KeptConnections(), _Connection()
-    for _ in range(uses - 1):
+    answered = 0
+    while answered < _LAST_SAFE_ANSWER:
+        answered += 1
         kept.give(host, connection, _Answer())
-        assert kept.take(host) is connection
-    assert not connection.closed
-    kept.give(host, connection, _Answer())
-    assert kept.take(host) is None, "отслужившее соединение пошло на новый запрос"
-    assert connection.closed
+        if kept.take(host) is None:
+            break
+    else:
+        stalls = _LAST_SAFE_ANSWER + 1
+        raise AssertionError(f"соединение пошло на {stalls}-й запрос, где оно глохнет")
+    assert connection.closed, f"отслужившее соединение после {answered}-го ответа не закрыто"
+    assert answered > 1, "соединение не держится и на второй запрос"
 
 
 def test_a_host_without_a_term_keeps_its_connection() -> None:
