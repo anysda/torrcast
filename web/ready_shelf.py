@@ -1,44 +1,60 @@
-"""Полка после «готово» только усыхает: на ней нет ни одной новой плитки.
+"""Полка после «готово» только усыхает: ни новой плитки, ни новой обложки на старой.
 
 Холодный заход гасит счётчик страницы, когда обложки доехали, а приговоры «играет ли»
 идут ещё 85-254 с (замер TC-1322). «Не играет» снимает плитку, и прежде её место тут же
-занимала следующая картина очереди: на полке, которую страница уже назвала готовой,
-появлялась новая плитка. Здесь запоминается состав полок в миг, когда счётчик погас, и
-дальше публикуется только он, без снятых приговором.
+занимала следующая картина очереди; а лента, недосчитавшая индексер, добиралась новыми
+заходами и приносила полке новые плитки уже после «готово». Здесь в миг, когда счётчик
+погас, запоминается опубликованный состав полок, и до конца пересборки (все её заходы
+делят один :class:`ReadyShelf`) публикуется только он, без снятых приговором «не играет».
+Полку, которую приговоры опустошили, держать незачем: заморозка снимается, и пустая полка
+добирается, как до «готово».
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 from torrcast.domain.json_value import JsonValue
+from web.cold import SHELVES
 
 
-def _keys(tiles: list[JsonValue]) -> list[str]:
-    return [str(tile.get("key")) for tile in tiles if isinstance(tile, dict)]
+def _key(tile: JsonValue) -> str:
+    return str(tile.get("key")) if isinstance(tile, dict) else ""
 
 
 @dataclass
 class ReadyShelf:
     """Состав полок на миг «готово»; ``None`` - счётчик ещё горит, полка растёт."""
 
-    keys: dict[str, set[str]] | None = None
+    tiles: dict[str, list[JsonValue]] | None = None
+    seen: dict[str, list[JsonValue]] = field(default_factory=dict)
+    lit: bool = False  # the counter burned: a warm rebuild has no «ready» to keep
 
-    def watch(
-        self, filling: bool, shown: dict[str, list[str]], done: dict[str, list[JsonValue]]
-    ) -> bool:
-        """Отдать признак счётчика; погас впервые - запомнить то, что видит страница."""
-        if not filling and self.keys is None:
-            seen = {**shown, **{shelf: _keys(tiles) for shelf, tiles in done.items()}}
-            self.keys = {shelf: set(keys) for shelf, keys in seen.items()}
-        return filling
+    def saw(self, shelf: str, tiles: list[JsonValue]) -> None:
+        """Запомнить то, что ушло на страницу: застывает именно оно."""
+        self.seen[shelf] = tiles
 
-    def keep(self, shelf: str, tiles: list[JsonValue]) -> list[JsonValue]:
-        """Плитки полки, которые страница уже видела в «готово»; до него - все."""
-        if self.keys is None:
+    def watch(self, filling: bool) -> bool:
+        """Признак счётчика: погас при обеих непустых полках - застыл и больше не горит."""
+        self.lit = self.lit or filling
+        full = all(self.seen.get(shelf) for shelf in SHELVES)
+        if self.tiles is None and self.lit and not filling and full:
+            self.tiles = {shelf: list(tiles) for shelf, tiles in self.seen.items()}
+        return filling and self.tiles is None
+
+    def keep(
+        self, shelf: str, tiles: list[JsonValue], verdicts: Mapping[str, bool | None]
+    ) -> list[JsonValue]:
+        """До «готово» - ``tiles``; после - застывшая полка без приговорённых «не играет»."""
+        if self.tiles is None:
             return tiles
-        allowed = self.keys.get(shelf, set())
-        return [tile for tile in tiles if isinstance(tile, dict) and tile.get("key") in allowed]
+        kept = [tile for tile in self.tiles.get(shelf, []) if verdicts.get(_key(tile)) is not False]
+        if not kept:  # condemned to empty: no «ready» left to keep, a fuller attempt may follow
+            self.tiles = None
+            return kept
+        self.tiles[shelf] = kept
+        return kept
 
 
 __all__ = ["ReadyShelf"]

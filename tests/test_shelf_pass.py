@@ -17,7 +17,6 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.shelves.fresh_shelf import LIMIT
 from web.built_by_rule import FIELD, RULE
-from web.cold import cold
 from web.shelf_pass import FILL_BY, SHELVES, SILENT_BY, ShelfPass
 from web.shelf_pictures import shelf_pictures
 from web.shelf_seeds import shelf_seeds
@@ -299,46 +298,109 @@ def test_a_saved_shelf_missing_one_row_is_rebuilt_as_cold(tmp_path: Path) -> Non
     assert len(_titles(cache._body, "popular")) == 3
 
 
-def _refill(tmp_path: Path, missed: int) -> tuple[ShelvesCache, list[tuple[bool, bool]]]:
-    """Первый заход приносит одну картину, второй - дюжину (m-b3: полка 1+1, потом 24+30)."""
-    cache, calls = _cache(tmp_path, 1), [0]
+class _StopError(Exception):
+    """Конец бесконечного цикла фона в тесте."""
 
-    def feed(_limit: int) -> list[FeedRow]:
-        calls[0] += 1
-        return FeedRows(_rows(1 if calls[0] == 1 else 12), missed if calls[0] == 1 else 0)
 
-    seen: list[tuple[bool, bool]] = []
-    cache.feed, cache.attempts = feed, 2
-    cache.sleep = lambda _pause: seen.append((cache.filling, cache.settling))
-    later: list[bool] = []  # the fuller attempt judges: the pass before it left verdicts to it
+def _short_feed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer_in: float | None
+) -> tuple[ShelvesCache, list[tuple[bool, int]], list[float], float]:
+    """Лента недосчитала индексер (m-b3: полка 1+1): переспрос приносит дюжину через
+    ``answer_in`` с, ``None`` - молчит до срока. Срок обложек - секунда от вопроса."""
+    monkeypatch.setattr("web.fill_deadline.FILL_BY", 0.0)
+    monkeypatch.setattr("web.fill_deadline.FILL_AT_LEAST", 1.0)
+    cache = _cache(tmp_path, 1)
 
-    def playable(_query: str, _key: str) -> bool:
-        if calls[0] == 2:
-            later.append(cache.filling)
-        return True
+    def again(within: float) -> FeedRows:
+        if answer_in is None or answer_in > within:
+            time.sleep(within)
+            return FeedRows([], missed=1, again=again)
+        time.sleep(answer_in)
+        return FeedRows(_rows(12))
 
-    cache.playable = playable
+    pauses: list[float] = []
+    cache.feed, cache.attempts = lambda _limit: FeedRows(_rows(1), missed=1, again=again), 3
+    cache.sleep, cache.playable = pauses.append, lambda _query, _key: True
+    seen: list[tuple[bool, int]] = []  # (counter before, fresh tiles after) at each publish
+    publish = cache.publish
+
+    def watched(shelf: str, tiles: list[JsonValue], *args: object, **kwargs: object) -> None:
+        on = cache.filling
+        publish(shelf, tiles, *args, **kwargs)  # type: ignore[arg-type]
+        body = cache._body or {}
+        seen.append((on, len(_titles(body, "fresh")) if body.get("fresh") else 0))
+
+    cache.publish = watched  # type: ignore[method-assign]
+    began = time.monotonic()
     cache._rebuild()
-    return cache, [*seen, (all(later), any(later))]
+    return cache, seen, pauses, time.monotonic() - began
 
 
-def test_the_counter_stays_on_while_a_fuller_attempt_is_coming(tmp_path: Path) -> None:
-    """Лента недосчитала индексер: полка 1+1 - не «готово», счётчик горит через паузу добора."""
-    cache, seen = _refill(tmp_path, missed=1)
-
-    assert seen[0] == (True, True)  # the pause before the fuller attempt
-    assert seen[1] != (True, False), "the fuller attempt judged no tile"  # all([]), any([])
-    assert len(_titles(cache._body, "fresh")) > 1
-    assert not cache.filling and not cache.settling  # the last attempt puts it out
+def _grew_after_ready(seen: list[tuple[bool, int]]) -> bool:
+    out = [index for index, (on, _tiles) in enumerate(seen) if not on]
+    return bool(out) and any(seen[index][1] > seen[out[0] - 1][1] for index in out)
 
 
-def test_a_whole_feed_puts_the_counter_out_without_waiting_for_the_refill(
-    tmp_path: Path,
+def test_the_counter_stays_on_while_a_fuller_attempt_makes_the_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Ответили все индексеры: полнее не будет, счётчик гаснет сразу, а не через паузу."""
-    seen = _refill(tmp_path, missed=0)[1]
+    """Недосчитанный индексер ответил к сроку: полка 1+1 - не «готово», дюжина встаёт до него."""
+    cache, seen, pauses, _spent = _short_feed(tmp_path, monkeypatch, answer_in=0.3)
 
-    assert seen == [(False, False), (False, False)]
+    assert seen[0] == (True, 1)
+    assert not _grew_after_ready(seen), seen
+    assert len(_titles(cache._body, "fresh")) > 1
+    assert pauses == []  # no 10 s pause and no second feed of every indexer
+    assert not cache.filling and not cache.short
+
+
+def test_past_the_deadline_a_short_feed_is_ready_even_at_one_and_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сторож: недосчитанный так и молчит - «готово» на сроке при 1+1, пересборка назначена."""
+    cache, seen, pauses, spent = _short_feed(tmp_path, monkeypatch, answer_in=None)
+
+    assert spent < 2.0  # the deadline is a second from the ask
+    assert not _grew_after_ready(seen), seen
+    assert len(_titles(cache._body, "fresh")) == 1
+    assert len(_titles(cache._body, "popular")) == 1
+    assert pauses == [] and not cache.filling
+    assert cache.short
+
+
+def _next_sleep(cache: ShelvesCache) -> float:
+    pauses: list[float] = []
+
+    def sleep(pause: float) -> None:
+        pauses.append(pause)
+        raise _StopError
+
+    cache.sleep = sleep
+    cache._rebuild = lambda: None  # type: ignore[method-assign]
+    with pytest.raises(_StopError):
+        cache._loop()
+    return pauses[0]
+
+
+def test_a_shelf_still_short_at_the_deadline_is_rebuilt_in_minutes_not_an_hour(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Тонкая полка не висит час: новая пересборка через ``soon``, не раньше пяти минут."""
+    cache = _short_feed(tmp_path, monkeypatch, answer_in=None)[0]
+
+    assert cache.soon >= 300.0
+    assert _next_sleep(cache) == cache.soon
+
+
+def test_a_whole_feed_puts_the_counter_out_and_waits_the_hour(tmp_path: Path) -> None:
+    """Ответили все индексеры: добирать нечего, счётчик гаснет, следующая сборка через час."""
+    cache = _cache(tmp_path, 3)
+    cache.feed = lambda _limit: FeedRows(_rows(3))
+    cache.attempts = 3
+    cache._rebuild()
+
+    assert not cache.filling and not cache.short
+    assert _next_sleep(cache) == cache.every
 
 
 @pytest.mark.machine
@@ -421,60 +483,3 @@ def test_a_tile_dropped_after_ready_is_not_replaced_by_a_new_one(tmp_path: Path)
     assert ready, "the counter went out during the pass"
     assert "Картина 00" not in " ".join(_titles(cache._body, "popular"))
     assert len(_titles(cache._body, "popular")) == LIMIT - 1
-
-
-def test_the_counter_never_goes_out_inside_a_pass_a_fuller_feed_follows(tmp_path: Path) -> None:
-    """Лента недосчитала индексер: и посреди захода счётчик не гаснет, приговоров нет.
-
-    Замер 02-10-2026: полка 3+10 погасила счётчик на 28 с посреди такого захода, а на
-    126 с он загорелся снова - добор вёз ещё картины, «готово» было ложным.
-    """
-    cache, calls = _cache(tmp_path, 3), [0]
-    flags: list[bool] = []
-    asked: list[int] = []
-
-    def feed(_limit: int) -> list[FeedRow]:
-        calls[0] += 1
-        return FeedRows(_rows(3 if calls[0] == 1 else 6), 1 if calls[0] == 1 else 0)
-
-    publish = cache.publish
-
-    def watched(*args: object, **kwargs: object) -> None:
-        publish(*args, **kwargs)  # type: ignore[arg-type]
-        if calls[0] == 1:
-            flags.append(cache.filling)
-
-    paused: list[bool] = []  # the shelf left unjudged stays cold: the refill shows and judges it
-    cache.feed, cache.attempts = feed, 2
-    cache.sleep = lambda _pause: paused.append(cache._body is not None and cold(cache._body))
-    cache.publish = watched  # type: ignore[method-assign]
-
-    def playable(_query: str, _key: str) -> bool:
-        asked.append(calls[0])
-        return True
-
-    cache.playable = playable
-    cache._rebuild()
-
-    assert flags and all(flags), "the counter went out while a fuller feed was coming"
-    assert 1 not in asked, "the refill judges the tiles, not the pass before it"
-    assert paused == [True]
-    assert cache._body is not None and cache._body[FIELD] == RULE
-
-
-def test_a_refill_with_nothing_new_still_gets_its_tiles_judged(tmp_path: Path) -> None:
-    """Добор не принёс строк, а приговоров ещё не было: заход не обрывается без них."""
-    cache = _cache(tmp_path, 3)
-    asked: list[str] = []
-    cache.feed, cache.attempts = (lambda _limit: FeedRows(_rows(3), 1)), 3
-
-    def playable(_query: str, key: str) -> bool:
-        asked.append(key)
-        return True
-
-    cache.playable = playable
-
-    cache._rebuild()
-
-    assert asked
-    assert cache._body is not None and cache._body[FIELD] == RULE

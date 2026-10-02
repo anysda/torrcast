@@ -29,6 +29,7 @@ from web.min_tiles import min_tiles
 from web.process_started import process_started
 from web.publish_shelf import Warm, publish_shelf
 from web.read_shelves import read_shelves
+from web.ready_shelf import ReadyShelf
 from web.shelf_pass import ShelfPass
 from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable
 
@@ -61,6 +62,7 @@ class ShelvesCache:
     path: Path = field(default_factory=shelves_cache_path)
     limit: int = 300
     every: float = 3600.0
+    soon: float = 300.0  # a shelf still short of an indexer is rebuilt this early
     #: Потолок заходов добора ленты (:meth:`_rebuild` бросает раньше, если заход не
     #: принёс ни новых строк, ни полки полнее прежнего захода), и их пауза.
     attempts: int = 3
@@ -81,6 +83,7 @@ class ShelvesCache:
     filling: bool = field(default=False, repr=False, compare=False)
     settling: bool = field(default=False, repr=False, compare=False)
     born: float = field(default=0.0, repr=False, compare=False)
+    short: bool = field(default=False, repr=False, compare=False)
     _origin: dict[str, JsonValue] = field(default_factory=dict, repr=False, compare=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     _body: dict[str, JsonValue] | None = field(default=None, repr=False, compare=False)
@@ -111,7 +114,7 @@ class ShelvesCache:
     def _loop(self) -> None:
         while True:
             self._pass()
-            self.sleep(self.every)
+            self.sleep(self.soon if self.short else self.every)
 
     def _pass(self) -> None:
         """Одна пересборка; беда вне :class:`TorrcastError` роняет заход, а не поток:
@@ -125,14 +128,9 @@ class ShelvesCache:
 
     def _rebuild(self) -> None:
         """Собрать обе полки заново; отказ ленты не роняет цикл - следующий час свой.
-
-        Молчащий индексер не приносит строк, и сборка выходит короче, чем могла бы: фон
-        добирает ленту ещё заходами, склеивая строки по хэшу раздачи. Добор встаёт САМ:
-        заход без новых строк и без более полной полки следующего добавить не может.
-        Пока лента недосчитана (:class:`torrcast.domain.feed_rows.FeedRows`), счётчик
-        страницы горит и через паузу. Готовая полка публикуется сразу (:meth:`publish`),
-        но и самая полная попытка может оказаться хуже уже опубликованной
-        (:func:`web.worth_publishing.worth_publishing`) - тогда фон отступает до часа.
+        Холодный заход добирает молчащий индексер к сроку (:mod:`web.feed_refill`), дальше
+        полка только усыхает (:mod:`web.ready_shelf`), а недосчёт пересобирается через ``soon``.
+        Без «готово» фон добирает ленту заходами, пока те приносят строки или полку полнее.
         """
         with self._lock:
             origin = self._body
@@ -141,6 +139,7 @@ class ShelvesCache:
         self._origin = origin
         rows: dict[str, FeedRow] = {}
         best: dict[str, JsonValue] | None = None
+        ready = ReadyShelf()  # what the page saw at «ready» outlives a pass
         for attempt in range(self.attempts):
             if attempt:
                 self.sleep(self.retry_pause)
@@ -152,14 +151,16 @@ class ShelvesCache:
                 with self._lock:
                     current = self._body if self._body is not None else origin
                 more = attempt + 1 < self.attempts and getattr(fetched, "missed", 0) > 0
-                body = ShelfPass(self, list(rows.values()), self.clock(), current, more=more).run()
+                again = getattr(fetched, "again", None)
+                shelf = ShelfPass(self, [*rows.values()], self.clock(), current, more, ready, again)
+                body, self.short = shelf.run(), shelf.short
             except TorrcastError:
                 continue
             grew = best is None or min_tiles(body) > min_tiles(best)
             if grew:
                 best = body
-            if len(rows) == before and not grew and not more:  # a deferred pass is judged
-                break
+            if ready.tiles is not None or (len(rows) == before and not grew):
+                break  # past «ready» a pass may only shrink the shelf: nothing to refill
 
     def publish(
         self,

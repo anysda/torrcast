@@ -6,6 +6,8 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
+
 from tests.test_shelf_pass import _cache as _pass_cache
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.domain.feed_row import FeedRow
@@ -13,6 +15,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from web.built_by_rule import FIELD, RULE
 from web.cold import cold
+from web.shelf_pass import ShelfPass
 from web.shelves_cache import ShelvesCache
 
 _TILE: JsonValue = {"key": "movie:матрица:2026", "title": "Матрица"}
@@ -73,8 +76,10 @@ def test_a_whole_body_of_this_rule_starts_without_the_mark(tmp_path: Path) -> No
     assert (cache.filling, cache.settling) == (False, False)
 
 
-def _retry_marks(tmp_path: Path, plays: bool) -> list[tuple[bool, bool]]:
-    cache = _pass_cache(tmp_path, 3)
+def _retry_marks(
+    tmp_path: Path, plays: bool, cache: ShelvesCache | None = None
+) -> list[tuple[bool, bool]]:
+    cache = cache or _pass_cache(tmp_path, 3)
     cache.attempts = 2
     marks: list[tuple[bool, bool]] = []
     cache.sleep = lambda _pause: marks.append((cache.filling, cache.settling))
@@ -89,6 +94,23 @@ def test_an_empty_shelf_keeps_the_mark_through_the_next_feed_attempt(tmp_path: P
     assert _retry_marks(tmp_path, plays=False) == [(True, True)]
 
 
-def test_whole_shelves_drop_the_mark_before_the_next_feed_attempt(tmp_path: Path) -> None:
-    """Rollback (the mark kept to the build's end): the counter hangs over full shelves."""
-    assert _retry_marks(tmp_path, plays=True) == [(False, False)]
+def test_whole_shelves_drop_the_mark_and_ask_the_feed_no_more(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rollback (the mark kept to the build's end): the counter hangs over full shelves.
+
+    Past «ready» the shelf only shrinks (:mod:`web.ready_shelf`): no next attempt to wait for.
+    """
+    cache = _pass_cache(tmp_path, 3)
+    marks: list[tuple[bool, bool]] = []
+    run = ShelfPass.run
+
+    def spy(shelf: ShelfPass) -> dict[str, JsonValue]:
+        body = run(shelf)
+        marks.append((cache.filling, cache.settling))
+        return body
+
+    monkeypatch.setattr(ShelfPass, "run", spy)
+
+    assert _retry_marks(tmp_path, plays=True, cache=cache) == []
+    assert marks == [(False, False)]
