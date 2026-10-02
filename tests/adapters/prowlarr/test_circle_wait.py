@@ -13,7 +13,6 @@ from torrcast.adapters.prowlarr import circle_wait as circle_wait_module
 from torrcast.adapters.prowlarr.circle_wait import circle_wait
 from torrcast.adapters.prowlarr.down_book import DownBook
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
-from torrcast.domain.is_down import DOWN_AFTER
 
 
 def _waited(asked: list[_Ask], names: bool = True, **kwargs: Any) -> tuple[list[_Ask], float]:
@@ -65,7 +64,7 @@ def test_the_quorum_holds_only_the_viewers_text() -> None:
 def _down(tmp_path: Path, *names: str) -> DownBook:
     book = DownBook(lambda: tmp_path / "down.json")
     for name in names:
-        for _ in range(DOWN_AFTER):
+        for _ in range(3):
             book.hear(name, answered=False)
     return book
 
@@ -102,7 +101,7 @@ def test_a_core_given_up_after_the_whole_wait_is_told_silent(
     """Its thread may live 45 s more: a restart before that would never tell the book."""
     monkeypatch.setattr(circle_wait_module, "IN_TIME", 0.0)
     book = DownBook(lambda: tmp_path / "down.json")
-    for _ in range(DOWN_AFTER):
+    for _ in range(3):
         circle_wait([_Ask("Knaben", 0.0)], names=False, began=0.0, slack=0.0, book=book)
     assert book.down() == {"Knaben"}
 
@@ -110,7 +109,7 @@ def test_a_core_given_up_after_the_whole_wait_is_told_silent(
 def test_a_short_wait_tells_nothing(tmp_path: Path) -> None:
     """A second circle capped to a second gave up on Knaben too early to call it silent."""
     book = DownBook(lambda: tmp_path / "down.json")
-    for _ in range(DOWN_AFTER):
+    for _ in range(3):
         circle_wait([_Ask("Knaben", 1.0)], names=False, began=0.0, slack=0.0, book=book)
     assert book.down() == frozenset()
 
@@ -122,7 +121,7 @@ def test_a_lone_core_of_names_ends_with_the_others(
     """The year circle: JacRed's names wait two seconds behind its text in Prowlarr."""
     monkeypatch.setattr(circle_wait_module, "IN_TIME", 0.0)
     book = DownBook(lambda: tmp_path / "down.json")
-    for _ in range(DOWN_AFTER):
+    for _ in range(3):
         jacred, knaben, yts = _Ask("JacRed", 5.0), _Ask("Knaben", 5.0), _Ask("YTS", 5.0)
         threading.Timer(0.1, knaben.done.set).start()
         threading.Timer(0.2, yts.done.set).start()
@@ -175,7 +174,7 @@ def test_a_slow_quorum_does_not_hold_rows_the_others_brought(
     """Knaben's own answer took 5-8 s where RuTor and JacRed were in within a second."""
     monkeypatch.setattr(circle_wait_module, "IN_TIME", 0.0)
     book = DownBook(lambda: tmp_path / "down.json")
-    for _ in range(DOWN_AFTER):
+    for _ in range(3):
         knaben, rutor = _Ask("Knaben", 5.0), _Ask("RuTor", 5.0)
         _answer(rutor, 0.1, rows=2)
         core, elapsed = _waited([knaben, rutor], names=False, book=book, grace=0.2)

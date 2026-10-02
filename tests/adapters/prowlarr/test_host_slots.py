@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, PACE, QUIET, HostSlots
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, PACE, HostSlots
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 
@@ -54,8 +54,9 @@ def test_the_shelf_waits_only_behind_a_viewers_search() -> None:
     assert slots.after_search(100.0) == 0.0, "the start of the process does not hold the shelf"
     with slots.live():
         clock.now += 70.0
-        assert slots.after_search(100.0) == -10.0, "a search does not hold it past MOST"
+        assert slots.after_search(100.0) == -10.0, "a search does not hold it past 60 s"
         assert slots.after_search(170.0) == 60.0
-    assert slots.after_search(170.0) == QUIET
-    clock.now += QUIET
+    assert slots.after_search(170.0) == 15.0, "the quiet after a search is 15 s"
+    assert slots.after_search(100.0) == -10.0, "nor does the quiet hold it past 60 s"
+    clock.now += 15.0
     assert slots.after_search(170.0) == 0.0

@@ -88,6 +88,19 @@ def test_a_zero_at_the_adapters_cut_is_a_silence_and_a_quick_one_an_answer(
     assert DOWN_BOOK.down() == frozenset(), "a quick zero is an honest answer and brings it back"
 
 
+def test_rows_past_the_first_circles_7_s_are_a_silence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The first circle waits its core 6 s and a second of slack: rows later than that missed it."""
+    api = ProwlarrApi("http://p", "KEY", http=_Http())
+    answer: list[tuple[list[Any], int, None]] = [([{"title": "x"}], 7400, None)]
+    monkeypatch.setattr(spawn_ask_module, "ask_indexer", lambda *_args: answer[0])
+    for _ in range(3):
+        _ask(api, "Knaben")
+    assert DOWN_BOOK.down() == {"Knaben"}, "rows at 7.4 s came after the circle ended"
+    answer[0] = ([{"title": "x"}], 6900, None)
+    _ask(api, "Knaben")
+    assert DOWN_BOOK.down() == frozenset(), "rows at 6.9 s came in the circle"
+
+
 def _ask(api: ProwlarrApi, name: str) -> None:
     ask = spawn_ask(api, "матрица", 100, 4, name, budget=0.5)
     assert ask.done.wait(2.0)

@@ -8,7 +8,6 @@ import pytest
 
 from tests.adapters.prowlarr.test_prowlarr import _ago, _swarm, _swarm_of
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
-from torrcast.domain.is_down import DOWN_AFTER
 from torrcast.domain.not_found_error import NotFoundError
 
 
@@ -125,7 +124,7 @@ def _settled(want: frozenset[str]) -> frozenset[str]:
 
 def test_a_source_silent_in_a_row_leaves_the_next_circles_heard() -> None:
     """The mark ``part`` held for good: nothing but a whole circle took it off (TC-1391)."""
-    for _ in range(DOWN_AFTER - 1):
+    for _ in range(2):
         client = _swarm(rows=2, mute=1)
         client.search("матрица")
         assert not client.heard(), "one silence is not a verdict: the circle is part"
@@ -138,7 +137,7 @@ def test_a_source_silent_in_a_row_leaves_the_next_circles_heard() -> None:
 
 
 def test_a_down_source_that_answers_is_back() -> None:
-    for _ in range(DOWN_AFTER):
+    for _ in range(3):
         _swarm(rows=2, mute=1).search("матрица")
     assert _settled(frozenset({"Knaben"})) == {"Knaben"}
     _swarm(rows=2).search("матрица")

@@ -7,7 +7,6 @@ from contextlib import nullcontext
 
 import pytest
 
-from torrcast.adapters.prowlarr.host_slots import MOST
 from torrcast.adapters.prowlarr.names_head import names_head
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.warmup import warmup
@@ -16,7 +15,7 @@ from torrcast.adapters.prowlarr.warmup import warmup
 def test_a_warmups_names_wait_its_text_through_the_queues() -> None:
     assert names_head(1.0) == 1.0
     with warmup():
-        assert names_head(1.0) == 1.0 + MOST
+        assert names_head(1.0) == 61.0, "the queues hold a text 60 s at most"
 
 
 @pytest.mark.machine

@@ -7,7 +7,7 @@ from functools import partial
 
 import pytest
 
-from torrcast.adapters.prowlarr.host_slots import QUIET, HostSlots
+from torrcast.adapters.prowlarr.host_slots import HostSlots
 from torrcast.adapters.prowlarr.warmup import WARMUP
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
@@ -85,14 +85,14 @@ def test_the_shelf_waits_out_the_viewers_search_and_the_quiet_after_it() -> None
     stand.wake.enter_context(stand.slots.live())
     assert stand.run() == [_PLAN]
     [(at, _warmup, _seat)] = stand.asked
-    assert at >= 100.0 + QUIET, "the shelf stood in Prowlarr ahead of the viewer's text"
+    assert at >= 100.0 + 15.0, "the shelf stood in Prowlarr ahead of the viewer's text"
 
 
 def test_a_search_ended_long_ago_does_not_hold_the_shelf() -> None:
     stand = _Stand()
     with stand.slots.live():
         pass
-    stand.clock.now += QUIET
+    stand.clock.now += 15.0
     stand.run()
     assert stand.slept == 0.0
 
