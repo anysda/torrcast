@@ -150,6 +150,8 @@ def test_a_map_refused_for_its_frames_still_warms_the_place_by_its_pointer() -> 
     """
     watch = Watch(None)
     pointer = FilmKeys(600.0, [0.0, 100.0, 200.0], [0, 90 << 20, 500 << 20], "mkv")
+    checked: list[float] = []
+    ended = threading.Event()
     warm_file(
         "http://торрент/поток",
         at=240.0,
@@ -158,14 +160,36 @@ def test_a_map_refused_for_its_frames_still_warms_the_place_by_its_pointer() -> 
         origin_of=watch.origin_of,
         cues_of=watch.cues_of,
         pointer_of=lambda url: pointer,
+        entry_of=lambda url, seek: checked.append(seek),
+        done=ended,
     )
-    watch.wait(4)
+    assert ended.wait(4)
     assert watch.asked == [
         (0, HEAD_OPEN["mkv"]),
         (CUES, CUES_CHUNK),
         MEASURED,
         (500 << 20, HEAD_WARM),
     ], "отвергнутая по кадрам карта знает, где лежит позиция"
+    assert checked == [240.0], "без сетки по карте вход сверяется до клика, а не показом"
+
+
+def test_a_taken_map_leaves_the_entry_to_its_own_guard() -> None:
+    """Принятая карта - уже ответ про вход (feed_clean): лишние два ffmpeg прогреву не нужны."""
+    watch = Watch(FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "mkv"))
+    checked: list[float] = []
+    ended = threading.Event()
+    warm_file(
+        "http://торрент/поток",
+        at=240.0,
+        keys_of=watch.keys_of,
+        warm=watch.warm,
+        origin_of=watch.origin_of,
+        cues_of=watch.cues_of,
+        entry_of=lambda url, seek: checked.append(seek),
+        done=ended,
+    )
+    assert ended.wait(4)
+    assert checked == []
 
 
 @pytest.mark.machine

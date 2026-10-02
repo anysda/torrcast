@@ -10,6 +10,7 @@ from typing import Any
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.container_of import container_of
 from torrcast.adapters.stream_pack.cues_at import cues_at
+from torrcast.adapters.stream_pack.entry_clean import entry_clean
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.head_open import head_open
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
@@ -37,6 +38,7 @@ def warm_file(
     origin_of: Callable[[str], float] = pack_origin,
     cues_of: Callable[[str, Any], int | None] = cues_at,
     pointer_of: Callable[[str], FilmKeys | None] | None = None,
+    entry_of: Callable[[str, float], bool | None] = entry_clean,
     done: threading.Event | None = None,
 ) -> threading.Event:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
@@ -63,6 +65,8 @@ def warm_file(
     бывал холодным при прогретой закладке: кадр ждал кусок хвоста 7.4 с.
     ``pointer_of`` - байтовый указатель отвергнутой карты с полки: место позиции он знает
     и тогда, когда сетки по карте не будет.
+    ``entry_of`` - сверка входа копией (:func:`entry_clean`): без сетки по карте её спросит
+    показ, и ответ с полки снимает с клика два прогона ffmpeg.
 
     Возвращает событие «карта снята или отказана»: без карты сетки нет, и отбор в срок
     (:func:`torrcast.usecases.select_bench._bench_in_time._fit`) ждёт его у подмены.
@@ -92,7 +96,8 @@ def warm_file(
             mapped.set()
         if alive is not None and not alive():
             return
-        if keys is None and at > 0:
+        refused = keys is None
+        if refused and at > 0:
             # 🔴 Отказ «индекс врёт» отвергает кадры, а не смещения: указатель лежит на полке
             # рядом с вердиктом. Без него запись с закладкой грела 32 МБ начала, а показ
             # «Интерстеллара» 5212 МБ с 5000 с ждал сверку входа и первый кусок из роя 6.5 с.
@@ -119,6 +124,11 @@ def warm_file(
         with contextlib.suppress(Exception):
             if alive is None or alive():
                 warm(source_url, offset, HEAD_WARM, alive)
+        with contextlib.suppress(Exception):
+            if refused and (alive is None or alive()):
+                # Сетки по карте не будет, и показ сверит вход с закладки (feed_clean); место
+                # уже в рою, сверка тут - те же 0.4-0.6 с, но до клика, а не после.
+                entry_of(source_url, at)
 
     threading.Thread(target=work, daemon=True).start()
     return mapped

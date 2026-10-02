@@ -8,13 +8,13 @@ from torrcast.adapters.filesystem.remove_tree import remove_tree
 from torrcast.adapters.recode.recode_dir import RECODE_DIR
 from torrcast.adapters.side_thread import side_thread
 from torrcast.adapters.stream_pack._segment_files import _paths
+from torrcast.adapters.stream_pack.entry_clean import entry_clean
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.lay_head import lay_head
 from torrcast.adapters.stream_pack.map_entry import map_entry
 from torrcast.adapters.stream_pack.map_lied import map_lied
 from torrcast.adapters.stream_pack.map_trusted import map_trusted
-from torrcast.adapters.stream_pack.opens_clean import opens_clean
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.settle_start import settle_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
@@ -51,5 +51,5 @@ def wire_feed() -> None:
         map_trusted,
         map_lied,
         map_entry,
-        opens_clean,
+        entry_clean,
     )
