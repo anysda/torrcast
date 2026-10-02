@@ -44,8 +44,8 @@ class Entry(_Playing):
     voice_origin: str = ""
     #: Раздача, которую показ оставил в службе закладке: «Играть» продолжит её готовой, а
     #: не читает метаданные заново (4.4 с). Живым показом она не считается
-    #: (:attr:`torrent`); сносит её держатель страницы или следующий запуск показа
-    #: (:func:`torrcast.usecases.torrents._release_orphans`).
+    #: (:attr:`torrent`); сносит её держатель страницы или следующий показ, когда поднимется
+    #: (:func:`torrcast.usecases.torrents._release_parked`).
     parked: str = ""
     #: Slug исходного запроса: по нему resume находит запись, не ходя в Prowlarr.
     query: str = ""

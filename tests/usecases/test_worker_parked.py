@@ -10,10 +10,13 @@ from tests.fakes import composition
 from tests.usecases.test_worker import KEY, _dropped, _own_show, _played
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.state import State
+from torrcast.cli.play import play
+from torrcast.domain.args import Args
 from torrcast.domain.continue_row import WARM_ROW
 from torrcast.domain.entry import Entry
+from torrcast.usecases.cast_command._cmd_play import _cmd_play
 from torrcast.usecases.torrent_claims import CLAIMS
-from torrcast.usecases.torrents import _release_orphans
+from torrcast.usecases.torrents import _release_parked
 from torrcast.usecases.worker import _cmd_worker
 
 __all__ = ["_own_show"]  # фикстура юнита показа: запись «Брата» и подделки службы
@@ -75,7 +78,7 @@ def _park(fresher: int) -> None:
     state.save()
 
 
-def test_the_next_start_takes_a_parked_release_the_page_does_not_hold(
+def test_a_started_show_takes_a_parked_release_the_page_does_not_hold(
     show_unit: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _park(fresher=WARM_ROW)
@@ -85,14 +88,58 @@ def test_the_next_start_takes_a_parked_release_the_page_does_not_hold(
     page = _Service()  # держатель страницы: CLAIMS помнит его слабой ссылкой
     CLAIMS.claim("hash", page)
     try:
-        _release_orphans(load_config())
+        _release_parked(load_config())
     finally:
         CLAIMS.unclaim("hash", page)
     assert (service.dropped, _entry().parked) == ([], "hash"), "страница держит - не трогать"
 
-    _release_orphans(load_config())
+    _release_parked(load_config())
 
     assert (service.dropped, _entry().parked) == (["hash"], ""), "выпала из первых - снос"
+
+
+def _start(show_unit: Any, service: _Service) -> list[str]:
+    """«Продолжить» «Брата» до картинки; ответ - что служба успела снести к подъёму."""
+    seen: list[str] = []
+
+    def resume(*_args: object, **_rest: object) -> int:
+        seen.extend(service.dropped)
+        show_unit.alive = True  # показ поднят
+        return 0
+
+    def never(*_args: object, **_rest: object) -> int:
+        return pytest.fail("до поиска доходить нечему")
+
+    def command(args: Args) -> int:
+        return _cmd_play(args, resume=resume, choose=never)
+
+    assert play(Args(query=["брат"]), command) == 0
+    return seen
+
+
+def test_a_click_does_not_wait_for_a_parked_release(
+    show_unit: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Снос раздачи закладки в пути клика ждал общий замок службы до 3.0 с."""
+    _park(fresher=WARM_ROW)
+    service = _Service()
+    composition.use_engines(monkeypatch, service)
+    show_unit.alive = False
+
+    assert _start(show_unit, service) == []
+
+
+def test_a_parked_release_still_goes_once_the_show_is_up(
+    show_unit: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _park(fresher=WARM_ROW)
+    service = _Service()
+    composition.use_engines(monkeypatch, service)
+    show_unit.alive = False
+
+    _start(show_unit, service)
+
+    assert (service.dropped, _entry().parked) == (["hash"], ""), "сирота не копится"
 
 
 def test_a_parked_release_of_the_first_resumes_keeps_its_disk_cache(
@@ -104,7 +151,7 @@ def test_a_parked_release_of_the_first_resumes_keeps_its_disk_cache(
     composition.use_engines(monkeypatch, service)
     show_unit.alive = False
 
-    _release_orphans(load_config())
+    _release_parked(load_config())
 
     assert (service.dropped, _entry().parked) == ([], "hash")
 
@@ -119,3 +166,19 @@ def test_stop_leaves_the_release_the_unit_parked() -> None:
     assert _left(entry) == torrent_hash, "юнит не оставил её никому - сносится как прежде"
     entry.parked = torrent_hash
     assert _left(entry) == ""
+
+
+def test_a_parked_release_the_risen_show_holds_stays(
+    show_unit: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Снос идёт уже при живом показе: его раздачу из-под экрана не выдёргивать."""
+    _park(fresher=WARM_ROW)
+    state = State.load()
+    state.entries["movie:0:2000"].torrent = "hash"
+    state.save()
+    service = _Service()
+    composition.use_engines(monkeypatch, service)
+
+    _release_parked(load_config())
+
+    assert (service.dropped, _entry().parked) == ([], "hash")

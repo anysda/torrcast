@@ -101,32 +101,53 @@ def _release_orphans(config: Config) -> None:
     убрала, а запись - единственное, чем эту раздачу вообще можно снести: стерев её за
     молчание, мы делали сироту вечной. Не убралось - не забываем, попробуем в другой раз.
 
-    Раздача закладки из первых :data:`~torrcast.domain.continue_row.WARM_ROW` записей ряда
-    «Продолжить» остаётся: служба сама закроет её по сроку и кэш на диске сохранит, а снос
-    стирал и его, и следующее «Продолжить» тянуло кусок закладки из роя заново (до 30 с).
-    Выпавшая из них сносится: кэш показа - до ``CacheSize`` службы на раздачу.
+    Раздачи, оставленные закладкам, убирает не она, а :func:`_release_parked`.
     """
     state = store().load()
     # Сирота, которую прямо сейчас держит этот процесс (карточка читает её дорожки), живая.
     orphans = {k: e.torrent for k, e in state if e.torrent and not CLAIMS.claimed(e.torrent)}
-    # Раздача, оставленная закладке, живёт до следующего запуска, если её не держит страница.
-    row = continue_row(state.entries)[:WARM_ROW]
-    parked = {
-        k: e.parked for k, e in state if e.parked and k not in row and not CLAIMS.claimed(e.parked)
-    }
-    if not orphans and not parked:  # обычный случай, и он не стоит ни одного вопроса systemd
+    if not orphans:  # обычный случай, и он не стоит ни одного вопроса systemd
         return
     if unit().active():  # показ идёт - раздача под ним живая, и она не сирота
         return
-    gone = set(_release_torrents(config, [*orphans.values(), *parked.values()]))
+    gone = set(_release_torrents(config, list(orphans.values())))
     if not gone:  # службы нет - сироты остались сиротами, и запись о них тоже
         return
     for key, torrent_hash in orphans.items():
         if torrent_hash in gone:  # не через put: уборка мусора не делает запись «свежей»
             state.entries[key].torrent = ""
+    store().save(state)
+
+
+def _release_parked(config: Config) -> None:
+    """Снести раздачи, оставленные закладкам, которые выпали из начала ряда «Продолжить».
+
+    Раздача закладки из первых :data:`~torrcast.domain.continue_row.WARM_ROW` записей ряда
+    остаётся: служба сама закроет её по сроку и кэш на диске сохранит, а снос стирал и его,
+    и следующее «Продолжить» тянуло кусок закладки из роя заново (до 30 с). Выпавшая из них
+    сносится: кэш показа - до ``CacheSize`` службы на раздачу.
+
+    🔴 Зовут это ПОСЛЕ подъёма показа (:func:`torrcast.cli.play.play`), а не до него: ``rem``
+    в службе стирает кэш с диска и ждёт её общий замок, и в пути клика он стоил до 3.0 с.
+    Поэтому снос не трогает раздачу, которую держит уже поднятый показ или страница, а
+    отметку снимает на свежем чтении состояния: пока шёл снос, позицию писал сторож показа.
+    """
+    state = store().load()
+    row = continue_row(state.entries)[:WARM_ROW]
+    held = state.held()
+    parked = {
+        k: e.parked
+        for k, e in state
+        if e.parked and k not in row and e.parked not in held and not CLAIMS.claimed(e.parked)
+    }
+    gone = set(_release_torrents(config, list(parked.values())))
+    if not gone:  # службы нет - запись остаётся, снесёт следующий показ
+        return
+    state = store().load()
     for key, torrent_hash in parked.items():
-        if torrent_hash in gone:
-            state.entries[key].parked = ""
+        entry = state.entries.get(key)
+        if entry is not None and entry.parked == torrent_hash and torrent_hash in gone:
+            entry.parked = ""  # не через put: уборка мусора не делает запись «свежей»
     store().save(state)
 
 
