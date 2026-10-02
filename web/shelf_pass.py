@@ -40,7 +40,7 @@ class _Cache(Protocol):
 
     filling: bool
     settling: bool
-    born: float  # when the background started: the first cold pass counts from it
+    born: float  # when the process started: the cover wait counts from it
 
     @property
     def catalogue(self) -> TorrentCatalogue: ...

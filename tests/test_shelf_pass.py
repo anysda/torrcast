@@ -6,10 +6,13 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.feed_rows import FeedRows
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from web.built_by_rule import FIELD, RULE
@@ -207,20 +210,45 @@ def test_a_shelf_without_a_single_cover_waits_out_the_silence(tmp_path: Path) ->
     assert not shown._growing()
 
 
-def test_a_late_feed_does_not_push_the_first_cold_pass_past_its_start(tmp_path: Path) -> None:
-    """Лента пришла поздно: обложки ждут ``FILL_BY`` от старта фона, а не от вопроса.
+def test_a_late_feed_does_not_push_the_cold_pass_past_the_budget_from_the_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Лента пришла поздно: обложки ждут до бюджета от старта процесса, а не срок от вопроса.
 
     Замер 01-10-2026: вопрос на 4.7 с, срок от него - 29.7 с, счётчик погас на 30.9 с.
     """
+    monkeypatch.setattr("web.fill_deadline.FILL_BY", 3.0)
+    monkeypatch.setattr("web.fill_deadline.FILL_AT_LEAST", 0.2)
     cache = _cache(tmp_path, 3)
     cache.arriving = lambda _records: True  # some cover is always still on its way
     cache.playable = lambda _query, _key: True
-    cache.born = time.monotonic() - FILL_BY + 0.5
+    cache.born = time.monotonic() - 2.9  # the budget ends 0.1 s from now, the ask's 3 s
     began = time.monotonic()
 
     ShelfPass(cache, _rows(3), _MOMENT, {}).run()
 
-    assert time.monotonic() - began < 5.0
+    assert time.monotonic() - began < 2.0
+    assert not cache.filling
+
+
+def test_an_ask_at_the_edge_of_the_budget_still_waits_for_its_covers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Вопрос пришёл к концу бюджета: заход ждёт ``FILL_AT_LEAST``, а не остаток окна.
+
+    Остаток в полсекунды закрывал полку тонкой, а тёплый заход дорастил её после «готово».
+    """
+    monkeypatch.setattr("web.fill_deadline.FILL_BY", 1.0)
+    monkeypatch.setattr("web.fill_deadline.FILL_AT_LEAST", 1.0)
+    cache = _cache(tmp_path, 3)
+    cache.arriving = lambda _records: True
+    cache.playable = lambda _query, _key: True
+    cache.born = time.monotonic() - 0.9
+    began = time.monotonic()
+
+    ShelfPass(cache, _rows(3), _MOMENT, {}).run()
+
+    assert time.monotonic() - began >= 1.0
     assert not cache.filling
 
 
@@ -287,3 +315,58 @@ def test_a_whole_feed_puts_the_counter_out_without_waiting_for_the_refill(
     seen = _refill(tmp_path, missed=0)[1]
 
     assert seen == [(False, False), (False, False)]
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize("edge", [FILL_BY - 0.5, 1e6])
+def test_a_cold_ask_at_the_window_edge_does_not_grow_the_shelf_after_ready(
+    tmp_path: Path, edge: float
+) -> None:
+    """Проба мержера: первый заход - отказ каталога, второй спрашивает на краю окна.
+
+    Остаток окна в полсекунды закрывал полку на 3 плитках «Нового», счётчик гас, и
+    следующий заход дорастил её до 6 уже после «готово».
+    """
+    cache = _cache(tmp_path, 6)
+    cache.attempts = 3
+    late = [0.0]
+    calls: list[int] = []
+
+    def feed(_limit: int) -> FeedRows:
+        calls.append(1)
+        if len(calls) == 1:
+            raise InfraError("prowlarr not up yet")
+        if len(calls) == 2:
+            cache.born = time.monotonic() - edge  # this ask lands `edge` s after the start
+            late[0] = time.monotonic() + 2.0
+        return FeedRows(_rows(6), missed=0)
+
+    def cover(records: list[JsonValue]) -> list[JsonValue]:
+        now = time.monotonic()
+        return [
+            {**r, "poster": "p"}
+            if isinstance(r, dict) and (i % 2 == 0 or now >= late[0] - 0.7)
+            else r
+            for i, r in enumerate(records)
+        ]
+
+    seen: list[tuple[bool, int]] = []
+
+    def sleep(_pause: float) -> None:
+        if len(calls) >= 2:
+            time.sleep(2.5)
+        fresh = cache._body.get("fresh") if cache._body else None
+        seen.append((cache.filling, len(_titles(cache._body, "fresh")) if fresh else 0))
+
+    cache.feed = feed
+    cache.ask = cover
+    cache.landed = cover
+    cache.offer = cover
+    cache.arriving = lambda _records: time.monotonic() < late[0]
+    cache.playable = lambda _query, _key: True
+    cache.sleep = sleep
+    cache._rebuild()
+    seen.append((cache.filling, len(_titles(cache._body, "fresh"))))
+
+    grew_after_ready = any(not on and n < seen[-1][1] for on, n in seen[1:-1])
+    assert not grew_after_ready, f"shelf grew after the counter went out: {seen}"

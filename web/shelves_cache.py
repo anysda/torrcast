@@ -26,6 +26,7 @@ from torrcast.usecases.shelves.fresh_shelf import LIMIT as SHELF_LIMIT
 from web.cold import cold
 from web.drop_count import DropCount
 from web.min_tiles import min_tiles
+from web.process_started import process_started
 from web.publish_shelf import Warm, publish_shelf
 from web.read_shelves import read_shelves
 from web.shelf_pass import ShelfPass
@@ -103,7 +104,7 @@ class ShelvesCache:
             if self._started:
                 return
             self._started = True
-            self.born = time.monotonic()
+            self.born = process_started()  # the shelf is timed from the service start
         self.filling = self.settling = self.early and cold(self._body or self._load())
         self.spawn(self._loop)
 

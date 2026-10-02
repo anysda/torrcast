@@ -17,6 +17,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from web.built_by_rule import FIELD, RULE
+from web.process_started import process_started
 from web.shelves_cache import Feed, Offer, PassportOf, Playable, ShelvesCache, Spawn
 from web.warm_cache import WarmCache
 from web.warm_targets import WarmTarget
@@ -380,10 +381,10 @@ def test_get_starts_the_background_loop_exactly_once(tmp_path: Path) -> None:
     assert len(calls) == 1
 
 
-def test_the_background_start_is_the_moment_the_first_cold_pass_counts_from(
+def test_the_cover_wait_counts_from_the_process_start_not_the_background_start(
     tmp_path: Path,
 ) -> None:
-    """Старт фона помечен мигом: от него первый холодный заход считает срок обложек."""
+    """Фон встаёт после подъёма службы, а срок обложек - от старта процесса, раньше фона."""
     cache = _cache(tmp_path, spawn=lambda job: None)
     before = time.monotonic()
 
@@ -391,7 +392,8 @@ def test_the_background_start_is_the_moment_the_first_cold_pass_counts_from(
     born = cache.born
     cache.get()
 
-    assert before <= born <= time.monotonic()
+    assert abs(born - process_started()) < 0.05
+    assert born <= before
     assert cache.born == born
 
 
