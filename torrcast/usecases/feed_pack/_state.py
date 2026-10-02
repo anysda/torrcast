@@ -57,6 +57,7 @@ map_lied: Callable[[str], None]
 #: факт предъявлять (:func:`torrcast.usecases.feed_pack.feed_astray._astray`).
 map_entry: Callable[[str, float], float]
 opens_clean: Callable[[str, float], bool | None]
+piece_opens: Callable[[Path], bool | None]
 
 #: Часы ленты - слот, как и всё остальное здесь; заполняет его та же :func:`configure`.
 #:

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.usecases.feed_pack._state import Grid
 from torrcast.usecases.feed_pack.configure import configure
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _world() -> dict[str, Any]:
@@ -35,6 +33,7 @@ def _world() -> dict[str, Any]:
         "map_lied": lambda url: raised.append(("соврала", url)),
         "map_entry": lambda url, at: at + 0.5,
         "opens_clean": lambda url, at: url == "своя",
+        "piece_opens": lambda piece: piece.name == "свой.ts",
     }
 
 
@@ -60,6 +59,7 @@ def test_every_slot_takes_its_value_from_the_composition() -> None:
     assert _state.map_lied is world["map_lied"]
     assert _state.map_entry("своя", 10.0) == 10.5
     assert _state.opens_clean("своя", 10.0) is True
+    assert _state.piece_opens(Path("свой.ts")) is True
 
 
 def test_a_second_call_replaces_the_world_and_does_not_mix_two() -> None:

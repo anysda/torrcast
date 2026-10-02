@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from tests.usecases.feed_pack.world import factory, feed, grid, packer, tract, vault
+from tests.usecases.feed_pack.world import factory, feed, grid, lay, packer, tract, vault
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.stream_pack.grid import Grid
 
@@ -46,8 +46,8 @@ class _Recoder:
         return False
 
 
-def _stand(clean: bool | None, seen: list[str]) -> list[list[str]]:
-    """Стенд захода: что ответила сверка входа и какие команды упаковки поднялись."""
+def _stand(clean: bool | None, seen: list[str], piece: bool | None = True) -> list[list[str]]:
+    """Стенд захода: что ответили сверки входа и куска с полки, какие команды поднялись."""
     commands: list[list[str]] = []
 
     def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
@@ -63,7 +63,11 @@ def _stand(clean: bool | None, seen: list[str]) -> list[list[str]]:
         seen.append(f"вход {at}")
         return clean
 
-    tract(settle_start=_pilot, opens_clean=_clean, packer=factory(_start))
+    def _piece(path: Path) -> bool | None:
+        seen.append(f"кусок {path.name}")
+        return piece
+
+    tract(settle_start=_pilot, opens_clean=_clean, piece_opens=_piece, packer=factory(_start))
     return commands
 
 
@@ -138,3 +142,45 @@ def test_a_grid_laid_on_the_keyframe_map_is_not_asked(tmp_path: Path, journal: P
     assert not [said for said in seen if said.startswith("вход")]
     assert show.encode is None and not coder.stopped
     assert show.recoder is not None
+
+
+def test_a_shelf_head_the_tab_cannot_enter_is_recoded_from_its_slot(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Голова с полки без чистого входа - перекод с границы слота, а не кусок прогрева.
+
+    Живой замер («Интерстеллар», закладка 5348.469, на полке v534 из копии BD-AVC):
+    «Поток потерян» в четырёх продолжениях из четырёх, ни одного кадра.
+    """
+    seen: list[str] = []
+    commands = _stand(None, seen, piece=False)
+    coder, shelf = _Recoder(), vault(tmp_path)
+    lay(shelf.dir, 17)
+    show = feed(tmp_path, grid=grid(600.0, 10.0), recoder=coder, vault=shelf)
+
+    show.begin(177.837)
+
+    assert seen == ["кусок v17.ts"], "сверка по куску на диске, раздачу не трогают"
+    assert show.vault is None and show.recoder is None and coder.stopped
+    assert 17 not in coder.done and show.door == 17
+    command = commands[0]
+    assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-ss") + 1] == "170.000"
+
+
+def test_a_shelf_head_that_opens_or_is_unknown_is_served_from_the_shelf(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Чистый или несверенный кусок полки - голова с полки, упаковка встаёт за ней копией."""
+    for piece in (True, None):
+        seen: list[str] = []
+        commands = _stand(None, seen, piece=piece)
+        coder, shelf = _Recoder(), vault(tmp_path / str(piece))
+        lay(shelf.dir, 17)
+        show = feed(tmp_path / str(piece), grid=grid(600.0, 10.0), recoder=coder, vault=shelf)
+
+        show.begin(177.837)
+
+        assert seen == ["кусок v17.ts", "проба"], "за головой - копия с пробным заходом"
+        assert show.vault is shelf and show.encode is None and 17 in coder.done
+        assert commands[0][commands[0].index("-ss") + 1] == "180.000"

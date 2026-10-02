@@ -23,6 +23,7 @@ from torrcast.adapters.stream_pack.map_lied import map_lied
 from torrcast.adapters.stream_pack.map_trusted import map_trusted
 from torrcast.adapters.stream_pack.opens_clean import opens_clean
 from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.adapters.stream_pack.piece_opens import piece_opens
 from torrcast.adapters.stream_pack.settle_start import settle_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
@@ -149,6 +150,7 @@ def tract(**parts: Any) -> FakeClock:
         parts.pop("map_lied", map_lied),
         parts.pop("map_entry", map_entry),
         parts.pop("opens_clean", opens_clean),
+        parts.pop("piece_opens", piece_opens),
     )
     assert not parts, f"стенд не знает таких слотов: {sorted(parts)}"
     return ticking

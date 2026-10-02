@@ -13,7 +13,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.pack_run.pack_factory import PackShrink
-from torrcast.usecases.feed_pack.feed_clean import _recode_whole
+from torrcast.usecases.feed_pack.feed_clean import _recode_shelf, _recode_whole
 from torrcast.usecases.feed_pack.feed_heading import _heading, _left
 from torrcast.usecases.feed_pack.feed_segment import _have, _stocked
 
@@ -165,6 +165,8 @@ def _begin(state: _State, want: float, shrink: PackShrink) -> float:
     сетки, то есть вход есть у каждого слота по построению.
     """
     head = state.grid.slot_at(want)
+    if want > 0.0:  # голова файла начинается с IDR, сверять её незачем
+        _recode_shelf(state, head)  # отцепит полку, и голова пойдёт перекодом ниже
     past = _heading(state, head)
     if past != head:  # голова лежит на полке или её туда кладут
         if head == 0 and state.encode is None:

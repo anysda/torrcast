@@ -16,6 +16,7 @@ from torrcast.adapters.stream_pack.map_entry import map_entry
 from torrcast.adapters.stream_pack.map_lied import map_lied
 from torrcast.adapters.stream_pack.map_trusted import map_trusted
 from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.adapters.stream_pack.piece_opens import piece_opens
 from torrcast.adapters.stream_pack.settle_start import settle_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
@@ -52,4 +53,5 @@ def wire_feed() -> None:
         map_lied,
         map_entry,
         entry_clean,
+        piece_opens,
     )
