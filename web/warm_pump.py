@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from typing import TYPE_CHECKING, Protocol
 
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS
 from torrcast.adapters.prowlarr.warmup import warmup
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
@@ -14,16 +16,20 @@ from web.start_first import start_first
 from web.warm_priority import _hint
 
 if TYPE_CHECKING:
-    import threading
-
     from torrcast.usecases.select.plan import Plan
     from web.circle_memory import CircleMemory
 
 
-class _Cache(Protocol):
-    """What of :class:`web.warm_cache.WarmCache` the background hand reaches for."""
+class _Seats(Protocol):
+    """The warmup circles a viewer can take over: :func:`_adopted`."""
 
     _cond: threading.Condition
+    _seats: dict[str, threading.Event]
+
+
+class _Cache(_Seats, Protocol):
+    """What of :class:`web.warm_cache.WarmCache` the background hand reaches for."""
+
     _queue: list[str]
     _urgent: list[str]
     _busy: set[str]
@@ -65,8 +71,11 @@ def _pump(cache: _Cache) -> None:
                 urgent = bool(cache._urgent)
                 query = cache._urgent.pop(0) if urgent else cache._queue.pop(0)
                 stale = _claim(cache, query)
+                taken = threading.Event()
+                if stale is not None and not urgent:
+                    cache._seats[query] = taken
             if stale is not None:
-                with nullcontext() if urgent else warmup():
+                with nullcontext() if urgent else warmup(taken):
                     _turn(cache, query, stale, urgent)
     finally:
         with cache._cond:
@@ -124,9 +133,28 @@ def _turn(cache: _Cache, query: str, stale: bool, urgent: bool) -> None:
     cache._remember(query, plans, revived=kept is not None)
     with cache._cond:
         cache._busy.discard(query)
+        cache._seats.pop(query, None)
         cache._cond.notify_all()
     if kept is not None and urgent:
         _hint(cache, query, stale=True)
+
+
+@contextmanager
+def _adopted(cache: _Seats, key: str) -> Iterator[None]:
+    """A viewer waits for a circle the warmup counts: the circle is his and gives way no more.
+
+    The warmup took the tile, then gave way to the last search's late Knaben request: the
+    viewer of the tile waited the whole 30 s of :data:`web.warm_cache.BUSY_WAIT`, 33.2 s in
+    all against 3.2-4.8 s for a tile it had not taken. While he waits the search is live.
+    """
+    with cache._cond:
+        taken = cache._seats.get(key)
+    if taken is None:
+        yield
+        return
+    taken.set()
+    with HOST_SLOTS.live():
+        yield
 
 
 def _named(broke: TorrcastError | OSError) -> TorrcastError:
@@ -134,4 +162,4 @@ def _named(broke: TorrcastError | OSError) -> TorrcastError:
     return broke if isinstance(broke, TorrcastError) else InfraError(str(broke))
 
 
-__all__ = ["_pump", "_rush"]
+__all__ = ["_adopted", "_pump", "_rush"]

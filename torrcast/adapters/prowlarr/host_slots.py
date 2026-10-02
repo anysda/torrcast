@@ -33,7 +33,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Final
 
-from torrcast.adapters.prowlarr.warmup import WARMUP
+from torrcast.adapters.prowlarr.warmup import TAKEN, WARMUP
 from torrcast.ports.journal.slot import journal
 
 #: Prowlarr's pause between two requests to one host.
@@ -95,6 +95,7 @@ class HostSlots:
         """A viewer's search runs while this block does: warmup circles wait for its end."""
         with self._turn:
             self._live += 1
+            self._turn.notify_all()  # a warmup circle the viewer took over stops giving way
         try:
             yield
         finally:
@@ -119,8 +120,11 @@ class HostSlots:
 
         A viewer's circle is never held. A warmup circle waits until no live search runs and
         none of its hosts has a queue or a request in flight, ``most`` seconds at the longest.
+        A warmup circle a viewer took over (:data:`TAKEN`) is his: it goes at once. Held as
+        warmup, it kept the viewer of that very tile 33.2 s with Knaben silent, 3.2 s without.
         """
-        if not WARMUP.get():
+        taken = TAKEN.get()
+        if not WARMUP.get() or (taken is not None and taken.is_set()):
             return time.monotonic()
         began = self._clock()
         with self._turn:
@@ -130,7 +134,8 @@ class HostSlots:
                 flying = any(
                     not one.is_set() for name in names for one in self._flight.get(name, [])
                 )
-                if (self._live == 0 and lag <= 0 and not flying) or now >= began + most:
+                free = self._live == 0 and lag <= 0 and not flying
+                if free or now >= began + most or (taken is not None and taken.is_set()):
                     break
                 self._turn.wait(min(began + most - now, max(lag, LOOK)))
         if (held := now - began) > LOOK:

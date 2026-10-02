@@ -22,7 +22,7 @@ from web.circle_disk import CircleDisk
 from web.circle_memory import CircleMemory
 from web.warm_live import _take_live
 from web.warm_priority import _hint, _unasked, _warm_blurbs
-from web.warm_pump import _pump, _rush
+from web.warm_pump import _adopted, _pump, _rush
 
 if TYPE_CHECKING:
     from torrcast.usecases.discover.told_indexer import Told
@@ -64,6 +64,7 @@ class WarmCache:
     _urgent: list[str] = field(default_factory=list, repr=False)
     _busy: set[str] = field(default_factory=set, repr=False)
     _stale: set[str] = field(default_factory=set, repr=False)
+    _seats: dict[str, threading.Event] = field(default_factory=dict, repr=False)
     _told: set[tuple[str, int | None]] = field(default_factory=set, repr=False)
     _running: int = field(default=0, repr=False)
     _rushing: bool = field(default=False, repr=False)
@@ -83,7 +84,7 @@ class WarmCache:
         записи, и холодный путь ниже её сети и так предпочитает.
         """
         key = query.strip()
-        with self._cond:
+        with _adopted(self, key), self._cond:
             # Only a running circle is waited for; a kept one refreshed behind is not.
             self._cond.wait_for(
                 lambda: key not in self._busy or self.ready(query) is not None, BUSY_WAIT

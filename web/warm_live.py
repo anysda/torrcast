@@ -12,6 +12,8 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Protocol
 
+from web.warm_pump import _adopted
+
 if TYPE_CHECKING:
     import threading
 
@@ -23,6 +25,7 @@ class _Cache(Protocol):
     """What of :class:`web.warm_cache.WarmCache` the live take reaches for."""
 
     _cond: threading.Condition
+    _seats: dict[str, threading.Event]
     _busy: set[str]
     _urgent: list[str]
     _stale: set[str]
@@ -41,7 +44,7 @@ class _Cache(Protocol):
 def _landed(cache: _Cache, query: str, patience: float) -> list[Plan] | None:
     """A live circle, waiting for the one that runs; ``None`` - none runs, count your own."""
     key = query.strip()
-    with cache._cond:
+    with _adopted(cache, key), cache._cond:
         cache._cond.wait_for(
             lambda: key not in cache._busy or cache._memory.live(query) is not None, patience
         )
