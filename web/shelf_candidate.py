@@ -35,7 +35,7 @@ def shelf_candidate(
     приговоров: до клейма такое тело не вправе нести и чужое клеймо, иначе недопроверенный
     показ стал бы планкой усыхания для собственной проверенной полки.
     """
-    kept, count = _keep_stale_tiles(origin, shelf, tiles, drops, limit)
+    kept, count = _keep_stale_tiles(origin, current, shelf, tiles, drops, limit)
     marks: dict[str, JsonValue] = {name: carried(current, name) for name in ("fresh", "popular")}
     candidate: dict[str, JsonValue] = {
         **current,

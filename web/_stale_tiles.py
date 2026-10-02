@@ -12,7 +12,10 @@
   переноса - тело на её старте, собранное чужим правилом. Следующая пересборка (через
   час) начинается с тела нового клейма, и перенесённые плитки уходят;
 - сколько плиток в хвосте полки перенесено, тело помнит в поле :data:`web.carried.CARRIED`: порог
-  усыхания (:func:`web.worth_publishing.worth_publishing`) меряет только своё.
+  усыхания (:func:`web.worth_publishing.worth_publishing`) меряет только своё;
+- добивают только прежние плитки, которые и сейчас на экране: ушедшая с экрана не возвращается.
+  Иначе приговор «не играет» после «готово» (:mod:`web.ready_shelf`) освобождал место, и
+  на него вставала прежняя плитка, которой страница не видела: полка росла после «готово».
 """
 
 from __future__ import annotations
@@ -24,20 +27,26 @@ from web.drop_count import DropCount
 
 def _keep_stale_tiles(
     origin: dict[str, JsonValue],
+    current: dict[str, JsonValue],
     shelf: str,
     tiles: list[JsonValue],
     drops: DropCount,
     limit: int,
 ) -> tuple[list[JsonValue], int]:
-    """Полка для публикации и число перенесённых в её хвост плиток прежнего правила."""
+    """Полка для публикации и число перенесённых в её хвост плиток прежнего правила.
+
+    ``origin`` - тело на старте пересборки, ``current`` - тело на экране.
+    """
     if built_by_rule(origin):
         return tiles, 0
     old = origin.get(shelf)
     if not isinstance(old, list):
         return tiles, 0
-    present = {_tile_key(tile) for tile in tiles}
-    gone = present | drops.dropped_keys
-    stale = [tile for tile in old if _tile_key(tile) not in gone][: max(limit - len(tiles), 0)]
+    shown = current.get(shelf)
+    on_screen = {_tile_key(tile) for tile in shown} if isinstance(shown, list) else set()
+    gone = {_tile_key(tile) for tile in tiles} | drops.dropped_keys
+    stale = [tile for tile in old if _tile_key(tile) in on_screen - gone]
+    stale = stale[: max(limit - len(tiles), 0)]
     return [*tiles, *stale], len(stale)
 
 
