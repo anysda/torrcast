@@ -685,15 +685,55 @@ def test_сезон_берётся_снимком_и_нажимается_пос
 
 
 class StallPage(Page):
-    def __init__(self, waits: list[float], seen: list[bool]) -> None:
+    def __init__(
+        self,
+        waits: list[float],
+        seen: list[bool],
+        frozen: list[bool] | None = None,
+        hold: float | None = None,
+    ) -> None:
         super().__init__({}, 0.0)
         self.waits = waits
         self.seen = seen
+        self.frozen = frozen
+        self.hold = hold
 
     def evaluate(self, expression: str) -> Any:
         if "Math.max(0, now - meter.waiting)" in expression:
-            return {"waits": self.waits, "seen": self.seen}
+            meter: dict[str, Any] = {"waits": self.waits, "seen": self.seen}
+            if self.frozen is not None:
+                meter["frozen"] = self.frozen
+            if self.hold is not None:
+                meter["hold"] = self.hold
+            return meter
         return super().evaluate(expression)
+
+
+def test_замирание_без_спиннера_при_пустом_буфере_подгруз() -> None:
+    """Тепло-2 на .122: «Оно» с закладки встало на 140.75, буфера впереди 0, спиннера нет.
+
+    Прибор писал «подгрузы 0; без спиннера в кадре 1: [179.127]» и давал П.4 OK. Для
+    зрителя замирание то же, что подгруз: головка стоит, впереди пусто, дольше срока
+    плеера ``hold`` (``TCPlayer.STALL_SHOW_MS``). Такая заминка обязана уйти в подгрузы,
+    а с ними П.4 и П.5 красные (``and not waits``). Короче срока или с ходом головки -
+    по-прежнему незримая, слово владельца «если нет то ладно» для них в силе.
+    """
+    module = acceptance()
+    warm = module.Ctx(
+        "http://example", StallPage([179.127], [False], [True], 0.3), True, Path("/tmp"), {}
+    )
+    assert module._wait_stalls(warm, 0) == ([179.127], 179.127, [])
+    mixed = module.Ctx(
+        "http://example",
+        StallPage([0.2, 0.7, 19.085], [False, False, False], [True, False, True], 0.3),
+        True,
+        Path("/tmp"),
+        {},
+    )
+    waits, total, unseen = module._wait_stalls(mixed, 0)
+    assert waits == [19.085]
+    assert total == pytest.approx(19.085)
+    assert unseen == [0.2, 0.7]
 
 
 def test_сумма_подгрузов_на_заглушке_берёт_только_заминки_со_спиннером_в_кадре() -> None:
@@ -744,6 +784,9 @@ _STUB_VIDEO_PAGE = """<!doctype html><meta charset="utf-8">
     paint.fillRect(0, 0, 32, 32);
   }, 40);
   const video = document.getElementById('v');
+  // Срок плеера до спиннера, как в продукте (`player.js`, ``STALL_SHOW_MS``): по нему
+  // счётчик судит замирание без спиннера.
+  window.TCPlayer = { STALL_SHOW_MS: 300 };
   // Спиннер ставится и снимается ровно как в продукте (`player.js`: обработчики `waiting`
   // и `playing` навешаны до счётчика, узел `.tc-spinner` вставляется синхронно), а
   // ``window.__stubQuiet`` выключает его, как плашка отсчёта выключает его в продукте, а
@@ -799,6 +842,19 @@ _DRIVE_UNSEEN = """async () => {
   window.__stubHide = '';
 }"""
 
+#: Замирание без спиннера: плёнка на паузе (головка стоит, у потока с холста буфера впереди
+#: нет), ``waiting`` без спиннера, как в тепло-2 на .122, и ход снова через 800 мс.
+_DRIVE_FROZEN = """async () => {
+  const video = document.querySelector('video');
+  window.__stubQuiet = true;
+  video.pause();
+  video.dispatchEvent(new Event('waiting'));
+  await new Promise((done) => setTimeout(done, 800));
+  window.__stubQuiet = false;
+  await video.play();
+  await new Promise((done) => setTimeout(done, 100));
+}"""
+
 #: Незримых заминок в ``_DRIVE_UNSEEN``: без спиннера, без кадра и три скрытых.
 _UNSEEN_COUNT = 5
 #: Из них тех, где узел ``.tc-spinner`` стоит в документе хотя бы один кадр, но скрыт.
@@ -812,7 +868,12 @@ _STALL_TOLERANCE = 0.2
 
 
 def _meter_over_stub(
-    page: Any, module: ModuleType, meter_js: str, pauses: list[int], unseen: bool = False
+    page: Any,
+    module: ModuleType,
+    meter_js: str,
+    pauses: list[int],
+    unseen: bool = False,
+    frozen: bool = False,
 ) -> list[float]:
     """Прогнать счётчик над страницей-пустышкой и вернуть, что он насчитал подгрузами."""
     page.set_content(_STUB_VIDEO_PAGE)
@@ -824,6 +885,8 @@ def _meter_over_stub(
     )
     if unseen:
         page.evaluate(_DRIVE_UNSEEN)
+    if frozen:
+        page.evaluate(_DRIVE_FROZEN)
     if pauses:
         page.evaluate(_DRIVE_STALLS, pauses)
     ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
@@ -877,6 +940,13 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
             )
             assert stripped != module._METER_JS
             blind = _meter_over_stub(page, module, stripped, [400, 1250])
+            # Замирание без спиннера при пустом буфере - подгруз (решение оркестратора
+            # 02-10-2026). Без флага ``frozen`` счётчик снова отдал бы его в незримые.
+            still = _meter_over_stub(page, module, module._METER_JS, [], frozen=True)
+            unfrozen = module._METER_JS.replace(
+                "meter.frozen.push(meter.stuck)", "meter.frozen.push(false)"
+            )
+            missed = _meter_over_stub(page, module, unfrozen, [], frozen=True)
         finally:
             browser.close()
 
@@ -891,6 +961,10 @@ def test_счётчик_подгрузов_в_настоящем_браузер�
         f"счётчик по узлу с классом обязан взять скрытый спиннер: {by_node}"
     )
     assert blind == []
+    assert len(still) == 1, f"замирание без спиннера обязано стать подгрузом: {still}"
+    assert still[0] == pytest.approx(0.8, abs=_STALL_TOLERANCE)
+    assert unfrozen != module._METER_JS
+    assert missed == []
 
 
 def _meter_over_transition(page: Any, module: ModuleType, meter_js: str) -> tuple[Any, Any]:

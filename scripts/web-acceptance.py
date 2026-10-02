@@ -1905,7 +1905,9 @@ _SPINNER_SEEN_JS: Final = """() => [...document.querySelectorAll('.tc-spinner')]
 #: подгруз если нет то ладно»). Кадр ловится ``requestAnimationFrame``: его обратный вызов
 #: идёт в шаге отрисовки, сразу перед стилем, раскладкой и рисованием этого же кадра, так
 #: что спиннер, видимый в нём, в кадр и попадает. ``waits`` хранит все заминки, ``seen`` -
-#: по флагу на каждую: был ли спиннер в кадре. Судит только ``seen``, остальное - факт.
+#: по флагу на каждую: был ли спиннер в кадре. ``frozen`` - второй флаг: головка за всю
+#: заминку не ушла вперёд, а плёнки впереди не было. Для зрителя это то же замирание, что
+#: и со спиннером, поэтому оно тоже подгруз (:func:`_wait_stalls`).
 _METER_JS: Final = (
     """() => {
   const old = window.__tcAcceptanceMeter;
@@ -1913,6 +1915,7 @@ _METER_JS: Final = (
   const meter = {
     born: performance.now(), frame: null, start: null, playing: [], waits: [], waiting: null,
     seen: [], spots: [], bridge: [], shown: false, armed: null, nextEnded: null,
+    frozen: [], stuck: false,
     nextEmptied: null, nextLoaded: null, nextPlaying: null, nextFrame: null,
   };
   const spinnerSeen = """
@@ -1922,6 +1925,11 @@ _METER_JS: Final = (
   const paint = () => {
     if (!painting) return;
     if (meter.waiting !== null && !meter.shown && spinnerSeen()) meter.shown = true;
+    // Ход - только вперёд. Сброс ленты (``currentTime`` 0, ``readyState`` 0) посреди
+    // замирания на .122 картинку не двигал, и снимать за него флаг значило бы прятать подгруз.
+    if (meter.waiting !== null && meter.video && meter.video.currentTime > meter.held) {
+      meter.stuck = false;
+    }
     requestAnimationFrame(paint);
   };
   requestAnimationFrame(paint);
@@ -1938,7 +1946,8 @@ _METER_JS: Final = (
         meter.nextPlaying = at();
       }
       if (meter.waiting !== null) {
-        meter.waits.push(at() - meter.waiting); meter.seen.push(meter.shown); meter.waiting = null;
+        meter.waits.push(at() - meter.waiting); meter.seen.push(meter.shown);
+        meter.frozen.push(meter.stuck); meter.waiting = null;
       }
     });
     video.addEventListener('waiting', () => {
@@ -1962,6 +1971,7 @@ _METER_JS: Final = (
           ahead = video.buffered.end(i) - pos;
         }
       }
+      meter.held = pos; meter.stuck = ahead === 0;
       meter.spots.push({
         at: +meter.waiting.toFixed(2), pos: +pos.toFixed(2), ahead: +ahead.toFixed(2),
         next: meter.nextFrame !== null,
@@ -1993,6 +2003,7 @@ _METER_JS: Final = (
     meter.nextEnded = null; meter.nextEmptied = null; meter.nextLoaded = null;
     meter.nextPlaying = null; meter.nextFrame = null; meter.waits = []; meter.waiting = null;
     meter.seen = []; meter.spots = []; meter.bridge = []; meter.shown = false;
+    meter.frozen = []; meter.stuck = false;
   };
   meter.stop = () => { observer.disconnect(); painting = false; };
   window.__tcAcceptanceMeter = meter;
@@ -2000,15 +2011,22 @@ _METER_JS: Final = (
 )
 
 #: Сериализованный снимок счётчика. Незакрытый ``waiting`` получает настоящую
-#: длительность на миг чтения, а не условную тысячную секунды, и свой флаг спиннера.
+#: длительность на миг чтения, а не условную тысячную секунды, и свои флаги спиннера и
+#: замирания. ``hold`` - порог самого плеера (``TCPlayer.STALL_SHOW_MS``): столько стоит
+#: плёнка после кадра, прежде чем плеер обязан показать спиннер. Замирание без спиннера
+#: судится тем же сроком; плеера на странице нет - срок ноль, то есть строже, а не мягче.
 _METER_SNAPSHOT_JS: Final = """() => {
   const meter = window.__tcAcceptanceMeter;
   if (!meter) return {};
   const now = (performance.now() - meter.born) / 1000;
   const open = meter.waiting !== null;
-  return {...meter,
+  const stuck = open && meter.stuck && (!meter.video || meter.video.currentTime <= meter.held);
+  const player = typeof TCPlayer !== 'undefined' ? TCPlayer : window.TCPlayer;
+  const hold = player && Number.isFinite(player.STALL_SHOW_MS) ? player.STALL_SHOW_MS / 1000 : 0;
+  return {...meter, hold,
     waits: open ? [...meter.waits, Math.max(0, now - meter.waiting)] : [...meter.waits],
-    seen: open ? [...meter.seen, meter.shown] : [...meter.seen]};
+    seen: open ? [...meter.seen, meter.shown] : [...meter.seen],
+    frozen: open ? [...meter.frozen, stuck] : [...meter.frozen]};
 }"""
 
 
@@ -2040,22 +2058,30 @@ def _wait_stalls(ctx: Ctx, seconds: float) -> tuple[list[float], float, list[flo
     """Подгрузы после первого кадра, пока зритель смотрит: ``(подгрузы, их сумма, незримые)``.
 
     Подгруз - ``waiting``, во время которого спиннер попал хотя бы в один отрисованный
-    кадр (флаг ``seen`` счётчика). Заминка без спиннера в кадре подгрузом не считается,
-    но не пропадает молча: её длительность возвращается третьим числом, для отчёта.
+    кадр (флаг ``seen`` счётчика), ИЛИ замирание без спиннера: головка не сдвинулась,
+    плёнки впереди не было (флаг ``frozen``), и стояло оно дольше срока плеера ``hold``.
+    Прочая заминка без спиннера подгрузом не считается, но не пропадает молча: её
+    длительность возвращается третьим числом, для отчёта.
     """
     began = time.monotonic()
     while time.monotonic() - began < seconds:
         ctx.page.wait_for_timeout(250)
     meter = ctx.page.evaluate(_METER_SNAPSHOT_JS)
-    waits = meter.get("waits", []) if isinstance(meter, dict) else []
-    seen = meter.get("seen", []) if isinstance(meter, dict) else []
+    if not isinstance(meter, dict):
+        meter = {}
+    waits = meter.get("waits", [])
+    seen = meter.get("seen", [])
+    frozen = meter.get("frozen", [])
+    hold = meter.get("hold", 0)
+    hold = float(hold) if isinstance(hold, int | float) else 0.0
     stalls: list[float] = []
     unseen: list[float] = []
     for index, value in enumerate(waits):
         if not isinstance(value, int | float) or value <= 0:
             continue
         shown = index < len(seen) and seen[index] is True
-        (stalls if shown else unseen).append(float(value))
+        stuck = index < len(frozen) and frozen[index] is True and value > hold
+        (stalls if shown or stuck else unseen).append(float(value))
     return stalls, sum(stalls), unseen
 
 
