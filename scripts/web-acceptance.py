@@ -120,6 +120,11 @@ _LATIN_KNOWN_TITLE: Final = "Матрица"
 _CYRILLIC_RE: Final = re.compile(r"[\u0400-\u04ff]")
 
 _PARTIAL_WAIT: Final = 30.0
+#: Дорожки карточки доезжают добором (``voices_pending``, `web/static/card.js`): тело
+#: с описанием уже стоит, а меню озвучек ещё нет. Холодный отбор на стенде дочитал
+#: раздачу к 31-й секунде после клика; сама страница ждёт дорожек до 200 с. Потолок
+#: прибора от клика: дорожки, не дочитанные к нему, - красный с этим числом.
+_VOICES_WAIT: Final = 90.0
 #: Сериал для пункта 7. Карточка фильма из пункта 3 серий не содержит по устройству
 #: продукта, и судить по ней список серий - вечная краснота независимо от кода. По
 #: живому замеру у этого имени разбирается первый сезон целиком, 7 серий.
@@ -422,6 +427,13 @@ _HOME_LOADING_WAIT: Final = 10.0
 #: оставляет запас на холодный источник, но не превращает отсутствие выдачи в ожидание
 #: без конца. Это отдельная мера от обещания «загружаем» выше.
 _HOME_TILES_WAIT: Final = 60.0
+#: Полки выдачи истории не ждут: «Продолжить» стоит скелетом из шести заглушек с той же
+#: меткой ``data-tc-tile``, пока не ответит ``/api/history`` (холодно до 10 с,
+#: `web/history.py`). Считать её плитки раньше значит сверять с историей заглушки. Потолок
+#: от начала загрузки страницы; время до снятия скелета печатается отдельным числом.
+_HOME_HISTORY_WAIT: Final = 20.0
+#: Метка скелета «Продолжить» (`web/static/home.js`, ``_continueWaits``).
+_CONTINUE_WAITS: Final = '[data-tc-waits="continue"]'
 
 
 def _home_loading(ctx: Ctx) -> bool:
@@ -433,6 +445,13 @@ def _home_loading(ctx: Ctx) -> bool:
         and ctx.page.locator(".tc-tile-skeleton").first.is_visible()
         and ctx.page.get_by_text(loading, exact=True).count() > 0
         and ctx.page.get_by_text(loading, exact=True).first.is_visible()
+    )
+
+
+def _continue_settled(ctx: Ctx) -> bool:
+    """Тело главной собрано, и скелета «Продолжить» на нём больше нет."""
+    return bool(
+        ctx.page.locator("#tc-body").count() > 0 and ctx.page.locator(_CONTINUE_WAITS).count() == 0
     )
 
 
@@ -456,11 +475,14 @@ def check_1_home(ctx: Ctx) -> Result:
     shelves_code = 0
     shelves_detail = "GET /api/shelves не спросили"
     tiles_at: float | None = None
+    history_at: float | None = None
     next_shelves = began
     while time.monotonic() - began < _HOME_TILES_WAIT:
         now = time.monotonic()
         if loading_at is None and now - began < _HOME_LOADING_WAIT and _home_loading(ctx):
             loading_at = now - began
+        if history_at is None and _continue_settled(ctx):
+            history_at = now - began
         if now >= next_shelves:
             shelves_code, shelves_body = _get(ctx.base + "/api/shelves")
             shelves_detail = f"GET /api/shelves -> {shelves_code}"
@@ -485,6 +507,16 @@ def check_1_home(ctx: Ctx) -> Result:
     # расширяя ни один из названных потолков ожидания выдачи.
     if tiles_at is not None:
         ctx.page.wait_for_timeout(300)
+    # Плитки «Продолжить» считаются только после снятия скелета: до ответа истории в полке
+    # стоят шесть заглушек, и сверка с историей мерила бы их, а не ленту истории.
+    while history_at is None:
+        if _continue_settled(ctx):
+            history_at = time.monotonic() - began
+        elif time.monotonic() - began >= _HOME_HISTORY_WAIT:
+            break
+        else:
+            ctx.page.wait_for_timeout(100)
+    skeleton = ctx.page.locator(f"{_CONTINUE_WAITS} [data-tc-tile]").count()
     found: list[tuple[str, int]] = []
     for key in _SHELF_KEYS[1:]:
         text = ctx.english.get(key, "")
@@ -513,9 +545,13 @@ def check_1_home(ctx: Ctx) -> Result:
                 history_detail += ", items не список"
     tiles_ok = tiles_at is not None
     loading_ok = loading_at is not None or (tiles_at is not None and tiles_at <= _HOME_LOADING_WAIT)
-    history_ok = history_count is not None and (
-        (history_count == 0 and continue_seen == 0)
-        or (history_count > 0 and continue_seen == 1 and continue_tiles == history_count)
+    history_ok = (
+        history_at is not None
+        and history_count is not None
+        and (
+            (history_count == 0 and continue_seen == 0)
+            or (history_count > 0 and continue_seen == 1 and continue_tiles == history_count)
+        )
     )
     basics_seen = sum(1 for _, count in found if count > 0)
     ok = code == 200 and loading_ok and basics_seen == 2 and history_ok and tiles_ok
@@ -534,9 +570,14 @@ def check_1_home(ctx: Ctx) -> Result:
         if tiles_at is not None
         else f"полка пустая или не приехала за {_HOME_TILES_WAIT:.0f} с"
     )
+    history_wait = (
+        f"скелет «Продолжить» снят за {history_at:.1f} с"
+        if history_at is not None
+        else f"скелет «Продолжить» не снят за {_HOME_HISTORY_WAIT:.0f} с, заглушек {skeleton}"
+    )
     detail = (
         f"GET / -> {code}; {loading_detail}; {tiles_detail}; "
-        f"полки выдачи в DOM по тексту {basics_seen}/2 ({by_key}); "
+        f"полки выдачи в DOM по тексту {basics_seen}/2 ({by_key}); {history_wait}; "
         f"continue_watching={continue_seen}, плиток {continue_tiles}; {history_detail}; "
         f"{shelves_detail}"
     )
@@ -1703,13 +1744,67 @@ def check_2_search(ctx: Ctx) -> Result:
     return Result(2, "Поиск", regular and all(ok for ok, _ in controls), None, detail)
 
 
+class _CardVoices:
+    """Ответы ``/api/card/`` одной картины: последнее слово про ``voices_pending``."""
+
+    def __init__(self, key: str) -> None:
+        # Тот же вид, что даёт ``encodeURIComponent`` страницы (`web/static/api.js`).
+        self.path = "/api/card/" + urllib.parse.quote(key, safe="!*'()")
+        self.any = not key
+        self.pending: bool | None = None
+        self.heard = 0
+
+    def response(self, response: Any) -> None:
+        path = urllib.parse.urlsplit(response.url).path
+        if not (path == self.path or (self.any and path.startswith(self.path))):
+            return
+        try:
+            body = response.json()
+        except Exception:  # оборванный добор или не-JSON - слова о дорожках в нём нет
+            return
+        if isinstance(body, dict) and isinstance(body.get("voices_pending"), bool):
+            self.pending = body["voices_pending"]
+            self.heard += 1
+
+
+@contextlib.contextmanager
+def _hearing_voices(ctx: Ctx, key: str) -> Iterator[_CardVoices]:
+    """Слушать ответы карточки ``key``, пока открыт блок."""
+    voices = _CardVoices(key)
+    ctx.page.on("response", voices.response)
+    try:
+        yield voices
+    finally:
+        ctx.page.remove_listener("response", voices.response)
+
+
+def _await_voices(ctx: Ctx, voices: _CardVoices, clicked: float) -> float | None:
+    """Секунды от клика до ответа с ``voices_pending: false``; потолок вышел - ``None``."""
+    while voices.pending is not False:
+        if time.monotonic() - clicked >= _VOICES_WAIT:
+            return None
+        ctx.page.wait_for_timeout(250)
+    settled = time.monotonic() - clicked
+    # Ответ и перерисовка тела - разные задачи браузера: один кадр на вставку меню.
+    ctx.page.wait_for_timeout(300)
+    return settled
+
+
 def check_3_card(ctx: Ctx, search_ok: bool) -> Result:
     """Карточка: описание непусто, рейтинг - число, озвучек ≥1, «Играть» активна."""
     tiles = ctx.page.locator(_LIVE_TILE)
     if tiles.count() == 0:
         reason = "пункт 2" if not search_ok else None
         return Result(3, "Карточка", False, reason, "нет живых плиток - открывать нечем")
-    tiles.first.click()
+    key = tiles.first.get_attribute("data-tc-key") or ""
+    with _hearing_voices(ctx, key) as voices:
+        clicked = time.monotonic()
+        tiles.first.click()
+        return _judge_card(ctx, voices, clicked)
+
+
+def _judge_card(ctx: Ctx, voices: _CardVoices, clicked: float) -> Result:
+    """Судить открытую кликом карточку: тело, рейтинг, дочитанные дорожки, «Играть»."""
     card = ctx.page.locator("[data-tc-card]")
     try:
         card.first.wait_for(state="visible", timeout=15000)
@@ -1728,13 +1823,31 @@ def check_3_card(ctx: Ctx, search_ok: bool) -> Result:
     # Рейтинг человеку показывается с источником («IMDb 8.7») - так велит каталог, и
     # голая цифра на экране не значила бы ничего. Скрипт ищет ЧИСЛО внутри строки.
     rating_ok = bool(_NUMBER_RE.search(rating_text))
+    # Меню озвучек судится по дочитанным дорожкам: до ``voices_pending: false`` его нет
+    # у любой картины, и «озвучек 0» мерило бы скорость отбора, а не ответ продукта.
+    voices_at = _await_voices(ctx, voices, clicked)
     audio_count = card.locator("[data-tc-audio-option]").count()
     play_button = card.locator("[data-tc-play]")
     play_ok = play_button.count() > 0 and bool(play_button.first.is_enabled())
-    ok = bool(description.strip()) and rating_ok and audio_count >= 1 and play_ok
+    ok = (
+        bool(description.strip())
+        and rating_ok
+        and voices_at is not None
+        and audio_count >= 1
+        and play_ok
+    )
+    voices_detail = (
+        f"дорожки дочитаны за {voices_at:.1f} с от клика"
+        if voices_at is not None
+        else (
+            f"дорожки не дочитаны за {_VOICES_WAIT:.0f} с от клика "
+            f"(voices_pending={voices.pending}, ответов карточки {voices.heard})"
+        )
+    )
     detail = (
         f"описание {'непусто' if description.strip() else 'ПУСТО'} ({len(description)} симв.); "
         f"рейтинг {rating_text!r} ({'число' if rating_ok else 'не число'}); "
+        f"{voices_detail}; "
         f"озвучек {audio_count}; «Играть» {'активна' if play_ok else 'недоступна/отсутствует'}"
     )
     return Result(3, "Карточка", ok, None, detail)

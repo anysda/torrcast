@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -57,7 +58,7 @@ class HomePage:
         return None
 
     def locator(self, selector: str) -> HomeNode:
-        return HomeNode(1 if selector == ".tc-tile-skeleton" else 0)
+        return HomeNode(1 if selector in {".tc-tile-skeleton", "#tc-body"} else 0)
 
     def get_by_text(self, text: str, exact: bool) -> HomeNode:
         assert exact
@@ -120,9 +121,212 @@ def test_главная_отличает_короткую_полку_от_неп
         f"[ 1] Главная    {state:<8} GET / -> 200; "
         f"скелет и Loading_ за 0.0 с (потолок 10 с); {arrival}; "
         "полки выдачи в DOM по тексту 2/2 (new=1, popular=1); "
+        "скелет «Продолжить» снят за 0.0 с; "
         "continue_watching=0, плиток 0; GET /api/history -> 200, записей 0; "
         f"GET /api/shelves -> 200, полок 2, плиток {{'fresh': {tiles}, 'popular': {tiles}}}"
     )
+
+
+class ContinueShelf(HomeNode):
+    """Полка «Продолжить»: шесть заглушек, пока стоит скелет, потом лента истории."""
+
+    def __init__(self, page: ContinuePage) -> None:
+        super().__init__(1)
+        self.page = page
+
+    def locator(self, selector: str) -> HomeNode:
+        if selector.startswith("xpath="):
+            return self
+        assert selector == "[data-tc-tile]"
+        return HomeNode(6 if self.page.waits() else self.page.history)
+
+
+class ContinuePage(HomePage):
+    """Главная, где выдача стоит сразу, а история приходит к ``answered`` секунде."""
+
+    def __init__(self, history: int, answered: float | None) -> None:
+        super().__init__()
+        self.history = history
+        self.answered = answered
+
+    def waits(self) -> bool:
+        return self.answered is None or self.clock < self.answered
+
+    def locator(self, selector: str) -> HomeNode:
+        if selector == '[data-tc-waits="continue"]':
+            return HomeNode(1 if self.waits() else 0)
+        if selector == '[data-tc-waits="continue"] [data-tc-tile]':
+            return HomeNode(6 if self.waits() else 0)
+        return super().locator(selector)
+
+    def get_by_text(self, text: str, exact: bool) -> HomeNode:
+        if text == "Continue":
+            return ContinueShelf(self)
+        return super().get_by_text(text, exact)
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        self.clock += timeout / 1000
+
+
+def _continue_home(monkeypatch: pytest.MonkeyPatch, history: int, answered: float | None) -> Any:
+    module = acceptance()
+    page = ContinuePage(history, answered)
+    shelves = json.dumps({"fresh": list(range(20)), "popular": list(range(20))}).encode()
+    items = json.dumps({"items": list(range(history))}).encode()
+
+    def get(url: str, timeout: float = 10.0) -> tuple[int, bytes]:
+        del timeout
+        if url == "http://example/":
+            return 200, b""
+        if url.endswith("/api/shelves"):
+            return 200, shelves
+        if url.endswith("/api/history"):
+            return 200, items
+        raise AssertionError(url)
+
+    monkeypatch.setattr(module, "_get", get)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: page.clock))
+    english = {
+        "web.shelf.loading": "Loading_",
+        "web.shelf.continue_watching": "Continue",
+        "web.shelf.new": "New",
+        "web.shelf.popular": "Popular",
+    }
+    return module.check_1_home(module.Ctx("http://example", page, False, Path("/tmp"), english))
+
+
+def test_продолжить_считается_после_снятия_скелета(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Замер на стенде: полки к 0.6 с, холодная история к 5.1 с, до неё в ленте 6 заглушек.
+    result = _continue_home(monkeypatch, history=24, answered=5.05)
+
+    assert result.ok, result.detail
+    assert "скелет «Продолжить» снят за 5.1 с" in result.detail
+    assert "continue_watching=1, плиток 24; GET /api/history -> 200, записей 24" in result.detail
+
+
+def test_неснятый_скелет_продолжить_красный(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _continue_home(monkeypatch, history=6, answered=None)
+
+    assert not result.ok
+    assert "скелет «Продолжить» не снят за 20 с, заглушек 6" in result.detail
+
+
+class CardAnswer:
+    """Ответ ``/api/card/`` с одним словом про дорожки."""
+
+    def __init__(self, key: str, pending: bool) -> None:
+        self.url = f"http://example/api/card/{key}?query=x&wait=1&voices=1"
+        self.pending = pending
+
+    def json(self) -> dict[str, Any]:
+        return {"voices_pending": self.pending, "voices": []}
+
+
+class CardNode:
+    """Locator карточки: плитка, тело, меню озвучек и «Играть» по часам страницы."""
+
+    def __init__(self, page: CardPage, selector: str) -> None:
+        self.page = page
+        self.selector = selector
+
+    @property
+    def first(self) -> CardNode:
+        return self
+
+    def count(self) -> int:
+        if self.selector == "[data-tc-audio-option]":
+            return self.page.voices if self.page.settled() else 0
+        return 1
+
+    def click(self) -> None:
+        self.page.clicked = True
+
+    def get_attribute(self, name: str) -> str:
+        assert name == "data-tc-key"
+        return "movie:интерстеллар:2014"
+
+    def wait_for(self, **_: Any) -> None:
+        return None
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def locator(self, selector: str) -> CardNode:
+        return CardNode(self.page, selector)
+
+
+class CardPage:
+    """Карточка, у которой описание стоит сразу, а дорожки дочитываются к ``settles``."""
+
+    def __init__(self, voices: int, settles: float | None) -> None:
+        self.clock = 0.0
+        self.voices = voices
+        self.settles = settles
+        self.clicked = False
+        self.handlers: list[Any] = []
+        self.sent = 0
+
+    def settled(self) -> bool:
+        return self.settles is not None and self.clock >= self.settles
+
+    def locator(self, selector: str) -> CardNode:
+        return CardNode(self, selector)
+
+    def on(self, event: str, handler: Any) -> None:
+        assert event == "response"
+        self.handlers.append(handler)
+
+    def remove_listener(self, event: str, handler: Any) -> None:
+        assert event == "response"
+        self.handlers.remove(handler)
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        self.clock += timeout / 1000
+        if not self.clicked:
+            return
+        key = urllib.parse.quote("movie:интерстеллар:2014", safe="")
+        # Чужая карточка (прогрев соседней плитки) говорит своё и не в счёт.
+        answers = [CardAnswer("movie%3Aother%3A2001", False), CardAnswer(key, not self.settled())]
+        for handler in list(self.handlers):
+            for answer in answers:
+                handler(answer)
+        self.sent += 1
+
+
+def _card(monkeypatch: pytest.MonkeyPatch, voices: int, settles: float | None) -> Any:
+    module = acceptance()
+    page = CardPage(voices, settles)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: page.clock))
+    monkeypatch.setattr(
+        module,
+        "_card_texts",
+        lambda _ctx: {"title": "Интерстеллар", "description": "Про космос", "rating": "IMDb 8.7"},
+    )
+    result = module.check_3_card(module.Ctx("http://example", page, False, Path("/tmp"), {}), True)
+    assert not page.handlers
+    return result
+
+
+def test_карточка_судит_озвучки_после_дочитанных_дорожек(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Замер на стенде: описание к первому ответу, voices_pending снят на 30.7 с от клика.
+    result = _card(monkeypatch, voices=3, settles=30.7)
+
+    assert result.ok, result.detail
+    assert "дорожки дочитаны за 30.8 с от клика; озвучек 3" in result.detail
+
+
+def test_недочитанные_к_потолку_дорожки_красные(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _card(monkeypatch, voices=3, settles=None)
+
+    assert not result.ok
+    assert "дорожки не дочитаны за 90 с от клика (voices_pending=True" in result.detail
+
+
+def test_дочитанные_без_озвучек_красные(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _card(monkeypatch, voices=0, settles=13.9)
+
+    assert not result.ok
+    assert "дорожки дочитаны за 14.0 с от клика; озвучек 0" in result.detail
 
 
 def test_таймаут_стартовой_записи_называет_фактическое_окно(
