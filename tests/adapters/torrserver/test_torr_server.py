@@ -59,13 +59,19 @@ def test_a_torrserver_probe_closes_its_response() -> None:
 
 
 class _Recording(TorrServer):
-    def __init__(self) -> None:
+    """Служба, у которой в базе уже лежат раздачи ``known``: их ``add`` отвечает с ``data``."""
+
+    def __init__(self, known: tuple[str, ...] = ()) -> None:
         super().__init__("http://torrserver")
+        self.known = known
         self.body: dict[str, object] = {}
+        self.saves: list[object] = []
 
     def _post(self, path: str, body: dict[str, object], json_body: bool = True) -> dict[str, str]:
         self.body = body
-        return {"hash": "abc"}
+        if body["action"] == "add":
+            self.saves.append(body["save_to_db"])
+        return {"hash": "abc", "data": '{"TorrServer":{}}' if "abc" in self.known else ""}
 
 
 def test_an_added_torrent_is_saved_so_its_disk_cache_survives_a_restart() -> None:
@@ -73,7 +79,16 @@ def test_an_added_torrent_is_saved_so_its_disk_cache_survives_a_restart() -> Non
 
     assert server.add("magnet:?xt=urn:btih:abc") == "abc"
 
-    assert server.body["save_to_db"] is True
+    assert server.saves[-1] is True
+
+
+def test_a_torrent_already_in_the_service_base_is_not_written_again() -> None:
+    """Запись в базу переписывает её целиком под общим замком: ``add`` показа ждал 2.5 с."""
+    server = _Recording(known=("abc",))
+
+    assert server.add("magnet:?xt=urn:btih:abc") == "abc"
+
+    assert server.saves == [False]
 
 
 class _Ready(TorrServer):

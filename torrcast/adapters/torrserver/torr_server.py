@@ -5,6 +5,7 @@ import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+from torrcast.adapters.torrserver.add_once import add_once
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
 from torrcast.adapters.torrserver.file_stats import file_stats
@@ -53,7 +54,7 @@ class TorrServer:
         self._session: requests.Session | None = None
 
     def add(self, magnet: str) -> str:
-        payload = self._post("/torrents", {"action": "add", "link": magnet, "save_to_db": True})
+        payload = add_once(self._post, magnet)
         if not isinstance(payload, dict):
             raise ServerDownError(phrase("torrserver.unexpected_answer_add"))
         torrent_hash = str(payload.get("hash", ""))
