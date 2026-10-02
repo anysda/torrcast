@@ -38,12 +38,14 @@ class _Stand:
         self.found = found
         self.asked: list[tuple[float, bool, bool]] = []  # time, warmup's, seat held
         self.slept = 0.0
+        self.held: list[int] = []  # the warmup's live count during each circle
         self.wake: contextlib.ExitStack | None = None  # the viewer's search ends at first sleep
         self.cache = WarmCache(circle=self._circle, blurbs=lambda _p: None, spawn=lambda j: j())
 
     def _circle(self, query: str) -> list[Plan]:
         seat = self.cache._seats.get(query.strip()) is not None
         self.asked.append((self.clock.now, WARMUP.get(), seat))
+        self.held.append(self.cache._live)
         if not self.found:
             raise NotFoundError(query)
         return [_PLAN]
@@ -67,6 +69,14 @@ def test_right_after_the_start_the_shelf_counts_at_once_and_as_no_ones() -> None
     assert stand.slots.after_search(stand.clock()) == 0.0, "nor is it a viewer's search"
     assert not stand.cache._seats
     assert not stand.cache._busy
+
+
+def test_the_warmup_starts_no_circle_beside_the_shelfs_and_is_freed_after() -> None:
+    stand = _Stand(found=False)
+    with pytest.raises(NotFoundError):
+        stand.run()
+    assert stand.held == [1], "the warmup's own hand would race the shelf to the same hosts"
+    assert stand.cache._live == 0, "freed even when the circle fails"
 
 
 def test_the_shelf_waits_out_the_viewers_search_and_the_quiet_after_it() -> None:
