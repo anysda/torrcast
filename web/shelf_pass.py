@@ -47,7 +47,6 @@ class ShelfPass:
     rows: list[FeedRow]
     now: datetime
     current: dict[str, JsonValue]
-    more: bool = False
     ready: ReadyShelf = field(default_factory=ReadyShelf)  # shared by a rebuild's passes
     again: Again | None = None  # re-asks the indexers the feed missed
     refill: FeedRefill = field(default_factory=lambda: FeedRefill(None, 0.0))
@@ -65,13 +64,14 @@ class ShelfPass:
         """Холодный заход (:func:`web.cold.cold`): показ до приговоров."""
         return self.cache.early and cold(self.current)
 
-    def run(self) -> dict[str, JsonValue]:  # flags burn for a cold pass or after a ``more`` one
+    def run(self) -> dict[str, JsonValue]:  # flags burn for a cold pass or after an empty one
         on = self.cache.settling = self.early or self.cache.filling
         self.cache.filling = self.ready.watch(on)  # once out it stays out
         body = self._run()
-        # An empty shelf or a feed short of an indexer is fetched again: the page keeps asking.
+        # An empty shelf is fetched again: the page keeps asking. A missed indexer is re-asked
+        # by the deadline (``refill``); past it the shelf is ready and rebuilt early (``short``).
         empty = not all(self.done.get(shelf) for shelf in SHELVES)
-        self.cache.settling = on and (empty or self.more)
+        self.cache.settling = on and empty
         self.cache.filling = self.ready.watch(self.cache.settling)
         return body
 

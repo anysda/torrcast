@@ -150,9 +150,8 @@ class ShelvesCache:
                     rows.setdefault(row.raw.info_hash.lower(), row)
                 with self._lock:
                     current = self._body if self._body is not None else origin
-                more = attempt + 1 < self.attempts and getattr(fetched, "missed", 0) > 0
                 again = getattr(fetched, "again", None)
-                shelf = ShelfPass(self, [*rows.values()], self.clock(), current, more, ready, again)
+                shelf = ShelfPass(self, [*rows.values()], self.clock(), current, ready, again)
                 body, self.short = shelf.run(), shelf.short
             except TorrcastError:
                 continue
