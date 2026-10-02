@@ -3,7 +3,6 @@
 import http as http
 import http.client
 import json
-import socket as socket
 import ssl as ssl
 from collections.abc import Callable
 from typing import Any, Final
@@ -11,6 +10,7 @@ from urllib.parse import urlencode, urlsplit
 
 from torrcast.adapters.wiki.address_memory import AddressMemory, _getaddrinfo
 from torrcast.adapters.wiki.burst_pace import BurstPace
+from torrcast.adapters.wiki.dial import dial
 from torrcast.adapters.wiki.kept_connections import KeptConnections
 from torrcast.adapters.wiki.minute_budget import UPLOAD_HOST, MinuteBudget
 from torrcast.adapters.wiki.request_lanes import RequestLanes
@@ -196,5 +196,5 @@ class _IPv4Connection(http.client.HTTPSConnection):
     def connect(self) -> None:
         timeout = float(self.timeout) if self.timeout is not None else 1.2
         address = self.address = self._resolver(self.host, timeout)
-        raw = socket.create_connection((address, self.port), self.timeout)
+        raw = dial(address, self.port, timeout)
         self.sock = self.wire = self.context.wrap_socket(raw, server_hostname=self.host)
