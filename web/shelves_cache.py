@@ -30,6 +30,7 @@ from web.process_started import process_started
 from web.publish_shelf import Warm, publish_shelf
 from web.read_shelves import read_shelves
 from web.ready_shelf import ReadyShelf
+from web.rebuild_pause import RebuildPause
 from web.shelf_pass import ShelfPass
 from web.shelf_tiles import Offer, PassportOf, Playable, _no_passport, _no_playable
 
@@ -62,9 +63,8 @@ class ShelvesCache:
     path: Path = field(default_factory=shelves_cache_path)
     limit: int = 300
     every: float = 3600.0
-    soon: float = 300.0  # a shelf still short of an indexer is rebuilt this early
-    #: Потолок заходов добора ленты (:meth:`_rebuild` бросает раньше, если заход не
-    #: принёс ни новых строк, ни полки полнее прежнего захода), и их пауза.
+    soon: float = 300.0  # a shelf short of an indexer is rebuilt this early (web.rebuild_pause)
+    #: Потолок заходов добора ленты и их пауза; заход без прибытка обрывает :meth:`_rebuild`.
     attempts: int = 3
     retry_pause: float = 10.0
     passport: PassportOf = _no_passport
@@ -112,9 +112,10 @@ class ShelvesCache:
         self.spawn(self._loop)
 
     def _loop(self) -> None:
+        pause = RebuildPause(self.every, self.soon)
         while True:
             self._pass()
-            self.sleep(self.soon if self.short else self.every)
+            self.sleep(pause.after(self.short))
 
     def _pass(self) -> None:
         """Одна пересборка; беда вне :class:`TorrcastError` роняет заход, а не поток:

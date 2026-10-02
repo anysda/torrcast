@@ -404,6 +404,32 @@ def test_a_whole_feed_puts_the_counter_out_and_waits_the_hour(tmp_path: Path) ->
     assert _next_sleep(cache) == cache.every
 
 
+def test_an_indexer_short_on_every_pass_stops_the_early_rebuilds_after_two(
+    tmp_path: Path,
+) -> None:
+    """Вечно опаздывающий индексер: две ранние пересборки подряд, дальше обычный час, а
+    проход с целой лентой снова даёт недосчёту раннюю пересборку."""
+    cache = _cache(tmp_path, 3)
+    shorts = iter([True, True, True, True, False, True])
+    pauses: list[float] = []
+
+    def rebuild() -> None:
+        cache.short = next(shorts)
+
+    def sleep(pause: float) -> None:
+        pauses.append(pause)
+        if len(pauses) == 6:
+            raise _StopError
+
+    cache._rebuild = rebuild  # type: ignore[method-assign]
+    cache.sleep = sleep
+    with pytest.raises(_StopError):
+        cache._loop()
+
+    soon, hour = cache.soon, cache.every
+    assert pauses == [soon, soon, hour, hour, hour, soon]
+
+
 def _rebuild_under_the_page(cache: ShelvesCache) -> list[tuple[bool, dict[str, set[str]]]]:
     """Пересборка глазами страницы: опрос ``X-Torrcast-Partial`` и плиток каждые 5 мс.
 
