@@ -35,6 +35,7 @@ def en() -> dict[str, str]:
         "feed.warm_off_grid": (
             "warmed v{slot} is off the grid ({diff} s) - redoing with a live pack"
         ),
+        "feed.warm_zeroed": ("warmed v{slot} carries a zeroed stretch - redoing with a live pack"),
         "feed.give_up": (
             "⚠️ v{slot} skipping: {circles} repacks in a row did not deliver this "
             "piece - this place will not be in the show"

@@ -14,6 +14,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.warm.segment_end import segment_end
 from torrcast.usecases.warm.segment_start import segment_start
 from torrcast.usecases.warm.settings import SKEW_MAX, TAIL_GAP_MAX
+from torrcast.usecases.warm.zeroed import zeroed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -137,6 +138,12 @@ def _warm(state: _State, slot: int) -> Path | None:
     with contextlib.suppress(OSError):
         size = path.stat().st_size
     if size > state.cap:
+        return None
+    if zeroed(path):
+        # Затёртое нулями место декодер не переживает, а лежит оно до следующего показа
+        # и дальше (:func:`torrcast.usecases.warm.zeroed.zeroed`): стирается и уходит живьём.
+        state.vault.reject(slot)
+        state._say(phrase("feed.warm_zeroed", slot=slot))
         return None
     if slot == state.grid.count - 1:
         # 🔴 TC-772. Конец куска меряется по ЛЮБОЙ его дорожке (:func:`segment_end`), а не по

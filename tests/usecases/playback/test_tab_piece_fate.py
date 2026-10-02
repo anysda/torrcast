@@ -34,8 +34,9 @@ def _twice(tmp_path: Path, profile: Profile) -> tuple[Path, float, Path | None]:
     assert warmer is not None
     warmer.vault.open()
     piece = warmer.vault.path(_SLOT)
-    with piece.open("wb") as laid:
-        laid.truncate(_PIECE)
+    # Не разреженный файл: сплошные нули - это затёртый кусок, и раздача его стирает
+    # (:func:`torrcast.usecases.warm.zeroed.zeroed`), а предмет здесь - только вес.
+    piece.write_bytes(b"\x47" * _PIECE)
     server.stop()
     _recoder, warmer, feed, server, _receiver = _tract(*said, profile=profile)
     try:
