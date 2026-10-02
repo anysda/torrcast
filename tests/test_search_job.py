@@ -10,6 +10,8 @@ import pytest
 
 from hass.catalog_tiles import CatalogTiles
 from hass.search_job import SearchJob
+from tests.test_search_progress import _PreviewClient
+from torrcast.adapters.prowlarr.warmup import warmup
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.nothing_found_error import NothingFoundError
@@ -17,8 +19,10 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
 from torrcast.domain.search_refusal_error import SearchRefusalError
+from torrcast.usecases.discover.named_round import NamedRound
 from torrcast.usecases.select.plan import Plan
 from web.warm_cache import WarmCache
+from web.warm_seat import WarmSeat
 
 _MOVIE = Picture(title="Interstellar", year=2014, kind="movie")
 _MOVIE.releases = [Release(raw_name="Interstellar 2014 BDRip 1080p", title="Interstellar")]
@@ -181,3 +185,23 @@ def test_a_failed_final_poster_verdict_releases_the_job() -> None:
         job.run(Config(), "Interstellar", _detect, _remember, search, fail)
 
     assert job.judging is False
+
+
+def test_a_warmup_circle_the_job_takes_over_shows_its_preview() -> None:
+    """The preview reads the client of the circle it took over, not only of its own."""
+    built = NamedRound(_PreviewClient())
+
+    class _Warm:
+        def take(self, query: str, circle: Any = None, retry: bool = False) -> list[Plan]:
+            seat = WarmSeat()
+            with warmup(seat):
+                WarmSeat.relay(built)  # the warmup's text round, built before the viewer came
+            seat.take()
+            return [_PLAN]
+
+    def _unused(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("the job counted its own circle beside the taken one")
+
+    job = SearchJob()
+    job.run(Config(), "Interstellar", _detect, _remember, _unused, _as_is, _Warm())
+    assert job.client is built

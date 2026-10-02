@@ -50,6 +50,7 @@ from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.discover.search_circle import search_circle
 from web.tab_detect import tab_detect
+from web.warm_seat import WarmSeat
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -106,15 +107,18 @@ def searching(
     chosen = detect(config)
     args = parse_args([query])
 
+    # The verdict starts on the viewer's text, beside the names (:mod:`hass.early_verdict`),
+    # in a warmup circle he takes over too (:meth:`web.warm_seat.WarmSeat.watching`).
+    early = early_verdict(query, named)
+
     def circle(_query: str) -> list[Plan]:
-        # The verdict starts on the viewer's text, beside the names (:mod:`hass.early_verdict`).
-        early = early_verdict(query, named)
         return search(
             tune(config, chosen.profile), args, progress(), chosen.profile, on_indexer=early
         )
 
     try:
-        plans = circle(query) if warm is None else warm.take_live(query, circle)
+        with WarmSeat.watching(early):
+            plans = circle(query) if warm is None else warm.take_live(query, circle)
     except NothingFoundError as nothing:
         raise RefusedError(_nothing(args.title_query, nothing)) from nothing
     except TorrcastError as refusal:

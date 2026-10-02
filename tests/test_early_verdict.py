@@ -13,9 +13,11 @@ from hass.searching import searching
 from tests.test_search_progress import _PreviewClient
 from tests.test_searching import _CARS, _CONFIG, _cautious, _search
 from tests.usecases.discover.world import Indexer, wire_catalogue
+from torrcast.adapters.prowlarr.warmup import TAKEN
 from torrcast.domain.json_value import JsonValue
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover.named_round import NamedRound
+from web.warm_seat import WarmSeat
 
 
 def _judged() -> tuple[list[list[JsonValue]], threading.Event, Callable[..., list[JsonValue]]]:
@@ -86,3 +88,26 @@ def test_the_blocking_search_judges_before_its_circle_returns() -> None:
 
     searching(_CONFIG, "тачки", search, _cautious, lambda *_: None, offer)
     assert before == [True], "the verdict waited for the whole circle"
+
+
+@pytest.mark.machine
+def test_a_tile_the_warmup_counts_judges_on_its_text_too() -> None:
+    """A warmup circle the viewer took over was counted without his hook (stand: +0.4-0.9 s)."""
+    wire_catalogue()
+    _said, done, offer = _judged()
+    before: list[bool] = []
+
+    class _Warm:
+        def take_live(self, query: str, circle: Callable[[str], Any]) -> Any:
+            seat = WarmSeat()
+            token = TAKEN.set(seat)
+            round_ = _ahead()  # the warmup's text round, built before the viewer came
+            WarmSeat.relay(round_)
+            seat.take()
+            round_.typed.set()
+            before.append(done.wait(2.0))
+            TAKEN.reset(token)
+            return circle(query)
+
+    searching(_CONFIG, "тачки", _search, _cautious, lambda *_: None, offer, warm=_Warm())
+    assert before == [True], "the verdict of a taken tile waited for the whole circle"

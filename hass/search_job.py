@@ -38,6 +38,7 @@ from torrcast.ports.progress.slot import progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.enter_take import enter_take
+from web.warm_seat import WarmSeat
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -119,7 +120,8 @@ class SearchJob(SearchPosterVerdict):
 
         try:
             # A new job is someone asking: a cut refusal still remembered is no answer to it.
-            plans = circle(query) if warm is None else warm.take(query, circle, retry=True)
+            with WarmSeat.watching(self._capture):  # a warmup circle taken over hands it too
+                plans = circle(query) if warm is None else warm.take(query, circle, retry=True)
         except NothingFoundError as nothing:
             # Only a circle every indexer answered may say «nothing»: an empty cut circle has
             # not searched the catalogue, and the page says the search failed instead.

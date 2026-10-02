@@ -32,6 +32,7 @@ from web.prime import prime
 from web.related_lookup import RelatedLookup
 from web.tab_detect import tab_detect
 from web.warm_cache import WarmCache
+from web.warm_seat import WarmSeat
 from web.warm_targets import WarmTargets
 
 if TYPE_CHECKING:
@@ -46,25 +47,22 @@ def _daemon(job: Callable[[], None]) -> None:
 
 
 def _search(query: str) -> list[Plan]:
-    """Боевой круг: ровно тот же, каким ищет и карточка, и строка поиска."""
-    config = load_config()
-    chosen = tab_detect(config)
-    return search_circle(
-        tune(config, chosen.profile), parse_args([query]), progress(), chosen.profile
-    )
+    """Боевой круг: ровно тот же, каким ищет и карточка, и строка поиска.
+
+    Его клиенты получает зритель, взявший круг прогрева на себя (:meth:`WarmSeat.relay`)."""
+    return _circle(query, on_indexer=WarmSeat.relay)
 
 
 def _replay(query: str, told: list[Told]) -> list[Plan]:
     """Круг с диска: тот же разбор, но каталог отвечает записанным, без сети."""
+    return _circle(query, indexer=lambda _url, _key: ReplayIndexer(told))
+
+
+def _circle(query: str, **seam: Any) -> list[Plan]:
     config = load_config()
     chosen = tab_detect(config)
-    return search_circle(
-        tune(config, chosen.profile),
-        parse_args([query]),
-        progress(),
-        chosen.profile,
-        indexer=lambda _url, _key: ReplayIndexer(told),
-    )
+    profile = chosen.profile
+    return search_circle(tune(config, profile), parse_args([query]), progress(), profile, **seam)
 
 
 def _blurbs(pictures: list[FactPicture]) -> None:

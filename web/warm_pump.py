@@ -14,6 +14,7 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
 from web.start_first import start_first
 from web.warm_priority import _hint
+from web.warm_seat import WarmSeat
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -71,7 +72,7 @@ def _pump(cache: _Cache) -> None:
                 urgent = bool(cache._urgent)
                 query = cache._urgent.pop(0) if urgent else cache._queue.pop(0)
                 stale = _claim(cache, query)
-                taken = threading.Event()
+                taken = WarmSeat()
                 if stale is not None and not urgent:
                     cache._seats[query] = taken
             if stale is not None:
@@ -146,13 +147,17 @@ def _adopted(cache: _Seats, key: str) -> Iterator[None]:
     The warmup took the tile, then gave way to the last search's late Knaben request: the
     viewer of the tile waited the whole 30 s of :data:`web.warm_cache.BUSY_WAIT`, 33.2 s in
     all against 3.2-4.8 s for a tile it had not taken. While he waits the search is live.
+    His hook gets the circle's clients (:meth:`web.warm_seat.WarmSeat.take`).
     """
     with cache._cond:
         taken = cache._seats.get(key)
     if taken is None:
         yield
         return
-    taken.set()
+    if isinstance(taken, WarmSeat):
+        taken.take()
+    else:
+        taken.set()
     with HOST_SLOTS.live():
         yield
 
