@@ -154,3 +154,62 @@ def test_a_whole_feed_has_nothing_to_re_ask() -> None:
     _join_again()
 
     assert rows.again is None
+
+
+@pytest.mark.machine
+def test_a_late_answer_comes_back_while_another_indexer_still_hangs() -> None:
+    """Двое недосчитаны: ответ первого не ждёт второго, висящий остаётся в переспросе."""
+    hang, late = threading.Event(), threading.Event()
+
+    def get(url: str) -> object:
+        if url == "late":
+            late.wait(5)
+        if url == "hang":
+            hang.wait(10)
+        return [_row(f"Раздача {url} 2026", "f" if url == "late" else "a")]
+
+    try:
+        rows = feed_apart(get, ["a", "late", "hang"], 0.1)
+        assert rows.again is not None and rows.missed == 2
+        threading.Timer(0.3, late.set).start()
+        began = time.monotonic()
+        more = rows.again(5.0)
+        spent = time.monotonic() - began
+    finally:
+        late.set()
+        hang.set()
+        _join_again()
+
+    assert [row.raw.title for row in more] == ["Раздача late 2026"]
+    assert more.missed == 1 and more.again is not None
+    assert spent < 1.5, spent
+
+
+@pytest.mark.machine
+def test_a_refusal_is_asked_again_while_another_indexer_still_hangs() -> None:
+    """Отказ не ждёт висящего до срока: через RETRY отказавшего спрашивают снова."""
+    hang = threading.Event()
+    asked: list[str] = []
+
+    def get(url: str) -> object:
+        asked.append(url)
+        if url == "down":
+            raise requests.ConnectionError("down")
+        if url == "hang":
+            hang.wait(10)
+        return [_row(f"Раздача {url} 2026", "a")]
+
+    try:
+        rows = feed_apart(get, ["a", "down", "hang"], 0.1)
+        assert rows.again is not None
+        began = time.monotonic()
+        more = rows.again(5.0)
+        spent = time.monotonic() - began
+        assert more.again is not None
+        more.again(0.2)
+    finally:
+        hang.set()
+        _join_again()
+
+    assert 0.8 < spent < 1.5, spent
+    assert asked.count("down") == 3 and asked.count("hang") == 1

@@ -12,13 +12,17 @@ Nyaa.si отвечал 502, Prowlarr повторял его до отказа, 
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from typing import Any
+from typing import Any, Final
 
 from torrcast.adapters.prowlarr.from_feed_json import from_feed_json
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.feed_rows import Again, FeedRows
+
+#: Отказавший индексер переспрашивается не чаще раза в столько секунд, пока другой ещё едет.
+RETRY: Final = 1.0
 
 
 def _answered(ask: Future[Any]) -> bool:
@@ -66,7 +70,7 @@ def _again(get: Callable[[str], Any], left: list[tuple[str, Future[Any]]]) -> Ag
         pool = ThreadPoolExecutor(len(left), thread_name_prefix="feed-again")
         asks = [ask if _alive(ask) else pool.submit(get, url) for url, ask in left]
         pool.shutdown(wait=False)
-        done, _late = wait(asks, timeout=max(within, 0.0))
+        done = _first_answer(asks, within)
         rows: dict[str, FeedRow] = {}
         for ask in (ask for ask in asks if ask in done and _answered(ask)):
             for row in from_feed_json(ask.result()):
@@ -79,6 +83,28 @@ def _again(get: Callable[[str], Any], left: list[tuple[str, Future[Any]]]) -> Ag
         return FeedRows(rows.values(), missed=len(still), again=_again(get, still))
 
     return again
+
+
+def _first_answer(asks: list[Future[Any]], within: float) -> set[Future[Any]]:
+    """Ждать до первого ответа, а не всех: ответ встаёт на полку, пока другой ещё висит.
+
+    Отказ ответом не считается: пока остальные едут, ждём их, но не дольше :data:`RETRY`,
+    чтобы отказавшего переспросить снова; без отказов ждём до ``within``.
+    """
+    began = time.monotonic()
+    done: set[Future[Any]] = set()
+    left = set(asks)
+    while left and not any(_answered(ask) for ask in done):
+        until = began + max(within, 0.0)
+        if done:  # only refusals so far
+            until = min(until, began + RETRY)
+        more, left = wait(
+            left, timeout=max(until - time.monotonic(), 0.0), return_when=FIRST_COMPLETED
+        )
+        if not more:
+            break
+        done |= more
+    return done
 
 
 __all__ = ["feed_apart"]
