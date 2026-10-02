@@ -10,6 +10,7 @@ from torrcast.adapters.prowlarr.feed_url import feed_url
 from torrcast.adapters.prowlarr.from_feed_json import from_feed_json
 from torrcast.adapters.prowlarr.from_json import from_json
 from torrcast.adapters.prowlarr.merge import merge
+from torrcast.adapters.prowlarr.names_head import names_head
 from torrcast.adapters.prowlarr.prowlarr_http_client import _IndexersUnavailableError
 from torrcast.adapters.prowlarr.prowlarr_state import _State
 from torrcast.adapters.prowlarr.search_url import search_url
@@ -75,11 +76,8 @@ class Prowlarr(_State):
         return self._circle.inflight()
 
     def sent(self, wait: float) -> bool:
-        """Первая строка поиска ушла к индексерам или поиск кончился; ждать не дольше ``wait``.
-
-        :class:`~torrcast.usecases.discover.named_round.NamedRound` пускает имена картины за ней.
-        """
-        return self._circle.sent.wait(wait)
+        """Первая строка ушла или поиск кончился: имена картины за ней (:func:`names_head`)."""
+        return self._circle.sent.wait(names_head(wait))
 
     def waiting(self) -> tuple[str, ...]:
         """Имена тех, кто ещё в пути: их части каталога в этой выдаче нет (TC-118).
