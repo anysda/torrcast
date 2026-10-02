@@ -1,4 +1,4 @@
-"""The shelf tile's circle waits out the viewer's search and is counted as the warmup's."""
+"""The shelf tile's circle waits out the viewer's search, then is counted at once."""
 
 from __future__ import annotations
 
@@ -59,11 +59,12 @@ class _Stand:
         return shelf_circle(self.cache, query, self.slots, self.clock, self.sleep)
 
 
-def test_right_after_the_start_the_shelf_counts_at_once_as_the_warmup() -> None:
+def test_right_after_the_start_the_shelf_counts_at_once_and_as_no_ones() -> None:
     stand = _Stand()
     assert stand.run() == [_PLAN]
     assert stand.slept == 0.0, "no viewer searched yet: the shelf fills at once"
-    assert stand.asked == [(100.0, True, True)], "the warmup's circle a viewer can take over"
+    assert stand.asked == [(100.0, False, False)], "a warmup's would stand in the host queues"
+    assert stand.slots.after_search(stand.clock()) == 0.0, "nor is it a viewer's search"
     assert not stand.cache._seats
     assert not stand.cache._busy
 
@@ -73,8 +74,7 @@ def test_the_shelf_waits_out_the_viewers_search_and_the_quiet_after_it() -> None
     stand.wake = contextlib.ExitStack()
     stand.wake.enter_context(stand.slots.live())
     assert stand.run() == [_PLAN]
-    [(at, warmups, _seat)] = stand.asked
-    assert warmups
+    [(at, _warmup, _seat)] = stand.asked
     assert at >= 100.0 + QUIET, "the shelf stood in Prowlarr ahead of the viewer's text"
 
 

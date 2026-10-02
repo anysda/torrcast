@@ -5,9 +5,11 @@ shelf's circles went one after another as a viewer's would, whenever the shelf j
 the warm stand Prowlarr then started the viewer's text 4.9 s after his search (median of
 15), behind the shelf's requests at the same hosts. Here the shelf waits out a viewer's
 search and :data:`~torrcast.adapters.prowlarr.host_slots.QUIET` after it
-(:meth:`~torrcast.adapters.prowlarr.host_slots.HostSlots.after_search`), and counts the
-circle as the warmup does: it gives way in the host queues, and a viewer who asks for the
-same tile takes it over (:func:`web.warm_pump._adopted`).
+(:meth:`~torrcast.adapters.prowlarr.host_slots.HostSlots.after_search`), then counts the
+circle at once. Not as the warmup's: a warmup circle stands in the host queues while its
+hosts have a queue or a request in flight, the warmup's own among them, up to 55 s a circle
+on the cold stand, and the shelf judged 0 to 7 tiles in 150 s there against 10 to 12. Nor
+as a live one: a live circle holds the warmup back and counts as a viewer's search.
 """
 
 from __future__ import annotations
@@ -17,10 +19,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, LOOK, HostSlots
-from torrcast.adapters.prowlarr.warmup import warmup
 from web.warm_cache import BUSY_WAIT
 from web.warm_pump import _claim, _turn
-from web.warm_seat import WarmSeat
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -43,14 +43,10 @@ def shelf_circle(
     key = query.strip()
     with cache._cond:
         stale = _claim(cache, key)
-        seat = WarmSeat()
-        if stale is not None:
-            cache._seats[key] = seat
-        else:  # another hand counts it: wait for its end, never take a warmup circle over
+        if stale is None:  # another hand counts it: wait for its end, never take a warmup over
             cache._cond.wait_for(lambda: key not in cache._busy, BUSY_WAIT)
     if stale is not None:
-        with warmup(seat):
-            _turn(cache, key, stale, urgent=False)
+        _turn(cache, key, stale, urgent=False)
     if (refused := cache._memory.refusal(query)) is not None:
         raise refused
     plans = cache.ready(query)
