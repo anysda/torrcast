@@ -49,7 +49,11 @@ JOINT = " | "
 #: Seconds the other texts of a joined request still get once its first text has answered.
 #: Prowlarr History on the stand (06-30.09, 23835 texts asked of JacRed alone): a text still
 #: answering past 1.0 s brought rows in 19.9% of all, past 1.5 s in 10.7%, past 2.0 s 4.9%.
-NAMES_GRACE = 1.5
+#: Half a second it is: of 25 joined queries replayed on 02.10 the names brought new rows to
+#: four, each inside 0.5 s of the text. The joined request ends the viewer's search, and 1.5 s
+#: held it: cold searches on the stand (15 each, turn by turn) took 6.61 s, worst 8.83, against
+#: 5.67 s, worst 6.61, with the same tiles and rows.
+NAMES_GRACE = 0.5
 
 
 def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list[dict[str, Any]]:
