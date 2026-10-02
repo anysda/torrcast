@@ -32,6 +32,7 @@ from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.select_bench._bench_keep import _keep_step, _Timed
 from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show
+from web.record_door import RecordDoor
 from web.record_release import record_release
 from web.record_warm import RecordWarm
 from web.sweep_later import SWEEP_LATER
@@ -73,6 +74,7 @@ class RecordHold:
     spawn: Callable[[Callable[[], None]], None] = _thread
     warmer: RecordWarm = field(default_factory=RecordWarm)
     sweep: Callable[[str, tuple[str, ...]], None] = field(default_factory=lambda: SWEEP_LATER)
+    door: RecordDoor = field(default_factory=RecordDoor)
     _keys: dict[str, str] = field(default_factory=dict, repr=False)
     _lease: dict[str, float] = field(default_factory=dict, repr=False)
     _held: set[str] = field(default_factory=set, repr=False)
@@ -142,7 +144,8 @@ class RecordHold:
                     self._mute[magnet] = self.clock() + MUTE
             free = bool(torrent_hash) and CLAIMS.unclaim(torrent_hash, self)
             if free and not _held_by_show(torrent_hash):
-                record_release(engine, torrent_hash, keep=self.warmer.wants(magnet))
+                with self.door.call():
+                    record_release(engine, torrent_hash, keep=self.warmer.wants(magnet))
             with self._lock:
                 self._held.discard(magnet)
 
@@ -157,7 +160,7 @@ class RecordHold:
         """Завести раздачу и дождаться её метаданных; «мертва» - служба ответила, пиров нет."""
         torrent_hash, began = "", self.clock()
         while self._leased(magnet):
-            with contextlib.suppress(TorrcastError):
+            with contextlib.suppress(TorrcastError), self.door.call():
                 torrent_hash = torrent_hash or CLAIMS.adding(magnet, self, engine.add)
                 if engine.files(torrent_hash):
                     break
@@ -180,13 +183,13 @@ class RecordHold:
         wanted = bool(torrent_hash) and self.warmer.wants(magnet)
         entry = self.entries().get(self._keys.get(magnet, "")) if wanted else None
         if entry and entry.magnet == magnet:
-            with contextlib.suppress(TorrcastError):
+            with contextlib.suppress(TorrcastError), self.door.call():
                 if job := WarmJob.of(engine, entry, torrent_hash):
                     self.warmer.offer(job)
 
     def _renew(self, engine: TorrentEngine, magnet: str) -> str:
         """Разбудить раздачу (``add``) и продлить срок (``get``); молчание - до следующего шага."""
-        with contextlib.suppress(TorrcastError):
+        with contextlib.suppress(TorrcastError), self.door.call():
             torrent_hash = CLAIMS.adding(magnet, self, engine.add)
             engine.files(torrent_hash)
             return torrent_hash

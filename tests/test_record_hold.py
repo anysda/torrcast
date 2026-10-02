@@ -16,6 +16,7 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.usecases.torrent_claims import CLAIMS
+from web.record_door import RecordDoor
 from web.record_hold import BEAT, HOLD_MAX, LEASE, RecordHold
 from web.record_warm import RecordWarm
 
@@ -199,3 +200,36 @@ def test_a_released_record_is_closed_with_its_disk_cache_kept(state: FakeStateSt
     page.run()
 
     assert (engine.parked, engine.dropped) == (["hash"], [])
+
+
+def _timed(page: _Page, engine: FakeTorrentEngine) -> list[float]:
+    """Часы страницы на каждый ``add`` держателя."""
+    times: list[float] = []
+    real = engine.add
+
+    def add(magnet: str) -> str:
+        times.append(page.now)
+        return real(magnet)
+
+    engine.add = add  # type: ignore[method-assign]
+    return times
+
+
+def test_a_show_start_goes_before_the_holder_calls(state: FakeStateStore) -> None:
+    """🔴 Клик раньше фоновой работы записей: пока показ поднимается, держатель молчит.
+
+    Замер на стенде: все 16 скоплений медленных вызовов TorrServer начинал держатель, а
+    показ «Рика» ждал свой ``add`` 10.3 с и сетку 15.5 с - кадр через 33 с.
+    """
+    engine = _live()
+    page = _Page({"a": _entry("magnet:a")}, engine)
+    page.holder.door = RecordDoor(
+        starting=lambda: page.now < 7.0, clock=lambda: page.now, wait=page.wait
+    )
+    times = _timed(page, engine)
+    page.holder.touch("http://ts", ["a"])
+
+    page.run()
+
+    assert times, "держатель так и не завёл раздачу после подъёма"
+    assert times[0] >= 7.0, f"держатель позвал службу на {times[0]} с, посреди подъёма показа"
