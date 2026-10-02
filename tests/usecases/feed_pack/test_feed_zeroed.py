@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, lay, tract, vault
+from tests.usecases.warm.test_zeroed import REAL_HOLE
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.feed_pack.feed_segment import _segment
 from torrcast.usecases.warm.segment_start import _Clock
-from torrcast.usecases.warm.zeroed import ZERO_RUN
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -31,7 +31,7 @@ def test_a_warmed_piece_with_a_zeroed_stretch_is_wiped_and_packed_live(
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store, wait=1.0, log=said.append)
     broken = lay(store.dir, 3)
-    broken.write_bytes(b"\x47" * 512 + b"\x00" * ZERO_RUN + b"\x47" * 512)
+    broken.write_bytes(REAL_HOLE.read_bytes())
     store.spot(3).touch()
     monkeypatch.setattr(feed_segment, "segment_start", lambda path: _Clock(30.0, movie=True))
 
