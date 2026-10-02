@@ -14,8 +14,6 @@ from torrcast.usecases.select.plan import Plan
 from web.warm_cache import WarmCache
 from web.warm_priority import _hint
 
-pytestmark = pytest.mark.machine
-
 
 class _Hands:
     """The cache's background hands, joined by the test before it ends."""
@@ -40,6 +38,7 @@ def _calm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(HOST_SLOTS, "_free", {})
 
 
+@pytest.mark.machine
 def test_a_live_search_begun_in_the_warmups_first_pass_does_not_hold_the_tile() -> None:
     first = threading.Event()
 
@@ -70,6 +69,7 @@ def test_a_live_search_begun_in_the_warmups_first_pass_does_not_hold_the_tile() 
     assert waited < 0.5, f"the viewer of x waited a stranger's live search {waited:.2f} s"
 
 
+@pytest.mark.machine
 def test_a_request_in_flight_does_not_hold_the_tile(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(warm_cache, "BUSY_WAIT", 3.0)  # 30 s in the product
     done = threading.Event()
@@ -97,6 +97,7 @@ def test_a_request_in_flight_does_not_hold_the_tile(monkeypatch: pytest.MonkeyPa
     assert waited < 0.5, f"the viewer of x waited a request in flight {waited:.2f} s"
 
 
+@pytest.mark.machine
 def test_the_live_take_does_not_wait_a_held_tile_either(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(warm_cache, "BUSY_WAIT", 3.0)
     done = threading.Event()
@@ -122,6 +123,7 @@ def test_the_live_take_does_not_wait_a_held_tile_either(monkeypatch: pytest.Monk
     assert gone and gone[0] - began < 0.5, "the warmup's circle still gave way after the take"
 
 
+@pytest.mark.machine
 def test_an_untaken_warmup_still_gives_way_to_a_request_in_flight() -> None:
     done = threading.Event()
     HOST_SLOTS.sent("Knaben", done)
@@ -142,6 +144,7 @@ def test_an_untaken_warmup_still_gives_way_to_a_request_in_flight() -> None:
     assert gone and gone[0] - began >= 0.5, "a warmup nobody asked for went out over the flight"
 
 
+@pytest.mark.machine
 def test_an_urgent_card_does_not_wait_the_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(HOST_SLOTS, "_quiet", 2.0)
     monkeypatch.setattr(HOST_SLOTS, "_calm", time.monotonic())
@@ -159,6 +162,7 @@ def test_an_urgent_card_does_not_wait_the_quiet(monkeypatch: pytest.MonkeyPatch)
     assert started and max(one - began for one in started) < 0.5, started
 
 
+@pytest.mark.machine
 def test_the_background_waits_the_quiet_while_the_card_waits_not(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
