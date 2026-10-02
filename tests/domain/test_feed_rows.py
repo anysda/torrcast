@@ -29,3 +29,13 @@ def test_feed_rows_keep_the_rows_in_order_and_the_missed_count() -> None:
 
     assert list(rows) == [first, second]
     assert rows.missed == 2
+
+
+def test_feed_rows_carry_the_re_ask_of_the_missed() -> None:
+    """Переспрос недосчитанных едет рядом со строками; без него лента полная."""
+    again = FeedRows([_row("Дюна 2021")])
+
+    rows = FeedRows([], missed=1, again=lambda _within: again)
+
+    assert rows.again is not None and rows.again(1.0) is again
+    assert FeedRows().again is None

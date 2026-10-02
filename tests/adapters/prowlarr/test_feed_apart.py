@@ -97,3 +97,60 @@ def test_a_failed_indexer_is_missed_too() -> None:
     _join_apart()
 
     assert rows.missed == 1
+
+
+def _join_again() -> None:
+    for thread in threading.enumerate():
+        if thread.name.startswith(("feed-apart", "feed-again")):
+            thread.join(5)
+
+
+def test_the_re_ask_goes_only_to_the_indexer_that_refused() -> None:
+    """Переспрос не трогает ответивших: отказавший спрошен снова, его строки пришли."""
+    asked: list[str] = []
+    down = [True]
+
+    def get(url: str) -> object:
+        asked.append(url)
+        if url == "down" and down[0]:
+            raise requests.ConnectionError("отказ")
+        return [_row(f"Раздача {url} 2026", "d" if url == "down" else "a")]
+
+    rows = feed_apart(get, ["a", "down"], 1.0)
+    down[0] = False
+    assert rows.again is not None
+    more = rows.again(1.0)
+    _join_again()
+
+    assert sorted(asked) == ["a", "down", "down"]
+    assert [row.raw.title for row in more] == ["Раздача down 2026"]
+    assert more.missed == 0 and more.again is None
+
+
+@pytest.mark.machine
+def test_a_late_indexer_is_waited_for_and_not_asked_twice() -> None:
+    """Опоздавший не спрашивается заново: переспрос ждёт его же ответ."""
+    asked: list[str] = []
+    stop = threading.Event()
+
+    def get(url: str) -> object:
+        asked.append(url)
+        if url == "late":
+            stop.wait(5)
+        return [_row(f"Раздача {url} 2026", "f" if url == "late" else "a")]
+
+    rows = feed_apart(get, ["a", "late"], 0.1)
+    assert rows.again is not None and rows.missed == 1
+    stop.set()
+    more = rows.again(1.0)
+    _join_again()
+
+    assert asked.count("late") == 1
+    assert [row.raw.title for row in more] == ["Раздача late 2026"]
+
+
+def test_a_whole_feed_has_nothing_to_re_ask() -> None:
+    rows = feed_apart(lambda url: [_row(f"Раздача {url} 2026", url[0])], ["a", "b"], 1.0)
+    _join_again()
+
+    assert rows.again is None
