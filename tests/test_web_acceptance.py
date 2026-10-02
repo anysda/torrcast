@@ -258,8 +258,9 @@ class CardNode:
 class CardPage:
     """Карточка, у которой описание стоит сразу, а дорожки дочитываются к ``settles``."""
 
-    def __init__(self, voices: int, settles: float | None) -> None:
+    def __init__(self, voices: int, settles: float | None, foreign_last: bool = False) -> None:
         self.clock = 0.0
+        self.foreign_last = foreign_last
         self.voices = voices
         self.settles = settles
         self.clicked = False
@@ -287,15 +288,19 @@ class CardPage:
         key = urllib.parse.quote("movie:интерстеллар:2014", safe="")
         # Чужая карточка (прогрев соседней плитки) говорит своё и не в счёт.
         answers = [CardAnswer("movie%3Aother%3A2001", False), CardAnswer(key, not self.settled())]
+        if self.foreign_last:
+            answers.reverse()
         for handler in list(self.handlers):
             for answer in answers:
                 handler(answer)
         self.sent += 1
 
 
-def _card(monkeypatch: pytest.MonkeyPatch, voices: int, settles: float | None) -> Any:
+def _card(
+    monkeypatch: pytest.MonkeyPatch, voices: int, settles: float | None, foreign_last: bool = False
+) -> Any:
     module = acceptance()
-    page = CardPage(voices, settles)
+    page = CardPage(voices, settles, foreign_last)
     monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: page.clock))
     monkeypatch.setattr(
         module,
@@ -317,6 +322,17 @@ def test_карточка_судит_озвучки_после_дочитанн�
 
 def test_недочитанные_к_потолку_дорожки_красные(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _card(monkeypatch, voices=3, settles=None)
+
+    assert not result.ok
+    assert "дорожки не дочитаны за 90 с от клика (voices_pending=True" in result.detail
+
+
+def test_чужой_дочитанный_ответ_после_своего_не_снимает_ожидание(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Своя карточка всё время отвечает voices_pending=true, а соседняя плитка следом за
+    # ней - false. Прибор, который слушает любую карточку, взял бы чужое «дочитано».
+    result = _card(monkeypatch, voices=3, settles=None, foreign_last=True)
 
     assert not result.ok
     assert "дорожки не дочитаны за 90 с от клика (voices_pending=True" in result.detail
@@ -710,9 +726,9 @@ class StallPage(Page):
 
 
 def test_замирание_без_спиннера_при_пустом_буфере_подгруз() -> None:
-    """Тепло-2 на .122: «Оно» с закладки встало на 140.75, буфера впереди 0, спиннера нет.
+    """Тепло-2 на стенде: «Оно» с закладки встало на 140.75, буфера впереди 0, спиннера нет.
 
-    Прибор писал «подгрузы 0; без спиннера в кадре 1: [179.127]» и давал П.4 OK. Для
+    Прибор писал «подгрузы 0; без спиннера в кадре 1» на 179 с и давал П.4 OK. Для
     зрителя замирание то же, что подгруз: головка стоит, впереди пусто, дольше срока
     плеера ``hold`` (``TCPlayer.STALL_SHOW_MS``). Такая заминка обязана уйти в подгрузы,
     а с ними П.4 и П.5 красные (``and not waits``). Короче срока или с ходом головки -
@@ -720,9 +736,9 @@ def test_замирание_без_спиннера_при_пустом_буфе
     """
     module = acceptance()
     warm = module.Ctx(
-        "http://example", StallPage([179.127], [False], [True], 0.3), True, Path("/tmp"), {}
+        "http://example", StallPage([179.13], [False], [True], 0.3), True, Path("/tmp"), {}
     )
-    assert module._wait_stalls(warm, 0) == ([179.127], 179.127, [])
+    assert module._wait_stalls(warm, 0) == ([179.13], 179.13, [])
     mixed = module.Ctx(
         "http://example",
         StallPage([0.2, 0.7, 19.085], [False, False, False], [True, False, True], 0.3),
@@ -843,7 +859,7 @@ _DRIVE_UNSEEN = """async () => {
 }"""
 
 #: Замирание без спиннера: плёнка на паузе (головка стоит, у потока с холста буфера впереди
-#: нет), ``waiting`` без спиннера, как в тепло-2 на .122, и ход снова через 800 мс.
+#: нет), ``waiting`` без спиннера, как в тепло-2 на стенде, и ход снова через 800 мс.
 _DRIVE_FROZEN = """async () => {
   const video = document.querySelector('video');
   window.__stubQuiet = true;

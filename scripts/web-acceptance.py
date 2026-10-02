@@ -1750,13 +1750,14 @@ class _CardVoices:
     def __init__(self, key: str) -> None:
         # Тот же вид, что даёт ``encodeURIComponent`` страницы (`web/static/api.js`).
         self.path = "/api/card/" + urllib.parse.quote(key, safe="!*'()")
+        # Ключа у плитки нет - слушать любую карточку: открыта всё равно одна.
         self.any = not key
         self.pending: bool | None = None
         self.heard = 0
 
     def response(self, response: Any) -> None:
         path = urllib.parse.urlsplit(response.url).path
-        if not (path == self.path or (self.any and path.startswith(self.path))):
+        if not (path == self.path or (self.any and path.startswith("/api/card/"))):
             return
         try:
             body = response.json()
@@ -1926,7 +1927,7 @@ _METER_JS: Final = (
     if (!painting) return;
     if (meter.waiting !== null && !meter.shown && spinnerSeen()) meter.shown = true;
     // Ход - только вперёд. Сброс ленты (``currentTime`` 0, ``readyState`` 0) посреди
-    // замирания на .122 картинку не двигал, и снимать за него флаг значило бы прятать подгруз.
+    // замирания на стенде картинку не двигал, и снимать за него флаг значило бы прятать подгруз.
     if (meter.waiting !== null && meter.video && meter.video.currentTime > meter.held) {
       meter.stuck = false;
     }
