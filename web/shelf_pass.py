@@ -123,7 +123,7 @@ class ShelfPass:
         shelf_judge(
             self._lanes,
             LIMIT,
-            cache.playable,
+            self._playable,
             cache.workers,
             self._close,
             self._preview if self.early else lambda: None,
@@ -134,7 +134,7 @@ class ShelfPass:
 
     def filling(self) -> bool:  # the shelves may still change: the page keeps its counter
         waiting = [shelf for shelf in SHELVES if shelf not in self.done]
-        if any(shelf not in self.shown for shelf in waiting):
+        if self.more or any(shelf not in self.shown for shelf in waiting):
             return True
         return bool(waiting) and self._growing()  # a full shelf still takes a higher cover
 
@@ -170,6 +170,9 @@ class ShelfPass:
                 )
         self.cache.filling = self._ready.watch(self.filling(), self.shown, self.done)
 
+    def _playable(self, query: str, key: str) -> Verdict:  # a fuller feed is coming: it judges
+        return None if self.more and self.early else self.cache.playable(query, key)
+
     def _known(self, _query: str, key: str) -> Verdict:
         return self.verdicts.get(key)  # not judged yet is «unknown», and the tile stays
 
@@ -181,13 +184,13 @@ class ShelfPass:
         shelf, cache, drops = SHELVES[index], self.cache, DropCount()
         judged = drops.wrap(
             lambda query, key: (
-                self.verdicts[key] if key in self.verdicts else cache.playable(query, key)
+                self.verdicts[key] if key in self.verdicts else self._playable(query, key)
             )
         )
         sources = (self.rows, cache.catalogue, self._offered(shelf), cache.passport)
         tiles = build_shelf(shelf, *sources, judged, self.now)
         self.done[shelf] = tiles = self._ready.keep(shelf, tiles)
-        last = len(self.done) == len(SHELVES)
+        last = len(self.done) == len(SHELVES) and not (self.more and self.early)  # judged only
         self.cache.publish(shelf, tiles, drops, self.now, complete=last, unstamped=self.early)
         if self.early:
             self.cache.filling = self._ready.watch(self.filling(), self.shown, self.done)

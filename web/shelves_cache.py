@@ -158,7 +158,7 @@ class ShelvesCache:
             grew = best is None or min_tiles(body) > min_tiles(best)
             if grew:
                 best = body
-            if len(rows) == before and not grew:
+            if len(rows) == before and not grew and not more:  # a deferred pass is judged
                 break
 
     def publish(

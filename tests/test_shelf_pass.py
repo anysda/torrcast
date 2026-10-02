@@ -17,6 +17,7 @@ from torrcast.domain.json_value import JsonValue
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.shelves.fresh_shelf import LIMIT
 from web.built_by_rule import FIELD, RULE
+from web.cold import cold
 from web.shelf_pass import FILL_BY, SHELVES, SILENT_BY, ShelfPass
 from web.shelf_pictures import shelf_pictures
 from web.shelf_seeds import shelf_seeds
@@ -309,7 +310,7 @@ def _refill(tmp_path: Path, missed: int) -> tuple[ShelvesCache, list[tuple[bool,
     seen: list[tuple[bool, bool]] = []
     cache.feed, cache.attempts = feed, 2
     cache.sleep = lambda _pause: seen.append((cache.filling, cache.settling))
-    later: list[bool] = []  # the fuller attempt is a warm one: its own pass must not put it out
+    later: list[bool] = []  # the fuller attempt judges: the pass before it left verdicts to it
 
     def playable(_query: str, _key: str) -> bool:
         if calls[0] == 2:
@@ -325,7 +326,8 @@ def test_the_counter_stays_on_while_a_fuller_attempt_is_coming(tmp_path: Path) -
     """Лента недосчитала индексер: полка 1+1 - не «готово», счётчик горит через паузу добора."""
     cache, seen = _refill(tmp_path, missed=1)
 
-    assert seen == [(True, True), (True, True)]
+    assert seen[0] == (True, True)  # the pause before the fuller attempt
+    assert seen[1] != (True, False), "the fuller attempt judged no tile"  # all([]), any([])
     assert len(_titles(cache._body, "fresh")) > 1
     assert not cache.filling and not cache.settling  # the last attempt puts it out
 
@@ -419,3 +421,60 @@ def test_a_tile_dropped_after_ready_is_not_replaced_by_a_new_one(tmp_path: Path)
     assert ready, "the counter went out during the pass"
     assert "Картина 00" not in " ".join(_titles(cache._body, "popular"))
     assert len(_titles(cache._body, "popular")) == LIMIT - 1
+
+
+def test_the_counter_never_goes_out_inside_a_pass_a_fuller_feed_follows(tmp_path: Path) -> None:
+    """Лента недосчитала индексер: и посреди захода счётчик не гаснет, приговоров нет.
+
+    Замер 02-10-2026: полка 3+10 погасила счётчик на 28 с посреди такого захода, а на
+    126 с он загорелся снова - добор вёз ещё картины, «готово» было ложным.
+    """
+    cache, calls = _cache(tmp_path, 3), [0]
+    flags: list[bool] = []
+    asked: list[int] = []
+
+    def feed(_limit: int) -> list[FeedRow]:
+        calls[0] += 1
+        return FeedRows(_rows(3 if calls[0] == 1 else 6), 1 if calls[0] == 1 else 0)
+
+    publish = cache.publish
+
+    def watched(*args: object, **kwargs: object) -> None:
+        publish(*args, **kwargs)  # type: ignore[arg-type]
+        if calls[0] == 1:
+            flags.append(cache.filling)
+
+    paused: list[bool] = []  # the shelf left unjudged stays cold: the refill shows and judges it
+    cache.feed, cache.attempts = feed, 2
+    cache.sleep = lambda _pause: paused.append(cache._body is not None and cold(cache._body))
+    cache.publish = watched  # type: ignore[method-assign]
+
+    def playable(_query: str, _key: str) -> bool:
+        asked.append(calls[0])
+        return True
+
+    cache.playable = playable
+    cache._rebuild()
+
+    assert flags and all(flags), "the counter went out while a fuller feed was coming"
+    assert 1 not in asked, "the refill judges the tiles, not the pass before it"
+    assert paused == [True]
+    assert cache._body is not None and cache._body[FIELD] == RULE
+
+
+def test_a_refill_with_nothing_new_still_gets_its_tiles_judged(tmp_path: Path) -> None:
+    """Добор не принёс строк, а приговоров ещё не было: заход не обрывается без них."""
+    cache = _cache(tmp_path, 3)
+    asked: list[str] = []
+    cache.feed, cache.attempts = (lambda _limit: FeedRows(_rows(3), 1)), 3
+
+    def playable(_query: str, key: str) -> bool:
+        asked.append(key)
+        return True
+
+    cache.playable = playable
+
+    cache._rebuild()
+
+    assert asked
+    assert cache._body is not None and cache._body[FIELD] == RULE
