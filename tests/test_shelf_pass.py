@@ -443,10 +443,11 @@ def _rebuild_under_the_page(cache: ShelvesCache) -> list[tuple[bool, dict[str, s
         while not stop.is_set():
             body = cache._body or {}
             partial = body.get("built_at") is None or cache.filling
-            keys = {
-                shelf: {str(t.get("key")) for t in body.get(shelf) or [] if isinstance(t, dict)}
-                for shelf in SHELVES
-            }
+            keys: dict[str, set[str]] = {}
+            for shelf in SHELVES:
+                tiles = body.get(shelf)
+                tiles = tiles if isinstance(tiles, list) else []
+                keys[shelf] = {str(t.get("key")) for t in tiles if isinstance(t, dict)}
             polls.append((partial, keys))
             time.sleep(0.005)
 
@@ -523,7 +524,7 @@ def test_a_verdict_after_ready_does_not_let_an_old_rule_tile_in(tmp_path: Path) 
     посреди холодного захода). «Не играет» после «готово» снимает плитку, и прежде на её
     место вставала старая плитка, которой страница не видела."""
     cache = _cache(tmp_path, 5)
-    old = {
+    old: dict[str, JsonValue] = {
         shelf: [
             {"key": f"movie:старая-{shelf}-{i:02d}:2020", "title": f"Старая {i:02d}"}
             for i in range(LIMIT)

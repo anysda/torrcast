@@ -57,7 +57,8 @@ def test_a_stale_tile_gone_from_the_screen_does_not_come_back() -> None:
         {"key": f"movie:old-{i}:2020", "title": f"Старая {i}"} for i in range(3)
     ]
     origin = {**_current(), "fresh": old}
-    shown = {**origin, "fresh": [{"key": "movie:new:2026"}, old[0], old[1]]}
+    on_screen: list[JsonValue] = [{"key": "movie:new:2026"}, old[0], old[1]]
+    shown: dict[str, JsonValue] = {**origin, "fresh": on_screen}
     new: list[JsonValue] = []  # the verdict took the only new tile off
 
     kept, carried = _keep_stale_tiles(origin, shown, "fresh", new, DropCount(), limit=3)
