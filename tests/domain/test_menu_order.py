@@ -29,3 +29,13 @@ def test_a_menu_of_collections_alone_is_still_a_menu() -> None:
     line = menu_order([_picture("Брат дилогия", 2005, collection=True)])
 
     assert [p.title for p in line] == ["Брат дилогия"]
+
+
+def test_the_year_the_query_named_comes_first() -> None:
+    """TC-1398: год из нашего же меню «(2026, сериал)» ставит свою картину первой."""
+    pictures = [_picture("Призрак в доспехах", 1995), _picture("Призрак в доспехах 2", 2004, 2)]
+    pictures.append(_picture("Призрак в доспехах", 2026))
+
+    assert [p.year for p in menu_order(pictures)] == [1995, 2004, 2026]
+    assert [p.year for p in menu_order(pictures, "Призрак в доспехах 2026")] == [2026, 1995, 2004]
+    assert [p.year for p in menu_order(pictures, "Призрак в доспехах 2031")] == [1995, 2004, 2026]

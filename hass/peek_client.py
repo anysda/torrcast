@@ -24,7 +24,7 @@ def peek_client(query: str, client: IndexerClient | None) -> list[JsonValue]:
     if not raw and not named:
         return []
     known = client.known if isinstance(client, NamedRound) else None
-    found = menu_order(recognized_pick(query, raw, named, known)[1])
+    found = menu_order(recognized_pick(query, raw, named, known)[1], query)
     return [_hit(picture, number, default=False) for number, picture in enumerate(found, start=1)]
 
 
