@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.domain.asked_year import asked_year
+from torrcast.domain.find_year import _find_year
+from torrcast.domain.normalize import _normalize
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.raw_result import RawResult
 
@@ -27,8 +29,10 @@ def query_fits(query: str) -> Callable[[RawResult], bool]:
         return _any
 
     def fits(row: RawResult) -> bool:
-        release = parse_release_name(row.title)
-        return (year is None or release.year == year) and (not series or release.kind == "tv")
+        # the year the name parse finds, without the rest of the parse: rows of other years are many
+        if year is not None and _find_year(_normalize(row.title))[0] != year:
+            return False
+        return not series or parse_release_name(row.title).kind == "tv"
 
     return fits
 
