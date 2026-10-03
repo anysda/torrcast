@@ -5,7 +5,6 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Sequence
-from typing import Final
 
 from torrcast.adapters.prowlarr.circle_wait import circle_wait
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, HostSlots
@@ -13,15 +12,12 @@ from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.send_circle import send_circle
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
+from torrcast.domain.circle_budget import ASK_SLACK
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.indexer_budget import indexer_budget
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.query_fits import query_fits
 from torrcast.domain.raw_result import RawResult
-
-#: Запас поверх личного бюджета на ожидание потока: сам запрос уже ограничен бюджетом,
-#: и эта секунда нужна лишь на то, чтобы поток успел записать ответ и поднять флаг.
-#: Без неё круг изредка объявлял молчуном того, кто ответил на последней миллисекунде.
-ASK_SLACK: Final = 1.0
 
 
 class IndexerCircle:
@@ -138,8 +134,10 @@ class IndexerCircle:
         if self._begun <= 1:
             self._asked.extend(asked)
             self.sent.set()
-        names = joint is not None
-        core = circle_wait(asked, names=names, began=began, slack=self.slack, unsent=unsent)
+        fits = query_fits(query)
+        core = circle_wait(
+            asked, names=joint is not None, began=began, slack=self.slack, unsent=unsent, fits=fits
+        )
         got: list[list[RawResult]] = []
         why_lost: InfraError | None = None
         with self._lock:  # a peek sees an ask either taken or left, never both
@@ -197,4 +195,4 @@ class IndexerCircle:
         return merge(rows) if rows else []
 
 
-__all__ = ["ASK_SLACK", "IndexerCircle"]
+__all__ = ["IndexerCircle"]

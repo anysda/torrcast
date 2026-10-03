@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK, DownBook
 from torrcast.adapters.prowlarr.spawn_ask import _Ask
 from torrcast.domain.is_down import IN_TIME
 from torrcast.domain.joint_query import _joint_indexer
+from torrcast.domain.query_fits import _any
 from torrcast.domain.quorum_indexer import quorum_indexer
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.wait_indexer import wait_indexer
 
 #: How often a lone core's wait looks whether the others have all answered.
@@ -33,6 +35,7 @@ def circle_wait(
     unsent: Sequence[tuple[str, float]] = (),
     book: DownBook = DOWN_BOOK,
     grace: float = QUORUM_GRACE,
+    fits: Callable[[RawResult], bool] = _any,
 ) -> list[_Ask]:
     """Wait for the circle's core and return it; the rest answer in time or come late.
 
@@ -82,6 +85,10 @@ def circle_wait(
     is down, the grace opens once each of them has answered: the book held RuTor down after a
     run of silences, and the viewer waited Knaben 7 s past RuTor's and JacRed's 179 rows. A
     circle of names never waits the quorum, not even when its whole core is down.
+
+    Rows count only when one of them ``fits`` the query by year and kind
+    (:func:`~torrcast.domain.query_fits.query_fits`): "Призрак в доспехах 2026" got the 1995
+    film from the others, and the 2026 series, which only Knaben brings, came late.
     """
     down = book.down()
     held = max(
@@ -98,7 +105,7 @@ def circle_wait(
         core = _first(live[0], others, began + live[0].budget + slack)
     elif not names and not held:
         lagging = [ask for ask in waited if ask not in live]
-        core = _past_the_quorum(core, lagging, asked, began + slack, grace)
+        core = _past_the_quorum(core, lagging, asked, began + slack, grace, fits)
     for ask in core:
         # Every budget runs from the circle's start: waiting one after another from
         # the call added the first answer's seconds to the next silent one's budget.
@@ -121,7 +128,12 @@ def _first(one: _Ask, others: Sequence[_Ask], until: float) -> list[_Ask]:
 
 
 def _past_the_quorum(
-    core: list[_Ask], lagging: Sequence[_Ask], asked: Sequence[_Ask], start: float, grace: float
+    core: list[_Ask],
+    lagging: Sequence[_Ask],
+    asked: Sequence[_Ask],
+    start: float,
+    grace: float,
+    fits: Callable[[RawResult], bool],
 ) -> list[_Ask]:
     """Wait the rest of the core, then the quorum ``grace`` more if the pool has rows.
 
@@ -140,7 +152,8 @@ def _past_the_quorum(
         if any(not ask.done.is_set() and start + ask.budget <= time.monotonic() for ask in lagging):
             return core
         quorum[0].done.wait(_STEP)
-    while not any(ask.rows for ask in asked if ask.done.is_set()):
+    seen: dict[int, bool] = {}
+    while not _brought(asked, fits, seen):
         if all(ask.done.is_set() or start + ask.budget <= time.monotonic() for ask in quorum):
             return core
         quorum[0].done.wait(_STEP)
@@ -152,6 +165,16 @@ def _past_the_quorum(
     for ask in core:
         ask.waived = ask not in kept
     return kept
+
+
+def _brought(
+    asked: Sequence[_Ask], fits: Callable[[RawResult], bool], seen: dict[int, bool]
+) -> bool:
+    """Whether one answered brought a row that ``fits``; ``seen`` keeps each answer read once."""
+    for ask in asked:
+        if ask.done.is_set() and id(ask) not in seen:
+            seen[id(ask)] = any(fits(row) for row in ask.rows or ())
+    return any(seen.values())
 
 
 def _core(name: str, *, names: bool) -> bool:
