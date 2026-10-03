@@ -2,31 +2,58 @@
 
 ``add`` по-прежнему уходит магнетом и возвращается сразу: клик не ждёт добычи.
 Поток заводится, только если описание есть на диске или есть ссылка на него.
+
+🔴 Подача и снятие одной раздачи разведены (TC-1251). ``rem`` в первые десятки миллисекунд
+после ``upload`` роняет TorrServer MatriX.143: служба ещё будит ждущих ``GotInfo``, а кэш
+уже закрыт, ``WaitInfo`` берёт nil и падает в горутине, которую никто не перехватывает.
+Поэтому подача проверяет снятие под тем же замком, под которым встаёт в работу, а снятие
+ждёт конца идущей подачи и выдерживает :data:`SETTLE` после неё.
 """
 
 from __future__ import annotations
 
 import threading
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from torrcast.adapters.prowlarr.torrent_links import LINKS
+from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.describe import describe
-from torrcast.adapters.torrserver.torrent_http import TorrentHttp
+from torrcast.adapters.torrserver.torrent_http import CALL_TIMEOUT, TorrentHttp
 from torrcast.adapters.torrserver.torrent_store import STORE
+
+if TYPE_CHECKING:
+    from torrcast.ports.clock import Clock
+
+#: Сколько снятие выжидает после поданного описания. На стенде ``rem`` через 0-20 мс ронял
+#: службу или давал перехваченную панику, через 50 мс и дольше - ноль из 90 заходов.
+SETTLE: Final = 0.3
 
 
 class Describer:
     """Один поток на раздачу; раздачу, снятую ``drop``/``park``, не трогает."""
 
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
+    def __init__(self, clock: Clock = CLOCK) -> None:
+        self._lock = threading.Condition()
+        self._clock = clock
         self._closed: set[str] = set()
         self._running: set[str] = set()
+        self._delivering: set[str] = set()
+        self._uploaded: dict[str, float] = {}
 
     def closed(self, torrent_hash: str) -> None:
-        """Раздачу сняли: описание ей больше не подаётся до нового ``add``."""
+        """Раздачу снимают: описание ей больше не подаётся до нового ``add``.
+
+        Возвращается, когда ``rem`` безопасен: подача этой раздачи не идёт, а со своей
+        удачной подачи прошло :data:`SETTLE`. Без подачи рядом - сразу.
+        """
+        key = torrent_hash.casefold()
         with self._lock:
-            self._closed.add(torrent_hash.casefold())
+            self._closed.add(key)
+            self._lock.wait_for(lambda: key not in self._delivering, CALL_TIMEOUT)
+            at = self._uploaded.pop(key, None)
+        left = 0.0 if at is None else at + SETTLE - self._clock.monotonic()
+        if left > 0:
+            self._clock.sleep(left)
 
     def dropped(self, torrent_hash: str) -> bool:
         with self._lock:
@@ -44,10 +71,31 @@ class Describer:
         thread.start()
         return thread
 
+    def _upload(self, http: TorrentHttp, key: str, data: bytes) -> bool:
+        """Подать, если раздачу ещё не сняли; снятие ждёт конца подачи под тем же замком."""
+        with self._lock:
+            if key in self._closed:
+                return False
+            self._delivering.add(key)
+        ok = False
+        try:
+            ok = http.upload(key, data)
+        finally:
+            with self._lock:
+                self._delivering.discard(key)
+                if ok:
+                    self._uploaded[key] = self._clock.monotonic()
+                self._lock.notify_all()
+        return ok
+
     def _run(self, http: TorrentHttp, key: str) -> None:
         try:
             describe(
-                key, fetch=http.fetch, stat=http.stat, upload=http.upload, dropped=self.dropped
+                key,
+                fetch=http.fetch,
+                stat=http.stat,
+                upload=lambda k, data: self._upload(http, k, data),
+                dropped=self.dropped,
             )
         finally:
             with self._lock:
@@ -57,4 +105,4 @@ class Describer:
 #: Описатель процесса: его будит ``TorrServer.add``, ему же говорят о снятии раздачи.
 DESCRIBER: Final = Describer()
 
-__all__ = ["DESCRIBER", "Describer"]
+__all__ = ["DESCRIBER", "SETTLE", "Describer"]

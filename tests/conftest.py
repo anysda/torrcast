@@ -648,6 +648,8 @@ def _own_torrent_links(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(LINKS, "_links", OrderedDict())
     monkeypatch.setattr(DESCRIBER, "_closed", set())
     monkeypatch.setattr(DESCRIBER, "_running", set())
+    monkeypatch.setattr(DESCRIBER, "_delivering", set())
+    monkeypatch.setattr(DESCRIBER, "_uploaded", {})
 
 
 @pytest.fixture
