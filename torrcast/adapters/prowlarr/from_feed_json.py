@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from torrcast.adapters.prowlarr.collect_rows import collect_rows
+from torrcast.adapters.prowlarr.torrent_links import LINKS
 from torrcast.domain.broadcast_release import _is_broadcast_release
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.feed_row import FeedRow
@@ -27,6 +28,7 @@ def from_feed_json(payload: Any) -> list[FeedRow]:
     """
     if not isinstance(payload, list):
         raise InfraError(phrase("prowlarr.unexpected_answer"))
+    LINKS.remember(payload)
     out: list[FeedRow] = []
     for item in payload:
         if not isinstance(item, dict):

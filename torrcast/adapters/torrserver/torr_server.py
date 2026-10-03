@@ -1,12 +1,13 @@
 """Обращается к TorrServer и ждёт метаданные раздачи через порт часов."""
 
 import threading
-import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.add_once import add_once
 from torrcast.adapters.torrserver.contact_wait import ContactWait
+from torrcast.adapters.torrserver.describer import DESCRIBER
 from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
 from torrcast.adapters.torrserver.file_stats import file_stats
 from torrcast.adapters.torrserver.warmup import Warmup
@@ -33,24 +34,13 @@ META_STEP_MAX = 0.2
 PROBE_TIMEOUT = 3.0
 
 
-class _RealClock:
-    def monotonic(self) -> float:
-        return time.monotonic()
-
-    def wall(self) -> float:
-        return time.time()
-
-    def sleep(self, seconds: float) -> None:
-        time.sleep(seconds)
-
-
 class TorrServer:
     """HTTP-клиент движка раздач с прежними таймаутами и обработкой ошибок."""
 
     def __init__(self, base_url: str, timeout: float = 30.0, clock: Clock | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.clock = clock or _RealClock()
+        self.clock = clock or CLOCK
         self._session: requests.Session | None = None
 
     def add(self, magnet: str) -> str:
@@ -60,6 +50,7 @@ class TorrServer:
         torrent_hash = str(payload.get("hash", ""))
         if not torrent_hash:
             raise ServerDownError(phrase("torrserver.no_hash"))
+        DESCRIBER.later(self.base_url, torrent_hash)  # описание без пиров, если есть .torrent
         return torrent_hash
 
     def warm(self, magnet: str) -> Warmup:
@@ -165,10 +156,12 @@ class TorrServer:
         return {str(i["hash"]).casefold() for i in payload if isinstance(i, dict) and i.get("hash")}
 
     def drop(self, torrent_hash: str) -> bool:
+        DESCRIBER.closed(torrent_hash)
         return self._torrent_action("rem", torrent_hash)
 
     def park(self, torrent_hash: str) -> bool:
         """Закрыть раздачу, кэш на диске оставить: ``drop`` службы, в отличие от ``rem``."""
+        DESCRIBER.closed(torrent_hash)
         return self._torrent_action("drop", torrent_hash)
 
     def _torrent_action(self, action: str, torrent_hash: str) -> bool:

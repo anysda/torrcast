@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 import warnings
+from collections import OrderedDict
 from collections.abc import Callable
 from fractions import Fraction
 from types import ModuleType
@@ -40,6 +41,8 @@ from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
 from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
 from torrcast.adapters.prowlarr import spawn_ask as spawn_ask_module
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS
+from torrcast.adapters.prowlarr.torrent_links import LINKS
+from torrcast.adapters.torrserver.describer import DESCRIBER
 from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue, tongue
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
@@ -637,6 +640,14 @@ def _own_host_slots(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(HOST_SLOTS, "_free", {})
     monkeypatch.setattr(HOST_SLOTS, "_quiet", 0.0)  # warm tests measure the queue, not the pause
     monkeypatch.setattr(spawn_ask_module, "_FLYING", {})  # a neighbour's slow request is not ours
+
+
+@pytest.fixture(autouse=True)
+def _own_torrent_links(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ссылки на .torrent у теста свои: чужая выдача завела бы описатель в его ``add``."""
+    monkeypatch.setattr(LINKS, "_links", OrderedDict())
+    monkeypatch.setattr(DESCRIBER, "_closed", set())
+    monkeypatch.setattr(DESCRIBER, "_running", set())
 
 
 @pytest.fixture
