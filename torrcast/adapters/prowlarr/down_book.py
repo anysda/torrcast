@@ -46,7 +46,13 @@ class DownBook:
         return self._path()
 
     def hear(self, name: str, *, answered: bool, where: Path | None = None) -> None:
-        """One more outcome of ``name``: an answer in time, or a silence."""
+        """One more outcome of ``name``: an answer in time, or a silence.
+
+        The book is written without waiting for the disk: a search tells it the silences its
+        circle gave up on, and on the stand one ``fsync`` took 3.85 s (137 writes, p90 0.27 s).
+        The circle waited it, and an empty search answered 409 at 11.5 to 17.3 s, not at 10.
+        A book lost with the power is an empty book, as one that cannot be read.
+        """
         path = where or self._path()
         with self._lock:
             runs = self._read(path)
@@ -58,15 +64,14 @@ class DownBook:
             else:
                 runs[name] = run
             with contextlib.suppress(OSError, TorrcastError):
-                _write_atomic(path, {key: list(value) for key, value in runs.items()})
+                _write_atomic(path, {k: list(v) for k, v in runs.items()}, durable=False)
 
     def down(self) -> frozenset[str]:
-        """The names down right now."""
+        """The names down right now; the file is replaced whole, so it is read without the lock."""
         now = self._clock()
-        with self._lock:
-            return frozenset(
-                name for name, run in self._read(self._path()).items() if is_down(run, now)
-            )
+        return frozenset(
+            name for name, run in self._read(self._path()).items() if is_down(run, now)
+        )
 
     @staticmethod
     def _read(path: Path) -> dict[str, Run]:

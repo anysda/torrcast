@@ -14,8 +14,12 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.torrcast_error import TorrcastError
 
 
-def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
-    """Записать JSON во временный файл рядом и переименовать поверх цели."""
+def _write_atomic(path: Path, payload: dict[str, Any], *, durable: bool = True) -> None:
+    """Записать JSON во временный файл рядом и переименовать поверх цели.
+
+    ``durable=False`` не ждёт диска (``fsync``): файл по-прежнему целый или старый, но после
+    отключения питания может пропасть. Так пишется то, что сам код считает подсказкой.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
@@ -23,7 +27,8 @@ def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
             handle.flush()
-            os.fsync(handle.fileno())
+            if durable:
+                os.fsync(handle.fileno())
         tmp.replace(path)
     except OSError as exc:
         tmp.unlink(missing_ok=True)
