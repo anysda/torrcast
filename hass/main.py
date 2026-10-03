@@ -59,10 +59,11 @@ def main() -> int:
     show_stage()
     # Долгий процесс платит ленивый разбор офлайн-карты один раз, на старте, а не на
     # первом же поиске, которому она понадобится (:func:`warm_facts`, TC-1126).
-    warm_facts()
+    facts = warm_facts()
     # The saved home shelves are visible immediately after a cold restart.  Their
-    # descriptions and franchise shelves must use the same idle startup window.
-    warm_saved()
+    # descriptions and franchise shelves must use the same idle startup window; the
+    # rebuild waits for the map, which the first search needs first.
+    warm_saved(after=facts.join)
     # Раздачи истории, выпавшие из первых записей ряда до перезапуска, лежат в базе службы
     # с кэшем: убрать их, не дожидаясь первого касания страницы (:mod:`web.sweep_later`).
     SWEEP_LATER(load_config().torrserver_url)

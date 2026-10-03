@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 import web.warm_saved
@@ -103,3 +105,29 @@ def test_a_cold_service_starts_building_the_shelves_before_anyone_asks(
     web.warm_saved.warm_saved()
 
     assert calls == ["start"]
+
+
+def test_the_rebuild_waits_for_the_map_the_first_search_needs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Built beside the map, the rebuild held the first search's names: it starts after it."""
+    built, started = threading.Event(), threading.Event()
+
+    class _Cache:
+        def _load(self) -> dict[str, object]:
+            return {"built_at": None, "fresh": [], "popular": []}
+
+        def warm(self, targets: object, later: object) -> None:
+            pass
+
+        def start(self) -> None:
+            started.set()
+
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr(web.warm_saved, "_cache", _Cache())
+
+    web.warm_saved.warm_saved(after=built.wait)
+
+    assert not started.wait(0.2)
+    built.set()
+    assert started.wait(5.0)

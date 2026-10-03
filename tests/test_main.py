@@ -65,11 +65,15 @@ def test_the_offline_map_warms_before_the_bridge_starts_serving() -> None:
 
 
 def test_saved_home_shelves_warm_before_the_bridge_starts_serving() -> None:
-    """The cold-start grace belongs to home cards, not only to the offline map."""
-    warm_at = MAIN_SOURCE.index("warm_saved()")
+    """The cold-start grace belongs to home cards, not only to the offline map.
+
+    Their rebuild waits for the map: built beside it, it held the first search's names.
+    """
+    facts_at = MAIN_SOURCE.index("facts = warm_facts()")
+    warm_at = MAIN_SOURCE.index("warm_saved(after=facts.join)")
     bridge_at = MAIN_SOURCE.index("bridge = Bridge()")
 
-    assert warm_at < bridge_at
+    assert facts_at < warm_at < bridge_at
     assert "from web.warm_saved import warm_saved" in MAIN_SOURCE
 
 
