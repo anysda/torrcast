@@ -22,15 +22,15 @@ from __future__ import annotations
 
 from typing import Final
 
-from torrcast.domain.circle_budget import FIRST_CIRCLE_TIMEOUT
+from torrcast.domain.circle_budget import ASK_SLACK, FIRST_CIRCLE_TIMEOUT
 
 #: Silences in a row that make an indexer down.
 DOWN_AFTER: Final = 3
 #: Seconds between two silences that still count as one run; older knowledge is stale.
 DOWN_WINDOW: Final = 1800.0
 #: Seconds an answer may take and still be one: the first circle's cap and the second the
-#: circle gives the thread to raise its flag (``indexer_circle.ASK_SLACK``).
-IN_TIME: Final = FIRST_CIRCLE_TIMEOUT + 1.0
+#: circle gives the thread to raise its flag.
+IN_TIME: Final = FIRST_CIRCLE_TIMEOUT + ASK_SLACK
 
 #: One indexer's run of silence: how many in a row and the wall-clock second of the last.
 Run = tuple[int, float]

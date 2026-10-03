@@ -8,10 +8,10 @@ import time
 from collections.abc import Callable, Iterable
 
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
-from torrcast.adapters.prowlarr.indexer_circle import ASK_SLACK, IndexerCircle
+from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.indexer_roster import IndexerRoster, _aside, _Spawn
 from torrcast.adapters.prowlarr.prowlarr_api import TIMEOUT, ProwlarrApi
-from torrcast.domain.circle_budget import FIRST_CIRCLE_TIMEOUT
+from torrcast.domain.circle_budget import ASK_SLACK, FIRST_CIRCLE_TIMEOUT
 from torrcast.domain.goal_spare import CIRCLE_SHARE, goal_spare
 from torrcast.domain.indexer_budget import indexer_budget
 
