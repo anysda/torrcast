@@ -1,20 +1,9 @@
 """Хранит отсрочку первого контакта с роем на часах порта."""
 
 import threading
-import time
 
+from torrcast.adapters.system_clock import CLOCK
 from torrcast.ports.clock import Clock
-
-
-class _RealClock:
-    def monotonic(self) -> float:
-        return time.monotonic()
-
-    def wall(self) -> float:
-        return time.time()
-
-    def sleep(self, seconds: float) -> None:
-        time.sleep(seconds)
 
 
 class ContactWait(float):
@@ -30,7 +19,7 @@ class ContactWait(float):
         wait._seconds = seconds
         wait._activated_at = None
         wait._lock = threading.Lock()
-        wait._clock = clock or _RealClock()
+        wait._clock = clock or CLOCK
         return wait
 
     @property
