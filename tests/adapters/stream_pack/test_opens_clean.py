@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from torrcast.adapters.stream_pack.opens_clean import opens_clean
-from torrcast.domain.hls_wait import ENTRY_TIMEOUT, PILOT_TIMEOUT
+from torrcast.domain.hls_wait import PILOT_TIMEOUT
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -79,8 +79,17 @@ def test_both_steps_share_one_short_ceiling() -> None:
         return SimpleNamespace(returncode=0, stdout=_I_SLICE, stderr=b"")
 
     assert opens_clean("f", 1.0, run=_run, clock=lambda: next(now)) is None
-    assert asked == [ENTRY_TIMEOUT, ENTRY_TIMEOUT - 3.5]
-    assert ENTRY_TIMEOUT <= 5.0 < PILOT_TIMEOUT
+    assert asked == [5.0, 1.5]
+    assert PILOT_TIMEOUT > 5.0
+
+
+def test_the_copy_reads_sixteen_pictures_of_the_entry() -> None:
+    """Копия с ``-ss`` берёт ровно 16 картинок входа: числом, а не именем константы."""
+    run = _answer(_SPS + _IDR_SLICE)
+
+    assert opens_clean("f", 1.0, run=run) is True
+    command = run.asked[0]
+    assert command[command.index("-frames:v") + 1] == "16"
 
 
 def _film(path: Path, params: str) -> str:

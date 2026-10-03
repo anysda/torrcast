@@ -9,7 +9,6 @@ from typing import Any
 
 import pytest
 
-from torrcast.adapters.stream_pack.opens_clean import ENTRY_PACKETS
 from torrcast.adapters.stream_pack.piece_opens import piece_opens
 
 _SPS, _PPS, _AUD = b"\x00\x00\x00\x01\x67\x64", b"\x00\x00\x01\x68\xee", b"\x00\x00\x01\x09\xf0"
@@ -38,14 +37,17 @@ def test_pictures_before_the_first_sps_are_not_the_entry() -> None:
 
 
 def test_the_decoder_hears_the_entry_pictures_and_no_dangling_delimiter() -> None:
-    """Вход без IDR решает декодер: от SPS :data:`ENTRY_PACKETS` картинок, без AUD следующей."""
+    """Вход без IDR решает декодер: от SPS ровно 16 картинок, без AUD следующей.
+
+    Число держится числом, а не именем константы: 8 и 32 тоже прошли бы сверку по имени.
+    """
     picture = _AUD + _P
-    stream = _P + _SPS + _PPS + _I + picture * (ENTRY_PACKETS + 4)
+    stream = _P + _SPS + _PPS + _I + picture * 40
     quiet, loud = _answer(stream), _answer(stream, stderr=_MMCO)
 
     assert piece_opens(Path("v1.ts"), run=quiet) is True
     assert piece_opens(Path("v1.ts"), run=loud) is False
-    assert quiet.fed[1] == _SPS[1:] + _PPS + _I + picture * (ENTRY_PACKETS - 1)
+    assert quiet.fed[1] == _SPS[1:] + _PPS + _I + picture * 15
 
 
 def test_a_piece_without_parameter_sets_is_not_a_verdict() -> None:
@@ -56,6 +58,26 @@ def test_a_piece_without_parameter_sets_is_not_a_verdict() -> None:
         raise subprocess.TimeoutExpired("ffmpeg", 1.0)
 
     assert piece_opens(Path("v1.ts"), run=_hang) is None
+
+
+def test_the_whole_check_stays_within_five_seconds_of_the_click() -> None:
+    """Копия куска и декодер делят один потолок 5 с: декодеру остаток, а не весь потолок.
+
+    Сверка стоит на клике до первого кадра; потолок пробного прогона (60 с) или полный
+    потолок декодеру после медленной копии держали бы показ дольше слагаемого бюджета старта.
+    """
+    asked: list[float] = []
+    now = iter((0.0, 3.5))
+
+    def _run(command: list[str], *, timeout: float, **k: Any) -> Any:
+        asked.append(timeout)
+        if "pipe:0" in command:
+            raise subprocess.TimeoutExpired("ffmpeg", timeout)
+        return SimpleNamespace(returncode=0, stdout=_SPS + _PPS + _I + _P, stderr=b"")
+
+    assert piece_opens(Path("v1.ts"), run=_run, clock=lambda: next(now)) is None
+    assert asked == [5.0, 1.5]
+    assert 3.5 + asked[1] <= 5.0
 
 
 def _piece(where: Path, params: str) -> Path:
