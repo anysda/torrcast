@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 from torrcast.domain._name_data.data_1 import (
     _EXTRAS_RE,
@@ -26,11 +27,7 @@ class _ReleaseMarks(_ReleaseFields):
     @property
     def untitled(self) -> str:
         """Имя раздачи без названия картины: зона пометок, по которой судят метки."""
-        tail = self.raw_name
-        for name in (self.title, self.original, *self.aliases):
-            if name:
-                tail = re.sub(f"(?<!\\w){re.escape(name)}(?!\\w)", " ", tail, flags=re.IGNORECASE)
-        return tail
+        return _untitled(self.raw_name, (self.title, self.original, *self.aliases))
 
     @property
     def stereoscopic(self) -> bool:
@@ -48,11 +45,7 @@ class _ReleaseMarks(_ReleaseFields):
         Метка, перед которой стоит «+», приложением раздачу не делает: «фильм + доп
         материалы» - это фильм, к которому приложено, а не приложение само по себе.
         """
-        tail = self.untitled
-        for found in _EXTRAS_RE.finditer(tail):
-            if not _WITH_EXTRAS_RE.search(tail[: found.start()]):
-                return found.group(0)
-        return ""
+        return _extras_mark(self.untitled)
 
     @property
     def extras(self) -> bool:
@@ -61,3 +54,23 @@ class _ReleaseMarks(_ReleaseFields):
     @property
     def extras_sure(self) -> bool:
         return self.extras and bool(_EXTRAS_SURE_RE.search(self.untitled))
+
+
+# The marks are asked of one name many times over a search: by every gate, every ranking
+# and every default pick, and of each copy ``dataclasses.replace`` makes. They are pure
+# functions of the name's text, so they are worked out once per text.
+@lru_cache(maxsize=8192)
+def _untitled(raw_name: str, names: tuple[str | None, ...]) -> str:
+    tail = raw_name
+    for name in names:
+        if name:
+            tail = re.sub(f"(?<!\\w){re.escape(name)}(?!\\w)", " ", tail, flags=re.IGNORECASE)
+    return tail
+
+
+@lru_cache(maxsize=8192)
+def _extras_mark(tail: str) -> str:
+    for found in _EXTRAS_RE.finditer(tail):
+        if not _WITH_EXTRAS_RE.search(tail[: found.start()]):
+            return found.group(0)
+    return ""
