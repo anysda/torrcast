@@ -140,7 +140,13 @@ def pick_franchise(
     items = _numbered(franchise_items, index)
     if not items and index is not None and ((whole_name := named(query)) is not None):
         items = both_languages(groups, aliases, whole_name)
-    return _with_subtitled(items, name, pictures, index)
+    return _of_year(query, _with_subtitled(items, name, pictures, index))
+
+
+def _of_year(query: str, found: list[Picture]) -> list[Picture]:
+    # TC-1398: the year named narrows the franchise here too, else 1995 stood above 2026
+    year = asked_year(query)[1]
+    return [p for p in found if p.year == year] or found
 
 
 def _asked_otherwise(
