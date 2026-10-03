@@ -8,6 +8,7 @@ import pytest
 
 import web.warm_saved
 from tests.fakes.state_store import FakeStateStore
+from torrcast.adapters.prowlarr.host_slots import HostSlots
 from torrcast.domain.entry import Entry
 from torrcast.ports.state_store import slot as state_slot
 from web.warm_targets import WarmTarget
@@ -125,9 +126,36 @@ def test_the_rebuild_waits_for_the_map_the_first_search_needs(
 
     state_slot.install(FakeStateStore())
     monkeypatch.setattr(web.warm_saved, "_cache", _Cache())
+    monkeypatch.setattr(web.warm_saved, "HOST_SLOTS", HostSlots(quiet=0.0))
 
     web.warm_saved.warm_saved(after=built.wait)
 
     assert not started.wait(0.2)
     built.set()
+    assert started.wait(5.0)
+
+
+def test_the_rebuild_waits_the_hosts_quiet_once_the_map_is_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Its feed stood ahead of the first search in Prowlarr's host queues: it waits the quiet."""
+    started = threading.Event()
+
+    class _Cache:
+        def _load(self) -> dict[str, object]:
+            return {"built_at": None, "fresh": [], "popular": []}
+
+        def warm(self, targets: object, later: object) -> None:
+            pass
+
+        def start(self) -> None:
+            started.set()
+
+    state_slot.install(FakeStateStore())
+    monkeypatch.setattr(web.warm_saved, "_cache", _Cache())
+    monkeypatch.setattr(web.warm_saved, "HOST_SLOTS", HostSlots(quiet=0.5))
+
+    web.warm_saved.warm_saved(after=lambda: None)
+
+    assert not started.wait(0.3)
     assert started.wait(5.0)

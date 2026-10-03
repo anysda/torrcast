@@ -116,6 +116,18 @@ class HostSlots:
             now = self._clock()
             return min(self._calm + self._quiet - now, began + most - now)
 
+    def hold_off(self, sleep: Callable[[float], None] = time.sleep, most: float = MOST) -> None:
+        """Return once no search runs and :meth:`still` lets a warmup on the network.
+
+        ``most`` seconds at the longest: searches back to back do not hold it for good.
+        """
+        began = self._clock()
+        while self._clock() < began + most:
+            left = self.still(began, most)
+            if left <= 0 and not self._live:
+                return
+            sleep(min(left, LOOK) if left > 0 else LOOK)
+
     def after_search(self, began: float, most: float = MOST) -> float:
         """Seconds a shelf's background circle still waits, waiting since ``began``.
 

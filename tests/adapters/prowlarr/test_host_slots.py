@@ -60,3 +60,21 @@ def test_the_shelf_waits_only_behind_a_viewers_search() -> None:
     assert slots.after_search(100.0) == -10.0, "nor does the quiet hold it past 60 s"
     clock.now += 15.0
     assert slots.after_search(170.0) == 0.0
+
+
+def test_a_warmup_holds_off_fifteen_seconds_past_the_start_and_every_search() -> None:
+    clock = _Clock()
+    slots = HostSlots(clock)
+
+    def sleep(seconds: float) -> None:
+        clock.now += seconds
+        if clock.now == 110.0:
+            with slots.live():  # a search ends ten seconds into the wait
+                pass
+
+    slots.hold_off(sleep)
+    assert clock.now == 125.0, "15 s after the search that ended at 110"
+    clock.now = 200.0
+    with slots.live():
+        slots.hold_off(lambda seconds: setattr(clock, "now", clock.now + seconds))
+    assert clock.now == 260.0, "a search that never ends holds it 60 s at the longest"

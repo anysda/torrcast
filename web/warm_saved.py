@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, HostSlots
 from torrcast.ports.state_store.slot import store
 from web.shelf_warm_targets import shelf_warm_targets
 from web.shelves import _cache
@@ -26,11 +27,21 @@ def warm_saved(after: Callable[[], object] | None = None) -> None:
     if after is None:
         _cache.start()
         return
-    threading.Thread(target=_start_after, args=(after,), daemon=True, name="shelves-after").start()
+    threading.Thread(
+        target=_start_after, args=(after, HOST_SLOTS), daemon=True, name="shelves-after"
+    ).start()
 
 
-def _start_after(after: Callable[[], object]) -> None:
+def _start_after(after: Callable[[], object], slots: HostSlots) -> None:
+    """Start the rebuild once the map is built and the hosts are quiet.
+
+    The rebuild's feed asked every indexer with an empty text right after the start, and the
+    first search's own texts stood behind it in Prowlarr's host queues: its names ended at
+    4.69 s against 3.06 s with the rebuild waiting the quiet (stand, 15 cold searches each).
+    A page that asks for the shelves still starts them at once (``ShelvesCache.get``).
+    """
     after()
+    slots.hold_off()
     _cache.start()
 
 
