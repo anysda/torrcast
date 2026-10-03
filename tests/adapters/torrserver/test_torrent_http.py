@@ -6,7 +6,8 @@ import pytest
 import requests
 
 from tests.fakes.torrent_file import torrent
-from torrcast.adapters.torrserver.torrent_http import TorrentHttp
+from torrcast.adapters.torrserver.describe import BARE
+from torrcast.adapters.torrserver.torrent_http import HAS_INFO, TorrentHttp
 
 KEY, DATA = torrent()
 
@@ -95,6 +96,25 @@ def test_the_state_is_read_from_the_list_which_never_wakes_a_closed_torrent(
     assert TorrentHttp("http://ts/").stat(KEY) == 1
     assert TorrentHttp("http://ts/").stat("ff" * 20) is None
     assert sent[0] == ("http://ts/torrents", {"action": "list"}, 5.0)
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"stat": 1, "torrent_size": 734003200},  # GotInfo потока поверх живой раздачи
+        {"stat": 0, "file_stats": [{"id": 1}]},  # повторный add, клиент ещё держит описание
+    ],
+)
+def test_a_torrent_that_already_has_its_description_never_reads_as_bare(
+    monkeypatch: pytest.MonkeyPatch, item: dict[str, Any]
+) -> None:
+    listed = _Response(payload=[{"hash": KEY, **item}])
+    monkeypatch.setattr(requests, "post", lambda url, **kw: listed)
+
+    state = TorrentHttp("http://ts").stat(KEY)
+
+    assert state == HAS_INFO
+    assert state not in BARE
 
 
 def test_an_unreachable_service_reads_as_gone(monkeypatch: pytest.MonkeyPatch) -> None:

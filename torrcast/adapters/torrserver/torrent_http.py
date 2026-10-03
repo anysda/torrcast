@@ -10,6 +10,8 @@ FETCH_TIMEOUT: Final = 10.0
 CALL_TIMEOUT: Final = 5.0
 #: Больше описание не бывает: потолок от мусора вместо .torrent.
 MAX_BYTES: Final = 8 * 1024 * 1024
+#: ``TorrentWorking``: так ``stat`` отвечает за раздачу, у которой описание уже есть.
+HAS_INFO: Final = 3
 
 
 class TorrentHttp:
@@ -34,7 +36,13 @@ class TorrentHttp:
         return data if data[:1] == b"d" and len(data) <= MAX_BYTES else None
 
     def stat(self, torrent_hash: str) -> int | None:
-        """``stat`` раздачи из ``list``: он, в отличие от ``get``, закрытую не поднимает."""
+        """``stat`` раздачи из ``list``: он, в отличие от ``get``, закрытую не поднимает.
+
+        🔴 Описание уже есть (в ответе ``torrent_size``) - :data:`HAS_INFO` при любом ``stat``.
+        Служба пишет ``stat`` 1 на каждый ``GotInfo`` потока, а повторный ``add`` поверх
+        раздачи, которую клиент ещё держит, - 0. Повторная подача такой раздаче вешает
+        замок клиента навсегда: ``add`` больше не отвечает ни для одной раздачи.
+        """
         import requests
 
         try:
@@ -48,6 +56,8 @@ class TorrentHttp:
         for item in payload if isinstance(payload, list) else []:
             if isinstance(item, dict) and str(item.get("hash", "")).casefold() == torrent_hash:
                 value = item.get("stat")
+                if item.get("torrent_size") or item.get("file_stats"):
+                    return HAS_INFO
                 return value if isinstance(value, int) else None
         return None
 
@@ -65,4 +75,4 @@ class TorrentHttp:
             return False
 
 
-__all__ = ["CALL_TIMEOUT", "FETCH_TIMEOUT", "MAX_BYTES", "TorrentHttp"]
+__all__ = ["CALL_TIMEOUT", "FETCH_TIMEOUT", "HAS_INFO", "MAX_BYTES", "TorrentHttp"]
