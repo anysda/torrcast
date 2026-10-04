@@ -39,3 +39,10 @@ def test_the_year_the_query_named_comes_first() -> None:
     assert [p.year for p in menu_order(pictures)] == [1995, 2004, 2026]
     assert [p.year for p in menu_order(pictures, "Призрак в доспехах 2026")] == [2026, 1995, 2004]
     assert [p.year for p in menu_order(pictures, "Призрак в доспехах 2031")] == [1995, 2004, 2026]
+
+
+def test_a_year_that_ends_the_pictures_own_name_is_its_name() -> None:
+    """«Бегуший по лезвию 2049» склеился в картину 2049 года: он не картина названного года."""
+    pictures = [_picture("Бегущий по лезвию 2049", 2017), _picture("Бегуший по лезвию 2049", 2049)]
+
+    assert menu_order(pictures, "Бегущий по лезвию 2049") == menu_order(pictures)

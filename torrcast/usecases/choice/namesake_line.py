@@ -9,6 +9,7 @@ from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._namesake import _namesake
 from torrcast.usecases.choice.asked_kind import asked_kind
 from torrcast.usecases.choice.liveliness import liveliness
+from torrcast.usecases.choice.taken_line import taken_line
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -22,9 +23,14 @@ def namesake_line(plans: list[Plan], taken: int, asked: str) -> str:
     (других картин, а не частей - у частей своё правило), и называет ход к ним -
     ``--menu``, за которым стоят варианты. Число сидов названо, потому что «самая живая»
     без числа была бы просьбой поверить на слово.
+
+    TC-1398: тёзку года, названного запросом, берут и не самую живую. Тогда «самая живая»
+    была бы неправдой, и строка - обычная строка взятия :func:`taken_line`.
     """
     others = [n for n in asked_kind(plans) if n != taken and _namesake(plans, n, taken)]
     plan = plans[taken - 1]
+    if any(liveliness(plans[n - 1]) > liveliness(plan) for n in others):
+        return taken_line(plans, taken, asked)
     return phrase(
         "choice.namesake_taken",
         picture=_named(plan.picture),

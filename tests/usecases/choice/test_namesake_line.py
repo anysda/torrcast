@@ -55,3 +55,13 @@ def test_only_the_namesakes_are_counted_not_the_whole_menu() -> None:
         others=1,
         asked="мумия",
     ), "«Мумия возвращается» - не тёзка"
+
+
+def test_a_namesake_taken_by_the_year_named_is_not_called_the_liveliest() -> None:
+    """«мумия 2017» взяла 2017-ю при живейшей 1999-й: «самая живая» была бы неправдой."""
+    mummy = parts(("Мумия", 1999, 300), ("Мумия", 2017, 58))
+
+    with outside(Outside()):
+        line = namesake_line(mummy, 2, "мумия 2017")
+
+    assert line == phrase("choice.taken", picture="Мумия (2017)", total=2, asked="мумия 2017")

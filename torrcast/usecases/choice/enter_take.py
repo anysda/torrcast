@@ -119,7 +119,7 @@ def enter_take(
                     note=series_taken_line(plans, taken, asked),
                     why="сериал под одним именем с фильмом",
                 )
-            if taken := namesake_take(plans):
+            if taken := namesake_take(plans, asked):
                 return Take(taken, note=namesake_line(plans, taken, asked), why="тёзки по году")
     if note := part_one_swap(plans, asked):
         if not menu:

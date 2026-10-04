@@ -19,6 +19,7 @@ from torrcast.domain.in_digits import in_digits
 from torrcast.domain.nearest_group import _nearest_group
 from torrcast.domain.nearly_named import nearly_named
 from torrcast.domain.numbered import _numbered
+from torrcast.domain.of_asked_year import of_asked_year
 from torrcast.domain.picture import Picture
 from torrcast.domain.richer_namesake import _richer_namesake
 from torrcast.domain.slugify import slugify
@@ -145,8 +146,7 @@ def pick_franchise(
 
 def _of_year(query: str, found: list[Picture]) -> list[Picture]:
     # TC-1398: the year named narrows the franchise here too, else 1995 stood above 2026
-    year = asked_year(query)[1]
-    return [p for p in found if p.year == year] or found
+    return of_asked_year(found, query) or found
 
 
 def _asked_otherwise(

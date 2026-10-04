@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, outside, parts, plan
+from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.choice.namesake_take import namesake_take
 
 
@@ -70,3 +71,36 @@ def test_namesakes_of_the_other_kind_are_out_of_the_take() -> None:
 
     with outside(Outside()):
         assert namesake_take(vikings) == 0, "тёзки считаются внутри названного типа"
+
+
+def test_the_namesake_of_the_year_named_is_taken() -> None:
+    """TC-1398: «Призрак в доспехах 2026» - год назван, и живой фильм 1995 года не подмена ему."""
+    ghost = [
+        plan("Призрак в доспехах", 1995, seeders=300),
+        plan("Призрак в доспехах", 2026, kind="tv", seeders=60),
+    ]
+
+    with outside(Outside()):
+        assert namesake_take(ghost) == 1
+        assert namesake_take(ghost, "Призрак в доспехах 2026") == 2
+        assert namesake_take(ghost, "Призрак в доспехах 2031") == 1
+
+
+def test_enter_takes_the_namesake_of_the_year_named() -> None:
+    """Enter спрашивает взятие тёзки тем же запросом: «Мумия 2017» не уезжает в 1999 год."""
+    mummy = parts(("Мумия", 1999, 300), ("Мумия", 2017, 58))
+
+    with outside(Outside()):
+        assert enter_take(mummy, "Мумия").number == 1
+        assert enter_take(mummy, "Мумия 2017").number == 2
+
+
+def test_a_dead_namesake_of_the_year_named_leaves_the_liveliest() -> None:
+    """Год назван, но играть картине этого года нечем: берётся самая живая, как прежде."""
+    ghost = [
+        plan("Призрак в доспехах", 1995, seeders=300),
+        plan("Призрак в доспехах", 2026, kind="tv", seeders=1),
+    ]
+
+    with outside(Outside()):
+        assert namesake_take(ghost, "Призрак в доспехах 2026") == 1
