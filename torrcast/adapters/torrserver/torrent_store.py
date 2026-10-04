@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Final
 
 from torrcast.adapters.filesystem.state.state_path import state_path
+from torrcast.adapters.torrserver.upload_mark import UploadMark
 
 #: Сколько описаний держать: одно - десятки килобайт, полка закладок много меньше.
 CAP: Final = 200
@@ -55,6 +56,7 @@ class TorrentStore:
             files = sorted(path.parent.glob("*.torrent"), key=lambda p: p.stat().st_mtime)
             for old in files[: max(0, len(files) - CAP)]:
                 old.unlink(missing_ok=True)
+                old.with_name(UploadMark.name(old.stem)).unlink(missing_ok=True)
         except OSError:
             return
 

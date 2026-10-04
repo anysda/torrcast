@@ -9,6 +9,9 @@
 Поэтому подача проверяет снятие под тем же замком, под которым встаёт в работу, а снятие
 ждёт конца идущей подачи и выдерживает :data:`SETTLE` после неё.
 
+Подачу из другого процесса того же экземпляра снятие видит по метке на диске
+(:class:`~torrcast.adapters.torrserver.upload_mark.UploadMark`) и выдерживает так же.
+
 Ждёт не зовущий, а свой поток снятия: ``drop`` зовёт и отбор показа (``keep_only`` до старта
 показа), и снос под замком стенда, а клик до кадра этих секунд не должен. Поток не
 служебный (не ``daemon``): выход процесса дожидается ``rem``, иначе раздача пережила бы его.
@@ -24,6 +27,7 @@ from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.describe import describe
 from torrcast.adapters.torrserver.torrent_http import CALL_TIMEOUT, TorrentHttp
 from torrcast.adapters.torrserver.torrent_store import STORE
+from torrcast.adapters.torrserver.upload_mark import UploadMark
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,6 +45,7 @@ class Describer:
     def __init__(self, clock: Clock = CLOCK) -> None:
         self._lock = threading.Condition()
         self._clock = clock
+        self._marks = UploadMark(STORE.folder, clock)
         self._closed: set[str] = set()
         self._running: set[str] = set()
         self._delivering: set[str] = set()
@@ -50,8 +55,9 @@ class Describer:
     def close(self, torrent_hash: str, remove: Callable[[], bool]) -> bool:
         """Снять раздачу: описание ей больше не подаётся до нового ``add``.
 
-        Без подачи рядом ``remove`` зовётся сразу и его ответ возвращается. Подача идёт или
-        прошло меньше :data:`SETTLE` - ``remove`` уходит в поток снятия, ответ ``True``.
+        Без подачи рядом ``remove`` зовётся сразу и его ответ возвращается. Подача (своя или
+        другого процесса) идёт или прошло меньше :data:`SETTLE` - ``remove`` уходит в поток
+        снятия, ответ ``True``.
         """
         key = torrent_hash.casefold()
         with self._lock:
@@ -59,8 +65,10 @@ class Describer:
             if key in self._settling:
                 return True  # снятие той же раздачи уже ждёт в своём потоке
             at = self._uploaded.get(key)
-            busy = key in self._delivering or (
-                at is not None and at + SETTLE > self._clock.monotonic()
+            busy = (
+                key in self._delivering
+                or (at is not None and at + SETTLE > self._clock.monotonic())
+                or self._marks.left(key, SETTLE) is not None
             )
             if busy:
                 self._settling.add(key)
@@ -77,7 +85,8 @@ class Describer:
             with self._lock:
                 self._lock.wait_for(lambda: key not in self._delivering, CALL_TIMEOUT)
                 at = self._uploaded.pop(key, None)
-            left = 0.0 if at is None else at + SETTLE - self._clock.monotonic()
+            mine = 0.0 if at is None else at + SETTLE - self._clock.monotonic()
+            left = max(mine, self._marks.left(key, SETTLE, CALL_TIMEOUT) or 0.0)
             if left > 0:
                 self._clock.sleep(left)
         finally:
@@ -111,7 +120,10 @@ class Describer:
             self._delivering.add(key)
         ok = False
         try:
-            ok = http.upload(key, data)
+            with self._marks.delivering(key) as stamp:
+                ok = http.upload(key, data)
+                if ok:
+                    stamp()
         finally:
             with self._lock:
                 self._delivering.discard(key)
