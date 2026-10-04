@@ -38,10 +38,12 @@ class TorrentHttp:
     def stat(self, torrent_hash: str) -> int | None:
         """``stat`` раздачи из ``list``: он, в отличие от ``get``, закрытую не поднимает.
 
-        🔴 Описание уже есть (в ответе ``torrent_size``) - :data:`HAS_INFO` при любом ``stat``.
+        🔴 Описание уже есть (в ответе ``file_stats``) - :data:`HAS_INFO` при любом ``stat``.
         Служба пишет ``stat`` 1 на каждый ``GotInfo`` потока, а повторный ``add`` поверх
         раздачи, которую клиент ещё держит, - 0. Повторная подача такой раздаче вешает
         замок клиента навсегда: ``add`` больше не отвечает ни для одной раздачи.
+        ``torrent_size`` признаком не служит: раздаче, поднятой из базы службы, он приходит
+        из записи в базе ещё до описания (``GetTorrent`` в ``server/torr/apihelper.go``).
         """
         import requests
 
@@ -56,7 +58,7 @@ class TorrentHttp:
         for item in payload if isinstance(payload, list) else []:
             if isinstance(item, dict) and str(item.get("hash", "")).casefold() == torrent_hash:
                 value = item.get("stat")
-                if item.get("torrent_size") or item.get("file_stats"):
+                if item.get("file_stats"):
                     return HAS_INFO
                 return value if isinstance(value, int) else None
         return None

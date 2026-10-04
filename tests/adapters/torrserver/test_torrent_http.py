@@ -101,7 +101,7 @@ def test_the_state_is_read_from_the_list_which_never_wakes_a_closed_torrent(
 @pytest.mark.parametrize(
     "item",
     [
-        {"stat": 1, "torrent_size": 734003200},  # GotInfo потока поверх живой раздачи
+        {"stat": 1, "torrent_size": 734003200, "file_stats": [{"id": 1}]},  # GotInfo потока
         {"stat": 0, "file_stats": [{"id": 1}]},  # повторный add, клиент ещё держит описание
     ],
 )
@@ -115,6 +115,15 @@ def test_a_torrent_that_already_has_its_description_never_reads_as_bare(
 
     assert state == HAS_INFO
     assert state not in BARE
+
+
+def test_a_size_from_the_service_database_alone_still_reads_as_bare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listed = _Response(payload=[{"hash": KEY, "stat": 1, "torrent_size": 734003200}])
+    monkeypatch.setattr(requests, "post", lambda url, **kw: listed)
+
+    assert TorrentHttp("http://ts").stat(KEY) == 1
 
 
 def test_an_unreachable_service_reads_as_gone(monkeypatch: pytest.MonkeyPatch) -> None:
