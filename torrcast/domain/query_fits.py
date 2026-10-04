@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from torrcast.domain.asked_year import asked_year
@@ -22,7 +23,9 @@ def query_fits(query: str) -> Callable[[RawResult], bool]:
     Год человек берёт из нашего же меню («Призрак в доспехах 2026», TC-777), серию называет
     сам («хорошая жена s1e1»). Не назвал ни того ни другого - подходит любая строка: гадать
     за человека нечего. Год в имени картины («Бегущий по лезвию 2049») читается как год, и
-    такая строка не подойдёт: круг тогда просто ждёт кворум, как ждал без строк вовсе.
+    строка подходит ещё и тогда, когда несёт весь запрос подряд: на стенде 04.10 ни одна
+    строка «Бегущий по лезвию 2049 (2017)» не подходила годом, и текстовый круг ждал Knaben
+    до его ответа (5.38 с тёплым поиском, ядро ответило к +1.77).
 
     Подходит только строка, которой картина года может играть дефолтом: живая
     (:data:`ALIVE_SEEDERS`) и не названный HEVC (:func:`is_candidate` его не берёт). На
@@ -35,9 +38,12 @@ def query_fits(query: str) -> Callable[[RawResult], bool]:
     if year is None and not series:
         return _any
 
+    asked = _words(query)
+
     def fits(row: RawResult) -> bool:
         # the year the name parse finds, without the rest of the parse: rows of other years are many
-        if year is not None and _find_year(_normalize(row.title))[0] != year:
+        title = _normalize(row.title)
+        if year is not None and _find_year(title)[0] != year and asked not in _words(title):
             return False
         if row.seeders < ALIVE_SEEDERS:
             return False
@@ -45,6 +51,11 @@ def query_fits(query: str) -> Callable[[RawResult], bool]:
         return not release.is_hevc and (not series or release.kind == "tv")
 
     return fits
+
+
+def _words(text: str) -> str:
+    """Слова текста через пробел и в пробелах по краям: так слово не совпадёт с куском другого."""
+    return " " + " ".join(re.sub(r"[\W_]+", " ", text.casefold()).split()) + " "
 
 
 __all__ = ["query_fits"]

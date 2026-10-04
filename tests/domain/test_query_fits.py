@@ -52,3 +52,10 @@ def test_a_row_of_the_year_that_cannot_lead_the_menu_does_not_fit() -> None:
 
 def test_a_query_without_a_year_still_takes_a_dead_row() -> None:
     assert query_fits("Призрак в доспехах")(_row(_FILM_1995, seeders=0))
+
+
+def test_a_year_that_is_part_of_the_name_fits_a_row_carrying_the_whole_query() -> None:
+    fits = query_fits("Бегущий по лезвию 2049")
+    assert fits(_row("Бегущий по лезвию 2049 / Blade Runner 2049 (2017) BDRip 1080p"))
+    assert not fits(_row("Бегущий по лезвию / Blade Runner (1982) BDRip 1080p"))
+    assert not fits(_row("Бегущий по лезвию 20490 (2017) BDRip 1080p"))
