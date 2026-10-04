@@ -40,12 +40,36 @@ class _Ask:
     judge: threading.Lock = field(default_factory=threading.Lock)
     #: The circle stopped waiting for it inside its budget: the others had brought rows.
     waived: bool = False
+    #: Its host slot's start (:meth:`~torrcast.adapters.prowlarr.host_slots.HostSlots.claim`).
+    slot: float = 0.0
+    #: Set by :func:`_drop` while the request still waits for its slot: it is never sent.
+    stop: bool = False
+    left: bool = False  # the request has gone to Prowlarr: there is no taking it back
 
 
 #: Requests on their way, by URL: one text goes to one indexer once at a time. Two circles of
 #: one search sent Knaben the same text 4 s apart, and the second stood behind the first there.
 _FLYING: dict[str, _Ask] = {}
 _FLYING_LOCK = threading.Lock()
+
+
+def _drop(ask: _Ask) -> bool:
+    """Keep a request still waiting for its host slot from going; whether it was kept back.
+
+    A circle of names that ended before its name left stopped waiting for it, and nobody reads
+    the rows it would bring: sent, it only took the host's slot. On the stand a search's names
+    left Knaben's queue after the search had answered, and the next search's text and its
+    second-language circle stood behind two of them (20:36:54 and 20:36:58, 04.10, the worst
+    warm search at 11.5 s).
+    """
+    with _FLYING_LOCK:
+        if ask.left or ask.done.is_set():
+            return False
+        ask.stop = True
+        for url in [url for url, one in _FLYING.items() if one is ask]:
+            del _FLYING[url]
+    ask.done.set()
+    return True
 
 
 def _in_flight(api: ProwlarrApi, query: str, limit: int, num: int) -> _Ask | None:
@@ -60,7 +84,7 @@ def _follow(twin: _Ask, budget: float) -> _Ask:
     The answer is the twin's, and so is its one verdict to the book (``judge``): one request
     is one outcome, whichever circle tells it.
     """
-    ask = _Ask(name=twin.name, budget=budget, judge=twin.judge)
+    ask = _Ask(name=twin.name, budget=budget, judge=twin.judge, left=True)  # holds no slot
 
     def work() -> None:
         twin.done.wait()
@@ -104,6 +128,10 @@ def spawn_ask(
         # ответ на границе, а поздний ответ опорного мог доехать в долив.
         if (hold := max(0.0, queued - PACE / 2)) > 0:
             time.sleep(hold)
+        with _FLYING_LOCK:
+            ask.left = not ask.stop
+        if not ask.left:
+            return
         life = response_budget(name) + queued - hold
         ask.rows, ask.ms, ask.err = ask_indexer(api.get_json, url, life)
         with _FLYING_LOCK:

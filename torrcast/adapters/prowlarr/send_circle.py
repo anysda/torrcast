@@ -57,10 +57,12 @@ def send_circle(
         cut = min(budgets(name), cap) if cap else budgets(name)
         if (twin := _in_flight(api, text, limit, num)) is not None:
             asked.append(_follow(twin, cut))
-        elif (queued := slots.draw(name, cut, spare=joint is not None)) is not None:
+        elif (slot := slots.claim(name, cut, spare=joint is not None)) is not None:
+            queued, start = slot
             core = joint is not None and wait_indexer(name) and not quorum_indexer(name)
             wait = (min(cut + queued, cap) if cap else cut + queued) if core else cut
             asked.append(spawn_ask(api, text, limit, num, name, wait, queued))
+            asked[-1].slot = start
             slots.sent(name, asked[-1].done)
         else:
             unsent.append((name, cut))

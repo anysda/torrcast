@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable, Sequence
 
 from torrcast.adapters.prowlarr.circle_wait import circle_wait
+from torrcast.adapters.prowlarr.drop_unsent import drop_unsent
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, HostSlots
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
@@ -35,19 +36,16 @@ class IndexerCircle:
         self.slots = slots
         self.slack = slack
         self.budget_of = budget_of
-        #: Сколько строк отдал каждый ответивший - по именам.
-        self.counts: dict[str, int] = {}
-        #: Сколько миллисекунд каждый ответивший держал круг.
-        self.spent: dict[str, int] = {}
-        #: Кто не уложился в свой бюджет, в порядке круга.
-        self.lost: list[str] = []
+        self.counts: dict[str, int] = {}  # сколько строк отдал каждый ответивший
+        self.spent: dict[str, int] = {}  # сколько миллисекунд каждый ответивший держал круг
+        self.lost: list[str] = []  # кто не уложился в свой бюджет, в порядке круга
         self.waived: list[str] = []  # quorum the viewer's text stopped waiting for (circle_wait)
         #: 🔴 TC-510. Кто ответил нам за ЭТОТ поиск - хоть строкой, хоть честным нулём.
         #: Копится по всем кругам поиска, а не по последнему: клиент живёт ровно один
         #: поиск, и вопрос «было ли чем искать» - вопрос о поиске целиком.
         self.answered: set[str] = set()
-        #: Опоздавшие: круг ушёл по опорным, а эти ещё в пути (TC-118).
-        self._late: list[_Ask] = []
+        self.brought = False  # some circle of this search brought rows (late_wait)
+        self._late: list[_Ask] = []  # круг ушёл по опорным, а эти ещё в пути (TC-118)
         #: Спрошенные ПЕРВОЙ строкой поиска - только для :meth:`inflight` (TC-1126): сам
         #: круг по ним не ждёт и не судит, кто молчун. Отрезанные кругом - в ``_left``.
         self._asked: list[_Ask] = []
@@ -138,6 +136,9 @@ class IndexerCircle:
         core = circle_wait(
             asked, names=joint is not None, began=began, slack=self.slack, unsent=unsent, fits=fits
         )
+        if joint is not None:  # a name not gone yet would only hold its host's next slot
+            self._unsent += drop_unsent(asked, self.slots)
+            asked = [ask for ask in asked if not ask.stop]
         got: list[list[RawResult]] = []
         why_lost: InfraError | None = None
         with self._lock:  # a peek sees an ask either taken or left, never both
@@ -159,6 +160,7 @@ class IndexerCircle:
                 # Честный ноль - тоже ответ (TC-510): каталог свой источник показал, и
                 # пустота такого поиска - это «нет такого фильма», а не «нечем искать».
                 self.answered.add(ask.name)
+                self.brought = self.brought or bool(ask.rows)
                 got.append(ask.rows)
                 self.counts[ask.name] = len(ask.rows)
         return got, why_lost

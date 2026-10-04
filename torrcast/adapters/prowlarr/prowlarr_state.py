@@ -147,6 +147,15 @@ class _State:
         """Сколько секунд цели этот поиск ещё не потратил (TC-228)."""
         return goal_spare(time.monotonic() - self._began)
 
+    def late_wait(self) -> float:
+        """How long an empty circle waits the late ones (TC-318): only while nothing is found.
+
+        A search with rows from an earlier circle has something to show: its empty
+        second-language circle waited YTS the rest of the goal, 1.5 s, for "khodyachie
+        mertvetsy 2026" (stand 04.10, YTS answered nothing 17 s later).
+        """
+        return 0.0 if self._circle.brought else self.spare()
+
     def circle_cap(self) -> float:
         """Потолок бюджета СЛЕДУЮЩЕГО круга: остаток цели, но не ниже :attr:`cap_floor`."""
         return max(self.spare(), self.cap_floor)

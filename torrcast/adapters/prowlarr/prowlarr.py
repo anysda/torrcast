@@ -152,7 +152,7 @@ class Prowlarr(_State):
         # показа, а выбор между «ничего не нашлось» и картиной.
         # A names client shows nothing by itself: waiting here held the whole round.
         waiting = self.waiting()
-        if not any(got) and self.joint is None and (rows := self.late(wait=self.spare())):
+        if not any(got) and self.joint is None and (rows := self.late(wait=self.late_wait())):
             got.append(rows)
         circle_trace(
             got=self._circle.counts,

@@ -75,13 +75,24 @@ class HostSlots:
 
     def draw(self, name: str, budget: float, *, spare: bool = False) -> float | None:
         """As :meth:`take`, and the seconds the request stands in the host's queue."""
+        slot = self.claim(name, budget, spare=spare)
+        return None if slot is None else slot[0]
+
+    def claim(self, name: str, budget: float, *, spare: bool = False) -> tuple[float, float] | None:
+        """As :meth:`draw`, with the slot's start on this clock for :meth:`give_back`."""
         with self._lock:
             now = self._clock()
             start = max(now, self._free.get(name, now))
             if spare and start - now >= budget:
                 return None
             self._free[name] = start + self._pace
-            return start - now
+            return start - now, start
+
+    def give_back(self, name: str, start: float) -> None:
+        """A request drawn at ``start`` never left for Prowlarr: the host's last slot is free."""
+        with self._lock:
+            if self._free.get(name) == start + self._pace:
+                self._free[name] = start
 
     def sent(self, name: str, done: threading.Event) -> None:
         """A request to ``name`` is in flight until ``done`` is set."""
