@@ -60,6 +60,7 @@ class HostSlots:
         self._ended: float | None = None  # the end of the last live search, none yet
         self._lock = threading.Lock()
         self._free: dict[str, float] = {}
+        self._lead: dict[str, float] = {}  # where the last request that is always sent starts
         self._flight: dict[str, list[threading.Event]] = {}
         self._turn = threading.Condition(self._lock)
         self._live = 0
@@ -68,8 +69,11 @@ class HostSlots:
         """Draw ``name``'s next slot for a request waited ``budget`` seconds.
 
         ``spare`` is a request the search can do without, the picture's names: one whose slot
-        starts at its budget or later could not answer in it, so it is not sent at all and
-        leaves the slot to the next one. The viewer's text is always sent: it makes the tiles.
+        starts its budget or more past the viewer's text could not answer in it, so it is not
+        sent at all and leaves the slot to the next one. The viewer's text is always sent: it
+        makes the tiles. Its own queue is not the names' to pay: a text 1.03 s behind the last
+        search's name sent neither name, and "Ходячие мертвецы 2026" lost the 2010 series to
+        two more circles, 7.5 s where 3.1 (stand 05.10).
         """
         return self.draw(name, budget, spare=spare) is not None
 
@@ -83,8 +87,10 @@ class HostSlots:
         with self._lock:
             now = self._clock()
             start = max(now, self._free.get(name, now))
-            if spare and start - now >= budget:
+            if spare and start - max(now, self._lead.get(name, now)) >= budget:
                 return None
+            if not spare:
+                self._lead[name] = start
             self._free[name] = start + self._pace
             return start - now, start
 

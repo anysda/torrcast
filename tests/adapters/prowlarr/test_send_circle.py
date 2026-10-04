@@ -51,7 +51,7 @@ def test_the_cap_cuts_every_budget_and_the_viewers_text_is_always_sent() -> None
 def test_a_name_behind_the_queue_comes_back_unsent_with_its_budget() -> None:
     slots = HostSlots(_Clock())
     slots.take("RuTor", 3.0)
-    slots.take("RuTor", 3.0)
+    slots.take("RuTor", 3.0, spare=True)  # the last search's text and name
     names, unsent = _sent(slots, "", cap=4.0)
     assert names == ["Knaben"], "RuTor waits behind the queue, JacRed is carried by another client"
     assert unsent == [("RuTor", 3.0)]

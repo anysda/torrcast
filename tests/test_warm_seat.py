@@ -24,6 +24,7 @@ def _calm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(HOST_SLOTS, "_calm", time.monotonic() - 100.0)
     monkeypatch.setattr(HOST_SLOTS, "_flight", {})
     monkeypatch.setattr(HOST_SLOTS, "_free", {})
+    monkeypatch.setattr(HOST_SLOTS, "_lead", {})
 
 
 def _round() -> NamedRound:

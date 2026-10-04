@@ -30,20 +30,30 @@ def test_a_name_that_cannot_start_in_its_budget_is_not_sent() -> None:
     assert slots._free["RuTor"] == 100.0 + 2 * PACE, "the unsent name drew no slot"
 
 
+def test_the_names_budget_counts_from_the_viewers_text() -> None:
+    clock = _Clock()
+    slots = HostSlots(clock)
+    assert slots.take("RuTor", 3.0) and slots.take("RuTor", 3.0, spare=True)  # the last search
+    clock.now += 3.0
+    assert slots.draw("RuTor", 3.0) == 1.0, "the next text stands a second behind that name"
+    assert slots.take("RuTor", 3.0, spare=True), "two seconds past the text, as with no queue"
+    assert not slots.take("RuTor", 3.0, spare=True), "four past it is still the budget's"
+
+
 def test_the_queue_empties_with_time() -> None:
     clock = _Clock()
     slots = HostSlots(clock)
-    for _ in range(3):
-        slots.take("RuTor", 3.0)
+    slots.take("RuTor", 3.0)
+    slots.take("RuTor", 3.0, spare=True)
     assert not slots.take("RuTor", 3.0, spare=True)
-    clock.now += 3 * PACE
+    clock.now += PACE
     assert slots.take("RuTor", 3.0, spare=True)
 
 
 def test_the_process_keeps_one_queue() -> None:
     first, second = (IndexerCircle(ProwlarrApi("http://p", "KEY")) for _ in range(2))
-    for _ in range(2):
-        first.slots.take("RuTor", 3.0)
+    first.slots.take("RuTor", 3.0)
+    first.slots.take("RuTor", 3.0, spare=True)
     assert not second.slots.take("RuTor", 3.0, spare=True), "a new search sees the old queue"
     assert "RuTor" in HOST_SLOTS._free
 

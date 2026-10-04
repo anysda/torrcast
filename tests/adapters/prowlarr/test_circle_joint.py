@@ -191,8 +191,9 @@ def test_an_unsent_name_does_not_leave_the_circle_waiting_the_rest_in_full() -> 
 def test_a_name_left_unsent_keeps_the_search_from_being_whole(queued: bool, whole: bool) -> None:
     client = _swarm(rows=5)
     client.beside("")
-    for _ in range(3 if queued else 0):
-        HOST_SLOTS.take("RuTor", 3.0)  # the searches before drew these slots
+    if queued:  # the search before drew these slots: its text and a name
+        HOST_SLOTS.take("RuTor", 3.0)
+        HOST_SLOTS.take("RuTor", 3.0, spare=True)
     client.search("Cars 2006")
     assert client._circle.unheard() == (("RuTor",) if queued else ())
     assert client.whole() is whole, "nobody heard RuTor, so nothing proves the catalogue"
