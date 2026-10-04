@@ -43,6 +43,18 @@ def test_public_rows_become_cardigann_rows() -> None:
     assert row["title"] == "Матрица 1999 1080p Dub"
     assert row["seeders"] == 42
     assert row["leechers"] == 3
+    # Unix seconds: Prowlarr spent ~40 ms of CPU a row guessing the format of "2026-08-11".
+    assert row["date"] == "1786406400"
+
+
+def test_a_release_day_out_of_shape_is_the_epoch() -> None:
+    answer = {
+        "results": [
+            {"title": "t", "magnet": "m", "created_at": "вчера"},
+            {"title": "u", "magnet": "n"},
+        ]
+    }
+    assert [row["date"] for row in adapter.search("t", lambda *_a: answer)] == ["0", "0"]
 
 
 def test_jacred_seasons_are_carried_in_a_parseable_title_marker() -> None:
