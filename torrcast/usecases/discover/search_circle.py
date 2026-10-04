@@ -21,6 +21,7 @@ from torrcast.usecases.choice._named import _also, _different_display_names, _ti
 from torrcast.usecases.discover._ask import _notify
 from torrcast.usecases.discover._no_season import _no_season
 from torrcast.usecases.discover._nothing import _nothing
+from torrcast.usecases.discover._passport_ahead import _passport_ahead
 from torrcast.usecases.discover._plan_menu import _plans
 from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
@@ -109,6 +110,7 @@ def _circle(
     _notify(on_indexer, source)
     client = ToldIndexer(source)
     progress.phase(phrase("discover.search_phase", query=name))
+    _passport_ahead(passport or _search_state._search_passport, name)
     # A part number is the franchise's business: only a plain name is recognized by the map.
     first = NamedRound(source)
     raw, named = first.ask(client, spawn, on_indexer, name, query if index is None else "")
