@@ -156,13 +156,11 @@ class TorrServer:
         return {str(i["hash"]).casefold() for i in payload if isinstance(i, dict) and i.get("hash")}
 
     def drop(self, torrent_hash: str) -> bool:
-        DESCRIBER.closed(torrent_hash)
-        return self._torrent_action("rem", torrent_hash)
+        return DESCRIBER.close(torrent_hash, lambda: self._torrent_action("rem", torrent_hash))
 
     def park(self, torrent_hash: str) -> bool:
         """Закрыть раздачу, кэш на диске оставить: ``drop`` службы, в отличие от ``rem``."""
-        DESCRIBER.closed(torrent_hash)
-        return self._torrent_action("drop", torrent_hash)
+        return DESCRIBER.close(torrent_hash, lambda: self._torrent_action("drop", torrent_hash))
 
     def _torrent_action(self, action: str, torrent_hash: str) -> bool:
         try:

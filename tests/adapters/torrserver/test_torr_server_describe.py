@@ -1,5 +1,6 @@
 """Службу раздач и описатель связывают ``add`` и снятие раздачи."""
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -28,8 +29,10 @@ class _Response:
 class _Session:
     def __init__(self, payload: Any = None) -> None:
         self.payload = payload
+        self.sent: list[object] = []
 
-    def post(self, *_args: object, **_kwargs: object) -> _Response:
+    def post(self, *_args: object, **kwargs: object) -> _Response:
+        self.sent.append(kwargs.get("json"))
         return _Response(self.payload)
 
 
@@ -43,15 +46,21 @@ def test_an_added_torrent_is_handed_to_the_describer(monkeypatch: pytest.MonkeyP
     assert asked == [("http://torrserver", "abc")]
 
 
-@pytest.mark.parametrize("action", ["drop", "park"])
+@pytest.mark.parametrize(("method", "action"), [("drop", "rem"), ("park", "drop")])
 def test_a_closed_torrent_is_off_limits_to_the_describer(
-    action: str, monkeypatch: pytest.MonkeyPatch
+    method: str, action: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shut: list[str] = []
-    monkeypatch.setattr(DESCRIBER, "closed", shut.append)
+
+    def close(torrent_hash: str, remove: Callable[[], bool]) -> bool:
+        shut.append(torrent_hash)
+        return remove()
+
+    monkeypatch.setattr(DESCRIBER, "close", close)
     server = TorrServer("http://torrserver")
-    server._session = _Session()  # type: ignore[assignment]
+    session = _Session()
+    server._session = session  # type: ignore[assignment]
 
-    getattr(server, action)("abc")
-
+    assert getattr(server, method)("abc") is True
     assert shut == ["abc"]
+    assert session.sent == [{"action": action, "hash": "abc"}]

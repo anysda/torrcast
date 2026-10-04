@@ -99,7 +99,7 @@ def test_a_torrent_of_another_release_is_refused_and_not_kept() -> None:
 
 def test_a_torrent_this_process_dropped_is_not_brought_back() -> None:
     _linked()
-    DESCRIBER.closed(KEY)
+    DESCRIBER.close(KEY, lambda: True)
     service = _Service()
 
     assert service.run() == "dropped"

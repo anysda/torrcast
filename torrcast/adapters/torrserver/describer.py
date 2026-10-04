@@ -8,6 +8,10 @@
 уже закрыт, ``WaitInfo`` берёт nil и падает в горутине, которую никто не перехватывает.
 Поэтому подача проверяет снятие под тем же замком, под которым встаёт в работу, а снятие
 ждёт конца идущей подачи и выдерживает :data:`SETTLE` после неё.
+
+Ждёт не зовущий, а свой поток снятия: ``drop`` зовёт и отбор показа (``keep_only`` до старта
+показа), и снос под замком стенда, а клик до кадра этих секунд не должен. Поток не
+служебный (не ``daemon``): выход процесса дожидается ``rem``, иначе раздача пережила бы его.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ from torrcast.adapters.torrserver.torrent_http import CALL_TIMEOUT, TorrentHttp
 from torrcast.adapters.torrserver.torrent_store import STORE
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from torrcast.ports.clock import Clock
 
 #: Сколько снятие выжидает после поданного описания. На стенде ``rem`` через 0-20 мс ронял
@@ -39,21 +45,47 @@ class Describer:
         self._running: set[str] = set()
         self._delivering: set[str] = set()
         self._uploaded: dict[str, float] = {}
+        self._settling: set[str] = set()
 
-    def closed(self, torrent_hash: str) -> None:
-        """Раздачу снимают: описание ей больше не подаётся до нового ``add``.
+    def close(self, torrent_hash: str, remove: Callable[[], bool]) -> bool:
+        """Снять раздачу: описание ей больше не подаётся до нового ``add``.
 
-        Возвращается, когда ``rem`` безопасен: подача этой раздачи не идёт, а со своей
-        удачной подачи прошло :data:`SETTLE`. Без подачи рядом - сразу.
+        Без подачи рядом ``remove`` зовётся сразу и его ответ возвращается. Подача идёт или
+        прошло меньше :data:`SETTLE` - ``remove`` уходит в поток снятия, ответ ``True``.
         """
         key = torrent_hash.casefold()
         with self._lock:
             self._closed.add(key)
-            self._lock.wait_for(lambda: key not in self._delivering, CALL_TIMEOUT)
-            at = self._uploaded.pop(key, None)
-        left = 0.0 if at is None else at + SETTLE - self._clock.monotonic()
-        if left > 0:
-            self._clock.sleep(left)
+            if key in self._settling:
+                return True  # снятие той же раздачи уже ждёт в своём потоке
+            at = self._uploaded.get(key)
+            busy = key in self._delivering or (
+                at is not None and at + SETTLE > self._clock.monotonic()
+            )
+            if busy:
+                self._settling.add(key)
+            else:
+                self._uploaded.pop(key, None)
+        if not busy:
+            return remove()
+        threading.Thread(target=self._settle, args=(key, remove), name=f"settle-{key}").start()
+        return True
+
+    def _settle(self, key: str, remove: Callable[[], bool]) -> None:
+        """Дождаться конца подачи и :data:`SETTLE` после неё, потом снять."""
+        try:
+            with self._lock:
+                self._lock.wait_for(lambda: key not in self._delivering, CALL_TIMEOUT)
+                at = self._uploaded.pop(key, None)
+            left = 0.0 if at is None else at + SETTLE - self._clock.monotonic()
+            if left > 0:
+                self._clock.sleep(left)
+        finally:
+            with self._lock:
+                self._settling.discard(key)
+                again = key not in self._closed  # пока ждали, раздачу добавили заново
+        if not again:
+            remove()
 
     def dropped(self, torrent_hash: str) -> bool:
         with self._lock:
