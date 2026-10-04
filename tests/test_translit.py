@@ -667,7 +667,7 @@ def test_the_titled_number_reaches_the_season_top_up_whole() -> None:
     plans, said = search_circle(client, "бен 10 s2e1", about)
 
     assert about.asked, "добор до справки дошёл"
-    assert set(about.asked) == {"бен 10"}, "справку спросили целой строкой, а не обрубком «бен»"
+    assert set(about.asked) == {"бен 10"}, "добор спросил справку целой строкой, а не обрубком"
     assert "Ben 10 S02" in client.asked
     assert phrase("reinforce.season_note", season=2, query="Ben 10 S02") in said
     assert plans
@@ -872,7 +872,7 @@ def test_a_subtitle_query_needs_no_second_round() -> None:
     plans, said = search_circle(client, "кольца власти", about)
 
     assert client.asked == ["кольца власти"], "лишнего круга по индексерам не нужно"
-    assert about.asked == [], "справку тоже не тревожим: пул полон"
+    assert about.asked == [], "справку тоже не ждём: пул полон"
     assert [p.picture.title for p in plans] == ["Властелин колец: Кольца власти"]
     assert len(plans[0].picture.releases) == 20
     assert "ничего не нашлось" not in said
@@ -1092,8 +1092,12 @@ def test_a_silent_answer_under_the_leads_kind_is_reasked_without_it() -> None:
     assert "добрал по «Serial Experiments Lain»" in said
 
 
-def test_the_full_pool_asks_neither_the_indexers_nor_the_reference() -> None:
-    """Счастливый путь не платит ни за второй круг по индексерам, ни за справку."""
+def test_the_full_pool_waits_neither_for_the_indexers_nor_for_the_reference() -> None:
+    """Счастливый путь не платит ни за второй круг по индексерам, ни за ожидание справки.
+
+    Справку спрашивают в фоне вместе с первым кругом, и этот вопрос подделка пишет в
+    ``ahead``; в ``asked`` попадает только то, чего поиск ждёт.
+    """
     client = _catalog(russian=THIN_POOL, latin=40, quality="BDRip 1080p")
     about = _knows({"психо": Origin(title="Psycho", year=1960)})
     plans, _said = search_circle(client, "психо", about)
