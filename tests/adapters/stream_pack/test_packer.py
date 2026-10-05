@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import io
-import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests.usecases.feed_pack.contended import contend
 from tests.usecases.feed_pack.world import FakeProc, hand, packer, signals
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.domain.infra_error import InfraError
@@ -111,12 +111,14 @@ def test_a_publish_after_the_exit_waits_for_the_parallel_pass(tmp_path: Path) ->
             laid.append(1)
 
     run = packer(tmp_path, kind=Counted, proc=FakeProc(code=0))
-    run.publish_lock.acquire()
-    threading.Timer(0.05, run.publish_lock.release).start()
-
-    run.publish()
+    lock = contend(run)
+    try:
+        run.publish()
+    finally:
+        lock.close()
 
     assert laid == [1], "без своего прохода последний кусок остаётся за краем - и уходит 404"
+    assert lock.waited.is_set()
 
 
 def test_a_halt_kills_the_process_but_keeps_what_is_already_published(tmp_path: Path) -> None:
