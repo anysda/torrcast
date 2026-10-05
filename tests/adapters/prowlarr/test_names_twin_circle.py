@@ -60,7 +60,9 @@ def test_the_twins_rows_are_rutors() -> None:
     assert found.indexer == "RuTor"
 
 
-def test_the_shelves_feed_never_asks_the_twin(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_shelves_feed_asks_the_twin_not_the_viewers_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     asked: list[str] = []
     monkeypatch.setattr(
         prowlarr_module, "feed_apart", lambda _get, urls, _within: asked.extend(urls)
@@ -71,4 +73,6 @@ def test_the_shelves_feed_never_asks_the_twin(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(client, "_roster", roster)
     monkeypatch.setattr(client._api, "open", lambda: None)
     client.feed(50, within=1.0)
-    assert [url.rsplit("&indexerIds=", 1)[1] for url in asked] == ["1", "2"], "RuTor once"
+    assert [url.rsplit("&indexerIds=", 1)[1] for url in asked] == ["1", "6"], (
+        "RuTor once, past the text"
+    )

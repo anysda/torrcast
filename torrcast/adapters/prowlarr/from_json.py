@@ -8,12 +8,12 @@ from torrcast.adapters.prowlarr.collect_rows import collect_rows
 from torrcast.adapters.prowlarr.torrent_links import LINKS
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.names_twin import twin_base
 from torrcast.domain.raw_result import RawResult
+from torrcast.domain.twin_base import twin_base
 
 
 def _tracker(name: Any) -> Any:
-    """A twin's rows are its tracker's (:mod:`~torrcast.domain.names_twin`): one catalog."""
+    """A twin's rows are its tracker's (:mod:`~torrcast.domain.twin_base`): one catalog."""
     return twin_base(name) if isinstance(name, str) else name
 
 

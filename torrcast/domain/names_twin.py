@@ -5,29 +5,23 @@ a search asks RuTor twice: the viewer's text and the picture's name. The text st
 the last search's name or the shelves' feed: "Тачки" answered at 5.45 s, its text left
 RuTor's queue at +2.0 (stand .123, 05.10). Prowlarr keys that queue by the host, so RuTor
 at a second name is a second queue: two requests sent at once answered in 0.6-0.9 s each,
-one name took 0.7 and 2.7-3.1 s (stand .123, 05.10).
+one name took 0.7 and 2.7-3.1 s (stand .123, 05.10). The shelves' feed goes there too:
+the viewer's text stood behind it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Final
 
 from torrcast.domain.circle_indexers import Indexer
-
-#: What a twin's name adds to its tracker's (the installer names it so).
-TWIN: Final = " names"
+from torrcast.domain.twin_base import TWIN, twin_base
 
 
-def twin_base(name: str) -> str:
-    """The tracker a twin stands for; any other name as it is."""
-    return name.removesuffix(TWIN)
+def names_twin(pairs: Sequence[Indexer], names: bool) -> list[Indexer]:
+    """Whom a request asks: the viewer's text never asks a twin, the rest ask it instead.
 
-
-def by_circle(pairs: Sequence[Indexer], names: bool) -> list[Indexer]:
-    """Whom a circle asks: the text never asks a twin, the names ask it instead of its tracker.
-
-    A tracker whose twin is not among ``pairs`` (not installed, down or banned) keeps the names.
+    The rest are the picture's names and the shelves' feed: background to the viewer's text.
+    A tracker whose twin is not among ``pairs`` (not installed, down or banned) keeps them.
     """
     if not names:
         return [pair for pair in pairs if not pair[1].endswith(TWIN)]
@@ -35,4 +29,4 @@ def by_circle(pairs: Sequence[Indexer], names: bool) -> list[Indexer]:
     return [pair for pair in pairs if pair[1] not in twins]
 
 
-__all__ = ["TWIN", "by_circle", "twin_base"]
+__all__ = ["names_twin"]
