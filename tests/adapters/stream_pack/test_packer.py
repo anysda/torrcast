@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -97,6 +98,25 @@ def test_a_busy_publish_is_skipped_and_never_queued(tmp_path: Path) -> None:
     run.publish()
 
     assert laid == [1], "занятый замок значит «решение уже принимают», а не «встань в очередь»"
+
+
+def test_a_publish_after_the_exit_waits_for_the_parallel_pass(tmp_path: Path) -> None:
+    """TC-1405: вышедший прогон ждёт чужой проход - край после выхода и есть вердикт 404."""
+    laid: list[int] = []
+
+    class Counted(Packer):
+        """Прогон, у которого сама выкладка ничего не делает: меряется замок вокруг неё."""
+
+        def _publish(self) -> None:
+            laid.append(1)
+
+    run = packer(tmp_path, kind=Counted, proc=FakeProc(code=0))
+    run.publish_lock.acquire()
+    threading.Timer(0.05, run.publish_lock.release).start()
+
+    run.publish()
+
+    assert laid == [1], "без своего прохода последний кусок остаётся за краем - и уходит 404"
 
 
 def test_a_halt_kills_the_process_but_keeps_what_is_already_published(tmp_path: Path) -> None:

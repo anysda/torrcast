@@ -117,8 +117,12 @@ class Packer(_State):
         return _finished(self)
 
     def publish(self) -> None:
-        """Выложить готовое одним заходом, не удерживая конкурирующий горячий путь."""
-        if not self.publish_lock.acquire(blocking=False):
+        """Выложить готовое одним заходом, не удерживая конкурирующий горячий путь.
+
+        🔴 TC-1405. Вышедший прогон чужой проход ждёт: последний кусок выкладывается только
+        после выхода, и край отсюда показ читает как вердикт «файла не будет» - 404.
+        """
+        if not self.publish_lock.acquire(blocking=self.proc.poll() is not None):
             return
         try:
             self._publish()
