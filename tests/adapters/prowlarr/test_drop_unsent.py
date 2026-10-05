@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import threading
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from tests.adapters.prowlarr.test_circle_joint import _Asked
 from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _RUTOR
+from tests.adapters.prowlarr.test_spawn_ask import asleep
 from torrcast.adapters.prowlarr import spawn_ask as spawn_ask_module
+from torrcast.adapters.prowlarr.drop_unsent import drop_unsent
 from torrcast.adapters.prowlarr.host_slots import PACE, HostSlots
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
+from torrcast.adapters.prowlarr.spawn_ask import _Ask
 
 
 class _Clock:
@@ -24,15 +26,15 @@ class _Clock:
         return self.now
 
 
-def test_only_the_hosts_last_slot_comes_back() -> None:
+def test_a_name_kept_back_under_another_slot_gives_it_back_all_the_same() -> None:
+    """Two names kept back from under a later one held its request 4 s on an empty queue."""
     slots = HostSlots(_Clock())
-    first = slots.claim("Knaben", 9.0)
-    second = slots.claim("Knaben", 9.0)
-    assert first == (0.0, 100.0) and second == (PACE, 100.0 + PACE)
-    slots.give_back("Knaben", 100.0)
-    assert slots._free["Knaben"] == 100.0 + 2 * PACE, "a slot under another one stays drawn"
-    slots.give_back("Knaben", 100.0 + PACE)
-    assert slots._free["Knaben"] == 100.0 + PACE, "the last one is free for the next request"
+    first, second, third = (slots.claim("Knaben", 9.0) for _ in range(3))
+    assert first and second and third
+    asked = [_Ask("Knaben", 3.0, slot=one.ticket) for one in (first, second)]
+    assert drop_unsent(asked, slots) == ["Knaben", "Knaben"]
+    assert slots.due("Knaben", third.ticket) == 0.0, "the third one moved up to the first slot"
+    assert slots.claim("Knaben", 9.0) == (PACE, 100.0 + PACE, 4), "the next is drawn behind it"
 
 
 @pytest.mark.parametrize("joint", ["", None])
@@ -44,14 +46,14 @@ def test_a_name_still_queued_when_its_circle_ends_is_never_sent(
     def hold(_seconds: float) -> None:
         gate.wait(2.0)
 
-    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=hold))
+    asleep(monkeypatch, hold)
     http = _Asked()
     slots = HostSlots()
     circle = IndexerCircle(
         ProwlarrApi("http://p", "KEY", http=http), slack=0.05, budget_of=lambda _n: 3.0, slots=slots
     )
     slots.take("Knaben", 3.0)  # the search before drew Knaben's slot: this name queues behind
-    drawn = slots._free["Knaben"]
+    drawn = slots._line._free["Knaben"]
     circle.run([_KNABEN, _RUTOR], "Cars 2006", 100, joint=joint)
     gate.set()
     sent: Any = [one for one in threading.enumerate() if one.name == "idx-Knaben"]
@@ -61,7 +63,7 @@ def test_a_name_still_queued_when_its_circle_ends_is_never_sent(
         assert 1 in http.texts, "the viewer's text is always sent"
         return
     assert 1 not in http.texts, "the name left after its circle had ended"
-    assert slots._free["Knaben"] == drawn, "its slot went back to the next request"
+    assert slots._line._free["Knaben"] == drawn, "its slot went back to the next request"
     assert "Knaben" not in circle.lost and "Knaben" in circle.unheard(), "unsent, not silent"
 
 
@@ -71,7 +73,7 @@ def test_a_search_waiting_on_anothers_request_hears_its_answer(
 ) -> None:
     """TC-1404: the circle that sent a name ends first, the one that followed it still waits."""
     gate = threading.Event()
-    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=lambda _s: gate.wait(5.0)))
+    asleep(monkeypatch, lambda _s: gate.wait(5.0))
     http = _Asked()
     api = ProwlarrApi("http://p", "KEY", http=http)
     slots = HostSlots(pace=1.2)

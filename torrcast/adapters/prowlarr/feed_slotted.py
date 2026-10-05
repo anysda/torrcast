@@ -1,11 +1,15 @@
 """The shelves' feed apart (:mod:`.feed_apart`), each request drawing its slot at its host.
 
 The feed is a request of ours in Prowlarr's host queues like any other, but it went past
-:class:`~torrcast.adapters.prowlarr.host_slots.HostSlots`: the picture of the queues did not
-know the twin held it, and the names asked there as at an idle host. After a restart the
-rebuild's feed left with the first search: "Тачки" 4.72-5.47 s, the names two slots behind
-it at the twin (stand, 05.10). Drawn, it sends the names where the queue is shorter
-(:mod:`.names_queue`).
+:class:`~torrcast.adapters.prowlarr.host_slots.HostSlots`: the viewer's text did not know
+RuTor held it and lost its rows past the budget ("Тачки", +3.28 s, stand, 05.10). Drawn,
+the text counts its budget past the feed's slot.
+
+RuTor's feed asks RuTor itself, not its twin: the twin's queue is the picture's names', and
+the feed there put the second name of the search after a restart four seconds in ("Тачки"
+4.72-5.47 s, stand, 05.10). A name never stands in RuTor's queue
+(:func:`~torrcast.domain.names_twin.names_twin`), so the viewer's text never waits behind
+one; behind the feed it waits a slot at most, once per shelves pass after a quiet spell.
 """
 
 from __future__ import annotations
@@ -26,18 +30,19 @@ from torrcast.domain.names_twin import names_twin
 def feed_slotted(
     api: ProwlarrApi, slots: HostSlots, usable: Sequence[Indexer], limit: int, within: float
 ) -> FeedRows:
-    """The feed of ``usable`` (a tracker with a twin through the twin), ``within`` seconds.
+    """The feed of ``usable`` (a tracker's twin left to the names), ``within`` seconds.
 
     Each request draws its indexer's slot as it leaves and stays in flight till it ends.
     """
     api.open()  # сессия поднимается ДО потоков: ленивая сборка внутри них - гонка
-    pairs = names_twin(usable, names=True)
+    pairs = names_twin(usable, names=False)
     urls = [feed_url(api.base_url, api.apikey, limit, number) for number, _name in pairs]
     names = dict(zip(urls, (name for _num, name in pairs), strict=True))
 
     def get(url: str) -> Any:
         done = threading.Event()
-        slots.claim(names[url], within)
+        if (slot := slots.claim(names[url], within)) is not None:
+            slots.leave(names[url], slot.ticket)  # it goes at once: nothing goes ahead of it
         slots.sent(names[url], done)
         try:
             return api.get_json(url)

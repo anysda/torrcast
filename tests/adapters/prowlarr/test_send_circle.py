@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from tests.adapters.prowlarr.test_host_slots import _Clock
 from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _NYAA, _RUTOR, _Http
-from torrcast.adapters.prowlarr import spawn_ask as spawn_ask_module
+from tests.adapters.prowlarr.test_spawn_ask import asleep
 from torrcast.adapters.prowlarr.host_slots import HostSlots
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.send_circle import send_circle
@@ -23,9 +22,7 @@ _BUDGETS = {"Knaben": 6.0, "RuTor": 3.0, "JacRed": 5.0, "Nyaa.si": 3.0}
 @pytest.fixture(autouse=True)
 def held(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """A queued request holds before it leaves (spawn_ask): here the hold is noted, not slept."""
-    holds: list[float] = []
-    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=holds.append))
-    return holds
+    return asleep(monkeypatch)
 
 
 def _sent(slots: HostSlots, joint: str | None, cap: float = 0.0) -> tuple[list[str], object]:
@@ -45,7 +42,7 @@ def test_the_cap_cuts_every_budget_and_the_viewers_text_is_always_sent() -> None
     slots.take("RuTor", 3.0)
     names, unsent = _sent(slots, None, cap=4.0)
     assert names == ["Knaben", "RuTor", "JacRed"] and unsent == []
-    assert slots._free["RuTor"] == 100.0 + 6.0, "the viewer's text drew the third slot"
+    assert slots._line._free["RuTor"] == 100.0 + 6.0, "the viewer's text drew the third slot"
 
 
 def test_a_name_behind_the_queue_comes_back_unsent_with_its_budget() -> None:
@@ -106,7 +103,7 @@ def test_a_name_in_the_host_s_queue_gets_its_budget_past_its_slot(held: list[flo
     )
     assert rutor.done.wait(1.0) and unsent == []
     assert rutor.budget == 3.0 + 2.0, "the circle waits it from its slot"
-    assert held == [1.0], "the request leaves half a pace before its slot"
+    assert sum(held) == 1.0, "the request leaves half a pace before its slot"
     assert http.budget[2] == 3.0 + 2.0 - 1.0, "and lives past its slot from there"
 
 
@@ -122,7 +119,7 @@ def test_one_outside_the_core_waits_no_queue_but_its_request_lives_past_it(
     )
     assert nyaa.done.wait(1.0)
     assert nyaa.budget == 3.0, "the circle does not wait its queue"
-    assert held == [1.0] and http.budget[3] == 3.0 + 2.0 - 1.0, "its late answer still comes"
+    assert sum(held) == 1.0 and http.budget[3] == 3.0 + 2.0 - 1.0, "its late answer still comes"
 
 
 def test_the_viewers_circle_waits_its_core_its_own_budget_past_any_queue(
@@ -137,7 +134,7 @@ def test_the_viewers_circle_waits_its_core_its_own_budget_past_any_queue(
     )
     assert knaben.done.wait(1.0)
     assert knaben.budget == 6.0, "the circle does not wait its queue"
-    assert held == [1.0] and http.budget[1] == response_budget("Knaben") + 1.0, (
+    assert sum(held) == 1.0 and http.budget[1] == response_budget("Knaben") + 1.0, (
         "its late answer still comes"
     )
 
@@ -153,4 +150,4 @@ def test_a_names_circle_never_waits_its_queue_past_the_circle_s_cap(held: list[f
     )
     assert rutor.done.wait(1.0) and unsent == []
     assert rutor.budget == 6.0, "the queue is waited only up to the circle's cap"
-    assert held == [3.0], "the request still leaves half a pace before its slot"
+    assert sum(held) == 3.0, "the request still leaves half a pace before its slot"

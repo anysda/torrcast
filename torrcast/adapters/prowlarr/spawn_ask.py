@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from torrcast.adapters.prowlarr.ask_indexer import ask_indexer
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
-from torrcast.adapters.prowlarr.host_slots import PACE
+from torrcast.adapters.prowlarr.host_slots import LOOK, PACE, HostSlots
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.search_url import search_url
 from torrcast.domain.cut_short import cut_short
@@ -40,8 +40,8 @@ class _Ask:
     judge: threading.Lock = field(default_factory=threading.Lock)
     #: The circle stopped waiting for it inside its budget: the others had brought rows.
     waived: bool = False
-    #: Its host slot's start (:meth:`~torrcast.adapters.prowlarr.host_slots.HostSlots.claim`).
-    slot: float = 0.0
+    #: Its ticket at the host (:meth:`~torrcast.adapters.prowlarr.host_slots.HostSlots.claim`).
+    slot: int = 0
     #: Set by :func:`_drop` while the request still waits for its slot: it is never sent.
     stop: bool = False
     left: bool = False  # the request has gone to Prowlarr: there is no taking it back
@@ -100,6 +100,19 @@ def _follow(api: ProwlarrApi, query: str, limit: int, num: int, budget: float) -
     return ask
 
 
+def _wait_slot(ask: _Ask, queued: float, line: tuple[HostSlots, int] | None) -> float:
+    """Wait till half a pace before the request's slot; the seconds left to the slot then."""
+    if line is None:
+        hold = max(0.0, queued - PACE / 2)
+        if hold > 0:
+            time.sleep(hold)
+        return queued - hold
+    slots, ticket = line
+    while (rest := slots.due(ask.name, ticket)) is not None and rest > PACE / 2 and not ask.stop:
+        time.sleep(min(rest - PACE / 2, LOOK))
+    return max(0.0, rest or 0.0)
+
+
 def spawn_ask(
     api: ProwlarrApi,
     query: str,
@@ -108,6 +121,7 @@ def spawn_ask(
     name: str,
     budget: float,
     queued: float = 0.0,
+    line: tuple[HostSlots, int] | None = None,
 ) -> _Ask:
     """Пустить один индексер отдельным потоком и вернуть место под его ответ.
 
@@ -119,6 +133,9 @@ def spawn_ask(
     arrival, and the names sent a few milliseconds after the viewer's text overtook it at
     every host (stand 01.10: "Призрак в доспехах" left Knaben's queue at +4.24, behind both
     names, and the show started at 12.7 s).
+    ``line`` is the slots and the request's ticket there: its slot moves while it waits
+    (:class:`~torrcast.adapters.prowlarr.slot_line.SlotLine`), so it looks again every
+    :data:`~torrcast.adapters.prowlarr.host_slots.LOOK` and leaves when the slot comes.
     """
     ask = _Ask(name=name, budget=budget)
     url = search_url(api.base_url, api.apikey, query, limit, num)
@@ -130,13 +147,14 @@ def spawn_ask(
         # Бюджет ``ask`` отвечает только за критический путь. Сам запрос живёт в
         # личный срок индексера, чтобы потолок второго круга не обрывал быстрый
         # ответ на границе, а поздний ответ опорного мог доехать в долив.
-        if (hold := max(0.0, queued - PACE / 2)) > 0:
-            time.sleep(hold)
+        rest = _wait_slot(ask, queued, line)
         with _FLYING_LOCK:
             ask.left = not ask.stop
         if not ask.left:
             return
-        life = response_budget(name) + queued - hold
+        if line is not None:
+            line[0].leave(name, line[1])
+        life = response_budget(name) + rest
         ask.rows, ask.ms, ask.err = ask_indexer(api.get_json, url, life)
         with _FLYING_LOCK:
             if _FLYING.get(url) is ask:

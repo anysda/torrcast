@@ -33,6 +33,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Final
 
+from torrcast.adapters.prowlarr.slot_line import SlotLine
 from torrcast.adapters.prowlarr.warmup import TAKEN, WARMUP
 from torrcast.ports.journal.slot import journal
 
@@ -59,9 +60,8 @@ class HostSlots:
         self._calm = clock()  # the start of the process counts as a search just ended
         self._ended: float | None = None  # the end of the last live search, none yet
         self._lock = threading.Lock()
-        self._free: dict[str, float] = {}
-        self._lead: dict[str, float] = {}  # where the last request that is always sent starts
         self._flight: dict[str, list[threading.Event]] = {}
+        self._line = SlotLine(pace)
         self._turn = threading.Condition(self._lock)
         self._live = 0
 
@@ -82,28 +82,27 @@ class HostSlots:
         slot = self.claim(name, budget, spare=spare)
         return None if slot is None else slot[0]
 
-    def claim(self, name: str, budget: float, *, spare: bool = False) -> tuple[float, float] | None:
-        """As :meth:`draw`, with the slot's start on this clock for :meth:`give_back`."""
+    def claim(self, name: str, budget: float, *, spare: bool = False) -> SlotLine.Slot | None:
+        """As :meth:`draw`, with its ticket in the line (:class:`SlotLine`)."""
         with self._lock:
-            now = self._clock()
-            start = max(now, self._free.get(name, now))
-            if spare and start - max(now, self._lead.get(name, now)) >= budget:
-                return None
-            if not spare:
-                self._lead[name] = start
-            self._free[name] = start + self._pace
-            return start - now, start
+            return self._line.draw(name, budget, self._clock(), spare=spare)
 
-    def give_back(self, name: str, start: float) -> None:
-        """A request drawn at ``start`` never left for Prowlarr: the host's last slot is free."""
+    def due(self, name: str, ticket: int) -> float | None:
+        """Seconds till the ticket's slot starts, as it stands now; None once it left."""
         with self._lock:
-            if self._free.get(name) == start + self._pace:
-                self._free[name] = start
+            start = self._line.start(name, ticket)
+            return None if start is None else start - self._clock()
 
-    def starts(self, name: str) -> float:
-        """Where ``name``'s next slot starts on this clock: now, while its queue is empty."""
+    def leave(self, name: str, ticket: int) -> None:
+        """The ticket's request went to Prowlarr: no later one goes ahead of it."""
         with self._lock:
-            return max(self._clock(), self._free.get(name, 0.0))
+            self._line.leave(name, ticket)
+
+    def give_back(self, name: str, ticket: int) -> None:
+        """The ticket's request never leaves for Prowlarr: the slots behind it move up."""
+        with self._turn:
+            self._line.give_back(name, ticket)
+            self._turn.notify_all()
 
     def sent(self, name: str, done: threading.Event) -> None:
         """A request to ``name`` is in flight until ``done`` is set."""
@@ -181,7 +180,7 @@ class HostSlots:
         with self._turn:
             while True:
                 now = self._clock()
-                lag = max((self._free.get(name, now) - now for name in names), default=0.0)
+                lag = max((self._line.lag(name, now) for name in names), default=0.0)
                 flying = any(
                     not one.is_set() for name in names for one in self._flight.get(name, [])
                 )

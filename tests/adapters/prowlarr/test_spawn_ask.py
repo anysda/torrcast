@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -10,9 +11,32 @@ import pytest
 
 from torrcast.adapters.prowlarr import spawn_ask as spawn_ask_module
 from torrcast.adapters.prowlarr.down_book import DOWN_BOOK
+from torrcast.adapters.prowlarr.host_slots import HostSlots
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.spawn_ask import spawn_ask
 from torrcast.domain.response_budget import response_budget
+
+
+def asleep(
+    monkeypatch: pytest.MonkeyPatch, then: Callable[[float], object] | None = None
+) -> list[float]:
+    """A queued request's holds are noted, not slept, and every slot counts them as gone by."""
+    holds: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        holds.append(seconds)
+        if then is not None:
+            then(seconds)
+
+    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=sleep))
+    due = HostSlots.due
+
+    def slept(slots: HostSlots, name: str, ticket: int) -> float | None:
+        left = due(slots, name, ticket)
+        return None if left is None else left - sum(holds)
+
+    monkeypatch.setattr(HostSlots, "due", slept)
+    return holds
 
 
 class _Http:
@@ -107,3 +131,21 @@ def _ask(api: ProwlarrApi, name: str) -> None:
     for thread in threading.enumerate():
         if thread.name == f"idx-{name}":
             thread.join(2.0)
+
+
+def test_a_queued_request_leaves_as_soon_as_its_slot_moves_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A name kept back ahead of it frees its slot: the request does not wait the old one out."""
+    slots = HostSlots(lambda: 100.0)
+    name, text = slots.claim("Knaben", 9.0), slots.claim("Knaben", 9.0)
+    assert name and text and text.queued == 2.0
+    held = asleep(monkeypatch, lambda _s: slots.give_back("Knaben", name.ticket))
+    http = _Http()
+    ask = spawn_ask(
+        ProwlarrApi("http://p", "KEY", http=http), "матрица", 100, 1, "Knaben", 7.0,
+        text.queued, (slots, text.ticket),
+    )  # fmt: skip
+    assert ask.done.wait(2.0) and http.asked, "it left"
+    assert held == [0.25], "one look, and the slot had come"
+    assert slots.due("Knaben", text.ticket) is None, "gone to Prowlarr: out of the line"

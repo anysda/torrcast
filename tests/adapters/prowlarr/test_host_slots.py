@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, PACE, HostSlots
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
@@ -18,7 +20,7 @@ class _Clock:
 def test_the_viewers_text_is_sent_however_long_the_queue() -> None:
     slots = HostSlots(_Clock())
     assert all(slots.take("RuTor", 3.0) for _ in range(4))
-    assert slots._free["RuTor"] == 100.0 + 4 * PACE
+    assert slots._line._free["RuTor"] == 100.0 + 4 * PACE
 
 
 def test_a_name_that_cannot_start_in_its_budget_is_not_sent() -> None:
@@ -27,7 +29,7 @@ def test_a_name_that_cannot_start_in_its_budget_is_not_sent() -> None:
     assert slots.take("RuTor", 3.0, spare=True), "the second slot starts in two seconds"
     assert not slots.take("RuTor", 3.0, spare=True), "the third starts at the budget"
     assert slots.take("YTS", 3.0, spare=True), "another host has its own queue"
-    assert slots._free["RuTor"] == 100.0 + 2 * PACE, "the unsent name drew no slot"
+    assert slots._line._free["RuTor"] == 100.0 + 2 * PACE, "the unsent name drew no slot"
 
 
 def test_the_names_budget_counts_from_the_viewers_text() -> None:
@@ -55,7 +57,7 @@ def test_the_process_keeps_one_queue() -> None:
     first.slots.take("RuTor", 3.0)
     first.slots.take("RuTor", 3.0, spare=True)
     assert not second.slots.take("RuTor", 3.0, spare=True), "a new search sees the old queue"
-    assert "RuTor" in HOST_SLOTS._free
+    assert "RuTor" in HOST_SLOTS._line._free
 
 
 def test_the_shelf_waits_only_behind_a_viewers_search() -> None:
@@ -90,11 +92,19 @@ def test_a_warmup_holds_off_fifteen_seconds_past_the_start_and_every_search() ->
     assert clock.now == 260.0, "a search that never ends holds it 60 s at the longest"
 
 
-def test_a_hosts_next_slot_starts_now_or_a_pace_behind_its_last() -> None:
+def test_the_viewers_text_never_waits_out_names_kept_back() -> None:
+    """Stand 05.10: a text stood 6.9 s at Knaben behind a shelf's two names that never left."""
     clock = _Clock()
     slots = HostSlots(clock)
-    assert slots.starts("RuTor") == 100.0, "an empty queue starts now"
-    slots.take("RuTor", 3.0)
-    assert slots.starts("RuTor") == 100.0 + PACE
-    clock.now += 5.0
-    assert slots.starts("RuTor") == 105.0, "a queue that drained starts now again"
+    assert slots.claim("Knaben", 6.0), "the shelf's text leaves at once"
+    names = [slots.claim("Knaben", 6.0, spare=True) for _ in range(2)]
+    clock.now += 0.05
+    text = slots.claim("Knaben", 6.0)
+    assert text, "behind the shelf's text, ahead of its names"
+    assert text.queued == pytest.approx(PACE - 0.05)
+    for name in names:
+        assert name
+        slots.give_back("Knaben", name.ticket)
+    assert slots.due("Knaben", text.ticket) == pytest.approx(PACE - 0.05)
+    after = slots.claim("Knaben", 6.0)
+    assert after and after.start == 100.0 + 2 * PACE, "the next is drawn right behind it"

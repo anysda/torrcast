@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 
 from torrcast.adapters.prowlarr.host_slots import HostSlots
-from torrcast.adapters.prowlarr.names_queue import names_queue
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.spawn_ask import _Ask, _follow, spawn_ask
 from torrcast.domain.circle_indexers import Indexer
@@ -52,7 +51,7 @@ def send_circle(
     """
     asked: list[_Ask] = []
     unsent: list[tuple[str, float]] = []
-    for num, name in names_twin(pairs, names=False) if joint is None else names_queue(slots, pairs):
+    for num, name in names_twin(pairs, names=joint is not None):
         text = joint_query(name, query, joint, along)
         if not text:
             continue
@@ -60,11 +59,11 @@ def send_circle(
         if (twin := _follow(api, text, limit, num, cut)) is not None:
             asked.append(twin)
         elif (slot := slots.claim(name, cut, spare=joint is not None)) is not None:
-            queued, start = slot
+            queued = slot.queued
             core = joint is not None and wait_indexer(name) and not quorum_indexer(name)
             wait = (min(cut + queued, cap) if cap else cut + queued) if core else cut
-            asked.append(spawn_ask(api, text, limit, num, name, wait, queued))
-            asked[-1].slot = start
+            asked.append(spawn_ask(api, text, limit, num, name, wait, queued, (slots, slot.ticket)))
+            asked[-1].slot = slot.ticket
             slots.sent(name, asked[-1].done)
         else:
             unsent.append((name, cut))

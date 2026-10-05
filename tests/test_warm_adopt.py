@@ -9,7 +9,8 @@ from collections.abc import Callable
 import pytest
 
 import web.warm_cache as warm_cache
-from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS
+from torrcast.adapters.prowlarr.host_slots import HOST_SLOTS, PACE
+from torrcast.adapters.prowlarr.slot_line import SlotLine
 from torrcast.usecases.select.plan import Plan
 from web.warm_cache import WarmCache
 from web.warm_priority import _hint
@@ -35,7 +36,7 @@ def _calm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(HOST_SLOTS, "_quiet", 0.0)
     monkeypatch.setattr(HOST_SLOTS, "_calm", time.monotonic() - 100.0)
     monkeypatch.setattr(HOST_SLOTS, "_flight", {})
-    monkeypatch.setattr(HOST_SLOTS, "_free", {})
+    monkeypatch.setattr(HOST_SLOTS, "_line", SlotLine(PACE))
 
 
 @pytest.mark.machine
