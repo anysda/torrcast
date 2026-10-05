@@ -2993,6 +2993,23 @@ retry_add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тел
         "⚠ так и не завелись: $missing - каталог без них неполный; повторный ./install.sh заведёт их, когда источник ответит"
 }
 
+# Двойник трекера (четвёртое поле INDEXERS) добавляется пробой самого трекера: в минуту
+# его молчания Prowlarr отвечает 400, как и ему. Замер: установка
+# поверх стоящей, rutor.info и rutor.is «не отвечают и через шим», двойник не встал, а
+# без него имена картины снова встают в очередь текста. Поэтому он держит политику своего
+# трекера (опорного): отказ - погода, и переспрос тот же (:func:`retry_add_indexers`).
+add_twins() {  # $1 - apikey; дальше пары «имя<TAB>тело»
+    local key="$1" list spec iname left=()
+    add_indexers "$@"
+    shift
+    list="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" 2>/dev/null)" || list='[]'
+    for spec in "$@"; do
+        IFS=$'\t' read -r iname _ <<<"$spec"
+        jq -e --arg n "$iname" 'any(.[]; .name==$n)' <<<"$list" >/dev/null 2>&1 || left+=("$spec")
+    done
+    [ "${#left[@]}" -eq 0 ] || retry_add_indexers "$key" "${left[@]}"
+}
+
 # 🔴 TC-259/TC-272. Снять бан с индексеров, которых Prowlarr увёл в недоступные.
 #
 # Prowlarr отпускает по своим часам, а не по здоровью источника: замер на стенде - канал
@@ -3224,7 +3241,7 @@ install_indexers() {
         || die "Prowlarr indexer schema has an unexpected shape - this version has an incompatible API" "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
     local spec def url extra own over body name
-    local late=() retry=() answer status first=1
+    local late=() twins=() retry=() answer status first=1
     for spec in "${INDEXERS[@]}"; do
         IFS='|' read -r def url extra own <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
@@ -3250,12 +3267,16 @@ install_indexers() {
         ' <<<"$schema")"
         # Тот, кому не место на критическом пути, уезжает в фон целиком (:func:`late_indexer`):
         # его тело собрано, а добавит его подоболочка уже после «готово». Двойник (своё
-        # имя) - тоже: роль закрывает его трекер, и запасным носителем он не становится.
-        if [ -n "$own" ] || late_indexer "$def"; then
+        # имя) - тоже, со своим переспросом (:func:`add_twins`); роль закрывает его трекер.
+        if [ -n "$own" ]; then
+            twins+=("$(printf '%s\t%s' "$name" "$body")")
+            continue
+        fi
+        if late_indexer "$def"; then
             late+=("$(printf '%s\t%s' "$name" "$body")")
             # Запасной носитель роли кладёт своё тело под руку гейту: если роль замолчит,
             # гейт заведёт его сам, не дожидаясь догрева (:data:`CATALOG_STANDBY`).
-            if [ -z "$own" ] && core_indexer "$def"; then
+            if core_indexer "$def"; then
                 catalog_standby_set "$def" "$(printf '%s\t%s' "$name" "$body")"
             fi
             continue
@@ -3335,6 +3356,11 @@ install_indexers() {
     done
     if [ "${#ready[@]}" -gt 0 ]; then
         late_run "indexer $names (may take up to two minutes to add)" "индексер $names (добавляется до двух минут)" add_indexers "$key" "${ready[@]}"
+    fi
+    if [ "${#twins[@]}" -gt 0 ]; then
+        names=""; for spec in "${twins[@]}"; do names="$names${names:+, }${spec%%$'\t'*}"; done
+        late_run "twin indexer $names (retried while its tracker is silent)" \
+            "двойник: индексер $names (переспросим, пока молчит его трекер)" add_twins "$key" "${twins[@]}"
     fi
     # Запасной, отказавший на добавлении у гейта, ждёт свою роль так же, как отказавший на
     # глазах: переспрос - привилегия носителей роли, и начинается он с полной паузы.

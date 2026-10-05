@@ -19,12 +19,12 @@ from torrcast.adapters.prowlarr.send_circle import send_circle
 _TWIN = (6, "RuTor names")
 
 
-def _sent(slots: HostSlots, joint: str | None) -> list[str]:
+def _sent(slots: HostSlots, joint: str | None, twin: bool = True) -> list[str]:
     api = ProwlarrApi("http://p", "KEY", http=_Http())
     asked, unsent = send_circle(
         api,
         slots,
-        [_KNABEN, _RUTOR, _TWIN],
+        [_KNABEN, _RUTOR, _TWIN] if twin else [_KNABEN, _RUTOR],
         "Cars",
         100,
         joint=joint,
@@ -46,6 +46,13 @@ def test_the_names_skip_the_queue_the_viewers_text_stands_in(
     slots.take("RuTor", 3.0)  # the viewer's text is at RuTor
     assert _sent(slots, "") == ["Knaben", "RuTor names"]
     assert holds == [], "the name left at once: the twin is a queue of its own"
+
+
+def test_without_the_twin_the_names_ask_rutor_as_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=lambda _s: None))
+    assert _sent(HostSlots(_Clock()), "", twin=False) == ["Knaben", "RuTor"]
 
 
 def test_the_viewers_text_never_asks_the_twin(monkeypatch: pytest.MonkeyPatch) -> None:

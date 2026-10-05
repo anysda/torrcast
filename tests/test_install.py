@@ -1051,7 +1051,7 @@ _STUB_SCHEMA = [
 
 
 def _stub_prowlarr(
-    fail: frozenset[str], silent: frozenset[str]
+    fail: frozenset[str], silent: frozenset[str], present: tuple[str, ...] = ()
 ) -> tuple[int, dict[str, list[float]]]:
     """Заглушка Prowlarr: отвечает как живой, но кого щупать успешно - решаем мы.
 
@@ -1061,7 +1061,10 @@ def _stub_prowlarr(
     добавление записывается с моментом: число обращений к индексеру и паузы между
     ними - то, ради чего замер (TC-697: дубль пробы в первую минуту).
     """
-    added: list[dict[str, object]] = []
+    added: list[dict[str, object]] = [
+        {**entry, "id": i + 1, "enable": True}
+        for i, entry in enumerate(e for e in _STUB_SCHEMA if e["name"] in present)
+    ]
     posts: dict[str, list[float]] = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -1141,9 +1144,10 @@ def _run_indexers(
     silent: frozenset[str] = frozenset(),
     retry_times: str = "1",
     retry_every: str = "1",
+    present: tuple[str, ...] = (),
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, list[float]]]:
-    """Прогнать фазу индексеров установки против заглушки Prowlarr."""
-    port, posts = _stub_prowlarr(fail, silent)
+    """Прогнать фазу индексеров установки против заглушки Prowlarr (``present`` уже в ней)."""
+    port, posts = _stub_prowlarr(fail, silent, present)
     (box / "prowlarr-data").mkdir(parents=True)
     (box / "prowlarr-data" / "config.xml").write_text("<Config><ApiKey>proba</ApiKey></Config>")
     env = {
@@ -1265,6 +1269,34 @@ def test_rutors_twin_for_the_names_is_added_late_under_its_own_name(tmp_path: Pa
     assert "added RuTor names" not in done.stdout, "двойник не на критическом пути"
     assert "indexer RuTor names" in _late_settled(box)
     assert len(posts["RuTor names"]) == 1 and len(posts["RuTor"]) == 1
+
+
+@pytest.mark.machine
+def test_a_twin_refused_while_its_tracker_is_silent_is_reasked_like_its_tracker(
+    tmp_path: Path,
+) -> None:
+    """Двойник заводится пробой своего трекера: отказ в минуту его молчания - погода,
+    и двойник переспрашивается, как опорный, а не ждёт ./install.sh."""
+    box = tmp_path / "двойник-отказ"
+    done, posts = _run_indexers(
+        box, fail=frozenset({"RuTor names"}), retry_times="3", retry_every="1"
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    late = _late_settled(box)
+    assert len(posts["RuTor names"]) == 3, f"проб двойника: {len(posts['RuTor names'])}"
+    assert "still failed: RuTor names" in late, late
+
+
+@pytest.mark.machine
+def test_an_update_over_a_prowlarr_without_the_twin_adds_only_the_twin(tmp_path: Path) -> None:
+    """Обновление (`cast --upgrade` зовёт тот же install.sh) поверх Prowlarr прошлой версии:
+    у него все индексеры, кроме двойника, - заводится двойник и только он."""
+    box = tmp_path / "обновление"
+    present = tuple(str(entry["name"]) for entry in _STUB_SCHEMA)  # всё, что знает прошлая
+    done, posts = _run_indexers(box, present=present)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "indexer RuTor names" in _late_settled(box)
+    assert sorted(posts) == ["RuTor names"], f"заведены заново: {sorted(posts)}"
 
 
 @pytest.mark.machine
