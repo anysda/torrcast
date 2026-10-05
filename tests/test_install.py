@@ -1051,7 +1051,11 @@ _STUB_SCHEMA = [
 
 
 def _stub_prowlarr(
-    fail: frozenset[str], silent: frozenset[str], present: tuple[str, ...] = ()
+    fail: frozenset[str],
+    silent: frozenset[str],
+    present: tuple[str, ...] = (),
+    tagged: dict[str, list[int]] | None = None,
+    bodies: dict[str, dict[str, object]] | None = None,
 ) -> tuple[int, dict[str, list[float]]]:
     """Заглушка Prowlarr: отвечает как живой, но кого щупать успешно - решаем мы.
 
@@ -1062,7 +1066,7 @@ def _stub_prowlarr(
     ними - то, ради чего замер (TC-697: дубль пробы в первую минуту).
     """
     added: list[dict[str, object]] = [
-        {**entry, "id": i + 1, "enable": True}
+        {**entry, "id": i + 1, "enable": True, "tags": (tagged or {}).get(str(entry["name"]), [])}
         for i, entry in enumerate(e for e in _STUB_SCHEMA if e["name"] in present)
     ]
     posts: dict[str, list[float]] = {}
@@ -1103,6 +1107,8 @@ def _stub_prowlarr(
                 return self._send(404, {"message": "нет такого"})
             body = json.loads(raw or b"{}")
             posts.setdefault(str(body.get("name")), []).append(time.monotonic())
+            if bodies is not None:
+                bodies[str(body.get("name"))] = body
             if body.get("name") in fail:
                 return self._send(400, [{"errorMessage": "Unable to connect to indexer"}])
             body["id"] = len(added) + 1
@@ -1145,9 +1151,11 @@ def _run_indexers(
     retry_times: str = "1",
     retry_every: str = "1",
     present: tuple[str, ...] = (),
+    tagged: dict[str, list[int]] | None = None,
+    bodies: dict[str, dict[str, object]] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, list[float]]]:
     """Прогнать фазу индексеров установки против заглушки Prowlarr (``present`` уже в ней)."""
-    port, posts = _stub_prowlarr(fail, silent, present)
+    port, posts = _stub_prowlarr(fail, silent, present, tagged, bodies)
     (box / "prowlarr-data").mkdir(parents=True)
     (box / "prowlarr-data" / "config.xml").write_text("<Config><ApiKey>proba</ApiKey></Config>")
     env = {
@@ -1297,6 +1305,21 @@ def test_an_update_over_a_prowlarr_without_the_twin_adds_only_the_twin(tmp_path:
     assert done.returncode == 0, done.stdout + done.stderr
     assert "indexer RuTor names" in _late_settled(box)
     assert sorted(posts) == ["RuTor names"], f"заведены заново: {sorted(posts)}"
+
+
+@pytest.mark.machine
+def test_the_twin_takes_its_trackers_tags_so_it_goes_through_the_same_proxy(
+    tmp_path: Path,
+) -> None:
+    """Из дома RuTor отвечает только через прокси Prowlarr, повешенный тегом на RuTor:
+    двойник без этого тега шёл бы напрямую и не вставал. Он берёт теги трекера."""
+    box = tmp_path / "прокси"
+    present = tuple(str(entry["name"]) for entry in _STUB_SCHEMA)
+    bodies: dict[str, dict[str, object]] = {}
+    done, _posts = _run_indexers(box, present=present, tagged={"RuTor": [1]}, bodies=bodies)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "indexer RuTor names" in _late_settled(box)
+    assert bodies["RuTor names"]["tags"] == [1], bodies["RuTor names"].get("tags")
 
 
 @pytest.mark.machine

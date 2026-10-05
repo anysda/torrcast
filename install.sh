@@ -2998,12 +2998,22 @@ retry_add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тел
 # поверх стоящей, rutor.info и rutor.is «не отвечают и через шим», двойник не встал, а
 # без него имена картины снова встают в очередь текста. Поэтому он держит политику своего
 # трекера (опорного): отказ - погода, и переспрос тот же (:func:`retry_add_indexers`).
+# Ходит он и тем же путём, что трекер: берёт его теги, а с ними его прокси Prowlarr.
+# Из дома RuTor отвечает только через прокси, повешенный на него человеком, и двойник
+# без тегов шёл бы напрямую и не вставал никогда.
 add_twins() {  # $1 - apikey; дальше пары «имя<TAB>тело»
-    local key="$1" list spec iname left=()
-    add_indexers "$@"
+    local key="$1" list spec iname ibody tags specs=() left=()
     shift
     list="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" 2>/dev/null)" || list='[]'
     for spec in "$@"; do
+        IFS=$'\t' read -r iname ibody <<<"$spec"
+        tags="$(jq -c --arg n "${iname% names}" 'first(.[] | select(.name==$n) | .tags) // []' \
+            <<<"$list" 2>/dev/null)" || tags='[]'
+        specs+=("$(printf '%s\t%s' "$iname" "$(jq -c --argjson t "${tags:-[]}" '.tags=$t' <<<"$ibody")")")
+    done
+    add_indexers "$key" "${specs[@]}"
+    list="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" 2>/dev/null)" || list='[]'
+    for spec in "${specs[@]}"; do
         IFS=$'\t' read -r iname _ <<<"$spec"
         jq -e --arg n "$iname" 'any(.[]; .name==$n)' <<<"$list" >/dev/null 2>&1 || left+=("$spec")
     done
