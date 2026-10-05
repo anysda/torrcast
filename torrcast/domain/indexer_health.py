@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.health_verdict import HealthLine, HealthVerdict
+from torrcast.domain.twin_follows import twin_follows
 
 #: Опорные источники каталога: те, без которых пул не беднеет, а пустеет (замер по
 #: журналу запросов: без метапоиска пул пуст у 72 запросов из 93, без обоих - у 97 из 99).
@@ -90,14 +91,16 @@ class IndexerHealth:
         """Кого вообще имеет смысл щупать живым поиском: включённых и с внятным номером."""
         if not isinstance(payload, list):
             return []
-        return [
-            (int(entry["id"]), str(entry["name"]))
-            for entry in payload
-            if isinstance(entry, dict)
-            and entry.get("enable", True)
-            and str(entry.get("id", "")).isdigit()
-            and isinstance(entry.get("name"), str)
-        ]
+        return twin_follows(
+            [
+                (int(entry["id"]), str(entry["name"]))
+                for entry in payload
+                if isinstance(entry, dict)
+                and entry.get("enable", True)
+                and str(entry.get("id", "")).isdigit()
+                and isinstance(entry.get("name"), str)
+            ]
+        )
 
     @staticmethod
     def answered(name: str, answer: str) -> HealthLine:

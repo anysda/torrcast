@@ -96,6 +96,16 @@ def test_выключенные_индексеры_в_список_не_попа
     assert roster.known() == ((1, "Knaben"), (2, "RuTor"))
 
 
+def test_двойник_выключенного_человеком_трекера_не_спрашивается() -> None:
+    """RuTor выключен руками: имена не уходят на второй хост его двойника."""
+    off = [
+        {"id": 2, "name": "RuTor", "enable": False},
+        {"id": 6, "name": "RuTor names", "enable": True},
+    ]
+    roster, _http = _roster(indexers=[_LIST[0], *off])
+    assert roster.known() == ((1, "Knaben"),)
+
+
 def test_список_спрашивается_один_раз_на_поиск() -> None:
     """Он локальный, но и лишний поход по нему стоит места на критическом пути."""
     roster, http = _roster()

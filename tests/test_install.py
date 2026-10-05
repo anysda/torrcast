@@ -1056,6 +1056,7 @@ def _stub_prowlarr(
     present: tuple[str, ...] = (),
     tagged: dict[str, list[int]] | None = None,
     bodies: dict[str, dict[str, object]] | None = None,
+    off: frozenset[str] = frozenset(),
 ) -> tuple[int, dict[str, list[float]]]:
     """Заглушка Prowlarr: отвечает как живой, но кого щупать успешно - решаем мы.
 
@@ -1065,9 +1066,17 @@ def _stub_prowlarr(
     добавление записывается с моментом: число обращений к индексеру и паузы между
     ними - то, ради чего замер (TC-697: дубль пробы в первую минуту).
     """
+    # Двойник («RuTor names») стоит в списке под своим именем поверх схемы своего трекера.
+    schema = {str(entry["name"]): entry for entry in _STUB_SCHEMA}
+    rows = [{**schema[name.removesuffix(" names")], "name": name} for name in present]
     added: list[dict[str, object]] = [
-        {**entry, "id": i + 1, "enable": True, "tags": (tagged or {}).get(str(entry["name"]), [])}
-        for i, entry in enumerate(e for e in _STUB_SCHEMA if e["name"] in present)
+        {
+            **entry,
+            "id": i + 1,
+            "enable": entry["name"] not in off,
+            "tags": (tagged or {}).get(str(entry["name"]), []),
+        }
+        for i, entry in enumerate(rows)
     ]
     posts: dict[str, list[float]] = {}
 
@@ -1153,9 +1162,11 @@ def _run_indexers(
     present: tuple[str, ...] = (),
     tagged: dict[str, list[int]] | None = None,
     bodies: dict[str, dict[str, object]] | None = None,
+    off: frozenset[str] = frozenset(),
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, list[float]]]:
-    """Прогнать фазу индексеров установки против заглушки Prowlarr (``present`` уже в ней)."""
-    port, posts = _stub_prowlarr(fail, silent, present, tagged, bodies)
+    """Прогнать фазу индексеров установки против заглушки Prowlarr (``present`` уже в ней,
+    ``off`` из них выключены человеком)."""
+    port, posts = _stub_prowlarr(fail, silent, present, tagged, bodies, off)
     (box / "prowlarr-data").mkdir(parents=True)
     (box / "prowlarr-data" / "config.xml").write_text("<Config><ApiKey>proba</ApiKey></Config>")
     env = {
@@ -1305,6 +1316,30 @@ def test_an_update_over_a_prowlarr_without_the_twin_adds_only_the_twin(tmp_path:
     assert done.returncode == 0, done.stdout + done.stderr
     assert "indexer RuTor names" in _late_settled(box)
     assert sorted(posts) == ["RuTor names"], f"заведены заново: {sorted(posts)}"
+
+
+@pytest.mark.machine
+def test_a_reinstall_over_a_prowlarr_with_the_twin_posts_nothing(tmp_path: Path) -> None:
+    """Повторная установка поверх Prowlarr, где двойник уже стоит: ни одного POST."""
+    box = tmp_path / "повтор"
+    present = (*(str(entry["name"]) for entry in _STUB_SCHEMA), "RuTor names")
+    done, posts = _run_indexers(box, present=present)
+    assert done.returncode == 0, done.stdout + done.stderr
+    _late_settled(box)
+    assert posts == {}, f"заведены заново: {sorted(posts)}"
+    assert "already installed: indexer RuTor names" in done.stdout, done.stdout
+
+
+@pytest.mark.machine
+def test_the_twin_of_a_tracker_disabled_by_hand_is_not_added(tmp_path: Path) -> None:
+    """RuTor выключен человеком: двойник не заводится и не ходит на второй хост."""
+    box = tmp_path / "выключен"
+    present = tuple(str(entry["name"]) for entry in _STUB_SCHEMA)
+    done, posts = _run_indexers(box, present=present, off=frozenset({"RuTor"}))
+    assert done.returncode == 0, done.stdout + done.stderr
+    _late_settled(box)
+    assert "RuTor names" not in posts, f"заведены: {sorted(posts)}"
+    assert "indexer RuTor names is not added: its tracker RuTor is disabled" in done.stdout
 
 
 @pytest.mark.machine

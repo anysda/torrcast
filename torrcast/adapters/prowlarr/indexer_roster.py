@@ -14,6 +14,7 @@ from torrcast.domain.failed_just_now import failed_just_now
 from torrcast.domain.heal_due import heal_due
 from torrcast.domain.indexer_budget import EXTRA_TIMEOUT
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.twin_follows import twin_follows
 
 _INDEXERS_PATH: Final = "/api/v1/indexer"
 #: Кого Prowlarr увёл в недоступные: список из одних заблокированных, с полями
@@ -55,9 +56,15 @@ class IndexerRoster:
             if not isinstance(payload, list):
                 return ()
             self._indexers = tuple(
-                (int(i["id"]), str(i.get("name") or i["id"]))
-                for i in payload
-                if isinstance(i, dict) and i.get("enable") and str(i.get("id", "")).isdigit()
+                twin_follows(
+                    [
+                        (int(i["id"]), str(i.get("name") or i["id"]))
+                        for i in payload
+                        if isinstance(i, dict)
+                        and i.get("enable")
+                        and str(i.get("id", "")).isdigit()
+                    ]
+                )
             )
         return self._indexers
 

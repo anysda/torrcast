@@ -3259,6 +3259,12 @@ install_indexers() {
             info "⚠ $def is absent from this Prowlarr version's schema - skipping" "⚠ $def нет в схеме этой версии Prowlarr - пропускаю"
             continue
         fi
+        # Двойник наследует выключатель своего трекера: RuTor, выключенный человеком,
+        # не должен получать запросы и под вторым именем хоста.
+        if [ -n "$own" ] && jq -e --arg n "$name" 'any(.[]; .name==$n and .enable==false)' <<<"$existing" >/dev/null; then
+            info "indexer $own is not added: its tracker $name is disabled" "индексер $own не заводится: его трекер $name выключен"
+            continue
+        fi
         name="${own:-$name}"
         if jq -e --arg n "$name" 'any(.[]; .name==$n)' <<<"$existing" >/dev/null; then
             skip "indexer $name" "индексер $name"

@@ -136,3 +136,12 @@ def test_a_disabled_core_source_counts_as_missing() -> None:
         line.startswith("ок")
         for line, _ in IndexerHealth.core([{"name": n} for n in CORE_INDEXERS])
     )
+
+
+def test_the_twin_of_a_tracker_disabled_by_hand_is_not_probed() -> None:
+    """Доктор не стучится на второй хост RuTor, выключенного человеком."""
+    payload = [
+        {"id": 2, "name": "RuTor", "enable": False},
+        {"id": 6, "name": "RuTor names", "enable": True},
+    ]
+    assert IndexerHealth.probed(payload) == []
