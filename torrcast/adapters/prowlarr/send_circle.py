@@ -9,6 +9,7 @@ from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.adapters.prowlarr.spawn_ask import _Ask, _follow, spawn_ask
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.joint_query import joint_query
+from torrcast.domain.names_twin import by_circle
 from torrcast.domain.quorum_indexer import quorum_indexer
 from torrcast.domain.wait_indexer import wait_indexer
 
@@ -50,7 +51,7 @@ def send_circle(
     """
     asked: list[_Ask] = []
     unsent: list[tuple[str, float]] = []
-    for num, name in pairs:
+    for num, name in by_circle(pairs, names=joint is not None):
         text = joint_query(name, query, joint, along)
         if not text:
             continue

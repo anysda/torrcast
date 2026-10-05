@@ -1256,6 +1256,18 @@ def test_the_installer_still_succeeds_when_the_core_sources_answer(tmp_path: Pat
 
 
 @pytest.mark.machine
+def test_rutors_twin_for_the_names_is_added_late_under_its_own_name(tmp_path: Path) -> None:
+    """Двойник RuTor - вторая очередь у Prowlarr для имён картины (names_twin): своё имя,
+    добавляется в догреве, на глазах человек его не ждёт и роль им не закрывается."""
+    box = tmp_path / "двойник"
+    done, posts = _run_indexers(box)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "added RuTor names" not in done.stdout, "двойник не на критическом пути"
+    assert "indexer RuTor names" in _late_settled(box)
+    assert len(posts["RuTor names"]) == 1 and len(posts["RuTor"]) == 1
+
+
+@pytest.mark.machine
 def test_a_refused_core_source_is_reasked_after_a_full_pause_not_twice_at_once(
     tmp_path: Path,
 ) -> None:

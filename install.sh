@@ -248,9 +248,14 @@ PL_VERSION="${TORRCAST_PL_VERSION:-v2.5.2.5491}"
 # регистрации, ни капчи, ни ключа - трекеры с логином здесь не появятся принципиально.
 # Knaben - метапоиск (агрегирует чужие каталоги и отдаёт infoHash), остальные прямые.
 # Недоступный из этой сети индексер просто не добавится и работать не помешает.
+# Четвёртое поле - своё имя: второй индексер того же определения (двойник, ниже).
 INDEXERS=(
     "Knaben|https://knaben.org/"       # метапоиск: широкий хвост каталога
     "rutor|https://rutor.info/"        # русские раздачи и озвучки
+    # Двойник RuTor для имён картины (torrcast/domain/names_twin.py): Prowlarr шагает
+    # запросы к одному хосту по 2 с, и текст зрителя стоял за именем прошлого поиска.
+    # Второе имя хоста - вторая очередь (замер: два запроса разом 0.6-0.9 с каждый).
+    "rutor|https://rutor.is/||RuTor names"
     "nyaasi|https://nyaa.si/"          # аниме
     "sukebeinyaasi|https://sukebei.nyaa.si/" # ещё один открытый каталог, тот же движок, что у nyaa.si
     "anilibria|http://localhost:9697/" # аниме с русской озвучкой
@@ -461,6 +466,8 @@ SHIMS=(
     # У rutor.is тот же каталог на соседнем адресе (замер: та же страница, 96132 Б с
     # обоих), поэтому это честный второй край, а не переименование первого.
     'rutor.info|/search/matrix||direct,direct:rutor.is,named'
+    # Имя двойника RuTor (INDEXERS): напрямую отсюда не отвечает, адрес берём у rutor.info.
+    'rutor.is|/search/matrix||direct:rutor.info,named'
     # У этого запасного имени нет, а без имени в рукопожатии его CDN отвечает 403 с обоих
     # адресов (замер, 0.1 с) - отсюда `named`. Ходить через шим ему нужно ради сжатия:
     # голая выдача этой пробы обрывается на 15 КБ и висит до таймаута, а сжатая - 4.8 КБ
@@ -3216,15 +3223,16 @@ install_indexers() {
     jq -e 'type == "array" and length > 0 and all(.[]; has("definitionName"))' <<<"$schema" >/dev/null 2>&1 \
         || die "Prowlarr indexer schema has an unexpected shape - this version has an incompatible API" "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
-    local spec def url extra over body name
+    local spec def url extra own over body name
     local late=() retry=() answer status first=1
     for spec in "${INDEXERS[@]}"; do
-        IFS='|' read -r def url extra <<<"$spec"
+        IFS='|' read -r def url extra own <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
         if [ -z "$name" ] || [ "$name" = null ]; then
             info "⚠ $def is absent from this Prowlarr version's schema - skipping" "⚠ $def нет в схеме этой версии Prowlarr - пропускаю"
             continue
         fi
+        name="${own:-$name}"
         if jq -e --arg n "$name" 'any(.[]; .name==$n)' <<<"$existing" >/dev/null; then
             skip "indexer $name" "индексер $name"
             continue
@@ -3234,19 +3242,20 @@ install_indexers() {
         over="$(jq -cn --arg u "$url" --arg e "${extra:-}" '
             ($e|split(" ")|map(select(length>0)|split("=")|{key:.[0],value:(.[1:]|join("="))})
              |from_entries) + {baseUrl:$u}')"
-        body="$(jq -c --arg d "$def" --argjson o "$over" '
+        body="$(jq -c --arg d "$def" --arg n "$name" --argjson o "$over" '
             .[]|select(.definitionName==$d)
-            |{name,implementation,configContract,definitionName,priority,protocol,
+            |{name:$n,implementation,configContract,definitionName,priority,protocol,
               enable:true, appProfileId:1, tags:[], added:"0001-01-01T00:00:00Z",
               fields:[.fields[]|{name, value:(if $o[.name] != null then $o[.name] else .value end)}]}
         ' <<<"$schema")"
         # Тот, кому не место на критическом пути, уезжает в фон целиком (:func:`late_indexer`):
-        # его тело собрано, а добавит его подоболочка уже после «готово».
-        if late_indexer "$def"; then
+        # его тело собрано, а добавит его подоболочка уже после «готово». Двойник (своё
+        # имя) - тоже: роль закрывает его трекер, и запасным носителем он не становится.
+        if [ -n "$own" ] || late_indexer "$def"; then
             late+=("$(printf '%s\t%s' "$name" "$body")")
             # Запасной носитель роли кладёт своё тело под руку гейту: если роль замолчит,
             # гейт заведёт его сам, не дожидаясь догрева (:data:`CATALOG_STANDBY`).
-            if core_indexer "$def"; then
+            if [ -z "$own" ] && core_indexer "$def"; then
                 catalog_standby_set "$def" "$(printf '%s\t%s' "$name" "$body")"
             fi
             continue

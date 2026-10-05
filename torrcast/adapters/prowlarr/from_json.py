@@ -8,7 +8,13 @@ from torrcast.adapters.prowlarr.collect_rows import collect_rows
 from torrcast.adapters.prowlarr.torrent_links import LINKS
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.names_twin import twin_base
 from torrcast.domain.raw_result import RawResult
+
+
+def _tracker(name: Any) -> Any:
+    """A twin's rows are its tracker's (:mod:`~torrcast.domain.names_twin`): one catalog."""
+    return twin_base(name) if isinstance(name, str) else name
 
 
 def from_json(payload: Any) -> list[RawResult]:
@@ -21,7 +27,13 @@ def from_json(payload: Any) -> list[RawResult]:
         raise InfraError(phrase("prowlarr.unexpected_answer"))
     LINKS.remember(payload)
     return collect_rows(
-        (i.get("title"), i.get("infoHash"), i.get("size"), i.get("seeders"), i.get("indexer"))
+        (
+            i.get("title"),
+            i.get("infoHash"),
+            i.get("size"),
+            i.get("seeders"),
+            _tracker(i.get("indexer")),
+        )
         for i in payload
         if isinstance(i, dict)
     )

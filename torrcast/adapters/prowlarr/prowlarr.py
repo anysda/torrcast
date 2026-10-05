@@ -21,6 +21,7 @@ from torrcast.domain.circle_indexers import circle_indexers
 from torrcast.domain.cut_short import cut_short
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.names_twin import by_circle
 from torrcast.domain.nothing_found import nothing_found
 from torrcast.domain.raw_result import RawResult
 
@@ -29,8 +30,7 @@ class Prowlarr(_State):
     """Каталог раздач за Prowlarr: круг по индексерам врозь и сведённая их выдача.
 
     Поля одного поиска - личные бюджеты, счёт молчунов и остаток цели - живут в
-    :mod:`torrcast.adapters.prowlarr.prowlarr_state`; здесь сам поиск и ничего кроме.
-    """
+    :mod:`torrcast.adapters.prowlarr.prowlarr_state`; здесь сам поиск и ничего кроме."""
 
     def search(self, query: str, limit: int = 100) -> list[RawResult]:
         """Найти раздачи во всех подключённых индексерах: :class:`InfraError` - Prowlarr
@@ -57,13 +57,13 @@ class Prowlarr(_State):
     def feed(self, limit: int = 200, within: float | None = None) -> list[FeedRow]:
         """Раздачи ленты без строки поиска; без ``within`` - одним общим запросом (TC-1110).
 
-        С ``within`` врозь, молчун стоит только срока (:mod:`.feed_apart`).
-        """
+        С ``within`` врозь, молчун стоит только срока (:mod:`.feed_apart`); двойник - тот же
+        трекер (:func:`~torrcast.domain.names_twin.by_circle`), его не спрашивают."""
         known = self._roster.known() if within is not None else ()
         if within is None or not known:
             return from_feed_json(self._api.get_json(feed_url(self.base_url, self.apikey, limit)))
         self._api.open()  # сессия поднимается ДО потоков: ленивая сборка внутри них - гонка
-        usable = self._roster.usable(known)[0]
+        usable = by_circle(self._roster.usable(known)[0], names=False)
         urls = [feed_url(self.base_url, self.apikey, limit, number) for number, _name in usable]
         return feed_apart(self._api.get_json, urls, within)
 
