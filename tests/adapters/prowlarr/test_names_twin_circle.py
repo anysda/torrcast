@@ -8,7 +8,7 @@ import pytest
 
 from tests.adapters.prowlarr.test_host_slots import _Clock
 from tests.adapters.prowlarr.test_indexer_circle import _KNABEN, _RUTOR, _Http
-from torrcast.adapters.prowlarr import prowlarr as prowlarr_module
+from torrcast.adapters.prowlarr import feed_slotted as feed_slotted_module
 from torrcast.adapters.prowlarr import spawn_ask as spawn_ask_module
 from torrcast.adapters.prowlarr.from_json import from_json
 from torrcast.adapters.prowlarr.host_slots import HostSlots
@@ -48,6 +48,17 @@ def test_the_names_skip_the_queue_the_viewers_text_stands_in(
     assert holds == [], "the name left at once: the twin is a queue of its own"
 
 
+def test_the_second_name_asks_rutor_while_the_feed_holds_the_twin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=lambda _s: None))
+    slots = HostSlots(_Clock())
+    slots.take("RuTor names", 15.0)  # the shelves' feed left with the search
+    slots.take("RuTor", 3.0)  # the viewer's text
+    assert _sent(slots, "") == ["Knaben", "RuTor names"]
+    assert _sent(slots, "") == ["Knaben", "RuTor"], "not a third slot behind the feed"
+
+
 def test_without_the_twin_the_names_ask_rutor_as_before(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -72,7 +83,7 @@ def test_the_shelves_feed_asks_the_twin_not_the_viewers_queue(
 ) -> None:
     asked: list[str] = []
     monkeypatch.setattr(
-        prowlarr_module, "feed_apart", lambda _get, urls, _within: asked.extend(urls)
+        feed_slotted_module, "feed_apart", lambda _get, urls, _within: asked.extend(urls)
     )
     client = Prowlarr("http://p/", "KEY")
     pairs = [_KNABEN, _RUTOR, _TWIN]

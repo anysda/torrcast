@@ -100,6 +100,11 @@ class HostSlots:
             if self._free.get(name) == start + self._pace:
                 self._free[name] = start
 
+    def starts(self, name: str) -> float:
+        """Where ``name``'s next slot starts on this clock: now, while its queue is empty."""
+        with self._lock:
+            return max(self._clock(), self._free.get(name, 0.0))
+
     def sent(self, name: str, done: threading.Event) -> None:
         """A request to ``name`` is in flight until ``done`` is set."""
         with self._lock:

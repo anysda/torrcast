@@ -18,10 +18,11 @@ from torrcast.domain.twin_base import TWIN, twin_base
 
 
 def names_twin(pairs: Sequence[Indexer], names: bool) -> list[Indexer]:
-    """Whom a request asks: the viewer's text never asks a twin, the rest ask it instead.
+    """Whom a request asks: the viewer's text never asks a twin, the shelves' feed asks it instead.
 
-    The rest are the picture's names and the shelves' feed: background to the viewer's text.
-    A tracker whose twin is not among ``pairs`` (not installed, down or banned) keeps them.
+    The picture's names pick the shorter queue of the two
+    (:mod:`~torrcast.adapters.prowlarr.names_queue`).
+    A tracker whose twin is not among ``pairs`` (not installed, down or banned) keeps its feed.
     """
     if not names:
         return [pair for pair in pairs if not pair[1].endswith(TWIN)]

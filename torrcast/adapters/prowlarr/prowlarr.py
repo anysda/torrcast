@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 from torrcast.adapters.prowlarr.circle_trace import circle_trace
-from torrcast.adapters.prowlarr.feed_apart import feed_apart
+from torrcast.adapters.prowlarr.feed_slotted import feed_slotted
 from torrcast.adapters.prowlarr.feed_url import feed_url
 from torrcast.adapters.prowlarr.from_feed_json import from_feed_json
 from torrcast.adapters.prowlarr.from_json import from_json
@@ -21,7 +21,6 @@ from torrcast.domain.circle_indexers import circle_indexers
 from torrcast.domain.cut_short import cut_short
 from torrcast.domain.feed_row import FeedRow
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.names_twin import names_twin
 from torrcast.domain.nothing_found import nothing_found
 from torrcast.domain.raw_result import RawResult
 
@@ -57,15 +56,13 @@ class Prowlarr(_State):
     def feed(self, limit: int = 200, within: float | None = None) -> list[FeedRow]:
         """Раздачи ленты без строки поиска; без ``within`` - одним общим запросом (TC-1110).
 
-        С ``within`` врозь, молчун стоит только срока (:mod:`.feed_apart`); трекер с двойником -
-        через двойника (:func:`~torrcast.domain.names_twin.names_twin`), мимо текста зрителя."""
+        С ``within`` врозь, молчун стоит только срока, трекер с двойником - через двойника, и
+        каждый запрос занимает слот у хоста (:mod:`.feed_slotted`)."""
         known = self._roster.known() if within is not None else ()
         if within is None or not known:
             return from_feed_json(self._api.get_json(feed_url(self.base_url, self.apikey, limit)))
-        self._api.open()  # сессия поднимается ДО потоков: ленивая сборка внутри них - гонка
-        usable = names_twin(self._roster.usable(known)[0], names=True)
-        urls = [feed_url(self.base_url, self.apikey, limit, number) for number, _name in usable]
-        return feed_apart(self._api.get_json, urls, within)
+        usable = self._roster.usable(known)[0]
+        return feed_slotted(self._api, self._circle.slots, usable, limit, within)
 
     def late(self, wait: float = 0.0) -> list[RawResult]:
         """Выдача опоздавших: круг ушёл по опорным, а эти доехали уже потом (TC-118)."""

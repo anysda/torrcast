@@ -88,3 +88,13 @@ def test_a_warmup_holds_off_fifteen_seconds_past_the_start_and_every_search() ->
     with slots.live():
         slots.hold_off(lambda seconds: setattr(clock, "now", clock.now + seconds))
     assert clock.now == 260.0, "a search that never ends holds it 60 s at the longest"
+
+
+def test_a_hosts_next_slot_starts_now_or_a_pace_behind_its_last() -> None:
+    clock = _Clock()
+    slots = HostSlots(clock)
+    assert slots.starts("RuTor") == 100.0, "an empty queue starts now"
+    slots.take("RuTor", 3.0)
+    assert slots.starts("RuTor") == 100.0 + PACE
+    clock.now += 5.0
+    assert slots.starts("RuTor") == 105.0, "a queue that drained starts now again"
