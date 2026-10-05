@@ -63,3 +63,31 @@ def test_a_name_still_queued_when_its_circle_ends_is_never_sent(
     assert 1 not in http.texts, "the name left after its circle had ended"
     assert slots._free["Knaben"] == drawn, "its slot went back to the next request"
     assert "Knaben" not in circle.lost and "Knaben" in circle.unheard(), "unsent, not silent"
+
+
+@pytest.mark.machine
+def test_a_search_waiting_on_anothers_request_hears_its_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TC-1404: the circle that sent a name ends first, the one that followed it still waits."""
+    gate = threading.Event()
+    monkeypatch.setattr(spawn_ask_module, "time", SimpleNamespace(sleep=lambda _s: gate.wait(5.0)))
+    http = _Asked()
+    api = ProwlarrApi("http://p", "KEY", http=http)
+    slots = HostSlots(pace=1.2)
+    first = IndexerCircle(api, slack=0.05, budget_of=lambda _n: 1.5, slots=slots)
+    second = IndexerCircle(api, slack=0.05, budget_of=lambda _n: 3.0, slots=slots)
+    slots.take("Knaben", 3.0)  # the name queues behind this slot and waits at the gate
+    same: Any = {"args": ([_KNABEN], "Cars 2006", 100), "kwargs": {"joint": ""}}
+    sender = threading.Thread(target=first.run, **same)
+    sender.start()
+    while not spawn_ask_module._FLYING and sender.is_alive():
+        threading.Event().wait(0.005)
+    follower = threading.Thread(target=second.run, **same)
+    follower.start()
+    sender.join(5.0)
+    gate.set()
+    follower.join(5.0)
+    assert "Knaben" not in second.lost, "the follower is not told the indexer was silent"
+    assert 1 in http.texts, "a request another search still waits for is sent"
+    assert "Knaben" in second.answered

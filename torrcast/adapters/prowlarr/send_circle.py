@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 
 from torrcast.adapters.prowlarr.host_slots import HostSlots
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
-from torrcast.adapters.prowlarr.spawn_ask import _Ask, _follow, _in_flight, spawn_ask
+from torrcast.adapters.prowlarr.spawn_ask import _Ask, _follow, spawn_ask
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.joint_query import joint_query
 from torrcast.domain.quorum_indexer import quorum_indexer
@@ -55,8 +55,8 @@ def send_circle(
         if not text:
             continue
         cut = min(budgets(name), cap) if cap else budgets(name)
-        if (twin := _in_flight(api, text, limit, num)) is not None:
-            asked.append(_follow(twin, cut))
+        if (twin := _follow(api, text, limit, num, cut)) is not None:
+            asked.append(twin)
         elif (slot := slots.claim(name, cut, spare=joint is not None)) is not None:
             queued, start = slot
             core = joint is not None and wait_indexer(name) and not quorum_indexer(name)

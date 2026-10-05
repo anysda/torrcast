@@ -45,6 +45,7 @@ class _Ask:
     #: Set by :func:`_drop` while the request still waits for its slot: it is never sent.
     stop: bool = False
     left: bool = False  # the request has gone to Prowlarr: there is no taking it back
+    followers: int = 0  # other circles waiting on this very request (:func:`_follow`)
 
 
 #: Requests on their way, by URL: one text goes to one indexer once at a time. Two circles of
@@ -61,9 +62,11 @@ def _drop(ask: _Ask) -> bool:
     left Knaben's queue after the search had answered, and the next search's text and its
     second-language circle stood behind two of them (20:36:54 and 20:36:58, 04.10, the worst
     warm search at 11.5 s).
+
+    A request another circle follows is still read, so it goes (TC-1404).
     """
     with _FLYING_LOCK:
-        if ask.left or ask.done.is_set():
+        if ask.left or ask.followers or ask.done.is_set():
             return False
         ask.stop = True
         for url in [url for url, one in _FLYING.items() if one is ask]:
@@ -72,18 +75,19 @@ def _drop(ask: _Ask) -> bool:
     return True
 
 
-def _in_flight(api: ProwlarrApi, query: str, limit: int, num: int) -> _Ask | None:
-    """The ask already on its way with this very request, if there is one."""
-    with _FLYING_LOCK:
-        return _FLYING.get(search_url(api.base_url, api.apikey, query, limit, num))
-
-
-def _follow(twin: _Ask, budget: float) -> _Ask:
-    """Wait the request already on its way instead of sending it again.
+def _follow(api: ProwlarrApi, query: str, limit: int, num: int, budget: float) -> _Ask | None:
+    """Wait the request already on its way instead of sending it again; None if there is none.
 
     The answer is the twin's, and so is its one verdict to the book (``judge``): one request
-    is one outcome, whichever circle tells it.
+    is one outcome, whichever circle tells it. Found and counted under one lock, the twin is
+    never kept back by its own circle after this (TC-1404): a follower of a dropped request
+    heard ``rows=None`` and took the indexer for silent.
     """
+    with _FLYING_LOCK:
+        twin = _FLYING.get(search_url(api.base_url, api.apikey, query, limit, num))
+        if twin is None:
+            return None
+        twin.followers += 1
     ask = _Ask(name=twin.name, budget=budget, judge=twin.judge, left=True)  # holds no slot
 
     def work() -> None:
