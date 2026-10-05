@@ -33,6 +33,11 @@ TRACES = (
         re.compile(r"\b(?:стенд(?:а|е|ом)?|пул(?:а|е)?|приставк(?:а|е|и)?)\s+[.][0-9]{1,3}\b"),
         True,
     ),
+    Trace(
+        "machine number next to a stand",
+        re.compile(r"(?i)\b(?:stands?|pools?|box(?:es)?)\s+[.][0-9]{1,3}\b"),
+        True,
+    ),
     Trace("публичный адрес установки", re.compile(r"(?:ru)?torrcast[.]anysda[.]space")),
 )
 
