@@ -122,7 +122,11 @@ class Packer(_State):
         🔴 TC-1405. Вышедший прогон чужой проход ждёт: последний кусок выкладывается только
         после выхода, и край отсюда показ читает как вердикт «файла не будет» - 404.
         """
-        if not self.publish_lock.acquire(blocking=self.proc.poll() is not None):
+        self._lay_out_once(wait=self.proc.poll() is not None)
+
+    def _lay_out_once(self, wait: bool) -> None:
+        """Один заход выкладки под замком; ``wait`` - ждать ли чужой проход."""
+        if not self.publish_lock.acquire(blocking=wait):
             return
         try:
             self._publish()
@@ -183,5 +187,9 @@ class Packer(_State):
         return _why(self)
 
     def stop(self, keep_files: bool = False, reason: str = "") -> None:
-        """Снять прогон, оставив показу уже выложенное (:func:`_stop`)."""
-        _stop(self, self.publish, keep_files, reason)
+        """Снять прогон, оставив показу уже выложенное (:func:`_stop`).
+
+        Чужой проход выкладки снятие не ждёт: тот может стоять на ужатии до ~50 с, а
+        остановку зовут под замком ленты. Снятому прогону отвечать показу уже нечем.
+        """
+        _stop(self, lambda: self._lay_out_once(wait=False), keep_files, reason)
