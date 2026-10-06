@@ -1354,3 +1354,85 @@ def test_курсор_без_пробы_называет_чего_не_хват�
 
     assert not ok
     assert rows == ["главная: проба не собрала сэмплов"]
+
+
+def test_показ_гасит_свой_показ_даже_без_кадра(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Пункт 4 не гасил свой показ, и следующий пункт стартовал поверх идущего."""
+    module = acceptance()
+    log: list[str] = []
+    page = SimpleNamespace(evaluate=lambda *_a: None)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
+    monkeypatch.setattr(module, "_playback_guard", lambda *_args: None)
+    monkeypatch.setattr(module, "_open_card_by_page", lambda *_args: None)
+    monkeypatch.setattr(module, "_card_key", lambda _ctx: "key")
+
+    def click(_ctx: Any) -> tuple[float, float, str]:
+        log.append("клик")
+        return 1.0, 0.5, ""
+
+    monkeypatch.setattr(module, "_click_play", click)
+    monkeypatch.setattr(module, "_frame_measure", lambda *_args: (None, {}))
+    monkeypatch.setattr(module, "_overlay_text", lambda _ctx: "")
+    monkeypatch.setattr(module, "_stop_show", lambda _ctx: log.append("стоп"))
+
+    result = module.check_4_playback(ctx)
+
+    assert not result.ok
+    assert log == ["клик", "стоп"]
+
+
+def _card_29(monkeypatch: pytest.MonkeyPatch, states: list[dict[str, Any]], named: str) -> Any:
+    """Пункт 29 с карточкой ``named``: ``/api/state`` отвечает по очереди ``states``."""
+    module = acceptance()
+    button = SimpleNamespace(
+        first=SimpleNamespace(
+            wait_for=lambda **_k: None, is_visible=lambda: True, click=lambda: None
+        ),
+        count=lambda: 1,
+    )
+    page = SimpleNamespace(locator=lambda *_a, **_k: button, wait_for_timeout=lambda _ms: None)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {"web.detail.play_on_tv": "TV"})
+    answers = iter(states)
+    last: list[dict[str, Any]] = [{}]
+
+    def state(_ctx: Any) -> dict[str, Any]:
+        last[0] = next(answers, last[0])
+        return last[0]
+
+    monkeypatch.setattr(module, "_open_card_by_page", lambda *_args: None)
+    monkeypatch.setattr(module, "_shot", lambda *_args: None)
+    monkeypatch.setattr(module, "_state", state)
+    monkeypatch.setattr(module, "_stop_show", lambda _ctx: None)
+    monkeypatch.setattr(module, "_card_texts", lambda _ctx: {"title": named})
+    monkeypatch.setattr(module, "_tv_text", lambda _ctx: "")
+    monkeypatch.setattr(module, "_position", lambda _ctx: 5.0)
+    monkeypatch.setattr(module, "_await_position_growth", lambda *_args: (True, 15.0))
+    monkeypatch.setattr(module, "_post", lambda *_args: (200, b"{}"))
+    return module.check_29_card_tv_button(ctx)
+
+
+def test_кнопка_на_тв_не_принимает_чужой_показ(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Играет не картина карточки - красный, хотя состояние ``playing`` и позиция растёт."""
+    playing = {"state": "playing", "title": "Rick and Morty", "tv": "tv"}
+    result = _card_29(monkeypatch, [{"state": "idle"}, {"state": "idle"}, playing], "Interstellar")
+
+    assert not result.ok
+    assert "НЕ ТА КАРТИНА" in result.detail
+
+
+def test_кнопка_на_тв_не_нажимается_поверх_идущего_показа(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    playing = {"state": "playing", "title": "Interstellar", "tv": "tv"}
+    result = _card_29(monkeypatch, [playing, playing, playing], "Interstellar")
+
+    assert not result.ok
+    assert "до клика уже идёт показ" in result.detail
+
+
+def test_кнопка_на_тв_зелёная_на_своей_картине(monkeypatch: pytest.MonkeyPatch) -> None:
+    playing = {"state": "playing", "title": "Interstellar", "tv": "tv"}
+    result = _card_29(monkeypatch, [{"state": "idle"}, {"state": "idle"}, playing], "Interstellar")
+
+    assert result.ok, result.detail
+    assert "до клика 'idle'" in result.detail

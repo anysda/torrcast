@@ -2154,6 +2154,16 @@ def check_4_playback(ctx: Ctx) -> Result:
     clicked, waited, why = _click_play(ctx)
     if clicked is None:
         return Result(4, "Показ", False, None, f"{why} (ждали {waited:.1f} с)")
+    # Свой показ пункт гасит сам: следующий пункт стартовал поверх идущего, и его замер
+    # мерил уже два показа на одном приёмнике и одной упаковке.
+    try:
+        return _judge_playback(ctx, clicked, waited)
+    finally:
+        _stop_show(ctx)
+
+
+def _judge_playback(ctx: Ctx, clicked: float, waited: float) -> Result:
+    """Приговор пункта 4 по уже нажатой «Играть»: первый кадр и подгрузы."""
     # Кнопка только КЛАДЁТ заказ: продукт ещё ищет раздачу, качает метаданные и пакует
     # первые куски. Судить ровность хода до первого кадра значило бы мерить прогрев, а
     # не показ, поэтому 60 с ровности отсчитываются от `readyState >= 3`, а не от клика.
@@ -3879,13 +3889,30 @@ def check_29_card_tv_button(ctx: Ctx) -> Result:
     if not ctx.allow_play:
         detail = f"видна у {seen}; каст не нажимался: --play не задан"
         return Result(29, "Кнопка на ТВ", True, None, detail)
+    # 🔴 «Заиграло» судится по /api/state, а он не знает, ЧЕЙ показ играет: чужой показ,
+    # оставленный прошлым прогоном, давал зелень без единого кадра от нажатой кнопки.
+    # Поэтому до клика показа нет, а после клика играет именно картина карточки.
+    if _state(ctx).get("state") in _BUSY:
+        _stop_show(ctx)
+    before = _state(ctx).get("state")
+    if before in _BUSY:
+        return Result(29, "Кнопка на ТВ", False, None, f"до клика уже идёт показ: {before!r}")
+    named = _card_texts(ctx)["title"].strip()
     button = ctx.page.locator("[data-tc-card] button", has_text=label).first
-    ok, said = _cast_from_card(ctx, button)
-    return Result(29, "Кнопка на ТВ", ok, None, f"видна у {seen}; каст: {said}")
+    ok, said = _cast_from_card(ctx, button, named)
+    return Result(
+        29, "Кнопка на ТВ", ok, None, f"видна у {seen}; до клика {before!r}; каст: {said}"
+    )
 
 
-def _cast_from_card(ctx: Ctx, button: Any) -> tuple[bool, str]:
-    """Нажать «на ТВ»: что пишет кнопка по ходу, заиграло ли, две позиции, затем стоп."""
+def _same_title(shown: Any, named: str) -> bool:
+    """Показ играет картину карточки: те же буквы без регистра, знаков и года."""
+    a, b = ("".join(ch for ch in str(x or "").casefold() if ch.isalpha()) for x in (shown, named))
+    return bool(a) and a == b
+
+
+def _cast_from_card(ctx: Ctx, button: Any, named: str) -> tuple[bool, str]:
+    """Нажать «на ТВ»: что пишет кнопка по ходу, заиграло ли то, две позиции, затем стоп."""
     began = time.monotonic()
     button.click()
     words: list[str] = []
@@ -3912,12 +3939,14 @@ def _cast_from_card(ctx: Ctx, button: Any) -> tuple[bool, str]:
     ctx.page.wait_for_timeout(3000)
     after = _state(ctx).get("state")
     playing = state.get("state") == "playing"
+    same = _same_title(state.get("title"), named)
     said = (
         f"{'заиграло' if playing else 'НЕ заиграло'} за {took:.0f} с "
-        f"({state.get('title')!r} на {state.get('tv')!r}), позиции {first} → {second}; "
+        f"({state.get('title')!r} на {state.get('tv')!r}, карточка {named!r}"
+        f"{'' if same else ' - НЕ ТА КАРТИНА'}), позиции {first} → {second}; "
         f"кнопка: {' → '.join(words) or 'без слов'}; после stop {after!r}"
     )
-    return playing and grew, said
+    return playing and grew and same, said
 
 
 def _tv_text(ctx: Ctx) -> str:
@@ -4099,12 +4128,16 @@ def _place_of(ctx: Ctx, key: str) -> tuple[str | None, float | None]:
     return None, None
 
 
+#: Состояния ``/api/state``, в которых показ ещё жив.
+_BUSY: Final = ("playing", "starting", "paused", "buffering")
+
+
 def _stop_show(ctx: Ctx) -> None:
     """Погасить свой показ и дождаться, пока экземпляр это подтвердит (до 20 с)."""
     _post(ctx.base + "/api/control", {"cmd": "stop"})
     began = time.monotonic()
     while time.monotonic() - began < 20.0:
-        if _state(ctx).get("state") not in ("playing", "starting", "paused", "buffering"):
+        if _state(ctx).get("state") not in _BUSY:
             return
         time.sleep(0.5)
 
