@@ -1,4 +1,4 @@
-"""Публиковать ли собранное тело полок вместо уже показанного (TC-1343).
+"""Почему собранное тело полок не встаёт вместо показанного (TC-1343).
 
 Прежняя абсолютная планка полноты защищала старое тело сравнением с числом плиток.
 После отсева неиграющих плиток (:mod:`web.shelf_playable`) настоящие полки законно
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Final
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.json_value import JsonValue
 from web.built_by_rule import built_by_rule
 from web.carried import carried
@@ -29,10 +30,10 @@ SHRINK_FLOOR: Final = 0.5
 MASS_DROP: Final = 0.35
 
 
-def worth_publishing(
+def held_by(
     current: dict[str, JsonValue], best: dict[str, JsonValue], drops: DropCount
-) -> bool:
-    """Стоит ли заменить прежнее тело новым: без предшественника - да, иначе - две пробы.
+) -> str | None:
+    """Почему прежнее тело остаётся на экране, строкой журнала с долями; ``None`` - не остаётся.
 
     Без годного предшественника (иное правило отбора или холодный старт) защищать
     нечего - первая сборка правила публикуется как есть, даже пустая: без неё сайт
@@ -43,15 +44,22 @@ def worth_publishing(
     честных «не играет» выше нормы (:data:`MASS_DROP`).
     """
     if not built_by_rule(current):
-        return True
+        return None
     for shelf in ("fresh", "popular"):
         # Перенесённые с прежнего правила плитки (:mod:`web._stale_tiles`) не свои:
         # мерить ими усыхание значило бы не пустить честную короткую полку.
         old = _shelf_len(current, shelf) - carried(current, shelf)
         new = _shelf_len(best, shelf)
         if old and new < old * SHRINK_FLOOR:
-            return False
-    return drops.ratio <= MASS_DROP
+            return phrase(
+                "systemd.shelf.held_shrink", shelf=shelf, new=new, old=old, floor=SHRINK_FLOOR
+            )
+    if drops.ratio <= MASS_DROP:
+        return None
+    judged = drops.checked - drops.unknown
+    return phrase(
+        "systemd.shelf.held_drops", dropped=drops.dropped, judged=judged, ceiling=MASS_DROP
+    )
 
 
 def _shelf_len(body: dict[str, JsonValue], shelf: str) -> int:
@@ -59,4 +67,4 @@ def _shelf_len(body: dict[str, JsonValue], shelf: str) -> int:
     return len(rows) if isinstance(rows, list) else 0
 
 
-__all__ = ["MASS_DROP", "SHRINK_FLOOR", "worth_publishing"]
+__all__ = ["MASS_DROP", "SHRINK_FLOOR", "held_by"]

@@ -9,7 +9,7 @@ from web._stale_tiles import _keep_stale_tiles
 from web.built_by_rule import FIELD, RULE
 from web.carried import CARRIED, carried
 from web.drop_count import DropCount
-from web.worth_publishing import worth_publishing
+from web.held_by import held_by
 
 
 def shelf_candidate(
@@ -47,7 +47,11 @@ def shelf_candidate(
         candidate[FIELD] = RULE
     elif unstamped:
         candidate.pop(FIELD, None)
-    return candidate if worth_publishing(current, candidate, drops) else None
+    reason = held_by(current, candidate, drops)
+    if reason is None:
+        return candidate
+    print(reason, flush=True)
+    return None
 
 
 __all__ = ["shelf_candidate"]

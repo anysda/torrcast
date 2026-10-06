@@ -499,7 +499,7 @@ def test_a_full_shelf_is_not_replaced_by_a_drastically_shrunk_build(tmp_path: Pa
     """Полная полка остаётся на месте, когда свежая сборка усохла больше чем вдвое (TC-1343).
 
     Планка тут не абсолютная длина, а относительная половина прежнего тела того же
-    правила (:data:`web.worth_publishing.SHRINK_FLOOR`).
+    правила (:data:`web.held_by.SHRINK_FLOOR`).
     """
     answers = iter([_many_rows(25), _many_rows(10)])
     cache = _cache(tmp_path, feed=lambda limit: next(answers))
