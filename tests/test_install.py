@@ -1248,12 +1248,19 @@ def test_a_dead_lead_source_is_not_a_cut_catalog_when_its_role_has_a_second_carr
     не спрашивала вовсе. Мера меряет ЦЕЛЬ: код возврата и печатаемая строка.
     """
     box = tmp_path / "первый-отказал"
-    done, posts = _run_indexers(box, fail=frozenset({"RuTor"}))
+    # Двойник ходит в тот же трекер: закрыт RuTor - закрыт и он.
+    done, posts = _run_indexers(box, fail=frozenset({"RuTor", "RuTor names"}))
     printed = done.stdout + done.stderr
     assert done.returncode == 0, printed
     assert "catalog is incomplete:" not in printed
     assert "role 'Russian releases and voiceovers' is unanswered" in printed
     assert "JacRed responds: 3 results" in printed
+    # 🔴 TC-1411. Роль закрыта, но на одном запасном: это называется словами, а не молчанием.
+    assert (
+        "catalog is thin: Russian releases and voiceovers - only JacRed answers; "
+        "RuTor (not added)" in printed
+    )
+    assert "indexers not set up yet: RuTor, RuTor names -" in printed
     # Запасного спросили один раз, и переспроса он не получил: роль он закрыл.
     _late_settled(box)
     assert len(posts["JacRed"]) == 1
@@ -1272,6 +1279,10 @@ def test_the_installer_still_succeeds_when_the_core_sources_answer(tmp_path: Pat
     # секунд на его добавление остаётся в догреве, и установка не ждёт ни секунды.
     assert "is unanswered" not in done.stdout + done.stderr
     assert "JacRed responds" not in done.stdout
+    # 🔴 TC-1411. Отложенные в догрев ещё доезжают: назвать их «не заведёнными» на
+    # последнем экране - ложная тревога на каждой здоровой установке.
+    assert "catalog is thin" not in done.stdout + done.stderr
+    assert "indexers not set up yet" not in done.stdout + done.stderr
     # 🔴 TC-697. Счастливый путь: ровно одно обращение на индексер, дублей нет.
     _late_settled(box)
     for name in ("Knaben", "RuTor", "Nyaa.si", "AniLibria", "YTS", "JacRed"):

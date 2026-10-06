@@ -3243,7 +3243,7 @@ catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - с
                 why_ru="$why_ru${why_ru:+, }$iname (заведён, но не отдал ничего)"
             else
                 info "$iname responds: $n results in test search '$PL_SEARCH_PROBE'" "$iname отвечает: $n раздач в проверочном поиске «${PL_SEARCH_PROBE}»"
-                covered=1
+                covered="$iname"
             fi
         done
         # Роль закрыта первым же ответившим: остальных её носителей не спрашиваем вовсе -
@@ -3251,6 +3251,11 @@ catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - с
         if [ -z "$covered" ]; then
             cut_en="$cut_en${cut_en:+; }$name_en - $why_en"
             cut_ru="$cut_ru${cut_ru:+; }$name_ru - $why_ru"
+        elif [ -n "$why_en" ]; then
+            # 🔴 TC-1411. Роль закрыл запасной, а первый носитель молчит: урезом это не
+            # зовётся (TC-705, код возврата прежний), но и молча за полную не сходит.
+            final_loud "catalog is thin: $name_en - only $covered answers; $why_en" \
+                "каталог неполон: $name_ru - отвечает только $covered; $why_ru"
         fi
     done
     [ -z "$cut_en" ] && return 0
@@ -3266,13 +3271,17 @@ catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - с
 # двойника уходили только в журнал догрева: catalog_gate считал роль закрытой и молчал, а
 # громкая строка с POST'а к последнему экрану не доживала. Сверяем манифест с живым списком
 # и повторяем итог жёлтым (final_loud повторяет строку после успешного итога).
-name_absent_reference_indexers() {  # $1 - apikey
-    local key="$1" live absent
+# Кого догрев сейчас заводит в фоне (аргументы после ключа), тот не назван: в эту минуту
+# он ещё едет, и на здоровой сети строка звучала бы на каждой установке.
+name_absent_reference_indexers() {  # $1 - apikey; дальше имена, которые ещё доезжают в фоне
+    local key="$1" live absent pending
+    shift
     [ -f "$STATE_DIR/indexers.json" ] || return 0
     live="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")" || return 0
-    absent="$(jq -r --argjson live "$live" '
+    pending="$(printf '%s\n' "$@" | jq -R 'select(length>0)' | jq -s '.')" || pending='[]'
+    absent="$(jq -r --argjson live "$live" --argjson pending "$pending" '
         ([$live[]?|.name]) as $have
-        | ([.[]?|.name] - $have) | unique | join(", ")' "$STATE_DIR/indexers.json" 2>/dev/null)"
+        | ([.[]?|.name] - $have - $pending) | unique | join(", ")' "$STATE_DIR/indexers.json" 2>/dev/null)"
     [ -n "$absent" ] || return 0
     final_loud "indexers not set up yet: $absent - the installer keeps retrying each in the background and re-adds it the moment its tracker answers; rerunning ./install.sh is safe" \
                "индексеры пока не заведены: $absent - установка переспрашивает каждый в фоне и заводит, как только его трекер ответит; повторный ./install.sh безопасен"
@@ -3489,7 +3498,16 @@ install_indexers() {
     fi
 
     # Итог для человека: что из эталонного списка так и не стоит в Prowlarr (TC-1411).
-    name_absent_reference_indexers "$key"
+    # В фоне ещё едут отложенные и двойник, чей трекер уже стоит: их не называем. Двойник
+    # молчащего трекера назван: он ходит в тот же трекер и сейчас не встанет.
+    local pending=()
+    for spec in ${ready[@]+"${ready[@]}"}; do pending+=("${spec%%$'\t'*}"); done
+    for spec in ${twins[@]+"${twins[@]}"}; do
+        iname="${spec%%$'\t'*}"
+        jq -e --arg n "${iname% names}" 'any(.[]; .name==$n)' <<<"$list" >/dev/null 2>&1 \
+            && pending+=("$iname")
+    done
+    name_absent_reference_indexers "$key" ${pending[@]+"${pending[@]}"}
     setup_reconcile
 }
 

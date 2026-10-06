@@ -20,7 +20,9 @@ def _bash(script: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["bash", "-c", script], capture_output=True, text=True)
 
 
-def _run_name_absent(tmp_path: Path, manifest: object, live: object) -> str:
+def _run_name_absent(
+    tmp_path: Path, manifest: object, live: object, pending: tuple[str, ...] = ()
+) -> str:
     """Run name_absent_reference_indexers with stubbed curl + a stub final_loud.
 
     final_loud is replaced by an echo so the test reads exactly the named line; curl
@@ -38,7 +40,7 @@ curl() {{ cat {shlex.quote(str(tmp_path / "live.json"))}; }}
 final_loud() {{ printf 'FINAL_EN:%s\\n' "$1"; }}
 name_absent_reference_indexers() {{{_body("name_absent_reference_indexers")}
 }}
-name_absent_reference_indexers deadbeef
+name_absent_reference_indexers deadbeef {" ".join(shlex.quote(n) for n in pending)}
 """
     out = _bash(script)
     assert out.returncode == 0, out.stderr
@@ -63,6 +65,14 @@ def test_a_full_prowlarr_prints_nothing(tmp_path: Path) -> None:
     manifest = [{"name": "RuTor"}, {"name": "sukebei"}]
     live = [{"name": "RuTor"}, {"name": "sukebei"}]
     assert _run_name_absent(tmp_path, manifest, live) == ""
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required on the install host")
+def test_indexers_still_arriving_in_the_background_are_not_named(tmp_path: Path) -> None:
+    """The late ones are being added right now: naming them would warn on every healthy run."""
+    manifest = [{"name": "RuTor"}, {"name": "YTS"}, {"name": "RuTor names"}]
+    out = _run_name_absent(tmp_path, manifest, [], pending=("YTS", "RuTor names"))
+    assert out.startswith("FINAL_EN:indexers not set up yet: RuTor - "), out
 
 
 def test_a_silent_prowlarr_is_not_fatal(tmp_path: Path) -> None:
