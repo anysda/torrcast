@@ -1,6 +1,7 @@
 """Обращается к TorrServer и ждёт метаданные раздачи через порт часов."""
 
 import threading
+from functools import partial
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -10,8 +11,10 @@ from torrcast.adapters.torrserver.cache_readers import cache_readers
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.describer import DESCRIBER
 from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
-from torrcast.adapters.torrserver.engine_restart import ADD_TIMEOUT, ENGINE
+from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT, echoed
+from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.file_stats import file_stats
+from torrcast.adapters.torrserver.reading import reading
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
@@ -32,7 +35,6 @@ if TYPE_CHECKING:
 META_STEP = 0.05
 META_STEP_GROW = 1.5
 META_STEP_MAX = 0.2
-PROBE_TIMEOUT = 3.0
 
 
 class TorrServer:
@@ -135,12 +137,10 @@ class TorrServer:
         import requests
 
         self._session = self._session or requests.Session()
-        try:
-            with self._session.get(f"{self.base_url}/echo", timeout=PROBE_TIMEOUT) as response:
-                response.raise_for_status()
-        except requests.RequestException:
-            return False
-        return True
+        return echoed(self._session, self.base_url)
+
+    def reading(self) -> bool | None:
+        return reading(lambda path, body: self._ask(path, body, True, PROBE_TIMEOUT))
 
     def disconnect_timeout(self) -> float:
         return disconnect_timeout(self.base_url, self._post)
@@ -178,13 +178,13 @@ class TorrServer:
         return True
 
     def _post(self, path: str, body: dict[str, Any], json_body: bool = True) -> Any:
-        return ENGINE.answered(self.base_url, self.alive, lambda: self._ask(path, body, json_body))
+        ask = partial(self._ask, path, body, json_body)
+        return ENGINE.answered(self.base_url, self, ask, self.timeout, body.get("action") == "add")
 
-    def _ask(self, path: str, body: dict[str, Any], json_body: bool) -> Any:
+    def _ask(self, path: str, body: dict[str, Any], json_body: bool, timeout: float) -> Any:
         import requests
 
         self._session = self._session or requests.Session()
-        timeout = min(self.timeout, ADD_TIMEOUT) if body.get("action") == "add" else self.timeout
         try:
             with self._session.post(f"{self.base_url}{path}", json=body, timeout=timeout) as answer:
                 answer.raise_for_status()

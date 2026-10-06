@@ -8,66 +8,23 @@ import pytest
 import requests
 
 from tests.fakes.clock import FakeClock
+from tests.fakes.engine_service import Asked, FakeProbes, FakeService, down, engine
 from torrcast.adapters.torrserver import torr_server
-from torrcast.adapters.torrserver.engine_restart import ADD_TIMEOUT, COMEBACK, EngineRestart
+from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT
+from torrcast.adapters.torrserver.engine_restart import ADD_TIMEOUT, COMEBACK
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.server_down_error import ServerDownError
 
 LOCAL = "http://127.0.0.1:8090"
-
-
-class _Service:
-    """Менеджер служб: знает ли службу, в каком она состоянии и сколько раз её подняли мы."""
-
-    def __init__(self, known: bool = True, state: str = "active", restarts: bool = True) -> None:
-        self._known = known
-        self._state = state
-        self._restarts = restarts
-        self.restarted = 0
-
-    def known(self) -> bool:
-        return self._known
-
-    def state(self) -> str:
-        return self._state
-
-    def restart(self) -> bool:
-        self.restarted += 1
-        return self._restarts
-
-
-def _down(cause: Exception) -> ServerDownError:
-    try:
-        raise ServerDownError("TorrServer does not answer") from cause
-    except ServerDownError as exc:
-        return exc
-
-
-def _asked(*fails: Exception) -> Callable[[], str]:
-    """Вопрос, который падает по очереди на ``fails``, а потом отвечает."""
-    left = list(fails)
-
-    def ask() -> str:
-        if left:
-            raise _down(left.pop(0))
-        return "answer"
-
-    return ask
-
-
-def _engine(service: _Service, clock: FakeClock) -> tuple[EngineRestart, list[float]]:
-    """Подъём и список моментов, когда он сказал экрану о перезапуске."""
-    engine = EngineRestart(service, clock)  # type: ignore[arg-type]
-    told: list[float] = []
-    engine.tell = lambda: told.append(clock.now)
-    return engine, told
+HUNG = requests.ReadTimeout("read timed out")
+REFUSED = requests.ConnectionError("refused")
 
 
 def test_a_hung_service_is_restarted_and_the_question_asked_again() -> None:
-    service = _Service()
-    engine, told = _engine(service, FakeClock())
+    service = FakeService()
+    restart, told = engine(service, FakeClock())
 
-    answer = engine.answered(LOCAL, lambda: True, _asked(requests.ReadTimeout("read timed out")))
+    answer = restart.answered(LOCAL, FakeProbes(), Asked(HUNG), 30.0, add=True)
 
     assert answer == "answer"
     assert service.restarted == 1
@@ -76,12 +33,11 @@ def test_a_hung_service_is_restarted_and_the_question_asked_again() -> None:
 
 def test_a_crashed_service_is_left_to_systemd_when_it_comes_back_by_itself() -> None:
     clock = FakeClock()
-    service = _Service(state="activating")
-    engine, _ = _engine(service, clock)
+    service = FakeService(state="activating")
+    restart, _ = engine(service, clock)
 
-    answer = engine.answered(
-        LOCAL, lambda: clock.now >= 5.0, _asked(requests.ConnectionError("refused"))
-    )
+    probes = FakeProbes(alive=lambda: clock.now >= 5.0)
+    answer = restart.answered(LOCAL, probes, Asked(REFUSED), 30.0, add=False)
 
     assert answer == "answer"
     assert service.restarted == 0
@@ -89,51 +45,61 @@ def test_a_crashed_service_is_left_to_systemd_when_it_comes_back_by_itself() -> 
 
 def test_a_crashed_service_nobody_brings_back_is_restarted() -> None:
     clock = FakeClock()
-    service = _Service(state="activating")
-    engine, _ = _engine(service, clock)
-    began = clock.now
+    service = FakeService(state="activating")
+    restart, told = engine(service, clock)
 
-    answer = engine.answered(
-        LOCAL, lambda: service.restarted > 0, _asked(requests.ConnectionError("refused"))
-    )
+    probes = FakeProbes(alive=lambda: service.restarted > 0)
+    answer = restart.answered(LOCAL, probes, Asked(REFUSED), 30.0, add=False)
 
     assert answer == "answer"
     assert service.restarted == 1
-    assert clock.now - began >= COMEBACK
+    assert clock.now >= COMEBACK
+    assert len(told) == 1, "экрану о подъёме говорят один раз"
 
 
 def test_a_service_systemd_gave_up_on_is_restarted_at_once() -> None:
     clock = FakeClock()
-    service = _Service(state="failed")
-    engine, _ = _engine(service, clock)
+    service = FakeService(state="failed")
+    restart, _ = engine(service, clock)
 
-    answer = engine.answered(
-        LOCAL, lambda: service.restarted > 0, _asked(requests.ConnectionError("refused"))
-    )
+    probes = FakeProbes(alive=lambda: service.restarted > 0)
+    answer = restart.answered(LOCAL, probes, Asked(REFUSED), 30.0, add=False)
 
     assert answer == "answer"
     assert service.restarted == 1
     assert clock.now < COMEBACK
 
 
-@pytest.mark.parametrize("state", ["inactive", "deactivating"])
-def test_a_service_someone_stopped_is_not_brought_back(state: str) -> None:
-    service = _Service(state=state)
-    engine, _ = _engine(service, FakeClock())
+def test_a_service_someone_stopped_is_refused_at_once() -> None:
+    clock = FakeClock()
+    service = FakeService(state="inactive")
+    restart, told = engine(service, clock)
 
     with pytest.raises(ServerDownError):
-        engine.answered(LOCAL, lambda: False, _asked(requests.ConnectionError("refused")))
+        restart.answered(LOCAL, FakeProbes(lambda: False), Asked(REFUSED), 30.0, add=False)
     assert service.restarted == 0
+    assert clock.now == 0.0, "остановленную человеком службу ждать нечего"
+    assert told == []
+
+
+def test_a_service_being_stopped_is_waited_for_and_left_alone() -> None:
+    clock = FakeClock()
+    service = FakeService(state="deactivating")
+    restart, _ = engine(service, clock)
+
+    with pytest.raises(ServerDownError):
+        restart.answered(LOCAL, FakeProbes(lambda: False), Asked(REFUSED), 30.0, add=False)
+    assert service.restarted == 0
+    assert clock.now >= COMEBACK
 
 
 def test_a_service_restarted_by_hand_is_waited_for() -> None:
     clock = FakeClock()
-    service = _Service(state="deactivating")
-    engine, _ = _engine(service, clock)
+    service = FakeService(state="deactivating")
+    restart, _ = engine(service, clock)
 
-    answer = engine.answered(
-        LOCAL, lambda: clock.now >= 3.0, _asked(requests.ConnectionError("refused"))
-    )
+    probes = FakeProbes(alive=lambda: clock.now >= 3.0)
+    answer = restart.answered(LOCAL, probes, Asked(REFUSED), 30.0, add=False)
 
     assert answer == "answer"
     assert service.restarted == 0
@@ -142,43 +108,42 @@ def test_a_service_restarted_by_hand_is_waited_for() -> None:
 @pytest.mark.parametrize(
     ("url", "service", "restarted"),
     [
-        ("http://torrserver.example:8090", _Service(), 0),
-        (LOCAL, _Service(known=False), 0),
-        (LOCAL, _Service(restarts=False), 1),
+        ("http://torrserver.example:8090", FakeService(), 0),
+        (LOCAL, FakeService(restarts=False), 1),
     ],
-    ids=["foreign", "no-service", "restart-refused"],
+    ids=["foreign", "restart-refused"],
 )
 def test_what_we_cannot_restart_keeps_the_old_refusal(
-    url: str, service: _Service, restarted: int
+    url: str, service: FakeService, restarted: int
 ) -> None:
-    engine, _ = _engine(service, FakeClock())
+    restart, _ = engine(service, FakeClock())
 
     with pytest.raises(ServerDownError):
-        engine.answered(url, lambda: True, _asked(requests.ReadTimeout("read timed out")))
+        restart.answered(url, FakeProbes(), Asked(HUNG, HUNG), 30.0, add=False)
     assert service.restarted == restarted
 
 
 def test_a_service_that_answered_badly_is_not_restarted() -> None:
-    service = _Service()
-    engine, _ = _engine(service, FakeClock())
+    service = FakeService()
+    restart, _ = engine(service, FakeClock())
 
     with pytest.raises(ServerDownError):
-        engine.answered(LOCAL, lambda: True, _asked(requests.HTTPError("500")))
+        restart.answered(LOCAL, FakeProbes(), Asked(requests.HTTPError("500")), 30.0, add=False)
     assert service.restarted == 0
 
 
 def test_parallel_questions_on_one_hang_restart_the_service_once() -> None:
-    service = _Service()
-    engine, told = _engine(service, FakeClock())
-    first = _asked(requests.ReadTimeout("read timed out"))
+    service = FakeService()
+    restart, told = engine(service, FakeClock())
+    first = Asked(HUNG)
 
-    def second() -> str:
+    def second(_timeout: float) -> str:
         # Пока этот вопрос ждал ответа, соседний упал на том же зависе и поднял службу.
-        engine.answered(LOCAL, lambda: True, first)
-        raise _down(requests.ReadTimeout("read timed out"))
+        restart.answered(LOCAL, FakeProbes(), first, 30.0, add=True)
+        raise down(HUNG)
 
-    answers: Iterator[Callable[[], str]] = iter([second, lambda: "answer"])
-    answer = engine.answered(LOCAL, lambda: True, lambda: next(answers)())
+    answers: Iterator[Callable[[float], str]] = iter([second, lambda _t: "answer"])
+    answer = restart.answered(LOCAL, FakeProbes(), lambda t: next(answers)(t), 30.0, add=True)
 
     assert answer == "answer"
     assert service.restarted == 1
@@ -193,6 +158,8 @@ class _HungOnce:
 
     def post(self, _url: str, json: dict[str, object], timeout: float) -> object:
         self.timeouts.append(timeout)
+        if json.get("action") == "list":
+            return _Answer([])
         if len(self.timeouts) == 1:
             raise requests.ReadTimeout("read timed out")
         return _Answer({"hash": "abc", "data": "known"})
@@ -218,9 +185,9 @@ class _Answer:
 def test_an_add_that_hung_on_the_service_restarts_it_and_gets_the_torrent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = _Service()
-    engine, told = _engine(service, FakeClock())
-    monkeypatch.setattr(torr_server, "ENGINE", engine)
+    service = FakeService()
+    restart, told = engine(service, FakeClock())
+    monkeypatch.setattr(torr_server, "ENGINE", restart)
     server = TorrServer(LOCAL)
     session = _HungOnce()
     server._session = session  # type: ignore[assignment]
@@ -229,5 +196,5 @@ def test_an_add_that_hung_on_the_service_restarts_it_and_gets_the_torrent(
     assert server.add("magnet:?xt=urn:btih:abc") == "abc"
     assert service.restarted == 1
     assert len(told) == 1
-    assert session.timeouts == [ADD_TIMEOUT, ADD_TIMEOUT]
+    assert session.timeouts == [ADD_TIMEOUT, PROBE_TIMEOUT, ADD_TIMEOUT]
     assert server.timeout > ADD_TIMEOUT
