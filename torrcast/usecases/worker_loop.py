@@ -96,7 +96,7 @@ def _worker_loop(
         file_size = next((item.size for item in files if item.index == entry.file_idx), 0)
         voice = voice_source(torrserver, torrent_hash, entry)
         journal().mark("звук рядом")
-        entry = _duration(key, entry, source)
+        entry = _duration(key, entry, source, voice)
         journal().mark("длительность")
         supply.file_index, supply.duration = entry.file_idx, entry.dur
         prepared = prepare(config, key, torrserver, profile, entry)

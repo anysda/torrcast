@@ -349,6 +349,71 @@ def test_a_pack_transition_reselects_the_next_files_voice(
     assert played == [0, 1], "в s3e1 играет её rus, а не первый поток s2e24"
 
 
+def test_a_separate_audio_file_picks_the_voice_from_its_own_tracks(
+    monkeypatch: pytest.MonkeyPatch, _ports_restored: None
+) -> None:
+    """Звук отдельным файлом: дорожку выбирает паспорт mka, а не видео с одним eng."""
+    key = "tv:эрин-звук:2020"
+    state = FakeStateStore()
+    fresh = state.load()
+    fresh.put(
+        key,
+        Entry(
+            title="Эрин",
+            magnet="magnet:?xt=urn:btih:x",
+            kind="tv",
+            voice="rus",
+            voiced_apart=True,
+            file_idx=0,
+            season=1,
+            episode=1,
+            episodes=[[1, 1, 0, 700], [1, 2, 1, 700]],
+        ),
+    )
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(Tape())
+    monkeypatch.setattr(worker_loop, "_worker_thresholds", lambda *_a: {})
+    engine = FakeTorrentEngine(
+        torrent_files=[
+            TorrFile(0, "Erin - 01.mkv", 700),
+            TorrFile(1, "Erin - 02.mkv", 700),
+            TorrFile(2, "Sound/Erin - 01.mka", 100),
+            TorrFile(3, "Sound/Erin - 02.mka", 100),
+        ]
+    )
+    sound = engine.stream_url(engine.torrent_hash, 2)
+
+    def probe(source: str, *_a: object, **_k: object) -> Media:
+        if source == sound:
+            return Media(duration=2600.0, tracks=(AudioTrack(0, "eng"), AudioTrack(1, "rus")))
+        return Media(duration=2600.0, tracks=(AudioTrack(0, "eng"),), video="h264")
+
+    monkeypatch.setattr("torrcast.usecases.episode_duration._episode_prober", probe)
+    played: list[int] = []
+
+    def play(
+        _c: object, _s: object, audio: int, _t: str, _clock: object, watch: Any, **_kw: object
+    ) -> int:
+        played.append(audio)
+        return 0
+
+    _worker_loop(
+        Config(),
+        key,
+        engine,
+        None,  # type: ignore[arg-type]
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        how=_HOW,
+        play=play,
+        prepare=lambda *_a: None,
+    )
+
+    assert played[:1] == [1], "rus из mka, а не нулевая дорожка видео"
+
+
 def test_a_show_closed_by_the_remote_moves_the_bookmark_without_raising_the_receiver(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -78,6 +78,10 @@ def _entry_for(
         voiced_apart=prep.apart,
         voice=voice,
         voice_origin=voice_origin,
+        # Признак языка картины и студии раздачи едут в запись: файл следующей серии
+        # выбирает дорожку тем же судом, что и этот запуск (:func:`reselect_voice`).
+        native=plan.picture.native,
+        studios=[studio.name for studio in release.studios],
         # Чья это озвучка - спрашивается у дорожки и у имени раздачи: следующий сезон
         # будет другим релизом, и одна эта строка - всё, чем он узнает, чем сериал
         # смотрели (:func:`track_studio`).

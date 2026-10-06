@@ -63,7 +63,8 @@ def _next_warmer(
     # не свой пересказ паспорта: разойдись они - прогретое ляжет под другим ключом
     # (:func:`torrcast.usecases.warm.warm_key`), и показ своего же прогретого не найдёт.
     probed = _state.probe(source, timeout=WORKER_DUR)
-    following = reselect_voice(episode_passport(following, probed), probed)
+    sound = _state.probe(voice, timeout=WORKER_DUR) if voice else probed
+    following = reselect_voice(episode_passport(following, probed), sound)
     video_mbit = max(0.0, following.vbps)
     grid, whole = entry_layout(config, source, following, profile, file_size)
     recoder = (

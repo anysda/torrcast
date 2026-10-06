@@ -72,6 +72,49 @@ def test_a_new_episode_reselects_its_voice_from_the_passport(
     assert entry.audio == 1, "паспорт s3e1 выбрал rus на её собственной позиции"
 
 
+def test_a_new_episode_reselects_the_voice_from_its_separate_audio_file(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """У отдельного звука номер дорожки живёт в mka, а не у видео серии."""
+    asked: list[str] = []
+
+    def probe(source: str, timeout: float) -> Media:
+        assert timeout == WORKER_DUR
+        asked.append(source)
+        if source == "http://video/s3e1":
+            return Media(duration=4000.0, tracks=(AudioTrack(0, "eng"),), video="h264")
+        return Media(duration=4000.0, tracks=(AudioTrack(0, "LostFilm"),))
+
+    monkeypatch.setattr(episode_duration, "_episode_prober", probe)
+    monkeypatch.setattr(episode_duration, "store", lambda: _MemoryStore())
+    entry = Entry(title="Сериал", magnet="m", voice="LostFilm", voiced_apart=True)
+
+    _duration("ключ", entry, "http://video/s3e1", "http://audio/s3e1")
+
+    assert (asked, entry.audio) == (["http://video/s3e1", "http://audio/s3e1"], 0)
+    assert "no “LostFilm” voice track" not in capsys.readouterr().out
+
+
+def test_a_native_picture_keeps_its_own_track_on_the_next_episode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Картина своего языка играет свою дорожку, а не дубляж, и на следующей серии."""
+    monkeypatch.setattr(
+        episode_duration,
+        "_episode_prober",
+        lambda source, timeout: Media(
+            duration=4000.0,
+            tracks=(AudioTrack(0, "rus", "Дубляж"), AudioTrack(1, "rus")),
+        ),
+    )
+    monkeypatch.setattr(episode_duration, "store", lambda: _MemoryStore())
+    entry = Entry(title="Сериал", magnet="m", kind="tv", native=True)
+
+    _duration("ключ", entry, "http://127.0.0.1:1/x")
+
+    assert entry.audio == 1, "родная безымянная дорожка, а не переозвучка"
+
+
 def test_a_measured_weight_and_an_old_three_column_row_keep_their_meaning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

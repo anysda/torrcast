@@ -13,10 +13,12 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
+from torrcast.domain.studios_named import studios_named
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.track_studio import track_studio
 from torrcast.domain.unnamed_track_origin import unnamed_track_origin
 from torrcast.ports.progress.slot import progress as progress_bar
+from torrcast.usecases.playback.voice_source import voice_source
 from torrcast.usecases.rank.pick_voice import pick_voice
 from torrcast.usecases.torrent_claims import CLAIMS
 from torrcast.usecases.torrents import _held_by_show, _release_torrents
@@ -106,12 +108,10 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
         progress.phase(phrase("select.phase_tracks"))
         media = _read_media(config, entry, own)
         progress.phase("")
-    played = entry.audio
-    entry.audio, entry.voice = pick_voice(media, args, entry.voice)
+    played, studios = entry.audio, studios_named(entry.studios)
+    entry.audio, entry.voice = pick_voice(media, args, entry.voice, entry.native, studios)
     track = media.tracks[entry.audio]
-    origin = unnamed_track_origin(
-        track, native=entry.voice_origin == "native", lone=len(media.tracks) == 1
-    )
+    origin = unnamed_track_origin(track, native=entry.native, lone=len(media.tracks) == 1)
     if not origin:
         # Происхождение картины уже записано первым запуском. Перечитанный паспорт
         # вправе лишь снять отметку, когда дорожка больше не одна или получила имя.
@@ -120,10 +120,9 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
     # строке про неё на экране взяться неоткуда (:attr:`Entry.heard`).
     entry.heard = ""
     # Память студии тут можно только ПОДТВЕРДИТЬ или честно стереть: имени раздачи на
-    # этом пути нет вовсе (в записи лежит магнит), а заголовки дорожек сезонного пака
-    # молчат. Человек взял другую дорожку - чья она, неизвестно, и старая память про неё
-    # уже неправда.
-    if (studio := track_studio(media, entry.audio)) is not None:
+    # этом пути нет, есть лишь её студии из записи, а заголовки дорожек сезонного пака
+    # молчат. Человек взял другую дорожку, чья она - неизвестно: старая память уже неправда.
+    if (studio := track_studio(media, entry.audio, studios)) is not None:
         entry.studio = studio.name
     elif entry.audio != played:
         entry.studio = ""
@@ -131,10 +130,14 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
 
 
 def _read_media(config: Config, entry: Entry, own: _Voiced) -> Media:
-    """Паспорт файла записи: раздача по её магниту, метаданные и один ffprobe."""
+    """Паспорт звука записи: раздача по её магниту, метаданные и один ffprobe.
+
+    Звук рядом с видео (:attr:`Entry.voiced_apart`) читается у своего файла: номер дорожки
+    в записи - координата внутри него, а у видео такого пака бывает одна ``eng``.
+    """
     torrserver = _pick_state._select_engines(config.torrserver_url)
     own.torrent_hash = torrent_hash = CLAIMS.adding(entry.magnet, own, torrserver.add)
     torrserver.wait_files(torrent_hash, timeout=META_BUDGET)
-    return _pick_state._select_prober(
-        torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET
-    )
+    sound = voice_source(torrserver, torrent_hash, entry)
+    source = sound or torrserver.stream_url(torrent_hash, entry.file_idx)
+    return _pick_state._select_prober(source, timeout=PROBE_BUDGET)

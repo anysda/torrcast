@@ -98,6 +98,29 @@ def test_the_next_episode_warms_with_the_voice_from_its_own_passport(
     assert made is not None and made.audio == 1, "прогрев выбрал rus у следующего файла"
 
 
+def test_a_native_picture_warms_its_own_track_on_the_next_episode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _russian_product: None
+) -> None:
+    """Картина своего языка греет у следующей серии свою дорожку, а не дубляж."""
+    composition.use_prober(
+        monkeypatch,
+        lambda source, **_: Media(
+            duration=300.0, tracks=(AudioTrack(0, "rus", "Дубляж"), AudioTrack(1, "rus"))
+        ),
+    )
+    entry = _serial(apart=False)
+    entry.native = True
+
+    made = _next_warmer(
+        Config(warm=True, warm_dir=str(tmp_path / "warm")),
+        FakeTorrentEngine(torrent_files=list(_FILES)),
+        "hash",
+        entry,
+    )
+
+    assert made is not None and made.audio == 1, "родная безымянная дорожка, а не переозвучка"
+
+
 def test_the_next_episode_hands_its_own_size_to_the_grid(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -126,6 +149,34 @@ def test_the_next_episode_keeps_its_track_apart(tmp_path: Path) -> None:
 
     assert made is not None
     assert made.voice == "http://fake/hash/3"
+
+
+def test_the_next_episode_reselects_from_its_separate_audio_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Прогрев читает дорожки s1e2 у mka, не у видео с одним eng."""
+    asked: list[str] = []
+
+    def probe(source: str, **_: object) -> Media:
+        asked.append(source)
+        if source == "http://fake/hash/1":
+            return Media(duration=300.0, tracks=(AudioTrack(0, "eng"),))
+        return Media(duration=300.0, tracks=(AudioTrack(0, "LostFilm"),))
+
+    composition.use_prober(monkeypatch, probe)
+    entry = _serial(apart=True)
+    entry.voice = "LostFilm"
+
+    made = _next_warmer(
+        Config(warm=True, warm_dir=str(tmp_path / "warm")),
+        FakeTorrentEngine(torrent_files=list(_FILES)),
+        "hash",
+        entry,
+    )
+
+    assert made is not None and made.audio == 0
+    assert asked == ["http://fake/hash/1", "http://fake/hash/3"]
+    assert "no “LostFilm” voice track" not in capsys.readouterr().out
 
 
 def test_the_next_episode_is_assembled_without_touching_the_running_show(tmp_path: Path) -> None:

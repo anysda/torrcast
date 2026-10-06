@@ -138,6 +138,21 @@ def test_the_studio_that_played_reaches_the_record() -> None:
     assert entry.heard == "", "памяти не было - подменять было нечего"
 
 
+def test_the_language_and_the_studios_of_the_release_reach_the_record() -> None:
+    """Файл следующей серии выбирает дорожку тем же судом: ему нужны язык и студии раздачи."""
+    one = plan()
+    one.picture.native = True
+    video = TorrFile(index=0, name="кино/s05e01.mkv", size=(8 * 1024**3))
+    pack = release("Кино / Movie (Сезон 5) WEB-DL 1080p, 2 x MVO (TVShows, UnknownStation)")
+    prep = _Prep(number=1, release=pack)
+    prep.video, prep.files, prep.media = video, [video], _media()
+
+    entry = _entry_for(cast(Any, one), prep, pack, video, _media(), 0, "", "", Args(query=["кино"]))
+
+    assert entry.native
+    assert entry.studios == [studio.name for studio in pack.studios] == ["TVShows"]
+
+
 def _forced(seen: str, voice: int | None = None) -> Any:
     """Запись показа сезона, у которого запомненной студии нет вовсе."""
     video = TorrFile(index=0, name="кино/s05e01.mkv", size=(8 * 1024**3))

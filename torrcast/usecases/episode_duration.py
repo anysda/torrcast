@@ -22,7 +22,7 @@ def _configure_episode_duration(prober: Prober) -> None:
     _episode_prober = prober
 
 
-def _duration(key: str, entry: Entry, source: str) -> Entry:
+def _duration(key: str, entry: Entry, source: str, audio_source: str = "") -> Entry:
     """Длительность серии для порога перехода: следующая серия своей ещё не знает —
     её длительность лежит в её же файле, и читается она из потока, как дорожки.
 
@@ -54,7 +54,8 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     # (:func:`torrcast.domain.episode_passport.episode_passport`): вес видео, кодек, глубина,
     # кадр и HDR у этой серии свои, а разойдись они с прогревом - прогретое не найдётся.
     passport = _episode_prober(source, timeout=WORKER_DUR)
-    measured = reselect_voice(episode_passport(entry, passport), passport)
+    sound = _episode_prober(audio_source, timeout=WORKER_DUR) if audio_source else passport
+    measured = reselect_voice(episode_passport(entry, passport), sound)
     # Правка на месте, как и прежде: запись держит не только этот вызов.
     for name in ("audio", "dur", "vbps", "vbps_estimated", "codec", "depth", "frame", "hdr"):
         setattr(entry, name, getattr(measured, name))
