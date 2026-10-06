@@ -19,7 +19,7 @@ from torrcast.domain.segment_container import SegmentContainer
 from torrcast.ports.receiver import Receiver
 from web.live_receiver import POLL_SECONDS, live_receiver
 from web.tv_load import tv_load
-from web.tv_settled import tv_settled
+from web.tv_settled import RECHECK_SECONDS, tv_settled
 from web.tv_stale import tv_stale
 from web.tv_steer import tv_steer
 
@@ -174,7 +174,7 @@ class TvSession:
         заставлять ``stop`` ждать. 🔴 Показ снят - каст снимается тут же: чтение места у
         погасшего потока поднимало LOAD заново («retrying LOAD»; живой приёмник 11-09-2026).
         """
-        while not stop_poll.wait(self.poll_seconds):
+        while not stop_poll.wait(min(self.poll_seconds, RECHECK_SECONDS if self._doubt else 1e9)):
             if self._alive is not None and not self._alive():
                 if self._receiver is receiver:
                     self._release()

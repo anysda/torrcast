@@ -10,6 +10,7 @@ import pytest
 from tests.fakes.receiver import FakeReceiver
 from torrcast.domain.position import Position
 from web.tv_session import TvSession
+from web.tv_settled import RECHECK_SECONDS
 
 
 def _until(said: Callable[[], bool], limit: float = 2.0) -> None:
@@ -61,3 +62,23 @@ def test_a_single_report_back_is_still_swallowed_as_a_tail() -> None:
 
     said = [spot.pos for spot in heard]
     assert 90.0 not in said and 80.0 not in said, f"излёт дошёл до слушателя: {said}"
+
+
+@pytest.mark.machine
+def test_a_seek_back_in_doubt_is_rechecked_without_waiting_a_whole_poll() -> None:
+    """Стенд 06-10-2026: ТВ уже просил место перемотки, а упаковка 3.7 с молчала, пока второй
+    доклад, подтверждающий первый, шёл обычным тактом опроса (:data:`RECHECK_SECONDS`)."""
+    receiver = FakeReceiver(Position(1681.8, 7200.0, playing=True, state="PLAYING"))
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=2.0)
+    heard: list[Position] = []
+    session.start("192.0.2.104", "t", "u", 1681.8, echo=heard.append)
+    try:
+        _until(lambda: bool(heard), limit=3.0)
+        receiver.current = Position(1381.8, 7200.0, playing=True, state="BUFFERING")
+        moved = time.monotonic()
+        _until(lambda: heard[-1].pos == 1381.8, limit=5.0)
+        took = time.monotonic() - moved
+    finally:
+        session.stop()
+
+    assert took < 2.0 + RECHECK_SECONDS + 0.3, f"второй доклад ждал полный такт: {took:.2f} с"

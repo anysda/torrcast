@@ -8,11 +8,16 @@ from __future__ import annotations
 
 from torrcast.domain.position import Position
 
-__all__ = ["SETTLE_SECONDS", "tv_settled"]
+__all__ = ["RECHECK_SECONDS", "SETTLE_SECONDS", "tv_settled"]
 
 #: Насколько второй доклад может уйти вперёд от первого и всё ещё подтверждать его: опрос
 #: идёт раз в две секунды (:data:`web.live_receiver.POLL_SECONDS`), три такта с запасом.
 SETTLE_SECONDS = 6.0
+
+#: Через сколько переспросить приёмник, когда доклад назад под сомнением, а не ждать такт
+#: опроса. Стенд 06-10-2026: ТВ уже просил место перемотки, а упаковка 3.7 с молчала
+#: («место позади зрителя»), пока второй доклад шёл обычным тактом в 2 с.
+RECHECK_SECONDS = 0.5
 
 
 def tv_settled(spot: Position, doubt: Position | None) -> bool:
