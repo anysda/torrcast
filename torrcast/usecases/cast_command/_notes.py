@@ -74,7 +74,7 @@ def _notes(
     # картины, и молчать о нём нельзя: в раздаче-сборнике зритель иначе не узнает, что
     # играет одна часть из многих. Сериалу и ручке ``--file N`` говорить нечего: там файл
     # называет серия или сам человек.
-    if plan.series is None and args.file is None and (note := pack_note(prep.files)):
+    if plan.series is None and args.file is None and (note := pack_note(prep.files, video)):
         print(note)
     # 🔴 TC-198. Последняя строка перед стартом: взяли не то, что назвали вслух. Место
     # выбрано не для порядка - фазы поиска к этой секунде уехали вверх экрана, а решение

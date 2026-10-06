@@ -14,13 +14,20 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.playback._numbered import _Numbered
+from torrcast.usecases.playback.collection_part import collection_part
 from torrcast.usecases.select.plan import Plan
 
 
 def _default_file(plan: Plan, release: Release, files: list[TorrFile]) -> TorrFile:
-    """Фильму — самый крупный видеофайл, сериалу — файл нужной серии."""
+    """Фильму — самый крупный видеофайл, сериалу — файл нужной серии.
+
+    В сборнике фильму — его собственный файл, когда его видно (:func:`collection_part`):
+    крупнейший файл дилогии бывает чужой частью.
+    """
     series = plan.series_in(release, files)
-    return series.choose(release, files) if series else _state.pick_video_file(files)
+    if series:
+        return series.choose(release, files)
+    return collection_part(plan.picture, release, files) or _state.pick_video_file(files)
 
 
 def file_picker(args: _Numbered) -> Callable[[Plan, Release, list[TorrFile]], TorrFile]:

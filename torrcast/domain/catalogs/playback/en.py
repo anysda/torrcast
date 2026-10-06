@@ -50,6 +50,10 @@ def en() -> dict[str, str]:
         "playback.file_number_missing": (
             "there are {total} video files in this release, no number {number} there"
         ),
+        "playback.picking_picture_file": (
+            "there are {total} video files in this release - playing this picture's file "
+            '"{name}", its share {share}'
+        ),
         "playback.picking_largest_file": (
             "there are {total} video files in this release - playing the largest, its share {share}"
         ),

@@ -11,7 +11,7 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.torr_file import TorrFile
 
 
-def pack_note(files: list[TorrFile]) -> str:
+def pack_note(files: list[TorrFile], played: TorrFile | None = None) -> str:
     """Честная строка про выбор крупнейшего видеофайла; выбора не было — пусто.
 
     «Фильму — самый крупный видеофайл» — авто-решение, и на раздаче, где видеофайлов
@@ -22,14 +22,24 @@ def pack_note(files: list[TorrFile]) -> str:
     Видеофайлы считаются той же меркой, что у самого выбора
     (:func:`torrcast.adapters.stream_probe.pick_video_file.pick_video_file`). Один видеофайл — это
     не решение, а единственный вариант, и строка про него была бы шумом: на здоровой
-    раздаче она молчит.
+    раздаче она молчит. Сыграл не крупнейший, а файл самой картины из сборника
+    (``played``, :func:`~torrcast.usecases.playback.collection_part.collection_part`) -
+    строка называет его, а не крупнейший.
     """
     videos = [f for f in files if f.name.lower().endswith(VIDEO_EXT)]
     total = sum(f.size for f in videos)
     if len(videos) < 2 or not total:
         return ""
+    largest = max(videos, key=lambda f: f.size)
+    if played is not None and played.index != largest.index:
+        return phrase(
+            "playback.picking_picture_file",
+            total=len(videos),
+            name=played.base,
+            share=f"{played.size / total:.2f}",
+        )
     return phrase(
         "playback.picking_largest_file",
         total=len(videos),
-        share=f"{max(f.size for f in videos) / total:.2f}",
+        share=f"{largest.size / total:.2f}",
     )

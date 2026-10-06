@@ -40,6 +40,9 @@ def ru() -> dict[str, str]:
         ),
         "playback.receiver_did_not_finish": "приёмник не досмотрел поток - цифры выше",
         "playback.file_number_missing": "видеофайлов в раздаче {total}, номера {number} нет",
+        "playback.picking_picture_file": (
+            "видеофайлов в раздаче {total} - играю файл этой картины «{name}», его доля {share}"
+        ),
         "playback.picking_largest_file": (
             "видеофайлов в раздаче {total} - играю крупнейший, его доля {share}"
         ),
