@@ -327,6 +327,38 @@ def test_a_broken_read_of_the_bookmark_record_does_not_leave_the_card_pending(
     assert len(record.read) == 2 and heard is not None and heard.media is _OWN
 
 
+@pytest.mark.machine
+def test_a_show_pick_of_another_release_is_not_passed_off_as_the_bookmark_tracks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Картину уже отбирает показ и взял не раздачу закладки: её дорожки - не меню закладки."""
+    bench, heads, opened = _Bench(_MEDIA, release=_KEPT), [], threading.Event()
+    lookup = _lookup(monkeypatch, bench, head=lambda *a: heads.append(a))
+    show: Any = _Bench(_MEDIA)
+    assert lookup.warms.take(_PICTURE.key, show) is show
+    real_open, threads = lookup.warms.open, []
+
+    def open_(key: str, make: Callable[[], Any]) -> Any:
+        found = real_open(key, make)
+        opened.set()
+        return found
+
+    def spawn(job: Callable[[], None]) -> None:
+        threads.append(threading.Thread(target=job, daemon=True))
+        threads[-1].start()
+
+    monkeypatch.setattr(lookup.warms, "open", open_)
+    lookup.spawn = spawn
+    lookup.of(_KEPT_PLAN, "film", _CONFIG, _live())
+    assert opened.wait(5.0)
+    other: Any = _Prep(_MEDIA, _RELEASE)
+    lookup.warms.settled(show, other)
+    threads[0].join(5.0)
+
+    assert lookup.of(_KEPT_PLAN, "film", _CONFIG, _live()) == (None, False)
+    assert bench.asked == [] and heads == [], "отбор не заводился, чужая голова не легла"
+
+
 def test_a_show_bookmark_warms_its_own_episode_and_a_finished_film_does_not_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
