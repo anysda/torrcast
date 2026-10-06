@@ -57,3 +57,32 @@ def test_a_seek_of_another_show_is_not_named() -> None:
 
     assert aim.sought(_shown(60.0, key="movie:другое")) is None
     assert aim.sought(None) is None
+
+
+def test_presses_in_a_row_add_up_from_the_latched_place() -> None:
+    """TC-1169: нажатие поверх неприземлившейся перемотки считается от её цели."""
+    clock = _Clock()
+    aim = Aim(clock=clock)
+
+    _place(aim, _shown(1000.0))
+    aim.at(60.0)
+    clock.now = 0.5
+    aim.at(60.0)
+    clock.now = 1.0
+    aim.at(-30.0)
+
+    assert _place(aim, _shown(1000.0)) == 1091.0
+    assert aim.sought(_shown(1000.0)) == {"n": 3, "to": 1091.0}
+
+
+def test_after_the_window_a_press_counts_from_the_truth_again() -> None:
+    clock = _Clock()
+    aim = Aim(clock=clock)
+
+    _place(aim, _shown(1000.0))
+    aim.at(60.0)
+    clock.now = LANDED_SECONDS
+    _place(aim, _shown(1000.0))
+    aim.at(60.0)
+
+    assert aim.sought(_shown(1000.0)) == {"n": 2, "to": 1060.0}

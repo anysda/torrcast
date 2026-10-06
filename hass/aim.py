@@ -48,6 +48,7 @@ class Aim:
         #: Сколько перемоток моста было: номер новой меняется, и вкладка на ТВ узнаёт о ней
         #: из снимка, а не только из своего нажатия (:meth:`sought`).
         self._n = 0
+        self._paused = False
 
     def at(self, offset: float) -> None:
         """Мост послал ``seekby``: закладка с этой секунды считается на новом месте.
@@ -58,10 +59,21 @@ class Aim:
         отпустил ползунок. Отрицательный ноль оси тут невозможен: показ до начала
         картины не мотают.
         """
-        self._key, self._from = self._seen
-        self._to = max(0.0, self._from + offset)
+        key, truth = self._seen
+        # Нажатие поверх неприземлившейся перемотки считается от её цели, как и сдвиг у
+        # Home Assistant: 3x60 подряд - это +180, а не +60 от прежней правды (TC-1169).
+        held = self._held(key)
+        self._key, self._from = key, truth
+        self._to = max(0.0, (truth if held is None else held) + offset)
         self._at = self._clock()
         self._n += 1
+
+    def _held(self, key: str) -> float | None:
+        """Место живой защёлки этого показа, либо ``None``."""
+        gone = self._clock() - self._at
+        if self._at < 0.0 or key != self._key or gone >= LANDED_SECONDS:
+            return None
+        return self._to + (0.0 if self._paused else gone)
 
     def sought(self, shown: PlaybackSnapshot | None) -> dict[str, JsonValue] | None:
         """Последняя перемотка моста этого показа: её номер и цель; не было - ``None``.
@@ -81,6 +93,7 @@ class Aim:
         if shown is None:
             return None
         self._seen = (shown.key, shown.position)
+        self._paused = shown.paused == "PAUSED"
         place = self._place(shown)
         return shown if place is None else replace(shown, position=place)
 

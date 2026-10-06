@@ -737,6 +737,27 @@ def test_the_snapshot_names_each_seek_of_the_bridge_for_the_tab_on_tv(
     assert bridge.state()["seek"] == {"n": 1, "to": 760.0}
 
 
+def test_presses_in_a_row_reach_the_show_and_the_card_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TC-1169: 3x60 подряд давали +60 - слова перезаписывали друг друга в файле-пульте, а
+    защёлка считала каждое от прежней правды (живой приёмник 06-10-2026)."""
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=1000.0, moved=True),
+    )
+    bridge = _bridge(session)
+
+    assert bridge.state()["position"] == 1000.0
+    for _ in range(3):
+        bridge.control(SEEKBY, 60.0)
+
+    assert _SystemChoiceEnvironment().read_command() == "seekby 180"
+    assert bridge.state()["seek"] == {"n": 3, "to": 1180.0}
+
+
 def test_a_tab_show_refuses_seekby_instead_of_losing_it_in_the_channel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

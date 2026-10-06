@@ -72,11 +72,16 @@ class _SystemChoiceEnvironment:
     def read_command(self) -> str | None:
         name = os.environ.get(self.ctl_env, f"/tmp/torrcast-telegram-{os.getuid()}.ctl")
         path = Path(name)
+        # Слово забирается переименованием, а не «прочёл, потом удалил»: мост дописывает
+        # перемотку к ещё не съеденной (:func:`hass.say.say`), и между чтением и удалением
+        # его слово стиралось, а прочитанное выполнялось дважды.
+        taken = path.with_name(path.name + ".taken")
         try:
-            line = path.read_text("utf-8").strip()
+            os.replace(path, taken)
+            line = taken.read_text("utf-8").strip()
         except OSError:
             return None
-        path.unlink(missing_ok=True)
+        taken.unlink(missing_ok=True)
         return line
 
     @staticmethod

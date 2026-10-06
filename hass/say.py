@@ -33,8 +33,32 @@ def _ctl_path() -> Path:
 
 
 def say(command: str, path: Path | None = None) -> None:
-    """Положить показу одно слово; читатель заберёт его на ближайшем опросе."""
+    """Положить показу одно слово; читатель заберёт его на ближайшем опросе.
+
+    🔴 Перемотка складывается с ещё не съеденной: показ читает файл раз в круг опроса, и
+    три нажатия подряд перезаписывали друг друга - 3x60 давали +60, в журнале юнита одна
+    строка (TC-1169, живой приёмник 06-10-2026). Несъеденное слово забирается
+    переименованием, как у читателя: съел он его раньше - сдвиг уже исполнен.
+    """
     target = _ctl_path() if path is None else path
+    word, _, by = command.partition(" ")
+    if word == SEEKBY:
+        command = f"{SEEKBY} {float(by) + _pending_seekby(target):g}"
     temporary = target.with_suffix(target.suffix + ".tmp")
     temporary.write_text(command, encoding="utf-8")
     temporary.replace(target)
+
+
+def _pending_seekby(target: Path) -> float:
+    """Сдвиг несъеденной перемотки, забранный из файла; другое слово не трогается."""
+    try:
+        word, _, by = target.read_text(encoding="utf-8").strip().partition(" ")
+        if word != SEEKBY:
+            return 0.0
+        mine = target.with_suffix(target.suffix + ".merge")
+        os.replace(target, mine)
+        word, _, by = mine.read_text(encoding="utf-8").strip().partition(" ")
+        mine.unlink(missing_ok=True)
+        return float(by) if word == SEEKBY else 0.0
+    except (OSError, ValueError):
+        return 0.0
