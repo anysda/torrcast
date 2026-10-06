@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.cast_command._play_state as _state
@@ -14,6 +13,7 @@ from torrcast.domain.bitrate_mbit import bitrate_mbit
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.for_tab import for_tab
+from torrcast.domain.show_receiver import show_receiver
 from torrcast.domain.track_studio import track_studio
 from torrcast.domain.tune import tune as tune_profile
 from torrcast.ports.journal.slot import journal
@@ -75,10 +75,11 @@ def _cmd_play(
     # 🔴 И до ``here``: вкладка играет тот же поток, что и ТВ (иначе «На ТВ» - куски до 110 с).
     # Вкладка, сказавшая о себе ``--tab``, получает замеренные пороги, только если она их
     # заслужила (:func:`torrcast.domain.for_tab.for_tab`); иначе - выбор ``dev``.
-    chosen = for_tab(_state._play_detect(config), config, args.tab)
-    config = tune_profile(config, chosen.profile)
-    # Страница просит показ себе - настройка машины остаётся прежней, играет только ЭТОТ запуск.
-    config = replace(config, receiver="browser") if args.here else config
+    # Страница просит показ себе - настройка машины остаётся прежней, играет только ЭТОТ запуск;
+    # без ``here`` - телевизор, даже у машины с приёмником-вкладкой (TC-1370).
+    launch = show_receiver(config, args.here)
+    chosen = for_tab(_state._play_detect(config if args.here else launch), config, args.tab)
+    config = tune_profile(launch, chosen.profile)
     state = watch_store().load()
     if not args.query:
         args.query = [_default_query(state)]

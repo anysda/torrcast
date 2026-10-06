@@ -7,13 +7,13 @@ from __future__ import annotations
 import contextlib
 import signal
 from collections.abc import Callable
-from dataclasses import replace
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.for_tab import for_tab
 from torrcast.domain.probe_settings import PROBE_TIMEOUT
+from torrcast.domain.show_receiver import show_receiver
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
 from torrcast.ports.journal.slot import journal
@@ -103,19 +103,19 @@ def _cmd_worker(
     """
     journal().mark("процесс показа")
     config = _worker_configs()
+    # Запрос играет у себя - вкладка становится приёмником ЭТОГО запуска; без ``--here``
+    # показ идёт на ТВ, даже если приёмник машины - вкладка (TC-1370). Настройка машины
+    # остаётся прежней: следующий ``cast`` решит за себя сам.
+    launch = show_receiver(config, here)
     # Профиль приёмника юнит выбирает себе сам, а не получает от CLI: юнит переживает
     # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
-    # 🔴 Спрашивается он ДО ``here``, по настройке машины: вкладка играет тот же поток, что
-    # и ТВ, и «На ТВ» отдаёт приставке упаковку, сделанную под неё (ТЗ §7.5).
+    # 🔴 Для ``here`` спрашивается он по настройке машины: вкладка играет тот же поток, что
+    # и ТВ, и «На ТВ» отдаёт приставке упаковку, сделанную под неё (ТЗ §7.5). Показу на ТВ -
+    # паспорт самого ТВ, а не осторожный набор вкладки.
     # Ключ вкладки (``--tab``) - та же поправка, что у CLI: замеренной вкладке - её пороги.
-    chosen = for_tab(_worker_detect(config), config, tab)
+    chosen = for_tab(_worker_detect(config if here else launch), config, tab)
     journal().mark("профиль приёмника", как=chosen.how)
-    config = tune(config, chosen.profile)
-    if here:
-        # Запрос играет у себя - вкладка становится приёмником ЭТОГО запуска, а
-        # настройка машины остаётся прежней (``chromecast``): следующий ``cast`` без
-        # ``--here`` снова пойдёт на ТВ, как будто вкладки не бывало.
-        config = replace(config, receiver="browser")
+    config = tune(launch, chosen.profile)
     print(phrase("worker.receiver_profile", title=chosen.profile.title, how=chosen.how), flush=True)
     # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
     signal.signal(signal.SIGTERM, _on_term)
