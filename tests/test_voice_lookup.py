@@ -201,8 +201,42 @@ def test_a_live_bookmark_card_lists_the_tracks_of_the_bookmark_release(
 
     heard, _coming = lookup.of(_KEPT_PLAN, "film", _CONFIG, _live())
 
-    assert bench.asked[0][1].card_release == "a" * 40
+    asked = bench.asked[0][1]
+    assert (asked.release, asked.release_hash) == (2, "a" * 40), "раздача закладки названа"
     assert heard is not None and heard.release == "a" * 40
+
+
+def test_a_honestier_pick_may_not_replace_the_bookmark_release_of_a_live_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Свободный отбор брал бы другой релиз - карточка с закладкой спрашивает её раздачу.
+
+    «Интерстеллар» с закладкой на раздаче, чьё имя обещало 1080p, а ffprobe мерил 648p:
+    честностная проверка подменяла ответ, закладка оставалась без меню. Названную
+    раздачу проверка не трогает - меню показывает дорожки той, что продолжит «Играть».
+    """
+
+    @dataclass
+    class _Honest(_Bench):
+        """Свободный выбор - лучший релиз; названная раздача возвращается как есть."""
+
+        def resolve(self, plan: Plan, args: Any, _progress: object) -> _Prep:
+            self.asked.append((plan, args))
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            if args.release_hash:
+                return _Prep(self.answer, plan.ranked[(args.release or 1) - 1])
+            return _Prep(self.answer, self.release)
+
+    bench = _Honest(_MEDIA)
+    lookup = _lookup(monkeypatch, bench, spawn=_sync)
+
+    heard, coming = lookup.of(_KEPT_PLAN, "film", _CONFIG, _live())
+
+    assert coming is False
+    assert heard is not None and heard.release == "a" * 40
+    assert heard.media.tracks == _MEDIA.tracks, "дорожки - раздачи закладки, не чужой"
+    assert [prep.found for prep in bench.kept] == [_MEDIA], "греется раздача закладки"
 
 
 def test_a_card_picked_before_the_bookmark_is_picked_again_for_the_bookmark(
@@ -217,17 +251,17 @@ def test_a_card_picked_before_the_bookmark_is_picked_again_for_the_bookmark(
     bench.release = _KEPT
     heard, _coming = lookup.of(_KEPT_PLAN, "film", _CONFIG, _live())
 
-    assert [asked[1].card_release for asked in bench.asked] == ["", "a" * 40]
+    assert [asked[1].release_hash for asked in bench.asked] == ["", "a" * 40]
     assert heard is not None and heard.release == "a" * 40
 
 
-def test_tracks_of_another_release_are_not_passed_off_as_the_bookmark_ones(
+def test_tracks_of_a_release_gone_from_the_listing_are_not_passed_off_as_the_bookmark_ones(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Отбор не взял раздачу закладки - меню нет: чужие дорожки соврали бы."""
+    """Раздачи закладки нет в выдаче: отбор возьмёт другую, и чужих дорожек меню не покажет."""
     lookup = _lookup(monkeypatch, _Bench(_MEDIA), spawn=_sync)
 
-    assert lookup.of(_KEPT_PLAN, "film", _CONFIG, _live()) == (None, False)
+    assert lookup.of(_PLAN, "film", _CONFIG, _live()) == (None, False)
 
 
 def test_a_show_bookmark_warms_its_own_episode_and_a_finished_film_does_not_count(
@@ -254,11 +288,11 @@ def test_a_show_bookmark_warms_its_own_episode_and_a_finished_film_does_not_coun
 def test_a_release_other_than_the_bookmark_one_is_not_left_warm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Играть продолжит закладку: чужую раздачу, взятую отбором карточки, держать незачем."""
+    """Раздачи закладки нет в выдаче: взятую отбором чужую держать незачем."""
     bench = _Bench(_MEDIA)
     lookup = _lookup(monkeypatch, bench, spawn=_sync)
 
-    lookup.of(_KEPT_PLAN, "film", _CONFIG, _live())
+    lookup.of(_PLAN, "film", _CONFIG, _live())
 
     assert bench.kept == [] and bench.dropped == [True]
     assert not lookup.warms.holds(_PICTURE.key)
@@ -374,12 +408,12 @@ def test_a_bookmark_card_lays_the_head_of_the_bookmark_itself(
 
 
 def test_a_pick_foreign_to_the_bookmark_lays_no_head(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Отбор взял не раздачу закладки: играть её не будут, и греть её голову незачем."""
+    """Раздачи закладки нет в выдаче: отбор взял чужую, и греть её голову незачем."""
     heads: list[tuple[Any, ...]] = []
     bench = _Bench(_MEDIA)
     lookup = _lookup(monkeypatch, bench, spawn=_sync, head=lambda *args: heads.append(args))
 
-    lookup.of(_KEPT_PLAN, "film", _CONFIG, _live())
+    lookup.of(_PLAN, "film", _CONFIG, _live())
 
     assert heads == []
 
