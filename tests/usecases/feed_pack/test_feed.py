@@ -30,13 +30,22 @@ def test_the_manifest_promises_the_whole_film_in_bytes(tmp_path: Path) -> None:
 
 
 def test_a_resumed_show_does_not_promise_the_head_it_will_never_pack(tmp_path: Path) -> None:
-    """Продолжение с середины: ниже двери живого куска не будет, и обещать его нельзя.
+    """Продолжение с середины: LOAD забирает голову ``v0`` до места захода, и без неё на
+    диске запрос висит выдержку (:attr:`wait`) и кончается 404 - голова объявлена дырой."""
+    store = vault(tmp_path)
+    show = feed(tmp_path, grid=grid(60.0, 10.0), vault=store)
+    show.door = 3
 
-    Упаковка идёт только вперёд от места захода, поэтому за куском из головы приёмник
-    приходит в пустоту: запрос висит выдержку (:attr:`wait`) и кончается 404. Дверь -
-    слот, с которого поднята упаковка; ниже неё честно обещать лишь то, что уже лежит на
-    диске (:meth:`have`), и прогретое место остаётся перемоткой назад, а не дырой.
-    """
+    lines = show.manifest().decode("utf-8").splitlines()
+
+    assert lines[lines.index("v0.ts") - 2] == "#EXT-X-GAP"
+    assert [line for line in lines if line.endswith(".ts")] == [f"v{k}.ts" for k in range(6)]
+
+
+def test_a_seek_back_below_the_door_is_not_skipped(tmp_path: Path) -> None:
+    """Стенд 06-10-2026, показ продолжен с 410 с: пульт «-300» вёл в 135.7, а ТВ встал на
+    195.1 - манифест VOD берётся раз, и дыры ниже двери в нём навсегда. Место ниже двери
+    перемотка пакует оттуда же, как и впереди: обещано всё, кроме пустой головы."""
     store = vault(tmp_path)
     show = feed(tmp_path, grid=grid(60.0, 10.0), vault=store)
     lay(store.dir, 1)
@@ -44,11 +53,8 @@ def test_a_resumed_show_does_not_promise_the_head_it_will_never_pack(tmp_path: P
 
     lines = show.manifest().decode("utf-8").splitlines()
 
-    assert lines[lines.index("v0.ts") - 2] == "#EXT-X-GAP"
-    assert lines[lines.index("v2.ts") - 2] == "#EXT-X-GAP"
-    assert lines[lines.index("v1.ts") - 2] != "#EXT-X-GAP", "прогретое место есть, его обещают"
-    assert lines.count("#EXT-X-GAP") == 2, "за дверью пакуют, там дыр нет"
-    assert [line for line in lines if line.endswith(".ts")] == [f"v{k}.ts" for k in range(6)]
+    assert lines[lines.index("v2.ts") - 2] != "#EXT-X-GAP", "перемотку назад за дверь пропустят"
+    assert lines.count("#EXT-X-GAP") == 1, "дыры кроме головы"
 
 
 def test_the_live_shelf_uses_the_selected_containers_name(tmp_path: Path) -> None:
