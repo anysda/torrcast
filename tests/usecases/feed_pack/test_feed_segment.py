@@ -281,3 +281,23 @@ def test_only_a_warm_recode_within_the_cap_counts_as_stocked(tmp_path: Path) -> 
     assert not _stocked(show, 3), "перекод тяжелее потолка раздача сама не отдаст"
     assert not _stocked(show, 4), "метки нет и файла нет"
     assert not _stocked(feed(tmp_path / "bare"), 3), "без прогрева запаса нет"
+
+
+def test_an_empty_warmed_piece_is_dropped_and_packed_live(tmp_path: Path) -> None:
+    """Стенд 06-10-2026: ``v486.m4s`` в 0 байт уходил приёмнику, и тот висел в BUFFERING."""
+    said: list[str] = []
+    asked: list[int] = []
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store, wait=1.0, log=said.append)
+    empty = lay(store.dir, 3, size=0)
+
+    def pack_live(slot: int) -> bool:
+        asked.append(slot)
+        lay(show.out, slot)
+        return True
+
+    answer = _segment(show, 3, pack_live, _quiet)
+
+    assert answer == show.out / "v3.ts" and asked == [3]
+    assert not empty.exists(), "пустой кусок остался ждать следующей перемотки"
+    assert said == [phrase("feed.warm_empty", slot=3)]

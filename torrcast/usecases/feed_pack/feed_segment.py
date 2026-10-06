@@ -139,6 +139,12 @@ def _warm(state: _State, slot: int) -> Path | None:
         size = path.stat().st_size
     if size > state.cap:
         return None
+    if size == 0:
+        # Стенд 06-10-2026: на складе лёг ``v486.m4s`` в 0 байт, приёмник после него больше не
+        # просил ничего и висел в BUFFERING до стопа, а файл ждал следующей перемотки сюда.
+        state.vault.reject(slot)
+        state._say(phrase("feed.warm_empty", slot=slot))
+        return None
     if zeroed(path):
         # Затёртое нулями место декодер не переживает, а лежит оно до следующего показа
         # и дальше (:func:`torrcast.usecases.warm.zeroed.zeroed`): стирается и уходит живьём.
@@ -174,7 +180,7 @@ def _have(state: _State, slot: int) -> bool:
         return False
     path = state.vault.path(slot)
     with contextlib.suppress(OSError):
-        return path.stat().st_size <= state.cap
+        return 0 < path.stat().st_size <= state.cap
     return False
 
 
@@ -189,5 +195,5 @@ def _stocked(state: _State, slot: int) -> bool:
     if state.vault is None or slot not in state.vault.served:
         return False
     with contextlib.suppress(OSError):
-        return state.vault.path(slot).stat().st_size <= state.cap
+        return 0 < state.vault.path(slot).stat().st_size <= state.cap
     return False
