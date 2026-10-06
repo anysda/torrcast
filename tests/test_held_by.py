@@ -83,3 +83,15 @@ def test_unknown_verdicts_do_not_count_toward_the_mass_drop_guard() -> None:
 
     assert held_by(current, _body(25), drops) is not None
 
+
+def test_the_held_reason_names_the_rule_and_its_numbers() -> None:
+    """Журнал называет держащее правило с долями: молчаливый отказ прятал его часами."""
+    current = _body(21)
+    drops = DropCount(checked=26, dropped=5, unknown=19)
+
+    shrink = held_by(current, _body(9), _drops(9, 0))
+    mass = held_by(current, _body(21), drops)
+
+    assert shrink is not None and "9" in shrink and "21" in shrink
+    assert mass is not None and all(str(n) in mass for n in (5, 7, 19, MASS_DROP))
+    assert held_by(current, _body(21), _drops(21, 0)) is None

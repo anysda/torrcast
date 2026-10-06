@@ -10,6 +10,7 @@ from web.built_by_rule import FIELD, RULE
 from web.carried import CARRIED, carried
 from web.drop_count import DropCount
 from web.held_by import held_by
+from web.shown_pruned import shown_pruned
 
 
 def shelf_candidate(
@@ -51,7 +52,7 @@ def shelf_candidate(
     if reason is None:
         return candidate
     print(reason, flush=True)
-    return None
+    return shown_pruned(current, shelf, drops, now)  # the honest drops still leave the screen
 
 
 __all__ = ["shelf_candidate"]

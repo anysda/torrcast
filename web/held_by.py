@@ -58,7 +58,11 @@ def held_by(
         return None
     judged = drops.checked - drops.unknown
     return phrase(
-        "systemd.shelf.held_drops", dropped=drops.dropped, judged=judged, ceiling=MASS_DROP
+        "systemd.shelf.held_drops",
+        dropped=drops.dropped,
+        judged=judged,
+        ceiling=MASS_DROP,
+        unknown=drops.unknown,
     )
 
 

@@ -13,7 +13,9 @@ def ru() -> dict[str, str]:
         "systemd.shelf.published": "полка {shelf}: опубликовано тело из {count} плиток",
         "systemd.shelf.unplayable": "полка: «{query}» не играет, плитка {tile} снимается",
         "systemd.shelf.held_shrink": "полка: тело держится, у {shelf} {new} из {old} < {floor}",
-        "systemd.shelf.held_drops": "полка: тело держится, отсев {dropped} из {judged} > {ceiling}",
+        "systemd.shelf.held_drops": (
+            "полка: тело держится, отсев {dropped} из {judged} > {ceiling}, не знаю {unknown}"
+        ),
         "systemd.shelf.feed_short": "полка: лента недосчитала индексер, переспрос ещё {within} с",
         "systemd.shelf.feed_refilled": "полка: переспрос дал {count} строк, недосчитано {missed}",
     }
