@@ -48,7 +48,7 @@ function player(server) {
   const latency = 20;
   const overlayRoot = doc.body;
   const calls = {
-    next: [], control: [], position: [], left: [], boxPolls: 0, statePolls: 0,
+    next: [], control: [], position: [], finish: [], left: [], boxPolls: 0, statePolls: 0,
     routerGo: [], historyBack: 0, card: [], history: 0,
   };
 
@@ -95,7 +95,8 @@ function player(server) {
       async position(said) {
         calls.position.push(said);
         await new Promise((done) => time.setTimeout(done, latency));
-        return server.position ? server.position(said) : 200;
+        const answer = server.position ? server.position(said) : 204;
+        return typeof answer === 'number' ? { code: answer, finish: null } : answer;
       },
       left(said) { calls.left.push(said); },
       // ``history()`` - закладки ``/api/history``; сценарий без них получает пустой список.

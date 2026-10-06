@@ -50,6 +50,24 @@ const scenarios = {
     return { seeks, startPosition: p.ctx.TCPlayer._hls.opts.startPosition };
   },
 
+  // Стрелка Home Assistant не заводит новый показ: мост кладёт одной текущей вкладке
+  // секунду конца, а та возвращает её в то же видео. Дальше ``timeupdate`` проходит
+  // обычный путь конца серии и подхватывает уже прогретую следующую.
+  async remoteNextFinishesTheCurrentTab() {
+    const p = player({
+      box: () => ({ key: 'k1', url: 'http://stand/a.m3u8', at: 0 }),
+      state: () => ({ has_next: true, season: 1, episode: 2 }),
+      position: () => ({ code: 200, finish: 99 }),
+    });
+    p.mount();
+    p.video.duration = 100;
+    await p.time.run(200);
+    const sent = p.ctx.TCPlayer._sendPosition();
+    await p.time.run(400);
+    await sent;
+    return { position: p.video.currentTime, reports: p.calls.position.length, key: p.ctx.TCPlayer._key };
+  },
+
   // Плашка встаёт РОВНО на пороге `TCPlayerNext.SECONDS`, не раньше и не на старой
   // зашитой секунде; досчитав сама, убирает карточку и зовёт `TCApi.next` ровно один
   // раз. Старое видео, доигрывающее свой хвост ПОСЛЕ перехода, второй раз не переводит.

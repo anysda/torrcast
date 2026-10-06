@@ -26,10 +26,15 @@ from torrcast.ports.journal.slot import journal
 from torrcast.usecases.playback.hls_root import hls_root
 
 
+def _tab_receiver(config: Config) -> bool:
+    """Показ идёт в самой вкладке, а не в отданном ей телевизоре."""
+    box = read_web_box(hls_root(config.hls_dir))
+    return bool(box.get("url")) and not box.get("tv", False)
+
+
 def remote_refused(config: Config, command: str) -> bool:
     """Показ во вкладке этой командой не управляется - отказать и сказать почему в ленту."""
-    box = read_web_box(hls_root(config.hls_dir))
-    if not box.get("url") or box.get("tv", False):
+    if not _tab_receiver(config):
         return False
     journal().emit("bridge", "remote_refused", command=command, why="no_remote")
     return True

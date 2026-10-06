@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Final
 
 from torrcast.adapters.browser.clear_web_box import clear_web_box
+from torrcast.adapters.browser.clear_web_finish import clear_web_finish
 from torrcast.adapters.browser.clear_web_last import clear_web_last
 from torrcast.adapters.browser.clear_web_position import clear_web_position
 from torrcast.adapters.browser.read_web_last import read_web_last
@@ -121,6 +122,7 @@ class BrowserReceiver:
         self._left_pos = -1.0
         clear_web_position(self.out)
         clear_web_last(self.out)  # «Отмена» прошлого показа новому не наследство
+        clear_web_finish(self.out)
         write_web_box(
             self.out,
             url=url,
@@ -140,6 +142,7 @@ class BrowserReceiver:
         """
         del quit_app
         clear_web_box(self.out)
+        clear_web_finish(self.out)
         clear_web_position(self.out)
         self._key = ""
 

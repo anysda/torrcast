@@ -8,9 +8,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import TypeGuard
 
+from torrcast.adapters.browser.clear_web_finish import clear_web_finish
 from torrcast.adapters.browser.read_web_box import read_web_box
+from torrcast.adapters.browser.read_web_finish import read_web_finish
 from torrcast.adapters.browser.write_web_last import write_web_last
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -73,4 +76,9 @@ def position(request: Request) -> Answer:
     if body.get("last") is True:
         write_web_last(out, key)
     write_web_position(out, key=key, pos=pos, dur=dur, phase=phase, wall=CLOCK.wall())
-    return Answer(204, b"")
+    command = read_web_finish(out)
+    at = command.get("at")
+    if command.get("key") != key or not _is_number(at):
+        return Answer(204, b"")
+    clear_web_finish(out)
+    return Answer(200, json.dumps({"finish": at}).encode())

@@ -55,6 +55,16 @@ def test_a_fresh_episode_does_not_seek_back_before_its_first_packet(
 
 
 @pytest.mark.machine
+def test_a_remote_next_finishes_the_current_tab_through_its_own_channel(
+    facts: dict[str, Any],
+) -> None:
+    """TC-1062: вкладка принимает только узкий сигнал конца, не общий пульт TC-1210."""
+    said = _scenario(facts, "remoteNextFinishesTheCurrentTab")
+
+    assert said["position"] == 99
+
+
+@pytest.mark.machine
 def test_the_countdown_appears_at_the_promised_threshold_and_not_earlier(
     facts: dict[str, Any],
 ) -> None:

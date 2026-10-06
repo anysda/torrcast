@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 
 from tests.fakes.receiver import FakeReceiver
+from torrcast.adapters.browser.read_web_finish import read_web_finish
 from torrcast.adapters.browser.read_web_last import read_web_last
 from torrcast.adapters.browser.read_web_position import read_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
+from torrcast.adapters.browser.write_web_finish import write_web_finish
 from torrcast.adapters.browser.write_web_position import write_web_position
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.position import Position
@@ -22,6 +24,35 @@ from web.tv_session import SESSION
 
 def _post(body: dict[str, JsonValue]) -> Request:
     return Request("POST", "/api/web/position", {}, body)
+
+
+def test_a_finish_command_is_returned_once_to_its_own_tab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="u", title="t", at=0.0, key="k1")
+    write_web_finish(tmp_path, "k1", 119.0)
+
+    answer = position(_post({"key": "k1", "pos": 30.0, "dur": 120.0, "phase": "playing"}))
+    repeated = position(_post({"key": "k1", "pos": 119.0, "dur": 120.0, "phase": "playing"}))
+
+    assert answer.code == 200
+    assert json.loads(answer.body) == {"finish": 119.0}
+    assert repeated.code == 204
+    assert read_web_finish(tmp_path) == {}
+
+
+def test_a_finish_command_is_not_leaked_to_another_tab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="u", title="t", at=0.0, key="k1")
+    write_web_finish(tmp_path, "k1", 119.0)
+
+    answer = position(_post({"key": "other", "pos": 30.0, "dur": 120.0, "phase": "playing"}))
+
+    assert answer.code == 409
+    assert read_web_finish(tmp_path) == {"key": "k1", "at": 119.0}
 
 
 def test_a_matching_key_is_accepted_and_lands_on_disk(

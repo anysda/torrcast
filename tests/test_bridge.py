@@ -20,6 +20,7 @@ from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.receiver import FakeReceiver
 from tests.fakes.state_store import FakeStateStore
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
+from torrcast.adapters.browser.read_web_finish import read_web_finish
 from torrcast.adapters.browser.web_box_path import web_box_path
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.adapters.choice_environment import _SystemChoiceEnvironment
@@ -426,6 +427,43 @@ def test_the_next_episode_finishes_the_current_show_without_starting_another(
 
     assert control.read_text(encoding="utf-8") == "seekby 1199"
     assert session.stopped == 0, "стрелка не снимает живой юнит ради нового запуска"
+
+
+def test_the_next_episode_tells_a_tab_to_finish_without_using_the_refused_remote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TC-1062: стрелка HA доводит вкладку до штатного конца, а не снимает показ.
+
+    Chromecast остаётся предыдущим тестом: его путь всё ещё пишет ``seekby`` в общий
+    канал. Вкладка пульта не берёт, поэтому ей положена узкая команда конца с ключом
+    текущего сеанса; браузер возвращает её в своё ``video.currentTime``.
+    """
+    state_slot.install(FakeStateStore())
+    store = state_slot.store()
+    state = store.load()
+    state.entries["tv:чернобыль"] = Entry(
+        title="Чернобыль",
+        magnet="magnet:?xt=1",
+        kind="tv",
+        season=1,
+        episode=3,
+        episodes=[[1, 3, 0, 0], [1, 4, 1, 0]],
+        query="чернобыль",
+    )
+    store.save(state)
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Чернобыль", at=600.0, key="tab-session")
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="tv:чернобыль",
+        shown=PlaybackSnapshot(key="tv:чернобыль", title="Чернобыль", position=600, duration=1800),
+    )
+    bridge = _bridge(session, settings=lambda: Config())
+
+    bridge.next()
+
+    assert read_web_finish(tmp_path) == {"key": "tab-session", "at": 1799.0}
+    assert session.stopped == 0, "стрелка не снимает живой показ вкладки"
 
 
 def test_a_next_call_the_shows_own_watch_already_did_starts_nothing() -> None:

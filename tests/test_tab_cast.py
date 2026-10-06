@@ -11,7 +11,9 @@ import pytest
 
 from hass.refused_error import NOTHING_PLAYING, RefusedError
 from hass.tab_cast import tab_cast
+from hass.tab_finish import tab_finish
 from tests.fakes.receiver import FakeReceiver
+from torrcast.adapters.browser.read_web_finish import read_web_finish
 from torrcast.adapters.browser.write_web_box import write_web_box
 from torrcast.domain.config import Config
 from torrcast.domain.position import Position
@@ -68,6 +70,16 @@ def test_seekby_on_a_cast_tab_moves_the_tv_from_where_it_stands(
     assert tab_cast(config, "seekby", 60.0)
 
     assert receiver.said == [("seek", 540.0), ("seek", 600.0)]
+
+
+def test_a_cast_tab_keeps_next_on_the_tv_path(
+    cast_of: tuple[_Steered, Config], tmp_path: Path
+) -> None:
+    """TC-1062 не подменяет Chromecast-вариант вкладочным каналом конца серии."""
+    _receiver, config = cast_of
+
+    assert not tab_finish(config, 7199.0)
+    assert read_web_finish(tmp_path) == {}
 
 
 def test_toggle_on_a_cast_tab_pauses_a_playing_tv_and_resumes_a_paused_one(

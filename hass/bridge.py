@@ -39,6 +39,7 @@ from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, searching
 from hass.starting import starting
 from hass.stopping import STOP, _abandoned, stopping
 from hass.tab_cast import tab_cast
+from hass.tab_finish import tab_finish
 from hass.tv_heard import tv_heard
 from hass.volume import Volume
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -81,8 +82,6 @@ class Bridge:
         self._motion = motion or Motion()
         self._posters = posters or Posters()
 
-    # ------------------------------------------------------------------ снимок
-
     def state(self) -> dict[str, JsonValue]:
         """Тело ``GET /api/state``: снимок показа, громкость и место под прогрев."""
         config = self._settings()
@@ -110,8 +109,6 @@ class Bridge:
         """``GET /api/poster/<имя>``: байты картинки и её тип; чужое имя - ``None``."""
         return self._posters.read(name)
 
-    # ------------------------------------------------------------------ команды
-
     def search(self, query: str) -> list[JsonValue]:
         """``POST /api/search``: список картин тем же поиском, что и показ, мимо очереди.
 
@@ -138,7 +135,6 @@ class Bridge:
 
     def control(self, command: str, arg: float) -> None:
         """``POST /api/control``: пульт идущего показа, а остановка - дверь наружу.
-        Остановка ВЫШЕ отказов (:func:`hass.stopping.stopping`), без показа пульту нечего делать.
         🔴 Вкладка пульта не берёт (TC-1210), а её каст «На ТВ» берёт (:mod:`hass.tab_cast`).
         """
         if command == STOP:
@@ -162,7 +158,11 @@ class Bridge:
             return
         if (shown := self._session.snapshot(self._session.key())) is None or shown.duration <= 0:
             raise RefusedError(BUSY)
-        self.control(SEEKBY, max(0.0, shown.duration - shown.position - 1.0))
+        left = max(0.0, shown.duration - shown.position - 1.0)
+        if tab_finish(self._settings(), shown.duration - 1.0):
+            self._motion.commanded(SEEKBY, left)
+        else:
+            self.control(SEEKBY, left)
 
     def _start(self, args: list[str]) -> str:
         if not starting(self._orders, self._session, args):

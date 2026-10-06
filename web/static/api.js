@@ -243,9 +243,11 @@ const TCApi = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      return said.status;
+      if (said.status !== 200) return { code: said.status, finish: null };
+      const body = await TCApi._body(said);
+      return { code: said.status, finish: body && typeof body.finish === 'number' ? body.finish : null };
     } catch (error) {
-      return 0;
+      return { code: 0, finish: null };
     }
   },
 

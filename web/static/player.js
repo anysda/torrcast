@@ -232,10 +232,11 @@ const TCPlayer = {
       : video.readyState < 3 ? 'buffering' : 'playing';
     const said = { key: TCPlayer._key, phase, pos: video.currentTime || 0, dur: video.duration || 0 };
     if (TCPlayer._lastOne) said.last = true;  // каждым докладом: отметку держит сервер (`web/position.py`)
-    const code = await TCApi.position(said);
+    const report = await TCApi.position(said);
     //: 409 - ящик уже подменён другим показом, и это единственный сигнал о смене,
     //: который вкладка получает даром (`player-box.js`).
-    if (code === 409) await TCPlayerBox.rebox(TCPlayer);
+    if (report.code === 409) await TCPlayerBox.rebox(TCPlayer);
+    if (typeof report.finish === 'number' && TCPlayer._video === video) video.currentTime = report.finish;
   },
 
   //: Сказать «ухожу» ровно один раз (TC-1124): страницу закрыли или увели с ``/play``,
