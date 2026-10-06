@@ -51,8 +51,8 @@ class Aim:
     def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
         #: Где стояла закладка на последнем опросе: от неё Home Assistant и считал сдвиг.
-        self._seen: tuple[str, float, float] = ("", 0.0, 0.0)
-        self._key = ""
+        self._seen: tuple[tuple[str, int], float, float] = (("", 0), 0.0, 0.0)
+        self._key: tuple[str, int] = ("", 0)
         self._from = 0.0
         self._to = 0.0
         self._at = -1.0
@@ -79,7 +79,7 @@ class Aim:
         self._at = self._clock()
         self._n += 1
 
-    def _held(self, key: str) -> float | None:
+    def _held(self, key: tuple[str, int]) -> float | None:
         """Место живой защёлки этого показа, либо ``None``."""
         gone = self._clock() - self._at
         if self._at < 0.0 or key != self._key or gone >= LANDED_SECONDS:
@@ -95,7 +95,7 @@ class Aim:
         06-10-2026: ТВ ушёл на 745.1, плёнка осталась на 1062). Номер живёт и после
         приземления: опрос вкладки мог пропустить саму защёлку.
         """
-        if shown is None or not self._n or shown.key != self._key:
+        if shown is None or not self._n or _whose(shown) != self._key:
             return None
         return {"n": self._n, "to": round(self._to, 1)}
 
@@ -103,7 +103,7 @@ class Aim:
         """Снимок для карточки: место защёлки, пока перемотка не доехала до записи."""
         if shown is None:
             return None
-        self._seen = (shown.key, shown.position, shown.duration)
+        self._seen = (_whose(shown), shown.position, shown.duration)
         self._paused = shown.paused == "PAUSED"
         place = self._place(shown)
         return shown if place is None else replace(shown, position=place)
@@ -111,12 +111,13 @@ class Aim:
     def _place(self, shown: PlaybackSnapshot) -> float | None:
         """Место защёлки, либо ``None`` - правду отдавать уже пора.
 
-        Чужой показ защёлку не наследует: сменился ключ - оптимизма нет. Дальше решает
+        Чужой показ защёлку не наследует: сменился ключ или файл серии - оптимизма нет.
+        Ключ у серий сериала один, а перемотка к концу серии в следующей - неправда. Дальше решает
         факт: запись назвала место ближе к цели, чем к тому, откуда мотали, - перемотка
         состоялась, и правда точнее выдумки. Не назвала за целое окно - приёмник
         команду не взял.
         """
-        if self._at < 0.0 or shown.key != self._key:
+        if self._at < 0.0 or _whose(shown) != self._key:
             self._at = -1.0
             return None
         gone = self._clock() - self._at
@@ -140,3 +141,8 @@ class Aim:
         """
         near = self._to - NEAR_SECONDS <= position <= place + NEAR_SECONDS
         return near and abs(position - self._to) < abs(position - self._from)
+
+
+def _whose(shown: PlaybackSnapshot) -> tuple[str, int]:
+    """Чья защёлка: показ и файл его серии."""
+    return shown.key, shown.file_index

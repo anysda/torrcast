@@ -16,9 +16,17 @@ class _Clock:
         return self.now
 
 
-def _shown(position: float, key: str = "movie:муха", paused: str = "") -> PlaybackSnapshot:
+def _shown(
+    position: float, key: str = "movie:муха", paused: str = "", file_index: int = 0
+) -> PlaybackSnapshot:
     return PlaybackSnapshot(
-        key=key, title="Муха", position=position, duration=3600.0, moved=True, paused=paused
+        key=key,
+        title="Муха",
+        position=position,
+        duration=3600.0,
+        moved=True,
+        paused=paused,
+        file_index=file_index,
     )
 
 
@@ -125,6 +133,23 @@ def test_another_show_does_not_inherit_the_latch() -> None:
     clock.now = 1.0
 
     assert _place(aim, _shown(12.0, key="movie:тачки")) == 12.0
+
+
+def test_the_next_episode_does_not_inherit_the_latch() -> None:
+    """Ключ показа у серий один: перемотка к концу серии не едет в следующую.
+
+    Переход по ``/api/next`` мотает серию к концу, и новая серия начиналась у карточки с
+    места за её концом (2607.6 при длительности 2596.1), пока окно защёлки не выходило.
+    """
+    clock = _Clock()
+    aim = Aim(clock=clock)
+
+    _place(aim, _shown(20.0, key="tv:муха", file_index=47))
+    aim.at(2567.0)
+    clock.now = 20.0
+
+    assert _place(aim, _shown(9.0, key="tv:муха", file_index=48)) == 9.0
+    assert aim.sought(_shown(9.0, key="tv:муха", file_index=48)) is None
 
 
 def test_a_rewind_to_the_beginning_is_aimed_at_zero_and_not_below() -> None:
