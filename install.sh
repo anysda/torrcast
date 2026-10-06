@@ -2821,8 +2821,12 @@ install_prowlarr() {
         skip "$PREFIX/prowlarr-data/config.xml" "$PREFIX/prowlarr-data/config.xml"
     else
         if [ -f "$PREFIX/prowlarr-data/config.xml" ]; then
-            loud "Prowlarr config.xml at $PREFIX/prowlarr-data/config.xml is unreadable (empty, truncated or filled with NUL bytes) - rewriting it so Prowlarr can start" \
-                 "config.xml Prowlarr в $PREFIX/prowlarr-data/config.xml нечитаем (пуст, обрезан или забит нулями) - переписываю, чтобы Prowlarr поднялся"
+            final_loud "Prowlarr config.xml at $PREFIX/prowlarr-data/config.xml is unreadable (empty, truncated or filled with NUL bytes) - rewriting it so Prowlarr can start" \
+                       "config.xml Prowlarr в $PREFIX/prowlarr-data/config.xml нечитаем (пуст, обрезан или забит нулями) - переписываю, чтобы Prowlarr поднялся"
+            # На битом конфиге Prowlarr не падает, а виснет («waiting for user
+            # intervention»): systemd считает его живым, и `enable --now` ниже его не
+            # трогает. Без остановки новый файл так и не читается (живой замер: rc=1).
+            stop_service prowlarr "$PREFIX/prowlarr/Prowlarr"
         fi
         cat >"$PREFIX/prowlarr-data/config.xml" <<XML
 <Config>
