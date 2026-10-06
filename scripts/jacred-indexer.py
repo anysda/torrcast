@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -62,6 +63,13 @@ JOINT = " | "
 #: in the year field too (06.10, 12 pictures twice): the field answers 0.5-1.3 s past the
 #: text, and of 28 names that brought rows 6 landed inside 0.5 s, 21 inside 1.0, all in 1.5.
 NAMES_GRACE = 1.0
+#: Seconds from the request a name may still answer when the viewer's text filled `LIMIT`. Such
+#: a text is cut, so the names are the only way to the asked picture: «Дюна» gave 100 rows,
+#: 99 of «Часть вторая», and «Dune: Part One» of 2021 came only in the year field. On the stand
+#: (06.10, 12 joined requests in turn) that name answered 0.65-1.32 s past the text, once
+#: past the second, and the viewer got the YTS rows of another release with no Russian track.
+#: Four keeps the joined answer inside `TIMEOUT`, which torrcast reads as a cut circle.
+NAMES_DEADLINE = 4.0
 
 
 def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list[dict[str, Any]]:
@@ -75,18 +83,22 @@ def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list
     request and go to the API in parallel. The rows are interleaved text by text, so a
     cut of the joined answer by the caller's limit still keeps every text.
 
-    The first text leads: torrcast puts the viewer's own there, and the others wait no more
-    than `grace` past its answer. Waiting all of them made the viewer's rows wait the slowest
-    name, mostly empty: the joined request's median was 3.3 s where the text alone took 0.65.
-    The others leave only once it has answered: the API slows and refuses texts that come at
-    once. On the stand (30.09, nine pairs in turn) the viewer's text asked with its two names
-    took 0.91 s in the median and was refused with 429 three times; asked first, 0.55 s and
-    never refused. With all three at once torrcast's warm runs hit the 5 s cut 7 times in 15.
+    The first text leads: torrcast puts the viewer's own there, and the others wait no more than
+    `grace` past its answer, or till `NAMES_DEADLINE` when that answer filled `LIMIT` and so cannot
+    hold the asked picture. Waiting all of them made the viewer's rows wait the slowest name, mostly
+    empty: the joined request's median was 3.3 s where the text alone took 0.65. The others leave
+    only once it has answered: the API slows and refuses texts that come at once. On the stand
+    (30.09, nine pairs in turn) the viewer's text asked with its two names took 0.91 s in the median
+    and was refused with 429 three times; asked first, 0.55 s and never refused. With all three at
+    once torrcast's warm runs hit the 5 s cut 7 times in 15.
     """
     texts = [text.strip() for text in query.split(JOINT) if text.strip()]
     if len(texts) < 2:
         return _search(query, fetch)
-    first = _search(texts[0], fetch)
+    began = time.monotonic()
+    first, full = _answered(texts[0], fetch)
+    if full:
+        grace = max(grace, NAMES_DEADLINE - (time.monotonic() - began))
     forms = [form for text in texts[1:] for form in _forms(text)]
     pool = ThreadPoolExecutor(len(forms))
     asked = [pool.submit(_search, text, fetch, year) for text, year in forms]
@@ -119,8 +131,15 @@ def _forms(text: str) -> list[tuple[str, int | None]]:
 
 
 def _search(query: str, fetch: Fetch, year: int | None = None) -> list[dict[str, Any]]:
+    return _answered(query, fetch, year)[0]
+
+
+def _answered(
+    query: str, fetch: Fetch, year: int | None = None
+) -> tuple[list[dict[str, Any]], bool]:
+    """The rows of one text, and whether the API cut its answer at `LIMIT`."""
     if not query.strip():
-        return []
+        return [], False
     for origin in ORIGINS:
         try:
             answer = fetch(origin, query, year)
@@ -151,8 +170,8 @@ def _search(query: str, fetch: Fetch, year: int | None = None) -> list[dict[str,
                     "date": _unix(item.get("created_at")),
                 }
             )
-        return rows
-    return []
+        return rows, len(found) >= LIMIT
+    return [], False
 
 
 def _unix(value: Any) -> str:

@@ -168,6 +168,27 @@ def test_a_slow_name_does_not_hold_the_viewer_s_text() -> None:
 
 
 @pytest.mark.machine
+def test_a_viewer_s_text_cut_at_the_limit_waits_its_names_longer() -> None:
+    """«Дюна» filled the API's 100 rows with «Часть вторая»: the late name is the picture."""
+    answers = {
+        "Дюна": _rows(*(f"part-two-{n}" for n in range(adapter.LIMIT))),
+        "Тачки": _rows("cars"),
+        "Dune: Part One [year 2021]": _rows("part-one"),
+        "Cars [year 2006]": _rows("cars-2006"),
+    }
+
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
+        if year is not None:
+            time.sleep(0.4)
+        return answers.get(_asked(query, year), _rows())
+
+    full = adapter.search("Дюна | Dune: Part One 2021", fetch, grace=0.1)
+    short = adapter.search("Тачки | Cars 2006", fetch, grace=0.1)
+    assert "part-one" in {row["title"] for row in full}
+    assert "cars-2006" not in {row["title"] for row in short}
+
+
+@pytest.mark.machine
 def test_the_names_leave_only_once_the_viewer_s_text_has_answered() -> None:
     """The API slows and refuses texts that come at once: the viewer's goes alone."""
     events: list[str] = []
