@@ -40,9 +40,9 @@ def test_only_a_loaded_unit_counts_as_our_service() -> None:
     assert not EngineService("linux", systemd=_missing).known()
 
 
-def test_a_unit_systemd_is_bringing_back_is_coming() -> None:
-    assert EngineService("linux", systemd=_Calls("activating\n")).coming()
-    assert not EngineService("linux", systemd=_Calls("failed\n")).coming()
+def test_the_unit_state_is_what_systemd_says() -> None:
+    assert EngineService("linux", systemd=_Calls("activating\n")).state() == "activating"
+    assert EngineService("linux", systemd=_missing).state() == ""
 
 
 def test_on_a_mac_the_job_is_kickstarted() -> None:

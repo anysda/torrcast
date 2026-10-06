@@ -11,6 +11,11 @@ systemd его не поднимет: процесс жив. Раньше чел
 Тогда соединение отвергнуто, и systemd поднимает службу сам через ``RestartSec``: это
 дожидаемся, а не поднимаем сами. Не поднял - поднимаем.
 
+🔴 Службу, которую остановил человек или установщик (юнит ``inactive`` или
+``deactivating``), продукт не поднимает: стенд 06-10-2026 поймал, как штатный
+``systemctl restart`` добивался KILL из продукта посреди остановки. Такую ждём
+``COMEBACK`` (вдруг это ``restart``) и отдаём прежний отказ.
+
 Подъём один на процесс: параллельные вопросы, упавшие на том же зависе, ждут идущего
 подъёма и повторяют вопрос, а не перезапускают службу каждый по разу. Не наш TorrServer
 (чужой адрес) и TorrServer без службы (песочница, dev) не трогаются: ошибка уходит дальше
@@ -25,7 +30,7 @@ from typing import Final
 from urllib.parse import urlsplit
 
 from torrcast.adapters.system_clock import CLOCK
-from torrcast.adapters.torrserver.engine_service import EngineService
+from torrcast.adapters.torrserver.engine_service import STOPPED, EngineService
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
@@ -98,7 +103,10 @@ class EngineRestart:
 
     def _back(self, alive: Callable[[], bool], hung: bool) -> bool:
         """Служба снова отвечает: systemd поднял её сам, или подняли мы."""
-        if not hung and self._service.coming() and self._wait(alive, COMEBACK):
+        state = self._service.state()
+        if state in STOPPED:
+            return self._wait(alive, COMEBACK)
+        if not hung and state != "failed" and self._wait(alive, COMEBACK):
             return True
         return self._service.restart() and self._wait(alive, UP)
 

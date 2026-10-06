@@ -18,9 +18,9 @@ from torrcast.adapters.systemd._systemd_call import SystemdCall, _systemd
 UNIT: Final = "torrserver.service"
 LABEL: Final = "org.torrcast.torrserver"
 
-#: Состояния юнита, в которых systemd службу держит: работает, поднимается сам после
-#: падения (``Restart=on-failure`` ждёт ``RestartSec``) или перечитывает настройки.
-HELD: Final = frozenset({"active", "activating", "reloading"})
+#: Состояния юнита, в которые его привёл человек или установщик (``systemctl stop`` или
+#: ``restart``): такую службу продукт сам не поднимает, даже если она ему нужна.
+STOPPED: Final = frozenset({"inactive", "deactivating"})
 
 
 class EngineService:
@@ -46,14 +46,15 @@ class EngineService:
         except (OSError, subprocess.SubprocessError):  # менеджера служб нет (песочница)
             return False
 
-    def coming(self) -> bool:
-        """Держит ли менеджер службу сейчас: работает или поднимается сам после падения."""
+    def state(self) -> str:
+        """Состояние юнита по ``is-active``; у launchd - работает задание или нет."""
         try:
             if self._mac:
-                return _running(self._launchd("launchctl", "print", self._job()).stdout)
-            return self._systemd("systemctl", "is-active", UNIT).stdout.strip() in HELD
+                running = _running(self._launchd("launchctl", "print", self._job()).stdout)
+                return "active" if running else "failed"
+            return self._systemd("systemctl", "is-active", UNIT).stdout.strip()
         except (OSError, subprocess.SubprocessError):
-            return False
+            return ""
 
     def restart(self) -> bool:
         """Убить процесс службы и поднять новый; ``False`` - менеджер отказал.
@@ -76,4 +77,4 @@ class EngineService:
         return f"{_domain()}/{LABEL}"
 
 
-__all__ = ["EngineService"]
+__all__ = ["STOPPED", "EngineService"]

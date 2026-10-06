@@ -17,19 +17,19 @@ LOCAL = "http://127.0.0.1:8090"
 
 
 class _Service:
-    """Менеджер служб: знает ли службу, поднимает ли её сам, и сколько раз её подняли мы."""
+    """Менеджер служб: знает ли службу, в каком она состоянии и сколько раз её подняли мы."""
 
-    def __init__(self, known: bool = True, coming: bool = False, restarts: bool = True) -> None:
+    def __init__(self, known: bool = True, state: str = "active", restarts: bool = True) -> None:
         self._known = known
-        self._coming = coming
+        self._state = state
         self._restarts = restarts
         self.restarted = 0
 
     def known(self) -> bool:
         return self._known
 
-    def coming(self) -> bool:
-        return self._coming
+    def state(self) -> str:
+        return self._state
 
     def restart(self) -> bool:
         self.restarted += 1
@@ -76,7 +76,7 @@ def test_a_hung_service_is_restarted_and_the_question_asked_again() -> None:
 
 def test_a_crashed_service_is_left_to_systemd_when_it_comes_back_by_itself() -> None:
     clock = FakeClock()
-    service = _Service(coming=True)
+    service = _Service(state="activating")
     engine, _ = _engine(service, clock)
 
     answer = engine.answered(
@@ -89,7 +89,7 @@ def test_a_crashed_service_is_left_to_systemd_when_it_comes_back_by_itself() -> 
 
 def test_a_crashed_service_nobody_brings_back_is_restarted() -> None:
     clock = FakeClock()
-    service = _Service(coming=True)
+    service = _Service(state="activating")
     engine, _ = _engine(service, clock)
     began = clock.now
 
@@ -100,6 +100,43 @@ def test_a_crashed_service_nobody_brings_back_is_restarted() -> None:
     assert answer == "answer"
     assert service.restarted == 1
     assert clock.now - began >= COMEBACK
+
+
+def test_a_service_systemd_gave_up_on_is_restarted_at_once() -> None:
+    clock = FakeClock()
+    service = _Service(state="failed")
+    engine, _ = _engine(service, clock)
+
+    answer = engine.answered(
+        LOCAL, lambda: service.restarted > 0, _asked(requests.ConnectionError("refused"))
+    )
+
+    assert answer == "answer"
+    assert service.restarted == 1
+    assert clock.now < COMEBACK
+
+
+@pytest.mark.parametrize("state", ["inactive", "deactivating"])
+def test_a_service_someone_stopped_is_not_brought_back(state: str) -> None:
+    service = _Service(state=state)
+    engine, _ = _engine(service, FakeClock())
+
+    with pytest.raises(ServerDownError):
+        engine.answered(LOCAL, lambda: False, _asked(requests.ConnectionError("refused")))
+    assert service.restarted == 0
+
+
+def test_a_service_restarted_by_hand_is_waited_for() -> None:
+    clock = FakeClock()
+    service = _Service(state="deactivating")
+    engine, _ = _engine(service, clock)
+
+    answer = engine.answered(
+        LOCAL, lambda: clock.now >= 3.0, _asked(requests.ConnectionError("refused"))
+    )
+
+    assert answer == "answer"
+    assert service.restarted == 0
 
 
 @pytest.mark.parametrize(
