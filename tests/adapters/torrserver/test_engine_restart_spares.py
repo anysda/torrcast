@@ -8,6 +8,7 @@ import requests
 from tests.fakes.clock import FakeClock
 from tests.fakes.engine_service import Asked, FakeProbes, FakeService, engine
 from torrcast.adapters.torrserver.engine_restart import ADD_TIMEOUT, PAUSE, UP
+from torrcast.adapters.torrserver.reading import Stop
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.abandon import slot as abandon_slot
 
@@ -148,7 +149,7 @@ def test_a_kill_by_another_process_during_the_probes_is_not_repeated() -> None:
     bridge, _ = engine(service, clock)
     show, _ = engine(service, clock)
 
-    def readers_while_the_bridge_kills() -> bool:
+    def readers_while_the_bridge_kills(stop: Stop) -> bool:
         # Пока показ спрашивал читателей, мост упал на том же зависе и убил службу.
         bridge.answered(LOCAL, FakeProbes(), Asked(HUNG), 30.0, add=True)
         return False

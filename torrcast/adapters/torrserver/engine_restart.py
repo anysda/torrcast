@@ -15,7 +15,7 @@ systemd его не поднимет: процесс жив. Раньше чел
 
 - служба жива (``/echo``) и кто-то читает из неё раздачу: идёт чей-то показ, и KILL
   оборвал бы его ради одного медленного ``add`` (замок базы на слабой машине). Не
-  сказала, читают ли, - тоже не убиваем: живой показ дороже лишнего ожидания;
+  сказала за :data:`SPARING`, читают ли, - тоже не убиваем: живой показ дороже ожидания;
 - служба уже убита нами меньше :data:`PAUSE` назад: завис, который подъём не лечит,
   иначе убивал бы службу на каждом новом вопросе. Отметка общая для моста и процессов
   показа (:mod:`.kill_stamp`);
@@ -37,8 +37,10 @@ from typing import Final, Literal, Protocol
 from urllib.parse import urlsplit
 
 from torrcast.adapters.system_clock import CLOCK
+from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT
 from torrcast.adapters.torrserver.engine_service import EngineService
 from torrcast.adapters.torrserver.kill_stamp import KillStamp
+from torrcast.adapters.torrserver.reading import Stop
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.abandon.slot import abandoned
 from torrcast.ports.clock import Clock
@@ -57,6 +59,10 @@ UP: Final = 15.0
 #: Не убивать службу чаще: завис, который подъём не вылечил, получает прежний отказ.
 PAUSE: Final = 600.0
 
+#: Общий срок щупов перед KILL (``/echo``, ``list``, ``/cache`` на раздачу). Не уложились -
+#: «не знаю», службу щадим. Отказ человека ждёт не дольше :data:`hass.starting.YIELD_SECONDS`.
+SPARING: Final = 12.0
+
 STEP: Final = 0.25
 LOCAL: Final = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -69,7 +75,7 @@ class _Probes(Protocol):
 
     def alive(self) -> bool: ...
 
-    def reading(self) -> bool | None: ...
+    def reading(self, stop: Stop) -> bool | None: ...
 
 
 def _silent() -> None:
@@ -163,15 +169,16 @@ class EngineRestart:
         """Почему службу убивать нельзя; пусто - можно.
 
         Пауза спрошена и после щупов: они идут секунды, и за них службу мог убить соседний
-        процесс на том же зависе.
+        процесс на том же зависе. Новый щуп идёт, только если уложится в :data:`SPARING`.
         """
         if self._paused():
             return "pause"
+        last = self._clock.monotonic() + SPARING - PROBE_TIMEOUT  # позже щуп не уложится
         if hung and probes.alive():
-            reading = probes.reading()
+            reading = probes.reading(lambda: abandoned() or self._clock.monotonic() > last)
             if reading is not False:
-                return "reading" if reading else "unknown"
-        return "pause" if self._paused() else ""
+                return "abandoned" if abandoned() else "reading" if reading else "unknown"
+        return "pause" if self._paused() else "abandoned" if abandoned() else ""
 
     def _paused(self) -> bool:
         killed = max((t for t in (self._killed, self._stamp.at()) if t is not None), default=None)
@@ -189,4 +196,4 @@ class EngineRestart:
 #: Подъём движка этого процесса: служба на машине одна.
 ENGINE: Final = EngineRestart()
 
-__all__ = ["ADD_TIMEOUT", "ENGINE", "EngineRestart"]
+__all__ = ["ADD_TIMEOUT", "ENGINE", "SPARING", "EngineRestart"]

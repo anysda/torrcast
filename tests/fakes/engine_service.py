@@ -42,7 +42,7 @@ class FakeProbes:
     def alive(self) -> bool:
         return self._alive()
 
-    def reading(self) -> bool | None:
+    def reading(self, stop: Callable[[], bool]) -> bool | None:
         self.asked_reading += 1
         return self._reading
 

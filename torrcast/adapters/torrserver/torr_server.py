@@ -14,7 +14,7 @@ from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
 from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT, echoed
 from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.file_stats import file_stats
-from torrcast.adapters.torrserver.reading import reading
+from torrcast.adapters.torrserver.reading import Stop, reading
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
@@ -139,8 +139,8 @@ class TorrServer:
         self._session = self._session or requests.Session()
         return echoed(self._session, self.base_url)
 
-    def reading(self) -> bool | None:
-        return reading(lambda path, body: self._ask(path, body, True, PROBE_TIMEOUT))
+    def reading(self, stop: Stop) -> bool | None:
+        return reading(lambda path, body: self._ask(path, body, True, PROBE_TIMEOUT), stop)
 
     def disconnect_timeout(self) -> float:
         return disconnect_timeout(self.base_url, self._post)
