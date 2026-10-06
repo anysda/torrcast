@@ -1,5 +1,6 @@
 """A rerun of install.sh stops the previous install's background work (TC-1411)."""
 
+import os
 import shlex
 import subprocess
 import time
@@ -148,3 +149,25 @@ def test_an_upgrade_stops_the_retries_of_an_install_that_kept_no_pid_list(
             subprocess.run(["kill", str(pid)], capture_output=True)
         held.kill()
         held.wait()
+
+
+@pytest.mark.machine
+def test_a_sandbox_install_from_the_same_tree_keeps_its_background_work(tmp_path: Path) -> None:
+    """A sandbox run from the same checkout has its own state dir: its work is not ours to stop."""
+    ours = _install_sh(tmp_path / "ours")
+    env = {k: v for k, v in os.environ.items() if k != "TORRCAST_STATE_DIR"}
+    sandbox = {**env, "TORRCAST_STATE_DIR": str(tmp_path / "sandbox")}
+    subprocess.run(["bash", "-c", "(bash ./install.sh >/dev/null 2>&1 &)"], cwd=ours, env=sandbox)
+    pid = _pid(ours)
+    try:
+        out = subprocess.run(
+            ["bash", "-c", _prelude(tmp_path, ours) + "stop_late_jobs\n"],
+            capture_output=True,
+            text=True,
+            env={**env, "TORRCAST_STATE_DIR": str(tmp_path / "var")},
+        )
+        assert out.returncode == 0 and out.stdout == "", out.stdout + out.stderr
+        assert _alive(pid)
+    finally:
+        subprocess.run(["pkill", "-P", str(pid)], capture_output=True)
+        subprocess.run(["kill", str(pid)], capture_output=True)

@@ -760,7 +760,7 @@ late_tree() {  # $1 - pid; печатает его и всех потомков
 # Установка на переднем плане (родитель - оболочка, sudo) не в счёт, как и сам запуск с
 # предками; каталог сверяется, чтобы не задеть чужой install.sh.
 orphan_late_jobs() {
-    local table pid dir up=" "
+    local table pid dir state up=" "
     table=$(ps -Ao pid=,ppid=,args= 2>/dev/null) || return 0
     pid=$$
     while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
@@ -775,7 +775,11 @@ orphan_late_jobs() {
         case "$up" in *" $pid "*) continue ;; esac
         dir=$(readlink "/proc/$pid/cwd" 2>/dev/null \
             || lsof -a -d cwd -p "$pid" -Fn 2>/dev/null | sed -n 's/^n//p')
-        [ "$dir" = "$REPO_DIR" ] && printf '%s\n' "$pid"
+        [ "$dir" = "$REPO_DIR" ] || continue
+        # Тот же каталог, но своё состояние - это другая установка (песочница), не прежняя.
+        state=$(tr '\0' '\n' 2>/dev/null <"/proc/$pid/environ" \
+            | sed -n 's/^TORRCAST_STATE_DIR=//p') || state=""
+        [ "$state" = "${TORRCAST_STATE_DIR:-}" ] && printf '%s\n' "$pid"
     done
 }
 
