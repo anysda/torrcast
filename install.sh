@@ -2757,6 +2757,21 @@ prowlarr_cert_relax() {
         "на macOS Prowlarr снимает проверку серта только для имён, резолвящихся в локальные адреса (имена шима прибиты к 127.0.0.1); индексеры с публичными адресами проверяются по-прежнему"
 }
 
+# 🔴 TC-1410. config.xml может пережить прошлую установку битым: чаще всего это файл из
+# одних NUL-байтов, оставшийся после обрыва записи. Такой файл проходит `[ -f ]`, Prowlarr
+# на нём молча не стартует, и установка падает уже на ожидании ответа службы (`wait_http …
+# || die`), ничего не сказав про причину. Считаем конфиг целым, только если он читается,
+# несёт обе границы <Config>…</Config> и не содержит NUL-байтов; иначе переписываем его
+# заново (ApiKey Prowlarr сам сгенерит при старте) и говорим об этом вслух.
+prowlarr_config_ok() {  # $1 - путь к config.xml
+    local f="$1"
+    [ -r "$f" ] || return 1
+    grep -qa '<Config' "$f" || return 1
+    grep -qa '</Config>' "$f" || return 1
+    # Нет NUL => поток без нулей равен файлу => cmp молчит и возвращает 0.
+    LC_ALL=C tr -d '\000' <"$f" | cmp -s - "$f"
+}
+
 install_prowlarr() {
     log "Prowlarr ($PL_URL, public indexers)" "Prowlarr ($PL_URL, публичные индексеры)"
     pick_python
@@ -2802,9 +2817,13 @@ install_prowlarr() {
 
     # Конфиг пишем ДО первого старта: иначе Prowlarr сядет на 0.0.0.0 и включит
     # форму логина. Слушаем только localhost, аутентификация внешняя (её нет).
-    if [ -f "$PREFIX/prowlarr-data/config.xml" ]; then
+    if [ -f "$PREFIX/prowlarr-data/config.xml" ] && prowlarr_config_ok "$PREFIX/prowlarr-data/config.xml"; then
         skip "$PREFIX/prowlarr-data/config.xml" "$PREFIX/prowlarr-data/config.xml"
     else
+        if [ -f "$PREFIX/prowlarr-data/config.xml" ]; then
+            loud "Prowlarr config.xml at $PREFIX/prowlarr-data/config.xml is unreadable (empty, truncated or filled with NUL bytes) - rewriting it so Prowlarr can start" \
+                 "config.xml Prowlarr в $PREFIX/prowlarr-data/config.xml нечитаем (пуст, обрезан или забит нулями) - переписываю, чтобы Prowlarr поднялся"
+        fi
         cat >"$PREFIX/prowlarr-data/config.xml" <<XML
 <Config>
   <BindAddress>$PL_HOST</BindAddress>
