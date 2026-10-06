@@ -68,3 +68,15 @@ def test_the_tv_buffer_after_a_remote_seek_is_not_counted_as_play(
 
     Откат (метка доклада держит только число): плёнка на 236.0."""
     assert 217.8 <= facts["afterBuffer"] <= 220.0, facts["afterBuffer"]
+
+
+def test_back_to_the_browser_lands_on_the_report_counted_on_to_now(
+    facts: dict[str, Any],
+) -> None:
+    """«На комп» между докладами садит вкладку на доклад плюс ход с мига, когда он заиграл.
+
+    Прибор (пункт 10) этого больше не видит: продукт досчитывает доклад сам, и его возраст
+    на чтении - доли секунды. Вкладка, садящаяся на сам доклад, отстала бы на опрос.
+
+    Откат (``_tvPosition`` отдаёт доклад как есть): плёнка на 300.0."""
+    assert 305.0 <= facts["landedHome"] <= 308.0, facts["landedHome"]

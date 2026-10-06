@@ -61,9 +61,19 @@ async function main() {
   await buffered.p.time.run(23500);
   const afterBuffer = round(buffered.p.video.currentTime);
 
+  // «На комп» между докладами: вкладка садится на доклад плюс ход часов с мига, когда он
+  // заиграл, а не на сам доклад. Плёнку до нажатия держим на том же месте, чтобы посадку
+  // делало нажатие, а не подтяжка `_follow`.
+  const home = await onTv(300, { state: 'playing', position: 300, seek: null });
+  await home.p.time.run(8000);
+  home.p.video.currentTime = 300;
+  home.p.ctx.TCPlayer._makeHandlers().onToggleTv();
+  await home.p.time.run(10);
+  const landedHome = round(home.p.video.currentTime);
+
   const facts = {
     beforeSeek, afterSeek, seekingAfter, sameNumber, firstSnapshot, noSeek, remoteBack,
-    afterBuffer,
+    afterBuffer, landedHome,
   };
   process.stdout.write(JSON.stringify(facts) + '\n');
   process.exit(0);
