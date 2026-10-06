@@ -23,7 +23,7 @@ class _Supply:
     def init(self) -> Path | None:
         return self.out / "init.mp4"
 
-    def segment(self, slot: int) -> Path | None:
+    def segment(self, slot: int, mirror: bool = False) -> Path | None:
         piece = self.out / f"v{slot}.ts"
         return piece if piece.exists() else None
 

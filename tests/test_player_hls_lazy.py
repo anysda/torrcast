@@ -59,3 +59,15 @@ def test_a_phone_with_only_managed_media_source_loads_hls(stood: dict[str, Any])
 
 def test_a_browser_without_any_media_source_plays_natively(stood: dict[str, Any]) -> None:
     assert stood["bare"] == {"tags": 0, "src": "/hls/old.m3u8"}, stood["bare"]
+
+
+def test_the_tab_mirroring_the_tv_marks_its_pieces_and_leaves_the_head_to_the_tv(
+    stood: dict[str, Any],
+) -> None:
+    """🔴 TC-1169: запас вкладки при «На ТВ» перепаковывал показ под себя (:mod:`hls.js`
+    ``xhrSetup``). Без каста запрос уходит как есть: открывает его сам hls.js."""
+    assert stood["mirror"] == {
+        "tab": [],
+        "tv": [["GET", "/hls/v5.m4s?mirror=1", True]],
+        "query": [["GET", "/hls/v5.m4s?a=1&mirror=1", True]],
+    }, stood["mirror"]

@@ -54,10 +54,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     feed: ClassVar[_Feed | None] = None
     #: Снимок меток точечного перекода, пополняемый прогревом без дискового чтения.
     warm_recodes: ClassVar[set[int]] = set()
-    #: Откуда взят кусок, который сейчас отдаём
-    #: (:data:`torrcast.domain.trace_sources.PACKED` и два вида прогретого). Ставит
-    #: :meth:`_read`, читает
-    #: :func:`log_segment`.
+    #: Откуда взят кусок, который сейчас отдаём (:data:`torrcast.domain.trace_sources.PACKED`
+    #: и два вида прогретого). Ставит :meth:`_read`, читает :func:`log_segment`.
     _src: str = "pack"
 
     def do_GET(self) -> None:
@@ -71,11 +69,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _serve(self, body: bool) -> None:
         began = time.monotonic()
-        name = self.path.split("?")[0].lstrip("/")
+        name, _, query = self.path.partition("?")
+        name = name.lstrip("/")
         if not HLS_ASSET.fullmatch(name):
             self._head(404, 0, "text/plain")
             return
-        data = self._read(name)
+        data = self._read(name, "mirror=1" in query.split("&"))
         if data is None:
             self._head(404, 0, "text/plain")
             self._trace(name, began, "404")
@@ -102,8 +101,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._sent(name, len(data), took)
             log_segment(name, began, len(data), took, self._src)
 
-    def _read(self, name: str) -> bytes | None:
+    def _read(self, name: str, mirror: bool = False) -> bytes | None:
         """Тело ответа: манифест на весь фильм или сегмент, дождавшись упаковки.
+        ``mirror`` - кусок просит вкладка-зеркало каста (:meth:`Feed.segment`).
 
         Заодно запоминает, ОТКУДА взят кусок (:attr:`_src`): решает это
         :meth:`Feed.segment`, а в след пишет :func:`log_segment`, и передать источник
@@ -121,7 +121,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 return None
         path = self.root / name
         if self.feed is not None:
-            found = self.feed.segment(segment_slot(name))
+            found = self.feed.segment(segment_slot(name), mirror)
             if found is None:
                 return None
             path = found

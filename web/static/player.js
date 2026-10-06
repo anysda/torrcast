@@ -30,6 +30,12 @@ const TCPlayer = {
     return typeof window.Hls !== 'undefined' && window.Hls.isSupported();
   },
 
+  //: При «На ТВ» вкладка - зеркало: голову упаковки ведёт ТВ, а запас вкладки после его
+  //: перемотки - это старое место. Помеченный запрос раздача ждёт, не перепаковывая (TC-1169).
+  _mirrorXhr(xhr, url) {
+    if (TCPlayer._onTv) xhr.open('GET', url + (url.includes('?') ? '&' : '?') + 'mirror=1', true);
+  },
+
   //: Шапка главной ведёт сюда без нового запроса на показ: показ уже идёт (§7.4).
   open() {
     TCRouter.go('/play');
@@ -464,7 +470,7 @@ const TCPlayer = {
       const hls = new Hls({
         startPosition: at > 0 ? at : -1, startFragPrefetch: true,
         maxBufferLength: seconds, maxMaxBufferLength: Math.max(seconds, 600),
-        maxBufferSize: bytes,
+        maxBufferSize: bytes, xhrSetup: TCPlayer._mirrorXhr,
       });
       TCPlayer._hls = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, onReady);

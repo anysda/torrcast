@@ -86,8 +86,29 @@ function bare() {
   return { tags: tags.length, src: player._video.src };
 }
 
+// Вкладка при «На ТВ» метит запросы раздаче как зеркало, без каста - как есть.
+function mirror() {
+  const { ctx, player } = stand();
+  const made = [];
+  ctx.Hls = hlsStub(made);
+  player._attach('/hls/cast.m3u8', 0);
+  const setup = made[0].opts.xhrSetup || (() => {});
+  const asked = (onTv, url) => {
+    const opened = [];
+    player._onTv = onTv;
+    setup({ open: (...args) => opened.push(args) }, url);
+    return opened;
+  };
+  return {
+    tab: asked(false, '/hls/v5.m4s'),
+    tv: asked(true, '/hls/v5.m4s'),
+    query: asked(true, '/hls/v5.m4s?a=1'),
+  };
+}
+
 (async () => {
   process.stdout.write(JSON.stringify({
     loaded: await loaded(), failed: await failed(), managed: managed(), bare: bare(),
+    mirror: mirror(),
   }));
 })();
