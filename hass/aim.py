@@ -27,7 +27,17 @@ from torrcast.usecases.watch import WATCH_SECONDS
 #: состоявшуюся перемотку запись узнаёт на ближайшем таком тике. Запас сверх тика - круг
 #: опроса приёмника показом. Окно вышло, а закладка так и стоит у прежнего места -
 #: приёмник команду не взял, и ползунок возвращается к правде.
-LANDED_SECONDS = WATCH_SECONDS + 4.0
+#:
+#: 🔴 Тик - не весь срок: после перемотки ТВ буферизует до 26 с, и запись называет новое
+#: место через 19-21 с (живой приёмник 06-10-2026). Окно в 14 с отдавало ползунок и
+#: вкладку на ТВ записи, ещё стоящей у прежнего места.
+LANDED_SECONDS = WATCH_SECONDS + 26.0 + 4.0
+
+#: Дальше этого от места защёлки запись ещё не приземлилась, секунды. Нажатия подряд
+#: показ берёт и двумя перемотками (``seekby -240``, следом ``-60``), и запись успевает
+#: назвать первую: 1236.5 при цели 1161.2 ближе к цели, чем к 1460, но это не она.
+#: Ошибка самой цели - отставание правды на нажатии, до тика записи (замер: 0.7 и 7.2 с).
+NEAR_SECONDS = WATCH_SECONDS + 5.0
 
 
 class Aim:
@@ -109,14 +119,16 @@ class Aim:
             self._at = -1.0
             return None
         gone = self._clock() - self._at
-        if gone >= LANDED_SECONDS or self._landed(shown.position):
-            self._at = -1.0
-            return None
         # Показ едет и под защёлкой: ответить одним и тем же числом на два опроса
         # значило бы отбросить ползунок назад на весь промежуток между ними - фронт
         # доводит его сам от метки снимка, и метка эта у каждого ответа своя.
-        return self._to + (0.0 if shown.paused == "PAUSED" else gone)
+        place = self._to + (0.0 if shown.paused == "PAUSED" else gone)
+        if gone >= LANDED_SECONDS or self._landed(shown.position, place):
+            self._at = -1.0
+            return None
+        return place
 
-    def _landed(self, position: float) -> bool:
-        """Закладка ближе к цели, чем к месту, откуда мотали: перемотка доехала."""
-        return abs(position - self._to) < abs(position - self._from)
+    def _landed(self, position: float, place: float) -> bool:
+        """Закладка у места защёлки и ближе к цели, чем к месту, откуда мотали."""
+        near = abs(position - place) <= NEAR_SECONDS
+        return near and abs(position - self._to) < abs(position - self._from)
