@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from hass.record_fresh import FRESH_SECONDS
+from hass.say import TOGGLE
 from tests.fakes.playback_session import FakePlaybackSession
 from tests.fakes.receiver import FakeReceiver
 from tests.test_bridge import _bridge
@@ -90,3 +93,73 @@ def test_a_cast_seeked_and_not_heard_yet_is_not_drawn_as_a_running_clock(
     body = _state(tmp_path, monkeypatch, Position(0.0, 7200.0, True, "BUFFERING"), wait=0.0)
 
     assert (body["state"], body["position"]) == ("starting", 15.7)
+
+
+def _record_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, word: str, age: float, toggled: bool = False
+) -> dict[str, JsonValue]:
+    """Снимок моста при касте «Play on TV» с карточки: место знает только запись юнита."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    written = (datetime.now(UTC) - timedelta(seconds=age)).astimezone().isoformat()
+    shown = PlaybackSnapshot(
+        key="movie:муха",
+        title="Муха",
+        position=737.9,
+        duration=7200.0,
+        moved=True,
+        paused=word,
+        updated=written,
+    )
+    session = FakePlaybackSession(playing=True, play_key="movie:муха", shown=shown)
+    bridge = _bridge(session)
+    if toggled:  # мост слышал игру, затем пауза с карточки (:mod:`tests.test_bridge`)
+        bridge.state()
+        bridge.control(TOGGLE, 0.0)
+    return bridge.state()
+
+
+@pytest.mark.machine
+def test_a_card_cast_buffering_after_a_remote_seek_is_not_drawn_as_a_running_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Стенд 06-10-2026, «Play on TV» с карточки, пульт «+600»: ТВ 14 с в буфере, а мост
+    звал показ ``playing`` - Home Assistant крутил часы над стоящим экраном."""
+    body = _record_state(tmp_path, monkeypatch, "BUFFERING", 1.0)
+
+    assert body["state"] == "starting", "буфер ТВ нарисован идущими часами"
+
+
+@pytest.mark.machine
+def test_a_card_cast_record_is_counted_to_now_not_to_its_last_tick(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Стенд 06-10-2026: запись юнита ложится раз в 10 с, и карточка шла на 3-8 с позади ТВ
+    (746.9 при 749.8, 476.6 при 484.9). Место идущего показа досчитывается до сейчас."""
+    body = _record_state(tmp_path, monkeypatch, "PLAYING", 4.0)
+
+    assert body["state"] == "playing"
+    assert body["position"] == pytest.approx(741.9, abs=0.5), "место - на тике записи"
+
+
+@pytest.mark.machine
+def test_a_paused_or_stale_card_cast_record_is_not_counted_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пауза стоит; запись старше тика с запасом - юнит не пишет, и часы за него не идут."""
+    paused = _record_state(tmp_path, monkeypatch, "PAUSED", 4.0)
+    stale = _record_state(tmp_path, monkeypatch, "PLAYING", 300.0)
+
+    assert (paused["state"], paused["position"]) == ("paused", 737.9)
+    assert stale["position"] == pytest.approx(737.9 + FRESH_SECONDS, abs=0.5)
+
+
+@pytest.mark.machine
+def test_a_card_cast_paused_by_the_bridge_is_not_counted_on_before_the_record_hears_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пауза с карточки: слово моста - сразу, а запись ещё ``PLAYING`` до круга опроса юнита.
+    Досчитай её - ползунок паузы уехал бы вперёд на возраст записи."""
+    body = _record_state(tmp_path, monkeypatch, "PLAYING", 4.0, toggled=True)
+
+    assert (body["state"], body["position"]) == ("paused", 737.9)

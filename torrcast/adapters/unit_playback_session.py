@@ -112,6 +112,7 @@ class UnitPlaybackSession:
             year=entry.year,
             original=entry.original,
             query=getattr(entry, "query", ""),
+            updated=getattr(entry, "updated", ""),
         )
 
 

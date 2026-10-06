@@ -35,6 +35,8 @@ class PlaybackSnapshot:
     original: str = ""
     #: Исходный запрос человека: запасное имя картины, если каталог записал заголовок с ошибкой.
     query: str = ""
+    #: Когда запись легла на диск (ISO с поясом, :meth:`torrcast.domain.entry.Entry.touch`).
+    updated: str = ""
 
     @property
     def spoken(self) -> str:

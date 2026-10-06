@@ -16,6 +16,10 @@
 перемотке, и закладка под словом ``playing`` давала опросу HA ложную игру. Стенд
 06-10-2026, -240 со 129.6: опрос взял «playing 0.0» в миг перемотки, следующий - игру на
 0.2 через 5.8 с, и весь буфер ушёл в ход - карточка обогнала ТВ на 4.2 с до конца прогона.
+
+Каст «Play on TV» с карточки держит не сессия вкладки, а юнит показа, и слово ТВ о буфере он
+кладёт в запись (``BUFFERING``) вместе с целью перемотки. Стенд 06-10-2026, пульт «+600»:
+ТВ 14 с стоял в буфере на 719.9, а карточка шла часами от 113.7.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from hass.motion import PAUSED, PLAYING
+from hass.record_fresh import record_fresh
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.usecases.playback.hls_root import hls_root
@@ -30,21 +35,25 @@ from web.tv_session import SESSION
 
 #: Слово моста о буфере ТВ под идущим показом: наружу уходит ``starting`` (:mod:`hass.payload`).
 STALLED = "stalled"
+#: Слово записи показа о буфере ТВ (:func:`torrcast.usecases.revive_playback._screen._note_watch`).
+BUFFERING = "BUFFERING"
 
 
 def tv_heard(
     hls_dir: str, shown: PlaybackSnapshot | None, word: str
 ) -> tuple[PlaybackSnapshot | None, str]:
-    """Снимок и слово карточки с поправкой на доклад ТВ; каста этого показа нет - как были.
+    """Снимок и слово карточки с поправкой на доклад ТВ; без каста вкладки - по записи юнита.
 
     Поправляется только идущий показ (``playing``/``paused``): подъём и тёмный экран -
     слова самого показа, и ТВ о них знает не больше записи.
     """
     if shown is None or word not in (PLAYING, PAUSED):
         return shown, word
+    if word == PLAYING and shown.paused == BUFFERING:  # каст с карточки: слово ТВ в записи
+        return shown, STALLED
     key = str(read_web_box(hls_root(hls_dir)).get("key", ""))
-    if not key or not SESSION.owns(key):
-        return shown, word  # каста нет или он чужой
+    if not key or not SESSION.owns(key):  # каста вкладки нет или он чужой: место - запись юнита
+        return (record_fresh(shown) if word == PLAYING else shown), word
     heard = SESSION.heard(key)
     if heard is None:  # перемотан и ещё не слышан: ТВ идёт к новому месту, а не играет
         return shown, STALLED if word == PLAYING else word
