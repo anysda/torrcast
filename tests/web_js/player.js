@@ -51,8 +51,8 @@ const scenarios = {
   },
 
   // Стрелка Home Assistant не заводит новый показ: мост кладёт одной текущей вкладке
-  // секунду конца, а та возвращает её в то же видео. Дальше ``timeupdate`` проходит
-  // обычный путь конца серии и подхватывает уже прогретую следующую.
+  // секунду конца. Если этот кусок уже в MSE, вкладка ставит ``currentTime`` и дальше
+  // проходит обычный ``ended``; это не общий пульт и не новый поиск.
   async remoteNextFinishesTheCurrentTab() {
     const p = player({
       box: () => ({ key: 'k1', url: 'http://stand/a.m3u8', at: 0 }),
@@ -61,11 +61,36 @@ const scenarios = {
     });
     p.mount();
     p.video.duration = 100;
+    p.video.buffered = { length: 1, start: () => 90, end: () => 100 };
     await p.time.run(200);
     const sent = p.ctx.TCPlayer._sendPosition();
     await p.time.run(400);
     await sent;
     return { position: p.video.currentTime, reports: p.calls.position.length, key: p.ctx.TCPlayer._key };
+  },
+
+  // Конечный сегмент ещё не упакован: VOD-манифест всё равно обещает его, но Chromium
+  // не обязан принимать такой seek. Вместо мнимой перемотки вкладка закрывает текущий
+  // поток его штатным словом ``ended``; старый кадр и маршрут ``/play`` остаются до
+  // следующего ящика.
+  async remoteNextEndsAnUnpackedTail() {
+    const p = player({
+      box: () => ({ key: 'k1', url: 'http://stand/a.m3u8', at: 0 }),
+      state: () => ({ has_next: true, season: 1, episode: 2 }),
+      position: () => ({ code: 200, finish: 99 }),
+    });
+    p.mount();
+    p.video.duration = 100;
+    p.video.currentTime = 30;
+    await p.time.run(200);
+    const sent = p.ctx.TCPlayer._sendPosition();
+    await p.time.run(400);
+    await sent;
+    const ended = p.calls.position.find((said) => said.phase === 'ended');
+    return {
+      position: p.video.currentTime, paused: p.video.paused, ending: p.ctx.TCPlayer._ending,
+      onPlay: p.ctx.location.pathname, ended: ended && [ended.pos, ended.dur],
+    };
   },
 
   // Плашка встаёт РОВНО на пороге `TCPlayerNext.SECONDS`, не раньше и не на старой

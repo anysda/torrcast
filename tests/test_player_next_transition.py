@@ -65,6 +65,19 @@ def test_a_remote_next_finishes_the_current_tab_through_its_own_channel(
 
 
 @pytest.mark.machine
+def test_a_remote_next_ends_the_stream_when_its_tail_is_not_yet_in_the_tab(
+    facts: dict[str, Any],
+) -> None:
+    """TC-1062: не пытаемся засунуть Chromium в ещё не упакованный HLS-кусок."""
+    said = _scenario(facts, "remoteNextEndsAnUnpackedTail")
+
+    assert said["position"] == 30, "вкладка соврала, что умеет показать отсутствующий хвост"
+    assert said["paused"] is True and said["ending"] is True
+    assert said["onPlay"] == "/play", "стрелка выбросила человека из плеера"
+    assert said["ended"] == [99, 100], "показ не получил штатное слово о конце потока"
+
+
+@pytest.mark.machine
 def test_the_countdown_appears_at_the_promised_threshold_and_not_earlier(
     facts: dict[str, Any],
 ) -> None:

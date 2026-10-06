@@ -72,6 +72,9 @@ const TCPlayer = {
     TCPlayer._stallTimer = null;
     TCPlayer._pendingBox = null;
     TCPlayer._nextStop = null;
+    // Команда ``finish`` может прийти, когда крайний HLS-кусок ещё не готов. В этом
+    // случае вкладка заканчивает СЕАНС, а не рисует несуществующую секунду в видео.
+    TCPlayer._finishedAt = null;
 
     const wrap = document.createElement('div');
     wrap.className = 'tc-player';
@@ -113,11 +116,7 @@ const TCPlayer = {
       }, TCPlayer.STALL_SHOW_MS);
     });
     video.addEventListener('timeupdate', () => TCPlayer._onTimeUpdate());
-    video.addEventListener('ended', () => {
-      TCPlayer._startNext();
-      TCPlayer._nextOnEnd();
-      TCPlayer._reportEnded();
-    });
+    video.addEventListener('ended', () => TCPlayer._onEnded());
     // hls.js recovers most short gaps itself, but a broken MediaSource can finish as the
     // native `error` event only. Without this listener Chromium pauses a healthy-looking
     // video (`readyState === 4`) forever after the error, with no fatal HLS event to wake
@@ -216,7 +215,8 @@ const TCPlayer = {
   async _reportEnded() {
     const key = TCPlayer._key;
     for (let left = TCPlayer.ENDED_WAIT_MS; left > 0 && TCPlayer._mounted() && TCPlayer._key === key
-      && !TCPlayer._pendingBox && TCPlayer._video && TCPlayer._video.ended; left -= TCPlayer.ENDED_MS) {
+      && !TCPlayer._pendingBox && TCPlayer._video
+      && (TCPlayer._video.ended || TCPlayer._finishedAt !== null); left -= TCPlayer.ENDED_MS) {
       await TCPlayer._sendPosition();
       await TCPlayer._sleep(TCPlayer.ENDED_MS);
     }
@@ -228,15 +228,50 @@ const TCPlayer = {
   async _sendPosition() {
     const video = TCPlayer._video;
     if (!video || !TCPlayer._key) return;
-    const phase = video.ended ? 'ended' : video.paused ? 'paused'
+    const forced = TCPlayer._finishedAt;
+    const phase = forced !== null ? 'ended' : video.ended ? 'ended' : video.paused ? 'paused'
       : video.readyState < 3 ? 'buffering' : 'playing';
-    const said = { key: TCPlayer._key, phase, pos: video.currentTime || 0, dur: video.duration || 0 };
+    const said = {
+      key: TCPlayer._key, phase, pos: forced !== null ? forced : video.currentTime || 0,
+      dur: video.duration || 0,
+    };
     if (TCPlayer._lastOne) said.last = true;  // каждым докладом: отметку держит сервер (`web/position.py`)
     const report = await TCApi.position(said);
     //: 409 - ящик уже подменён другим показом, и это единственный сигнал о смене,
     //: который вкладка получает даром (`player-box.js`).
     if (report.code === 409) await TCPlayerBox.rebox(TCPlayer);
-    if (typeof report.finish === 'number' && TCPlayer._video === video) video.currentTime = report.finish;
+    if (typeof report.finish === 'number' && TCPlayer._video === video) TCPlayer._finish(report.finish);
+  },
+
+  // Манифест VOD называет весь фильм, но в MSE лежат только уже отданные куски. Seek за
+  // ``buffered`` Chromium вправе молча оставить у старого края (живой VOD: 112 -> 202
+  // вместо 2587), так что "перемотать" туда означало бы ждать пустоту. Если кусок есть,
+  // обычный seek сохраняет естественный ``ended``; если нет, это именно команда конца
+  // потока: сообщаем её через тот же путь ``ended``, которым Watch передаёт серию дальше.
+  _finish(at) {
+    const video = TCPlayer._video;
+    if (!video || TCPlayer._finishedAt !== null) return;
+    const ranges = video.buffered;
+    let ready = false;
+    for (let i = 0; ranges && i < ranges.length; i += 1) {
+      if (ranges.start(i) <= at && at <= ranges.end(i)) ready = true;
+    }
+    if (ready) {
+      video.currentTime = at;
+      return;
+    }
+    TCPlayer._finishedAt = at;
+    video.pause();  // последний настоящий кадр остаётся на месте до нового ящика
+    TCPlayer._onEnded();
+  },
+
+  // Нативный ``ended`` и конец, приказанный мостом при отсутствующем хвостовом сегменте,
+  // сходятся здесь. Второй случай продолжает слать ``ended`` до нового ящика: обычный
+  // отчёт позиции не должен успеть превратить уже закрываемый поток в ``paused``.
+  _onEnded() {
+    TCPlayer._startNext();
+    TCPlayer._nextOnEnd();
+    TCPlayer._reportEnded();
   },
 
   //: Сказать «ухожу» ровно один раз (TC-1124): страницу закрыли или увели с ``/play``,
