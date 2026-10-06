@@ -11,6 +11,7 @@ import torrcast.usecases.select._pick_state as _pick_state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.media import Media
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.track_studio import track_studio
@@ -101,14 +102,9 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
     (``own``) сразу же, той же строкой, что и поднимается. Раньше её не убирал никто -
     ни при сухом прогоне, ни когда показ до старта так и не доходил.
     """
-    torrserver = _pick_state._select_engines(config.torrserver_url)
     with progress_bar() as progress:
         progress.phase(phrase("select.phase_tracks"))
-        own.torrent_hash = torrent_hash = CLAIMS.adding(entry.magnet, own, torrserver.add)
-        torrserver.wait_files(torrent_hash, timeout=META_BUDGET)
-        media = _pick_state._select_prober(
-            torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET
-        )
+        media = _read_media(config, entry, own)
         progress.phase("")
     played = entry.audio
     entry.audio, entry.voice = pick_voice(media, args, entry.voice)
@@ -132,3 +128,13 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
     elif entry.audio != played:
         entry.studio = ""
     return entry
+
+
+def _read_media(config: Config, entry: Entry, own: _Voiced) -> Media:
+    """Паспорт файла записи: раздача по её магниту, метаданные и один ffprobe."""
+    torrserver = _pick_state._select_engines(config.torrserver_url)
+    own.torrent_hash = torrent_hash = CLAIMS.adding(entry.magnet, own, torrserver.add)
+    torrserver.wait_files(torrent_hash, timeout=META_BUDGET)
+    return _pick_state._select_prober(
+        torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET
+    )

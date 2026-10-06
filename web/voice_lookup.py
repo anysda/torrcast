@@ -14,12 +14,11 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from torrcast.cli.parse_args import parse_args
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.infra_error import InfraError
-from torrcast.domain.magnet_hash import magnet_hash
+from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.pick_settings import PICK_BUDGET
 from torrcast.domain.profile import Profile
@@ -28,11 +27,15 @@ from torrcast.ports.progress.slot import progress
 from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.runtime.native_picture import native_picture
 from torrcast.usecases.playback.file_picker import file_picker
+from torrcast.usecases.select.kept_media import kept_media
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
+from web.bookmark import bookmark
+from web.bookmark_args import bookmark_args
 from web.card_warm import CardWarm
 from web.episode_lookup import RETRY, Spawn
 from web.heard import Heard
+from web.kept_heard import kept_heard
 from web.tab_detect import tab_detect
 
 
@@ -60,6 +63,7 @@ class VoiceLookup:
     profile_of: Callable[[Config], Profile] = _show_profile
     #: Голова показа по раздаче, оставленной греться (:func:`web.card_head.card_head`).
     head: Callable[..., None] = _no_head
+    kept_media: Callable[[Config, Entry], Media] = kept_media
     clock: Callable[[], float] = time.monotonic
     _heard: dict[str, tuple[Heard | None, float, bool]] = field(default_factory=dict)
     _pending: set[str] = field(default_factory=set)
@@ -73,10 +77,10 @@ class VoiceLookup:
         Прочитанные дорожки не держат раздачу: карточка, открытая заново, греет её снова
         (:class:`web.card_warm.CardWarm`) - сразу той раздачей, что отбор уже выбрал.
         Живая закладка (``live``) главнее отбора: «Играть» продолжит её, и дорожки с
-        прогревом - её раздачи и серии (:func:`_bookmark`).
+        прогревом - её раздачи и серии (:func:`web.bookmark.bookmark`).
         """
         key = plan.picture.key
-        mark, label = _bookmark(live)
+        mark, label = bookmark(live)
         with self._lock:
             cached = self._heard.get(key)
             known = cached is not None and (cached[0] is not None or cached[1] > self.clock())
@@ -125,27 +129,16 @@ class VoiceLookup:
         """Отобрать раздачу, прочитать её дорожки и оставить греться только выбранную.
 
         ``kept`` - закладка, которую продолжит «Играть»: отбор спрашивает ИМЕННО её
-        раздачу (:attr:`torrcast.domain.args.Args.release_hash`), и честностная проверка
-        такую не подменяет - карточка с живой закладкой показывает меню дорожек той
-        раздачи, что продолжит показ. Прогрев тянет её место («Оно» продолжалось
-        с 395 с, а прогрев тянул начало файла, и первый сегмент ждал рой 7.8 с), и голова
-        показа кладётся по её записи, а не по выбору отбора. Раздача, чьё имя ушло из
-        выдачи, отбору недоступна - чужие дорожки он не выдаёт (меню соврало бы).
+        раздачу (:func:`web.bookmark_args.bookmark_args`): меню - дорожки раздачи, что
+        продолжит показ. Прогрев тянет её место («Оно» продолжалось с 395 с, а прогрев
+        тянул начало файла: первый сегмент ждал рой 7.8 с), голова показа - по её записи.
+        Раздачи нет в выдаче - дорожки читаются из записи (:meth:`_kept`).
         """
         heard: Heard | None = None
-        words = [query, label] if label else [query]
-        args = parse_args(words)
-        if release:  # играть продолжат раздачу закладки - карточка спрашивает её
-            number = next(
-                (at for at, one in enumerate(plan.ranked, 1) if info_hash(one) == release), 0
-            )
-            if number:
-                # Названную раздачу честностная проверка не подменяет (:meth:`Bench.
-                # _honest`): «релиз 9 на деле 648p - беру 1» забирал у карточки меню,
-                # хотя «Играть» продолжал раздачу закладки - дорожки её, не чужой.
-                args.release, args.release_hash = number, release
-            else:  # раздача закладки ушла из выдачи: отбору остаётся предпочесть её имя
-                args.card_release = release
+        args = bookmark_args(plan, query, release, label)
+        if kept is not None and args.release is None:
+            self._kept(plan, config, release, kept)
+            return
         profile = self.profile_of(config)
         engines = self.engines(config.torrserver_url)
 
@@ -196,16 +189,12 @@ class VoiceLookup:
                     self._heard[plan.picture.key] = (heard, self.clock() + RETRY, failed)
                 self._pending.discard(plan.picture.key)
 
-
-def _bookmark(live: Entry | None) -> tuple[str, str]:
-    """Раздача и серия, которые продолжит «Играть»; пусто - закладка не ответит.
-
-    Условие то же, что у показа (:func:`torrcast.usecases.cast_command._bookmark.
-    _continue_picked`): фильм - начатый и не досмотренный, сериал - любое место до конца.
-    """
-    if live is None or live.done or not live.magnet or not (live.serial or live.resumable):
-        return "", ""
-    return magnet_hash(live.magnet), live.label
+    def _kept(self, plan: Plan, config: Config, release: str, kept: Entry) -> None:
+        """Дорожки закладки, чьей раздачи нет в выдаче (:func:`web.kept_heard.kept_heard`)."""
+        heard, failed = kept_heard(self.kept_media, plan, config, release, kept)
+        with self._lock:
+            self._heard[plan.picture.key] = (heard, self.clock() + RETRY, failed)
+            self._pending.discard(plan.picture.key)
 
 
 __all__ = ["VoiceLookup"]

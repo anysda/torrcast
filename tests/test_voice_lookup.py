@@ -255,13 +255,59 @@ def test_a_card_picked_before_the_bookmark_is_picked_again_for_the_bookmark(
     assert heard is not None and heard.release == "a" * 40
 
 
-def test_tracks_of_a_release_gone_from_the_listing_are_not_passed_off_as_the_bookmark_ones(
+_OWN = media(tracks=(track(0, "rus", "MVO"), track(1, "ukr", "Dub"), track(2, "eng", "Original")))
+
+
+@dataclass
+class _Record:
+    """Подмена чтения записи закладки: паспорт по очереди ответов, отказ - исключением."""
+
+    answers: list[Any]
+    read: list[Entry] = field(default_factory=list)
+
+    def __call__(self, _config: Config, entry: Entry) -> Any:
+        self.read.append(entry)
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def test_a_bookmark_release_gone_from_the_listing_lists_the_tracks_of_its_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Раздачи закладки нет в выдаче: отбор возьмёт другую, и чужих дорожек меню не покажет."""
-    lookup = _lookup(monkeypatch, _Bench(_MEDIA), spawn=_sync)
+    """Раздачи закладки нет в выдаче, а «Играть» продолжит её магнит: меню - её дорожки.
+
+    Отбор её не найдёт и возьмёт чужую; дорожки читаются из записи показа, мимо отбора.
+    """
+    bench, record, heads = _Bench(_MEDIA), _Record([_OWN]), []
+    lookup = _lookup(
+        monkeypatch, bench, spawn=_sync, kept_media=record, head=lambda *a: heads.append(a)
+    )
+    live = _live()
+
+    heard, coming = lookup.of(_PLAN, "film", _CONFIG, live)
+
+    assert coming is False and record.read == [live]
+    assert heard is not None and heard.release == "a" * 40 and heard.media is _OWN
+    assert bench.asked == [] and heads == [], "чужую раздачу отбор не поднимал"
+    assert not lookup.warms.holds(_PICTURE.key)
+
+
+def test_a_failed_read_of_the_bookmark_record_is_asked_again_after_the_retry_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Рой закладки промолчал - это «не знаю»: ноль не держится дольше :data:`RETRY`."""
+    clock = _Clock()
+    record = _Record([InfraError("no peers"), _OWN])
+    lookup = _lookup(monkeypatch, _Bench(_MEDIA), spawn=_sync, kept_media=record, clock=clock)
 
     assert lookup.of(_PLAN, "film", _CONFIG, _live()) == (None, False)
+    assert lookup.of(_PLAN, "film", _CONFIG, _live()) == (None, False)
+    clock.now += RETRY + 1
+    heard, _coming = lookup.of(_PLAN, "film", _CONFIG, _live())
+
+    assert len(record.read) == 2 and heard is not None and heard.media is _OWN
 
 
 def test_a_show_bookmark_warms_its_own_episode_and_a_finished_film_does_not_count(
@@ -283,19 +329,6 @@ def test_a_show_bookmark_warms_its_own_episode_and_a_finished_film_does_not_coun
     episode = bench.asked[0][1].episode
     assert (episode.season, episode.episode) == (2, 5)
     assert bench.asked[1][1].card_release == ""
-
-
-def test_a_release_other_than_the_bookmark_one_is_not_left_warm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Раздачи закладки нет в выдаче: взятую отбором чужую держать незачем."""
-    bench = _Bench(_MEDIA)
-    lookup = _lookup(monkeypatch, bench, spawn=_sync)
-
-    lookup.of(_PLAN, "film", _CONFIG, _live())
-
-    assert bench.kept == [] and bench.dropped == [True]
-    assert not lookup.warms.holds(_PICTURE.key)
 
 
 @dataclass
@@ -405,17 +438,6 @@ def test_a_bookmark_card_lays_the_head_of_the_bookmark_itself(
     lookup.of(_KEPT_PLAN, "film", _CONFIG, live)
 
     assert len(heads) == 1 and heads[0][-1] is live
-
-
-def test_a_pick_foreign_to_the_bookmark_lays_no_head(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Раздачи закладки нет в выдаче: отбор взял чужую, и греть её голову незачем."""
-    heads: list[tuple[Any, ...]] = []
-    bench = _Bench(_MEDIA)
-    lookup = _lookup(monkeypatch, bench, spawn=_sync, head=lambda *args: heads.append(args))
-
-    lookup.of(_PLAN, "film", _CONFIG, _live())
-
-    assert heads == []
 
 
 def test_a_refused_card_pick_starts_no_head(monkeypatch: pytest.MonkeyPatch) -> None:
