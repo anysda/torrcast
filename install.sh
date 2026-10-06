@@ -3035,7 +3035,7 @@ add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
             continue
         fi
         answer="$(mktemp)"
-        status="$(curl -sS -o "$answer" -w '%{http_code}' -X POST \
+        status="$(curl -sS --max-time "$INDEXER_ADD_MAX" -o "$answer" -w '%{http_code}' -X POST \
             "$PL_URL/api/v1/indexer?apikey=$key" -H 'Content-Type: application/json' \
             -d "$ibody" 2>/dev/null)" || status=000
         if [[ "$status" = 2* ]]; then

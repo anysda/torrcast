@@ -1035,6 +1035,9 @@ def test_the_retry_deadline_covers_the_attempts_not_only_the_pauses() -> None:
 
     assert done.returncode == 0, done.stderr
     assert int(done.stdout) >= 62, f"срок {done.stdout.strip()} мин короче живого догрева в 62 мин"
+    # Потолок попытки в сроке - это потолок добавления в коде, а не надежда на Prowlarr.
+    add = SCRIPT.split("add_indexers() {", 1)[1].split("\n}", 1)[0]
+    assert 'curl -sS --max-time "$INDEXER_ADD_MAX" -o "$answer"' in add
 
 
 #: Заглушки живых Prowlarr, поднятые тестом: гасить их надо ПОСЛЕ замера, а не в
