@@ -90,6 +90,25 @@ def test_an_honest_neighbour_without_a_proven_voice_stays_out(
     assert phrase("select_bench.honest_no_voice_note", number=2) in capsys.readouterr().out
 
 
+def test_a_proven_voice_is_not_swapped_for_a_lone_track_that_names_no_language(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """«Властелин колец» на стенде (07.10): взятый 480p с русской дорожкой ушёл на 1080p
+    YTS с одной дорожкой без тега, и зритель получил «язык не назван» вместо озвучки.
+    """
+    pool = [rel(name="r0 | Дубляж", seeders=140), rel(name="r1 YTS", seeders=293)]
+    lone = Media(RUNTIME, (AudioTrack(index=0, language="und"),), "h264", height=1080, width=1920)
+    bench = Bench(Torrents(), prober=probes(pool, _media(480, 854), lone), honest_budget=5.0)
+    built = plan(pool)
+    chosen = bench.start(built, 1)
+    bench._wait(chosen, Said())
+
+    played = bench._honest(built, chosen, [1, 2], _ASKED, Said())
+
+    assert played is chosen
+    assert phrase("select_bench.honest_no_voice_note", number=2) in capsys.readouterr().out
+
+
 def test_a_neighbour_already_judged_is_not_asked_twice(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

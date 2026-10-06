@@ -10,6 +10,7 @@ from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.rank.honest_shot import honest_shot
 from torrcast.usecases.rank.promises_more import promises_more
 from torrcast.usecases.rank.quality_text import quality_text
+from torrcast.usecases.rank.sought_voice import sought_voice
 from torrcast.usecases.rank.understated import understated
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
@@ -135,7 +136,12 @@ class _BenchHonest(_BenchTrouble):
             # только с ПОДТВЕРЖДЁННОЙ такой дорожкой, и менять её на кадр нельзя - в том
             # числе на кадр релиза, чей паспорт про язык промолчал (TC-492): это тот же
             # размен знания на незнание, только в профиль.
-            if voice_unproven(alt.found, native=plan.picture.native):
+            # Одинокая дорожка без тега гейт проходит (TC-1288), но подтверждённую не
+            # перевешивает: «Властелин колец» сменил русский 480p на YTS «язык не назван».
+            proven = sought_voice(chosen.found)
+            if voice_unproven(alt.found, native=plan.picture.native) or (
+                proven and not sought_voice(alt.found)
+            ):
                 _turned_down(judged, number, phrase("select_bench.reason_no_voice"), alt)
                 print(phrase("select_bench.honest_no_voice_note", number=number))
                 self._forget(alt)
