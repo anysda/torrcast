@@ -108,6 +108,50 @@ def test_the_reconciler_is_wired_into_the_install() -> None:
     assert "setup_reconcile" in _body("install_indexers")  # inside the phase worker
 
 
+def _run_setup_reconcile(tmp_path: Path) -> str:
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "scripts" / "indexer-reconcile.py").write_text("new\n", encoding="utf-8")
+    prefix = tmp_path / "opt"
+    prefix.mkdir()
+    (prefix / "indexer-reconcile.py").write_text("old\n", encoding="utf-8")
+    script = f"""
+set -u
+unset TORRCAST_NO_SYSTEMD
+REPO_DIR={shlex.quote(str(repo))}
+PREFIX={shlex.quote(str(prefix))}
+STATE_DIR=/nonexistent
+PL_URL=http://127.0.0.1:9696
+PYTHON=python3
+INDEXER_RETRY_TIMES=1
+INDEXER_RETRY_EVERY=1
+RECONCILE_EVERY=1
+log() {{ :; }}
+skip() {{ echo SKIP; }}
+info() {{ :; }}
+pick_python() {{ :; }}
+stop_service() {{ echo "STOP:$1"; }}
+run_service() {{ echo "RUN:$1"; }}
+install() {{ echo INSTALL; command install "$@"; }}
+setup_reconcile() {{{_body("setup_reconcile")}
+}}
+setup_reconcile
+"""
+    out = _bash(script)
+    assert out.returncode == 0, out.stderr
+    return out.stdout
+
+
+def test_new_reconciler_code_stops_the_running_one_before_it_is_replaced(
+    tmp_path: Path,
+) -> None:
+    """An unchanged unit is not restarted by `enable --now`: without the stop the old
+    reconciler would keep running the previous code until a reboot."""
+    out = _run_setup_reconcile(tmp_path).split()
+    assert out == ["STOP:torrcast-reconcile", "INSTALL", "RUN:torrcast-reconcile"], out
+    assert (tmp_path / "opt" / "indexer-reconcile.py").read_text(encoding="utf-8") == "new\n"
+
+
 def test_the_reconciler_waits_for_the_retry_ladder_and_skips_the_sandbox() -> None:
     reconcile = _body("setup_reconcile")
     assert "TORRCAST_RECONCILE_DELAY=$((INDEXER_RETRY_TIMES * INDEXER_RETRY_EVERY))" in reconcile

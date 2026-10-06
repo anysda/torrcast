@@ -3299,6 +3299,9 @@ setup_reconcile() {
     if cmp -s "$REPO_DIR/scripts/indexer-reconcile.py" "$script"; then
         skip "reconciler code $script" "код реконсилятора $script"
     else
+        # Как у JacRed: новый код при прежнем юните `enable --now` не перезапустит, и
+        # жил бы старый процесс до перезагрузки.
+        stop_service torrcast-reconcile "$PYTHON $script"
         install -m 0755 "$REPO_DIR/scripts/indexer-reconcile.py" "$script"
     fi
     # Песочница, как у бота и моста: службу не поднимаем, иначе каждый прогон фазы
