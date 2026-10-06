@@ -58,8 +58,10 @@ JOINT = " | "
 #: Half a second it is: of 25 joined queries replayed on 02.10 the names brought new rows to
 #: four, each inside 0.5 s of the text. The joined request ends the viewer's search, and 1.5 s
 #: held it: cold searches on the stand (15 each, turn by turn) took 6.61 s, worst 8.83, against
-#: 5.67 s, worst 6.61, with the same tiles and rows.
-NAMES_GRACE = 0.5
+#: 5.67 s, worst 6.61, with the same tiles and rows. A second each it is since the names go
+#: in the year field too (06.10, 12 pictures twice): the field answers 0.5-1.3 s past the
+#: text, and of 28 names that brought rows 6 landed inside 0.5 s, 21 inside 1.0, all in 1.5.
+NAMES_GRACE = 1.0
 
 
 def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list[dict[str, Any]]:
