@@ -4079,8 +4079,10 @@ main() {
     # неправдой: раньше такая установка молча объявляла успех, а свежая машина не находила
     # почти ничего. Роняем не установку, а её ВЕРДИКТ: код возврата у неудавшегося
     # каталога ненулевой (:data:`EXIT_CATALOG_CUT`), иначе всякая автоматика поверит нулю.
+    # final_loud, не loud: под заставкой громкая строка уходит в журнал, и последний
+    # экран говорил «[OK] installed successfully» при rc=2 без единого слова об урезе.
     if [ -n "$CATALOG_CUT_EN" ]; then
-        loud "catalog is incomplete: $CATALOG_CUT_EN" "каталог урезан: $CATALOG_CUT_RU"
+        final_loud "catalog is incomplete: $CATALOG_CUT_EN" "каталог урезан: $CATALOG_CUT_RU"
         info "torrcast is installed and playback works, but searches find almost nothing: the network blocks sources. Background retries continue; see cast doctor, or rerun ./install.sh when they respond" \
             "torrcast поставлен и показ работает, но искать почти нечего: источники режет сеть. Догрев переспрашивает их сам, состояние видно в cast doctor, повторный ./install.sh заведёт их, когда они ответят"
         exit "$EXIT_CATALOG_CUT"

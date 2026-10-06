@@ -103,3 +103,26 @@ def test_the_reconciler_waits_for_the_retry_ladder_and_skips_the_sandbox() -> No
     assert "TORRCAST_RECONCILE_DELAY=$((INDEXER_RETRY_TIMES * INDEXER_RETRY_EVERY))" in reconcile
     sandbox = reconcile.index("TORRCAST_NO_SYSTEMD")
     assert sandbox < reconcile.index("run_service"), "the sandbox must not start the daemon"
+
+
+def _catalog_verdict() -> str:
+    start = INSTALL.index('    if [ -n "$CATALOG_CUT_EN" ]; then')
+    return INSTALL[start:].split("\n    fi\n", 1)[0] + "\n    fi\n"
+
+
+def test_a_cut_catalog_is_repeated_after_the_summary() -> None:
+    """Under the TUI a plain loud line ends up in the log only: the last screen said
+    "[OK] installed successfully" with rc=2 and no word about the cut role."""
+    script = f"""
+set -u
+CATALOG_CUT_EN="western releases and anime - Knaben (not added)"
+CATALOG_CUT_RU="x"
+EXIT_CATALOG_CUT=2
+loud() {{ :; }}
+info() {{ :; }}
+final_loud() {{ printf 'FINAL_EN:%s\\n' "$1"; }}
+{_catalog_verdict()}
+"""
+    out = _bash(script)
+    assert out.returncode == 2, out.stderr
+    assert "FINAL_EN:catalog is incomplete: western releases and anime - Knaben" in out.stdout
