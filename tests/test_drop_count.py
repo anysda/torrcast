@@ -36,3 +36,15 @@ def test_wrap_does_not_change_the_honest_verdict() -> None:
     playable = counted.wrap(_playable({"a": True}))
 
     assert playable("q", "a") is True
+
+
+def test_the_counter_names_which_tiles_were_unknown() -> None:
+    """Ключи «не знаю» нужны отметке снятых (:mod:`web.dropped_marks`): незнание не возвращает."""
+    counted = DropCount()
+    playable = counted.wrap(_playable({"a": True, "b": False, "c": None}))
+
+    for key in ("a", "b", "c"):
+        playable("q", key)
+
+    assert counted.unknown_keys == {"c"}
+    assert counted.dropped_keys == {"b"}

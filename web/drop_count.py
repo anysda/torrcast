@@ -23,6 +23,7 @@ class DropCount:
     dropped: int = 0
     unknown: int = 0
     dropped_keys: set[str] = field(default_factory=set)
+    unknown_keys: set[str] = field(default_factory=set)
 
     def wrap(self, playable: Playable) -> Playable:
         """Обёртка над приговором: считает каждый вызов, самого приговора не меняет."""
@@ -32,6 +33,7 @@ class DropCount:
             self.checked += 1
             if verdict is None:
                 self.unknown += 1
+                self.unknown_keys.add(key)
             elif verdict is False:
                 self.dropped += 1
                 self.dropped_keys.add(key)

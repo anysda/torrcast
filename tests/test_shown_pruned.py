@@ -8,6 +8,7 @@ from torrcast.domain.json_value import JsonValue
 from web.built_by_rule import FIELD, RULE
 from web.carried import CARRIED
 from web.drop_count import DropCount
+from web.dropped_marks import DROPPED
 from web.shelf_candidate import shelf_candidate
 from web.shown_pruned import shown_pruned
 
@@ -52,6 +53,7 @@ def test_a_held_rebuild_still_takes_the_honest_drops_off_the_shown_shelf() -> No
     assert body["popular"] == [*_tiles(15), *_tiles(21)[19:]]
     assert body["fresh"] == shown["fresh"]
     assert body["built_at"] == _MOMENT.isoformat()
+    assert body[DROPPED] == {"popular": sorted(dropped)}  # a blind pass keeps them off
 
 
 def test_unknown_verdicts_take_nothing_off_a_held_shelf() -> None:
