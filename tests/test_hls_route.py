@@ -131,7 +131,7 @@ def test_the_mirror_mark_of_the_cast_tab_reaches_the_show_server(page: str) -> N
     (2351.6 и 2706.9 по очереди, четыре захода, «сдаюсь»), и ТВ так и не заиграл."""
     ASKED.clear()
     with urllib.request.urlopen(f"{page}/hls/v0.ts?mirror=1&x=1", timeout=5) as segment:
-        assert segment.status == 200
+        assert (segment.status, segment.read()) == (200, SEGMENT)
     with urllib.request.urlopen(f"{page}/hls/v0.ts?x=1", timeout=5) as segment:
-        assert segment.status == 200
+        assert (segment.status, segment.read()) == (200, SEGMENT)
     assert ASKED == ["/v0.ts?mirror=1", "/v0.ts"], ASKED
