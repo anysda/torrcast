@@ -149,3 +149,21 @@ def test_a_single_release_on_both_sides_leaves_no_reason_worth_printing() -> Non
     ]
 
     assert part_one_swap(cars, "тачки") == phrase("choice.part_one_dead", picture="Тачки (2006)")
+
+
+def test_a_numbered_part_of_another_franchise_makes_no_line_of_the_asked_name() -> None:
+    """«начало»: «Агашки по вызову 2: Начало» - вторая часть ЧУЖОЙ франшизы.
+
+    Её номер собирал строку, во главе которой вставало «Начало» 1970 года, и страж первой
+    части, видя его без HD, брал первую живую - «Би: начало», сериал под другим именем,
+    мимо «Начала» 2010 года. Стеречь тут нечего: частей у спрошенного имени нет.
+    """
+    old = film("Nachalo 1970 DVDRip XviD", seeders=30, codec="XviD", quality=None)
+    menu = [
+        plan("Начало", 1970, pool=[old]),
+        plan("Агашки по вызову 2: Начало", 2022, part=2, seeders=113),
+        plan("Би: начало", 2021, kind="tv", seeders=5),
+        plan("Начало", 2010, original="Inception", seeders=260),
+    ]
+
+    assert part_one_swap(menu, "начало") == ""

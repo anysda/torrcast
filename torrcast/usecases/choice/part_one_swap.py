@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.numbered_line import _numbered_line
+from torrcast.domain.part_of_franchise import part_of_franchise
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.usecases.choice._named import _named
@@ -72,7 +73,9 @@ def _first_part(plans: list[Plan], asked: str) -> tuple[Picture | None, bool]:
     key = slugify(name)
     pictures = [plan.picture for plan in plans]
     films = [p for p in pictures if p.kind != "other"]
-    if not key or not any(p.part is not None for p in films):
+    # A numbered part of another franchise («Агашки по вызову 2: Начало») is no part of the
+    # asked name: the line it heads would make a namesake its first part.
+    if not key or not any(part_of_franchise(p, key) for p in films):
         return None, False
     line = _numbered_line(films)[0]
     first = line[0] if line and line[0].part in (None, 1) else None

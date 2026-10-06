@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from tests.usecases.choice.world import Outside, outside, parts, plan
+from tests.usecases.choice.world import Outside, film, outside, parts, plan
 from torrcast.usecases.choice.named_take import named_take
 
 
@@ -57,3 +57,19 @@ def test_a_numbered_franchise_is_not_this_guard() -> None:
 
     with outside(Outside()):
         assert named_take(rambo, "рэмбо") == 0
+
+
+def test_a_numbered_part_of_another_franchise_keeps_the_guard_standing() -> None:
+    """«начало»: «Би: начало» второго сезона и «Агашки по вызову 2: Начало» - части ЧУЖИХ
+    франшиз. Их номер снимал страж, и дефолт «Би: начало» уводил мимо «Начала» 2010 года,
+    названного целиком."""
+    old = film("Nachalo 1970 DVDRip XviD", seeders=30, codec="XviD", quality=None)
+    menu = [
+        plan("Начало", 1970, pool=[old]),
+        plan("Би: начало", 2021, kind="tv", part=2, seeders=5),
+        plan("Агашки по вызову 2: Начало", 2022, part=2, seeders=113),
+        plan("Начало", 2010, original="Inception", seeders=260),
+    ]
+
+    with outside(Outside()):
+        assert named_take(menu, "начало") == 4

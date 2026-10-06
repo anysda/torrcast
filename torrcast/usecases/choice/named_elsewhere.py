@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.part_of_franchise import part_of_franchise
 from torrcast.domain.picture import Picture
 from torrcast.domain.picture_names import picture_names
 from torrcast.domain.slugify import slugify
@@ -66,7 +67,7 @@ def named_elsewhere(plans: list[Plan], asked: str) -> str:
         return ""
     pictures = [plan.picture for plan in plans]
     films = [p for p in pictures if p.kind != "other"]
-    if any(p.part is not None for p in films):
+    if any(part_of_franchise(p, key) for p in films):
         return ""
     named = [n for n, plan in enumerate(plans, start=1) if key in _slugs(plan.picture)]
     if not named:
