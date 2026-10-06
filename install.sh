@@ -2978,6 +2978,10 @@ add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
 # отказавший уже спрошен, и догрев делает на одну меньше.
 INDEXER_RETRY_TIMES="${TORRCAST_INDEXER_RETRY_TIMES:-12}"
 INDEXER_RETRY_EVERY="${TORRCAST_INDEXER_RETRY_EVERY:-300}"
+#: 🔴 TC-1411. Догрев выше кончается за час; сам-реконсилятор живёт дольше и берёт то, что
+#: ответит позже. Через сколько секунд он обходит эталонный список. На живом стенде нарочно
+#: уменьшают, чтобы замерить время доезда (TORRCAST_RECONCILE_EVERY).
+RECONCILE_EVERY="${TORRCAST_RECONCILE_EVERY:-900}"
 
 retry_add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело», спрошенные на глазах
     local key="$1" spec iname list missing="" todo=() left=()
@@ -3253,6 +3257,55 @@ catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - с
         "остальные индексеры узкие и этой дыры не закрывают: поиск будет находить мало или ничего, пока источник не ответит"
 }
 
+# 🔴 TC-1411. Последний экран обязан НАЗВАТЬ каждый эталонный индексер, которого в Prowlarr
+# сейчас нет. Раньше отказ опорного (RuTor, когда роль закрыл метапоиск JacRed) и провал
+# двойника уходили только в журнал догрева: catalog_gate считал роль закрытой и молчал, а
+# громкая строка с POST'а к последнему экрану не доживала. Сверяем манифест с живым списком
+# и повторяем итог жёлтым (final_loud повторяет строку после успешного итога).
+name_absent_reference_indexers() {  # $1 - apikey
+    local key="$1" live absent
+    [ -f "$STATE_DIR/indexers.json" ] || return 0
+    live="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")" || return 0
+    absent="$(jq -r --argjson live "$live" '
+        ([$live[]?|.name]) as $have
+        | ([.[]?|.name] - $have) | unique | join(", ")' "$STATE_DIR/indexers.json" 2>/dev/null)"
+    [ -n "$absent" ] || return 0
+    final_loud "indexers not set up yet: $absent - the installer keeps retrying each in the background and re-adds it the moment its tracker answers; rerunning ./install.sh is safe" \
+               "индексеры пока не заведены: $absent - установка переспрашивает каждый в фоне и заводит, как только его трекер ответит; повторный ./install.sh безопасен"
+}
+
+# 🔴 TC-1411. Служба, которая дольше часового догрева держит Prowlarr сверенным с эталонным
+# списком: раз в RECONCILE_EVERY секунд обходит $STATE_DIR/indexers.json и дозаводит то,
+# чего в Prowlarr нет. Живость трекера проверяет сам Prowlarr на POST, поэтому молчащий
+# источник просто ждёт следующего круга, а вернувшийся встаёт сам. Ключ демон читает из
+# config.xml Prowlarr, чтобы секрет не лежал в юните.
+setup_reconcile() {
+    log "indexer reconciler ($PL_URL)" "сам-реконсилятор индексеров ($PL_URL)"
+    pick_python
+    local script="$PREFIX/indexer-reconcile.py"
+    if cmp -s "$REPO_DIR/scripts/indexer-reconcile.py" "$script"; then
+        skip "reconciler code $script" "код реконсилятора $script"
+    else
+        install -m 0755 "$REPO_DIR/scripts/indexer-reconcile.py" "$script"
+    fi
+    # Песочница, как у бота и моста: службу не поднимаем, иначе каждый прогон фазы
+    # оставлял бы за собой вечный фоновый процесс.
+    if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
+        info "systemd is off - the torrcast-reconcile service is not started (sandbox)" \
+             "systemd выключен - службу torrcast-reconcile не поднимаю (песочница)"
+        return 0
+    fi
+    # Первый круг ждёт конца собственного переспроса установки (TC-697): второй вопрос
+    # к отказавшему трекеру в ту же минуту только продлевает ступень его бана.
+    run_service torrcast-reconcile "Дозаводит эталонные индексеры Prowlarr, когда трекер отвечает снова" \
+        "$PYTHON $script" \
+        "Environment=TORRCAST_PROWLARR_URL=$PL_URL
+Environment=TORRCAST_PROWLARR_CONFIG=$PREFIX/prowlarr-data/config.xml
+Environment=TORRCAST_INDEXER_MANIFEST=$STATE_DIR/indexers.json
+Environment=TORRCAST_RECONCILE_EVERY=$RECONCILE_EVERY
+Environment=TORRCAST_RECONCILE_DELAY=$((INDEXER_RETRY_TIMES * INDEXER_RETRY_EVERY))"
+}
+
 install_indexers() {
     log "Prowlarr indexers" "индексеры Prowlarr"
     local key schema existing
@@ -3270,7 +3323,7 @@ install_indexers() {
         || die "Prowlarr indexer schema has an unexpected shape - this version has an incompatible API" "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
     local spec def url extra own over body name
-    local late=() twins=() retry=() answer status first=1
+    local late=() twins=() retry=() answer status first=1 manifest=()
     for spec in "${INDEXERS[@]}"; do
         IFS='|' read -r def url extra own <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
@@ -3300,6 +3353,12 @@ install_indexers() {
               enable:true, appProfileId:1, tags:[], added:"0001-01-01T00:00:00Z",
               fields:[.fields[]|{name, value:(if $o[.name] != null then $o[.name] else .value end)}]}
         ' <<<"$schema")"
+        # 🔴 TC-1411. Эталонный список: каждое тело, которое установка СОБРАЛАСЬ завести,
+        # ложится в манифест независимо от того, ответил ли сейчас трекер. По нему потом
+        # сверяется последний экран (назвать незаведённое) и живёт сам-реконсилятор
+        # (дозавести отказавшее, когда трекер вернётся). Уже стоящие и выключенные человеком
+        # сюда не попадают - они отсеялись выше раньше, чем собралось тело.
+        manifest+=("$body")
         # Тот, кому не место на критическом пути, уезжает в фон целиком (:func:`late_indexer`):
         # его тело собрано, а добавит его подоболочка уже после «готово». Двойник (своё
         # имя) - тоже, со своим переспросом (:func:`add_twins`); роль закрывает его трекер.
@@ -3344,6 +3403,17 @@ install_indexers() {
         fi
         rm -f "$answer"
     done
+
+    # Манифест на машину: сам-реконсилятор (scripts/indexer-reconcile.py) и последний
+    # экран читают его, а не держат список в памяти фонового захода, который не переживёт
+    # перезагрузку. Пишем через временный файл и mv, чтобы читатель не поймал половину.
+    install -d -m 0755 "$STATE_DIR"
+    if [ "${#manifest[@]}" -gt 0 ]; then
+        printf '%s\n' "${manifest[@]}" | jq -s '.' >"$STATE_DIR/indexers.json.tmp" \
+            && mv "$STATE_DIR/indexers.json.tmp" "$STATE_DIR/indexers.json"
+    else
+        printf '[]\n' >"$STATE_DIR/indexers.json"
+    fi
 
     # Живая проверка: «индексер заведён» и «поиск что-то находит» - разные утверждения.
     # Первое бывает правдой при неправде второго - например когда сеть режет индексер.
@@ -3413,6 +3483,10 @@ install_indexers() {
     if [ "${#rest[@]}" -gt 0 ]; then
         late_run "test search through the remaining indexers" "проверочный поиск по остальным индексерам" check_indexers "$key" "${rest[@]}"
     fi
+
+    # Итог для человека: что из эталонного списка так и не стоит в Prowlarr (TC-1411).
+    name_absent_reference_indexers "$key"
+    setup_reconcile
 }
 
 # --- 6. Конфиг, ключи, состояние --------------------------------------------
