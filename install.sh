@@ -755,19 +755,47 @@ late_tree() {  # $1 - pid; печатает его и всех потомков
     for child in $(pgrep -P "$1" 2>/dev/null); do late_tree "$child"; done
 }
 
+# Догрев установки, что ещё не вела late.pids (обновление с прежней версии): фоновая
+# подоболочка этого же install.sh, брошенная установкой и подобранная init или systemd.
+# Установка на переднем плане (родитель - оболочка, sudo) не в счёт, как и сам запуск с
+# предками; каталог сверяется, чтобы не задеть чужой install.sh.
+orphan_late_jobs() {
+    local table pid dir up=" "
+    table=$(ps -Ao pid=,ppid=,args= 2>/dev/null) || return 0
+    pid=$$
+    while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
+        up="$up$pid "
+        pid=$(awk -v p="$pid" '$1 == p { print $2 }' <<<"$table")
+    done
+    for pid in $(awk -v me="${SELF##*/}" '
+        { ppid[$1] = $2; reaper[$1] = $3 ~ /(^|\/)systemd$/
+          mine[$1] = $3 ~ /(^|\/)bash$/ && $4 ~ ("(^|/)" me "$") }
+        END { for (p in mine) if (mine[p] && (ppid[p] == 1 || reaper[ppid[p]])) print p }
+    ' <<<"$table"); do
+        case "$up" in *" $pid "*) continue ;; esac
+        dir=$(readlink "/proc/$pid/cwd" 2>/dev/null \
+            || lsof -a -d cwd -p "$pid" -Fn 2>/dev/null | sed -n 's/^n//p')
+        [ "$dir" = "$REPO_DIR" ] && printf '%s\n' "$pid"
+    done
+}
+
 # 🔴 TC-1411. Повторная установка снимает догрев прежней. Иначе прежний переспрос
 # доживал свой час рядом с новым: двое спрашивали один трекер (каждый вопрос продлевает
 # ему бан), а старый ходил в Prowlarr со старым ключом и писал в журнал 401. Новая
 # установка сама заводит заново всё, что прежней осталось.
 stop_late_jobs() {
-    [ -f "$LATE_PIDS" ] || return 0
     local pid started one pids=()
-    while IFS=$'\t' read -r pid started _; do
-        [ -n "$pid" ] && [ -n "$started" ] || continue
-        [ "$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null)" = "$started" ] || continue
+    if [ -f "$LATE_PIDS" ]; then
+        while IFS=$'\t' read -r pid started _; do
+            [ -n "$pid" ] && [ -n "$started" ] || continue
+            [ "$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null)" = "$started" ] || continue
+            while read -r one; do pids+=("$one"); done < <(late_tree "$pid")
+        done <"$LATE_PIDS"
+        rm -f "$LATE_PIDS"
+    fi
+    for pid in $(orphan_late_jobs); do
         while read -r one; do pids+=("$one"); done < <(late_tree "$pid")
-    done <"$LATE_PIDS"
-    rm -f "$LATE_PIDS"
+    done
     [ "${#pids[@]}" -gt 0 ] || return 0
     kill -TERM "${pids[@]}" 2>/dev/null || true
     info "stopped the previous install's background work: this install starts it over" \

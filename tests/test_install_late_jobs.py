@@ -15,10 +15,13 @@ def _body(name: str) -> str:
     return INSTALL.split(f"{name}() {{", 1)[1].split("\n}", 1)[0]
 
 
-def _prelude(tmp_path: Path) -> str:
+def _prelude(tmp_path: Path, repo: Path | None = None) -> str:
+    repo = repo or tmp_path
     return f"""
 set -u
 LANGUAGE=en
+REPO_DIR={shlex.quote(str(repo))}
+SELF={shlex.quote(str(repo / "install.sh"))}
 LATE_LOG={shlex.quote(str(tmp_path / "late.log"))}
 LATE_NOTES={shlex.quote(str(tmp_path / "notes"))}
 LATE_PIDS={shlex.quote(str(tmp_path / "late.pids"))}
@@ -26,6 +29,8 @@ info() {{ printf 'INFO:%s\\n' "$1"; }}
 late_run() {{{_body("late_run")}
 }}
 late_tree() {{{_body("late_tree")}
+}}
+orphan_late_jobs() {{{_body("orphan_late_jobs")}
 }}
 stop_late_jobs() {{{_body("stop_late_jobs")}
 }}
@@ -87,3 +92,49 @@ def test_a_reused_pid_is_not_killed(tmp_path: Path) -> None:
 def test_the_rerun_stops_old_work_before_anything_else() -> None:
     main = _body("main")
     assert main.index("stop_late_jobs") < main.index("job_start")
+
+
+def _install_sh(where: Path) -> Path:
+    where.mkdir()
+    (where / "install.sh").write_text('echo "$$" > pid; sleep 300\n', encoding="utf-8")
+    return where
+
+
+def _pid(where: Path) -> int:
+    deadline = time.monotonic() + 5
+    while not (where / "pid").exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return int((where / "pid").read_text(encoding="utf-8"))
+
+
+@pytest.mark.machine
+def test_an_upgrade_stops_the_retries_of_an_install_that_kept_no_pid_list(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-1411. The install being replaced predates late.pids: its abandoned background
+    work is found by directory; a foreign install.sh and one in the foreground live on."""
+    ours, theirs, front = (_install_sh(tmp_path / n) for n in ("ours", "theirs", "front"))
+    for where in (ours, theirs):
+        subprocess.run(["bash", "-c", "(bash ./install.sh >/dev/null 2>&1 &)"], cwd=where)
+    held = subprocess.Popen(["bash", "./install.sh"], cwd=front)
+    pids: dict[Path, int] = {}
+    try:
+        pids.update({where: _pid(where) for where in (ours, theirs, front)})
+        for repo in (ours, front):
+            out = subprocess.run(
+                ["bash", "-c", _prelude(tmp_path, repo) + "stop_late_jobs\n"],
+                capture_output=True,
+                text=True,
+            )
+            assert out.returncode == 0, out.stderr
+        deadline = time.monotonic() + 5
+        while _alive(pids[ours]) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not _alive(pids[ours])
+        assert _alive(pids[theirs]) and _alive(pids[front])
+    finally:
+        for pid in pids.values():
+            subprocess.run(["pkill", "-P", str(pid)], capture_output=True)
+            subprocess.run(["kill", str(pid)], capture_output=True)
+        held.kill()
+        held.wait()
