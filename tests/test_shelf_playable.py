@@ -188,22 +188,30 @@ def test_an_unknown_verdict_is_never_written_to_disk(tmp_path: Path) -> None:
     assert disk.get(_PICTURE.key, RULE) is None
 
 
-def test_a_negative_verdict_stays_in_the_process_but_is_reasked_after_a_restart(
+def test_a_negative_verdict_is_reasked_by_the_next_rebuild_without_a_restart(
     tmp_path: Path,
 ) -> None:
-    """TC-1343: ``False`` на живой сети шумный - диск бы закрепил один шум навсегда."""
+    """TC-1343, TC-1400: «не играет» не держится ни диском, ни памятью процесса.
+
+    Память на процесс держала осуждённую плитку снятой до рестарта службы, хотя раздача
+    ожила: оживший рой обязан возвращать картину первой же пересборкой.
+    """
     disk = VerdictDisk(path=lambda: tmp_path / "shelf_verdicts.json")
     voices = _Voices(heard=None)
     playable = ShelfPlayable(circle=_circle([_PLAN]), voices=voices, alive=_alive, disk=disk)
 
     assert playable.of("film", _PICTURE.key, _CONFIG) is False
-    assert playable.of("film", _PICTURE.key, _CONFIG) is False
-    assert voices.calls == ["film"], "процесс сам не перепрашивает свой же приговор"
+    assert playable._verdicts == {}, "«не играет» не переживает свою пересборку"
     assert disk.get(_PICTURE.key, RULE) is None, "отрицательный приговор не идёт на диск"
+
+    voices.heard = object()  # раздача ожила - следующая пересборка спрашивает снова
+    assert playable.of("film", _PICTURE.key, _CONFIG) is True
+    assert voices.calls == ["film", "film"], "ожившая раздача ждёт переспроса, не рестарта"
+    assert playable._verdicts == {(_PICTURE.key): (RULE, True)}
 
     restarted_voices = _Voices(heard=object())
     restarted = ShelfPlayable(
         circle=_circle([_PLAN]), voices=restarted_voices, alive=_alive, disk=disk
     )
     assert restarted.of("film", _PICTURE.key, _CONFIG) is True
-    assert restarted_voices.calls == ["film"], "рестарт обязан спросить шумный приговор заново"
+    assert restarted_voices.calls == [], "готовый вердикт с диска не платит TorrServer заново"

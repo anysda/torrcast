@@ -26,16 +26,22 @@ def _voices(heard: Any) -> Any:
     return lambda _plan, _query, _config: (heard, False, True)
 
 
-def test_a_dropped_tile_is_named_in_the_journal_once(capsys: pytest.CaptureFixture[str]) -> None:
-    """«Не играет» снимает плитку: журнал называет запрос и ключ, повтор из памяти молчит."""
+def test_each_rebuild_names_its_dropped_tile_in_the_journal(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """«Не играет» снимает плитку, и каждый честный переспрос зовёт это своим именем.
+
+    Памяти у «не играет» нет (TC-1400): каждая пересборка, снимающая плитку снова,
+    печатает строку заново - молчать мог только повтор из памяти, которого больше нет.
+    """
     playable = ShelfPlayable(circle=lambda _q: [_PLAN], voices=_voices(None), alive=_alive)
 
     assert playable.of("Film", _PICTURE.key, _CONFIG) is False
     assert playable.of("Film", _PICTURE.key, _CONFIG) is False
 
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 1
-    assert "Film" in lines[0] and _PICTURE.key in lines[0]
+    assert len(lines) == 2
+    assert all("Film" in line and _PICTURE.key in line for line in lines)
 
 
 def test_a_playable_or_unknown_tile_leaves_no_drop_line(capsys: pytest.CaptureFixture[str]) -> None:

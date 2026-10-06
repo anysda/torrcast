@@ -36,14 +36,15 @@ candidates`), так что пустой список - это честный ф
 пересборка уже в фоновом потоке, ждать там можно, а `VoiceLookup.of` со стандартным
 демоном отдал бы «ещё считается» вместо готового приговора.
 
-Вердикт запоминается по картине ПЛЮС номеру правила отбора (:mod:`web.built_by_rule`):
-не часами, как у самой карточки (:data:`web.episode_lookup.RETRY` - 60 с, для часового
-цикла это ничего не экономит), а до следующей смены правила - и на диске
-(:class:`web.verdict_disk.VerdictDisk`), тем же приёмом, каким круг переживает рестарт
-(:class:`web.circle_disk.CircleDisk`): рестарт службы не вправе обнулять память, за
-которую уже заплачено секундами TorrServer. Повторная пересборка тех же плиток вообще
-не трогает стенд - но только для готовых приговоров: «не знаю» памяти не имеет никогда,
-ни в процессе, ни на диске.
+Вердикт «играет» запоминается по картине ПЛЮС номеру правила отбора
+(:mod:`web.built_by_rule`): не часами, как у самой карточки (:data:`web.episode_lookup.
+RETRY` - 60 с, для часового цикла это ничего не экономит), а до следующей смены правила -
+и на диске (:class:`web.verdict_disk.VerdictDisk`), тем же приёмом, каким круг переживает
+рестарт (:class:`web.circle_disk.CircleDisk`): рестарт службы не вправе обнулять память,
+за которую уже заплачено секундами TorrServer. Повторная пересборка тех же плиток вообще
+не трогает стенд - но только для приговора «играет»: «не играет» памяти не имеет вовсе
+(TC-1400) - пока она была памятью на процесс, однажды осуждённая картина не возвращалась
+на полку до рестарта службы, хотя раздача ожила, - а «не знаю» памяти не имеет никогда.
 """
 
 from __future__ import annotations
@@ -117,9 +118,12 @@ class ShelfPlayable:
         Диск асимметричен (TC-1343): ``True`` дорогой и почти всегда стабильный, ``False``
         дешёвый (одна плитка из тридцати) и на живой сети шумный - отказ TorrServer,
         просевший индексер, временная дыра между :func:`_alive` и разбором дорожек читаются
-        снаружи как честное «не играет» и раньше запоминались НАВСЕГДА. ``False`` на диск
-        поэтому не идёт - только в память процесса, и следующая пересборка спросит стенд
-        снова; ``True`` по-прежнему кладётся на диск и рестарт его не стирает.
+        снаружи как честное «не играет» и раньше запоминались НАВСЕГДА. «Не играет»
+        памяти не имеет вовсе (TC-1400): ни на диске, ни в процессе - в процессе оно
+        переживало рестарт-переживающую память и держало плитку снятой до конца службы,
+        хотя ожившая раздача возвращала её первой же пересборкой. Дедуп внутри одной
+        пересборки держит вызывающий (:attr:`web.shelf_pass.ShelfPass.verdicts`);
+        ``True`` по-прежнему кладётся и в память, и на диск, и рестарт его не стирает.
         """
         cached = self._verdicts.get(key)
         if cached is not None and cached[0] == RULE:
@@ -132,11 +136,12 @@ class ShelfPlayable:
         verdict = self._resolve(query, key, config)
         if verdict is None:
             return None
-        self._verdicts[key] = (RULE, verdict)
-        if not verdict:  # the journal names every tile the shelf drops, and when
+        if verdict:  # «plays» is worth memory: it survives the hour and the restart
+            self._verdicts[key] = (RULE, verdict)
+            if self.disk is not None:
+                self.disk.keep(key, RULE, verdict)
+        else:  # the journal names every tile the shelf drops, and when
             print(phrase("systemd.shelf.unplayable", query=query, tile=key), flush=True)
-        if self.disk is not None and verdict:
-            self.disk.keep(key, RULE, verdict)
         return verdict
 
     def _resolve(self, query: str, key: str, config: Config) -> Verdict:
