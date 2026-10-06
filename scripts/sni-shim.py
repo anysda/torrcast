@@ -331,8 +331,7 @@ class Route:
         #: перерешать нечем, и маршрут у него остаётся тот, с которым его завели.
         self.path = path
         self.body = body
-        #: Размер страницы постраничного обхода (TC-696, см. модульную строку). Ноль -
-        #: запросы уходят как пришли, одним ответом.
+        #: Нулевой размер не делит запрос на страницы.
         self.page = page
         self.current = 0
         #: Места в очереди к ЭТОМУ хосту. Свой счётчик на каждый - в этом весь смысл:
@@ -859,16 +858,17 @@ def build_server(
                 return
             last = "маршрут пуст"
             deadline = time.monotonic() + route_timeout
-            #: Придержанный 5xx: ответ, который лучше не отдавать, пока есть непробованный
-            #: кандидат. Отдадим его, только если лучше не нашлось.
             held: tuple[int, list[tuple[str, str]], bytes] | None = None
             wanted = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
+            path = self.path
+            if method == "GET" and route.host == "sukebei.nyaa.si" and "q=" not in path:
+                path += ("&" if "?" in path else "?") + "q=naruto"
             for target in route.targets(names):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     last = "маршрут не ответил в срок"
                     break
-                request = urllib.request.Request(target.base + self.path, data=body, method=method)
+                request = urllib.request.Request(target.base + path, data=body, method=method)
                 request.add_header("Host", route.host)
                 for name, value in self.headers.items():
                     if name.lower() not in _HOP:

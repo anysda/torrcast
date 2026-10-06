@@ -69,6 +69,7 @@ class Counter:
         self.now = 0
         self.peak = 0
         self.served = 0
+        self.paths: list[str] = []
         self._lock = threading.Lock()
 
     def enter(self) -> None:
@@ -93,6 +94,7 @@ def _backend(tls: tuple[str, str], counter: Counter, hold: float = HOLD) -> http
 
         def do_GET(self) -> None:
             counter.enter()
+            counter.paths.append(self.path)
             try:
                 time.sleep(hold)
                 body = b"ok\n"
@@ -116,12 +118,12 @@ def _backend(tls: tuple[str, str], counter: Counter, hold: float = HOLD) -> http
     return server
 
 
-def _get(port: int, host: str) -> tuple[int, float]:
+def _get(port: int, host: str, path: str = "/") -> tuple[int, float]:
     """Запрос к шиму под нужным именем в ``Host``: код ответа и сколько занял."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
-    request = urllib.request.Request(f"https://127.0.0.1:{port}/", headers={"Host": host})
+    request = urllib.request.Request(f"https://127.0.0.1:{port}{path}", headers={"Host": host})
     started = time.monotonic()
     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context))
     try:
@@ -260,6 +262,22 @@ def test_silent_candidate_does_not_hide_working_fallback(
     assert code == 200
     assert counter.served == 1
     assert spent < budget
+
+
+def test_sukebei_add_probe_is_small_but_a_search_is_unchanged(tls: tuple[str, str]) -> None:
+    counter = Counter()
+    origin = _backend(tls, counter, hold=0)
+    route = shim.Route("sukebei.nyaa.si", [f"https://127.0.0.1:{origin.server_address[1]}"])
+    server = _shim(tls, {route.host: route}, opener=_plain)
+    try:
+        _get(server.server_address[1], route.host, "/?f=0&c=0_0&s=id&o=desc")
+        _get(server.server_address[1], route.host, "/?f=0&c=0_0&q=matrix")
+    finally:
+        server.shutdown()
+        server.server_close()
+        origin.shutdown()
+        origin.server_close()
+    assert counter.paths == ["/?f=0&c=0_0&s=id&o=desc&q=naruto", "/?f=0&c=0_0&q=matrix"]
 
 
 def test_all_rutor_candidates_fit_indexer_budget() -> None:
