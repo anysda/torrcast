@@ -99,6 +99,9 @@ def en() -> dict[str, str]:
         "health.tv_unnamed": (
             "the TV address is not set: cast --tv (finds receivers by itself) or cast --tv <ip>"
         ),
+        "health.tv_browser": (
+            "receiver browser - the show plays in a browser tab, no TV address needed"
+        ),
         "health.tv_mock": "receiver mock ({tv}) - nothing is cast outside, this is test mode",
         "health.tv_no_route": "no route to TV {tv} - the cast will not go through",
         "health.tv_route": "TV {tv} is visible from our leg {ours}",

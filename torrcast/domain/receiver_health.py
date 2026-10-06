@@ -27,6 +27,11 @@ class ReceiverHealth:
         return HealthVerdict.bad(phrase("health.tv_unnamed"))
 
     @staticmethod
+    def browser() -> HealthLine:
+        """Приёмник ``browser``: показ идёт во вкладке, и незаданный ТВ - не поломка."""
+        return HealthVerdict.ok(phrase("health.tv_browser"))
+
+    @staticmethod
     def mock(tv: str) -> HealthLine:
         """Приёмник-заглушка: наружу ничего не уходит, и это замысел, а не поломка."""
         return HealthVerdict.warn(phrase("health.tv_mock", tv=tv))

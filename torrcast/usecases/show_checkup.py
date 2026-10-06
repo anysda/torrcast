@@ -32,6 +32,11 @@ class ShowCheckup:
         обесточенного спрашивать про аптайм уже некого.
         """
         tv = config.tv or ""
+        # Приёмник ``browser`` без ТВ играет во вкладке (тот же признак, что у
+        # :func:`torrcast.domain.for_tab.for_tab`): «адрес не задан» тут ложная тревога.
+        if config.receiver == "browser" and tv in ("", "browser"):
+            yield ReceiverHealth.browser()
+            return
         if not tv:
             yield ReceiverHealth.unnamed()
             return

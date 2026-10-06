@@ -84,6 +84,7 @@ def ru() -> dict[str, str]:
         "health.tv_unnamed": (
             "адрес ТВ не задан: cast --tv (найдёт приёмники сам) или cast --tv <ip>"
         ),
+        "health.tv_browser": "приёмник browser - показ идёт во вкладке браузера, адрес ТВ не нужен",
         "health.tv_mock": "приёмник mock ({tv}) - каста наружу нет, это режим проверки",
         "health.tv_no_route": "до ТВ {tv} нет маршрута - каст не уйдёт",
         "health.tv_route": "ТВ {tv} виден с нашей ноги {ours}",

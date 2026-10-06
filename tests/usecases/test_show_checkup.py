@@ -24,6 +24,23 @@ def test_an_unnamed_tv_ends_the_receiver_probe_at_once() -> None:
     assert environment.timeouts == []
 
 
+def test_a_browser_receiver_without_a_tv_is_not_a_failure() -> None:
+    """Приёмник browser играет во вкладке: незаданный ТВ не даёт строки «bad» в doctor."""
+    environment = FakeHealthEnvironment()
+    for tv in ("", "browser"):
+        lines = list(_checkup(environment).tv(Settings(tv=tv, receiver="browser")))
+        assert [ok for _, ok in lines] == [True], lines
+        assert "browser" in lines[0][0]
+    assert environment.timeouts == []
+
+
+def test_a_browser_receiver_with_a_tv_still_probes_the_tv() -> None:
+    """С заданным ТВ вкладка играет его поток, и маршрут до ТВ проверяется как прежде."""
+    environment = FakeHealthEnvironment(address="")
+    lines = list(_checkup(environment).tv(Settings(tv="10.0.0.50", receiver="browser")))
+    assert len(lines) == 1 and not lines[0][1]
+
+
 def test_a_mock_receiver_stops_the_probe_before_the_network() -> None:
     lines = list(_checkup(FakeHealthEnvironment()).tv(Settings(tv="10.0.0.50", receiver="mock")))
     assert [ok for _, ok in lines] == [True]
