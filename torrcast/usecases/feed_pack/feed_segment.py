@@ -63,7 +63,7 @@ def _segment(
     if not 0 <= slot < state.grid.count:
         return path if path.exists() else None
     deadline = _state.clock_port.monotonic() + state.wait
-    steer = _newest(state, steer)  # голову ведёт свежий запрос, а не долго ждущий
+    steer, seam = _newest(state, steer, seam)  # голову ведёт свежий запрос, а не долго ждущий
     while True:
         if path.exists():
             return path

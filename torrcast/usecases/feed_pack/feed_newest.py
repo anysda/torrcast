@@ -13,6 +13,11 @@
 
 Перемотку назад это не запирает: приёмник, вернувшийся к старому месту, приходит за ним
 НОВЫМ запросом, и тот уже свежее.
+
+Голову уводит и запрос прогретого куска - подъёмом к стыку прогретого
+(:func:`torrcast.usecases.feed_pack.feed_seam._seam`). Стенд 06-10-2026: -240 с места 105,
+упаковка встала к стыку (слот 2), а ждавший с ДО перемотки запрос слота 14 через 2.5 с
+увёл её обратно, и ТВ 4 с стоял в буфере у начала фильма.
 """
 
 from __future__ import annotations
@@ -29,8 +34,10 @@ if TYPE_CHECKING:
 __all__ = ["_newest"]
 
 
-def _newest(state: _State, steer: Callable[[int], bool]) -> Callable[[int], bool]:
-    """Решение об упаковке для запроса, пришедшего сейчас: голову уведший запрос новее - ждать."""
+def _newest(
+    state: _State, steer: Callable[[int], bool], seam: Callable[[int], None]
+) -> tuple[Callable[[int], bool], Callable[[int], None]]:
+    """Решения об упаковке для запроса, пришедшего сейчас: голову уведший запрос новее - ждать."""
     arrived = _state.clock_port.monotonic()
 
     def steered(slot: int) -> bool:
@@ -42,4 +49,10 @@ def _newest(state: _State, steer: Callable[[int], bool]) -> Callable[[int], bool
             state.asked = arrived
         return hope
 
-    return steered
+    def sealed(slot: int) -> None:
+        before = state.restarted
+        seam(slot)
+        if state.restarted != before:
+            state.asked = arrived
+
+    return steered, sealed
