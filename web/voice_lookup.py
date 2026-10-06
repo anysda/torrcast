@@ -128,17 +128,14 @@ class VoiceLookup:
     ) -> None:
         """Отобрать раздачу, прочитать её дорожки и оставить греться только выбранную.
 
-        ``kept`` - закладка, которую продолжит «Играть»: отбор спрашивает ИМЕННО её
-        раздачу (:func:`web.bookmark_args.bookmark_args`): меню - дорожки раздачи, что
-        продолжит показ. Прогрев тянет её место («Оно» продолжалось с 395 с, а прогрев
-        тянул начало файла: первый сегмент ждал рой 7.8 с), голова показа - по её записи.
-        Раздачи нет в выдаче - дорожки читаются из записи (:meth:`_kept`).
+        ``kept`` - закладка, которую продолжит «Играть»: отбор спрашивает ИМЕННО её раздачу
+        (:func:`web.bookmark_args.bookmark_args`), нет её в выдаче - дорожки из записи
+        (:meth:`_kept`). Прогрев тянет её место, а не начало файла, голова показа - её запись.
         """
         heard: Heard | None = None
         args = bookmark_args(plan, query, release, label)
         if kept is not None and args.release is None:
-            self._kept(plan, config, release, kept)
-            return
+            return self._kept(plan, config, release, kept)
         profile = self.profile_of(config)
         engines = self.engines(config.torrserver_url)
 
@@ -191,10 +188,13 @@ class VoiceLookup:
 
     def _kept(self, plan: Plan, config: Config, release: str, kept: Entry) -> None:
         """Дорожки закладки, чьей раздачи нет в выдаче (:func:`web.kept_heard.kept_heard`)."""
-        heard, failed = kept_heard(self.kept_media, plan, config, release, kept)
-        with self._lock:
-            self._heard[plan.picture.key] = (heard, self.clock() + RETRY, failed)
-            self._pending.discard(plan.picture.key)
+        heard, failed = None, True
+        try:
+            heard, failed = kept_heard(self.kept_media, plan, config, release, kept)
+        finally:  # a broken read is «unknown» for RETRY, never «still coming» for good
+            with self._lock:
+                self._heard[plan.picture.key] = (heard, self.clock() + RETRY, failed)
+                self._pending.discard(plan.picture.key)
 
 
 __all__ = ["VoiceLookup"]

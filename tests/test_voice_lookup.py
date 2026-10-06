@@ -310,6 +310,23 @@ def test_a_failed_read_of_the_bookmark_record_is_asked_again_after_the_retry_tim
     assert len(record.read) == 2 and heard is not None and heard.media is _OWN
 
 
+def test_a_broken_read_of_the_bookmark_record_does_not_leave_the_card_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Поломка вне отказов продукта - «не знаю» на :data:`RETRY`, не вечное «ещё в пути»."""
+    clock = _Clock()
+    record = _Record([RuntimeError("broken"), _OWN])
+    lookup = _lookup(monkeypatch, _Bench(_MEDIA), spawn=_sync, kept_media=record, clock=clock)
+
+    with pytest.raises(RuntimeError):
+        lookup.of(_PLAN, "film", _CONFIG, _live())
+    assert lookup.of(_PLAN, "film", _CONFIG, _live()) == (None, False)
+    clock.now += RETRY + 1
+    heard, _coming = lookup.of(_PLAN, "film", _CONFIG, _live())
+
+    assert len(record.read) == 2 and heard is not None and heard.media is _OWN
+
+
 def test_a_show_bookmark_warms_its_own_episode_and_a_finished_film_does_not_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
