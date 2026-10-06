@@ -235,6 +235,34 @@ def test_a_hung_name_is_asked_again_inside_the_grace(monkeypatch: Any) -> None:
 
 
 @pytest.mark.machine
+def test_a_name_asked_twice_in_a_slow_spell_still_lands_for_a_cut_text() -> None:
+    """A spell on the stand (07.10): the text, then a name hung, each answered on its second ask."""
+    free = threading.Event()
+    asked: list[str] = []
+
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
+        asked.append(_asked(query, year))
+        if asked.count(_asked(query, year)) == 1 and query in {"Дюна", "Dune: Part One"}:
+            free.wait(6.0)
+            return _rows()
+        if query == "Дюна":
+            return _rows(*(f"part-two-{n}" for n in range(adapter.LIMIT)))
+        time.sleep(1.5)  # a second ask in that spell took 1.3-3.4 s
+        return _rows(_asked(query, year))
+
+    rows = adapter.search("Дюна | Dune: Part One 2021", fetch)
+    free.set()
+    assert "Dune: Part One [year 2021]" in {row["title"] for row in rows}
+
+
+def test_the_names_deadline_stays_inside_the_first_circle() -> None:
+    """A cut text's rows wait the names that long, and torrcast stops waiting at its cap."""
+    from torrcast.domain.circle_budget import FIRST_CIRCLE_TIMEOUT
+
+    assert adapter.NAMES_DEADLINE + 0.5 <= FIRST_CIRCLE_TIMEOUT
+
+
+@pytest.mark.machine
 def test_the_names_leave_only_once_the_viewer_s_text_has_answered() -> None:
     """The API slows and refuses texts that come at once: the viewer's goes alone."""
     events: list[str] = []

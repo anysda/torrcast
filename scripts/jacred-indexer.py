@@ -68,8 +68,11 @@ NAMES_GRACE = 1.0
 #: 99 of «Часть вторая», and «Dune: Part One» of 2021 came only in the year field. On the stand
 #: (06.10, 12 joined requests in turn) that name answered 0.65-1.32 s past the text, once
 #: past the second, and the viewer got the YTS rows of another release with no Russian track.
-#: Four keeps the joined answer inside `TIMEOUT`, which torrcast reads as a cut circle.
-NAMES_DEADLINE = 4.0
+#: Five, not four: such an answer is never empty, so torrcast's cut of an empty one does not
+#: touch it, and it lands inside the first circle's six seconds. JacRed slows in spells: on the
+#: stand (07.10, every request timed) four hung in 20 s and their second asks took 1.3-3.4 s;
+#: «Король лев 1994» answered 4.80 s from the request, and four seconds lost «Дюна» of 2021.
+NAMES_DEADLINE = 5.0
 #: Seconds the viewer's text waits before it is asked once more. On the stand (06.10) a text
 #: alone answered in 0.46 s in the median and 0.64 at worst of 69, while one request in about 40
 #: hung to the 5 s cut and the next, a few seconds later, answered in half a second: «Король
