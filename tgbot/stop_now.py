@@ -11,6 +11,7 @@ from contextlib import suppress
 
 from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
 from tgbot.telegram_control import TelegramControl
+from torrcast.ports.abandon.slot import begun
 from torrcast.ports.abandon.slot import install as install_abandon
 from torrcast.runtime.stop_command import stop_command
 
@@ -61,6 +62,7 @@ class StopNow:
     def forget(self) -> None:
         """Новая команда принята: отказ был от ПРОШЛОГО подъёма, а не от неё."""
         self._asked.clear()
+        begun()
 
     def _put_out(self, done: threading.Event) -> None:
         try:

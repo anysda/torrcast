@@ -9,7 +9,7 @@ import requests
 
 from hass.starting import YIELD_SECONDS
 from tests.fakes.clock import FakeClock
-from tests.fakes.engine_service import Asked, FakeService, engine
+from tests.fakes.engine_service import Asked, FakeProbes, FakeService, engine
 from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT
 from torrcast.adapters.torrserver.engine_restart import ADD_TIMEOUT, SPARING
 from torrcast.adapters.torrserver.reading import Stop, reading
@@ -84,3 +84,19 @@ def test_calling_the_start_off_during_the_probes_answers_after_one_probe() -> No
     assert clock.now - called_off <= PROBE_TIMEOUT, f"ответ через {clock.now - called_off} с"
     assert service.restarted == 0
     assert asked.timeouts == [ADD_TIMEOUT]
+
+
+def test_a_thread_of_a_replaced_order_does_not_kill_the_service() -> None:
+    """Поток подбора снятого заказа пережил команду, а новый заказ сбросил отказ под себя."""
+    service = FakeService()
+    restart, _ = engine(service, FakeClock())
+    abandon_slot.install(lambda: False)  # отказ уже сброшен: идёт новый заказ
+    asked = Asked(HUNG)
+
+    def add(timeout: float) -> str:
+        if not asked.timeouts:
+            abandon_slot.begun()  # пока висел add, человек нажал «Играть» другое
+        return asked(timeout)
+
+    assert restart.answered(LOCAL, FakeProbes(reading=False), add, 30.0, add=True) == "answer"
+    assert service.restarted == 0, "служба убита ради брошенного показа"

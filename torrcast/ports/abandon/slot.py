@@ -18,6 +18,7 @@ class Slot:
 
     def __init__(self) -> None:
         self._asked: Callable[[], bool] = _never
+        self._orders = 0
 
     def asked(self) -> bool:
         """Снят ли заказ на показ, который поднимается прямо сейчас."""
@@ -26,6 +27,21 @@ class Slot:
     def asking(self) -> Callable[[], bool]:
         """Кого сейчас спрашивают: нужно тому, кто ставит своё и обязан вернуть чужое."""
         return self._asked
+
+    def begun(self) -> None:
+        """Принят новый заказ: отказ, сброшенный под него, был от прошлого."""
+        self._orders += 1
+
+    def mine(self) -> Callable[[], bool]:
+        """Отказ для того, кто спрашивает сейчас: снят его заказ или уже начат другой.
+
+        🔴 Потоки подбора раздачи живут дольше снятой команды, а следующий заказ сбрасывает
+        отказ под себя. Без номера заказа такой поток через долю секунды считал бы, что его
+        снова ждут, и убивал бы службу ради брошенного показа (стенд: KILL через 4 с после
+        «Играть» поверх подъёма).
+        """
+        order = self._orders
+        return lambda: self.asked() or self._orders != order
 
     def install(self, asked: Callable[[], bool]) -> None:
         """Назначить, кого спрашивать про отказ. Зовёт это композиционный корень и тесты."""
@@ -42,4 +58,6 @@ _slot = Slot()
 #: Прежние имена слоёв: их зовут отовсюду, и функциями они и остаются.
 abandoned = _slot.asked
 asking = _slot.asking
+begun = _slot.begun
+mine = _slot.mine
 install = _slot.install

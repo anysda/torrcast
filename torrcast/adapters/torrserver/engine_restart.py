@@ -42,7 +42,7 @@ from torrcast.adapters.torrserver.engine_service import EngineService
 from torrcast.adapters.torrserver.kill_stamp import KillStamp
 from torrcast.adapters.torrserver.reading import Stop
 from torrcast.domain.server_down_error import ServerDownError
-from torrcast.ports.abandon.slot import abandoned
+from torrcast.ports.abandon.slot import abandoned, mine
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
 
@@ -112,16 +112,16 @@ class EngineRestart:
         """
         mends = urlsplit(base_url).hostname in LOCAL and timeout >= ADD_TIMEOUT
         first = min(timeout, ADD_TIMEOUT) if add and mends else timeout
-        rounds = self._rounds
+        rounds, off = self._rounds, mine()
         try:
             return ask(first)
         except ServerDownError as exc:
-            verdict = self._mend(probes, rounds, exc) if mends else "no"
+            verdict = self._mend(probes, rounds, exc, off) if mends else "no"
             if abandoned() or verdict == "no" or (verdict == "rest" and first >= timeout):
                 raise
         return ask(timeout - first if verdict == "rest" else first)
 
-    def _mend(self, probes: _Probes, rounds: int, exc: ServerDownError) -> Verdict:
+    def _mend(self, probes: _Probes, rounds: int, exc: ServerDownError, off: Stop) -> Verdict:
         import requests
 
         cause = exc.__cause__
@@ -136,14 +136,14 @@ class EngineRestart:
             if not self._service.known():
                 return "rest"
             began = self._clock.monotonic()
-            verdict = self._back(probes, hung)
+            verdict = self._back(probes, hung, off)
             seconds = round(self._clock.monotonic() - began, 1)
             journal().emit("torrserver", "restart", hung=hung, verdict=verdict, seconds=seconds)
             self._rounds += 1
             self._last = verdict
             return verdict
 
-    def _back(self, probes: _Probes, hung: bool) -> Verdict:
+    def _back(self, probes: _Probes, hung: bool, off: Stop) -> Verdict:
         """Служба снова отвечает (systemd поднял её сам, или подняли мы), или почему нет."""
         state = self._service.state()
         if state == "inactive":  # остановил человек: не наше дело её поднимать
@@ -155,7 +155,7 @@ class EngineRestart:
                 return "again"
             if state == "deactivating":
                 return "no"
-        spared = self._spared(probes, hung)
+        spared = self._spared(probes, hung, off)
         if spared:
             journal().emit("torrserver", "spared", why=spared)
             return "rest" if hung else "no"
@@ -165,20 +165,21 @@ class EngineRestart:
             self.tell()
         return "again" if self._service.restart() and self._waited(probes, UP) else "no"
 
-    def _spared(self, probes: _Probes, hung: bool) -> str:
+    def _spared(self, probes: _Probes, hung: bool, off: Stop) -> str:
         """Почему службу убивать нельзя; пусто - можно.
 
         Пауза спрошена и после щупов: они идут секунды, и за них службу мог убить соседний
         процесс на том же зависе. Новый щуп идёт, только если уложится в :data:`SPARING`.
+        Отказ ``off`` - свой: снят заказ этого вопроса или начат другой (:func:`.slot.mine`).
         """
         if self._paused():
             return "pause"
         last = self._clock.monotonic() + SPARING - PROBE_TIMEOUT  # позже щуп не уложится
         if hung and probes.alive():
-            reading = probes.reading(lambda: abandoned() or self._clock.monotonic() > last)
+            reading = probes.reading(lambda: off() or self._clock.monotonic() > last)
             if reading is not False:
-                return "abandoned" if abandoned() else "reading" if reading else "unknown"
-        return "pause" if self._paused() else "abandoned" if abandoned() else ""
+                return "abandoned" if off() else "reading" if reading else "unknown"
+        return "pause" if self._paused() else "abandoned" if off() else ""
 
     def _paused(self) -> bool:
         killed = max((t for t in (self._killed, self._stamp.at()) if t is not None), default=None)

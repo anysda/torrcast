@@ -12,6 +12,7 @@ from hass.orders import Orders
 from torrcast.adapters.filesystem.state.file_refusal_record import FileRefusalRecord
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.start_refusal import RECEIVER_DID_NOT_ANSWER
+from torrcast.ports.abandon.slot import mine
 from torrcast.ports.refusal_record import RefusalRecord
 from torrcast.ports.refusal_record import install as install_refusal
 from torrcast.usecases.start_progress import START
@@ -111,6 +112,20 @@ def test_a_new_show_does_not_inherit_the_refusal_of_the_previous_one() -> None:
     assert orders.run_one()
 
     assert seen == [True, False], f"отказ пережил начало следующего показа: {seen}"
+
+
+def test_a_thread_of_the_previous_show_learns_it_was_replaced() -> None:
+    """Сброс отказа под новый заказ не воскрешает прошлый: его потоки ещё идут."""
+    orders = Orders(_nothing)
+    orders.take(["матрица"])
+    previous = mine()
+    orders.abandon()
+    assert orders.run_one()
+
+    orders.take(["муха"])
+
+    assert previous() is True, "поток снятого показа решил, что его снова ждут"
+    assert mine()() is False
 
 
 def test_a_show_the_person_called_off_leaves_no_complaint_behind() -> None:

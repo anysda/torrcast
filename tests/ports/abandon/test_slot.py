@@ -52,3 +52,14 @@ def test_the_installed_answer_can_be_handed_back() -> None:
     slot.install(saved)
 
     assert slot.asked() is False
+
+
+def test_a_new_order_calls_off_whoever_still_asks_for_the_old_one() -> None:
+    """Отказ сброшен под новый заказ, а поток прошлого всё равно знает, что он снят."""
+    slot = Slot()
+    old = slot.mine()
+
+    assert old() is False
+    slot.begun()
+    assert old() is True
+    assert slot.mine()() is False

@@ -6,7 +6,7 @@ import threading
 from typing import Any, cast
 
 from tgbot.stop_now import StopNow
-from torrcast.ports.abandon.slot import abandoned
+from torrcast.ports.abandon.slot import abandoned, mine
 
 
 class _Choice:
@@ -67,6 +67,8 @@ def test_a_busy_executor_still_stops_the_show_and_calls_off_the_raise(
     assert abandoned() is True, "идущий подъём о снятом заказе не узнал"
     assert choice.dropped == 1, "ждущий ответа выбор остался висеть"
 
+    previous = mine()
     halt.forget()
 
     assert abandoned() is False, "отказ прошлого подъёма снял бы и следующий"
+    assert previous() is True, "поток снятого подъёма решил, что его снова ждут"
