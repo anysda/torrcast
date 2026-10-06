@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hass.remote_refused import _tab_receiver
+from hass.tab_receiver import tab_receiver
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.adapters.browser.write_web_finish import write_web_finish
 from torrcast.domain.config import Config
@@ -19,7 +19,7 @@ def tab_finish(config: Config, at: float) -> bool:
     out = hls_root(config.hls_dir)
     box = read_web_box(out)
     key = str(box.get("key", ""))
-    if not _tab_receiver(config) or not key or SESSION.owns(key):
+    if not tab_receiver(config) or not key or SESSION.owns(key):
         return False
     write_web_finish(out, key, at)
     return True
