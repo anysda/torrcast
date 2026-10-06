@@ -127,3 +127,16 @@ def test_calling_the_start_off_ends_the_wait_for_the_restarted_service() -> None
     assert service.restarted == 1
     assert clock.now < UP / 2, "новое «Играть» не ждёт подъёма ради брошенного показа"
     assert asked.timeouts == [ADD_TIMEOUT]
+
+
+def test_the_pause_holds_across_processes_of_the_product() -> None:
+    clock = FakeClock()
+    service = FakeService()
+    bridge, _ = engine(service, clock)
+    bridge.answered(LOCAL, FakeProbes(), Asked(HUNG), 30.0, add=True)
+    clock.now += PAUSE / 2
+    show, _ = engine(service, clock)  # новый показ - новый процесс, своя память пуста
+
+    with pytest.raises(ServerDownError):
+        show.answered(LOCAL, FakeProbes(), Asked(HUNG, HUNG), 30.0, add=True)
+    assert service.restarted == 1

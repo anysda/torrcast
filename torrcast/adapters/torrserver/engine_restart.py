@@ -17,7 +17,8 @@ systemd его не поднимет: процесс жив. Раньше чел
   оборвал бы его ради одного медленного ``add`` (замок базы на слабой машине). Не
   сказала, читают ли, - тоже не убиваем: живой показ дороже лишнего ожидания;
 - служба уже убита нами меньше :data:`PAUSE` назад: завис, который подъём не лечит,
-  иначе убивал бы службу на каждом новом вопросе;
+  иначе убивал бы службу на каждом новом вопросе. Отметка общая для моста и процессов
+  показа (:mod:`.kill_stamp`);
 - службу остановил человек (``inactive``): отказ сразу, без ожидания. Служба в
   движении (``deactivating``, ``activating``) - ждём ``COMEBACK``, вдруг это ``restart``.
 
@@ -37,6 +38,7 @@ from urllib.parse import urlsplit
 
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.engine_service import EngineService
+from torrcast.adapters.torrserver.kill_stamp import KillStamp
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.abandon.slot import abandoned
 from torrcast.ports.clock import Clock
@@ -77,8 +79,14 @@ def _silent() -> None:
 class EngineRestart:
     """Ответ на вопрос службе, при зависе или падении - после её подъёма."""
 
-    def __init__(self, service: EngineService | None = None, clock: Clock = CLOCK) -> None:
+    def __init__(
+        self,
+        service: EngineService | None = None,
+        clock: Clock = CLOCK,
+        stamp: KillStamp | None = None,
+    ) -> None:
         self._service = service or EngineService()
+        self._stamp = stamp or KillStamp()
         self._clock = clock
         self._lock = threading.Lock()
         self._rounds = 0
@@ -145,14 +153,16 @@ class EngineRestart:
         if spared:
             journal().emit("torrserver", "spared", why=spared)
             return "rest" if hung else "no"
-        self._killed = self._clock.monotonic()
+        self._killed = self._clock.wall()
+        self._stamp.mark(self._killed)
         if not told:
             self.tell()
         return "again" if self._service.restart() and self._waited(probes, UP) else "no"
 
     def _spared(self, probes: _Probes, hung: bool) -> str:
         """Почему службу убивать нельзя; пусто - можно."""
-        if self._killed is not None and self._clock.monotonic() - self._killed < PAUSE:
+        killed = max((t for t in (self._killed, self._stamp.at()) if t is not None), default=None)
+        if killed is not None and 0 <= self._clock.wall() - killed < PAUSE:
             return "pause"
         if hung and probes.alive():
             reading = probes.reading()

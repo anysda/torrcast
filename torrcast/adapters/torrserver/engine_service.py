@@ -18,10 +18,6 @@ from torrcast.adapters.systemd._systemd_call import SystemdCall, _systemd
 UNIT: Final = "torrserver.service"
 LABEL: Final = "org.torrcast.torrserver"
 
-#: Состояния юнита, в которые его привёл человек или установщик (``systemctl stop`` или
-#: ``restart``): такую службу продукт сам не поднимает, даже если она ему нужна.
-STOPPED: Final = frozenset({"inactive", "deactivating"})
-
 
 class EngineService:
     """Юнит или задание движка раздач; ``call`` меняет только стенд."""
@@ -77,4 +73,4 @@ class EngineService:
         return f"{_domain()}/{LABEL}"
 
 
-__all__ = ["STOPPED", "EngineService"]
+__all__ = ["EngineService"]
