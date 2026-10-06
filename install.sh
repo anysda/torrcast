@@ -793,13 +793,31 @@ stop_late_jobs() {
         done <"$LATE_PIDS"
         rm -f "$LATE_PIDS"
     fi
+    local old=() _
     for pid in $(orphan_late_jobs); do
+        case " ${pids[*]} " in *" $pid "*) continue ;; esac
+        old+=("$pid")
         while read -r one; do pids+=("$one"); done < <(late_tree "$pid")
     done
     [ "${#pids[@]}" -gt 0 ] || return 0
     kill -TERM "${pids[@]}" 2>/dev/null || true
     info "stopped the previous install's background work: this install starts it over" \
         "остановил фоновую работу прежней установки: эта начнёт её заново"
+    [ "${#old[@]}" -gt 0 ] || return 0
+    # Прежняя версия на TERM пишет в журнал «готово»: дожидаемся её и говорим последними.
+    for _ in $(seq 50); do
+        one=""
+        for pid in "${old[@]}"; do kill -0 "$pid" 2>/dev/null && one=1; done
+        [ -n "$one" ] || break
+        sleep 0.1
+    done
+    if [ "$LANGUAGE" = ru ]; then
+        printf '%s | остановлено, его заново начал новый ./install.sh: догрев прежней установки\n' \
+            "$(date '+%F %T')" >>"$LATE_LOG"
+    else
+        printf '%s | stopped, a newer ./install.sh started it over: the previous install'"'"'s background work\n' \
+            "$(date '+%F %T')" >>"$LATE_LOG"
+    fi
 }
 
 # Маска процесса для pgrep -f/pkill -f. Голая строка запуска шаблоном не годится: она

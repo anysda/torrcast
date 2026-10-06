@@ -96,7 +96,11 @@ def test_the_rerun_stops_old_work_before_anything_else() -> None:
 
 def _install_sh(where: Path) -> Path:
     where.mkdir()
-    (where / "install.sh").write_text('echo "$$" > pid; sleep 300\n', encoding="utf-8")
+    # Like the late_run of a release before late.pids: on TERM its EXIT trap logs "done".
+    script = (
+        'trap \'sleep 0.5; echo "x | done: old" >> ../late.log\' EXIT\necho "$$" > pid\nsleep 300\n'
+    )
+    (where / "install.sh").write_text(script, encoding="utf-8")
     return where
 
 
@@ -132,6 +136,12 @@ def test_an_upgrade_stops_the_retries_of_an_install_that_kept_no_pid_list(
             time.sleep(0.1)
         assert not _alive(pids[ours])
         assert _alive(pids[theirs]) and _alive(pids[front])
+        log = (tmp_path / "late.log").read_text(encoding="utf-8").splitlines()
+        assert log[0] == "x | done: old"
+        assert log[1:] == [
+            log[-1].split(" | ")[0] + " | stopped, a newer ./install.sh started it over:"
+            " the previous install's background work"
+        ]
     finally:
         for pid in pids.values():
             subprocess.run(["pkill", "-P", str(pid)], capture_output=True)
