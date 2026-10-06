@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from torrcast.domain.position import Position
+from torrcast.domain.seek_place import seek_place
 from torrcast.ports.receiver import Receiver
 
 
@@ -38,7 +39,7 @@ def tv_steer(receiver: Receiver, heard: Position | None, command: str, arg: floa
         return False
     if command == "seekby":
         spot = heard if heard is not None else receiver.position()
-        receiver.seek(max(0.0, spot.pos + arg))
+        receiver.seek(seek_place(spot.pos, arg, spot.dur))
     elif receiver.position().playing:
         receiver.pause()
     else:

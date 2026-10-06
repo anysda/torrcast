@@ -39,26 +39,36 @@ def say(command: str, path: Path | None = None) -> None:
     три нажатия подряд перезаписывали друг друга - 3x60 давали +60, в журнале юнита одна
     строка (TC-1169, живой приёмник 06-10-2026). Несъеденное слово забирается
     переименованием, как у читателя: съел он его раньше - сдвиг уже исполнен.
+
+    Складываются только сдвиги одного знака. Смена знака ложится следующим сдвигом той же
+    строки (``seekby -240 60``): показ режет их по одному (:func:`torrcast.domain.seek_place.
+    seek_place`), как и ползунок карточки, а сумма -180 от 100 ставила показ на 0 при 60
+    на карточке.
     """
     target = _ctl_path() if path is None else path
     word, _, by = command.partition(" ")
     if word == SEEKBY:
-        command = f"{SEEKBY} {float(by) + _pending_seekby(target):g}"
+        steps = _pending_seekby(target)
+        if steps and (steps[-1] < 0.0) == (float(by) < 0.0):
+            steps[-1] += float(by)
+        else:
+            steps.append(float(by))
+        command = " ".join([SEEKBY, *(f"{step:g}" for step in steps)])
     temporary = target.with_suffix(target.suffix + ".tmp")
     temporary.write_text(command, encoding="utf-8")
     temporary.replace(target)
 
 
-def _pending_seekby(target: Path) -> float:
-    """Сдвиг несъеденной перемотки, забранный из файла; другое слово не трогается."""
+def _pending_seekby(target: Path) -> list[float]:
+    """Сдвиги несъеденной перемотки, забранные из файла; другое слово не трогается."""
     try:
         word, _, by = target.read_text(encoding="utf-8").strip().partition(" ")
         if word != SEEKBY:
-            return 0.0
+            return []
         mine = target.with_suffix(target.suffix + ".merge")
         os.replace(target, mine)
         word, _, by = mine.read_text(encoding="utf-8").strip().partition(" ")
         mine.unlink(missing_ok=True)
-        return float(by) if word == SEEKBY else 0.0
+        return [float(step) for step in by.split()] if word == SEEKBY else []
     except (OSError, ValueError):
-        return 0.0
+        return []

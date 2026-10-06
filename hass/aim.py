@@ -17,6 +17,7 @@ from dataclasses import replace
 
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
+from torrcast.domain.seek_place import seek_place
 from torrcast.usecases.watch import WATCH_SECONDS
 
 #: Сколько защёлка места держится против записи показа, секунды.
@@ -50,7 +51,7 @@ class Aim:
     def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
         #: Где стояла закладка на последнем опросе: от неё Home Assistant и считал сдвиг.
-        self._seen: tuple[str, float] = ("", 0.0)
+        self._seen: tuple[str, float, float] = ("", 0.0, 0.0)
         self._key = ""
         self._from = 0.0
         self._to = 0.0
@@ -66,15 +67,15 @@ class Aim:
         Цель собирается обратно из сдвига, а не выдумывается: Home Assistant считает
         ``seekby`` от той же позиции снимка, которую он в этот миг рисует на карточке
         (``async_media_seek``), и ``позиция + сдвиг`` - ровно та точка, куда человек
-        отпустил ползунок. Отрицательный ноль оси тут невозможен: показ до начала
-        картины не мотают.
+        отпустил ползунок. Режется она так же, как её режет показ (:func:`torrcast.domain.
+        seek_place.seek_place`): по нажатию, с обеих сторон картины.
         """
-        key, truth = self._seen
+        key, truth, duration = self._seen
         # Нажатие поверх неприземлившейся перемотки считается от её цели, как и сдвиг у
         # Home Assistant: 3x60 подряд - это +180, а не +60 от прежней правды (TC-1169).
         held = self._held(key)
         self._key, self._from = key, truth
-        self._to = max(0.0, (truth if held is None else held) + offset)
+        self._to = seek_place(truth if held is None else held, offset, duration)
         self._at = self._clock()
         self._n += 1
 
@@ -102,7 +103,7 @@ class Aim:
         """Снимок для карточки: место защёлки, пока перемотка не доехала до записи."""
         if shown is None:
             return None
-        self._seen = (shown.key, shown.position)
+        self._seen = (shown.key, shown.position, shown.duration)
         self._paused = shown.paused == "PAUSED"
         place = self._place(shown)
         return shown if place is None else replace(shown, position=place)

@@ -6,6 +6,7 @@ import contextlib
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.seek_place import seek_place
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.choice.configure import _environment_port
 
@@ -84,7 +85,13 @@ def _ctl(receiver: Receiver) -> None:
         if word == "seek":
             receiver.seek(float(rest))
         elif word == "seekby":
-            receiver.seek(max(0.0, receiver.position().pos + float(rest)))
+            spot = receiver.position()
+            place = spot.pos
+            # Нажатия подряд мост кладёт по одному (:func:`hass.say.say`), и режутся они
+            # по одному: ползунок карточки считает так же (:mod:`hass.aim`).
+            for by in rest.split():
+                place = seek_place(place, float(by), spot.dur)
+            receiver.seek(place)
         elif word == "pause":
             receiver.pause()
         elif word == "play":

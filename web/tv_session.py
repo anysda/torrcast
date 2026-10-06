@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.seek_place import seek_place
 from torrcast.domain.segment_container import SegmentContainer
 from torrcast.ports.receiver import Receiver
 from web.live_receiver import POLL_SECONDS, live_receiver
@@ -107,7 +108,6 @@ class TvSession:
         Секунда - ПОСЛЕДНИЙ УСЛЫШАННЫЙ опрос, а не свежее чтение: чтение на излёте
         отдало место ДЕСЯТИСЕКУНДНОЙ давности (живой приёмник 10-09-2026: показ на
         ~14-й секунде, ``position()`` в ``stop`` ответил 4.8, «На комп» отматывал назад).
-
         ``_heard`` читается ПОД замком, как и пишется: иначе чтение ловило недописанный
         доклад (флап `test_stop_answers_with_the_last_polled_position_not_a_stale_reread`).
         """
@@ -132,7 +132,7 @@ class TvSession:
             if not tv_steer(receiver, base, command, arg):
                 return False
             if seek and base is not None:  # доклад у цели `_backwards` не глотает
-                self._heard, self._aim = None, (base.pos, max(0.0, base.pos + arg))
+                self._heard, self._aim = None, (base.pos, seek_place(base.pos, arg, base.dur))
         return True
 
     def _release(self) -> None:
