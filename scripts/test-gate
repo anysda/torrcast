@@ -253,6 +253,17 @@ def wanted(wiring: str) -> dict[tuple[str, str], str]:
     known = imports(mod)
     out: dict[tuple[str, str], str] = {}
     for node in ast.walk(mod):
+        # Слот, поставленный прямо в проводке (`ENGINE.tell = START.restarted`), а не
+        # через настройщик: мимо него сверка шла бы вслепую.
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Attribute)
+            and isinstance(node.targets[0].value, ast.Name)
+            and known.get(node.targets[0].value.id, ("",))[0].startswith("torrcast.")
+        ):
+            target = node.targets[0]
+            out[(known[target.value.id][0], target.attr)] = expected(node.value)
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
             continue
         here = known.get(node.func.id)

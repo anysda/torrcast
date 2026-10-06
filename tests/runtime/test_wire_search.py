@@ -21,6 +21,7 @@ from torrcast.adapters.stream_pack.warm_file import warm_file
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
 from torrcast.adapters.torrserver.contact_wait import ContactWait
+from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.wire_search import wire_search
@@ -30,6 +31,7 @@ from torrcast.usecases.rank.hevc_hope import hevc_hope
 from torrcast.usecases.rank.is_candidate import is_candidate
 from torrcast.usecases.rank.is_dated import is_dated
 from torrcast.usecases.reinforce._timed import _timed
+from torrcast.usecases.start_progress import START
 
 
 def test_the_search_gets_the_real_catalogue_and_the_real_release_service() -> None:
@@ -65,6 +67,7 @@ def test_the_search_gets_the_real_catalogue_and_the_real_release_service() -> No
     assert _cache_reserve._reserve_engines is TorrServer
     assert torrents._cleanup_engines is TorrServer
     assert _episode_duration._episode_prober is probe
+    assert ENGINE.tell == START.restarted
 
     # Стенд отбора и сам отбор.
     assert _bench_state._bench_prober is probe
