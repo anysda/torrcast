@@ -86,3 +86,16 @@ def test_after_the_window_a_press_counts_from_the_truth_again() -> None:
     aim.at(60.0)
 
     assert aim.sought(_shown(1000.0)) == {"n": 2, "to": 1060.0}
+
+
+def test_the_latch_clock_does_not_run_past_the_end_of_the_film() -> None:
+    """Стенд 06-10-2026: «+600» у конца встал на 10143.9 из 10143.9, а часы защёлки
+    повели карточку дальше - 10144.8, 10145.7 при длительности 10143.9."""
+    clock = _Clock()
+    aim = Aim(clock=clock)
+
+    _place(aim, _shown(3598.0))
+    aim.at(600.0)
+    clock.now = 4.0
+
+    assert _place(aim, _shown(3598.0)) == 3600.0, "часы защёлки ушли за конец фильма"

@@ -124,6 +124,8 @@ class Aim:
         # значило бы отбросить ползунок назад на весь промежуток между ними - фронт
         # доводит его сам от метки снимка, и метка эта у каждого ответа своя.
         place = self._to + (0.0 if shown.paused == "PAUSED" else gone)
+        if shown.duration > 0.0:  # за конец часы не идут: «+600» у конца рисовал 10145.7
+            place = min(place, shown.duration)
         if gone >= LANDED_SECONDS or self._landed(shown.position, place):
             self._at = -1.0
             return None
