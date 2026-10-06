@@ -19,7 +19,11 @@ from web.tv_session import SESSION
 
 
 def _state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tv: Position, box_key: str = "k1"
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tv: Position,
+    box_key: str = "k1",
+    wait: float = 2.0,
 ) -> dict[str, JsonValue]:
     """Снимок моста, пока каст «На ТВ» показа ``k1`` слышит ТВ на ``tv``, а закладка - 15.7."""
     monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
@@ -36,7 +40,7 @@ def _state(
     bridge = _bridge(session)
     try:
         began = time.monotonic()
-        while SESSION.heard("k1") is None and time.monotonic() - began < 2.0:
+        while SESSION.heard("k1") is None and time.monotonic() - began < wait:
             time.sleep(0.01)
         return bridge.state()
     finally:
@@ -73,3 +77,16 @@ def test_a_cast_of_another_tab_show_does_not_speak_for_this_one(
     body = _state(tmp_path, monkeypatch, Position(126.6, 7200.0, True, "BUFFERING"), "k2")
 
     assert (body["state"], body["position"]) == ("playing", 15.7)
+
+
+@pytest.mark.machine
+def test_a_cast_seeked_and_not_heard_yet_is_not_drawn_as_a_running_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Стенд 06-10-2026: -240 со 129.6, мост отдал закладку «playing 0.0», пока ТВ искал
+    место, а опрос HA засчитал весь буфер за ход - карточка обогнала ТВ на 4.2 с."""
+    monkeypatch.setattr(SESSION, "heard", lambda key: None)  # перемотка обнулила доклад
+
+    body = _state(tmp_path, monkeypatch, Position(0.0, 7200.0, True, "BUFFERING"), wait=0.0)
+
+    assert (body["state"], body["position"]) == ("starting", 15.7)

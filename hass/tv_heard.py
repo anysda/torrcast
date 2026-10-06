@@ -11,6 +11,11 @@
 раз в две секунды. Пока каст про ЭТОТ показ, место - её последний доклад, а буфер ТВ
 называется :data:`STALLED`: наружу это ``starting`` (Home Assistant рисует его
 ``BUFFERING`` и часы не крутит), но поля картины при нём остаются.
+
+Так же называется и каст, перемотанный и ещё не услышанный: сессия забывает доклад на
+перемотке, и закладка под словом ``playing`` давала опросу HA ложную игру. Стенд
+06-10-2026, -240 со 129.6: опрос взял «playing 0.0» в миг перемотки, следующий - игру на
+0.2 через 5.8 с, и весь буфер ушёл в ход - карточка обогнала ТВ на 4.2 с до конца прогона.
 """
 
 from __future__ import annotations
@@ -38,8 +43,10 @@ def tv_heard(
     if shown is None or word not in (PLAYING, PAUSED):
         return shown, word
     key = str(read_web_box(hls_root(hls_dir)).get("key", ""))
-    heard = SESSION.heard(key) if key else None
-    if heard is None:
-        return shown, word  # каста нет, он чужой или только что перемотан и ещё не слышан
+    if not key or not SESSION.owns(key):
+        return shown, word  # каста нет или он чужой
+    heard = SESSION.heard(key)
+    if heard is None:  # перемотан и ещё не слышан: ТВ идёт к новому месту, а не играет
+        return shown, STALLED if word == PLAYING else word
     shown = replace(shown, position=heard.pos)
     return shown, STALLED if word == PLAYING and heard.state == "BUFFERING" else word
