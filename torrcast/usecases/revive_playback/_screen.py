@@ -175,26 +175,26 @@ def _report(
 
 
 def _note_watch(
-    watch: Watch, warmer: Warmer | None, held: float, revival: _Revival, paused: bool
+    watch: Watch,
+    warmer: Warmer | None,
+    held: float,
+    revival: _Revival,
+    paused: bool,
+    buffering: bool = False,
 ) -> None:
-    """Наружу, через состояние: прогрев, показанный кадр, правда о тёмном экране и паузе."""
-    # Прогрев виден снаружи только через состояние: живой показ из другого
-    # процесса не спросишь (:attr:`torrcast.domain.entry.Entry.warm`).
+    """Наружу, через состояние: прогрев, показанный кадр, тёмный экран, пауза и буфер ТВ."""
+    # Прогрев виден снаружи только через состояние (:attr:`torrcast.domain.entry.Entry.warm`).
     if warmer is not None:
         watch.entry.warm = warmer.warmed
-    # В закладку уходит показанный кадр, а не указатель приёмника: пока экран
-    # стоит, сторож подвиса гонит указатель вперёд, и resume ушёл бы туда,
-    # где человек не был (см. ``held``).
+    # В закладку уходит показанный кадр, а не указатель приёмника (``held``, :func:`_landing`).
     watch.see(held)
-    # Тем же каналом наружу уходит и правда о чёрном экране: живой юнит показа не
-    # доказывает (:attr:`torrcast.domain.entry.Entry.dark`). Пишется она не по тику
+    # Правда о чёрном экране (:attr:`torrcast.domain.entry.Entry.dark`) пишется не по тику
     # сторожа, а сразу на переходе - врать «играю» лишние десять секунд не за что.
     if (watch.entry.dark, watch.entry.dark_why) != (revival.began, revival.why):
         watch.entry.dark, watch.entry.dark_why = revival.began, revival.why
         watch.flush()
-    # И правда о паузе - тем же каналом и той же ценой: слово ``PAUSED`` приёмник
-    # называет только владеющему сендеру, и снаружи его видит лишь эта запись.
-    word = "PAUSED" if paused else "PLAYING"
+    # Пауза и буфер ТВ - тем же каналом: слова приёмника снаружи видны лишь через запись.
+    word = "PAUSED" if paused else "BUFFERING" if buffering else "PLAYING"
     if watch.entry.paused != word:
         watch.entry.paused = word
         watch.flush()

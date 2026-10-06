@@ -23,6 +23,7 @@ from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._closed import _closed
 from torrcast.usecases.revive_playback._endure import _endure
+from torrcast.usecases.revive_playback._landing import _landing
 from torrcast.usecases.revive_playback._paused import _pause
 from torrcast.usecases.revive_playback._poll_step import _poll_step
 from torrcast.usecases.revive_playback._revival import _Revival
@@ -137,8 +138,9 @@ def _hold(
         alive = position.state == "PAUSED"
         paused = alive or (bool(screen.paused) and not position.playing)
         source_wait.check(feed, feed_at, paused or not position.playing, clock.monotonic())
+        place = _landing(screen, position)
         if watch is not None:
-            _note_watch(watch, warmer, screen.held, revival, paused)
+            _note_watch(watch, warmer, place, revival, paused, screen.buffering)
         # 🔴 Страховка перехода. Конец потока приёмник называет не всегда: залипший на
         # последнем куске рапортует BUFFERING и живым себя считать не перестаёт, а сторож
         # подвиса на нём молчит по своему же правилу - впереди честно пусто, потому что

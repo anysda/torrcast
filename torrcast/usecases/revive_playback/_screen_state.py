@@ -88,3 +88,7 @@ class _Screen:
     #: (страховка перехода, см. :func:`_hold`). ``-1`` - стоять ещё не начинал.
     tail_at: float = -1.0
     tail_since: float = 0.0
+    #: Указатель приёмника с прошлого опроса и цель перемотки, которую ТВ ищет в буфере;
+    #: ``-1`` - нет (:func:`torrcast.usecases.revive_playback._landing._landing`).
+    tv_was: float = -1.0
+    aim: float = -1.0
