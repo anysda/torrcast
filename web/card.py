@@ -180,7 +180,7 @@ def _body(
         "rating": rating_score(fact.rating),
         "blurb": fact.about if told else None,
         "poster": poster,
-        "voices": card_voices(heard),
+        "voices": card_voices(heard, entry),
         "voices_pending": hearing,
         "resumable": entry.resumable if entry else False,
         "label": entry.label if entry else "",

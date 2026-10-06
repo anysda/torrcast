@@ -6,6 +6,7 @@ import pytest
 
 from tests.usecases.rank.releases import media, track
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from web.card_voices import card_voices
 from web.heard import Heard
@@ -106,3 +107,48 @@ def test_two_unnamed_native_tracks_stay_numbered() -> None:
     )
 
     assert _field(card_voices(heard), "label") == ["track 1", "track 2"]
+
+
+_HASH = "a" * 40
+
+
+def _bookmark(audio: int, magnet_hash: str = _HASH) -> Entry:
+    """Начатый фильм на русской озвучке: его продолжит «Играть» своей записью."""
+    magnet = "magnet:?xt=urn:btih:" + magnet_hash
+    return Entry(title="Интерстеллар", magnet=magnet, dur=10143.9, pos=86.4, audio=audio)
+
+
+def _interstellar() -> Heard:
+    tracks = (track(0, "rus", "DUB"), track(1, "rus", "MVO"), track(2, "eng", "Original"))
+    return Heard(media(tracks=tracks), native=False, studios=(), release=_HASH)
+
+
+def test_the_bookmark_track_is_marked_not_the_default_one() -> None:
+    """Живой дефект: закладка на русской озвучке, а подсвечен английский оригинал."""
+    heard = _interstellar()
+    english = heard.default
+
+    rows = card_voices(heard, _bookmark(audio=1))
+
+    assert english != 1
+    assert _field(rows, "default") == [False, True, False]
+
+
+def test_a_bookmark_of_another_release_does_not_move_the_mark() -> None:
+    """Номер дорожки чужой раздачи к этой не относится: отметка остаётся на умолчании."""
+    heard = _interstellar()
+    expected = [index == heard.default for index in range(3)]
+
+    rows = card_voices(heard, _bookmark(audio=1, magnet_hash="b" * 40))
+
+    assert _field(rows, "default") == expected
+
+
+def test_a_bookmark_track_out_of_range_falls_back_to_the_default() -> None:
+    """Запись с номером, которого в паспорте нет, отметку не теряет."""
+    heard = _interstellar()
+    expected = [index == heard.default for index in range(3)]
+
+    rows = card_voices(heard, _bookmark(audio=7))
+
+    assert _field(rows, "default") == expected

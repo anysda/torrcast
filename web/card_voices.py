@@ -5,16 +5,18 @@ from __future__ import annotations
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.catalogs.rank.en import en as rank_en
 from torrcast.domain.catalogs.select.en import en as select_en
+from torrcast.domain.entry import Entry
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.studio import Studio
 from torrcast.domain.track_studio import track_studio
 from torrcast.domain.unnamed_track_origin import UNNAMED_TRACK_KEYS, unnamed_track_origin
 from torrcast.usecases.rank.spoken_key import ORIGINAL_KEY, spoken_key
+from web.bookmark import bookmark
 from web.heard import Heard
 
 
-def card_voices(heard: Heard | None) -> list[JsonValue]:
-    """Строка на дорожку: подпись человеку, имя для ``voice`` и отметка дефолта.
+def card_voices(heard: Heard | None, live: Entry | None = None) -> list[JsonValue]:
+    """Строка на дорожку: подпись человеку, имя для ``voice`` и отметка той, что прозвучит.
 
     ``name`` - то, что ``--voice`` найдёт и в соседней раздаче (:func:`torrcast.usecases.
     rank.pick_voice.pick_voice`): показ отбирает раздачу заново, и она бывает другой.
@@ -23,7 +25,7 @@ def card_voices(heard: Heard | None) -> list[JsonValue]:
         return []
     media = heard.media
     catalog = {**rank_en(), **select_en()}
-    default = heard.default
+    default = _played(heard, live)
     studios = [track_studio(media, t.index, heard.studios) for t in media.tracks]
     names = [studio.name.casefold() for studio in studios if studio is not None]
     codes = [_code(track) for track in media.tracks]
@@ -42,6 +44,19 @@ def card_voices(heard: Heard | None) -> list[JsonValue]:
             }
         )
     return rows
+
+
+def _played(heard: Heard, live: Entry | None) -> int:
+    """Дорожка, которую сыграет «Играть»: у закладки этой раздачи - её, иначе умолчание.
+
+    Закладка продолжается своей записью без похода в отбор (:func:`torrcast.usecases.
+    select._voiced._voiced`): играет ``audio`` записи, а не :attr:`Heard.default`. Отметка
+    умолчания на её месте подсвечивала английский оригинал, пока звучала русская озвучка.
+    """
+    mark, _label = bookmark(live)
+    if live is None or not mark or mark != heard.release:
+        return heard.default
+    return live.audio if 0 <= live.audio < len(heard.media.tracks) else heard.default
 
 
 def _name(
