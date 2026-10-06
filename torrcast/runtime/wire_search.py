@@ -12,6 +12,7 @@ from torrcast.adapters.stream_pack.warm_file import warm_file
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
 from torrcast.adapters.torrserver.contact_wait import ContactWait
+from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.usecases.cache_reserve import _configure_cache_reserve
@@ -28,6 +29,7 @@ from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce.configure import configure as configure_reinforce
 from torrcast.usecases.select._pick_state import _configure_select
 from torrcast.usecases.select_bench._bench_state import _configure_select_bench
+from torrcast.usecases.start_progress import START
 from torrcast.usecases.torrents import _configure_torrents
 
 
@@ -51,6 +53,8 @@ def wire_search() -> None:
     # сценарии из строки, и слой показа снова ходил бы в сеть напрямую.
     _configure_cache_reserve(TorrServer)
     _configure_torrents(TorrServer)
+    # Служба раздач, поднимаемая заново (TC-1199), говорит это экрану ожидания вкладки.
+    ENGINE.tell = START.restarting
     _configure_episode_duration(probe)
     # Стенд отбора греет раздачи параллельно: чтение паспорта, прогрев файла, признак
     # жизни роя и отсрочка первого контакта - четыре разных внешних мира, и все четыре

@@ -10,6 +10,7 @@ from torrcast.adapters.torrserver.cache_readers import cache_readers
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.describer import DESCRIBER
 from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
+from torrcast.adapters.torrserver.engine_restart import ADD_TIMEOUT, ENGINE
 from torrcast.adapters.torrserver.file_stats import file_stats
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
@@ -21,9 +22,8 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.why import why
 from torrcast.ports.clock import Clock
 
-# Договор отсрочки берётся портом, а не своим классом: службе раздач она приходит от
-# сценария, и знать здесь надо ровно то, что обещано порту. Часы же ведёт наша ContactWait
-# выше по импорту, и по ней же отличается «отсрочка с часами» от голого числа секунд.
+# Договор отсрочки - порт: она приходит от сценария, и знать надо обещанное порту. Часы
+# ведёт наша ContactWait выше, по ней же «отсрочка с часами» отличается от числа секунд.
 from torrcast.ports.contact_wait import ContactWait as ContactWaitPort
 
 if TYPE_CHECKING:
@@ -134,8 +134,7 @@ class TorrServer:
     def alive(self) -> bool:
         import requests
 
-        if self._session is None:
-            self._session = requests.Session()
+        self._session = self._session or requests.Session()
         try:
             with self._session.get(f"{self.base_url}/echo", timeout=PROBE_TIMEOUT) as response:
                 response.raise_for_status()
@@ -179,19 +178,20 @@ class TorrServer:
         return True
 
     def _post(self, path: str, body: dict[str, Any], json_body: bool = True) -> Any:
+        return ENGINE.answered(self.base_url, self.alive, lambda: self._ask(path, body, json_body))
+
+    def _ask(self, path: str, body: dict[str, Any], json_body: bool) -> Any:
         import requests
 
-        if self._session is None:
-            self._session = requests.Session()
+        self._session = self._session or requests.Session()
+        timeout = min(self.timeout, ADD_TIMEOUT) if body.get("action") == "add" else self.timeout
         try:
-            with self._session.post(
-                f"{self.base_url}{path}", json=body, timeout=self.timeout
-            ) as response:
-                response.raise_for_status()
+            with self._session.post(f"{self.base_url}{path}", json=body, timeout=timeout) as answer:
+                answer.raise_for_status()
                 if not json_body:
                     return None
                 try:
-                    return response.json()
+                    return answer.json()
                 except ValueError as exc:
                     raise ServerDownError(phrase("torrserver.not_json")) from exc
         except requests.RequestException as exc:

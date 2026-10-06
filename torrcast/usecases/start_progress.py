@@ -48,6 +48,7 @@ class StartProgress:
         self._source: tuple[int, int] = (0, 0)
         self._here = False
         self._packed = False
+        self._restarting = False
         self._measured: list[float] = []
 
     def began(self, here: bool = False) -> None:
@@ -68,6 +69,11 @@ class StartProgress:
         """Какой источник очереди сейчас спрашивают и сколько их всего."""
         with self._lock:
             self._source = (number, total)
+
+    def restarting(self, on: bool) -> None:
+        """Служба раздач поднимается заново (TC-1199): ждём не рой, а её саму."""
+        with self._lock:
+            self._restarting = on
 
     def landed(self) -> None:
         """Картинка дошла до экрана: подъём замерен, ожидание кончилось.
@@ -104,6 +110,7 @@ class StartProgress:
             number, total = self._source
             here = self._here
             packed = self._packed
+            restarting = self._restarting
             known = len(self._measured) >= ENOUGH
             left = (median(self._measured) - waited) if known else 0.0
         return {
@@ -113,6 +120,7 @@ class StartProgress:
             "sources": total or None,
             "here": here,
             "packed": packed,
+            "restarting": restarting,
         }
 
 

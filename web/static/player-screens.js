@@ -111,9 +111,11 @@ const TCPlayerScreens = {
     const left = (start && start.left) || 0;
     const waited = (start && start.waited) || 0;
     when.textContent = left > 0 ? TC.say('web.player.preparing_in', { seconds: left }) : '';
-    note.textContent = start && start.source
-      ? TC.say('web.player.packaging', { n: start.source, m: start.sources || start.source })
-      : '';
+    // Служба раздач поднимается заново (TC-1199): ждём её, а не источник, и говорим это.
+    note.textContent = start && start.restarting ? TC.say('web.player.restarting')
+      : start && start.source
+        ? TC.say('web.player.packaging', { n: start.source, m: start.sources || start.source })
+        : '';
     const whole = left > 0 ? waited + left : 0;
     bar.classList.toggle('is-indeterminate', whole <= 0);
     bar.firstElementChild.style.width = whole > 0
