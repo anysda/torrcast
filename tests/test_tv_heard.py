@@ -62,7 +62,8 @@ def test_a_playing_tv_gives_its_own_place_not_the_ten_second_bookmark(
 ) -> None:
     body = _state(tmp_path, monkeypatch, Position(126.6, 7200.0, True, "PLAYING"))
 
-    assert (body["state"], body["position"]) == ("playing", 126.6)
+    assert body["state"] == "playing"
+    assert body["position"] == pytest.approx(126.6, abs=0.5), "место ТВ подменено закладкой"
 
 
 @pytest.mark.machine

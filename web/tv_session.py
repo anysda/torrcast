@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -18,8 +19,10 @@ from torrcast.domain.seek_place import seek_place
 from torrcast.domain.segment_container import SegmentContainer
 from torrcast.ports.receiver import Receiver
 from web.live_receiver import POLL_SECONDS, live_receiver
+from web.tv_fresh import tv_fresh
 from web.tv_load import tv_load
 from web.tv_settled import RECHECK_SECONDS, tv_settled
+from web.tv_since import tv_since
 from web.tv_stale import tv_stale
 from web.tv_steer import tv_steer
 
@@ -38,6 +41,8 @@ class TvSession:
     poll_seconds: float = POLL_SECONDS
     _receiver: Receiver | None = field(default=None, init=False, repr=False)
     _heard: Position | None = field(default=None, init=False, repr=False)
+    _since: float | None = field(default=None, init=False, repr=False)  # :func:`tv_since`
+    _asked: float = field(default=0.0, init=False, repr=False)  # миг прошлой просьбы статуса
     _aim: tuple[float, float] | None = field(default=None, init=False, repr=False)
     _doubt: Position | None = field(default=None, init=False, repr=False)
     _alive: Callable[[], bool] | None = field(default=None, init=False, repr=False)
@@ -54,18 +59,16 @@ class TvSession:
         return self._receiver is not None and self.key == key
 
     def heard(self, key: str) -> Position | None:
-        """Последний доклад ТВ про ЭТОТ показ (:meth:`_pump`); каста нет или он чужой - ``None``."""
-        return self._heard if self.owns(key) else None
+        """Последний доклад ТВ про ЭТОТ показ на сейчас (:func:`tv_fresh`); не его - ``None``."""
+        spot = self._heard if self.owns(key) else None
+        return None if spot is None else tv_fresh(spot, self._since, time.monotonic())
 
     def settle(self, key: str) -> bool:
         """Идёт ли каст ИМЕННО этого ящика; каст осиротел - снять его и ответить «нет».
 
-        🔴 Каст держится ящиком, а не временем: зритель, ушедший в браузере на ДРУГУЮ
-        картину, оставлял старый каст играть на ТВ навсегда - «На комп» относился к
-        показу, которого уже нет. Вкладке отвечали ``tv: true``, и она КАЖДЫЕ 10 СЕКУНД
-        тянула свою секунду назад, к чужой картине на ТВ (живой приёмник 07-09-2026: за
-        116 с показа 12 откатов на ~5 с, ход 22.8 с вместо 116). Секунду осиротевшего каста
-        никто не спрашивает - связь отпускается тихо, как при повторном «На ТВ».
+        🔴 Каст держится ящиком, а не временем: ушедший в браузере на ДРУГУЮ картину оставлял
+        старый каст играть навсегда, и вкладка каждые 10 с тянула свою секунду к чужой
+        картине (07-09-2026: за 116 с 12 откатов на ~5 с). Связь отпускается тихо.
         """
         if self._receiver is None:
             return False
@@ -89,8 +92,7 @@ class TvSession:
         """Позвать приёмник ТВ тем же LOAD, что и прямой показ на ТВ (:func:`web.tv_load.tv_load`).
 
         ``echo`` слышит каждый опрос приёмника: пока каст идёт, место показа знает ТВ, а
-        не вкладка (ТЗ §7.5.3), и опрос из повода «держать ``current_time`` свежим»
-        становится ещё и единственным источником секунды.
+        не вкладка (ТЗ §7.5.3), и опрос - единственный источник секунды.
 
         ``alive`` спрашивается перед каждым опросом: сказал «нет» - каст снимается (:meth:`_pump`).
         """
@@ -105,11 +107,9 @@ class TvSession:
     def stop(self) -> float:
         """Снять каст и назвать секунду, на которой он стоял; без каста - ноль.
 
-        Секунда - ПОСЛЕДНИЙ УСЛЫШАННЫЙ опрос, а не свежее чтение: чтение на излёте
-        отдало место ДЕСЯТИСЕКУНДНОЙ давности (живой приёмник 10-09-2026: показ на
-        ~14-й секунде, ``position()`` в ``stop`` ответил 4.8, «На комп» отматывал назад).
-        ``_heard`` читается ПОД замком, как и пишется: иначе чтение ловило недописанный
-        доклад (флап `test_stop_answers_with_the_last_polled_position_not_a_stale_reread`).
+        Секунда - ПОСЛЕДНИЙ УСЛЫШАННЫЙ опрос, а не свежее чтение: то на излёте отдало 4.8 при
+        показе на ~14-й секунде (живой приёмник 10-09-2026), «На комп» отматывал назад.
+        ``_heard`` читается ПОД замком, как и пишется: иначе ловился недописанный доклад.
         """
         receiver, self._receiver, self.key = self._receiver, None, ""
         if receiver is None:
@@ -154,8 +154,7 @@ class TvSession:
         poll.start()
 
     def _disarm(self) -> None:
-        """Остановить опрос и дождаться его конца перед тем, как трогать приёмник.
-        Опрос, снимающий каст сам (:meth:`_pump`), себя не ждёт: join самого себя - ошибка."""
+        """Остановить опрос и дождаться его конца; снимающий каст опрос себя не ждёт."""
         if self._stop_poll is not None:
             self._stop_poll.set()
         if self._poll is not None and self._poll is not threading.current_thread():
@@ -182,10 +181,11 @@ class TvSession:
             with self._lock:
                 if self._receiver is not receiver:
                     return
+                asked, self._asked = self._asked, time.monotonic()
                 spot = receiver.position()
                 if self._backwards(spot):
                     continue
-                self._heard = spot
+                self._since, self._heard = tv_since(self._heard, spot, asked), spot
             if echo is not None:
                 echo(spot)
 
