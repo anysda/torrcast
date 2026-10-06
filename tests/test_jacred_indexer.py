@@ -189,6 +189,30 @@ def test_a_viewer_s_text_cut_at_the_limit_waits_its_names_longer() -> None:
 
 
 @pytest.mark.machine
+def test_a_hung_request_of_the_viewer_s_text_is_asked_again(monkeypatch: Any) -> None:
+    """«Король Лев» hung to the cut once, and the next ask answered in half a second."""
+    monkeypatch.setattr(adapter, "ASK_AGAIN", 0.1)
+    free = threading.Event()
+    asked: list[str] = []
+
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
+        asked.append(_asked(query, year))
+        if asked.count(query) == 1:
+            free.wait(5.0)
+            return _rows()
+        return _rows(f"{query}-ru")
+
+    began = time.monotonic()
+    alone = adapter.search("Король Лев", fetch)
+    joined = adapter.search("Матрица | The Matrix 1999", fetch, grace=0.1)
+    took = time.monotonic() - began
+    free.set()
+    assert took < 2.0, "the hung request held the answer"
+    assert [row["title"] for row in alone] == ["Король Лев-ru"]
+    assert "Матрица-ru" in {row["title"] for row in joined}
+
+
+@pytest.mark.machine
 def test_the_names_leave_only_once_the_viewer_s_text_has_answered() -> None:
     """The API slows and refuses texts that come at once: the viewer's goes alone."""
     events: list[str] = []

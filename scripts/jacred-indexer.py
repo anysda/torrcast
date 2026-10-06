@@ -12,7 +12,7 @@ import sys
 import time
 import urllib.parse
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import zip_longest
 from typing import Any
@@ -70,6 +70,11 @@ NAMES_GRACE = 1.0
 #: past the second, and the viewer got the YTS rows of another release with no Russian track.
 #: Four keeps the joined answer inside `TIMEOUT`, which torrcast reads as a cut circle.
 NAMES_DEADLINE = 4.0
+#: Seconds the viewer's text waits before it is asked once more. On the stand (06.10) a text
+#: alone answered in 0.46 s in the median and 0.64 at worst of 69, while one request in about 40
+#: hung to the 5 s cut and the next, a few seconds later, answered in half a second: «Король
+#: Лев» lost every Russian release so. A second ask past 1.5 s still lands inside `TIMEOUT`.
+ASK_AGAIN = 1.5
 
 
 def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list[dict[str, Any]]:
@@ -94,9 +99,9 @@ def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list
     """
     texts = [text.strip() for text in query.split(JOINT) if text.strip()]
     if len(texts) < 2:
-        return _search(query, fetch)
+        return _steady(query, fetch)[0]
     began = time.monotonic()
-    first, full = _answered(texts[0], fetch)
+    first, full = _steady(texts[0], fetch)
     if full:
         grace = max(grace, NAMES_DEADLINE - (time.monotonic() - began))
     forms = [form for text in texts[1:] for form in _forms(text)]
@@ -128,6 +133,19 @@ def _forms(text: str) -> list[tuple[str, int | None]]:
     if named is None:
         return [(text, None)]
     return [(text, None), (named["name"], int(named["year"]))]
+
+
+def _steady(query: str, fetch: Fetch) -> tuple[list[dict[str, Any]], bool]:
+    """The viewer's text, asked once more when its request hangs past `ASK_AGAIN`."""
+    pool = ThreadPoolExecutor(2)
+    asked = [pool.submit(_answered, query, fetch)]
+    if not wait(asked, timeout=ASK_AGAIN).done:
+        asked.append(pool.submit(_answered, query, fetch))
+    pool.shutdown(wait=False)
+    for each in as_completed(asked):  # the first rows, not the hung request's empty end
+        if each.result()[0]:
+            return each.result()
+    return [], False
 
 
 def _search(query: str, fetch: Fetch, year: int | None = None) -> list[dict[str, Any]]:
