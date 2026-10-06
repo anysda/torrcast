@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, outside, parts, plan
+from torrcast.domain.facts.map_picture import MapPicture
 from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.choice.namesake_take import namesake_take
+from torrcast.usecases.discover._search_state import _configure_known
 
 
 def test_the_liveliest_namesake_is_taken() -> None:
@@ -104,3 +106,51 @@ def test_a_dead_namesake_of_the_year_named_leaves_the_liveliest() -> None:
 
     with outside(Outside()):
         assert namesake_take(ghost, "Призрак в доспехах 2026") == 1
+
+
+def _map(*rows: tuple[str, int, str, int], series: bool = False) -> None:
+    """Офлайн-карта IMDb: «прокатное имя, год, оригинал, голоса» на каждую картину."""
+    known = [
+        MapPicture(name, year, series, original, votes) for name, year, original, votes in rows
+    ]
+    _configure_known(lambda title: [row for row in known if row.name == title])
+
+
+def test_a_lively_namesake_of_another_work_does_not_replace_the_known_one() -> None:
+    """«сталкер»: рой триллера 2023 года под тем же именем живее, но работа известна 1979-я."""
+    stalker = parts(("Сталкер", 1979, 177), ("Сталкер", 2023, 1317))
+    _map(("Сталкер", 1979, "Stalker", 158000), ("Сталкер", 2023, "Strange Darling", 72800))
+
+    with outside(Outside()):
+        assert namesake_take(stalker, "сталкер") == 1
+
+
+def test_the_new_work_wins_when_the_map_knows_it_better() -> None:
+    """«блеф»: 2026-я известнее и живее итальянского фильма 1976 года."""
+    bluff = parts(("Блеф", 1976, 51), ("Блеф", 2026, 958))
+    _map(("Блеф", 1976, "Bluff storia di truffe", 5265), ("Блеф", 2026, "The Bluff", 19935))
+
+    with outside(Outside()):
+        assert namesake_take(bluff, "блеф") == 2
+
+
+def test_a_remake_of_the_same_work_is_taken_by_its_swarm() -> None:
+    """«как приручить дракона»: оригинал один, 2010-я известнее, но берут живую 2025-ю."""
+    dragon = parts(("Как приручить дракона", 2010, 352), ("Как приручить дракона", 2025, 2969))
+    _map(
+        ("Как приручить дракона", 2010, "How to Train Your Dragon", 911000),
+        ("Как приручить дракона", 2025, "How to Train Your Dragon", 142000),
+    )
+
+    with outside(Outside()):
+        assert namesake_take(dragon, "как приручить дракона") == 2
+
+
+def test_a_namesake_the_map_does_not_know_gives_way_to_a_proven_one() -> None:
+    """«брат»: свежий рой 2025 года живее, но карта доказывает только 1997-й."""
+    brother = parts(("Брат", 1997, 5), ("Брат", 2025, 7))
+    _map(("Брат", 1997, "Brat", 29560))
+
+    with outside(Outside()):
+        assert namesake_take(brother, "брат") == 1
+        assert namesake_take(brother, "брат 2025") == 2, "год, названный запросом, решает"

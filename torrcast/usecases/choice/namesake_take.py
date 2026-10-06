@@ -10,6 +10,7 @@ from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.asked_kind import asked_kind
 from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.choice.liveliness import liveliness
+from torrcast.usecases.choice.renowned_work import renowned_work
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -36,6 +37,10 @@ def namesake_take(plans: list[Plan], asked: str = "") -> int:
     доспехах 2026» человек берёт из нашего же меню, и фильм 1995 года, оказавшийся в этом
     круге живее, был бы подменой. Живая тёзка названного года берётся первой; мёртвая
     или отсутствующая - самая живая, как прежде.
+
+    Без года живость решает только среди версий одной работы (:func:`renowned_work`):
+    карта IMDb называет самую известную из доказанных работ, и рой чужой работы под тем же
+    русским именем её не подменяет. Карта молчит обо всех - решает живость, как прежде.
     """
     default = first_alive(plans)
     numbers = asked_kind(plans)
@@ -45,4 +50,5 @@ def namesake_take(plans: list[Plan], asked: str = "") -> int:
     pool = [default, *twins]
     named = {id(p) for p in of_asked_year([plans[n - 1].picture for n in pool], asked)}
     pool = alive_numbers(plans, [n for n in pool if id(plans[n - 1].picture) in named]) or pool
+    pool = renowned_work(plans, pool)
     return max(pool, key=lambda n: (liveliness(plans[n - 1]), -n))
