@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -167,15 +168,21 @@ def test_a_cut_sweep_leaves_the_rest_to_the_next_touch(
     Сетевой ``rem`` идёт под замком отметок, и проход до конца держал бы заводящего все
     сносы. Оборванный ряд не считается убранным: остаток доубирает следующее касание.
     """
-    real, tried = base.drop, []
+    real, tried, waiters = base.drop, [], []
 
     def drop(torrent_hash: str) -> bool:
         tried.append(torrent_hash)
         if cut == "refused":
             return False
         waiter = threading.Thread(target=CLAIMS.claimed, args=(torrent_hash,))
+        waiters.append(waiter)
         waiter.start()
-        waiter.join(0.2)  # держатель встал на замке, пока идёт снос
+        # Держатель встал на замке, пока идёт снос: ждать этого, а не доли секунды,
+        # которых под нагрузкой не хватало.
+        deadline = time.monotonic() + 10.0
+        while not CLAIMS.waited():
+            assert time.monotonic() < deadline, "держатель так и не встал на замке"
+            time.sleep(0.001)
         return real(torrent_hash)
 
     monkeypatch.setattr(base, "drop", drop)
@@ -183,6 +190,10 @@ def test_a_cut_sweep_leaves_the_rest_to_the_next_touch(
     sweep(URL, ROW)
     started.pop()()
     assert tried == [_hash(WARM_ROW)], "проход не оборвался на первом сносе"
+    # Держатель дождался замка и ушёл: иначе его очередь обрывала бы и следующий проход.
+    for waiter in waiters:
+        waiter.join(10.0)
+        assert not waiter.is_alive(), "держатель не дождался замка после сноса"
 
     monkeypatch.setattr(base, "drop", real)
     sweep(URL, ROW)
