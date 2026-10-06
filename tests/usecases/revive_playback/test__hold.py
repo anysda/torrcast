@@ -60,6 +60,16 @@ def test_a_show_that_cannot_be_raised_ends_by_itself(tmp_path: Path) -> None:
     assert ended is False, "лестница не поднимала - это обычный конец показа"
 
 
+def test_an_ended_receiver_finishes_the_session_without_a_revival(tmp_path: Path) -> None:
+    """``ENDED`` - штатный конец файла, не темнота, которую надо поднимать обратно."""
+    receiver = FakeReceiver([(7199.0, "ENDED")])
+
+    ended = _hold(cast(Receiver, receiver), feed_with_segments(tmp_path), clock=FakeClock(1000.0))
+
+    assert ended is True
+    assert receiver.replayed == []
+
+
 def test_an_unreported_tab_keeps_packing_at_its_resumed_start(tmp_path: Path) -> None:
     """Нулевой снимок вкладки не сдвигает упаковку с места, куда её завели."""
 

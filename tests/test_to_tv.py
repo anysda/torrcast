@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from torrcast.domain.segment_container import FMP4, MPEGTS
 from torrcast.ports.receiver import Receiver
 from web.request import Request
 from web.to_tv import _echo, to_tv
+from web.tv_poll import TvPoll
 from web.tv_session import SESSION, TvSession
 
 
@@ -189,15 +191,18 @@ def test_the_tv_position_becomes_the_one_the_product_remembers(
     monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
     _wired(monkeypatch)
     caught: list[Callable[[Position], None] | None] = []
-    armed = TvSession._arm
 
-    def arming(
-        session: TvSession, receiver: Receiver, echo: Callable[[Position], None] | None = None
+    def pumping(
+        session: TvSession,
+        receiver: Receiver,
+        stop_poll: threading.Event,
+        echo: Callable[[Position], None] | None = None,
     ) -> None:
         caught.append(echo)
-        armed(session, receiver, echo)
 
-    monkeypatch.setattr(TvSession, "_arm", arming)
+    # Опрос зовётся сразу, а не в нити: слушатель пойман к концу ``to_tv``, без гонки.
+    monkeypatch.setattr(TvPoll, "arm", lambda poll, pump: pump(threading.Event()))
+    monkeypatch.setattr(TvSession, "_pump", pumping)
     write_web_box(tmp_path, url="http://x/out.m3u8", title="Interstellar", at=12.0, key="k1")
 
     assert to_tv(_post()).code == 202

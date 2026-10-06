@@ -466,6 +466,55 @@ def test_the_next_episode_tells_a_tab_to_finish_without_using_the_refused_remote
     assert session.stopped == 0, "стрелка не снимает живой показ вкладки"
 
 
+def test_the_next_episode_on_tv_does_not_seek_past_its_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Каст ушёл дальше снимка моста: ТВ перематывает от СВОЕГО места, и цель перехода
+    остаётся у конца файла, а не за ним (остаток по снимку дал бы 1000 + 1199 с)."""
+
+    class _Steered(FakeReceiver):
+        def __init__(self, current: Position) -> None:
+            super().__init__(current)
+            self.seeks: list[float] = []
+
+        def seek(self, pos: float) -> None:
+            self.seeks.append(pos)
+
+        def pause(self) -> None:
+            return None
+
+        def resume(self) -> None:
+            return None
+
+    state_slot.install(FakeStateStore())
+    state = state_slot.store().load()
+    state.entries["tv:чернобыль"] = Entry(
+        title="Чернобыль", magnet="magnet:?xt=1", kind="tv", season=1, episode=3,
+        episodes=[[1, 3, 0, 0], [1, 4, 1, 0]], query="чернобыль",
+    )  # fmt: skip
+    state_slot.store().save(state)
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Чернобыль", at=600.0, key="tab-session")
+    receiver = _Steered(Position(1000.0, 1800.0, playing=True))
+    monkeypatch.setattr(SESSION, "factory", lambda a, p: receiver)
+    monkeypatch.setattr(SESSION, "poll_seconds", 3600.0)
+    monkeypatch.setattr(SESSION, "_receiver", None)
+    SESSION.start("10.0.1.7", "Чернобыль", "http://x/out.m3u8", 600.0, key="tab-session")
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="tv:чернобыль",
+        shown=PlaybackSnapshot(key="tv:чернобыль", title="Чернобыль", position=600, duration=1800),
+    )
+
+    try:
+        _bridge(session, settings=lambda: Config(tv="10.0.1.7")).next()
+    finally:
+        SESSION.stop()
+
+    assert receiver.seeks, "переход на ТВ перематывает к концу"
+    assert all(1000.0 < at <= 1800.0 for at in receiver.seeks), receiver.seeks
+
+
 def test_a_next_call_the_shows_own_watch_already_did_starts_nothing() -> None:
     """Вкладка назвала доигранную серию, а запись уже дальше: переход сделан без нас.
 

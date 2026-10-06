@@ -19,9 +19,9 @@ import secrets
 from collections.abc import Callable
 from typing import Unpack
 
+from hass.finish_next import finish_next
 from hass.hit_posters import hits
 from hass.motion import Motion
-from hass.next_show import next_show
 from hass.next_state import next_state
 from hass.orders import Command, Orders
 from hass.payload import payload
@@ -39,7 +39,6 @@ from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, searching
 from hass.starting import starting
 from hass.stopping import STOP, _abandoned, stopping
 from hass.tab_cast import tab_cast
-from hass.tab_finish import tab_finish
 from hass.tv_heard import tv_heard
 from hass.volume import Volume
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -135,6 +134,8 @@ class Bridge:
 
     def control(self, command: str, arg: float) -> None:
         """``POST /api/control``: пульт идущего показа, а остановка - дверь наружу.
+
+        Остановка ВЫШЕ отказов (:func:`hass.stopping.stopping`), без показа пульту нечего делать.
         🔴 Вкладка пульта не берёт (TC-1210), а её каст «На ТВ» берёт (:mod:`hass.tab_cast`).
         """
         if command == STOP:
@@ -152,19 +153,12 @@ class Bridge:
             say(f"{SEEKBY} {arg:g}" if command == SEEKBY else TOGGLE)
         self._motion.commanded(command, arg)
 
-    def next(self, body: dict[str, JsonValue] | None = None, tab: str = "") -> None:
-        """``POST /api/next`` проходит штатный конец живого показа, не новый запуск."""
-        if next_show(self._session, body or {}, tab) is None:
-            return
-        if (shown := self._session.snapshot(self._session.key())) is None or shown.duration <= 0:
-            raise RefusedError(BUSY)
-        left = max(0.0, shown.duration - shown.position - 1.0)
-        if tab_finish(self._settings(), shown.duration - 1.0):
-            self._motion.commanded(SEEKBY, left)
-        else:
-            self.control(SEEKBY, left)
+    def next(self, body: dict[str, JsonValue] | None = None) -> None:
+        """``POST /api/next``: следующая серия той же раздачи, названная запросом."""
+        finish_next(self._session, body or {}, self._settings, self.control, self._motion)
 
     def _start(self, args: list[str]) -> str:
+        """Отдать команду рабочему потоку; идущий показ новый СНИМАЕТ (ТЗ §7.4)."""
         if not starting(self._orders, self._session, args):
             raise RefusedError(BUSY)
         return secrets.token_hex(4)
@@ -186,6 +180,7 @@ class Bridge:
         self._orders.leave()
 
     def _volume_of(self, config: Config) -> Volume:
+        """Громкость приёмника из настройки прямо сейчас: ``cast --tv`` меняет его на лету."""
         address = config.tv or ""
         if self._volume is not None and self._volume.address != address:
             self._volume.close()

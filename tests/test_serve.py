@@ -35,7 +35,6 @@ class _Bridge:
         self.refuse = ""
         self.pictures: dict[str, tuple[bytes, str]] = {}
         self.asked: list[str] = []
-        self.tabs: list[str] = []
 
     def state(self) -> dict[str, Any]:
         return {"state": "idle", "title": None}
@@ -95,11 +94,10 @@ class _Bridge:
         self.asked.append(name)
         return self.pictures.get(name)
 
-    def next(self, body: dict[str, Any] | None = None, tab: str = "") -> None:
+    def next(self, body: dict[str, Any] | None = None) -> None:
         if self.refuse:
             raise RefusedError(self.refuse)
         self.nexted.append(body)
-        self.tabs.append(tab)
 
 
 @pytest.fixture

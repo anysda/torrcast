@@ -195,3 +195,19 @@ def test_a_report_that_steps_backwards_never_reaches_the_listener() -> None:
     said = [spot.pos for spot in heard]
     assert 3.6 not in said, f"доклад назад дошёл до вкладки: {said}"
     assert said == sorted(said), f"место каста ушло назад: {said}"
+
+
+def test_left_counts_the_rest_of_its_own_show_from_the_tv_place() -> None:
+    """Остаток до секунды перед концом - по месту ТВ; чужой показ и пустой каст - ``None``."""
+    receiver = FakeReceiver(Position(1000.0, 1800.0))
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=3600.0)
+
+    assert session.left("k1", 1800.0) is None
+    session.start("192.0.2.104", "t", "u", 0.0, key="k1")
+    try:
+        assert session.left("k1", 1800.0) == 799.0
+        assert session.left("k2", 1800.0) is None
+        receiver.current = Position(1800.0, 1800.0)
+        assert session.left("k1", 1800.0) == 0.0
+    finally:
+        session.stop()

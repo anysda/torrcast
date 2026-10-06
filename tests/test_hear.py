@@ -6,9 +6,8 @@ import json
 
 import pytest
 
-from hass.next_show import next_show
 from hass.play_argv import play_argv
-from tests.domain.test_tab_key import CHROMIUM_LINUX, IPHONE_SAFARI
+from tests.domain.test_tab_key import CHROMIUM_LINUX
 from tests.test_serve import _Bridge, _call, address, bridge  # noqa: F401 - фикстуры
 from torrcast.cli.parse_args import parse_args
 from web import hear as said
@@ -43,12 +42,6 @@ def test_a_call_without_the_cookie_plays_as_before(address: str, bridge: _Bridge
     assert "tab" not in bridge.extras[-1]
 
 
-def test_the_next_episode_is_told_the_tab_too(address: str, bridge: _Bridge) -> None:  # noqa: F811
-    """Продолжение вкладки идёт своим маршрутом, и ключ едет с ним."""
-    assert _call(f"{address}/api/next", "POST", b"", _tab(IPHONE_SAFARI))[0] == 204
-    assert bridge.tabs == ["webkit-ios"]
-
-
 def test_a_mangled_cookie_is_silence_not_a_failure() -> None:
     """Кривая кука - вкладка ничего не сказала, запрос не падает."""
     assert hear({"user-agent": CHROMIUM_LINUX, "cookie": 'tc_tab="\\'}) == ""
@@ -61,14 +54,3 @@ def test_the_argv_and_the_cli_agree_on_the_key() -> None:
     assert argv == ["кино", "--here", "--tab", "gecko-linux"]
     assert parse_args(argv).tab == "gecko-linux"
     assert play_argv("кино", None, here=True) == ["кино", "--here"]
-
-
-def test_the_next_episode_on_the_tv_drops_the_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Продолжение на ТВ играет профилем ТВ: ключ вкладки ему ни к чему."""
-    monkeypatch.setattr("hass.next_show.following", lambda session: "шоу s1e2")
-    monkeypatch.setattr("hass.next_show._to_browser", lambda: False)
-    assert next_show(object(), {}, "chromium-linux") == ["шоу s1e2"]  # type: ignore[arg-type]
-
-    monkeypatch.setattr("hass.next_show._to_browser", lambda: True)
-    got = next_show(object(), {}, "chromium-linux")  # type: ignore[arg-type]
-    assert got == ["шоу s1e2", "--here", "--tab", "chromium-linux"]

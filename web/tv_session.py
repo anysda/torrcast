@@ -22,6 +22,7 @@ from web.live_receiver import POLL_SECONDS, live_receiver
 from web.tv_fresh import tv_fresh
 from web.tv_idle import tv_idle
 from web.tv_load import tv_load
+from web.tv_poll import TvPoll
 from web.tv_settled import RECHECK_SECONDS, tv_settled
 from web.tv_since import tv_since
 from web.tv_stale import tv_stale
@@ -47,8 +48,7 @@ class TvSession:
     _aim: tuple[float, float] | None = field(default=None, init=False, repr=False)
     _doubt: Position | None = field(default=None, init=False, repr=False)
     _alive: Callable[[], bool] | None = field(default=None, init=False, repr=False)
-    _stop_poll: threading.Event | None = field(default=None, init=False, repr=False)
-    _poll: threading.Thread | None = field(default=None, init=False, repr=False)
+    _poll: TvPoll = field(default_factory=TvPoll, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def active(self) -> bool:
@@ -102,7 +102,7 @@ class TvSession:
         self._receiver = receiver
         self._alive = alive
         self.key = key
-        self._arm(receiver, echo)
+        self._poll.arm(lambda stop_poll: self._pump(receiver, stop_poll, echo))
 
     def stop(self) -> float:
         """Снять каст и назвать секунду, на которой он стоял; без каста - ноль.
@@ -114,7 +114,7 @@ class TvSession:
         receiver, self._receiver, self.key = self._receiver, None, ""
         if receiver is None:
             return 0.0
-        self._disarm()
+        self._poll.disarm(self.poll_seconds)
         with self._lock:
             heard, self._heard = self._heard, None
             at = heard.pos if heard is not None else receiver.position().pos
@@ -135,31 +135,28 @@ class TvSession:
                 self._heard, self._aim = None, (base.pos, seek_place(base.pos, arg, base.dur))
         return True
 
+    def left(self, key: str, duration: float) -> float | None:
+        """Остаток серии ``key`` до секунды перед концом по месту ТВ; каст не её - ``None``.
+
+        Перемотку ТВ отсчитывает от СВОЕГО места (:meth:`steer`), а снимок моста мог отстать
+        от него на опрос: остаток по снимку уводил цель «следующей серии» за конец файла.
+        """
+        with self._lock:
+            receiver = self._receiver
+            if receiver is None or self.key != key:
+                return None
+            spot = self._heard or receiver.position()
+        return max(0.0, duration - spot.pos - 1.0)
+
     def _release(self) -> None:
         """Закрыть прежнюю связь без чтения её места - её никто не спрашивал."""
         receiver, self._receiver, self.key = self._receiver, None, ""
         self._heard = self._aim = self._doubt = None
         if receiver is None:
             return
-        self._disarm()
+        self._poll.disarm(self.poll_seconds)
         with self._lock:
             receiver.stop(quit_app=True)
-
-    def _arm(self, receiver: Receiver, echo: Callable[[Position], None] | None = None) -> None:
-        """Завести опрос: держит место у pychromecast свежим, пока каст живёт."""
-        stop_poll = threading.Event()
-        self._stop_poll = stop_poll
-        poll = threading.Thread(target=self._pump, args=(receiver, stop_poll, echo), daemon=True)
-        self._poll = poll
-        poll.start()
-
-    def _disarm(self) -> None:
-        """Остановить опрос и дождаться его конца; снимающий каст опрос себя не ждёт."""
-        if self._stop_poll is not None:
-            self._stop_poll.set()
-        if self._poll is not None and self._poll is not threading.current_thread():
-            self._poll.join(timeout=self.poll_seconds)
-        self._stop_poll = self._poll = None
 
     def _pump(
         self,

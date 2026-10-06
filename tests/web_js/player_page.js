@@ -48,7 +48,7 @@ function player(server) {
   const latency = 20;
   const overlayRoot = doc.body;
   const calls = {
-    next: [], control: [], position: [], finish: [], left: [], boxPolls: 0, statePolls: 0,
+    next: [], control: [], position: [], left: [], boxPolls: 0, statePolls: 0,
     routerGo: [], historyBack: 0, card: [], history: 0,
   };
 
