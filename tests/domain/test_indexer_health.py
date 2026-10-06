@@ -155,6 +155,13 @@ def test_a_core_source_is_matched_by_its_exact_name_not_a_namesake() -> None:
     assert rutor.startswith("внимание")
 
 
+def test_a_core_source_retried_in_the_background_gets_the_install_screen_promise() -> None:
+    """🔴 TC-1411. Установка обещала срок - доктор не шлёт за ним в ./install.sh."""
+    other, owed = (line for line, _ in IndexerHealth.core([], frozenset({"RuTor"})))
+    assert "RuTor" in owed and "15 мин" in owed and "install.sh" not in owed
+    assert "Knaben" in other and "./install.sh" in other
+
+
 def test_the_roster_names_each_missing_reference_indexer() -> None:
     """🔴 TC-1411. Двойник и sukebei видны только по эталону: их имён нет в живом списке."""
     expected = [("RuTor names", True), ("sukebei", False)]

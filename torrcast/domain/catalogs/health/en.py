@@ -88,6 +88,11 @@ def en() -> dict[str, str]:
             "{indexer} is missing or switched off - search still runs, but there will be "
             "noticeably fewer {misses} in the results; bring it back with ./install.sh"
         ),
+        "health.core_owed": (
+            "{indexer} is not set up yet - search still runs, but there will be noticeably "
+            "fewer {misses} in the results; it is retried in the background and added within "
+            "15 min of its tracker answering"
+        ),
         "health.roster_absent": (
             "{name} is not set up in Prowlarr yet - it is retried in the background and "
             "added within 15 min of its tracker answering"

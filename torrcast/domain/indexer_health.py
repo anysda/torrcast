@@ -140,8 +140,11 @@ class IndexerHealth:
         return names
 
     @staticmethod
-    def core(payload: object) -> Iterator[HealthLine]:
+    def core(payload: object, owed: frozenset[str] = frozenset()) -> Iterator[HealthLine]:
         """Опорные источники, строка на каждого: есть и включён - или выдача неполная.
+
+        ``owed`` - опорные, которые служба дозаведения переспрашивает (TC-1411): им тот же
+        срок, что обещал последний экран установки, а не «вернуть - ./install.sh».
 
         🔴 TC-1411. Сверка ТОЧНЫМ именем, не подстрокой: двойник «RuTor names» содержит
         «RuTor», и подстрочная проверка считала опорный RuTor живым, когда стоял только
@@ -154,9 +157,8 @@ class IndexerHealth:
                     phrase("health.core_present", indexer=indexer, gives=phrase(gives))
                 )
             else:
-                yield HealthVerdict.warn(
-                    phrase("health.core_absent", indexer=indexer, misses=phrase(misses))
-                )
+                key = "health.core_owed" if indexer in owed else "health.core_absent"
+                yield HealthVerdict.warn(phrase(key, indexer=indexer, misses=phrase(misses)))
 
     @staticmethod
     def roster(expected: list[tuple[str, bool]], payload: object) -> Iterator[HealthLine]:

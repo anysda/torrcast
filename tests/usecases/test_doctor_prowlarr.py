@@ -178,9 +178,12 @@ def test_a_closed_port_still_turns_the_indexer_line_red() -> None:
 def test_the_reference_roster_adds_a_line_for_a_missing_indexer() -> None:
     """🔴 TC-1411. Эталонный индексер, которого в Prowlarr нет, называется отдельной строкой."""
     environment = _answering()
-    environment.roster = [("sukebei", False)]
+    environment.roster = [("sukebei", False), ("RuTor", True)]
+    environment.payloads["indexer"] = [{"id": 7, "name": KEY, "enable": True}]
     lines = list(_prowlarr(_config(), environment))
     assert len([line for line, _ in lines if "sukebei" in line]) == 1, lines
+    rutor = [line for line, _ in lines if line.split()[1:2] == ["RuTor"]]
+    assert len(rutor) == 1 and "within 15 min" in rutor[0] and "install.sh" not in rutor[0]
 
 
 def test_a_roster_indexer_already_present_adds_no_line() -> None:
