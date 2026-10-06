@@ -47,6 +47,8 @@ class FakeHealthEnvironment:
     timeouts: list[float] = field(default_factory=list)
     #: Адреса, которые спрашивали: порядок запросов - часть договора с Prowlarr.
     urls: list[str] = field(default_factory=list)
+    #: Эталонный список индексеров на машине (TC-1411): по умолчанию его нет.
+    roster: list[str] = field(default_factory=list)
 
     def has_terminal(self) -> bool:
         return self.tty
@@ -69,6 +71,9 @@ class FakeHealthEnvironment:
     def prowlarr_unit(self, timeout: float) -> str | None:
         self.timeouts.append(timeout)
         return self.unit
+
+    def reference_roster(self) -> list[str]:
+        return self.roster
 
     def get_json(self, url: str, headers: dict[str, str], timeout: float) -> object | None:
         self.timeouts.append(timeout)

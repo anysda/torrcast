@@ -141,10 +141,15 @@ class IndexerHealth:
 
     @staticmethod
     def core(payload: object) -> Iterator[HealthLine]:
-        """Опорные источники, строка на каждого: есть и включён - или выдача неполная."""
-        enabled = [name.lower() for name in IndexerHealth.enabled_names(payload)]
+        """Опорные источники, строка на каждого: есть и включён - или выдача неполная.
+
+        🔴 TC-1411. Сверка ТОЧНЫМ именем, не подстрокой: двойник «RuTor names» содержит
+        «RuTor», и подстрочная проверка считала опорный RuTor живым, когда стоял только
+        двойник, - зелень на пустом месте. Опорный - это он сам, а не похоже названный сосед.
+        """
+        enabled = {name.lower() for name in IndexerHealth.enabled_names(payload)}
         for indexer, (gives, misses) in CORE_INDEXERS.items():
-            if any(indexer.lower() in name for name in enabled):
+            if indexer.lower() in enabled:
                 yield HealthVerdict.ok(
                     phrase("health.core_present", indexer=indexer, gives=phrase(gives))
                 )
@@ -152,3 +157,19 @@ class IndexerHealth:
                 yield HealthVerdict.warn(
                     phrase("health.core_absent", indexer=indexer, misses=phrase(misses))
                 )
+
+    @staticmethod
+    def roster(expected: list[str], payload: object) -> Iterator[HealthLine]:
+        """Эталонный список против живого: назвать каждый недостающий индексер (TC-1411).
+
+        Опорные ведёт :meth:`core` со своим разбором роли, поэтому их отсюда пропускаем,
+        чтобы RuTor не назвался дважды. Остальное - двойник «RuTor names», sukebei и прочие
+        узкие из эталона - видно только здесь: по имени, которого в Prowlarr сейчас нет.
+        Сверка ТОЧНЫМ именем: двойник и его трекер различаются лишь суффиксом имени.
+        """
+        enabled = set(IndexerHealth.enabled_names(payload))
+        core = {indexer.lower() for indexer in CORE_INDEXERS}
+        for name in expected:
+            if name.lower() in core or name in enabled:
+                continue
+            yield HealthVerdict.warn(phrase("health.roster_absent", name=name))

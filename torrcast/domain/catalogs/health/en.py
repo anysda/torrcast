@@ -88,6 +88,10 @@ def en() -> dict[str, str]:
             "{indexer} is missing or switched off - search still runs, but there will be "
             "noticeably fewer {misses} in the results; bring it back with ./install.sh"
         ),
+        "health.roster_absent": (
+            "{name} is in the reference roster but not set up in Prowlarr - the installer "
+            "re-adds it on its own as soon as its tracker answers; ./install.sh adds it now"
+        ),
         "health.core_gives_west": "western releases and anime",
         "health.core_misses_west": "western releases and anime",
         "health.core_gives_russian": "Russian releases and dubs",

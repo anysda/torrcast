@@ -73,6 +73,10 @@ def ru() -> dict[str, str]:
             "{indexer} не заведён или выключен - искать можно, но {misses} в выдаче "
             "будет заметно меньше; вернуть - ./install.sh"
         ),
+        "health.roster_absent": (
+            "{name} есть в эталонном списке, но не заведён в Prowlarr - реконсилятор "
+            "заведёт его сам, как только трекер ответит; ./install.sh заводит сейчас"
+        ),
         "health.core_gives_west": "западные релизы и аниме",
         "health.core_misses_west": "западных релизов и аниме",
         "health.core_gives_russian": "русские раздачи и озвучки",

@@ -145,3 +145,28 @@ def test_the_twin_of_a_tracker_disabled_by_hand_is_not_probed() -> None:
         {"id": 6, "name": "RuTor names", "enable": True},
     ]
     assert IndexerHealth.probed(payload) == []
+
+
+def test_a_core_source_is_matched_by_its_exact_name_not_a_namesake() -> None:
+    """🔴 TC-1411. Двойник «RuTor names» содержит «RuTor», но опорным RuTor не является."""
+    lines = list(IndexerHealth.core([{"name": "RuTor names"}]))
+    assert all(line.startswith("внимание") for line, _ in lines)
+    rutor = next(line for line, _ in lines if "RuTor" in line)
+    assert rutor.startswith("внимание")
+
+
+def test_the_roster_names_each_missing_reference_indexer() -> None:
+    """🔴 TC-1411. Двойник и sukebei видны только по эталону: их имён нет в живом списке."""
+    lines = list(IndexerHealth.roster(["RuTor names", "sukebei"], [{"name": "Knaben"}]))
+    named = {line for line, _ in lines}
+    assert any("RuTor names" in line for line in named)
+    assert any("sukebei" in line for line in named)
+    assert all(line.startswith("внимание") for line, _ in lines)
+
+
+def test_the_roster_leaves_core_sources_to_core_and_skips_present_ones() -> None:
+    """Опорные ведёт core (чтобы не назвать дважды), а стоящий индексер не называется."""
+    expected = [next(iter(CORE_INDEXERS)), "sukebei", "Knaben"]
+    lines = list(IndexerHealth.roster(expected, [{"name": "Knaben"}]))
+    assert [line for line, _ in lines] == [line for line, _ in lines if "sukebei" in line]
+    assert len(lines) == 1

@@ -3,8 +3,10 @@
 Половина системной среды :mod:`torrcast.adapters.health.system_health_environment`.
 """
 
+import json
 import socket
 import subprocess
+from pathlib import Path
 from typing import cast
 
 import requests
@@ -23,6 +25,9 @@ from torrcast.ports.health_config import HealthConfig
 #: Сколько ждём версию ffmpeg: команда локальная и быстрая, а потолок тут стоит от
 #: повисшего наглухо процесса, а не от медленного ответа.
 _VERSION_TIMEOUT = 10
+#: Эталонный список индексеров, который пишет установка (install.sh: install_indexers).
+#: По нему doctor называет недостающее, а сам-реконсилятор дозаводит (TC-1411).
+_ROSTER_PATH = Path("/var/lib/torrcast/indexers.json")
 
 
 class ServiceProbe:
@@ -54,6 +59,21 @@ class ServiceProbe:
         except (OSError, subprocess.SubprocessError):
             return None
         return str(done.stdout)
+
+    @staticmethod
+    def reference_roster() -> list[str]:
+        """Имена индексеров из эталонного списка на машине; пусто - списка ещё нет."""
+        try:
+            data: object = json.loads(_ROSTER_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        if not isinstance(data, list):
+            return []
+        return [
+            entry["name"]
+            for entry in data
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+        ]
 
     @staticmethod
     def get_json(url: str, headers: dict[str, str], timeout: float) -> object | None:

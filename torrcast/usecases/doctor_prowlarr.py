@@ -37,6 +37,7 @@ def _prowlarr(config: HealthConfig, env: Env = None) -> Iterator[Line]:
     yield from IndexerHealth.paused(indexers, statuses)
     yield from _live_indexers(config, indexers, env)
     yield from IndexerHealth.core(indexers)
+    yield from IndexerHealth.roster((env or _state.environment).reference_roster(), indexers)
 
 
 def _live_indexers(config: HealthConfig, payload: object, env: Env = None) -> Iterator[Line]:

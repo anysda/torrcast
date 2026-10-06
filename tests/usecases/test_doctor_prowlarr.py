@@ -173,3 +173,22 @@ def test_a_closed_port_still_turns_the_indexer_line_red() -> None:
     assert all(not good for _, good in lines), f"закрытый порт прошёл как здоровый: {lines}"
     assert "indexer RuTor did not answer a live search" in lines[0][0]
     assert spent < _INDEXER_TIMEOUT, f"отказ порта ждали {spent:.1f} с вместо мгновенного"
+
+
+def test_the_reference_roster_adds_a_line_for_a_missing_indexer() -> None:
+    """🔴 TC-1411. Эталонный индексер, которого в Prowlarr нет, называется отдельной строкой."""
+    environment = _answering()
+    environment.roster = ["sukebei"]
+    lines = list(_prowlarr(_config(), environment))
+    assert len([line for line, _ in lines if "sukebei" in line]) == 1, lines
+
+
+def test_a_roster_indexer_already_present_adds_no_line() -> None:
+    """Стоящий эталонный индексер лишней строки не даёт: называем только недостающее."""
+    environment = _answering()
+    present = next(iter(CORE_INDEXERS))
+    environment.roster = [present]
+    before = list(_prowlarr(_config(), environment))
+    environment.roster = []
+    after = list(_prowlarr(_config(), environment))
+    assert len(before) == len(after)
