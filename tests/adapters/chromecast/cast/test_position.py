@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from tests.adapters.chromecast.cast.wired import Status, Wired
+from tests.fakes.clock import FakeClock
 from torrcast.adapters.chromecast.cast.position import _position
 
 
@@ -199,3 +200,22 @@ def test_a_fresh_answer_reaches_the_show_without_the_stale_mark() -> None:
     where = _position(receiver)
 
     assert where.stale is False, "внятный конец потока выдержки не стоит"
+
+
+def test_a_rewind_that_stalls_is_pushed_forward_from_the_new_place() -> None:
+    """Кадр до перемотки пультом назад - не черта для сторожа: зритель ушёл с него сам.
+
+    Стенд 06-10-2026, каст с карточки, пульт «-300» с 1474.8 на 1174.8: ТВ 38 с стоял в
+    буфере при запасе впереди, и сторож молчал - каждая его цель лежала ниже 1474.8.
+    """
+    clock = FakeClock(now=100.0)
+    receiver = _Scripted(Status(pos=1474.8, state="PLAYING"), clock=clock)
+    receiver._peak = 1474.8
+    _position(receiver, front=1500.0)
+
+    receiver.reported = Status(pos=1174.8, state="BUFFERING")
+    _position(receiver, front=1240.0)
+    clock.now += receiver.profile.stall_seconds + 1.0
+    _position(receiver, front=1240.0)
+
+    assert receiver.device.media_controller.jumps == [1174.8 + receiver.profile.stall_skip]
