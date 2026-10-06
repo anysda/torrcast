@@ -91,3 +91,40 @@ def test_without_our_reads_the_removal_goes_at_once_and_the_service_is_not_asked
     assert describer.close(KEY, lambda: True, idle) is True
     assert asked == []
     READS.reopen(KEY)
+
+
+class _Unwired:
+    """Ответ без сокета: на учёте стоит, рвать в нём нечего, ``cut`` всё равно ``True``."""
+
+    def __enter__(self) -> "_Unwired":
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        return None
+
+
+def test_a_torrent_added_again_while_the_service_releases_readers_is_not_removed() -> None:
+    """Новый ``add`` посреди ожидания отпуска: ``rem`` уже чужой, он снял бы живую раздачу."""
+    clock = FakeClock(now=10.0)
+    describer = Describer(clock=clock)
+    removed: list[float] = []
+
+    def idle() -> bool:
+        describer.later("http://torrserver", KEY)  # повторное добавление той же раздачи
+        return False
+
+    def remove() -> bool:
+        removed.append(clock.monotonic())
+        return True
+
+    try:
+        with READS.opened(URL, lambda: _Unwired()) as answer:
+            assert answer is not None
+            assert describer.close(KEY, remove, idle)
+            for thread in threading.enumerate():
+                if thread.name == f"settle-{KEY}":
+                    thread.join(5)
+        assert removed == [], "rem ушёл по раздаче, которую добавили заново"
+        assert not describer.dropped(KEY)
+    finally:
+        READS.reopen(KEY)
