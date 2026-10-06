@@ -72,6 +72,9 @@ NAMES_GRACE = 1.0
 #: touch it, and it lands inside the first circle's six seconds. JacRed slows in spells: on the
 #: stand (07.10, every request timed) four hung in 20 s and their second asks took 1.3-3.4 s;
 #: «Король лев 1994» answered 4.80 s from the request, and four seconds lost «Дюна» of 2021.
+#: An empty text waits as long: it holds nothing to keep the viewer waiting for. «Король Лев 2019»
+#: (07.10) found nothing in 0.33 s, its names answered 1.8 and 2.7 s from the request, and a second
+#: of grace left the viewer the YTS rows of the picture with no Russian track.
 NAMES_DEADLINE = 5.0
 #: Seconds the viewer's text waits before it is asked once more. On the stand (06.10) a text
 #: alone answered in 0.46 s in the median and 0.64 at worst of 69, while one request in about 40
@@ -94,20 +97,20 @@ def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list
     cut of the joined answer by the caller's limit still keeps every text.
 
     The first text leads: torrcast puts the viewer's own there, and the others wait no more than
-    `grace` past its answer, or till `NAMES_DEADLINE` when that answer filled `LIMIT` and so cannot
-    hold the asked picture. Waiting all of them made the viewer's rows wait the slowest name, mostly
-    empty: the joined request's median was 3.3 s where the text alone took 0.65. The others leave
-    only once it has answered: the API slows and refuses texts that come at once. On the stand
-    (30.09, nine pairs in turn) the viewer's text asked with its two names took 0.91 s in the median
-    and was refused with 429 three times; asked first, 0.55 s and never refused. With all three at
-    once torrcast's warm runs hit the 5 s cut 7 times in 15.
+    `grace` past its answer, or till `NAMES_DEADLINE` when that answer is empty or filled `LIMIT`
+    and so cannot hold the asked picture. Waiting all of them made the viewer's rows wait the
+    slowest name, mostly empty: the joined request's median was 3.3 s where the text alone took
+    0.65. The others leave only once it has answered: the API slows and refuses texts that come at
+    once. On the stand (30.09, nine pairs in turn) the viewer's text asked with its two names took
+    0.91 s in the median and was refused with 429 three times; asked first, 0.55 s and never
+    refused. With all three at once torrcast's warm runs hit the 5 s cut 7 times in 15.
     """
     texts = [text.strip() for text in query.split(JOINT) if text.strip()]
     if len(texts) < 2:
         return _steady(query, fetch)[0]
     began = time.monotonic()
     first, full = _steady(texts[0], fetch)
-    if full:
+    if full or not first:
         grace = max(grace, NAMES_DEADLINE - (time.monotonic() - began))
     forms = [form for text in texts[1:] for form in _forms(text)]
     pool = ThreadPoolExecutor(len(forms))

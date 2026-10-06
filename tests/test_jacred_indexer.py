@@ -255,6 +255,20 @@ def test_a_name_asked_twice_in_a_slow_spell_still_lands_for_a_cut_text() -> None
     assert "Dune: Part One [year 2021]" in {row["title"] for row in rows}
 
 
+@pytest.mark.machine
+def test_an_empty_viewer_s_text_waits_its_names_past_the_grace() -> None:
+    """«Король Лев 2019» on the stand (07.10): the text found nothing, the names came later."""
+
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
+        if query == "Король Лев 2019":
+            return _rows()
+        time.sleep(0.6)
+        return _rows(_asked(query, year))
+
+    rows = adapter.search("Король Лев 2019 | The Lion King 2019", fetch, grace=0.2)
+    assert "The Lion King [year 2019]" in {row["title"] for row in rows}
+
+
 def test_the_names_deadline_stays_inside_the_first_circle() -> None:
     """A cut text's rows wait the names that long, and torrcast stops waiting at its cap."""
     from torrcast.domain.circle_budget import FIRST_CIRCLE_TIMEOUT
