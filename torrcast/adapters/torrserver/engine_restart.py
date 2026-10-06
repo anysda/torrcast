@@ -117,7 +117,7 @@ class EngineRestart:
             return ask(first)
         except ServerDownError as exc:
             verdict = self._mend(probes, rounds, exc, off) if mends else "no"
-            if abandoned() or verdict == "no" or (verdict == "rest" and first >= timeout):
+            if off() or verdict == "no" or (verdict == "rest" and first >= timeout):
                 raise
         return ask(timeout - first if verdict == "rest" else first)
 
@@ -128,7 +128,7 @@ class EngineRestart:
         hung = isinstance(cause, requests.Timeout)
         if not hung and not isinstance(cause, requests.ConnectionError):
             return "no"
-        if abandoned():
+        if off():
             return "no"
         with self._lock:
             if self._rounds != rounds:  # пока ждали ответа, подъём уже был: его итог
