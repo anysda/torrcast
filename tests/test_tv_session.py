@@ -211,3 +211,19 @@ def test_left_counts_the_rest_of_its_own_show_from_the_tv_place() -> None:
         assert session.left("k1", 1800.0) == 0.0
     finally:
         session.stop()
+
+
+def test_left_counts_from_the_report_the_seek_counts_from() -> None:
+    """Остаток и перемотка ТВ (:meth:`TvSession.steer`) считаются от одного сырого доклада.
+
+    Досчитанное часами место (:meth:`TvSession.heard`) ушло бы вперёд того, от чего мотает
+    ``steer``, и цель «следующей серии» встала бы раньше секунды перед концом.
+    """
+    receiver = FakeReceiver(Position(1000.0, 1800.0, True, "PLAYING"))
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    session.start("192.0.2.104", "t", "u", 0.0, key="k1")
+    try:
+        _until(lambda: (heard := session.heard("k1")) is not None and heard.pos > 1000.0)
+        assert session.left("k1", 1800.0) == 799.0
+    finally:
+        session.stop()
