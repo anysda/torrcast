@@ -159,7 +159,7 @@ class IndexerHealth:
                 )
 
     @staticmethod
-    def roster(expected: list[str], payload: object) -> Iterator[HealthLine]:
+    def roster(expected: list[tuple[str, bool]], payload: object) -> Iterator[HealthLine]:
         """Эталонный список против живого: назвать каждый недостающий индексер (TC-1411).
 
         Опорные ведёт :meth:`core` со своим разбором роли, поэтому их отсюда пропускаем,
@@ -167,11 +167,13 @@ class IndexerHealth:
         узкие из эталона - видно только здесь: по имени, которого в Prowlarr сейчас нет.
         Сверка ТОЧНЫМ именем: двойник и его трекер различаются лишь суффиксом имени.
         Выключенный человеком стоит в Prowlarr и сверщиком не дозаводится: он не назван.
+        Узкий (не переспрашивается, TC-697) назван своими словами: сам он не доедет.
         """
         entries = payload if isinstance(payload, list) else []
         present = {e.get("name") for e in entries if isinstance(e, dict)}
         core = {indexer.lower() for indexer in CORE_INDEXERS}
-        for name in expected:
+        for name, retried in expected:
             if name.lower() in core or name in present:
                 continue
-            yield HealthVerdict.warn(phrase("health.roster_absent", name=name))
+            key = "health.roster_absent" if retried else "health.roster_narrow"
+            yield HealthVerdict.warn(phrase(key, name=name))

@@ -157,16 +157,25 @@ def test_a_core_source_is_matched_by_its_exact_name_not_a_namesake() -> None:
 
 def test_the_roster_names_each_missing_reference_indexer() -> None:
     """🔴 TC-1411. Двойник и sukebei видны только по эталону: их имён нет в живом списке."""
-    lines = list(IndexerHealth.roster(["RuTor names", "sukebei"], [{"name": "Knaben"}]))
+    expected = [("RuTor names", True), ("sukebei", False)]
+    lines = list(IndexerHealth.roster(expected, [{"name": "Knaben"}]))
     named = {line for line, _ in lines}
     assert any("RuTor names" in line for line in named)
     assert any("sukebei" in line for line in named)
     assert all(line.startswith("внимание") for line, _ in lines)
 
 
+def test_the_roster_promises_a_retry_only_to_a_retried_indexer() -> None:
+    """🔴 TC-697. Узкий не переспрашивается: обещать ему «заведётся сам» было бы враньём."""
+    expected = [("RuTor names", True), ("sukebei", False)]
+    twin, narrow = (line for line, _ in IndexerHealth.roster(expected, []))
+    assert "не позже 15 мин после ответа его трекера" in twin
+    assert "переспрашиваем" not in narrow and "заведёт следующий ./install.sh" in narrow
+
+
 def test_the_roster_leaves_core_sources_to_core_and_skips_present_ones() -> None:
     """Опорные ведёт core (чтобы не назвать дважды), а стоящий индексер не называется."""
-    expected = [next(iter(CORE_INDEXERS)), "sukebei", "Knaben"]
+    expected = [(next(iter(CORE_INDEXERS)), True), ("sukebei", False), ("Knaben", True)]
     lines = list(IndexerHealth.roster(expected, [{"name": "Knaben"}]))
     assert [line for line, _ in lines] == [line for line, _ in lines if "sukebei" in line]
     assert len(lines) == 1
@@ -174,5 +183,5 @@ def test_the_roster_leaves_core_sources_to_core_and_skips_present_ones() -> None
 
 def test_the_roster_does_not_call_an_indexer_switched_off_by_hand_missing() -> None:
     """Выключенный человеком стоит в Prowlarr, и сверщик его не дозаводит: строки нет."""
-    lines = list(IndexerHealth.roster(["sukebei"], [{"name": "sukebei", "enable": False}]))
+    lines = list(IndexerHealth.roster([("sukebei", False)], [{"name": "sukebei", "enable": False}]))
     assert lines == []

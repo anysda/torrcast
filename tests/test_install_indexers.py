@@ -36,6 +36,7 @@ def _run_name_absent(
 set -u
 STATE_DIR={shlex.quote(str(state))}
 PL_URL=http://127.0.0.1:9696
+RECONCILE_EVERY=900
 curl() {{ cat {shlex.quote(str(tmp_path / "live.json"))}; }}
 final_loud() {{ printf 'FINAL_EN:%s\\n' "$1"; }}
 name_absent_reference_indexers() {{{_body("name_absent_reference_indexers")}
@@ -57,6 +58,16 @@ def test_absent_reference_indexers_are_named_on_the_final_screen(tmp_path: Path)
     for missing in ("RuTor", "RuTor names", "sukebei"):
         assert missing in out
     assert "yts" not in out.split(":", 1)[1]  # the one that is present is not named
+    assert "added within 15 min of its tracker answering" in out  # the service's own pace
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required on the install host")
+def test_a_narrow_indexer_is_not_promised_a_retry_on_the_final_screen(tmp_path: Path) -> None:
+    """🔴 TC-697. Nobody re-asks a narrow source: «retried in the background» would be a lie."""
+    manifest = [{"name": "RuTor", "retry": True}, {"name": "sukebei", "retry": False}]
+    out = _run_name_absent(tmp_path, manifest, [])
+    assert out.startswith("FINAL_EN:indexers not set up yet: RuTor - "), out
+    assert "sukebei" not in out
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required on the install host")
@@ -84,6 +95,7 @@ def test_a_silent_prowlarr_is_not_fatal(tmp_path: Path) -> None:
 set -u
 STATE_DIR={shlex.quote(str(state))}
 PL_URL=http://127.0.0.1:9696
+RECONCILE_EVERY=900
 curl() {{ return 7; }}
 final_loud() {{ printf 'FINAL_EN:%s\\n' "$1"; }}
 name_absent_reference_indexers() {{{_body("name_absent_reference_indexers")}
@@ -96,7 +108,8 @@ name_absent_reference_indexers deadbeef
 
 def test_install_indexers_writes_the_manifest_atomically() -> None:
     body = _body("install_indexers")
-    assert 'manifest+=("$body")' in body
+    assert """manifest+=("$(jq -c '. + {retry: true}' <<<"$body")")""" in body
+    assert """manifest+=("$(jq -c '. + {retry: false}' <<<"$body")")""" in body
     assert "indexers.json.tmp" in body and 'mv "$STATE_DIR/indexers.json.tmp"' in body
     assert "name_absent_reference_indexers" in body
 
@@ -126,6 +139,7 @@ PYTHON=python3
 INDEXER_RETRY_TIMES=1
 INDEXER_RETRY_EVERY=1
 RECONCILE_EVERY=1
+LATE_PIDS=/nonexistent/late.pids
 log() {{ :; }}
 skip() {{ echo SKIP; }}
 info() {{ :; }}
@@ -152,9 +166,11 @@ def test_new_reconciler_code_stops_the_running_one_before_it_is_replaced(
     assert (tmp_path / "opt" / "indexer-reconcile.py").read_text(encoding="utf-8") == "new\n"
 
 
-def test_the_reconciler_waits_for_the_retry_ladder_and_skips_the_sandbox() -> None:
+def test_the_reconciler_waits_for_live_install_retries_and_skips_the_sandbox() -> None:
+    """🔴 TC-1411. Not a fixed hour after every start: after a reboot no retry is alive."""
     reconcile = _body("setup_reconcile")
-    assert "TORRCAST_RECONCILE_DELAY=$((INDEXER_RETRY_TIMES * INDEXER_RETRY_EVERY))" in reconcile
+    assert "TORRCAST_LATE_PIDS=$LATE_PIDS" in reconcile
+    assert "TORRCAST_RECONCILE_DELAY" not in reconcile
     sandbox = reconcile.index("TORRCAST_NO_SYSTEMD")
     assert sandbox < reconcile.index("run_service"), "the sandbox must not start the daemon"
 

@@ -26,7 +26,7 @@ from torrcast.ports.health_config import HealthConfig
 #: повисшего наглухо процесса, а не от медленного ответа.
 _VERSION_TIMEOUT = 10
 #: Эталонный список индексеров, который пишет установка (install.sh: install_indexers).
-#: По нему doctor называет недостающее, а сам-реконсилятор дозаводит (TC-1411).
+#: По нему doctor называет недостающее, а служба дозаведения индексеров дозаводит (TC-1411).
 _ROSTER_PATH = Path("/var/lib/torrcast/indexers.json")
 
 
@@ -61,8 +61,11 @@ class ServiceProbe:
         return str(done.stdout)
 
     @staticmethod
-    def reference_roster() -> list[str]:
-        """Имена индексеров из эталонного списка на машине; пусто - списка ещё нет."""
+    def reference_roster() -> list[tuple[str, bool]]:
+        """Недоведённые индексеры: (имя, переспрашивается ли). Пусто - списка ещё нет.
+
+        ``"retry": false`` - узкий (TC-697): его спрашивают раз за установку.
+        """
         try:
             data: object = json.loads(_ROSTER_PATH.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -70,7 +73,7 @@ class ServiceProbe:
         if not isinstance(data, list):
             return []
         return [
-            entry["name"]
+            (entry["name"], entry.get("retry") is not False)
             for entry in data
             if isinstance(entry, dict) and isinstance(entry.get("name"), str)
         ]

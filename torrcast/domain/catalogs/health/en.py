@@ -89,8 +89,12 @@ def en() -> dict[str, str]:
             "noticeably fewer {misses} in the results; bring it back with ./install.sh"
         ),
         "health.roster_absent": (
-            "{name} is in the reference roster but not set up in Prowlarr - the installer "
-            "re-adds it on its own as soon as its tracker answers; ./install.sh adds it now"
+            "{name} is not set up in Prowlarr yet - it is retried in the background and "
+            "added within 15 min of its tracker answering"
+        ),
+        "health.roster_narrow": (
+            "{name} is not set up in Prowlarr: its tracker did not answer at install - the "
+            "catalogue does not miss it; the next ./install.sh adds it"
         ),
         "health.core_gives_west": "western releases and anime",
         "health.core_misses_west": "western releases and anime",

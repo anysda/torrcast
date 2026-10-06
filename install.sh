@@ -715,17 +715,27 @@ LATE_NOTES="$(mktemp)"
 #: Куда догрев пишет свой итог: установка к этому времени уже отчиталась, и сказать
 #: «получилось» ей больше некуда.
 LATE_LOG="${TORRCAST_LATE_LOG:-$STATE_DIR/late.log}"
+#: 🔴 TC-1411. Кто из догрева сейчас жив: «pid<TAB>время старта<TAB>работа» на строку. По нему
+#: повторная установка гасит догрев прежней (:func:`stop_late_jobs`), а служба дозаведения
+#: индексеров не спрашивает трекеры, пока их спрашивает переспрос установки. Время старта
+#: отличает наш процесс от чужого, получившего тот же pid после перезагрузки.
+LATE_PIDS="${TORRCAST_LATE_PIDS:-$STATE_DIR/late.pids}"
 
 # ⚠️ Отвязываемся от установки по-настоящему: свои stdin/stdout/stderr в файл (иначе ssh,
 # которым запускали установку, будет ждать закрытия трубы и «зависнет» уже после
 # «готово») и игнор SIGHUP (иначе закрытая консоль убьёт догрев на середине).
 late_run() {  # $1/$2 - английское/русское имя, дальше команда с аргументами
     local note; if [ "$LANGUAGE" = ru ]; then note="$2"; else note="$1"; fi; shift 2
-    install -d -m 0755 "$(dirname "$LATE_LOG")"
+    install -d -m 0755 "$(dirname "$LATE_LOG")" "$(dirname "$LATE_PIDS")"
     (
         trap '' HUP
         if [ "$LANGUAGE" = ru ]; then w_start=начал; w_done=готово; w_fail="НЕ вышло"; w_tail="на показ не влияет"
-        else w_start=started; w_done="done"; w_fail="FAILED"; w_tail="playback is not affected"; fi
+            w_stop="остановлено, его заново начал новый ./install.sh"
+        else w_start=started; w_done="done"; w_fail="FAILED"; w_tail="playback is not affected"
+            w_stop="stopped, a newer ./install.sh started it over"; fi
+        # Гасит нас повторная установка (:func:`stop_late_jobs`): это не сбой, и в журнале
+        # строка обязана сказать, что работа не брошена, а передана.
+        trap 'printf "%s | %s: %s\n" "$(date "+%F %T")" "$w_stop" "$note"; trap - EXIT; exit 143' TERM
         printf '%s | %s: %s\n' "$(date '+%F %T')" "$w_start" "$note"
         # Итог пишем в обеих ветках: догрев не обязан удаться, но обязан сказать.
         # 🔴 TC-638. Тело идёт под голым `set -e`, а ветку «не вышло» пишет ловушка
@@ -735,7 +745,33 @@ late_run() {  # $1/$2 - английское/русское имя, дальше
         trap 'rc=$?; if [ "$rc" -eq 0 ]; then printf "%s | %s: %s\n" "$(date "+%F %T")" "$w_done" "$note"; else printf "%s | %s (%s): %s - %s\n" "$(date "+%F %T")" "$w_fail" "$rc" "$note" "$w_tail"; fi' EXIT
         "$@"
     ) >>"$LATE_LOG" 2>&1 </dev/null &
+    printf '%s\t%s\t%s\n' "$!" "$(LC_ALL=C ps -o lstart= -p "$!" 2>/dev/null)" "$1" >>"$LATE_PIDS"
     printf '%s\n' "$note" >>"$LATE_NOTES"
+}
+
+late_tree() {  # $1 - pid; печатает его и всех потомков
+    local child
+    printf '%s\n' "$1"
+    for child in $(pgrep -P "$1" 2>/dev/null); do late_tree "$child"; done
+}
+
+# 🔴 TC-1411. Повторная установка снимает догрев прежней. Иначе прежний переспрос
+# доживал свой час рядом с новым: двое спрашивали один трекер (каждый вопрос продлевает
+# ему бан), а старый ходил в Prowlarr со старым ключом и писал в журнал 401. Новая
+# установка сама заводит заново всё, что прежней осталось.
+stop_late_jobs() {
+    [ -f "$LATE_PIDS" ] || return 0
+    local pid started one pids=()
+    while IFS=$'\t' read -r pid started _; do
+        [ -n "$pid" ] && [ -n "$started" ] || continue
+        [ "$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null)" = "$started" ] || continue
+        while read -r one; do pids+=("$one"); done < <(late_tree "$pid")
+    done <"$LATE_PIDS"
+    rm -f "$LATE_PIDS"
+    [ "${#pids[@]}" -gt 0 ] || return 0
+    kill -TERM "${pids[@]}" 2>/dev/null || true
+    info "stopped the previous install's background work: this install starts it over" \
+        "остановил фоновую работу прежней установки: эта начнёт её заново"
 }
 
 # Маска процесса для pgrep -f/pkill -f. Голая строка запуска шаблоном не годится: она
@@ -2982,9 +3018,10 @@ add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
 # отказавший уже спрошен, и догрев делает на одну меньше.
 INDEXER_RETRY_TIMES="${TORRCAST_INDEXER_RETRY_TIMES:-12}"
 INDEXER_RETRY_EVERY="${TORRCAST_INDEXER_RETRY_EVERY:-300}"
-#: 🔴 TC-1411. Догрев выше кончается за час; сам-реконсилятор живёт дольше и берёт то, что
-#: ответит позже. Через сколько секунд он обходит эталонный список. На живом стенде нарочно
-#: уменьшают, чтобы замерить время доезда (TORRCAST_RECONCILE_EVERY).
+#: 🔴 TC-1411. Догрев выше кончается за час; служба дозаведения индексеров живёт дольше и
+#: берёт то, что ответит позже. Через сколько секунд она обходит список недоведённых. Этот
+#: срок обещают человеку последний экран и doctor («не позже N мин»), поэтому на стенде его
+#: не уменьшают: замер доезда идёт при штатном такте.
 RECONCILE_EVERY="${TORRCAST_RECONCILE_EVERY:-900}"
 
 retry_add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело», спрошенные на глазах
@@ -3016,8 +3053,8 @@ retry_add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тел
         [ -z "$missing" ] && return 0
         todo=("${left[@]}")
     done
-    info "⚠ still failed: $missing - the catalog is incomplete without them; rerun ./install.sh when the source responds" \
-        "⚠ так и не завелись: $missing - каталог без них неполный; повторный ./install.sh заведёт их, когда источник ответит"
+    info "⚠ still failed: $missing - the catalog is incomplete without them; from now on they are retried every $((RECONCILE_EVERY / 60)) min" \
+        "⚠ так и не завелись: $missing - каталог без них неполный; дальше их переспрашиваем раз в $((RECONCILE_EVERY / 60)) мин"
 }
 
 # Двойник трекера (четвёртое поле INDEXERS) добавляется пробой самого трекера: в минуту
@@ -3281,23 +3318,24 @@ name_absent_reference_indexers() {  # $1 - apikey; дальше имена, ко
     pending="$(printf '%s\n' "$@" | jq -R 'select(length>0)' | jq -s '.')" || pending='[]'
     absent="$(jq -r --argjson live "$live" --argjson pending "$pending" '
         ([$live[]?|.name]) as $have
-        | ([.[]?|.name] - $have - $pending) | unique | join(", ")' "$STATE_DIR/indexers.json" 2>/dev/null)"
+        | ([.[]?|select(.retry != false)|.name] - $have - $pending) | unique | join(", ")' "$STATE_DIR/indexers.json" 2>/dev/null)"
     [ -n "$absent" ] || return 0
-    final_loud "indexers not set up yet: $absent - the installer keeps retrying each in the background and re-adds it the moment its tracker answers; rerunning ./install.sh is safe" \
-               "индексеры пока не заведены: $absent - установка переспрашивает каждый в фоне и заводит, как только его трекер ответит; повторный ./install.sh безопасен"
+    final_loud "indexers not set up yet: $absent - each is retried in the background and added within $((RECONCILE_EVERY / 60)) min of its tracker answering; rerunning ./install.sh is safe" \
+               "индексеры пока не заведены: $absent - переспрашиваем в фоне, каждый заведётся не позже $((RECONCILE_EVERY / 60)) мин после ответа его трекера; повторный ./install.sh безопасен"
 }
 
-# 🔴 TC-1411. Служба, которая дольше часового догрева держит Prowlarr сверенным с эталонным
-# списком: раз в RECONCILE_EVERY секунд обходит $STATE_DIR/indexers.json и дозаводит то,
-# чего в Prowlarr нет. Живость трекера проверяет сам Prowlarr на POST, поэтому молчащий
-# источник просто ждёт следующего круга, а вернувшийся встаёт сам. Ключ демон читает из
+# 🔴 TC-1411. Служба, которая дольше часового догрева доводит недоведённое: раз в
+# RECONCILE_EVERY секунд обходит $STATE_DIR/indexers.json и дозаводит то, чего в Prowlarr
+# нет. Живость трекера проверяет сам Prowlarr на POST, поэтому молчащий источник просто
+# ждёт следующего круга, а вернувшийся встаёт сам. Что Prowlarr уже держит, служба
+# вычёркивает: удалённое потом человеком назад не заводится. Ключ демон читает из
 # config.xml Prowlarr, чтобы секрет не лежал в юните.
 setup_reconcile() {
-    log "indexer reconciler ($PL_URL)" "сам-реконсилятор индексеров ($PL_URL)"
+    log "indexer reconciler ($PL_URL)" "служба дозаведения индексеров ($PL_URL)"
     pick_python
     local script="$PREFIX/indexer-reconcile.py"
     if cmp -s "$REPO_DIR/scripts/indexer-reconcile.py" "$script"; then
-        skip "reconciler code $script" "код реконсилятора $script"
+        skip "reconciler code $script" "код службы дозаведения индексеров $script"
     else
         # Как у JacRed: новый код при прежнем юните `enable --now` не перезапустит, и
         # жил бы старый процесс до перезагрузки.
@@ -3311,15 +3349,17 @@ setup_reconcile() {
              "systemd выключен - службу torrcast-reconcile не поднимаю (песочница)"
         return 0
     fi
-    # Первый круг ждёт конца собственного переспроса установки (TC-697): второй вопрос
-    # к отказавшему трекеру в ту же минуту только продлевает ступень его бана.
+    # Пока жив переспрос самой установки (TC-697), служба трекеры не спрашивает: второй
+    # вопрос к отказавшему трекеру в ту же минуту только продлевает ступень его бана. Ждёт
+    # она живые процессы из $LATE_PIDS, а не часы: после перезагрузки их нет, и первый
+    # круг идёт сразу.
     run_service torrcast-reconcile "Дозаводит эталонные индексеры Prowlarr, когда трекер отвечает снова" \
         "$PYTHON $script" \
         "Environment=TORRCAST_PROWLARR_URL=$PL_URL
 Environment=TORRCAST_PROWLARR_CONFIG=$PREFIX/prowlarr-data/config.xml
 Environment=TORRCAST_INDEXER_MANIFEST=$STATE_DIR/indexers.json
 Environment=TORRCAST_RECONCILE_EVERY=$RECONCILE_EVERY
-Environment=TORRCAST_RECONCILE_DELAY=$((INDEXER_RETRY_TIMES * INDEXER_RETRY_EVERY))"
+Environment=TORRCAST_LATE_PIDS=$LATE_PIDS"
 }
 
 install_indexers() {
@@ -3371,10 +3411,16 @@ install_indexers() {
         ' <<<"$schema")"
         # 🔴 TC-1411. Эталонный список: каждое тело, которое установка СОБРАЛАСЬ завести,
         # ложится в манифест независимо от того, ответил ли сейчас трекер. По нему потом
-        # сверяется последний экран (назвать незаведённое) и живёт сам-реконсилятор
+        # сверяется последний экран (назвать незаведённое) и живёт служба дозаведения
         # (дозавести отказавшее, когда трекер вернётся). Уже стоящие и выключенные человеком
         # сюда не попадают - они отсеялись выше раньше, чем собралось тело.
-        manifest+=("$body")
+        # 🔴 TC-697. Узкий в списке помечен retry=false: служба его не переспрашивает (узкого
+        # спрашивают раз за установку), а doctor называет его своими словами.
+        if [ -n "$own" ] || core_indexer "$def"; then
+            manifest+=("$(jq -c '. + {retry: true}' <<<"$body")")
+        else
+            manifest+=("$(jq -c '. + {retry: false}' <<<"$body")")
+        fi
         # Тот, кому не место на критическом пути, уезжает в фон целиком (:func:`late_indexer`):
         # его тело собрано, а добавит его подоболочка уже после «готово». Двойник (своё
         # имя) - тоже, со своим переспросом (:func:`add_twins`); роль закрывает его трекер.
@@ -3420,7 +3466,7 @@ install_indexers() {
         rm -f "$answer"
     done
 
-    # Манифест на машину: сам-реконсилятор (scripts/indexer-reconcile.py) и последний
+    # Манифест на машину: служба дозаведения (scripts/indexer-reconcile.py) и последний
     # экран читают его, а не держат список в памяти фонового захода, который не переживёт
     # перезагрузку. Пишем через временный файл и mv, чтобы читатель не поймал половину.
     install -d -m 0755 "$STATE_DIR"
@@ -4017,6 +4063,7 @@ cleanup_login_notice() {
 # Поэтому поднятие переехало в точку входа, до заставки (см. самый низ файла).
 main() {
     cleanup_login_notice
+    stop_late_jobs
     # Локаль и apt идут первыми и по очереди, иначе никак: `curl`, `jq` и `python3-venv`
     # приезжают именно отсюда, а без них не начать ни одну загрузку.
     has locale     && { setup_locale;     phase_done 'locale' 'локаль'; }

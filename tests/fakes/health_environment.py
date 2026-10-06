@@ -48,7 +48,7 @@ class FakeHealthEnvironment:
     #: Адреса, которые спрашивали: порядок запросов - часть договора с Prowlarr.
     urls: list[str] = field(default_factory=list)
     #: Эталонный список индексеров на машине (TC-1411): по умолчанию его нет.
-    roster: list[str] = field(default_factory=list)
+    roster: list[tuple[str, bool]] = field(default_factory=list)
 
     def has_terminal(self) -> bool:
         return self.tty
@@ -72,7 +72,7 @@ class FakeHealthEnvironment:
         self.timeouts.append(timeout)
         return self.unit
 
-    def reference_roster(self) -> list[str]:
+    def reference_roster(self) -> list[tuple[str, bool]]:
         return self.roster
 
     def get_json(self, url: str, headers: dict[str, str], timeout: float) -> object | None:
