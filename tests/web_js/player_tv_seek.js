@@ -45,7 +45,16 @@ async function main() {
   await bare.p.time.run(6000);
   const noSeek = round(bare.p.video.currentTime);
 
-  const facts = { beforeSeek, afterSeek, seekingAfter, sameNumber, firstSnapshot, noSeek };
+  // Пульт ТВ мимо страницы: номера нет, доклад на 300 с позади плёнки (стенд 06-10-2026).
+  const remote = await onTv(1690, { state: 'playing', position: 1690, seek: null });
+  await remote.p.time.run(3000);
+  remote.say({ state: 'playing', position: 1381.8, seek: null });
+  await remote.p.time.run(6000);
+  const remoteBack = round(remote.p.video.currentTime);
+
+  const facts = {
+    beforeSeek, afterSeek, seekingAfter, sameNumber, firstSnapshot, noSeek, remoteBack,
+  };
   process.stdout.write(JSON.stringify(facts) + '\n');
   process.exit(0);
 }

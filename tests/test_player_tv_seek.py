@@ -49,3 +49,12 @@ def test_without_a_new_seek_number_a_report_behind_the_film_is_a_tail(
 
 def test_the_first_snapshot_of_a_cast_only_remembers_the_number(facts: dict[str, Any]) -> None:
     assert facts["firstSnapshot"] == 760
+
+
+def test_a_seek_back_from_the_tv_remote_moves_the_tab_film_without_a_number(
+    facts: dict[str, Any],
+) -> None:
+    """Пульт ТВ номера моста не несёт: обгон дальше набега рукопожатия - перемотка назад.
+
+    Откат (``LOST_S`` не сверяется): плёнка остаётся у 1690 и лишь замедляется."""
+    assert 1381.8 <= facts["remoteBack"] <= 1385.0, facts["remoteBack"]

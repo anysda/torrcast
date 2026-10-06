@@ -17,6 +17,9 @@ const TCPlayer = {
   ENDED_WAIT_MS: 30000,
   DRIFT_S: 5,
   TRIM_RATE: 0.75,
+  //: Обгон ТВ, который уже не набег рукопожатия каста (7-12 с, см. `_follow`), а
+  //: перемотка назад мимо страницы - пультом ТВ, без номера моста.
+  LOST_S: 30,
   //: Заминка после первого кадра молчит, пока короче этого срока. Перемотка на место и
   //: стык кусков дают ``waiting`` на 20-80 мс (смок 30-09), и «Buffering_» мигал на кадр-
   //: другой поверх идущей плёнки. 300 мс - вчетверо выше худшей такой вспышки и ниже порога,
@@ -609,7 +612,10 @@ const TCPlayer = {
     if (TCPlayer._seeking) {
       video.currentTime = pos;
       if (Math.abs(pos - TCPlayer._seekTarget) <= TCPlayer.DRIFT_S) TCPlayer._clearSeeking();
-    } else if (diff < -TCPlayer.DRIFT_S) {
+    } else if (diff < -TCPlayer.DRIFT_S || diff > TCPlayer.LOST_S) {
+      // Обгон дальше `LOST_S` - перемотка назад пультом ТВ: номера моста у неё нет, и
+      // замедление на четверть догоняло бы 300 с двадцать минут (стенд 06-10-2026: ТВ
+      // ушёл на 1381.8, плёнка встала на 1698.9). Набег рукопожатия короче и идёт темпом.
       video.currentTime = pos;
     }
     video.playbackRate = diff > TCPlayer.DRIFT_S ? TCPlayer.TRIM_RATE : 1;

@@ -18,6 +18,7 @@ from torrcast.domain.segment_container import SegmentContainer
 from torrcast.ports.receiver import Receiver
 from web.live_receiver import POLL_SECONDS, live_receiver
 from web.tv_load import tv_load
+from web.tv_settled import tv_settled
 from web.tv_stale import tv_stale
 from web.tv_steer import tv_steer
 
@@ -37,6 +38,7 @@ class TvSession:
     _receiver: Receiver | None = field(default=None, init=False, repr=False)
     _heard: Position | None = field(default=None, init=False, repr=False)
     _aim: tuple[float, float] | None = field(default=None, init=False, repr=False)
+    _doubt: Position | None = field(default=None, init=False, repr=False)
     _alive: Callable[[], bool] | None = field(default=None, init=False, repr=False)
     _stop_poll: threading.Event | None = field(default=None, init=False, repr=False)
     _poll: threading.Thread | None = field(default=None, init=False, repr=False)
@@ -94,7 +96,7 @@ class TvSession:
         receiver = self.factory(address, profile or self.profile)
         tv_load(receiver, url, title, at, container)
         self._receiver = receiver
-        self._heard = self._aim = None
+        self._heard = self._aim = self._doubt = None
         self._alive = alive
         self.key = key
         self._arm(receiver, echo)
@@ -106,12 +108,10 @@ class TvSession:
         отдало место ДЕСЯТИСЕКУНДНОЙ давности (живой приёмник 10-09-2026: показ на
         ~14-й секунде, ``position()`` в ``stop`` ответил 4.8, «На комп» отматывал назад).
 
-        ``_heard`` читается ПОД замком - опрос пишет его тоже под замком, иначе чтение
-        снаружи иногда ловило недописанный доклад (флап на `test_stop_answers_with_
-        the_last_polled_position_not_a_stale_reread`, ~1/30 без соседних процессов).
+        ``_heard`` читается ПОД замком, как и пишется: иначе чтение ловило недописанный
+        доклад (флап `test_stop_answers_with_the_last_polled_position_not_a_stale_reread`).
         """
-        receiver, self._receiver = self._receiver, None
-        self.key = ""
+        receiver, self._receiver, self.key = self._receiver, None, ""
         if receiver is None:
             return 0.0
         self._disarm()
@@ -137,9 +137,8 @@ class TvSession:
 
     def _release(self) -> None:
         """Закрыть прежнюю связь без чтения её места - её никто не спрашивал."""
-        receiver, self._receiver = self._receiver, None
-        self.key = ""
-        self._heard = self._aim = None
+        receiver, self._receiver, self.key = self._receiver, None, ""
+        self._heard = self._aim = self._doubt = None
         if receiver is None:
             return
         self._disarm()
@@ -155,10 +154,10 @@ class TvSession:
         poll.start()
 
     def _disarm(self) -> None:
-        """Остановить опрос и дождаться его конца перед тем, как трогать приёмник."""
+        """Остановить опрос и дождаться его конца перед тем, как трогать приёмник.
+        Опрос, снимающий каст сам (:meth:`_pump`), себя не ждёт: join самого себя - ошибка."""
         if self._stop_poll is not None:
             self._stop_poll.set()
-        # Опрос, снимающий каст сам (:meth:`_pump`), себя не ждёт: join самого себя - ошибка.
         if self._poll is not None and self._poll is not threading.current_thread():
             self._poll.join(timeout=self.poll_seconds)
         self._stop_poll = self._poll = None
@@ -191,9 +190,10 @@ class TvSession:
                 echo(spot)
 
     def _backwards(self, spot: Position) -> bool:
-        """Доклад назад - излёт, кроме приезда своей перемотки (:func:`web.tv_stale.tv_stale`)."""
+        """Доклад назад - излёт, кроме своей перемотки и устоявшегося места (`tv_settled`)."""
         stale, self._aim = tv_stale(spot, self._heard, self._aim)
-        return stale
+        self._doubt = spot if stale and not tv_settled(spot, self._doubt) else None
+        return self._doubt is not None
 
 
 #: Один держатель на процесс страницы: оба маршрута спрашивают именно его.
