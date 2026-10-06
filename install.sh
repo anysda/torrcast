@@ -52,6 +52,20 @@ case "$LANGUAGE" in
     en|ru|"") ;;
     *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 2 ;;
 esac
+#: Молчание о языке - ещё не «по-английски»: у кого система говорит по-русски, тот и
+#: ставит по-русски. Локаль читается в порядке POSIX для сообщений: LC_ALL, LC_MESSAGES,
+#: LANG. Значение, пришедшее в TORRCAST_LOCALE_LANGUAGE, весомее своего окружения: его
+#: снимают до sudo (однострок и перезапуск ниже), а sudo вправе вытереть LANG. Названный
+#: язык и язык живого конфига весомее локали (см. ниже, после CONFIG_DIR).
+case "${TORRCAST_LOCALE_LANGUAGE:-}" in
+    en|ru) ;;
+    *)
+        case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+            ru|ru_*|ru.*) TORRCAST_LOCALE_LANGUAGE=ru ;;
+            *) TORRCAST_LOCALE_LANGUAGE=en ;;
+        esac
+        ;;
+esac
 
 # Отказываем чужой ОС до чтения конфигов, временных файлов и поднятия прав. Дальше
 # ветки именуются этой один раз измеренной платформой: подделка uname тем самым
@@ -60,7 +74,7 @@ case "$(uname -s 2>/dev/null || true)" in
     Linux)  OS_FAMILY=linux ;;
     Darwin) OS_FAMILY=macos ;;
     *)
-        if [ "$LANGUAGE" = ru ]; then
+        if [ "${LANGUAGE:-$TORRCAST_LOCALE_LANGUAGE}" = ru ]; then
             printf 'ошибка: нужен Debian/Ubuntu или macOS\n' >&2
         else
             printf 'error: Debian/Ubuntu or macOS is required\n' >&2
@@ -117,7 +131,7 @@ UPGRADE_FROM="${TORRCAST_UPGRADE_FROM:-}"
 if [ -z "$LANGUAGE" ] && [ -r "$CONFIG_DIR/config.json" ]; then
     LANGUAGE="$(sed -n 's/.*"language" *: *"\(en\|ru\)".*/\1/p' "$CONFIG_DIR/config.json" | head -n 1)"
 fi
-[ -n "$LANGUAGE" ] || LANGUAGE=en
+[ -n "$LANGUAGE" ] || LANGUAGE="$TORRCAST_LOCALE_LANGUAGE"
 #: Интерпретатор ищем, а не прибиваем. Нижняя граница - 3.12 (requires-python), и на
 #: Debian 12 её нет вовсе: в репозиториях у неё только python3.11. Такую машину
 #: установщик не бросает и чужих apt-репозиториев ей не дописывает - интерпретатор

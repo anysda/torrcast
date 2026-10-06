@@ -478,6 +478,19 @@ def _same_tongue() -> Iterator[None]:
     _choose_tongue(was)
 
 
+@pytest.fixture(autouse=True)
+def _neutral_locale(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Локаль машины, на которой идёт гейт, в установщик не протекает.
+
+    Не названный язык установщик берёт из системной локали (LC_ALL, LC_MESSAGES, LANG),
+    а наборы о его выводе меряют английские слова молчания: под русской локалью
+    разработчика они краснели бы от машины, а не от кода. Свою локаль тест называет сам.
+    """
+    monkeypatch.setenv("LANG", "C.UTF-8")
+    for name in ("LC_ALL", "LC_MESSAGES", "TORRCAST_LOCALE_LANGUAGE"):
+        monkeypatch.delenv(name, raising=False)
+
+
 #: Единственная проба, которой настоящий источник описаний нужен НА СЛОТЕ: она сторожит,
 #: что проводка процесса его туда и собрала. Переименуют её - подделка встанет и здесь, и
 #: проба покраснёт своим ``isinstance``, а не промолчит.

@@ -17,7 +17,20 @@ set -eu
 BOOTSTRAP_URL="${TORRCAST_BOOTSTRAP_URL:-https://torrcast.anysda.space}"
 GITHUB_WEB="${TORRCAST_GITHUB_WEB:-https://github.com}"
 PROJECT_PATH="${TORRCAST_PROJECT_PATH:-anysda/torrcast}"
-LANGUAGE="${TORRCAST_LANGUAGE:-en}"
+#: Язык системной локали (LC_ALL, LC_MESSAGES, LANG); пришедший снаружи весомее: его
+#: снимают до sudo, а sudo вправе вытереть LANG. install.sh берёт его, когда язык не
+#: назван и живого конфига нет.
+case "${TORRCAST_LOCALE_LANGUAGE:-}" in
+    en|ru) ;;
+    *)
+        case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+            ru|ru_*|ru.*) TORRCAST_LOCALE_LANGUAGE=ru ;;
+            *) TORRCAST_LOCALE_LANGUAGE=en ;;
+        esac
+        ;;
+esac
+export TORRCAST_LOCALE_LANGUAGE
+LANGUAGE="${TORRCAST_LANGUAGE:-$TORRCAST_LOCALE_LANGUAGE}"
 #: Установленная версия, от которой идёт обновление. Непустое значение - это и есть
 #: второй вход: работа начинается со сверки версий, а не со скачивания.
 UPGRADE_FROM="${TORRCAST_UPGRADE_FROM:-}"
@@ -68,8 +81,10 @@ become_root() {
         exec sudo sh -c '
             export TORRCAST_BOOTSTRAP_URL="$1" TORRCAST_GITHUB_WEB="$2" TORRCAST_PROJECT_PATH="$3"
             [ -z "$4" ] || export TORRCAST_LANGUAGE="$4"
+            export TORRCAST_LOCALE_LANGUAGE="$5"
             curl -fsSL "$1" | sh
-        ' _ "$BOOTSTRAP_URL" "$GITHUB_WEB" "$PROJECT_PATH" "${TORRCAST_LANGUAGE:-}"
+        ' _ "$BOOTSTRAP_URL" "$GITHUB_WEB" "$PROJECT_PATH" "${TORRCAST_LANGUAGE:-}" \
+            "$TORRCAST_LOCALE_LANGUAGE"
     fi
     # Сюда доходят только там, где sudo нет вовсе: советовать его тут значило бы
     # послать человека за командой, которой у него на машине не существует.

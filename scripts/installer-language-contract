@@ -1,7 +1,7 @@
 #!/bin/sh
 # Договор языка установщика (заведён в TC-886, переставлен в TC-955):
 #
-#   - свежая установка без ключей пишет в конфиг язык по умолчанию (en);
+#   - свежая установка без ключей пишет в конфиг язык системной локали;
 #   - язык ЖИВОГО конфига повторная установка без ключей СОХРАНЯЕТ: выбор языка -
 #     вкус человека (cast --ru / --en), а не замер кода, и обновление не вправе
 #     его сносить;
@@ -10,6 +10,11 @@
 #   - бутстрап `install` сносит язык через перезапуск под sudo, только если тот
 #     назван: молчание однострока обязано доехать до install.sh молчанием, иначе
 #     каждое обновление не-root'ом сбрасывало бы язык в дефолт.
+#   - не названный язык при свежей установке - язык системной локали (LC_ALL, затем
+#     LC_MESSAGES, затем LANG): ru_* - ru, всё остальное - en; названный ключ и язык
+#     живого конфига весомее локали;
+#   - язык локали снимается до sudo и едет за ним своим каналом
+#     (TORRCAST_LOCALE_LANGUAGE): настоящий sudo вправе вытереть LANG.
 #
 # Проверки - пробы, а не грепы там, где договор о поведении: install.sh гоняется
 # в песочнице (TORRCAST_NO_ROOT, фаза config с поддельным apikey Prowlarr), а
@@ -26,6 +31,8 @@ grep -Fq -- '-ru) LANGUAGE=ru' install.sh || fail 'install.sh has no -ru option'
 grep -Fq '"language": "$LANGUAGE"' install.sh || fail 'new config does not store language'
 grep -Fq '[ -z "$4" ] || export TORRCAST_LANGUAGE="$4"' install \
     || fail 'bootstrap does not forward the named language through sudo'
+grep -Fq 'export TORRCAST_LOCALE_LANGUAGE="$5"' install \
+    || fail 'bootstrap does not forward the locale language through sudo'
 
 # Локаль принадлежит процессам продукта, а не машине. Эти пины называют именно
 # операции записи: значение LOCALE и даже чтение системных файлов договор не нарушают.
@@ -74,14 +81,25 @@ cat >"$box/sudo-bin/curl" <<SH
 cat <<'PROBE'
 #!/bin/sh
 printf 'LANGUAGE=%s\n' "\${TORRCAST_LANGUAGE:-<unset>}" >>"$box/observed"
+printf 'LOCALE=%s\n' "\${TORRCAST_LOCALE_LANGUAGE:-<unset>}" >>"$box/observed"
 PROBE
 SH
 chmod +x "$box/sudo-bin/id" "$box/sudo-bin/sudo" "$box/sudo-bin/curl"
 
-PATH="$box/sudo-bin:$PATH" sh ./install >/dev/null 2>&1 \
+PATH="$box/sudo-bin:$PATH" env -u LC_ALL -u LC_MESSAGES -u TORRCAST_LOCALE_LANGUAGE \
+    LANG=ru_RU.UTF-8 sh ./install >/dev/null 2>&1 \
     || fail 'bootstrap run failed'
-grep -Fq 'LANGUAGE=<unset>' "$box/observed" \
+grep -Fxq 'LANGUAGE=<unset>' "$box/observed" \
     || fail 'bootstrap exports a default language through sudo - silence must stay silence'
+grep -Fxq 'LOCALE=ru' "$box/observed" \
+    || fail 'bootstrap lost the Russian locale language behind sudo'
+
+: >"$box/observed"
+PATH="$box/sudo-bin:$PATH" env -u LC_MESSAGES -u TORRCAST_LOCALE_LANGUAGE \
+    LANG=ru_RU.UTF-8 LC_ALL=C sh ./install >/dev/null 2>&1 \
+    || fail 'bootstrap run under LC_ALL=C failed'
+grep -Fxq 'LOCALE=en' "$box/observed" \
+    || fail 'bootstrap did not let LC_ALL=C override a Russian LANG'
 
 : >"$box/observed"
 PATH="$box/sudo-bin:$PATH" TORRCAST_LANGUAGE=ru sh ./install >/dev/null 2>&1 \
@@ -93,27 +111,55 @@ grep -Fq 'LANGUAGE=ru' "$box/observed" \
 mkdir -p "$box/p/prowlarr-data"
 printf '<Config><ApiKey>sandboxkey</ApiKey></Config>\n' >"$box/p/prowlarr-data/config.xml"
 
-run_config() {  # $@ - ключи install.sh
-    TORRCAST_NO_ROOT=1 TORRCAST_NO_SYSTEMD=1 TORRCAST_PHASES=config \
+run_config() {  # $1 - локаль строкой «ИМЯ=значение ...», дальше ключи install.sh
+    locale_env=$1
+    shift
+    # shellcheck disable=SC2086 # локаль - несколько присваиваний, делятся пробелом
+    env -u LANG -u LC_ALL -u LC_MESSAGES -u TORRCAST_LOCALE_LANGUAGE $locale_env \
+        TORRCAST_NO_ROOT=1 TORRCAST_NO_SYSTEMD=1 TORRCAST_PHASES=config \
         TORRCAST_PREFIX="$box/p" TORRCAST_CONFIG_DIR="$box/etc" \
         TORRCAST_STATE_DIR="$box/state" TORRCAST_BIN_DIR="$box/bin" \
         TORRCAST_MOTD="$box/motd" TORRCAST_MOTD_D="$box/motd.d" \
         ./install.sh "$@" >"$box/config.out" 2>&1
 }
 
-run_config || fail 'fresh sandbox install failed'
+fresh_language() {  # $1 - локаль, $2 - ждём язык, $3 - что сломано; дальше ключи
+    rm -f "$box/etc/config.json"
+    want=$2
+    broken=$3
+    locale_env=$1
+    shift 3
+    run_config "$locale_env" "$@" || fail "fresh sandbox install failed: $broken"
+    [ "$(jq -r .language "$box/etc/config.json")" = "$want" ] || fail "$broken"
+}
+fresh_language 'LANG=ru_RU.UTF-8' ru 'a Russian LANG did not give a Russian install'
+fresh_language 'LANG=C LC_ALL=ru_RU.UTF-8' ru 'LC_ALL=ru did not win over LANG=C'
+fresh_language 'LANG=C LC_MESSAGES=ru_RU.UTF-8' ru 'LC_MESSAGES=ru did not win over LANG=C'
+fresh_language 'LANG=en_US.UTF-8' en 'an English LANG did not give an English install'
+fresh_language 'LANG=C' en 'the C locale did not give an English install'
+fresh_language '' en 'no locale at all did not give an English install'
+fresh_language 'LANG=ru_RU.UTF-8 LC_ALL=C' en 'LC_ALL=C did not win over a Russian LANG'
+fresh_language 'LANG=ru_RU.UTF-8' en 'a named -en key lost to a Russian locale' -en
+fresh_language 'LANG=C TORRCAST_LOCALE_LANGUAGE=ru' ru \
+    'the locale language taken before sudo lost to the stripped one behind it'
+
+rm -f "$box/etc/config.json"
+run_config 'LANG=C' || fail 'fresh sandbox install failed'
 [ "$(jq -r .language "$box/etc/config.json")" = en ] \
     || fail 'fresh install without keys did not store en'
+run_config 'LANG=ru_RU.UTF-8' || fail 'reinstall under a Russian locale failed'
+[ "$(jq -r .language "$box/etc/config.json")" = en ] \
+    || fail 'a Russian locale overrode the language of the live config'
 
 # Выбор человека продуктом: cast --ru пишет в этот же конфиг.
 jq '.language="ru"' "$box/etc/config.json" >"$box/etc/config.json.tmp"
 mv "$box/etc/config.json.tmp" "$box/etc/config.json"
 
-run_config || fail 'reinstall without keys failed'
+run_config 'LANG=C' || fail 'reinstall without keys failed'
 [ "$(jq -r .language "$box/etc/config.json")" = ru ] \
     || fail 'reinstall without keys dropped the chosen language (TC-955)'
 
-run_config -en || fail 'reinstall with -en failed'
+run_config 'LANG=ru_RU.UTF-8' -en || fail 'reinstall with -en failed'
 [ "$(jq -r .language "$box/etc/config.json")" = en ] \
     || fail 'a named -en key did not change the language'
 
@@ -220,7 +266,8 @@ printf '{"tv": null}\n' >"$box/ru/etc/config.json"
 printf '#!/bin/sh\nexit 1\n' >"$box/en/bin/cast"
 cp "$box/en/bin/cast" "$box/ru/bin/cast"
 chmod +x "$box/en/bin/cast" "$box/ru/bin/cast"
-TORRCAST_NO_ROOT=1 TORRCAST_NO_SYSTEMD=1 TORRCAST_PHASES=receiver \
+env -u LC_ALL -u LC_MESSAGES -u TORRCAST_LOCALE_LANGUAGE LANG=C \
+    TORRCAST_NO_ROOT=1 TORRCAST_NO_SYSTEMD=1 TORRCAST_PHASES=receiver \
     TORRCAST_PREFIX="$box/en" TORRCAST_CONFIG_DIR="$box/en/etc" \
     TORRCAST_STATE_DIR="$box/en/state" TORRCAST_BIN_DIR="$box/en/bin" \
     TORRCAST_MOTD="$box/en/motd" TORRCAST_MOTD_D="$box/en/motd.d" \
@@ -241,4 +288,4 @@ else
     code=$?
 fi
 [ "$code" -eq 2 ] || fail "unknown option returned $code instead of 2"
-printf 'installer language contract: language and sudo are preserved; service units and managers stay in the sandbox\n'
+printf 'installer language contract: locale, named and live language and sudo are preserved; service units and managers stay in the sandbox\n'

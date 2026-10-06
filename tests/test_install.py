@@ -1998,6 +1998,23 @@ def test_silence_about_the_tongue_stays_silence_across_sudo(tmp_path: Path) -> N
 
 
 @pytest.mark.machine
+def test_the_locale_tongue_rides_across_sudo_apart_from_the_named_one(tmp_path: Path) -> None:
+    """Язык системной локали за sudo едет своим каналом: настоящий sudo вправе вытереть
+    LANG, а молчание о названном языке остаётся молчанием (TC-955)."""
+    env, calls = _rights_stand(tmp_path)
+    env.pop("LC_ALL", None)
+    env.pop("LC_MESSAGES", None)
+    env.pop("TORRCAST_LOCALE_LANGUAGE", None)
+    env["LANG"] = "ru_RU.UTF-8"
+
+    subprocess.run([str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False)
+
+    asked = calls.read_text(encoding="utf-8").strip()
+    assert "TORRCAST_LOCALE_LANGUAGE=ru" in asked, f"язык локали не доехал: {asked!r}"
+    assert "TORRCAST_LANGUAGE=" not in asked, f"молчание доехало словом: {asked!r}"
+
+
+@pytest.mark.machine
 def test_without_sudo_the_way_out_is_named_without_naming_sudo(tmp_path: Path) -> None:
     """Машина, где человек уже root, а sudo не поставлен вовсе (обычное дело в LXC),
     получала от нас команду, которой у неё нет. Отказ обязан звать к root, а не к sudo.
