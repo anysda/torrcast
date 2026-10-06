@@ -170,3 +170,9 @@ def test_the_roster_leaves_core_sources_to_core_and_skips_present_ones() -> None
     lines = list(IndexerHealth.roster(expected, [{"name": "Knaben"}]))
     assert [line for line, _ in lines] == [line for line, _ in lines if "sukebei" in line]
     assert len(lines) == 1
+
+
+def test_the_roster_does_not_call_an_indexer_switched_off_by_hand_missing() -> None:
+    """Выключенный человеком стоит в Prowlarr, и сверщик его не дозаводит: строки нет."""
+    lines = list(IndexerHealth.roster(["sukebei"], [{"name": "sukebei", "enable": False}]))
+    assert lines == []

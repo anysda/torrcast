@@ -166,10 +166,12 @@ class IndexerHealth:
         чтобы RuTor не назвался дважды. Остальное - двойник «RuTor names», sukebei и прочие
         узкие из эталона - видно только здесь: по имени, которого в Prowlarr сейчас нет.
         Сверка ТОЧНЫМ именем: двойник и его трекер различаются лишь суффиксом имени.
+        Выключенный человеком стоит в Prowlarr и сверщиком не дозаводится: он не назван.
         """
-        enabled = set(IndexerHealth.enabled_names(payload))
+        entries = payload if isinstance(payload, list) else []
+        present = {e.get("name") for e in entries if isinstance(e, dict)}
         core = {indexer.lower() for indexer in CORE_INDEXERS}
         for name in expected:
-            if name.lower() in core or name in enabled:
+            if name.lower() in core or name in present:
                 continue
             yield HealthVerdict.warn(phrase("health.roster_absent", name=name))
