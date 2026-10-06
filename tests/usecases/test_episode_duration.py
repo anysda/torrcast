@@ -2,6 +2,7 @@
 
 import pytest
 
+from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.worker_settings import WORKER_DUR
@@ -41,6 +42,34 @@ def test_missing_weight_is_estimated_for_the_current_episode(
 
     assert entry.vbps == 40.0, "оценка берёт размер текущей, а не первой серии"
     assert entry.vbps_estimated
+
+
+def test_a_new_episode_reselects_its_voice_from_the_passport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Номер русской дорожки прошлого файла не имеет смысла в новом."""
+    monkeypatch.setattr(
+        episode_duration,
+        "_episode_prober",
+        lambda source, timeout: Media(
+            duration=4000.0,
+            tracks=(AudioTrack(0, "eng"), AudioTrack(1, "rus")),
+        ),
+    )
+    monkeypatch.setattr(episode_duration, "store", lambda: _MemoryStore())
+    entry = Entry(
+        title="Сериал",
+        magnet="m",
+        kind="tv",
+        voice="rus",
+        season=2,
+        episode=24,
+        episodes=[[2, 24, 4], [3, 1, 5]],
+    ).advance()
+
+    _duration("ключ", entry, "http://127.0.0.1:1/x")
+
+    assert entry.audio == 1, "паспорт s3e1 выбрал rus на её собственной позиции"
 
 
 def test_a_measured_weight_and_an_old_three_column_row_keep_their_meaning(

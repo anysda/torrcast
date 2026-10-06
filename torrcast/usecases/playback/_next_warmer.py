@@ -20,6 +20,7 @@ from torrcast.usecases.playback._warmer import _warmer
 from torrcast.usecases.playback.entry_layout import entry_layout
 from torrcast.usecases.playback.pack_container import pack_container
 from torrcast.usecases.playback.voice_source import voice_source
+from torrcast.usecases.rank.reselect_voice import reselect_voice
 from torrcast.usecases.warm.warmer import Warmer
 
 
@@ -61,9 +62,10 @@ def _next_warmer(
     # (:func:`torrcast.usecases.episode_duration._duration`), собранная тем же правилом, а
     # не свой пересказ паспорта: разойдись они - прогретое ляжет под другим ключом
     # (:func:`torrcast.usecases.warm.warm_key`), и показ своего же прогретого не найдёт.
-    passport = episode_passport(following, _state.probe(source, timeout=WORKER_DUR))
-    video_mbit = max(0.0, passport.vbps)
-    grid, whole = entry_layout(config, source, passport, profile, file_size)
+    probed = _state.probe(source, timeout=WORKER_DUR)
+    following = reselect_voice(episode_passport(following, probed), probed)
+    video_mbit = max(0.0, following.vbps)
+    grid, whole = entry_layout(config, source, following, profile, file_size)
     recoder = (
         None
         if whole is not None
@@ -81,7 +83,7 @@ def _next_warmer(
             config,
             video_mbit=video_mbit,
             profile=profile,
-            video_mbit_estimated=passport.vbps_estimated,
+            video_mbit_estimated=following.vbps_estimated,
             voice=voice,
         )
     )

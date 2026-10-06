@@ -138,7 +138,6 @@ class Bridge:
 
     def control(self, command: str, arg: float) -> None:
         """``POST /api/control``: пульт идущего показа, а остановка - дверь наружу.
-
         Остановка ВЫШЕ отказов (:func:`hass.stopping.stopping`), без показа пульту нечего делать.
         🔴 Вкладка пульта не берёт (TC-1210), а её каст «На ТВ» берёт (:mod:`hass.tab_cast`).
         """
@@ -158,12 +157,14 @@ class Bridge:
         self._motion.commanded(command, arg)
 
     def next(self, body: dict[str, JsonValue] | None = None, tab: str = "") -> None:
-        """``POST /api/next``: следующая серия той же раздачи, названная запросом."""
-        if args := next_show(self._session, body or {}, tab):
-            self._start(args)
+        """``POST /api/next`` проходит штатный конец живого показа, не новый запуск."""
+        if next_show(self._session, body or {}, tab) is None:
+            return
+        if (shown := self._session.snapshot(self._session.key())) is None or shown.duration <= 0:
+            raise RefusedError(BUSY)
+        self.control(SEEKBY, max(0.0, shown.duration - shown.position - 1.0))
 
     def _start(self, args: list[str]) -> str:
-        """Отдать команду рабочему потоку; идущий показ новый СНИМАЕТ (ТЗ §7.4)."""
         if not starting(self._orders, self._session, args):
             raise RefusedError(BUSY)
         return secrets.token_hex(4)
@@ -185,7 +186,6 @@ class Bridge:
         self._orders.leave()
 
     def _volume_of(self, config: Config) -> Volume:
-        """Громкость приёмника из настройки прямо сейчас: ``cast --tv`` меняет его на лету."""
         address = config.tv or ""
         if self._volume is not None and self._volume.address != address:
             self._volume.close()

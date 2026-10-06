@@ -22,6 +22,7 @@ from tests.usecases.revive_playback.world import (
     feed_with_segments,
 )
 from torrcast.domain._series import _Series
+from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
@@ -286,6 +287,66 @@ def _homemakers(**fields: Any) -> Entry:
         episodes=[[1, 7, 0], [1, 8, 1]],
         **fields,
     )
+
+
+def test_a_pack_transition_reselects_the_next_files_voice(
+    monkeypatch: pytest.MonkeyPatch, _ports_restored: None
+) -> None:
+    """Паспорт s3e1 ставит rus вторым, хотя в s2e24 он был первым."""
+    key = "tv:домохозяйки-голос:2020"
+    state = FakeStateStore()
+    fresh = state.load()
+    fresh.put(
+        key,
+        Entry(
+            title="Домохозяйки",
+            magnet="magnet:?xt=urn:btih:x",
+            kind="tv",
+            voice="rus",
+            dur=2600.0,
+            depth=8,
+            frame=1080,
+            season=2,
+            episode=24,
+            episodes=[[2, 24, 4], [3, 1, 5]],
+        ),
+    )
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(Tape())
+    monkeypatch.setattr(worker_loop, "_worker_thresholds", lambda *_a: {})
+    monkeypatch.setattr(
+        "torrcast.usecases.episode_duration._episode_prober",
+        lambda *_a, **_k: Media(
+            duration=2600.0, tracks=(AudioTrack(0, "eng"), AudioTrack(1, "rus"))
+        ),
+    )
+    played: list[int] = []
+
+    def play(
+        _c: object, _s: object, audio: int, _t: str, _clock: object, watch: Any, **_kw: object
+    ) -> int:
+        played.append(audio)
+        watch.done = True
+        now = state.load()
+        now.put(key, watch.entry.advance())
+        state.save(now)
+        return 0
+
+    _worker_loop(
+        Config(),
+        key,
+        FakeTorrentEngine(),
+        None,  # type: ignore[arg-type]
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        how=_HOW,
+        play=play,
+        prepare=lambda *_a: None,
+    )
+
+    assert played == [0, 1], "в s3e1 играет её rus, а не первый поток s2e24"
 
 
 def test_a_show_closed_by_the_remote_moves_the_bookmark_without_raising_the_receiver(

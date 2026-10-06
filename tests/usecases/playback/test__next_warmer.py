@@ -12,6 +12,7 @@ from tests.fakes.torrent_engine import FakeTorrentEngine
 from torrcast.adapters.recode.recode_dir import RECODE_DIR
 from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.stream_pack.grid_for import grid_for
+from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import PLAYING_FLAG
@@ -76,6 +77,25 @@ def test_the_next_episode_is_warmed_from_its_own_video(tmp_path: Path) -> None:
     assert made is not None
     assert made.source == "http://fake/hash/1"
     assert made.voice == "", "звук внутри видео - второму входу взяться неоткуда"
+
+
+def test_the_next_episode_warms_with_the_voice_from_its_own_passport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _russian_product: None
+) -> None:
+    """Раскладка rus/eng в s1 не диктует номер дорожки s2."""
+    composition.use_prober(
+        monkeypatch,
+        lambda source, **_: Media(
+            duration=300.0, tracks=(AudioTrack(0, "eng"), AudioTrack(1, "rus"))
+        ),
+    )
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    entry = _serial(apart=False)
+    entry.voice = "rus"  # в следующем файле русскую надо найти по имени, не по номеру
+
+    made = _next_warmer(config, FakeTorrentEngine(torrent_files=list(_FILES)), "hash", entry)
+
+    assert made is not None and made.audio == 1, "прогрев выбрал rus у следующего файла"
 
 
 def test_the_next_episode_hands_its_own_size_to_the_grid(

@@ -397,7 +397,9 @@ def test_the_last_episode_of_the_release_has_no_next_one_either() -> None:
     assert refusal.value.word == NO_NEXT
 
 
-def test_the_next_episode_is_asked_for_by_the_query_a_human_would_type() -> None:
+def test_the_next_episode_finishes_the_current_show_without_starting_another(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     state_slot.install(FakeStateStore())
     store = state_slot.store()
     state = store.load()
@@ -411,18 +413,19 @@ def test_the_next_episode_is_asked_for_by_the_query_a_human_would_type() -> None
         query="чернобыль",
     )
     store.save(state)
-    asked: list[list[str]] = []
-
-    def command(argv: Sequence[str] | None) -> int:
-        asked.append(list(argv or []))
-        return 0
-
-    bridge = _bridge(FakePlaybackSession(playing=True, play_key="tv:чернобыль"), command=command)
+    control = tmp_path / "control"
+    monkeypatch.setenv(CTL_ENV, str(control))
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="tv:чернобыль",
+        shown=PlaybackSnapshot(key="tv:чернобыль", title="Чернобыль", position=600, duration=1800),
+    )
+    bridge = _bridge(session)
 
     bridge.next()
-    bridge.run_one()
 
-    assert asked == [["чернобыль s1e4"]]
+    assert control.read_text(encoding="utf-8") == "seekby 1199"
+    assert session.stopped == 0, "стрелка не снимает живой юнит ради нового запуска"
 
 
 def test_a_next_call_the_shows_own_watch_already_did_starts_nothing() -> None:

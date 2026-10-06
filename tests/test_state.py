@@ -187,7 +187,7 @@ def series(episode: int = 3, **fields: object) -> Entry:
 
 
 def test_watched_episode_moves_to_the_next_file_of_the_release() -> None:
-    """Серия досмотрена: следующая серия раздачи с нуля, релиз и дорожка те же.
+    """Серия досмотрена: следующая серия раздачи с нуля и без номера старой дорожки.
     Следующая — это следующий ФАЙЛ раздачи, а не «номер + 1»: в раздаче может не быть
     ни первой серии, ни сплошной нумерации.
     """
@@ -199,7 +199,7 @@ def test_watched_episode_moves_to_the_next_file_of_the_release() -> None:
     assert (following.season, following.episode) == (1, 4)
     assert following.file_idx == 7, "играем файл этой серии, а не тот же самый"
     assert following.pos == 0 and following.dur == 0 and not following.done
-    assert following.magnet == "m" and following.audio == 1  # выбор релиза не переспрашивается
+    assert following.magnet == "m" and following.audio == 0  # дорожку выберет паспорт нового файла
 
 
 def test_last_episode_of_the_release_ends_the_run() -> None:

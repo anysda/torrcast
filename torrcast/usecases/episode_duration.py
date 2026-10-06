@@ -9,6 +9,7 @@ from torrcast.domain.episode_passport import episode_passport
 from torrcast.domain.worker_settings import WORKER_DUR
 from torrcast.ports.prober import Prober
 from torrcast.ports.state_store.slot import store
+from torrcast.usecases.rank.reselect_voice import reselect_voice
 
 #: Чем читается паспорт потока. Кладёт сюда композиционный корень
 #: (:mod:`torrcast.runtime.wire`): без него следующая серия не узнала бы своей длительности.
@@ -52,10 +53,11 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     # Паспорт в запись - тем же правилом, каким его видит прогрев следующей серии
     # (:func:`torrcast.domain.episode_passport.episode_passport`): вес видео, кодек, глубина,
     # кадр и HDR у этой серии свои, а разойдись они с прогревом - прогретое не найдётся.
-    passport = episode_passport(entry, _episode_prober(source, timeout=WORKER_DUR))
+    passport = _episode_prober(source, timeout=WORKER_DUR)
+    measured = reselect_voice(episode_passport(entry, passport), passport)
     # Правка на месте, как и прежде: запись держит не только этот вызов.
-    for name in ("dur", "vbps", "vbps_estimated", "codec", "depth", "frame", "hdr"):
-        setattr(entry, name, getattr(passport, name))
+    for name in ("audio", "dur", "vbps", "vbps_estimated", "codec", "depth", "frame", "hdr"):
+        setattr(entry, name, getattr(measured, name))
     state = store().load()
     state.put(key, entry)
     store().save(state)
