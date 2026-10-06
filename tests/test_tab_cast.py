@@ -171,7 +171,7 @@ def test_a_tv_that_played_the_film_to_the_end_refuses_the_remote_and_keeps_the_p
     monkeypatch.setattr("hass.tab_cast.SESSION", session)
     session.start("10.0.1.7", "Муха", "u", 7199.0, echo=echoed.append, key="k1")
     try:
-        _until(lambda: bool(echoed))
+        _until(lambda: len(echoed) >= 3)  # игра установилась: доклад досчитывается
         receiver.current = Position(0.0, 0.0, False, "IDLE")
         asked = len(receiver.fronts)
         _until(lambda: len(receiver.fronts) >= asked + 3)
@@ -182,4 +182,6 @@ def test_a_tv_that_played_the_film_to_the_end_refuses_the_remote_and_keeps_the_p
 
     assert refused.value.word == NOTHING_PLAYING
     assert receiver.said == [], "команда ушла ТВ без картины"
-    assert echoed[-1].pos == 7199.0, "ноль ТВ без картины ушёл в закладку"
+    # Место - доклад, досчитанный до сейчас (:func:`web.tv_fresh.tv_fresh`): сырой отстаёт
+    # на такт опроса, и после конца фильма карточка вставала на 10141.0 из 10143.9.
+    assert 7199.0 < echoed[-1].pos <= 7200.0, f"ТВ без картины не на доигранном: {echoed[-1]}"

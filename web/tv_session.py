@@ -182,7 +182,7 @@ class TvSession:
                 if self._receiver is not receiver:
                     return
                 asked, self._asked = self._asked, time.monotonic()
-                spot = tv_idle(receiver.position(), self._heard, self._aim)
+                spot = tv_idle(receiver.position(), self.heard(self.key), self._aim)
                 if self._backwards(spot):
                     continue
                 self._since, self._heard = tv_since(self._heard, spot, asked), spot
