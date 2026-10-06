@@ -13,6 +13,7 @@ def ru() -> dict[str, str]:
     return {
         # Голова файла: до разбора коробки её ещё надо прочитать и опознать.
         "frames.head_unreadable": "не читается голова файла: {reason}",
+        "frames.stream_dropped": "раздача снята",
         "frames.unknown_container": "это не mkv и не mp4: карту опорных кадров взять неоткуда",
         # Матрёшка: голова файла и индекс Cues.
         "frames.ebml_broken": "битое число EBML",

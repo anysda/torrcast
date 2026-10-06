@@ -6,6 +6,7 @@ import time
 import urllib.request
 from typing import Any
 
+from torrcast.adapters.torrserver.stream_reads import READS
 from torrcast.domain.warm_open import HEAD_WARM, WARM_TIMEOUT
 from torrcast.ports.journal.slot import journal
 
@@ -21,14 +22,17 @@ def warm_at(source_url: str, offset: int, upto: int = HEAD_WARM, alive: Any = No
 
     ``alive`` — жив ли ещё смысл греть: релиз, от которого показ отказался, дотягивать
     нельзя, он отъедает полосу у выбранного
-    (:meth:`torrcast.usecases.select_bench.bench.Bench.keep_only`).
+    (:meth:`torrcast.usecases.select_bench.bench.Bench.keep_only`). Снятую раздачу не читает
+    вовсе, а идущее чтение снятие обрывает (TC-1407, :data:`READS`).
     """
     began = time.monotonic()
     taken = 0
     where = f"bytes={offset}-{offset + upto - 1}"
     request = urllib.request.Request(source_url, headers={"Range": where})
-    with urllib.request.urlopen(request, timeout=WARM_TIMEOUT) as answer:
-        while chunk := answer.read(1 << 20):
+    with READS.opened(
+        source_url, lambda: urllib.request.urlopen(request, timeout=WARM_TIMEOUT)
+    ) as answer:
+        while answer is not None and (chunk := answer.read(1 << 20)):
             taken += len(chunk)
             if alive is not None and not alive():
                 break

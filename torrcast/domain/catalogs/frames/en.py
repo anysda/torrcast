@@ -13,6 +13,7 @@ def en() -> dict[str, str]:
     return {
         # Голова файла: до разбора коробки её ещё надо прочитать и опознать.
         "frames.head_unreadable": "cannot read the head of the file: {reason}",
+        "frames.stream_dropped": "the torrent is removed",
         "frames.unknown_container": (
             "not an mkv and not an mp4: nowhere to get a keyframe map from"
         ),

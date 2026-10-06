@@ -7,6 +7,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from torrcast.adapters.torrserver.stream_reads import READS
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.swarm_silent_error import SwarmSilentError
 from torrcast.domain.why import why
@@ -36,13 +37,22 @@ class HttpRangeReader:
         разные: голова, хвост с индексом, пробы честности. Без отметки на запрос след
         показывал одно окно «чтение -> снята» и приписать его было нечему: замер волны
         30-09 списал такое окно на пробы, а раскладка по запросам показала голову и хвост.
+
+        🔴 Снятую раздачу не читает, а идущий запрос снятие обрывает (TC-1407, :data:`READS`):
+        обрыв приходит сюда той же ветвью, что и молчание роя.
         """
         began = time.monotonic()
         request = urllib.request.Request(
             self.url, headers={"Range": f"bytes={offset}-{offset + size - 1}"}
         )
         try:
-            with self._opener(request, timeout=self.timeout) as answer:
+            with READS.opened(
+                self.url, lambda: self._opener(request, timeout=self.timeout)
+            ) as answer:
+                if answer is None:
+                    reason = phrase("frames.stream_dropped")
+                    self._mark(offset, 0, began, отказ=reason)
+                    raise SwarmSilentError(phrase("frames.head_unreadable", reason=reason))
                 data: bytes = answer.read()
         # ⚠️ Оборванное тело ответа - тоже молчание роя, а не поломка прибора:
         # служба закрывает поток на полуслове, когда куска у неё так и не оказалось,

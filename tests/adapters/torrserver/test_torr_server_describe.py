@@ -52,8 +52,9 @@ def test_a_closed_torrent_is_off_limits_to_the_describer(
 ) -> None:
     shut: list[str] = []
 
-    def close(torrent_hash: str, remove: Callable[[], bool]) -> bool:
+    def close(torrent_hash: str, remove: Callable[[], bool], idle: Callable[[], bool]) -> bool:
         shut.append(torrent_hash)
+        assert idle() is True  # у службы читателей нет
         return remove()
 
     monkeypatch.setattr(DESCRIBER, "close", close)
@@ -63,4 +64,4 @@ def test_a_closed_torrent_is_off_limits_to_the_describer(
 
     assert getattr(server, method)("abc") is True
     assert shut == ["abc"]
-    assert session.sent == [{"action": action, "hash": "abc"}]
+    assert session.sent == [{"action": "get", "hash": "abc"}, {"action": action, "hash": "abc"}]

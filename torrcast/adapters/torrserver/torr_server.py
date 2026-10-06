@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.add_once import add_once
+from torrcast.adapters.torrserver.cache_readers import cache_readers
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.describer import DESCRIBER
 from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
@@ -156,11 +157,19 @@ class TorrServer:
         return {str(i["hash"]).casefold() for i in payload if isinstance(i, dict) and i.get("hash")}
 
     def drop(self, torrent_hash: str) -> bool:
-        return DESCRIBER.close(torrent_hash, lambda: self._torrent_action("rem", torrent_hash))
+        return self._close("rem", torrent_hash)
 
     def park(self, torrent_hash: str) -> bool:
         """Закрыть раздачу, кэш на диске оставить: ``drop`` службы, в отличие от ``rem``."""
-        return DESCRIBER.close(torrent_hash, lambda: self._torrent_action("drop", torrent_hash))
+        return self._close("drop", torrent_hash)
+
+    def _close(self, action: str, torrent_hash: str) -> bool:
+        def idle() -> bool:
+            return cache_readers(self._post, torrent_hash) == 0
+
+        return DESCRIBER.close(
+            torrent_hash, lambda: self._torrent_action(action, torrent_hash), idle
+        )
 
     def _torrent_action(self, action: str, torrent_hash: str) -> bool:
         try:
