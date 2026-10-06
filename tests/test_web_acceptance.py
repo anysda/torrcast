@@ -486,6 +486,54 @@ def test_автопереход_называет_сыгранный_сериал
     assert module._played({}, {}) == "без названия"
 
 
+def test_автопереход_берёт_первую_видимую_серию_сезона_закладки(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Карточка сериала открыта на сезоне закладки: после s2e1 пункта 7 строки s1e1 нет."""
+    module = acceptance()
+    clicked: list[str] = []
+    shown = ["s2e1", "s2e2"]
+
+    def rows(selector: str) -> SimpleNamespace:
+        found = [name for name in shown if selector in ("[data-tc-episode]:visible", name)]
+        first = SimpleNamespace(
+            wait_for=lambda **_kwargs: None,
+            get_attribute=lambda _name: found[0],
+            click=lambda: clicked.append(found[0]),
+        )
+        return SimpleNamespace(first=first, count=lambda: len(found))
+
+    page = SimpleNamespace(locator=rows)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
+    monkeypatch.setattr(module, "_playback_guard", lambda *_args: None)
+    monkeypatch.setattr(module, "_open_card_by_page", lambda *_args: None)
+    monkeypatch.setattr(module, "_await_playback", lambda _ctx: False)
+
+    result = module.check_8_autoplay(ctx)
+
+    assert clicked == ["s2e1"]
+    assert result.detail == "первого кадра серии так и не было"
+
+
+@pytest.mark.parametrize(
+    ("box", "same"),
+    [("/hls/index.m3u8", True), ("http://192.0.2.60:8080/hls/index.m3u8", True), ("/hls/x", False)],
+)
+def test_url_ящика_сверяется_по_потоку_а_не_по_узлу(
+    monkeypatch: pytest.MonkeyPatch, box: str, same: bool
+) -> None:
+    """Вкладка берёт поток с узла страницы (``TCPlayerBox.near``), ящик даёт свою дверь."""
+    module = acceptance()
+    page = SimpleNamespace(evaluate=lambda _js: "http://example:8479/hls/index.m3u8")
+    ctx = module.Ctx("http://example:8479", page, True, Path("/tmp"), {})
+    body = json.dumps({"url": box}).encode()
+    monkeypatch.setattr(module, "_get", lambda _url: (200, body))
+
+    ok, _detail = module._cast_url_matches(ctx)
+
+    assert ok is same
+
+
 def test_серия_контроля_не_прибита_к_s2e1() -> None:
     module = acceptance()
 
@@ -1436,3 +1484,43 @@ def test_кнопка_на_тв_зелёная_на_своей_картине(mo
 
     assert result.ok, result.detail
     assert "до клика 'idle'" in result.detail
+
+
+def test_серия_по_api_state_ждёт_выбранную_а_не_прошлый_показ(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Прошлый прогон оставил играть s2e2: первый опрос после клика по s2e1 видит его."""
+    module = acceptance()
+    answers = iter([(200, b'{"season": 2, "episode": 2}'), (200, b'{"season": 2, "episode": 1}')])
+    monkeypatch.setattr(module, "_get", lambda _url: next(answers))
+    monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+    ctx = module.Ctx("http://example", SimpleNamespace(), True, Path("/tmp"), {})
+
+    assert module._await_episode(ctx, (2, 1)) == (2, 1)
+
+
+@pytest.mark.parametrize(("step", "rate"), [(2.0, 1.0), (0.25, 1.0)])
+def test_доклад_который_продукт_досчитывает_сам_не_ждёт_пяти_секунд(
+    monkeypatch: pytest.MonkeyPatch, step: float, rate: float
+) -> None:
+    """Досчёт продукта меняет доклад каждый опрос каста или каждый запрос: 5 с он не живёт."""
+    module = acceptance()
+    clock = [0.0]
+
+    def report(_ctx: Any) -> tuple[float, str, str]:
+        return 100.0 + rate * step * int(clock[0] // step), "playing", ""
+
+    def wait(ms: int) -> None:
+        clock[0] += ms / 1000.0
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(module, "_box_at", lambda _ctx: (0.0, True, ""))
+    monkeypatch.setattr(module, "_receiver_report", report)
+    page = SimpleNamespace(wait_for_timeout=wait)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {})
+
+    at, changed, word, problem = module._await_stale_receiver_report(ctx)
+
+    assert (word, problem) == ("playing", "")
+    assert at is not None and changed is not None
+    assert clock[0] < 4 * step + 1.0

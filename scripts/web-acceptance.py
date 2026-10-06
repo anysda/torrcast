@@ -2477,20 +2477,8 @@ def check_7_series(ctx: Ctx) -> Result:
     if guard:
         return guard
     target.first.click()
-    # Клик лишь КЛАДЁТ заказ: продукт ещё ищет раздачу и поднимает показ, и до тех пор
-    # `/api/state` честно отвечает `null`. Полсекунды тут мерили скорость сети.
-    season = episode = None
-    began = time.monotonic()
     try:
-        while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
-            code, body = _get(ctx.base + "/api/state")
-            if code == 200:
-                with contextlib.suppress(json.JSONDecodeError):
-                    payload = json.loads(body)
-                    season, episode = payload.get("season"), payload.get("episode")
-            if season is not None and episode is not None:
-                break
-            time.sleep(1.0)
+        season, episode = _await_episode(ctx, (expected_season, expected_episode))
     finally:
         # Показ, поднятый кликом, гасит сам пункт: последним в прогоне он оставался играть
         # на экземпляре, и следующий прогон начинал с чужого живого показа.
@@ -2502,6 +2490,27 @@ def check_7_series(ctx: Ctx) -> Result:
         f"episode={episode!r}, ожидается ({expected_season}, {expected_episode})"
     )
     return Result(7, "Сериал", ok, None, detail)
+
+
+def _await_episode(ctx: Ctx, expected: tuple[int, int]) -> tuple[Any, Any]:
+    """Какую серию назвал ``/api/state`` - ждём выбранную, а не первую попавшуюся.
+
+    Клик лишь КЛАДЁТ заказ: продукт ещё ищет раздачу и поднимает показ, и до тех пор
+    `/api/state` отвечает `null` - или прошлым живым показом. Стенд 06-10-2026: прогон
+    до этого оставил играть s2e2, клик по s2e1 прочитан первым же опросом как (2, 2).
+    """
+    season = episode = None
+    began = time.monotonic()
+    while time.monotonic() - began < _PLAY_START_WAIT / 1000.0:
+        code, body = _get(ctx.base + "/api/state")
+        if code == 200:
+            with contextlib.suppress(json.JSONDecodeError):
+                payload = json.loads(body)
+                season, episode = payload.get("season"), payload.get("episode")
+        if (season, episode) == expected:
+            break
+        time.sleep(1.0)
+    return season, episode
 
 
 def _bridge_steps(meter: dict[str, Any]) -> str:
@@ -2556,9 +2565,11 @@ def check_8_autoplay(ctx: Ctx) -> Result:
     refusal = _open_card_by_page(ctx, ctx.series_title)
     if refusal is not None:
         return Result(8, "Автопереход", False, None, refusal)
-    # s1e1 лежит в первой, уже видимой вкладке. Это именно путь зрителя: карточка,
-    # строка серии, клик, а не JS-переход и не результат проверки вкладок выше.
-    target = ctx.page.locator('[data-tc-episode="s1e1"]')
+    # Это именно путь зрителя: карточка, строка серии, клик, а не JS-переход и не
+    # результат проверки вкладок выше. Строка - первая видимая, а не названная: карточка
+    # сериала открывается на сезоне закладки, и после s2e1 пункта 7 строки s1e1 в ней нет
+    # (стенд 06-10-2026: видны s2e1-s2e10, пункт краснел, не дойдя до перехода).
+    target = ctx.page.locator("[data-tc-episode]:visible")
     # 🔴 Строки серий приезжают ПОСЛЕ тела карточки: в проходе R1 это 4.4-5.5 с, а сама
     # карточка сериала доезжала 25-30 с. Прибор спрашивал строку сразу и отвечал «нет
     # видимой строки», то есть краснел на своей поспешности вместо перехода. Ждём тем же
@@ -2573,8 +2584,9 @@ def check_8_autoplay(ctx: Ctx) -> Result:
             "Автопереход",
             False,
             None,
-            f"нет видимой строки s1e1 для перехода за {rows_waited:.0f} с",
+            f"нет видимой строки серии для перехода за {rows_waited:.0f} с",
         )
+    row = target.first.get_attribute("data-tc-episode")
     target.first.click()
     if not _await_playback(ctx):
         return Result(8, "Автопереход", False, None, "первого кадра серии так и не было")
@@ -2628,7 +2640,7 @@ def check_8_autoplay(ctx: Ctx) -> Result:
     rows_ready = rows_waited <= _PLAY_READY_BAR
     ok = _autoplay_ok((before_pair, after_pair), frame, gap, rows_ready, waits)
     detail = (
-        f"s1e1 (строки серий ждали {rows_waited:.1f} с, порог {_PLAY_READY_BAR:.0f}); "
+        f"{row} (строки серий ждали {rows_waited:.1f} с, порог {_PLAY_READY_BAR:.0f}); "
         f"плашка появилась; серия по /api/state: {_played(before, after)} "
         f"{before_pair} -> {after_pair}; "
         f"кадр следующей серии {frame!r} с от плашки"
@@ -2699,6 +2711,11 @@ def _cast_url_matches(ctx: Ctx) -> tuple[bool, str]:
     origin (``/hls/index.m3u8``, :mod:`web.box`), а :func:`web.to_tv.to_tv` отдаёт
     ``SESSION.start`` абсолютный LAN-адрес из той же дисковой записи ящика. Одна запись
     на оба конца и есть «тот же показ»; равенство url вкладки и ящика - его сверка.
+
+    Сверяется поток (путь и запрос), а не узел: вкладка берёт поток с того узла, откуда
+    открыла страницу (``TCPlayerBox.near``, ``web/static/player-box.js``), и её url всегда
+    абсолютный. Стенд 06-10-2026: вкладка ``http://<стенд>/hls/index.m3u8``, ящик
+    ``/hls/index.m3u8`` - один поток, а пункт 9 краснел на каждом касте.
     """
     page_url = ctx.page.evaluate("() => (window.TCPlayer && TCPlayer._url) || ''")
     if not isinstance(page_url, str) or not page_url:
@@ -2710,9 +2727,15 @@ def _cast_url_matches(ctx: Ctx) -> tuple[bool, str]:
             box_url = str(json.loads(box_body).get("url") or "")
     if not box_url:
         return False, f"GET /api/web/box -> {box_code}, url в ящике пуст"
-    if page_url != box_url:
+    if _stream(page_url) != _stream(box_url):
         return False, f"вкладка играет {page_url!r}, а ящик назвал {box_url!r}"
     return True, f"вкладка играет url ящика ({page_url[:80]})"
+
+
+def _stream(url: str) -> tuple[str, str]:
+    """Какой поток называет url - без узла, с которого его берут."""
+    parts = urllib.parse.urlsplit(url)
+    return parts.path, parts.query
 
 
 #: Сколько ждать, пока продукт назовёт каст своим: рукопожатие, LOAD и первый кадр.
@@ -2735,6 +2758,14 @@ _PC_STALE_WAIT: Final = _RECEIVER_REPORT_CADENCE + _PC_STALE_AGE + 5.0
 #: для этой погрешности и браузерного кадра, но не маскируют откат на пять секунд.
 _PC_LANDING_TOLERANCE: Final = 2.0
 _PC_REPORT_POLL: Final = 0.25
+#: Продукт сам досчитывает доклад до сейчас (``web/tv_fresh.py``, ``hass/record_fresh.py``):
+#: при устоявшейся игре ``position`` в ``/api/state`` растёт на каждый запрос, и пять секунд
+#: не живёт никогда. Стенд 06-10-2026: опрос через 0.31 с - шаг 0.3 с, «доклад приёмника
+#: не прожил 5 с за 30 с». Три смены подряд не дальше 3 с друг от друга - это досчёт
+#: продукта: такой доклад верен на миг своего чтения, и возраст считается от него.
+_PC_FRESH_GAP: Final = 3.0
+_PC_FRESH_RUN: Final = 3
+_PC_FRESH_AGE: Final = 0.0
 
 #: Шаг опроса позиции ТВ - тот же, каким сам продукт держит `current_time` живым
 #: (``web.live_receiver.POLL_SECONDS``): чаще спрашивать нечего, у приёмника ещё не
@@ -2898,6 +2929,7 @@ def _await_stale_receiver_report(ctx: Ctx) -> tuple[float | None, float | None, 
     previous: float | None = None
     changed_at: float | None = None
     word: str | None = None
+    fresh = 0  # смен подряд с шагом досчёта продукта (:data:`_PC_FRESH_GAP`)
     while time.monotonic() - began < _PC_STALE_WAIT:
         _, on_tv, tv_problem = _box_at(ctx)
         if on_tv is not True:
@@ -2907,10 +2939,14 @@ def _await_stale_receiver_report(ctx: Ctx) -> tuple[float | None, float | None, 
         if report is None:
             return None, None, None, problem
         if report != previous:
+            short = changed_at is not None and now - changed_at <= _PC_FRESH_GAP
+            fresh = fresh + 1 if short else 0
             previous = report
             changed_at = now
-        elif changed_at is not None and now - changed_at >= _PC_STALE_AGE:
-            return report, changed_at, word, ""
+        if changed_at is not None:
+            age = _PC_FRESH_AGE if fresh >= _PC_FRESH_RUN else _PC_STALE_AGE
+            if now - changed_at >= age:
+                return report, changed_at, word, ""
         ctx.page.wait_for_timeout(int(_PC_REPORT_POLL * 1000))
     return (
         None,
@@ -3090,7 +3126,8 @@ def check_10_on_pc(ctx: Ctx, on_tv_ok: bool) -> Result:
         f"(state={word!r}), возраст по часам прибора={report_age:.2f} с; "
         f"ожидаемая посадка={expected:.2f}, "
         f"посадка вкладки={landed}, промах={landing_gap}; допуск ±{_PC_LANDING_TOLERANCE:.1f} с "
-        f"(доклад состарен минимум на {_PC_STALE_AGE:.0f} с, потолок ожидания "
+        f"(доклад состарен минимум на {_PC_STALE_AGE:.0f} с или досчитан продуктом до "
+        f"чтения, потолок ожидания "
         f"{_PC_STALE_WAIT:.0f} с); "
         f"{box_problem or 'ящик прочитан'}"
     )
