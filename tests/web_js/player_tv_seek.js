@@ -52,8 +52,18 @@ async function main() {
   await remote.p.time.run(6000);
   const remoteBack = round(remote.p.video.currentTime);
 
+  // Пульт назад, ТВ 18 с ищет место и докладывает его же, заиграв (стенд 06-10-2026).
+  const buffered = await onTv(526.1, { state: 'playing', position: 524, seek: null });
+  await buffered.p.time.run(3000);
+  buffered.say({ state: 'starting', position: 217.8, seek: null });
+  await buffered.p.time.run(21000);
+  buffered.say({ state: 'playing', position: 217.8, seek: null });
+  await buffered.p.time.run(23500);
+  const afterBuffer = round(buffered.p.video.currentTime);
+
   const facts = {
     beforeSeek, afterSeek, seekingAfter, sameNumber, firstSnapshot, noSeek, remoteBack,
+    afterBuffer,
   };
   process.stdout.write(JSON.stringify(facts) + '\n');
   process.exit(0);

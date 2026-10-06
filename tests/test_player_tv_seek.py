@@ -58,3 +58,13 @@ def test_a_seek_back_from_the_tv_remote_moves_the_tab_film_without_a_number(
 
     Откат (``LOST_S`` не сверяется): плёнка остаётся у 1690 и лишь замедляется."""
     assert 1381.8 <= facts["remoteBack"] <= 1385.0, facts["remoteBack"]
+
+
+def test_the_tv_buffer_after_a_remote_seek_is_not_counted_as_play(
+    facts: dict[str, Any],
+) -> None:
+    """Стенд 06-10-2026: пульт «-300», ТВ 18 с в буфере на 217.8 и заиграл с того же числа,
+    а вкладка засчитала буфер за ход и встала на 234.8 - на 17 с впереди ТВ.
+
+    Откат (метка доклада держит только число): плёнка на 236.0."""
+    assert 217.8 <= facts["afterBuffer"] <= 220.0, facts["afterBuffer"]

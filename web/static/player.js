@@ -569,10 +569,16 @@ const TCPlayer = {
   //: тянуть плёнку вкладки к ЗАСТЫВШЕМУ докладу значило отбрасывать её назад каждые
   //: пять секунд - 14 откатов с ребуфером за 150 с каста (TC-1147). Между докладами
   //: идущего показа секунда дооценивается ходом часов; на паузе берётся сам доклад.
+  //: 🔴 Счёт идёт от мига, когда доклад стал ИГРАЮЩИМ, а не когда число появилось: после
+  //: пульта ТВ 18 с стоял в буфере на 217.8 и заиграл с того же числа, а вкладка засчитала
+  //: буфер за ход и встала на 234.8 (стенд 06-10-2026).
   _tvPosition(state) {
     const said = state.position || 0;
     const now = Date.now();
-    if (!TCPlayer._tvMark || TCPlayer._tvMark.pos !== said) TCPlayer._tvMark = { pos: said, at: now };
+    const mark = TCPlayer._tvMark;
+    if (!mark || mark.pos !== said || mark.state !== state.state) {
+      TCPlayer._tvMark = { pos: said, at: now, state: state.state };
+    }
     if (state.state !== 'playing') return said;
     return said + (now - TCPlayer._tvMark.at) / 1000;
   },
