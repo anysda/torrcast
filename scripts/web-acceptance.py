@@ -2712,10 +2712,11 @@ def _cast_url_matches(ctx: Ctx) -> tuple[bool, str]:
     ``SESSION.start`` абсолютный LAN-адрес из той же дисковой записи ящика. Одна запись
     на оба конца и есть «тот же показ»; равенство url вкладки и ящика - его сверка.
 
-    Сверяется поток (путь и запрос), а не узел: вкладка берёт поток с того узла, откуда
-    открыла страницу (``TCPlayerBox.near``, ``web/static/player-box.js``), и её url всегда
-    абсолютный. Стенд 06-10-2026: вкладка ``http://<стенд>/hls/index.m3u8``, ящик
-    ``/hls/index.m3u8`` - один поток, а пункт 9 краснел на каждом касте.
+    Url ящика сверяется таким, каким его открывает вкладка (``TCPlayerBox.near``,
+    ``web/static/player-box.js``): от адреса страницы, цифровой узел - узел страницы, порт
+    и имя - свои. Стенд 06-10-2026: вкладка ``http://<стенд>/hls/index.m3u8``, ящик
+    ``/hls/index.m3u8`` - один поток, а пункт 9 краснел на каждом касте. Чужой порт или
+    чужое имя узла - уже другой поток, его сверка не пропускает.
     """
     page_url = ctx.page.evaluate("() => (window.TCPlayer && TCPlayer._url) || ''")
     if not isinstance(page_url, str) or not page_url:
@@ -2727,15 +2728,19 @@ def _cast_url_matches(ctx: Ctx) -> tuple[bool, str]:
             box_url = str(json.loads(box_body).get("url") or "")
     if not box_url:
         return False, f"GET /api/web/box -> {box_code}, url в ящике пуст"
-    if _stream(page_url) != _stream(box_url):
+    if _near(page_url, ctx.base) != _near(box_url, ctx.base):
         return False, f"вкладка играет {page_url!r}, а ящик назвал {box_url!r}"
     return True, f"вкладка играет url ящика ({page_url[:80]})"
 
 
-def _stream(url: str) -> tuple[str, str]:
-    """Какой поток называет url - без узла, с которого его берут."""
-    parts = urllib.parse.urlsplit(url)
-    return parts.path, parts.query
+def _near(url: str, base: str) -> str:
+    """Url, каким его открывает вкладка со страницы ``base`` (``TCPlayerBox.near``)."""
+    parts = urllib.parse.urlsplit(urllib.parse.urljoin(base + "/", url))
+    page = urllib.parse.urlsplit(base).hostname
+    if page and re.fullmatch(r"[\d.]+", parts.hostname or ""):
+        port = f":{parts.port}" if parts.port else ""
+        parts = parts._replace(netloc=page + port)
+    return parts.geturl()
 
 
 #: Сколько ждать, пока продукт назовёт каст своим: рукопожатие, LOAD и первый кадр.

@@ -517,12 +517,19 @@ def test_автопереход_берёт_первую_видимую_сери�
 
 @pytest.mark.parametrize(
     ("box", "same"),
-    [("/hls/index.m3u8", True), ("http://192.0.2.60:8080/hls/index.m3u8", True), ("/hls/x", False)],
+    [
+        ("/hls/index.m3u8", True),
+        ("http://192.0.2.60:8479/hls/index.m3u8", True),
+        ("http://192.0.2.60:8080/hls/index.m3u8", False),
+        ("http://other.example:8479/hls/index.m3u8", False),
+        ("/hls/x", False),
+    ],
 )
-def test_url_ящика_сверяется_по_потоку_а_не_по_узлу(
+def test_url_ящика_сверяется_так_как_его_открывает_вкладка(
     monkeypatch: pytest.MonkeyPatch, box: str, same: bool
 ) -> None:
-    """Вкладка берёт поток с узла страницы (``TCPlayerBox.near``), ящик даёт свою дверь."""
+    """Вкладка берёт поток с узла страницы (``TCPlayerBox.near``): цифровой узел ящика
+    меняется на узел страницы, порт и имя остаются - чужие они значат чужой поток."""
     module = acceptance()
     page = SimpleNamespace(evaluate=lambda _js: "http://example:8479/hls/index.m3u8")
     ctx = module.Ctx("http://example:8479", page, True, Path("/tmp"), {})
