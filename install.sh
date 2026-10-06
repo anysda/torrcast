@@ -3077,6 +3077,12 @@ retry_span_min() {  # $1 - сколько индексеров едут в пе�
 #: срок обещают человеку последний экран и doctor («не позже N мин»), поэтому на стенде его
 #: не уменьшают: замер доезда идёт при штатном такте.
 RECONCILE_EVERY="${TORRCAST_RECONCILE_EVERY:-900}"
+#: 🔴 TC-1411. Через сколько минут после ответа трекера индексер ТОЧНО заведётся - это
+#: обещают последний экран и doctor. Не такт: следующий такт отсчитывается от КОНЦА обхода,
+#: а в обходе каждый отказ стоит до 30 с (таймаут службы). Живой замер при такте 900 с:
+#: трекер открылся через 8 с после вопроса, индексер встал через 15 мин 54 с. Пять минут
+#: запаса - это десять отказов по 30 с, а имён в эталоне восемь.
+RECONCILE_WITHIN=$(( RECONCILE_EVERY / 60 + 5 ))
 
 retry_add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело», спрошенные на глазах
     local key="$1" spec iname list missing="" todo=() left=()
@@ -3374,8 +3380,8 @@ name_absent_reference_indexers() {  # $1 - apikey; дальше имена, ко
         ([$live[]?|.name]) as $have
         | ([.[]?|select(.retry != false)|.name] - $have - $pending) | unique | join(", ")' "$STATE_DIR/indexers.json" 2>/dev/null)"
     [ -n "$absent" ] || return 0
-    final_loud "indexers not set up yet: $absent - each is retried in the background and added within $((RECONCILE_EVERY / 60)) min of its tracker answering; rerunning ./install.sh is safe" \
-               "индексеры пока не заведены: $absent - переспрашиваем в фоне, каждый заведётся не позже $((RECONCILE_EVERY / 60)) мин после ответа его трекера; повторный ./install.sh безопасен"
+    final_loud "indexers not set up yet: $absent - each is retried in the background and added within $RECONCILE_WITHIN min of its tracker answering; rerunning ./install.sh is safe" \
+               "индексеры пока не заведены: $absent - переспрашиваем в фоне, каждый заведётся не позже $RECONCILE_WITHIN мин после ответа его трекера; повторный ./install.sh безопасен"
 }
 
 # 🔴 TC-1411. Служба, которая дольше часового догрева доводит недоведённое: раз в

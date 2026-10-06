@@ -183,7 +183,11 @@ def test_the_reference_roster_adds_a_line_for_a_missing_indexer() -> None:
     lines = list(_prowlarr(_config(), environment))
     assert len([line for line, _ in lines if "sukebei" in line]) == 1, lines
     rutor = [line for line, _ in lines if line.split()[1:2] == ["RuTor"]]
-    assert len(rutor) == 1 and "within 15 min" in rutor[0] and "install.sh" not in rutor[0]
+    assert (
+        len(rutor) == 1
+        and "min of its tracker answering" in rutor[0]
+        and "install.sh" not in rutor[0]
+    )
 
 
 def test_a_roster_indexer_already_present_adds_no_line() -> None:

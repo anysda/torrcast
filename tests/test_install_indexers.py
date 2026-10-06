@@ -1,6 +1,7 @@
 """Install-path guards for the reference manifest and the final-screen roll call (TC-1411)."""
 
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -8,8 +9,41 @@ from pathlib import Path
 
 import pytest
 
+from torrcast.domain.catalogs.health.en import en as english
+from torrcast.domain.catalogs.health.ru import ru as russian
+
 REPO = Path(__file__).parents[1]
 INSTALL = (REPO / "install.sh").read_text(encoding="utf-8")
+#: The service's pace and the deadline promised from it, exactly as install.sh sets them.
+RECONCILE_KNOBS = "\n".join(
+    line
+    for line in INSTALL.splitlines()
+    if line.startswith(("RECONCILE_EVERY=", "RECONCILE_WITHIN="))
+)
+
+
+#: The environment without a stand's pace override: the test reads the stock deadline.
+_STOCK_ENV = {k: v for k, v in os.environ.items() if k != "TORRCAST_RECONCILE_EVERY"}
+
+
+@pytest.mark.machine
+def test_the_promised_deadline_covers_the_measured_arrival() -> None:
+    """🔴 TC-1411. «Не позже 15 мин» при такте 900 с не сбылось: трекер открылся через 8 с
+    после вопроса службы, а индексер встал через 15 мин 54 с - следующий такт считается от
+    конца обхода, а каждый отказ в обходе стоит до 30 с. Обещание обязано покрыть замер, и
+    doctor обязан обещать то же число, что последний экран."""
+    done = subprocess.run(
+        ["bash", "-c", f'{RECONCILE_KNOBS}\necho "$RECONCILE_WITHIN"'],
+        capture_output=True,
+        text=True,
+        env=_STOCK_ENV,
+    )
+    assert done.returncode == 0, done.stderr
+    within = int(done.stdout)
+    assert within * 60 >= 15 * 60 + 54, f"обещано {within} мин, замер 15 мин 54 с"
+    for key in ("health.core_owed", "health.roster_absent"):
+        assert f"within {within} min of its tracker answering" in english()[key]
+        assert f"не позже {within} мин после ответа его трекера" in russian()[key]
 
 
 def _body(name: str) -> str:
@@ -36,14 +70,14 @@ def _run_name_absent(
 set -u
 STATE_DIR={shlex.quote(str(state))}
 PL_URL=http://127.0.0.1:9696
-RECONCILE_EVERY=900
+{RECONCILE_KNOBS}
 curl() {{ cat {shlex.quote(str(tmp_path / "live.json"))}; }}
 final_loud() {{ printf 'FINAL_EN:%s\\n' "$1"; }}
 name_absent_reference_indexers() {{{_body("name_absent_reference_indexers")}
 }}
 name_absent_reference_indexers deadbeef {" ".join(shlex.quote(n) for n in pending)}
 """
-    out = _bash(script)
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=_STOCK_ENV)
     assert out.returncode == 0, out.stderr
     return out.stdout
 
@@ -58,7 +92,8 @@ def test_absent_reference_indexers_are_named_on_the_final_screen(tmp_path: Path)
     for missing in ("RuTor", "RuTor names", "sukebei"):
         assert missing in out
     assert "yts" not in out.split(":", 1)[1]  # the one that is present is not named
-    assert "added within 15 min of its tracker answering" in out  # the service's own pace
+    # The screen promises what doctor promises later, word for word.
+    assert english()["health.roster_absent"].split(" and ", 1)[1] in out
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required on the install host")

@@ -158,7 +158,7 @@ def test_a_core_source_is_matched_by_its_exact_name_not_a_namesake() -> None:
 def test_a_core_source_retried_in_the_background_gets_the_install_screen_promise() -> None:
     """🔴 TC-1411. Установка обещала срок - доктор не шлёт за ним в ./install.sh."""
     other, owed = (line for line, _ in IndexerHealth.core([], frozenset({"RuTor"})))
-    assert "RuTor" in owed and "15 мин" in owed and "install.sh" not in owed
+    assert "RuTor" in owed and "после ответа его трекера" in owed and "install.sh" not in owed
     assert "Knaben" in other and "./install.sh" in other
 
 
@@ -176,7 +176,7 @@ def test_the_roster_promises_a_retry_only_to_a_retried_indexer() -> None:
     """🔴 TC-697. Узкий не переспрашивается: обещать ему «заведётся сам» было бы враньём."""
     expected = [("RuTor names", True), ("sukebei", False)]
     twin, narrow = (line for line, _ in IndexerHealth.roster(expected, []))
-    assert "не позже 15 мин после ответа его трекера" in twin
+    assert "мин после ответа его трекера" in twin and "переспрашиваем" in twin
     assert "переспрашиваем" not in narrow and "заведёт следующий ./install.sh" in narrow
 
 

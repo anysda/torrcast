@@ -91,11 +91,11 @@ def en() -> dict[str, str]:
         "health.core_owed": (
             "{indexer} is not set up yet - search still runs, but there will be noticeably "
             "fewer {misses} in the results; it is retried in the background and added within "
-            "15 min of its tracker answering"
+            "20 min of its tracker answering"
         ),
         "health.roster_absent": (
             "{name} is not set up in Prowlarr yet - it is retried in the background and "
-            "added within 15 min of its tracker answering"
+            "added within 20 min of its tracker answering"
         ),
         "health.roster_narrow": (
             "{name} is not set up in Prowlarr: its tracker did not answer at install - the "
