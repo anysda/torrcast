@@ -13,10 +13,17 @@ from torrcast.domain.entry import Entry
 from torrcast.ports.state_store.slot import store
 from torrcast.usecases.rank._hms import _hms
 
-__all__ = ["NEXT_LOOKAHEAD", "WATCH_SECONDS", "Watch"]
+__all__ = ["NEXT_LOOKAHEAD", "SEEK_SECONDS", "WATCH_SECONDS", "Watch"]
 
 #: Как часто сторож кладёт позицию в state, секунды.
 WATCH_SECONDS = 10.0
+#: Скачок места между опросами дальше этого - перемотка, и на диск она уходит сразу, секунды.
+#:
+#: Тика ей мало: по записи защёлка карточки (:mod:`hass.aim`) узнаёт, что перемотка
+#: приземлилась. Стенд 06-10-2026, ``-240`` от 131.0 к нулю: ТВ стоял на 0.0 (ноль запись
+#: не берёт), заиграл с 2.9 через 20 с, и до тика защёлка считала место по своим часам -
+#: следующий ``+60`` карточка взяла от 30, а показ от 8.8.
+SEEK_SECONDS = 15.0
 NEXT_LOOKAHEAD = 25.0
 
 
@@ -44,12 +51,15 @@ class Watch:
     nearing_end: Callable[[], None] | None = None
     _near_called: bool = False
     last: float = field(default_factory=time.monotonic)
+    #: Последняя позиция, названная сторожу в этом сеансе: от неё видна перемотка.
+    heard: float = -1.0
 
     def see(self, pos: float) -> None:
         """Позиция; на диск не чаще раза в ``every`` с. Порога перехода тут нет."""
         if pos <= 0:  # приёмник ещё не начал считать - нулём позицию не затираем
             return
         self.entry.pos, self.entry.moved = pos, True
+        jumped, self.heard = self.heard >= 0.0 and abs(pos - self.heard) > SEEK_SECONDS, pos
         if (
             not self._near_called
             and self.nearing_end is not None
@@ -57,7 +67,7 @@ class Watch:
         ):
             self._near_called = True
             self.nearing_end()
-        if time.monotonic() - self.last >= self.every:
+        if jumped or time.monotonic() - self.last >= self.every:
             self.flush()
 
     def skip_to(self, pos: float) -> None:

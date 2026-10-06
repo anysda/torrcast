@@ -663,3 +663,16 @@ def test_a_magnet_gives_up_its_hash_without_asking_anyone() -> None:
     assert _torrent_hash(PLAYED) == HASH
     assert _torrent_hash("magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LKNNWG23TP&dn=x") == ""
     assert _torrent_hash("magnet:?xt=1") == "" and _torrent_hash("") == ""
+
+
+def test_a_seek_reaches_the_record_without_waiting_for_the_tick() -> None:
+    """Стенд 06-10-2026: ``-240`` от 131.0 к нулю. Ноль запись не берёт, а 2.9 ждало тика -
+    и защёлка карточки (:mod:`hass.aim`) всё это время не знала, что перемотка приземлилась."""
+    entry = remember(pos=131.0, dur=10143.9)
+    watch = Watch(key=KEY, entry=entry, every=3600.0)
+
+    watch.see(131.0)
+    watch.see(0.0)
+    watch.see(2.9)
+
+    assert saved().pos == 2.9

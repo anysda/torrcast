@@ -130,6 +130,11 @@ class Aim:
         return place
 
     def _landed(self, position: float, place: float) -> bool:
-        """Закладка у места защёлки и ближе к цели, чем к месту, откуда мотали."""
-        near = abs(position - place) <= NEAR_SECONDS
+        """Закладка между целью и местом защёлки и ближе к цели, чем к месту, откуда мотали.
+
+        Часы защёлки идут с нажатия, а ТВ после перемотки буферизует и только отстаёт от
+        них. Стенд 06-10-2026: цель 0, ТВ заиграл с 2.9 через 20 с, и запись «2.9» при месте
+        защёлки 22 не считалась приземлением - карточка ещё 40 с шла по своим часам.
+        """
+        near = self._to - NEAR_SECONDS <= position <= place + NEAR_SECONDS
         return near and abs(position - self._to) < abs(position - self._from)

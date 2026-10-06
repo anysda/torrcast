@@ -55,3 +55,20 @@ def test_the_latch_waits_out_the_tv_buffering_before_the_record_moves() -> None:
     assert round(_place(aim, 1183.1), 1) == 899.1
     clock.now = 20.8
     assert _place(aim, 896.7) == 896.7
+
+
+def test_a_seek_to_zero_lands_when_the_tv_plays_behind_the_latch_clock() -> None:
+    """Стенд 06-10-2026: ``-240`` от 131.0, ТВ 20 с стоял на 0.0 и заиграл с 2.9.
+
+    Следующий ``+60`` показ считает от места ТВ - и карточка обязана считать от него же.
+    """
+    clock = _Clock()
+    aim = Aim(clock=clock)
+    _place(aim, 131.0)
+    aim.at(-240.0)
+
+    clock.now = 22.0
+    assert _place(aim, 2.9) == 2.9, "приземление у нуля не признано - карточка на часах"
+    aim.at(60.0)
+    clock.now = 24.0
+    assert _place(aim, 68.8) == 68.8
