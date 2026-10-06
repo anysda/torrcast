@@ -42,7 +42,16 @@ def test_a_seek_backwards_re_anchors_the_origin_outright() -> None:
 
 def test_a_show_that_is_not_playing_re_anchors_the_origin() -> None:
     """Пауза не тикает: карточка рисует само место, и падать оттуда нечему."""
-    assert mark_position(12.0, playing=False, known=12.0, since=SINCE, now=NOW) == (12.0, NOW)
+    assert mark_position(12.0, playing=False, known=12.0, since=SINCE, now=NOW)[1] == NOW
+
+
+def test_the_first_running_answer_after_a_stall_counts_from_now() -> None:
+    """Стенд 06-10-2026: ТВ после +60 стоял в буфере на 82.8, следующий ответ - уже игра на
+    84.0. Отсчёт от последнего ответа буфера засчитал весь буфер за ход, и карточка ушла
+    вперёд экрана на 3 с до конца прогона."""
+    known, since = mark_position(82.8, playing=False, known=None, since=SINCE, now=SINCE)
+
+    assert mark_position(84.0, playing=True, known=known, since=since, now=NOW) == (84.0, NOW)
 
 
 def test_the_first_answer_has_nothing_to_lag_behind() -> None:

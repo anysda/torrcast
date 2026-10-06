@@ -37,9 +37,18 @@ def mark_position(
     catches up with the drawn number, and every state other than a running show
     re-anchors the origin outright - a card that is not playing does not tick, so
     nothing falls back there.
+
+    A show that is not playing leaves no bookmark behind, and the first running answer
+    after it starts the count at ``now``. Counting it from the last stalled answer took
+    the whole stall for picture: measured on the stand, the TV buffered after a seek,
+    the card ran 3 s ahead of the screen and stayed there, because a number drawn
+    ahead is the one error nothing above ever takes back. Starting at ``now`` can only
+    lag, and the next answer that moves further than the wall clock gives that back.
     """
     place = None if raw is None else float(raw)
-    if place is None or not playing or known is None or place < known:
+    if not playing:
+        return None, now
+    if place is None or known is None or place < known:
         return place, now
     if place == known:
         return known, since
