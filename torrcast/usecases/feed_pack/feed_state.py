@@ -111,6 +111,7 @@ class _State:
     lock: threading.Lock = field(default_factory=threading.Lock)
     #: Когда последний раз перезапускали упаковку: защита от лавины на префетче.
     restarted: float = 0.0
+    asked: float = 0.0  # приход запроса, что последним увёл голову (feed_newest)
     crashes: int = 0
     fatal: str = ""
     log: Callable[[str], None] | None = None
@@ -160,8 +161,7 @@ class _State:
     #: то есть приёмник придёт за ним обязательно, и вопрос только в том, что он
     #: услышит. Замер живого показа: на 404 приёмник гасит буфер, не доиграв его, -
     #: 24 запроса подряд, показ встал, погас, поднялся и попросил снова; на тишине тот
-    #: же буфер доигрывается до конца, и застрявшее место перешагивает сторож приёмника
-    #: сеткой
+    #: же буфер доигрывается до конца, и застрявшее место перешагивает сторож приёмника сеткой
     #: (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._nudge`, 8
     #: с). 404 хуже задержки.
     skipped: set[int] = field(default_factory=set)

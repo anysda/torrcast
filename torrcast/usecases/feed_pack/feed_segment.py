@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.usecases.feed_pack.feed_newest import _newest
 from torrcast.usecases.warm.segment_end import segment_end
 from torrcast.usecases.warm.segment_start import segment_start
 from torrcast.usecases.warm.settings import SKEW_MAX, TAIL_GAP_MAX
@@ -62,6 +63,7 @@ def _segment(
     if not 0 <= slot < state.grid.count:
         return path if path.exists() else None
     deadline = _state.clock_port.monotonic() + state.wait
+    steer = _newest(state, steer)  # голову ведёт свежий запрос, а не долго ждущий
     while True:
         if path.exists():
             return path
@@ -178,9 +180,8 @@ def _have(state: _State, slot: int) -> bool:
         return True
     if state.vault is None:
         return False
-    path = state.vault.path(slot)
     with contextlib.suppress(OSError):
-        return 0 < path.stat().st_size <= state.cap
+        return 0 < state.vault.path(slot).stat().st_size <= state.cap
     return False
 
 
