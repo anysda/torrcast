@@ -244,8 +244,8 @@ const TCApi = {
         body: JSON.stringify(body),
       });
       if (said.status !== 200) return { code: said.status, finish: null };
-      const body = await TCApi._body(said);
-      return { code: said.status, finish: body && typeof body.finish === 'number' ? body.finish : null };
+      const reply = await TCApi._body(said);
+      return { code: said.status, finish: reply && typeof reply.finish === 'number' ? reply.finish : null };
     } catch (error) {
       return { code: 0, finish: null };
     }
