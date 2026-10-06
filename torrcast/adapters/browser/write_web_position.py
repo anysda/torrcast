@@ -11,15 +11,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from torrcast.adapters.browser._write_json import _write_json
 from torrcast.adapters.browser.web_position_path import web_position_path
+from torrcast.adapters.browser.write_json import write_json
 
 
 def write_web_position(
     out: Path, key: str, pos: float, dur: float, phase: str, wall: float
 ) -> None:
     """Записать позицию сеанса ``key``: место ``pos``, длину ``dur``, состояние ``phase``."""
-    _write_json(
+    write_json(
         web_position_path(out),
         {"key": key, "pos": pos, "dur": dur, "phase": phase, "wall": wall},
     )

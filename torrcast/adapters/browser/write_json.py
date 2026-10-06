@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
+def write_json(path: Path, payload: dict[str, Any]) -> None:
     """Записать ``payload`` атомарно; неудача не роняет показ - только само сообщение."""
     with contextlib.suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)

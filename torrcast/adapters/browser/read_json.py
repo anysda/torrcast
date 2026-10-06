@@ -1,4 +1,4 @@
-"""Читает JSON, записанный :func:`torrcast.adapters.browser._write_json._write_json`."""
+"""Читает JSON, записанный :func:`torrcast.adapters.browser.write_json.write_json`."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 
-def _read_json(path: Path) -> dict[str, Any] | None:
+def read_json(path: Path) -> dict[str, Any] | None:
     """Разобранный объект файла, а файла нет или он битый - ``None``."""
     with contextlib.suppress(OSError, ValueError):
         raw: Any = json.loads(path.read_text(encoding="utf-8"))

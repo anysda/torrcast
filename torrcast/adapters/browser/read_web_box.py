@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from torrcast.adapters.browser._read_json import _read_json
+from torrcast.adapters.browser.read_json import read_json
 from torrcast.adapters.browser.web_box_path import web_box_path
 
 
@@ -21,4 +21,4 @@ def read_web_box(out: Path) -> dict[str, Any]:
     как есть (:mod:`web.box`), и с той стороны розетки ``{}`` читается ровно как «сейчас
     ничего не играет».
     """
-    return _read_json(web_box_path(out)) or {}
+    return read_json(web_box_path(out)) or {}

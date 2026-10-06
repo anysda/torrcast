@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from torrcast.adapters.browser._write_json import _write_json
 from torrcast.adapters.browser.web_last_path import web_last_path
+from torrcast.adapters.browser.write_json import write_json
 
 
 def write_web_last(out: Path, key: str) -> None:
     """Записать ключ показа, после которого следующей серии не будет."""
-    _write_json(web_last_path(out), {"key": key})
+    write_json(web_last_path(out), {"key": key})
