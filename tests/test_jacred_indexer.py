@@ -213,6 +213,28 @@ def test_a_hung_request_of_the_viewer_s_text_is_asked_again(monkeypatch: Any) ->
 
 
 @pytest.mark.machine
+def test_a_hung_name_is_asked_again_inside_the_grace(monkeypatch: Any) -> None:
+    """«Dune: Part One» in the year field hung past the deadline once: «Дюна» lost the picture."""
+    monkeypatch.setattr(adapter, "ASK_AGAIN", 0.1)
+    free = threading.Event()
+    asked: list[str] = []
+
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
+        asked.append(_asked(query, year))
+        if year is not None and asked.count(_asked(query, year)) == 1:
+            free.wait(5.0)
+            return _rows()
+        return _rows(_asked(query, year))
+
+    began = time.monotonic()
+    rows = adapter.search("Дюна | Dune: Part One 2021", fetch, grace=0.5)
+    took = time.monotonic() - began
+    free.set()
+    assert took < 2.0, "the hung name held the answer"
+    assert "Dune: Part One [year 2021]" in {row["title"] for row in rows}
+
+
+@pytest.mark.machine
 def test_the_names_leave_only_once_the_viewer_s_text_has_answered() -> None:
     """The API slows and refuses texts that come at once: the viewer's goes alone."""
     events: list[str] = []

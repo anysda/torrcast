@@ -74,6 +74,8 @@ NAMES_DEADLINE = 4.0
 #: alone answered in 0.46 s in the median and 0.64 at worst of 69, while one request in about 40
 #: hung to the 5 s cut and the next, a few seconds later, answered in half a second: «Король
 #: Лев» lost every Russian release so. A second ask past 1.5 s still lands inside `TIMEOUT`.
+#: The names hang the same way: «Дюна» once got 96 rows past 4.7 s where it gets 215, the year
+#: field had not answered by `NAMES_DEADLINE`. A name asked again at 1.5 s still lands before it.
 ASK_AGAIN = 1.5
 
 
@@ -135,12 +137,12 @@ def _forms(text: str) -> list[tuple[str, int | None]]:
     return [(text, None), (named["name"], int(named["year"]))]
 
 
-def _steady(query: str, fetch: Fetch) -> tuple[list[dict[str, Any]], bool]:
-    """The viewer's text, asked once more when its request hangs past `ASK_AGAIN`."""
+def _steady(query: str, fetch: Fetch, year: int | None = None) -> tuple[list[dict[str, Any]], bool]:
+    """One text, asked once more when its request hangs past `ASK_AGAIN`."""
     pool = ThreadPoolExecutor(2)
-    asked = [pool.submit(_answered, query, fetch)]
+    asked = [pool.submit(_answered, query, fetch, year)]
     if not wait(asked, timeout=ASK_AGAIN).done:
-        asked.append(pool.submit(_answered, query, fetch))
+        asked.append(pool.submit(_answered, query, fetch, year))
     pool.shutdown(wait=False)
     for each in as_completed(asked):  # the first rows, not the hung request's empty end
         if each.result()[0]:
@@ -149,7 +151,7 @@ def _steady(query: str, fetch: Fetch) -> tuple[list[dict[str, Any]], bool]:
 
 
 def _search(query: str, fetch: Fetch, year: int | None = None) -> list[dict[str, Any]]:
-    return _answered(query, fetch, year)[0]
+    return _steady(query, fetch, year)[0]
 
 
 def _answered(
