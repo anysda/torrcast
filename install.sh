@@ -3359,11 +3359,11 @@ name_absent_reference_indexers() {  # $1 - apikey; дальше имена, ко
 # вычёркивает: удалённое потом человеком назад не заводится. Ключ демон читает из
 # config.xml Prowlarr, чтобы секрет не лежал в юните.
 setup_reconcile() {
-    log "indexer reconciler ($PL_URL)" "служба дозаведения индексеров ($PL_URL)"
+    log "indexer upkeep service ($PL_URL)" "служба дозаведения индексеров ($PL_URL)"
     pick_python
     local script="$PREFIX/indexer-reconcile.py"
     if cmp -s "$REPO_DIR/scripts/indexer-reconcile.py" "$script"; then
-        skip "reconciler code $script" "код службы дозаведения индексеров $script"
+        skip "indexer upkeep service code $script" "код службы дозаведения индексеров $script"
     else
         # Как у JacRed: новый код при прежнем юните `enable --now` не перезапустит, и
         # жил бы старый процесс до перезагрузки.
