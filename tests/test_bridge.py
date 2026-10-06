@@ -716,6 +716,27 @@ def test_the_card_is_told_the_new_place_the_second_the_bridge_says_seekby(
     assert bridge.state()["position"] == 960.0
 
 
+def test_the_snapshot_names_each_seek_of_the_bridge_for_the_tab_on_tv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TC-1169: перемотку не из вкладки вкладка на ТВ узнаёт только из снимка.
+
+    Плёнка вкладки назад за докладом не ходит (``player.js``, ``_follow``), и без номера в
+    снимке мост -300 оставлял её на 1062 при ТВ на 745.1 (живой приёмник 06-10-2026).
+    """
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=1060.0, moved=True),
+    )
+    bridge = _bridge(session)
+
+    assert bridge.state()["seek"] is None
+    bridge.control(SEEKBY, -300.0)
+    assert bridge.state()["seek"] == {"n": 1, "to": 760.0}
+
+
 def test_a_tab_show_refuses_seekby_instead_of_losing_it_in_the_channel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -27,6 +27,7 @@ def payload(
     has_next: bool | None,
     start: dict[str, JsonValue] | None = None,
     refusal: str | None = None,
+    seek: dict[str, JsonValue] | None = None,
 ) -> dict[str, JsonValue]:
     """Снимок показа как тело ``GET /api/state``."""
     known = state not in (IDLE, STARTING)
@@ -48,6 +49,9 @@ def payload(
         # моста без этого поля вовсе
         # (:meth:`custom_components.torrcast.player.Player.supported_features`).
         "has_next": has_next if known else None,
+        # Последняя перемотка моста (:meth:`hass.aim.Aim.sought`): по новому номеру плёнка
+        # вкладки на ТВ идёт к докладу и НАЗАД, а не только за своим нажатием.
+        "seek": seek if known else None,
         # Адрес картинки на САМОМ серве, а не у Wikimedia: наружу за постером Home
         # Assistant не ходит ни при каких условиях (:data:`hass.posters.ROUTE`).
         # Отпечаток - ключ, которым он решает, тянуть ли картинку заново; без него

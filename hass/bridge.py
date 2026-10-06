@@ -103,6 +103,7 @@ class Bridge:
             picture=self._posters.picture(shown if active else None, self._session.stream_address),
             has_next=next_state(self._session),
             start=START.seen(),
+            seek=self._motion.sought(shown),
         )
 
     def poster(self, name: str) -> tuple[bytes, str] | None:

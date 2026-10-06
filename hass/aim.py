@@ -15,6 +15,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.usecases.watch import WATCH_SECONDS
 
@@ -44,6 +45,9 @@ class Aim:
         self._from = 0.0
         self._to = 0.0
         self._at = -1.0
+        #: Сколько перемоток моста было: номер новой меняется, и вкладка на ТВ узнаёт о ней
+        #: из снимка, а не только из своего нажатия (:meth:`sought`).
+        self._n = 0
 
     def at(self, offset: float) -> None:
         """Мост послал ``seekby``: закладка с этой секунды считается на новом месте.
@@ -57,6 +61,20 @@ class Aim:
         self._key, self._from = self._seen
         self._to = max(0.0, self._from + offset)
         self._at = self._clock()
+        self._n += 1
+
+    def sought(self, shown: PlaybackSnapshot | None) -> dict[str, JsonValue] | None:
+        """Последняя перемотка моста этого показа: её номер и цель; не было - ``None``.
+
+        🔴 Плёнка вкладки на ТВ назад за докладом не ходит (``player.js``, ``_follow``), и
+        перемотка назад, нажатая НЕ в ней (карточка, Home Assistant, ``/api/control``),
+        оставляла её на старом месте, пока ТВ играл новое (TC-1169, живой приёмник
+        06-10-2026: ТВ ушёл на 745.1, плёнка осталась на 1062). Номер живёт и после
+        приземления: опрос вкладки мог пропустить саму защёлку.
+        """
+        if shown is None or not self._n or shown.key != self._key:
+            return None
+        return {"n": self._n, "to": round(self._to, 1)}
 
     def seen(self, shown: PlaybackSnapshot | None) -> PlaybackSnapshot | None:
         """Снимок для карточки: место защёлки, пока перемотка не доехала до записи."""

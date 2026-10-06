@@ -58,6 +58,7 @@ const TCPlayer = {
     TCPlayer._framed = false;
     TCPlayer._ordered = false;
     TCPlayer._seeking = false;
+    TCPlayer._seekN = null;
     TCPlayer._seekTimer = null;
     TCPlayer._stallTimer = null;
     TCPlayer._pendingBox = null;
@@ -536,8 +537,9 @@ const TCPlayer = {
       paused = state.state === 'paused';
       volume = typeof state.volume === 'number' ? state.volume : 0;
       packagedPct = typeof state.warm === 'number' ? state.warm : null;
-      if (video) TCPlayer._follow(video, pos, state.state === 'playing');
+      if (video) TCPlayer._follow(video, pos, state.state === 'playing', state.seek);
     } else if (video) {
+      TCPlayer._seekN = null;
       // Замедление, которым плёнка догоняла телевизор, тут снимается: показ вернулся во
       // вкладку, и догонять больше некого. Пауза не трогается - она теперь зрителя.
       video.playbackRate = 1;
@@ -575,7 +577,17 @@ const TCPlayer = {
   //: сходятся сами. Прыжок остаётся один - вперёд, когда вкладка ОТСТАЛА (ребуфер):
   //: догонять темпом отставание нечем, скорость выше единицы гонит новый ребуфер.
   //: Пауза телевизора останавливает и вкладку, иначе она уедет вперёд на всё её время.
-  _follow(video, pos, playing) {
+  //:
+  //: TC-1169. Перемотка, нажатая НЕ в этой вкладке (карточка, Home Assistant, мост), сюда
+  //: приходит только докладом, и доклад назад тут ничем не отличался от излёта: ТВ ушёл на
+  //: 745.1, плёнка осталась на 1062 (живой приёмник 06-10-2026). Мост называет каждую свою
+  //: перемотку в снимке (``seek``: номер и цель, :meth:`hass.aim.Aim.sought`), и новый номер
+  //: взводит ту же подтяжку, что своё нажатие. Первый снимок каста номер только запоминает:
+  //: старая перемотка - не просьба.
+  _follow(video, pos, playing, seek) {
+    const n = seek ? seek.n : 0;
+    if (seek && TCPlayer._seekN !== null && n !== TCPlayer._seekN) TCPlayer._markSeeking(seek.to);
+    TCPlayer._seekN = n;
     if (!playing) {
       video.pause();
       return;

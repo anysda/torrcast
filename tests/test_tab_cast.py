@@ -109,6 +109,35 @@ def test_a_receiver_without_a_remote_leaves_the_command_to_the_refusal() -> None
     session.stop()
 
 
+@dataclass
+class _Lagging(_Steered):
+    """Приёмник, который берёт перемотку не сразу: чтения ещё отдают старое место."""
+
+    def seek(self, pos: float) -> None:
+        self.said.append(("seek", pos))
+
+
+def test_a_stale_read_right_after_seeking_back_does_not_swallow_the_report_at_the_target() -> None:
+    """🔴 TC-1169. Первое чтение после ``steer`` бывает старым местом: оно становилось
+    «прежним» докладом, и доклад у цели глотался как излёт - вкладка и ползунок стояли на
+    старом месте, пока ТВ играл новое."""
+    receiver = _Lagging(Position(1062.0, 7200.0, playing=True))
+    heard: list[float] = []
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    session.start("10.0.1.7", "t", "u", 1062.0, echo=lambda spot: heard.append(spot.pos))
+    try:
+        _until(lambda: bool(heard))
+        assert session.steer("seekby", -300.0)
+        asked = len(receiver.fronts)
+        _until(lambda: len(receiver.fronts) >= asked + 3)
+        receiver.current = Position(762.0, 7200.0, playing=True)
+        _until(lambda: 762.0 in heard)
+    finally:
+        session.stop()
+
+    assert receiver.said == [("seek", 762.0)]
+
+
 def test_after_seeking_back_the_next_report_is_heard_not_read_as_a_stale_tail() -> None:
     """🔴 Опрос глотает доклад назад как излёт (:meth:`TvSession._backwards`). Своя
     перемотка назад обязана это снять, иначе место ТВ (а за ним плёнка вкладки и закладка)

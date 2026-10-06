@@ -9,6 +9,7 @@ from collections.abc import Callable
 
 from hass.aim import Aim
 from hass.say import SEEKBY
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 
 #: Сколько закладка должна простоять на месте, чтобы это была пауза зрителя, секунды.
@@ -80,6 +81,10 @@ class Motion:
     def aimed(self, shown: PlaybackSnapshot | None) -> PlaybackSnapshot | None:
         """Снимок для карточки: с местом собственной перемотки, пока она приземляется."""
         return self._aim.seen(shown)
+
+    def sought(self, shown: PlaybackSnapshot | None) -> dict[str, JsonValue] | None:
+        """Последняя перемотка моста этого показа (:meth:`hass.aim.Aim.sought`)."""
+        return self._aim.sought(shown)
 
     def standing(self, key: str, position: float) -> bool:
         """Стоит ли закладка дольше порога; сдвинулась - счёт начинается заново."""

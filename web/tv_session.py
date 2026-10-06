@@ -18,6 +18,7 @@ from torrcast.domain.segment_container import SegmentContainer
 from torrcast.ports.receiver import Receiver
 from web.live_receiver import POLL_SECONDS, live_receiver
 from web.tv_load import tv_load
+from web.tv_stale import tv_stale
 from web.tv_steer import tv_steer
 
 
@@ -35,6 +36,7 @@ class TvSession:
     poll_seconds: float = POLL_SECONDS
     _receiver: Receiver | None = field(default=None, init=False, repr=False)
     _heard: Position | None = field(default=None, init=False, repr=False)
+    _aim: tuple[float, float] | None = field(default=None, init=False, repr=False)
     _alive: Callable[[], bool] | None = field(default=None, init=False, repr=False)
     _stop_poll: threading.Event | None = field(default=None, init=False, repr=False)
     _poll: threading.Thread | None = field(default=None, init=False, repr=False)
@@ -92,7 +94,7 @@ class TvSession:
         receiver = self.factory(address, profile or self.profile)
         tv_load(receiver, url, title, at, container)
         self._receiver = receiver
-        self._heard = None
+        self._heard = self._aim = None
         self._alive = alive
         self.key = key
         self._arm(receiver, echo)
@@ -123,17 +125,21 @@ class TvSession:
         """Пульт каста прямо приёмнику ТВ (:func:`web.tv_steer.tv_steer`); нечем - ``False``."""
         with self._lock:
             receiver = self._receiver
-            if receiver is None or not tv_steer(receiver, self._heard, command, arg):
+            if receiver is None:
                 return False
-            if command == "seekby":  # иначе `_backwards` глотал бы доклады после перемотки назад
-                self._heard = None
+            seek = command == "seekby"
+            base = receiver.position() if seek and self._heard is None else self._heard
+            if not tv_steer(receiver, base, command, arg):
+                return False
+            if seek and base is not None:  # доклад у цели `_backwards` не глотает
+                self._heard, self._aim = None, (base.pos, max(0.0, base.pos + arg))
         return True
 
     def _release(self) -> None:
         """Закрыть прежнюю связь без чтения её места - её никто не спрашивал."""
         receiver, self._receiver = self._receiver, None
         self.key = ""
-        self._heard = None
+        self._heard = self._aim = None
         if receiver is None:
             return
         self._disarm()
@@ -185,13 +191,9 @@ class TvSession:
                 echo(spot)
 
     def _backwards(self, spot: Position) -> bool:
-        """Доклад, ушедший НАЗАД посреди каста: это чтение на излёте, а не перемотка.
-
-        Своя перемотка (:meth:`steer`) и новый каст начинают с чистого :attr:`_heard`. 🔴 Это
-        число ведёт и плёнку вкладки: доклад назад дёргал её (на живом приёмнике: 5.4, следом 3.6).
-        """
-        heard = self._heard
-        return heard is not None and spot.pos < heard.pos
+        """Доклад назад - излёт, кроме приезда своей перемотки (:func:`web.tv_stale.tv_stale`)."""
+        stale, self._aim = tv_stale(spot, self._heard, self._aim)
+        return stale
 
 
 #: Один держатель на процесс страницы: оба маршрута спрашивают именно его.

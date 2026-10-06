@@ -6,6 +6,7 @@ import json
 
 from hass.motion import IDLE, PLAYING, STARTING
 from hass.payload import payload
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 
 
@@ -233,3 +234,29 @@ def test_the_reason_word_of_the_refusal_rides_next_to_the_spoken_one() -> None:
         has_next=False,
     )
     assert silent["refusal"] is None
+
+
+def _seek_of(state: str, seek: dict[str, JsonValue] | None) -> JsonValue:
+    shown = PlaybackSnapshot(key="movie:муха:1986", title="Муха", position=745.1)
+    body = payload(
+        shown,
+        version="1.0.3",
+        build=None,
+        tv="",
+        state=state,
+        volume=None,
+        disk_free=0,
+        last_error="",
+        picture=("", ""),
+        has_next=None,
+        seek=seek,
+    )
+    return body["seek"]
+
+
+def test_the_last_bridge_seek_rides_in_a_running_show_only() -> None:
+    """TC-1169: номер перемотки моста ведёт плёнку вкладки на ТВ; в простое его нет."""
+    said: dict[str, JsonValue] = {"n": 2, "to": 745.1}
+    assert _seek_of(PLAYING, said) == said
+    assert _seek_of(IDLE, said) is None
+    assert _seek_of(PLAYING, None) is None
