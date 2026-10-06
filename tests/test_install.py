@@ -1010,8 +1010,31 @@ def test_the_indexer_texts_match_what_the_installer_actually_does() -> None:
     body = _install_indexers()
     assert '"indexer $names (may take up to two minutes to add)"' in body
     assert '"индексер $names (добавляется до двух минут)" add_indexers' in body
-    assert "span=$(( more * INDEXER_RETRY_EVERY / 60 ))" in body
+    assert 'span=$(retry_span_min "${#retry[@]}")' in body
     assert "это до $span мин" in body
+
+
+@pytest.mark.machine
+def test_the_retry_deadline_covers_the_attempts_not_only_the_pauses() -> None:
+    """🔴 TC-1411. Срок догрева считали по одним паузам: экран обещал «до 55 мин», а живой
+    переспрос одного RuTor шёл 62 - каждая из одиннадцати попыток сама стоит полминуты и
+    больше. Потолок обязан покрыть замер, а не только сумму пауз."""
+    knobs = [
+        line
+        for line in SCRIPT.splitlines()
+        if line.startswith(("INDEXER_RETRY_TIMES=", "INDEXER_RETRY_EVERY=", "INDEXER_ADD_MAX="))
+    ]
+    script = "\n".join(
+        [*knobs, "retry_span_min() {" + _body("retry_span_min") + "\n}", "retry_span_min 1"]
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TORRCAST_INDEXER_RETRY_")}
+
+    done = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False, env=env
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert int(done.stdout) >= 62, f"срок {done.stdout.strip()} мин короче живого догрева в 62 мин"
 
 
 #: Заглушки живых Prowlarr, поднятые тестом: гасить их надо ПОСЛЕ замера, а не в

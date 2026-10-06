@@ -3064,7 +3064,15 @@ add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
 # отказавший уже спрошен, и догрев делает на одну меньше.
 INDEXER_RETRY_TIMES="${TORRCAST_INDEXER_RETRY_TIMES:-12}"
 INDEXER_RETRY_EVERY="${TORRCAST_INDEXER_RETRY_EVERY:-300}"
-#: 🔴 TC-1411. Догрев выше кончается за час; служба дозаведения индексеров живёт дольше и
+#: 🔴 TC-1411. Потолок одного добавления - тот же, что обещан на экране («добавляется до
+#: двух минут»). Круг переспроса - это пауза ПЛЮС добавление каждого в списке, и срок по
+#: одним паузам врал: экран обещал «до 55 мин», а живой догрев RuTor шёл 62.
+INDEXER_ADD_MAX=120
+
+retry_span_min() {  # $1 - сколько индексеров едут в переспрос; печатает потолок в минутах
+    echo $(( ((INDEXER_RETRY_TIMES - 1) * (INDEXER_RETRY_EVERY + $1 * INDEXER_ADD_MAX) + 59) / 60 ))
+}
+#: 🔴 TC-1411. Догрев выше кончается за час с небольшим; служба дозаведения индексеров живёт дольше и
 #: берёт то, что ответит позже. Через сколько секунд она обходит список недоведённых. Этот
 #: срок обещают человеку последний экран и doctor («не позже N мин»), поэтому на стенде его
 #: не уменьшают: замер доезда идёт при штатном такте.
@@ -3582,7 +3590,8 @@ install_indexers() {
     fi
     if [ "${#retry[@]}" -gt 0 ]; then
         local asked="" more=$(( INDEXER_RETRY_TIMES - 1 ))
-        local span=$(( more * INDEXER_RETRY_EVERY / 60 ))
+        local span
+        span=$(retry_span_min "${#retry[@]}")
         for spec in "${retry[@]}"; do asked="$asked${asked:+, }${spec%%$'\t'*}"; done
         late_run "failed core indexers $asked (up to $more more attempts every $INDEXER_RETRY_EVERY s, up to $span min)" \
             "отказавшие опорные $asked (спросим ещё до $more раз, раз в $INDEXER_RETRY_EVERY с - это до $span мин)" \
