@@ -20,7 +20,7 @@ SPEC.loader.exec_module(adapter)
 def _raise(error: BaseException) -> Any:
     """A fetch that only ever fails: the API is dead in the way the test names."""
 
-    def fetch(*_args: str) -> NoReturn:
+    def fetch(*_args: object) -> NoReturn:
         raise error
 
     return fetch
@@ -87,7 +87,7 @@ def test_a_hung_api_is_an_empty_source_and_not_a_dropped_connection() -> None:
 
 
 def test_empty_query_does_not_dump_the_catalog() -> None:
-    def fetch(*_args: str) -> Any:
+    def fetch(*_args: object) -> Any:
         pytest.fail("API must not be called")
 
     assert adapter.search("", fetch) == []
@@ -97,17 +97,56 @@ def _rows(*keys: str) -> dict[str, Any]:
     return {"results": [{"title": key, "magnet": "magnet:?xt=urn:btih:" + key} for key in keys]}
 
 
+def _asked(query: str, year: int | None) -> str:
+    """The key of one request to the API: the text, and the year field when it is filled."""
+    return query if year is None else f"{query} [year {year}]"
+
+
 def test_joined_names_are_asked_apart_and_answered_together() -> None:
-    answers = {"Тачки 2006": _rows("a1", "a2", "both"), "Cars 2006": _rows("both", "b1")}
+    answers = {"Тачки": _rows("a1", "a2", "both"), "Cars 2006": _rows("both", "b1")}
     asked: list[str] = []
 
-    def fetch(_origin: str, query: str) -> Any:
-        asked.append(query)
-        return answers[query]
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
+        asked.append(_asked(query, year))
+        return answers.get(_asked(query, year), _rows())
 
-    rows = adapter.search("Тачки 2006 | Cars 2006", fetch)
-    assert sorted(asked) == ["Cars 2006", "Тачки 2006"]
+    rows = adapter.search("Тачки | Cars 2006", fetch)
+    assert sorted(asked) == ["Cars 2006", "Cars [year 2006]", "Тачки"]
     assert [row["title"] for row in rows] == ["a1", "both", "a2", "b1"]
+
+
+def test_a_name_with_its_year_is_asked_in_the_year_field_too() -> None:
+    """«Dune: Part One 2021» as a text found nothing on the API, in the year field 100 rows."""
+    answers = {
+        "Дюна": _rows("part-two"),
+        "Дюна 2021": _rows("golden"),
+        "Дюна [year 2021]": _rows("golden", "part-one-ru"),
+        "Dune: Part One [year 2021]": _rows("part-one-en"),
+    }
+
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
+        return answers.get(_asked(query, year), _rows())
+
+    rows = adapter.search("Дюна | Дюна 2021 | Dune: Part One 2021", fetch)
+    assert {row["title"] for row in rows} == {"part-two", "golden", "part-one-ru", "part-one-en"}
+
+
+def test_the_viewer_s_own_text_keeps_its_year_as_a_word() -> None:
+    """«Бегущий по лезвию 2049» is a title: only the names torrcast adds are split."""
+    asked: list[str] = []
+
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
+        asked.append(_asked(query, year))
+        return _rows()
+
+    adapter.search("Blade Runner 2049", fetch)
+    adapter.search("Blade Runner 2049 | Blade Runner 2049 2017", fetch)
+    assert sorted(asked) == [
+        "Blade Runner 2049",
+        "Blade Runner 2049",
+        "Blade Runner 2049 2017",
+        "Blade Runner 2049 [year 2017]",
+    ]
 
 
 def test_a_slow_name_does_not_hold_the_viewer_s_text() -> None:
@@ -115,10 +154,10 @@ def test_a_slow_name_does_not_hold_the_viewer_s_text() -> None:
     free = threading.Event()
     answers = {"Тачки 2006": _rows("a1"), "Cars 2006": _rows("b1"), "Cars 2006 slow": _rows("c1")}
 
-    def fetch(_origin: str, query: str) -> Any:
+    def fetch(_origin: str, query: str, year: int | None) -> Any:
         if query.endswith("slow"):
             free.wait(5.0)
-        return answers[query]
+        return answers.get(_asked(query, year), _rows())
 
     began = time.monotonic()
     rows = adapter.search("Тачки 2006 | Cars 2006 | Cars 2006 slow", fetch, grace=0.2)
@@ -133,7 +172,7 @@ def test_the_names_leave_only_once_the_viewer_s_text_has_answered() -> None:
     """The API slows and refuses texts that come at once: the viewer's goes alone."""
     events: list[str] = []
 
-    def fetch(_origin: str, query: str) -> Any:
+    def fetch(_origin: str, query: str, _year: int | None) -> Any:
         events.append("ask " + query)
         time.sleep(0.05)
         events.append("got " + query)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import calendar
 import datetime
 import json
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -29,8 +30,11 @@ TIMEOUT = 5.0
 LIMIT = 100
 
 
-def _json(origin: str, query: str) -> Any:
-    path = "/api/search?" + urllib.parse.urlencode({"query": query, "sort": "sid", "limit": LIMIT})
+def _json(origin: str, query: str, year: int | None = None) -> Any:
+    asked: dict[str, Any] = {"query": query, "sort": "sid", "limit": LIMIT}
+    if year is not None:
+        asked["year"] = year
+    path = "/api/search?" + urllib.parse.urlencode(asked)
     done = subprocess.run(
         ["curl", "-4fsS", "-m", str(TIMEOUT), "-A", "torrcast/1", origin + path],
         capture_output=True,
@@ -43,7 +47,7 @@ def _json(origin: str, query: str) -> Any:
 
 
 #: How the API is asked: the live `_json` in production, a stand-in under test.
-Fetch = Callable[[str, str], Any]
+Fetch = Callable[[str, str, int | None], Any]
 
 
 #: What joins several texts of one request; torrcast's ``torrcast.domain.joint_query.JOINT``.
@@ -81,8 +85,9 @@ def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list
     if len(texts) < 2:
         return _search(query, fetch)
     first = _search(texts[0], fetch)
-    pool = ThreadPoolExecutor(len(texts) - 1)
-    asked = [pool.submit(_search, text, fetch) for text in texts[1:]]
+    forms = [form for text in texts[1:] for form in _forms(text)]
+    pool = ThreadPoolExecutor(len(forms))
+    asked = [pool.submit(_search, text, fetch, year) for text, year in forms]
     pool.shutdown(wait=False)  # a text past the grace ends on its own curl cut, unread
     wait(asked, timeout=grace)
     answers = [first, *(each.result() for each in asked if each.done())]
@@ -92,12 +97,31 @@ def search(query: str, fetch: Fetch = _json, grace: float = NAMES_GRACE) -> list
     return list(rows.values())
 
 
-def _search(query: str, fetch: Fetch) -> list[dict[str, Any]]:
+#: A name text torrcast sends: the picture's name, then its year.
+NAMED_YEAR = re.compile(r"(?P<name>.*\S)\s+(?P<year>(?:18|19|20)\d\d)")
+
+
+def _forms(text: str) -> list[tuple[str, int | None]]:
+    """Ask a name with its year both as the text and as the name in the API's year field.
+
+    The API reads the year in the text as a word of the title, and most titles lack it:
+    on the stand (06.10) «Дюна 2021» found only «Золотая дюна», «Dune: Part One 2021» and
+    «Inception 2010» nothing, while the same names in the year field gave 26, 100 and 100
+    rows of that year. The field alone is no answer either: «Брат» of 1997 gave 6 rows
+    there and 66 as the text, most releases carry no year for the field.
+    """
+    named = NAMED_YEAR.fullmatch(text)
+    if named is None:
+        return [(text, None)]
+    return [(text, None), (named["name"], int(named["year"]))]
+
+
+def _search(query: str, fetch: Fetch, year: int | None = None) -> list[dict[str, Any]]:
     if not query.strip():
         return []
     for origin in ORIGINS:
         try:
-            answer = fetch(origin, query)
+            answer = fetch(origin, query, year)
         # SubprocessError belongs here as much as OSError: a hung upstream leaves
         # `subprocess.run` in its own TimeoutExpired, which is NOT an OSError. Uncaught it
         # would leave the handler through a dropped connection, and Prowlarr answers a
