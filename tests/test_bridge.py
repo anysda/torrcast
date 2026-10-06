@@ -806,6 +806,26 @@ def test_the_card_is_told_the_new_place_the_second_the_bridge_says_seekby(
     assert bridge.state()["position"] == 960.0
 
 
+def test_a_show_started_again_drops_the_place_of_the_last_seek(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Повтор того же показа с начала идёт от нуля, а не от места прежней перемотки."""
+    monkeypatch.setenv(CTL_ENV, str(tmp_path / "torrcast.ctl"))
+    session = FakePlaybackSession(
+        playing=True,
+        play_key="movie:муха",
+        shown=PlaybackSnapshot(key="movie:муха", title="Муха", position=4.0, moved=True),
+    )
+    bridge = _bridge(session)
+
+    assert bridge.state()["position"] == 4.0
+    bridge.control(SEEKBY, 600.0)
+    bridge.play("муха")
+    session.shown = PlaybackSnapshot(key="movie:муха", title="Муха", position=0.0, moved=True)
+
+    assert bridge.state()["position"] == 0.0
+
+
 def test_the_snapshot_names_each_seek_of_the_bridge_for_the_tab_on_tv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

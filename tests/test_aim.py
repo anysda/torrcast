@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from hass.aim import LANDED_SECONDS, Aim
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 
@@ -152,6 +154,24 @@ def test_the_next_episode_does_not_inherit_the_latch() -> None:
     assert aim.sought(_shown(9.0, key="tv:муха", file_index=48)) is None
 
 
+def test_the_same_episode_started_again_does_not_inherit_the_latch() -> None:
+    """Повтор той же серии с начала: ключ и файл прежние, а место прежней перемотки - нет.
+
+    Карточка начинала повтор с 604 вместо 0, пока окно защёлки не выходило. Номер
+    перемоток не обнуляется: вкладка на ТВ сравнивает его с запомненным.
+    """
+    clock = _Clock()
+    aim = Aim(clock=clock)
+
+    _place(aim, _shown(4.0, key="tv:муха", file_index=47))
+    aim.at(600.0)
+    clock.now = 2.0
+    aim.started()
+
+    assert _place(aim, _shown(0.0, key="tv:муха", file_index=47)) == 0.0
+    assert aim.sought(_shown(0.0, key="tv:муха", file_index=47)) == {"n": 1, "to": 604.0}
+
+
 def test_a_rewind_to_the_beginning_is_aimed_at_zero_and_not_below() -> None:
     """«Сначала» с карточки - сдвиг в минус на всю позицию; ниже нуля оси нет."""
     clock = _Clock()
@@ -178,3 +198,42 @@ def test_a_seek_aims_from_the_place_the_card_was_showing() -> None:
     aim.at(-300.0)  # человек утащил ползунок с 1000 на 700
 
     assert _place(aim, _shown(1000.0)) == 700.0
+
+
+def test_a_show_started_again_elsewhere_drops_the_latch() -> None:
+    """Повтор той же серии ботом или CLI мост не видит, но запись снова не знает позиции."""
+    clock = _Clock()
+    aim = Aim(clock=clock)
+
+    _place(aim, _shown(4.0, key="tv:муха", file_index=47))
+    aim.at(600.0)
+    clock.now = 5.0
+    again = replace(_shown(0.0, key="tv:муха", file_index=47), moved=False)
+
+    assert _place(aim, again) == 0.0
+
+
+def test_a_seek_right_after_the_next_episode_holds_in_it() -> None:
+    """Новая серия ещё не двигалась, а перемотка в ней держится, пока не приземлится."""
+    clock = _Clock()
+    aim = Aim(clock=clock)
+
+    _place(aim, _shown(2560.0, key="tv:муха", file_index=47))
+    fresh = replace(_shown(0.0, key="tv:муха", file_index=48), moved=False)
+    _place(aim, fresh)
+    aim.at(300.0)
+    clock.now = 2.0
+
+    assert _place(aim, fresh) == 302.0
+
+
+def test_the_previous_episode_does_not_inherit_the_latch() -> None:
+    """Возврат на прошлую серию начинает её с правды, а не с цели перемотки в этой."""
+    clock = _Clock()
+    aim = Aim(clock=clock)
+
+    _place(aim, _shown(100.0, key="tv:муха", file_index=48))
+    aim.at(600.0)
+    clock.now = 3.0
+
+    assert _place(aim, _shown(5.0, key="tv:муха", file_index=47)) == 5.0

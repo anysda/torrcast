@@ -60,6 +60,8 @@ class Aim:
         #: из снимка, а не только из своего нажатия (:meth:`sought`).
         self._n = 0
         self._paused = False
+        #: Приёмник уже называл живую позицию показа на прошлом опросе.
+        self._ran = False
 
     def at(self, offset: float) -> None:
         """Мост послал ``seekby``: закладка с этой секунды считается на новом месте.
@@ -78,6 +80,16 @@ class Aim:
         self._to = seek_place(truth if held is None else held, offset, duration)
         self._at = self._clock()
         self._n += 1
+
+    def started(self) -> None:
+        """Мост запустил показ заново: место прежней перемотки ему не правда.
+
+        У повтора той же серии с начала ключ и файл прежние, и защёлка до
+        :data:`LANDED_SECONDS` отдавала карточке место старой перемотки (604 вместо 0).
+        Номер перемоток живёт дальше: вкладка на ТВ сверяет его с запомненным, и счёт с
+        нуля совпал бы со старым номером.
+        """
+        self._at = -1.0
 
     def _held(self, key: tuple[str, int]) -> float | None:
         """Место живой защёлки этого показа, либо ``None``."""
@@ -103,6 +115,10 @@ class Aim:
         """Снимок для карточки: место защёлки, пока перемотка не доехала до записи."""
         if shown is None:
             return None
+        if self._ran and not shown.moved:
+            # Запуск не мостом (бот, CLI): запись снова не знает живой позиции.
+            self.started()
+        self._ran = shown.moved
         self._seen = (_whose(shown), shown.position, shown.duration)
         self._paused = shown.paused == "PAUSED"
         place = self._place(shown)

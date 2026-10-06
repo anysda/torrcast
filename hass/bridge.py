@@ -161,6 +161,7 @@ class Bridge:
         """Отдать команду рабочему потоку; идущий показ новый СНИМАЕТ (ТЗ §7.4)."""
         if not starting(self._orders, self._session, args):
             raise RefusedError(BUSY)
+        self._motion.started()
         return secrets.token_hex(4)
 
     def abandoned(self) -> bool:
