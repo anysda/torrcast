@@ -12,13 +12,13 @@ from torrcast.cli.main import main as run
 from torrcast.domain.exit_codes import EXIT_INFRA
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.journal.slot import journal
-from torrcast.runtime.wire import wire
+from torrcast.runtime.wire_cli import wire_cli
 
 
 def main(
     argv: Sequence[str] | None = None,
     *,
-    assemble: Callable[[], None] = wire,
+    assemble: Callable[[], None] = wire_cli,
     command: Callable[[Sequence[str] | None], int] = run,
 ) -> int:
     """Собрать приложение и выполнить названную аргументами команду.
