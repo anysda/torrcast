@@ -4,10 +4,15 @@
 «На ТВ» ящика не меняет: каст держит страница (:mod:`web.tv_session`), и отказ
 ``no_remote`` доставался и тогда, когда картину уже играл ТВ. Каст ЭТОГО ящика идёт -
 команда уходит его приёмнику (:func:`web.tv_steer.tv_steer`), отказывать не за что.
+
+ТВ без картины (``IDLE``: фильм доигран или сессию уронили) пульт не берёт - отказ
+``nothing_playing``. Стенд 06-10-2026: «+600» после конца фильма отвечали 204, а
+карточка рисовала 600 и 1200 при пустом экране (:mod:`web.tv_idle`).
 """
 
 from __future__ import annotations
 
+from hass.refused_error import NOTHING_PLAYING, RefusedError
 from torrcast.adapters.browser.read_web_box import read_web_box
 from torrcast.domain.config import Config
 from torrcast.usecases.playback.hls_root import hls_root
@@ -17,4 +22,9 @@ from web.tv_session import SESSION
 def tab_cast(config: Config, command: str, arg: float) -> bool:
     """Каст «На ТВ» этого показа исполнил команду; каста нет или приёмник не умеет - ``False``."""
     key = str(read_web_box(hls_root(config.hls_dir)).get("key", ""))
-    return bool(key) and SESSION.owns(key) and SESSION.steer(command, arg)
+    if not key or not SESSION.owns(key):
+        return False
+    heard = SESSION.heard(key)
+    if heard is not None and heard.state == "IDLE":
+        raise RefusedError(NOTHING_PLAYING)
+    return SESSION.steer(command, arg)

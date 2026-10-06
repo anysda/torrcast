@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from hass.refused_error import NOTHING_PLAYING, RefusedError
 from hass.tab_cast import tab_cast
 from tests.fakes.receiver import FakeReceiver
 from torrcast.adapters.browser.write_web_box import write_web_box
@@ -155,3 +156,30 @@ def test_after_seeking_back_the_next_report_is_heard_not_read_as_a_stale_tail() 
         session.stop()
 
     assert heard and heard[0] == 540.0
+
+
+def test_a_tv_that_played_the_film_to_the_end_refuses_the_remote_and_keeps_the_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Стенд 06-10-2026: после конца фильма ТВ в ``IDLE`` с нулём, «+600» отвечали 204, а
+    карточка рисовала 0.0, 600 и 1200 при пустом экране."""
+    monkeypatch.setenv("TORRCAST_HLS", str(tmp_path))
+    write_web_box(tmp_path, url="http://x/out.m3u8", title="Муха", at=0.0, key="k1")
+    receiver = _Steered(Position(7199.0, 7200.0, True, "PLAYING"))
+    echoed: list[Position] = []
+    session = TvSession(factory=lambda address, profile: receiver, poll_seconds=0.01)
+    monkeypatch.setattr("hass.tab_cast.SESSION", session)
+    session.start("10.0.1.7", "Муха", "u", 7199.0, echo=echoed.append, key="k1")
+    try:
+        _until(lambda: bool(echoed))
+        receiver.current = Position(0.0, 0.0, False, "IDLE")
+        asked = len(receiver.fronts)
+        _until(lambda: len(receiver.fronts) >= asked + 3)
+        with pytest.raises(RefusedError) as refused:
+            tab_cast(Config(), "seekby", 600.0)
+    finally:
+        session.stop()
+
+    assert refused.value.word == NOTHING_PLAYING
+    assert receiver.said == [], "команда ушла ТВ без картины"
+    assert echoed[-1].pos == 7199.0, "ноль ТВ без картины ушёл в закладку"

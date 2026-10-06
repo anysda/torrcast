@@ -20,6 +20,7 @@ from torrcast.domain.segment_container import SegmentContainer
 from torrcast.ports.receiver import Receiver
 from web.live_receiver import POLL_SECONDS, live_receiver
 from web.tv_fresh import tv_fresh
+from web.tv_idle import tv_idle
 from web.tv_load import tv_load
 from web.tv_settled import RECHECK_SECONDS, tv_settled
 from web.tv_since import tv_since
@@ -93,7 +94,6 @@ class TvSession:
 
         ``echo`` слышит каждый опрос приёмника: пока каст идёт, место показа знает ТВ, а
         не вкладка (ТЗ §7.5.3), и опрос - единственный источник секунды.
-
         ``alive`` спрашивается перед каждым опросом: сказал «нет» - каст снимается (:meth:`_pump`).
         """
         self._release()  # повторное «На ТВ» не оставляет прежнюю связь висеть и опрашиваться
@@ -182,7 +182,7 @@ class TvSession:
                 if self._receiver is not receiver:
                     return
                 asked, self._asked = self._asked, time.monotonic()
-                spot = receiver.position()
+                spot = tv_idle(receiver.position(), self._heard, self._aim)
                 if self._backwards(spot):
                     continue
                 self._since, self._heard = tv_since(self._heard, spot, asked), spot
