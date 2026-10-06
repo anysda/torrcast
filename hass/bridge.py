@@ -32,13 +32,14 @@ from hass.posters_left import posters_left
 from hass.refused_error import BUSY, NO_REMOTE, NO_VOLUME, NOTHING_PLAYING, RefusedError
 from hass.remote_refused import remote_refused
 from hass.resuming import _resume
-from hass.say import SEEKBY, TOGGLE, say
+from hass.say import SEEKBY, TOGGLE, VOLUME, say
 from hass.search import Search
 from hass.search_progress import _refusal_pending, search_progress
 from hass.searching import DETECT, REMEMBER, SEARCH, Detect, Remember, searching
 from hass.starting import starting
 from hass.stopping import STOP, _abandoned, stopping
 from hass.tab_cast import tab_cast
+from hass.tv_heard import tv_heard
 from hass.volume import Volume
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.health.machine_probe import MachineProbe
@@ -52,8 +53,6 @@ from torrcast.runtime.playback_session import playback_session
 from torrcast.usecases.start_progress import START
 from torrcast.usecases.warm.warm_root import warm_root
 from web.warm_wiring import CATALOG, WARM
-
-VOLUME = "volume"
 
 
 class Bridge:
@@ -90,6 +89,7 @@ class Bridge:
         active = self._session.active()
         shown = self._session.snapshot(self._session.key() if active else "")
         word = self._motion.phase(shown, active=active, starting=self._orders.underway())
+        shown, word = tv_heard(config.hls_dir, shown, word)  # каст «На ТВ» слышит сам ТВ
         return payload(
             self._motion.aimed(shown),
             version=__version__,

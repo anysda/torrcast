@@ -53,6 +53,10 @@ class TvSession:
         """Каст идёт и он про ЭТОТ показ; чужой ключ - «не мой», а не «каста нет»."""
         return self._receiver is not None and self.key == key
 
+    def heard(self, key: str) -> Position | None:
+        """Последний доклад ТВ про ЭТОТ показ (:meth:`_pump`); каста нет или он чужой - ``None``."""
+        return self._heard if self.owns(key) else None
+
     def settle(self, key: str) -> bool:
         """Идёт ли каст ИМЕННО этого ящика; каст осиротел - снять его и ответить «нет».
 
@@ -84,20 +88,16 @@ class TvSession:
     ) -> None:
         """Позвать приёмник ТВ тем же LOAD, что и прямой показ на ТВ (:func:`web.tv_load.tv_load`).
 
-        Старую связь, если она была, отпускаем первой: иначе повторное нажатие «На ТВ»
-        оставляло бы прежнее соединение висеть незакрытым и опрашиваемым.
-
         ``echo`` слышит каждый опрос приёмника: пока каст идёт, место показа знает ТВ, а
         не вкладка (ТЗ §7.5.3), и опрос из повода «держать ``current_time`` свежим»
         становится ещё и единственным источником секунды.
 
         ``alive`` спрашивается перед каждым опросом: сказал «нет» - каст снимается (:meth:`_pump`).
         """
-        self._release()
+        self._release()  # повторное «На ТВ» не оставляет прежнюю связь висеть и опрашиваться
         receiver = self.factory(address, profile or self.profile)
         tv_load(receiver, url, title, at, container)
         self._receiver = receiver
-        self._heard = self._aim = self._doubt = None
         self._alive = alive
         self.key = key
         self._arm(receiver, echo)

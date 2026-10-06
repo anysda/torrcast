@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 import hass.search_progress as search_progress_module
-from hass.bridge import VOLUME, Bridge
+from hass.bridge import Bridge
 from hass.posters import Posters
 from hass.refused_error import NO_NEXT, NO_REMOTE, NO_VOLUME, NOTHING_PLAYING, RefusedError
-from hass.say import SEEKBY, TOGGLE
+from hass.say import SEEKBY, TOGGLE, VOLUME
 from hass.stopping import STOP
 from hass.volume import Volume
 from tests.fakes.playback_session import FakePlaybackSession

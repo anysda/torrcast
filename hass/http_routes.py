@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from hass.bridge import VOLUME
-from hass.say import SEEKBY, TOGGLE
+from hass.say import SEEKBY, TOGGLE, VOLUME
 from hass.stopping import STOP
 
 #: Слушаем все интерфейсы: Home Assistant приходит из локальной сети, а не с петли.

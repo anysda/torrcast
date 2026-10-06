@@ -18,6 +18,7 @@ from torrcast.domain.debug_handles import CTL_ENV
 #: потому что в файле она СДВИГ, а Home Assistant называет уровень.
 SEEKBY = "seekby"
 TOGGLE = "toggle"
+VOLUME = "volume"  # слово одного моста: в файл-пульт не пишется
 
 
 def _ctl_path() -> Path:

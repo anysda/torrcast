@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from hass.motion import IDLE, STARTING
+from hass.tv_heard import STALLED
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.domain.split_episode import split_episode
@@ -41,7 +42,8 @@ def payload(
         # (:func:`torrcast.adapters.health.build_id.build_id`).
         "build": build,
         "tv": tv or None,
-        "state": state,
+        # Буфер ТВ под идущим показом (:mod:`hass.tv_heard`): слово подъёма, картина - та же.
+        "state": STARTING if state == STALLED else state,
         **about,
         # Между показами и в простое картины ещё/уже нет, и знать про следующую серию
         # нечего: ``null`` тут читается интеграцией ровно как «неизвестно», то есть
