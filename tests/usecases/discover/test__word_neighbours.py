@@ -78,6 +78,24 @@ def test_the_top_up_by_the_wiki_name_brings_the_picture_past_its_neighbours() ->
     assert menu == [("Вверх", 2009)]
 
 
+def test_a_neighbour_of_the_wiki_year_gives_way_to_the_picture_of_the_top_up() -> None:
+    """Живой экземпляр: по «Дюна» одна «Золотая дюна» 2021, добор по «Dune» привёз саму."""
+    dune = Origin(title="Dune", year=2021, name="Дюна")
+    golden = [row("Золотая дюна / Altin Kum (2021) WEB-DL 1080p", "a", seeders=3)]
+    latin = [
+        row("Дюна / Dune: Part One (2021) BDRip 1080p | Дубляж", "b", seeders=274),
+        row("Dune (2021) 2160p UHD BluRay", "c", seeders=218),
+        row("Дюна / Dune (1984) BDRip 1080p | P", "d", seeders=40),
+        row("Дюна 2 / Dune: Part Two (2024) WEB-DL 1080p | D", "e", seeders=300),
+        row("Dune Drifter (2020) 1080p WEB", "f"),
+    ]
+
+    menu = _menu({"дюна": golden, "dune": latin}, "Дюна", dune)
+
+    assert menu[0] == ("Дюна", 2021)
+    assert ("Золотая дюна", 2021) not in menu
+
+
 def test_a_rich_listing_keeps_the_picture_as_it_was() -> None:
     """Выдача с самой картиной: ответ прежний, раздачи те же."""
     menu = _menu({"вверх": _UP_KNABEN + _UP_ITSELF, "up": _UP_LATIN}, "Вверх", _UP)
@@ -214,5 +232,16 @@ def test_the_wide_take_is_only_for_an_empty_russian_answer_without_a_part_number
     wide = [_picture("Руки вверх", 2024), _picture("Вверх", 2009, "Up"), _picture("Up", 2026)]
 
     assert [p.year for p in _asked_in([], wide, "вверх", None, _UP)] == [2009]
-    assert _asked_in([wide[0]], wide, "вверх", None, _UP) == []
+    assert _asked_in([wide[1]], wide, "вверх", None, _UP) == []
     assert _asked_in([], wide, "вверх", 2, _UP) == []
+
+
+def test_a_word_neighbour_of_the_wiki_year_does_not_hide_the_picture_of_the_wide_take() -> None:
+    """Живой экземпляр: по «Дюна» одна «Золотая дюна» 2021, а справка знает «Dune» 2021."""
+    dune = Origin(title="Dune", year=2021, name="Дюна")
+    golden = _picture("Золотая дюна", 2021)
+    wide = [golden, _picture("Дюна", 2021, "Dune"), _picture("Dune", 1984)]
+
+    assert _neighbours_only([golden], "дюна", dune) == [golden]
+    assert [p.year for p in _asked_in([golden], wide, "дюна", None, dune)] == [2021]
+    assert _asked_in([golden], wide, "дюна", None, dune)[0].title == "Дюна"
