@@ -26,7 +26,7 @@ class _Hls(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         ASKED.append(self.path)
         bodies = {"/index.m3u8": MANIFEST, "/v0.ts": SEGMENT}
-        body = bodies.get(self.path)
+        body = bodies.get(self.path.split("?")[0])
         if body is None:
             self.send_response(404)
             self.send_header("Content-Length", "0")
@@ -36,7 +36,7 @@ class _Hls(http.server.BaseHTTPRequestHandler):
         if self.headers.get("Range") == "bytes=10-19":
             first, last, code = 10, 19, 206
         sent = body[first : last + 1]
-        kind = "application/vnd.apple.mpegurl" if self.path.endswith(".m3u8") else "video/mp2t"
+        kind = "application/vnd.apple.mpegurl" if ".m3u8" in self.path else "video/mp2t"
         self.send_response(code)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(sent)))
@@ -122,3 +122,16 @@ def test_a_stopped_show_server_is_a_gateway_refusal(monkeypatch: pytest.MonkeyPa
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.machine
+def test_the_mirror_mark_of_the_cast_tab_reaches_the_show_server(page: str) -> None:
+    """🔴 Стенд 06-10-2026: вкладка при «На ТВ» метила куски ``?mirror=1``, а дверь страницы
+    слала показу одно имя - упаковка пинг-понгом прыгала между местом ТВ и запасом вкладки
+    (2351.6 и 2706.9 по очереди, четыре захода, «сдаюсь»), и ТВ так и не заиграл."""
+    ASKED.clear()
+    with urllib.request.urlopen(f"{page}/hls/v0.ts?mirror=1&x=1", timeout=5) as segment:
+        assert segment.status == 200
+    with urllib.request.urlopen(f"{page}/hls/v0.ts?x=1", timeout=5) as segment:
+        assert segment.status == 200
+    assert ASKED == ["/v0.ts?mirror=1", "/v0.ts"], ASKED

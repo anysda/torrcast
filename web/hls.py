@@ -30,7 +30,10 @@ def hls(request: Request) -> Answer:
     if byte_range:
         headers["Range"] = byte_range
     try:
-        connection.request("GET", f"/{name}", headers=headers)
+        # Метку вкладки-зеркала каста несём дальше (TC-1169): без неё запас вкладки уводит
+        # голову упаковки от ТВ. Прочую строку запроса показу не передаём.
+        mirror = "?mirror=1" if request.query.get("mirror") == "1" else ""
+        connection.request("GET", f"/{name}{mirror}", headers=headers)
         response = connection.getresponse()
         body = response.read()
     except (OSError, http.client.HTTPException):
