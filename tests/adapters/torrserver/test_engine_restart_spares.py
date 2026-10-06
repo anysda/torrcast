@@ -140,3 +140,21 @@ def test_the_pause_holds_across_processes_of_the_product() -> None:
     with pytest.raises(ServerDownError):
         show.answered(LOCAL, FakeProbes(), Asked(HUNG, HUNG), 30.0, add=True)
     assert service.restarted == 1
+
+
+def test_a_kill_by_another_process_during_the_probes_is_not_repeated() -> None:
+    clock = FakeClock()
+    service = FakeService()
+    bridge, _ = engine(service, clock)
+    show, _ = engine(service, clock)
+
+    def readers_while_the_bridge_kills() -> bool:
+        # Пока показ спрашивал читателей, мост упал на том же зависе и убил службу.
+        bridge.answered(LOCAL, FakeProbes(), Asked(HUNG), 30.0, add=True)
+        return False
+
+    probes = FakeProbes(reading=None)
+    probes.reading = readers_while_the_bridge_kills  # type: ignore[method-assign]
+    with pytest.raises(ServerDownError):
+        show.answered(LOCAL, probes, Asked(HUNG, HUNG), 30.0, add=True)
+    assert service.restarted == 1

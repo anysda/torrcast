@@ -160,15 +160,22 @@ class EngineRestart:
         return "again" if self._service.restart() and self._waited(probes, UP) else "no"
 
     def _spared(self, probes: _Probes, hung: bool) -> str:
-        """Почему службу убивать нельзя; пусто - можно."""
-        killed = max((t for t in (self._killed, self._stamp.at()) if t is not None), default=None)
-        if killed is not None and 0 <= self._clock.wall() - killed < PAUSE:
+        """Почему службу убивать нельзя; пусто - можно.
+
+        Пауза спрошена и после щупов: они идут секунды, и за них службу мог убить соседний
+        процесс на том же зависе.
+        """
+        if self._paused():
             return "pause"
         if hung and probes.alive():
             reading = probes.reading()
             if reading is not False:
                 return "reading" if reading else "unknown"
-        return ""
+        return "pause" if self._paused() else ""
+
+    def _paused(self) -> bool:
+        killed = max((t for t in (self._killed, self._stamp.at()) if t is not None), default=None)
+        return killed is not None and 0 <= self._clock.wall() - killed < PAUSE
 
     def _waited(self, probes: _Probes, seconds: float) -> bool:
         deadline = self._clock.monotonic() + seconds
