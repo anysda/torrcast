@@ -115,7 +115,7 @@ def test_an_ended_report_is_read_as_idle_not_playing(tmp_path: Path) -> None:
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
 
-    assert receiver.position() == Position(119.0, 120.0, False, "IDLE")
+    assert receiver.position() == Position(119.0, 120.0, False, "ENDED")
 
 
 def test_an_ended_report_after_cancel_closes_the_show_without_a_next_episode(
@@ -132,7 +132,7 @@ def test_an_ended_report_after_cancel_closes_the_show_without_a_next_episode(
     write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
 
     assert playing == Position(100.0, 120.0, True, "PLAYING"), "серия обязана доиграть"
-    assert receiver.position() == Position(119.0, 120.0, False, "IDLE", closed=True)
+    assert receiver.position() == Position(119.0, 120.0, False, "ENDED", closed=True)
 
 
 def test_a_cancel_mark_of_a_past_show_does_not_close_the_next_one(tmp_path: Path) -> None:
@@ -144,7 +144,7 @@ def test_a_cancel_mark_of_a_past_show_does_not_close_the_next_one(tmp_path: Path
     key = read_web_box(tmp_path)["key"]
     write_web_position(tmp_path, key=key, pos=119.0, dur=120.0, phase="ended", wall=clock.wall())
 
-    assert receiver.position() == Position(119.0, 120.0, False, "IDLE")
+    assert receiver.position() == Position(119.0, 120.0, False, "ENDED")
 
 
 def test_a_new_show_erases_the_cancel_mark_of_the_past_one(tmp_path: Path) -> None:

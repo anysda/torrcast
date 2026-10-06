@@ -44,9 +44,7 @@ _WAITING = "BUFFERING"
 #: есть только её отсутствие.
 _LOST = "lost"
 
-# Сроки молчания - про саму вкладку, а не про упаковку: поток ей режется тем же профилем,
-# что и телевизору (:func:`torrcast.usecases.worker._cmd_worker`), а своего профиля у неё нет.
-#
+# Сроки молчания вкладки берутся из её профиля, а не из упаковки (_cmd_worker).
 # Обе границы молчания - слово карточки (ТЗ §7.4: 15 с - «lost», не поднимаем сами;
 # 60 с - штатное закрытие тем же путём, каким закрывают потерянный телевизор), а не
 # числа, подобранные наблюдением за настоящим декодером: у браузера нет своего
@@ -193,7 +191,10 @@ class BrowserReceiver:
         if phase == "paused":
             return Position(pos, dur, False, "PAUSED")
         if phase == "ended":  # после «Отмены» на плашке - конец без следующей серии (TC-880)
-            return Position(pos, dur, False, "IDLE", closed=read_web_last(self.out) == self._key)
+            # Это не тёмный ``IDLE``: вкладка назвала конечную секунду, и Watch обязан
+            # увидеть её до ``close()``. Иначе конец, заказанный мостом без HLS-хвоста,
+            # уходил в лестницу воскрешения вместо следующей серии.
+            return Position(pos, dur, False, "ENDED", closed=read_web_last(self.out) == self._key)
         if phase == "buffering":
             return Position(pos, dur, True, "BUFFERING")
         return Position(pos, dur, True, "PLAYING")

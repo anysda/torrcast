@@ -59,10 +59,9 @@ def _hold(
     перед следующей чаще, :func:`_poll_step`), упаковка должна быть жива, из RAM уходит только
     пройденное, сторож раз в 10 с пишет позицию.
 
-    ``clock`` - чем меряются все выдержки показа (:class:`torrcast.ports.clock.Clock`).
-    Боевой путь молчит и берёт часы, которые положил композиционный корень; сухому
-    прогону нужны свои, иначе тест выжидал бы терпение приёмника и выдержки между
-    попытками подъёма по-настоящему.
+    ``clock`` - чем меряются все выдержки показа (:class:`torrcast.ports.clock.Clock`). Боевой путь
+    молчит и берёт часы, которые положил композиционный корень; сухому прогону нужны свои, иначе
+    тест выжидал бы терпение приёмника и выдержки между попытками подъёма по-настоящему.
 
     ``start`` - место, с которого показ заводили. Пока приёмник не назвал ни одной живой
     позиции, поднимать его надо именно отсюда: у мёртвой сессии позиции нет вовсе, и ноль
@@ -73,10 +72,9 @@ def _hold(
     опросом им займётся лестница воскрешения (:meth:`_Revival.resurrect`): смерть на 0:00
     поднимается тем же путём, что и смерть посреди показа.
 
-    ``say_started`` - что сказать, когда приёмник показал ПЕРВЫЙ кадр. Говорится оно
-    по сдвинувшемуся указателю (:func:`_first_frame`), а не по взятому LOAD: словом
-    ``PLAYING`` приёмник отвечает раньше кадра, и «старт NN с» от него - заниженное
-    число.
+    ``say_started`` - что сказать, когда приёмник показал ПЕРВЫЙ кадр. Говорится оно по
+    сдвинувшемуся указателю (:func:`_first_frame`), а не по взятому LOAD: словом ``PLAYING``
+    приёмник отвечает раньше кадра, и «старт NN с» от него - заниженное число.
     """
     clock = clock if clock is not None else _state._revive_clock
     session_tag = session_tag or phrase("playback.session_tag", id=journal().session_id())
@@ -134,13 +132,15 @@ def _hold(
         if clock.monotonic() - screen.said >= SAY_SECONDS:
             screen.said = clock.monotonic()
             _report(session_tag, revival, position, feed, warmer)
-        # Слово о паузе наружу - то самое, по которому показ решает ниже.
-        alive = position.state == "PAUSED"
+        alive = position.state == "PAUSED"  # слово о паузе, по которому показ решает ниже
         paused = alive or (bool(screen.paused) and not position.playing)
         source_wait.check(feed, feed_at, paused or not position.playing, clock.monotonic())
         place = _landing(screen, position)
         if watch is not None:
             _note_watch(watch, warmer, place, revival, paused, screen.buffering)
+        if position.state == "ENDED":
+            _closed(position, session_tag, screen.held or start, watch)
+            return True
         # 🔴 Страховка перехода. Конец потока приёмник называет не всегда: залипший на
         # последнем куске рапортует BUFFERING и живым себя считать не перестаёт, а сторож
         # подвиса на нём молчит по своему же правилу - впереди честно пусто, потому что
