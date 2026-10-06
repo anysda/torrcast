@@ -111,8 +111,9 @@ const TCPlayerScreens = {
     const left = (start && start.left) || 0;
     const waited = (start && start.waited) || 0;
     when.textContent = left > 0 ? TC.say('web.player.preparing_in', { seconds: left }) : '';
-    // Служба раздач поднимается заново (TC-1199): ждём её, а не источник, и говорим это.
-    note.textContent = start && start.restarting ? TC.say('web.player.restarting')
+    // Служба раздач повисла и поднята заново (TC-1199): этот подъём ждал её, и до кадра
+    // строка говорит это, а не источник.
+    note.textContent = start && start.restarted ? TC.say('web.player.restarted')
       : start && start.source
         ? TC.say('web.player.packaging', { n: start.source, m: start.sources || start.source })
         : '';

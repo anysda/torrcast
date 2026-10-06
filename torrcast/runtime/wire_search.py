@@ -54,7 +54,7 @@ def wire_search() -> None:
     _configure_cache_reserve(TorrServer)
     _configure_torrents(TorrServer)
     # Служба раздач, поднимаемая заново (TC-1199), говорит это экрану ожидания вкладки.
-    ENGINE.tell = START.restarting
+    ENGINE.tell = START.restarted
     _configure_episode_duration(probe)
     # Стенд отбора греет раздачи параллельно: чтение паспорта, прогрев файла, признак
     # жизни роя и отсрочка первого контакта - четыре разных внешних мира, и все четыре

@@ -55,10 +55,11 @@ def _asked(*fails: Exception) -> Callable[[], str]:
     return ask
 
 
-def _engine(service: _Service, clock: FakeClock) -> tuple[EngineRestart, list[bool]]:
+def _engine(service: _Service, clock: FakeClock) -> tuple[EngineRestart, list[float]]:
+    """Подъём и список моментов, когда он сказал экрану о перезапуске."""
     engine = EngineRestart(service, clock)  # type: ignore[arg-type]
-    told: list[bool] = []
-    engine.tell = told.append
+    told: list[float] = []
+    engine.tell = lambda: told.append(clock.now)
     return engine, told
 
 
@@ -70,7 +71,7 @@ def test_a_hung_service_is_restarted_and_the_question_asked_again() -> None:
 
     assert answer == "answer"
     assert service.restarted == 1
-    assert told == [True, False]
+    assert len(told) == 1
 
 
 def test_a_crashed_service_is_left_to_systemd_when_it_comes_back_by_itself() -> None:
@@ -131,7 +132,7 @@ def test_a_service_that_answered_badly_is_not_restarted() -> None:
 
 def test_parallel_questions_on_one_hang_restart_the_service_once() -> None:
     service = _Service()
-    engine, _ = _engine(service, FakeClock())
+    engine, told = _engine(service, FakeClock())
     first = _asked(requests.ReadTimeout("read timed out"))
 
     def second() -> str:
@@ -144,6 +145,7 @@ def test_parallel_questions_on_one_hang_restart_the_service_once() -> None:
 
     assert answer == "answer"
     assert service.restarted == 1
+    assert len(told) == 1
 
 
 class _HungOnce:
@@ -189,6 +191,6 @@ def test_an_add_that_hung_on_the_service_restarts_it_and_gets_the_torrent(
 
     assert server.add("magnet:?xt=urn:btih:abc") == "abc"
     assert service.restarted == 1
-    assert told == [True, False]
+    assert len(told) == 1
     assert session.timeouts == [ADD_TIMEOUT, ADD_TIMEOUT]
     assert server.timeout > ADD_TIMEOUT

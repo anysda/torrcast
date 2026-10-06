@@ -93,17 +93,17 @@ async function pace() {
   return { beforeBox, soon, afterFrame: p.calls.statePolls - framed };
 }
 
-// Служба раздач поднимается заново посреди отбора: строка под заголовком говорит это,
-// а кончился подъём - снова называет источник.
+// Служба раздач поднята заново посреди отбора: строка под заголовком говорит это, а
+// следующий подъём без перезапуска снова называет источник.
 async function restart() {
-  const start = { waited: 4, here: true, packed: false, source: 1, sources: 3, restarting: true };
+  const start = { waited: 4, here: true, packed: false, source: 1, sources: 3, restarted: true };
   let st = { state: 'starting', has_next: null, start };
   const p = player({ box: () => null, state: () => st });
   const note = () => p.overlay().querySelector('.tc-preparing-note').textContent;
   p.mount();
   await p.time.run(2500);
   const during = note();
-  st = { state: 'starting', has_next: null, start: { ...start, waited: 9, restarting: false } };
+  st = { state: 'starting', has_next: null, start: { ...start, waited: 9, restarted: false } };
   await p.time.run(5000);
   return { during, after: note() };
 }

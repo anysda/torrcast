@@ -46,21 +46,33 @@ def test_first_lift_says_how_long_we_wait_and_keeps_silent_about_the_term() -> N
         "sources": None,
         "here": False,
         "packed": False,
-        "restarting": False,
+        "restarted": False,
     }
 
 
-def test_the_waiting_screen_hears_that_the_torrent_service_is_being_restarted() -> None:
+def test_a_restarted_torrent_service_is_told_until_this_start_ends() -> None:
     progress = StartProgress(Ticker())
     progress.began(here=True)
 
-    progress.restarting(True)
-    during = progress.seen()
-    progress.restarting(False)
-    after = progress.seen()
+    progress.restarted()
+    progress.source(1, 3)
+    later = progress.seen()
+    progress.landed()
+    progress.began(here=True)
+    next_start = progress.seen()
 
-    assert during is not None and during["restarting"] is True
-    assert after is not None and after["restarting"] is False
+    assert later is not None and later["restarted"] is True
+    assert next_start is not None and next_start["restarted"] is False
+
+
+def test_a_restart_between_starts_is_not_told_to_the_next_start() -> None:
+    progress = StartProgress(Ticker())
+
+    progress.restarted()  # фоновый вопрос службе, показа нет
+    progress.began(here=True)
+    seen = progress.seen()
+
+    assert seen is not None and seen["restarted"] is False
 
 
 def test_the_tab_lift_is_named_to_the_waiting_screen() -> None:

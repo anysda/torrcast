@@ -48,7 +48,7 @@ class StartProgress:
         self._source: tuple[int, int] = (0, 0)
         self._here = False
         self._packed = False
-        self._restarting = False
+        self._restarted = False
         self._measured: list[float] = []
 
     def began(self, here: bool = False) -> None:
@@ -58,6 +58,7 @@ class StartProgress:
             self._source = (0, 0)
             self._here = here
             self._packed = False
+            self._restarted = False
 
     def packed(self) -> None:
         """Упаковка дала первый сегмент: теперь приёмник уже ждёт картинку."""
@@ -70,10 +71,15 @@ class StartProgress:
         with self._lock:
             self._source = (number, total)
 
-    def restarting(self, on: bool) -> None:
-        """Служба раздач поднимается заново (TC-1199): ждём не рой, а её саму."""
+    def restarted(self) -> None:
+        """Служба раздач повисла и поднята заново (TC-1199): этот подъём ждал её саму.
+
+        Держится до конца подъёма, а не на время перезапуска: тот идёт доли секунды, и
+        вкладка с опросом раз в полсекунды его не видит, а следующие секунды до кадра
+        (метаданные заново) иначе шли бы под голым «Preparing…».
+        """
         with self._lock:
-            self._restarting = on
+            self._restarted = True
 
     def landed(self) -> None:
         """Картинка дошла до экрана: подъём замерен, ожидание кончилось.
@@ -110,7 +116,7 @@ class StartProgress:
             number, total = self._source
             here = self._here
             packed = self._packed
-            restarting = self._restarting
+            restarted = self._restarted
             known = len(self._measured) >= ENOUGH
             left = (median(self._measured) - waited) if known else 0.0
         return {
@@ -120,7 +126,7 @@ class StartProgress:
             "sources": total or None,
             "here": here,
             "packed": packed,
-            "restarting": restarting,
+            "restarted": restarted,
         }
 
 

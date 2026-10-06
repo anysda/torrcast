@@ -45,7 +45,7 @@ STEP: Final = 0.25
 LOCAL: Final = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
-def _silent(_on: bool) -> None:
+def _silent() -> None:
     return None
 
 
@@ -58,9 +58,9 @@ class EngineRestart:
         self._lock = threading.Lock()
         self._rounds = 0
         self._back_last = False
-        #: Кому сказать, что служба поднимается (``True``) и что подъём кончился
-        #: (``False``). Назначает композиционный корень: вкладка показа.
-        self.tell: Callable[[bool], None] = _silent
+        #: Кому сказать, что служба повисла или упала и поднимается заново. Назначает
+        #: композиционный корень: экран ожидания вкладки показа.
+        self.tell: Callable[[], None] = _silent
 
     def answered[T](self, base_url: str, alive: Callable[[], bool], ask: Callable[[], T]) -> T:
         rounds = self._rounds
@@ -88,11 +88,8 @@ class EngineRestart:
             if not self._service.known():
                 return False
             began = self._clock.monotonic()
-            self.tell(True)
-            try:
-                back = self._back(alive, hung)
-            finally:
-                self.tell(False)
+            self.tell()
+            back = self._back(alive, hung)
             seconds = round(self._clock.monotonic() - began, 1)
             journal().emit("torrserver", "restart", hung=hung, back=back, seconds=seconds)
             self._rounds += 1

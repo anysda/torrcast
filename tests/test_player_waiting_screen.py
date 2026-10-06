@@ -82,5 +82,5 @@ def test_the_waiting_phase_reaches_the_screen_before_the_next_slow_poll(
     assert seen["afterFrame"] <= 5, f"частый опрос после кадра: {seen['afterFrame']} за 10 с"
 
 
-def test_the_tab_says_the_torrent_service_is_being_restarted(facts: dict[str, Any]) -> None:
-    assert facts["restart"] == {"during": "web.player.restarting", "after": "web.player.packaging"}
+def test_the_tab_says_the_torrent_service_was_restarted(facts: dict[str, Any]) -> None:
+    assert facts["restart"] == {"during": "web.player.restarted", "after": "web.player.packaging"}

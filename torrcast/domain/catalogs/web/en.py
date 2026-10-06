@@ -99,7 +99,7 @@ def en() -> dict[str, str]:
         "web.player.waiting_player": "waiting for the player",
         "web.player.preparing_in": "starts in ~{seconds} s",
         "web.player.packaging": "Preparing video, source {n} of {m}",
-        "web.player.restarting": "The video service froze, restarting it…",
+        "web.player.restarted": "The video service froze and was restarted",
         "web.player.buffering": "Buffering_",
         "web.player.packaged": "Packaged →",
         "web.player.back_minute": "−60 s",
