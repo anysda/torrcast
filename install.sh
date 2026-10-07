@@ -476,7 +476,6 @@ SHIMS=(
     # СПОСОБ дойти до него: без имени в рукопожатии он отдаёт ровно ту же выдачу (замер:
     # 111923 Б обоими путями, побайтово одинаково, 0.5-0.6 с). Без этой строки источник
     # там, где режут по имени, молчал бы всегда и молчал бы пустой выдачей.
-    'api.jacred.su|/api/search?query=matrix&sort=sid&limit=100||direct,named'
     # У rutor.is тот же каталог на соседнем адресе (замер: та же страница, 96132 Б с
     # обоих), поэтому это честный второй край, а не переименование первого.
     'rutor.info|/search/matrix||direct,direct:rutor.is,named'
@@ -1294,7 +1293,7 @@ setup_locale() {
 
 # --- 1. Зависимости ---------------------------------------------------------
 #: python3-venv обязателен: на голом Debian `python3 -m venv` без него не работает.
-APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl python3-venv)
+APT_PACKAGES=(ffmpeg curl ca-certificates jq tar zstd openssl python3-venv)
 
 # На macOS curl, bsdtar, LibreSSL и системное доверие уже даёт сама ОС; python venv
 # входит в brew python. Формулами ставятся только jq, Python >= 3.12 и ffmpeg >= 7.
@@ -2889,6 +2888,19 @@ install_prowlarr() {
         "$PYTHON $PREFIX/anilibria-indexer.py 9697" ""
     wait_http "http://localhost:9697/ping" 15 \
         || info "⚠ AniLibria did not start - other indexers will continue working" "⚠ AniLibria не поднялась - остальные индексеры продолжат работать"
+    install -d -m 0755 "$STATE_DIR/jacred"
+    for script in jacred-index.py jacred-update.py; do
+        install -m 0755 "$REPO_DIR/scripts/$script" "$PREFIX/$script"
+    done
+    local jacred_index="$STATE_DIR/jacred/index.sqlite"
+    # The first catalogue is part of installation, not a manual follow-up: until it is
+    # complete the local adapter honestly returns an empty optional source.  A later
+    # refresh builds beside this file and publishes only its completed replacement.
+    if [ ! -s "$jacred_index" ]; then
+        log "building the local JacRed catalogue" "собираю локальный каталог JacRed"
+        "$PYTHON" "$PREFIX/jacred-update.py" "$jacred_index" \
+            || die "could not build the local JacRed catalogue" "не собрался локальный каталог JacRed"
+    fi
     if ! cmp -s "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"; then
         stop_service jacred-indexer "$PYTHON $PREFIX/jacred-indexer.py"
         install -m 0755 "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"
@@ -2897,6 +2909,32 @@ install_prowlarr() {
         "$PYTHON $PREFIX/jacred-indexer.py 9698" ""
     wait_http "http://127.0.0.1:9698/ping" 15 \
         || info "⚠ JacRed did not start - other indexers will continue working" "⚠ JacRed не поднялся - остальные индексеры продолжат работать"
+    # A refresh does not stop searches: the updater replaces index.sqlite only after
+    # SQLite has committed and closed the new file.  The timer starts after boot too.
+    if [ "${OS_FAMILY:-linux}" = linux ] && [ -z "${TORRCAST_NO_SYSTEMD:-}" ]; then
+        cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.service" <<EOF
+[Unit]
+Description=Refresh the local JacRed catalogue
+
+[Service]
+Type=oneshot
+ExecStart=$PYTHON $PREFIX/jacred-update.py $jacred_index
+EOF
+        cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.timer" <<EOF
+[Unit]
+Description=Refresh the local JacRed catalogue every six hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+        "$SYSTEMCTL" daemon-reload
+        "$SYSTEMCTL" enable --now torrcast-jacred-refresh.timer >/dev/null
+    fi
     install -d -m 0755 "$PREFIX/prowlarr-data/Definitions"
     if ! cmp -s "$REPO_DIR/scripts/anilibria.yml" \
             "$PREFIX/prowlarr-data/Definitions/anilibria.yml" \

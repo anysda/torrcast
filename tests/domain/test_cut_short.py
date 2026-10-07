@@ -1,8 +1,5 @@
 """Урезанный круг: ноль опорного по отсечке переходника отличается от честного нуля."""
 
-import importlib.util
-from pathlib import Path
-
 from torrcast.domain.circle_budget import FIRST_CIRCLE_TIMEOUT
 from torrcast.domain.cut_short import ADAPTER_CUT, cut_short
 
@@ -17,14 +14,6 @@ def test_a_waited_source_empty_at_the_adapter_cut_cuts_the_circle() -> None:
     assert cut_short(counts, {**spent, "JacRed": 980}) == ()
 
 
-def test_the_adapter_cut_is_the_adapters_own_and_fits_the_first_circle() -> None:
-    """Отсечка названа дважды, переходником и кругом: разойдись они, ноль снова врёт."""
-    spec = importlib.util.spec_from_file_location(
-        "jacred_indexer", Path(__file__).parents[2] / "scripts/jacred-indexer.py"
-    )
-    assert spec and spec.loader
-    adapter = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(adapter)
-
-    assert adapter.TIMEOUT == ADAPTER_CUT
+def test_the_adapter_cut_fits_the_first_circle() -> None:
+    """The local adapter has no network timeout; the circle budget still must fit."""
     assert 4.7 < ADAPTER_CUT < FIRST_CIRCLE_TIMEOUT

@@ -88,6 +88,8 @@ def _write_repo(root: Path) -> None:
         "jacred.yml",
         "anilibria-indexer.py",
         "jacred-indexer.py",
+        "jacred-index.py",
+        "jacred-update.py",
         "hatch_build_id_hook.py",
     ):
         (scripts / name).write_text("stub\n", encoding="utf-8")

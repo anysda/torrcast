@@ -130,6 +130,7 @@ build_tarball() {  # $1 - рабочий каталог (внутри - src/ к�
        "$src/docs/demo.gif" "$src/docs/changelog" "$pkg/docs/"
     cp "$src/scripts/sni-shim.py" "$src/scripts/anilibria.yml" "$src/scripts/jacred.yml" \
        "$src/scripts/anilibria-indexer.py" "$src/scripts/jacred-indexer.py" \
+       "$src/scripts/jacred-index.py" "$src/scripts/jacred-update.py" \
        "$src/scripts/hatch_build_id_hook.py" "$pkg/scripts/"
     find "$pkg" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
     find "$pkg" -name '*.pyc' -delete
