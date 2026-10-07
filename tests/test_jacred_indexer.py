@@ -3,7 +3,6 @@
 import http.client
 import importlib.util
 import json
-import subprocess
 import threading
 import time
 from pathlib import Path
@@ -143,13 +142,30 @@ def test_a_refused_key_is_an_empty_source_that_status_names_as_denied(
     assert status == {"key": True, "api": state}
 
 
-def test_a_hung_api_is_an_empty_source_and_not_a_dropped_connection() -> None:
-    """A stall is how this API usually dies, and it does not arrive as OSError:
-    `subprocess.run` raises its own TimeoutExpired, which descends from SubprocessError.
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("timed out"),
+        http.client.IncompleteRead(b"{", 10),
+        http.client.BadStatusLine(""),
+    ],
+    ids=["stall", "cut-body", "bad-status"],
+)
+def test_a_hung_api_is_an_empty_source_and_not_a_dropped_connection(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    """A stall is how this API usually dies, and a cut body does not arrive as OSError:
+    `urllib` raises IncompleteRead or BadStatusLine, which descend from HTTPException.
     Uncaught it leaves the handler as a dropped connection, and Prowlarr answers a dropped
     connection with a ban ladder - one dead source would then cost the whole search
     instead of narrowing the catalog."""
-    assert adapter.search("матрица", _raise(subprocess.TimeoutExpired("curl", 4.0))) == []
+
+    def urlopen(_request: Any, timeout: float) -> NoReturn:
+        raise error
+
+    monkeypatch.setattr(adapter.urllib.request, "urlopen", urlopen)
+
+    assert adapter.search("матрица") == []
 
 
 def test_empty_query_does_not_dump_the_catalog() -> None:

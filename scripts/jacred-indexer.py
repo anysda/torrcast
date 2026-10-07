@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import calendar
 import datetime
+import http.client
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 import urllib.error
@@ -199,12 +199,12 @@ def _answered(
     for origin in ORIGINS:
         try:
             answer = fetch(origin, query, year)
-        # SubprocessError belongs here as much as OSError: a hung upstream leaves
-        # `subprocess.run` in its own TimeoutExpired, which is NOT an OSError. Uncaught it
-        # would leave the handler through a dropped connection, and Prowlarr answers a
-        # dropped connection with a ban ladder - a stall of the source would cost the
-        # catalog far more than the source itself is worth.
-        except (OSError, subprocess.SubprocessError, ValueError):
+        # HTTPException belongs here as much as OSError: a body cut short or a broken
+        # status line leaves `urllib` as IncompleteRead or BadStatusLine, which are NOT
+        # OSError. Uncaught it would leave the handler through a dropped connection, and
+        # Prowlarr answers a dropped connection with a ban ladder - a stall of the source
+        # would cost the catalog far more than the source itself is worth.
+        except (OSError, http.client.HTTPException, ValueError):
             continue
         found = answer.get("results") if isinstance(answer, dict) else None
         if not isinstance(found, list):
