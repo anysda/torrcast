@@ -107,6 +107,7 @@ def test_jacred_refusal_is_named_as_a_key_problem_not_a_dead_source() -> None:
 
     jacred = next(line for line, _ in lines if "JacRed" in line and "401/403" in line)
     assert "other indexers still search" in jacred
+    assert not any("test-key" in line for line, _ in lines), "doctor printed the JacRed key"
 
 
 def test_a_cache_in_memory_is_measured_by_the_machine() -> None:

@@ -1,5 +1,6 @@
 """The optional Russian catalog source degrades to an empty result."""
 
+import http.client
 import importlib.util
 import json
 import subprocess
@@ -110,6 +111,36 @@ def test_the_personal_key_goes_in_the_api_header_not_the_url(
         "header": "test-key",
         "timeout": adapter.TIMEOUT,
     }
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(("code", "state"), [(401, "denied"), (403, "denied"), (500, "failed")])
+def test_a_refused_key_is_an_empty_source_that_status_names_as_denied(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, code: int, state: str
+) -> None:
+    """JacRed refusing the key leaves the search empty, not broken, and says why on /status."""
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"jacred_key": "test-key"}), encoding="utf-8")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(config))
+    monkeypatch.setattr(adapter, "_api_state", "untried")
+
+    def urlopen(request: Any, timeout: float) -> NoReturn:
+        raise adapter.urllib.error.HTTPError(request.full_url, code, "refused", {}, None)
+
+    monkeypatch.setattr(adapter.urllib.request, "urlopen", urlopen)
+
+    assert adapter.search("матрица") == []
+    server = adapter.ThreadingHTTPServer(("127.0.0.1", 0), adapter.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+    try:
+        connection.request("GET", "/status")
+        status = json.loads(connection.getresponse().read())
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+    assert status == {"key": True, "api": state}
 
 
 def test_a_hung_api_is_an_empty_source_and_not_a_dropped_connection() -> None:
