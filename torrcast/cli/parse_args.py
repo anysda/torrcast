@@ -23,6 +23,18 @@ FROM_START_FLAG = "--new"
 TV_MENU = "?"
 
 
+def _usage() -> str:
+    """Keep the public help synopsis stable across argparse releases."""
+    return (
+        "%(prog)s [-h] [--tv [IP]] [-tg] [--ru | --en]\n"
+        f"            [--release N] [--pick N] [--menu] [--file N] "
+        f"[--voice [{phrase('cli.metavar_voice')}]]\n"
+        f"            [--new] [--dry] [--since {phrase('cli.metavar_since')}] "
+        "[--upgrade] [--version]\n"
+        "            [query ...]"
+    )
+
+
 def _voice(value: str) -> int | str:
     """Номер остаётся номером, всякое другое значение остаётся именем студии."""
     try:
@@ -40,7 +52,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     а не одним и тем же текстом всегда (TC-947).
     """
     parser = argparse.ArgumentParser(
-        prog="cast", description=phrase("cli.about"), allow_abbrev=False
+        prog="cast", description=phrase("cli.about"), usage=_usage(), allow_abbrev=False
     )
     parser.add_argument("query", nargs="*", help=phrase("cli.help_query"))
     parser.add_argument(
