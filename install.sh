@@ -32,6 +32,14 @@ LANGUAGE="${TORRCAST_LANGUAGE:-}"
 JACRED_KEY="${TORRCAST_JACRED_KEY:-}"
 JACRED_KEY_NAMED="${TORRCAST_JACRED_KEY+x}"
 JACRED_KEY_NAMED="${JACRED_KEY_NAMED:+1}"
+#: Ключ, названный не-root'ом, едет за sudo файлом, а не словом: sudo пишет свою
+#: командную строку в журнал целиком (см. become_root). Файл читается и сносится сразу.
+if [ -n "${TORRCAST_JACRED_KEY_FILE:-}" ]; then
+    JACRED_KEY="$(cat -- "$TORRCAST_JACRED_KEY_FILE")"
+    JACRED_KEY_NAMED=1
+    rm -f -- "$TORRCAST_JACRED_KEY_FILE"
+    unset TORRCAST_JACRED_KEY_FILE
+fi
 #: Голое число первым доводом - ХОЛОСТАЯ подача заставки на столько секунд (см. точку
 #: входа в самом низу). Разбирается ЗДЕСЬ, вместе с ключами, а не в точке входа: разбор
 #: ключей исполняется всегда и первым, и до правки он отбивал число как незнакомый ключ
@@ -647,11 +655,19 @@ become_root() {
         if [ "$LANGUAGE" = ru ]; then printf 'не root - перезапуск через sudo\n' >&2
         else printf 'not root - restarting through sudo\n' >&2; fi
         local keep=() name
-        for name in $(compgen -v TORRCAST_); do keep+=("$name=${!name}"); done
+        for name in $(compgen -v TORRCAST_); do
+            case "$name" in TORRCAST_JACRED_KEY) continue ;; esac
+            keep+=("$name=${!name}")
+        done
         #: Язык, названный ключом (-ru/-en), в окружении не лежит: ключи съедены разбором
         #: выше, а за sudo их не передать - перезапуск идёт без аргументов, чтобы разбор
         #: не поехал второй раз. Поэтому названный ключом язык встаёт в тот же канал.
         [ -n "$LANGUAGE_NAMED" ] && keep+=("TORRCAST_LANGUAGE=$LANGUAGE_NAMED")
+        if [ "$JACRED_KEY_NAMED" = 1 ]; then
+            local keyfile; keyfile="$(mktemp)"
+            printf '%s' "$JACRED_KEY" >"$keyfile"
+            keep+=("TORRCAST_JACRED_KEY_FILE=$keyfile")
+        fi
         exec "$SUDO" -H -- env ${keep[@]+"${keep[@]}"} "$SELF"
     fi
     die "run as root" "запускать от root"

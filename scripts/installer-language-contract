@@ -177,6 +177,14 @@ TORRCAST_JACRED_KEY=second-key run_config 'LANG=C' || fail 'install with a JacRe
 [ "$(jq -r .jacred_key "$box/etc/config.json")" = second-key ] \
     || fail 'the JacRed key environment was not saved'
 grep -Fq second-key "$box/config.out" && fail 'the JacRed key environment reached installer output'
+[ "$(stat -c %a "$box/etc/config.json")" = 600 ] || fail 'the config with the JacRed key is readable by others'
+# The root half of a restart through sudo: the key arrives in a file, which is eaten.
+printf 'third-key' >"$box/key"
+TORRCAST_JACRED_KEY_FILE="$box/key" run_config 'LANG=C' || fail 'install with a JacRed key file failed'
+[ "$(jq -r .jacred_key "$box/etc/config.json")" = third-key ] \
+    || fail 'the JacRed key file was not saved'
+[ -e "$box/key" ] && fail 'the JacRed key file outlived the installer'
+grep -Fq third-key "$box/config.out" && fail 'the JacRed key file reached installer output'
 
 # --- службы и язык собственного вывода установщика -----------------------------
 # Первый PATH ловит всякий забытый голый вызов. Настроенные менеджеры лежат в другом
