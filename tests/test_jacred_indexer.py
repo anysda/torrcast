@@ -42,7 +42,7 @@ def test_local_rows_become_cardigann_rows(tmp_path: Path) -> None:
             "size": 8,
             "seeders": 42,
             "leechers": 3,
-            "date": "1786406400",
+            "date": "2026-08-11T00:00:00",
         }
     ]
 
@@ -52,6 +52,13 @@ def test_missing_or_cut_index_is_an_empty_source(tmp_path: Path) -> None:
     broken = tmp_path / "broken.sqlite"
     broken.write_text("not sqlite")
     assert adapter.search("матрица", broken) == []
+
+
+def test_empty_probe_returns_a_live_catalogue_row(tmp_path: Path) -> None:
+    index = tmp_path / "index.sqlite"
+    _index(index)
+
+    assert adapter.search("", index)[0]["magnet"] == "magnet:?xt=urn:btih:a"
 
 
 def test_joined_names_are_union_not_an_impossible_fts_intersection(tmp_path: Path) -> None:

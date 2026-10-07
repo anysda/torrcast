@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import calendar
-import datetime
 import json
 import re
 import sqlite3
@@ -26,22 +24,18 @@ def _match(query: str) -> str:
     return " AND ".join(f'"{word.replace(chr(34), "")}"*' for word in WORDS.findall(query))
 
 
-def _unix(value: str) -> str:
-    try:
-        return str(calendar.timegm(datetime.datetime.fromisoformat(value).timetuple()))
-    except (TypeError, ValueError):
-        return "0"
-
-
 def _rows(db: sqlite3.Connection, query: str) -> list[dict[str, Any]]:
     match = _match(query)
-    if not match:
-        return []
-    rows = db.execute(
-        "SELECT release.title,magnet,size,seeders,leechers,created FROM search "
-        "JOIN release ON release.id=search.rowid WHERE search MATCH ? "
-        "ORDER BY seeders DESC LIMIT ?",
-        (match, LIMIT),
+    columns = "title,magnet,size,seeders,leechers,created"
+    rows = (
+        db.execute(
+            "SELECT release.title,magnet,size,seeders,leechers,created FROM search "
+            "JOIN release ON release.id=search.rowid WHERE search MATCH ? "
+            "ORDER BY seeders DESC LIMIT ?",
+            (match, LIMIT),
+        )
+        if match
+        else db.execute(f"SELECT {columns} FROM release ORDER BY seeders DESC LIMIT ?", (LIMIT,))
     )
     return [
         {
@@ -50,7 +44,7 @@ def _rows(db: sqlite3.Connection, query: str) -> list[dict[str, Any]]:
             "size": size,
             "seeders": seeders,
             "leechers": leechers,
-            "date": _unix(created),
+            "date": created,
         }
         for title, magnet, size, seeders, leechers, created in rows
     ]
@@ -58,8 +52,8 @@ def _rows(db: sqlite3.Connection, query: str) -> list[dict[str, Any]]:
 
 def search(query: str, index: Path = INDEX) -> list[dict[str, Any]]:
     """Search only the local index; a missing or partial index is an empty source."""
-    texts = [text.strip() for text in query.split(JOINT) if text.strip()]
-    if not texts or not index.is_file():
+    texts = [text.strip() for text in query.split(JOINT) if text.strip()] or [""]
+    if not index.is_file():
         return []
     try:
         with sqlite3.connect(f"file:{index}?mode=ro", uri=True) as db:
