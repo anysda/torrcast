@@ -14,6 +14,7 @@ class Settings:
     torrserver_url: str = "http://127.0.0.1:8090"
     prowlarr_url: str = "http://127.0.0.1:9696"
     prowlarr_apikey: str = ""
+    jacred_key: str = ""
     transport: Literal["http", "https"] = "http"
     hls_base_url: str = ""
     hls_port: int = 8080

@@ -7,6 +7,7 @@ def ru() -> dict[str, str]:
     """Вернуть русский каталог кластера композиционного корня."""
     return {
         "runtime.announced_language": "язык: {name}",
+        "runtime.jacred_key_saved": "ключ API JacRed сохранён",
         "runtime.config_unread": "конфиг не прочитан",
         "runtime.receiver_passport": "паспорт приёмника",
     }

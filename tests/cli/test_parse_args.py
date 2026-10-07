@@ -48,6 +48,13 @@ def test_the_language_flags_name_a_language_and_their_absence_names_none() -> No
     assert parse_args(["мумия"]).language is None
 
 
+def test_a_jacred_key_is_a_command_of_its_own() -> None:
+    args = parse_args(["--jacred-key", "test-key"])
+
+    assert args.jacred_key == "test-key"
+    assert args.command == "jacred_key"
+
+
 def test_a_bare_language_flag_is_the_whole_command_and_a_query_next_to_it_is_not() -> None:
     """Голый ``cast --ru`` не сводится ни к пустому поиску, ни к сводке показа."""
     assert parse_args(["--ru"]).command == "language"

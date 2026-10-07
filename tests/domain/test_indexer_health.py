@@ -90,6 +90,14 @@ def test_every_answer_of_a_live_probe_has_its_own_line() -> None:
     assert not ok and "не ответил на живой поиск" in silent
 
 
+def test_a_missing_or_refused_jacred_key_is_access_not_a_dead_indexer() -> None:
+    missing, missing_ok = IndexerHealth.jacred("silent", "", {})
+    denied, denied_ok = IndexerHealth.jacred("silent", "test-key", {"api": "denied"})
+
+    assert missing_ok and "jacred.su/account" in missing and "cast --jacred-key" in missing
+    assert denied_ok and "401/403" in denied and "остальные индексеры" in denied
+
+
 def test_an_anime_indexer_is_asked_about_anime() -> None:
     """Общий контрольный запрос аниме-индексер не знает - он и промолчал бы."""
     assert IndexerHealth.query("AniLibria") == "Kaiba"

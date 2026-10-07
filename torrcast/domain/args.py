@@ -30,6 +30,8 @@ class Args:
     #: не подменяется английским. Флаг не режим одного запуска, он ЗАПОМИНАЕТСЯ
     #: (:mod:`torrcast.cli.language`).
     language: str | None = None
+    #: Личный ключ API JacRed, названный для сохранения отдельной командой.
+    jacred_key: str | None = None
     release: int | None = None
     #: Инфохэш под номером из последнего ``cast releases``. Внутреннее поле: поздняя
     #: выдача меняет места, но не имеет права менять явно названную раздачу.
@@ -111,6 +113,8 @@ class Args:
         # из настройки. Ниже показа (`play_key`) - идущий показ себя не переставляет.
         if self.upgrade:
             return "upgrade"
+        if self.jacred_key is not None:
+            return "jacred_key"
         if self.telegram:
             return "telegram"
         # Голый `cast --ru` - это вся работа: переключить язык, сказать об этом и выйти

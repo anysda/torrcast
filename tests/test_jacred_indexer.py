@@ -1,6 +1,7 @@
 """The optional Russian catalog source degrades to an empty result."""
 
 import importlib.util
+import json
 import subprocess
 import threading
 import time
@@ -75,6 +76,40 @@ def test_jacred_seasons_are_carried_in_a_parseable_title_marker() -> None:
 
 def test_dead_api_is_an_empty_optional_source() -> None:
     assert adapter.search("матрица", _raise(OSError())) == []
+
+
+def test_the_personal_key_goes_in_the_api_header_not_the_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"jacred_key": "test-key"}), encoding="utf-8")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(config))
+    seen: dict[str, object] = {}
+
+    class _Response:
+        def read(self) -> bytes:
+            return b'{"results": []}'
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def urlopen(request: Any, timeout: float) -> _Response:
+        seen["url"] = request.full_url
+        seen["header"] = request.get_header("X-api-key")
+        seen["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(adapter.urllib.request, "urlopen", urlopen)
+
+    assert adapter._json("https://api.example", "матрица") == {"results": []}
+    assert seen == {
+        "url": "https://api.example/api/search?query=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0&sort=sid&limit=100",
+        "header": "test-key",
+        "timeout": adapter.TIMEOUT,
+    }
 
 
 def test_a_hung_api_is_an_empty_source_and_not_a_dropped_connection() -> None:

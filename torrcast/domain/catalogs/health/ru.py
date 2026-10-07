@@ -68,6 +68,15 @@ def ru() -> dict[str, str]:
             "индексер {name} ответил мимо контрольного запроса - выдача ненадёжна"
         ),
         "health.indexer_silent": "индексер {name} не ответил на живой поиск - выдача неполная",
+        "health.jacred_key_missing": (
+            "JacRed после 09.10.2026 требует личный ключ API и без него откажет в поиске; "
+            "русских раздач будет мало - возьми ключ на jacred.su/account и сохрани: "
+            "cast --jacred-key <ключ>"
+        ),
+        "health.jacred_key_denied": (
+            "JacRed отверг сохранённый ключ API (HTTP 401/403); остальные индексеры продолжают "
+            "искать - возьми новый на jacred.su/account и сохрани: cast --jacred-key <ключ>"
+        ),
         "health.core_present": "{indexer} на месте - {gives} в каталоге есть",
         "health.core_absent": (
             "{indexer} не заведён или выключен - искать можно, но {misses} в выдаче "

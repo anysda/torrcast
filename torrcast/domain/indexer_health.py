@@ -112,6 +112,15 @@ class IndexerHealth:
         return HealthVerdict.bad(phrase("health.indexer_silent", name=name))
 
     @staticmethod
+    def jacred(answer: str, key: str, status: object) -> HealthLine:
+        """Name access refusal as such; a key error is not a dead source."""
+        if not key:
+            return HealthVerdict.warn(phrase("health.jacred_key_missing"))
+        if isinstance(status, dict) and status.get("api") == "denied":
+            return HealthVerdict.warn(phrase("health.jacred_key_denied"))
+        return IndexerHealth.answered("JacRed", answer)
+
+    @staticmethod
     def query(name: str) -> str:
         """Контрольный запрос: у аниме-индексера своё имя, которое он обязан знать."""
         return "Kaiba" if "anilibria" in name.casefold() else "matrix"

@@ -17,6 +17,7 @@ from torrcast.usecases.stopped import _Stopped
 _NAMES = (
     "configure",
     "language",
+    "jacred_key",
     "stop",
     "status",
     "doctor",
@@ -65,6 +66,7 @@ def _raises(error: BaseException) -> Callable[[Args], int]:
         (["--play-key", "movie:кино:1999"], "worker"),
         (["моана", "2"], "play"),
         (["--ru"], "language"),
+        (["--jacred-key", "test-key"], "jacred_key"),
         # Флаг, который команда читает, дорогу ей не закрывает: лента по-прежнему отвечает
         # на `--since`, а голый показ - на `--dry`, и «продолжи последнее» остаётся (TC-1003).
         (["log", "--since", "2h"], "log"),

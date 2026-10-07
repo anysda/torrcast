@@ -125,3 +125,8 @@ def test_the_language_is_a_setting_of_the_product_and_english_out_of_the_box() -
     """Язык живёт в настройке, а не в окружении: `LANG` тут не спрашивается вовсе."""
     assert Config().language == "en"
     assert Config.from_json({"tv": "Гостиная", "language": "ru"}).language == "ru"
+
+
+def test_the_jacred_key_is_empty_until_a_person_saves_it() -> None:
+    assert Config().jacred_key == ""
+    assert Config.from_json({"jacred_key": "test-key"}).jacred_key == "test-key"

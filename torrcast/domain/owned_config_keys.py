@@ -33,6 +33,7 @@ OWNED_BY_HUMAN: Final[frozenset[str]] = frozenset(
         "torrserver_url",
         "prowlarr_url",
         "prowlarr_apikey",
+        "jacred_key",
         "language",
     }
 )

@@ -1,6 +1,6 @@
-usage: cast [-h] [--tv [IP]] [-tg] [--ru | --en] [--release N] [--pick N]
-            [--menu] [--file N] [--voice [N|STUDIO]] [--new] [--dry]
-            [--since SPAN] [--upgrade] [--version]
+usage: cast [-h] [--tv [IP]] [-tg] [--ru | --en] [--jacred-key KEY]
+            [--release N] [--pick N] [--menu] [--file N] [--voice [N|STUDIO]]
+            [--new] [--dry] [--since SPAN] [--upgrade] [--version]
             [query ...]
 
 torrcast - find a release and cast it to the TV without downloading
@@ -15,6 +15,7 @@ options:
   -tg                 open the Telegram bot setup menu
   --ru                switch to Russian and remember the choice
   --en                switch to English and remember the choice
+  --jacred-key KEY    save the personal JacRed API key
   --release N         debug: release N of the chosen picture; numbers come
                       from cast releases with the same query
   --pick N            picture N from the menu, without asking

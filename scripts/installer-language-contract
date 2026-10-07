@@ -163,6 +163,21 @@ run_config 'LANG=ru_RU.UTF-8' -en || fail 'reinstall with -en failed'
 [ "$(jq -r .language "$box/etc/config.json")" = en ] \
     || fail 'a named -en key did not change the language'
 
+# JacRed's key belongs to the person as much as the chosen language: a later
+# installer run has no right to erase it, and neither accepted input route may
+# print it while confirming the configuration.
+run_config 'LANG=C' --jacred-key test-key || fail 'install with a JacRed key failed'
+[ "$(jq -r .jacred_key "$box/etc/config.json")" = test-key ] \
+    || fail 'the JacRed key flag was not saved'
+grep -Fq test-key "$box/config.out" && fail 'the JacRed key reached installer output'
+run_config 'LANG=C' || fail 'reinstall without a JacRed key failed'
+[ "$(jq -r .jacred_key "$box/etc/config.json")" = test-key ] \
+    || fail 'reinstall without a JacRed key erased it'
+TORRCAST_JACRED_KEY=second-key run_config 'LANG=C' || fail 'install with a JacRed key environment failed'
+[ "$(jq -r .jacred_key "$box/etc/config.json")" = second-key ] \
+    || fail 'the JacRed key environment was not saved'
+grep -Fq second-key "$box/config.out" && fail 'the JacRed key environment reached installer output'
+
 # --- службы и язык собственного вывода установщика -----------------------------
 # Первый PATH ловит всякий забытый голый вызов. Настроенные менеджеры лежат в другом
 # каталоге и пишут отдельную ленту: зелень тем самым доказывает не просто «команда
