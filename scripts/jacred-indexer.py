@@ -7,7 +7,6 @@ import calendar
 import datetime
 import http.client
 import json
-import os
 import re
 import sys
 import time
@@ -33,47 +32,19 @@ ORIGINS = ("https://api.jacred.su",)
 TIMEOUT = 5.0
 LIMIT = 100
 
-# The adapter owns this request, so Prowlarr never sees or stores the personal
-# key.  A non-default config path arrives from the installer in its service unit.
-CONFIG_PATH = "/etc/torrcast/config.json"
-_api_state = "untried"
-
-
-def _key() -> str:
-    """Read the current key without returning it to a caller or a log."""
-    try:
-        with open(os.environ.get("TORRCAST_CONFIG", CONFIG_PATH), encoding="utf-8") as file:
-            raw = json.load(file)
-    except (OSError, ValueError):
-        return ""
-    return raw.get("jacred_key", "") if isinstance(raw, dict) else ""
-
-
-def _state(value: str) -> None:
-    """Keep only the outcome class for local diagnostics, never a credential."""
-    global _api_state
-    _api_state = value
-
-
 def _json(origin: str, query: str, year: int | None = None) -> Any:
     asked: dict[str, Any] = {"query": query, "sort": "sid", "limit": LIMIT}
     if year is not None:
         asked["year"] = year
     path = "/api/search?" + urllib.parse.urlencode(asked)
-    headers = {"User-Agent": "torrcast/1"}
-    if key := _key():
-        headers["X-Api-Key"] = key
-    request = urllib.request.Request(origin + path, headers=headers)
+    request = urllib.request.Request(origin + path, headers={"User-Agent": "torrcast/1"})
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
-        _state("denied" if exc.code in {401, 403} else "failed")
         raise OSError(f"JacRed returned HTTP {exc.code}") from exc
     except OSError:
-        _state("unreachable")
         raise
-    _state("ok")
     return json.loads(body)
 
 
@@ -258,8 +229,6 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         if parsed.path == "/ping":
             body = b'{"status":"ok"}'
-        elif parsed.path == "/status":
-            body = json.dumps({"key": bool(_key()), "api": _api_state}).encode()
         elif parsed.path == "/search":
             query = urllib.parse.parse_qs(parsed.query).get("q", [""])[0].strip()
             body = json.dumps({"results": search(query or "матрица")}, ensure_ascii=False).encode()

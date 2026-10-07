@@ -18,7 +18,6 @@ _FLAG: Final[Mapping[str, str]] = {
     "tv": "--tv",
     "telegram": "-tg",
     "language": "--ru/--en",
-    "jacred_key": "--jacred-key",
     "release": "--release",
     "pick": "--pick",
     "menu": "--menu",

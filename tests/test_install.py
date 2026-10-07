@@ -1986,35 +1986,6 @@ def test_a_plain_user_is_restarted_through_sudo_with_the_named_tongue(
 
 
 @pytest.mark.machine
-@pytest.mark.parametrize("route", ["flag", "environment"])
-def test_a_named_jacred_key_rides_across_sudo_in_a_file_not_the_command_line(
-    tmp_path: Path, route: str
-) -> None:
-    """Ключ, названный не-root'ом, не теряется на перезапуске и не ложится в журнал sudo.
-
-    Перезапуск идёт без аргументов, поэтому ``--jacred-key`` терялся молча. А словом
-    ``env KEY=...`` его везти нельзя: sudo пишет свою командную строку в журнал целиком.
-    """
-    env, calls = _rights_stand(tmp_path)
-    argv = [str(REPO / "install.sh")]
-    if route == "flag":
-        argv += ["--jacred-key", "test-key"]
-    else:
-        env["TORRCAST_JACRED_KEY"] = "test-key"
-
-    subprocess.run(argv, capture_output=True, text=True, env=env, check=False)
-
-    asked = calls.read_text(encoding="utf-8").strip()
-    assert "test-key" not in asked, f"ключ попал в командную строку sudo: {asked!r}"
-    named = [word for word in asked.split() if word.startswith("TORRCAST_JACRED_KEY_FILE=")]
-    assert len(named) == 1, f"ключ не поехал за sudo: {asked!r}"
-    carried = Path(named[0].split("=", 1)[1])
-    assert carried.read_text(encoding="utf-8") == "test-key"
-    assert carried.stat().st_mode & 0o077 == 0, "файл ключа читают чужие"
-    carried.unlink()
-
-
-@pytest.mark.machine
 def test_silence_about_the_tongue_stays_silence_across_sudo(tmp_path: Path) -> None:
     """🔴 TC-955. Не названный в этот заход язык за sudo не подставляется умолчанием:
     иначе повторная установка не-root'ом перебивала бы язык живого конфига."""

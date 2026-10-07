@@ -10,7 +10,6 @@ from contextlib import AbstractContextManager
 from torrcast.cli.answered import answered
 from torrcast.cli.configure import configure
 from torrcast.cli.doctor import doctor
-from torrcast.cli.jacred_key import jacred_key
 from torrcast.cli.language import language
 from torrcast.cli.log import log
 from torrcast.cli.parse_args import parse_args
@@ -45,7 +44,6 @@ _COMMANDS: Mapping[str, Callable[[Args], int]] = {
     "configure": configure,
     "telegram": telegram,
     "language": language,
-    "jacred_key": jacred_key,
     "stop": lambda _args: stop(),
     "status": lambda _args: status(),
     "doctor": lambda _args: doctor(),

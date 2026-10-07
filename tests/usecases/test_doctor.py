@@ -91,25 +91,6 @@ def test_a_checkup_of_a_healthy_machine_stays_passing() -> None:
     assert all(ok for _, ok in Doctor.checkup(_config(), _answering()))
 
 
-def test_jacred_refusal_is_named_as_a_key_problem_not_a_dead_source() -> None:
-    environment = FakeHealthEnvironment(
-        payloads={
-            "health": [],
-            "indexer": [{"id": 7, "name": "JacRed", "enable": True}],
-            "indexerstatus": [],
-            "status": {"api": "denied"},
-        },
-        titles=None,
-    )
-    config = Settings(tv="10.0.0.50", prowlarr_apikey="key", jacred_key="test-key")
-
-    lines = list(Doctor.checkup(config, environment))
-
-    jacred = next(line for line, _ in lines if "JacRed" in line and "401/403" in line)
-    assert "other indexers still search" in jacred
-    assert not any("test-key" in line for line, _ in lines), "doctor printed the JacRed key"
-
-
 def test_a_cache_in_memory_is_measured_by_the_machine() -> None:
     environment = FakeHealthEnvironment(
         settings={"CacheSize": 4 * 1024**3, "UseDisk": False}, memory=8 * 1024**3

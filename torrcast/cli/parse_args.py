@@ -74,11 +74,6 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         const=EN,
         help=phrase("cli.help_en"),
     )
-    parser.add_argument(
-        "--jacred-key",
-        metavar="KEY",
-        help=phrase("cli.help_jacred_key"),
-    )
     # Номер релиза имеет смысл только вместе с запросом и выбранной картиной: другой
     # запрос - другой список, а у каждой картины в нём - свои номера (TC-446).
     parser.add_argument(

@@ -12,7 +12,6 @@ def ru() -> dict[str, str]:
         "cli.help_telegram": "открыть меню настройки Telegram-бота",
         "cli.help_ru": "перейти на русский и запомнить выбор",
         "cli.help_en": "перейти на английский и запомнить выбор",
-        "cli.help_jacred_key": "сохранить личный ключ API JacRed",
         "cli.help_release": (
             "отладка: релиз N выбранной картины; номера - из cast releases с тем же запросом"
         ),

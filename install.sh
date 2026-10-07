@@ -27,19 +27,6 @@ set -euo pipefail
 #: под sudo. Пустое значение значит «в этот заход язык не называли», и повторная
 #: установка обязана оставить выбор из живого конфига (см. ниже, после CONFIG_DIR).
 LANGUAGE="${TORRCAST_LANGUAGE:-}"
-# The owner obtains this key from JacRed.  Its presence is separate from its value so
-# that a plain reinstall never clears a saved key, while an explicit empty value can.
-JACRED_KEY="${TORRCAST_JACRED_KEY:-}"
-JACRED_KEY_NAMED="${TORRCAST_JACRED_KEY+x}"
-JACRED_KEY_NAMED="${JACRED_KEY_NAMED:+1}"
-#: Ключ, названный не-root'ом, едет за sudo файлом, а не словом: sudo пишет свою
-#: командную строку в журнал целиком (см. become_root). Файл читается и сносится сразу.
-if [ -n "${TORRCAST_JACRED_KEY_FILE:-}" ]; then
-    JACRED_KEY="$(cat -- "$TORRCAST_JACRED_KEY_FILE")"
-    JACRED_KEY_NAMED=1
-    rm -f -- "$TORRCAST_JACRED_KEY_FILE"
-    unset TORRCAST_JACRED_KEY_FILE
-fi
 #: Голое число первым доводом - ХОЛОСТАЯ подача заставки на столько секунд (см. точку
 #: входа в самом низу). Разбирается ЗДЕСЬ, вместе с ключами, а не в точке входа: разбор
 #: ключей исполняется всегда и первым, и до правки он отбивал число как незнакомый ключ
@@ -49,18 +36,12 @@ while (( $# )); do
     case "$1" in
         -en) LANGUAGE=en ;;
         -ru) LANGUAGE=ru ;;
-        --jacred-key)
-            [ "$#" -ge 2 ] || { printf 'error: --jacred-key needs a value\n' >&2; exit 2; }
-            JACRED_KEY=$2
-            JACRED_KEY_NAMED=1
-            shift
-            ;;
         *)
             if [ -n "$1" ] && [ -z "${1//[0-9]/}" ]; then
                 UI_DRY_SECONDS=$1
             else
                 printf 'error: unknown option: %s\n' "$1" >&2
-                printf 'usage: %s [-en|-ru] [--jacred-key KEY]\n' "$0" >&2
+                printf 'usage: %s [-en|-ru]\n' "$0" >&2
                 exit 2
             fi
             ;;
@@ -70,9 +51,6 @@ done
 case "$LANGUAGE" in
     en|ru|"") ;;
     *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 2 ;;
-esac
-case "$JACRED_KEY" in
-    *$'\n'*|*$'\r'*) printf 'error: JacRed key must be one line\n' >&2; exit 2 ;;
 esac
 #: Молчание о языке - ещё не «по-английски»: у кого система говорит по-русски, тот и
 #: ставит по-русски. Локаль читается в порядке POSIX для сообщений: LC_ALL, LC_MESSAGES,
@@ -655,19 +633,11 @@ become_root() {
         if [ "$LANGUAGE" = ru ]; then printf 'не root - перезапуск через sudo\n' >&2
         else printf 'not root - restarting through sudo\n' >&2; fi
         local keep=() name
-        for name in $(compgen -v TORRCAST_); do
-            case "$name" in TORRCAST_JACRED_KEY) continue ;; esac
-            keep+=("$name=${!name}")
-        done
+        for name in $(compgen -v TORRCAST_); do keep+=("$name=${!name}"); done
         #: Язык, названный ключом (-ru/-en), в окружении не лежит: ключи съедены разбором
         #: выше, а за sudo их не передать - перезапуск идёт без аргументов, чтобы разбор
         #: не поехал второй раз. Поэтому названный ключом язык встаёт в тот же канал.
         [ -n "$LANGUAGE_NAMED" ] && keep+=("TORRCAST_LANGUAGE=$LANGUAGE_NAMED")
-        if [ "$JACRED_KEY_NAMED" = 1 ]; then
-            local keyfile; keyfile="$(mktemp)"
-            printf '%s' "$JACRED_KEY" >"$keyfile"
-            keep+=("TORRCAST_JACRED_KEY_FILE=$keyfile")
-        fi
         exec "$SUDO" -H -- env ${keep[@]+"${keep[@]}"} "$SELF"
     fi
     die "run as root" "запускать от root"
@@ -2924,8 +2894,7 @@ install_prowlarr() {
         install -m 0755 "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"
     fi
     run_service jacred-indexer "Открытый поиск русских раздач для Prowlarr" \
-        "$PYTHON $PREFIX/jacred-indexer.py 9698" \
-        "Environment=TORRCAST_CONFIG=$CONFIG_DIR/config.json"
+        "$PYTHON $PREFIX/jacred-indexer.py 9698" ""
     wait_http "http://127.0.0.1:9698/ping" 15 \
         || info "⚠ JacRed did not start - other indexers will continue working" "⚠ JacRed не поднялся - остальные индексеры продолжат работать"
     install -d -m 0755 "$PREFIX/prowlarr-data/Definitions"
@@ -3681,7 +3650,7 @@ install_indexers() {
 #: `$LANGUAGE`, который прочитан из живого конфига ещё до поднятия прав (см. самый верх
 #: файла). Перенеси его ещё и здесь - и `-ru` при повторной установке молча отменялся бы
 #: прежним значением.
-CONFIG_KEPT='tv receiver receiver_profile torrserver_url prowlarr_url prowlarr_apikey jacred_key token chat_id proxy'
+CONFIG_KEPT='tv receiver receiver_profile torrserver_url prowlarr_url prowlarr_apikey token chat_id proxy'
 
 setup_config() {
     log "configuration and keys" "конфиг и ключи"
@@ -3742,19 +3711,7 @@ JSON
     fi
     mv "$fresh" "$cfg"
     chmod 0600 "$cfg"
-    if [ "$JACRED_KEY_NAMED" = 1 ]; then
-        local keyed; keyed="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
-        jq --arg key "$JACRED_KEY" '.jacred_key = $key' "$cfg" >"$keyed"
-        mv "$keyed" "$cfg"
-        chmod 0600 "$cfg"
-    fi
     info "Prowlarr apikey stored in $cfg" "apikey Prowlarr перенесён в $cfg"
-    if [ -n "$(jq -r '.jacred_key // empty' "$cfg")" ]; then
-        info "JacRed API key is stored for the local adapter" "ключ API JacRed сохранён для локального переходника"
-    else
-        loud "JacRed requires a personal API key after 09 Oct 2026; without it it returns HTTP 401/403 and Russian releases will be scarce. Get it at jacred.su/account and save it with: cast --jacred-key <key> (or rerun ./install.sh --jacred-key <key>)" \
-            "JacRed после 09.10.2026 требует личный ключ API; без него отвечает HTTP 401/403 и русских раздач будет мало. Возьми ключ на jacred.su/account и сохрани: cast --jacred-key <ключ> (либо повтори ./install.sh --jacred-key <ключ>)"
-    fi
 }
 
 # --- 6.4 Служба Telegram-бота ------------------------------------------------

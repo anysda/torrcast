@@ -47,14 +47,8 @@ def _live_indexers(config: HealthConfig, payload: object, env: Env = None) -> It
     probe = _probe_indexer if env is None else partial(_probe_indexer, env=env)
     with ThreadPoolExecutor(max_workers=1) as pool:
         answers = list(pool.map(lambda pair: probe(config, *pair), pairs))
-    ask = _json if env is None else partial(env.get_json, timeout=_TIMEOUT)
     for (_, name), answer in zip(pairs, answers, strict=True):
-        if name.casefold() == "jacred":
-            yield IndexerHealth.jacred(
-                answer, config.jacred_key, ask("http://127.0.0.1:9698/status", {})
-            )
-        else:
-            yield IndexerHealth.answered(name, answer)
+        yield IndexerHealth.answered(name, answer)
 
 
 def _probe_indexer(config: HealthConfig, indexer: int, name: str, env: Env = None) -> str:

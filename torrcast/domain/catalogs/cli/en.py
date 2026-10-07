@@ -19,7 +19,6 @@ def en() -> dict[str, str]:
         "cli.help_telegram": "open the Telegram bot setup menu",
         "cli.help_ru": "switch to Russian and remember the choice",
         "cli.help_en": "switch to English and remember the choice",
-        "cli.help_jacred_key": "save the personal JacRed API key",
         "cli.help_release": (
             "debug: release N of the chosen picture; numbers come from cast releases "
             "with the same query"

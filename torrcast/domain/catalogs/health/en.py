@@ -83,15 +83,6 @@ def en() -> dict[str, str]:
         "health.indexer_silent": (
             "indexer {name} did not answer a live search - results will be short"
         ),
-        "health.jacred_key_missing": (
-            "JacRed requires a personal API key after 09 Oct 2026; it will refuse searches "
-            "without one, so Russian releases will be scarce - get it at jacred.su/account "
-            "and save it with cast --jacred-key <key>"
-        ),
-        "health.jacred_key_denied": (
-            "JacRed refused the saved API key (HTTP 401/403); other indexers still search - "
-            "replace it from jacred.su/account with cast --jacred-key <key>"
-        ),
         "health.core_present": "{indexer} is in place - {gives} are in the catalogue",
         "health.core_absent": (
             "{indexer} is missing or switched off - search still runs, but there will be "

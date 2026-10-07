@@ -2,7 +2,6 @@
 
 import http.client
 import importlib.util
-import json
 import threading
 import time
 from pathlib import Path
@@ -78,50 +77,10 @@ def test_dead_api_is_an_empty_optional_source() -> None:
     assert adapter.search("матрица", _raise(OSError())) == []
 
 
-def test_the_personal_key_goes_in_the_api_header_not_the_url(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config = tmp_path / "config.json"
-    config.write_text(json.dumps({"jacred_key": "test-key"}), encoding="utf-8")
-    monkeypatch.setenv("TORRCAST_CONFIG", str(config))
-    seen: dict[str, object] = {}
-
-    class _Response:
-        def read(self) -> bytes:
-            return b'{"results": []}'
-
-        def __enter__(self) -> "_Response":
-            return self
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-    def urlopen(request: Any, timeout: float) -> _Response:
-        seen["url"] = request.full_url
-        seen["header"] = request.get_header("X-api-key")
-        seen["timeout"] = timeout
-        return _Response()
-
-    monkeypatch.setattr(adapter.urllib.request, "urlopen", urlopen)
-
-    assert adapter._json("https://api.example", "матрица") == {"results": []}
-    assert seen == {
-        "url": "https://api.example/api/search?query=%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D1%86%D0%B0&sort=sid&limit=100",
-        "header": "test-key",
-        "timeout": adapter.TIMEOUT,
-    }
-
-
 @pytest.mark.machine
-@pytest.mark.parametrize(("code", "state"), [(401, "denied"), (403, "denied"), (500, "failed")])
-def test_a_refused_key_is_an_empty_source_that_status_names_as_denied(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, code: int, state: str
-) -> None:
-    """JacRed refusing the key leaves the search empty, not broken, and says why on /status."""
-    config = tmp_path / "config.json"
-    config.write_text(json.dumps({"jacred_key": "test-key"}), encoding="utf-8")
-    monkeypatch.setenv("TORRCAST_CONFIG", str(config))
-    monkeypatch.setattr(adapter, "_api_state", "untried")
+@pytest.mark.parametrize("code", [401, 403, 500])
+def test_an_http_refusal_is_an_empty_source(monkeypatch: pytest.MonkeyPatch, code: int) -> None:
+    """A refused source narrows the catalogue rather than breaking Prowlarr."""
 
     def urlopen(request: Any, timeout: float) -> NoReturn:
         raise adapter.urllib.error.HTTPError(request.full_url, code, "refused", {}, None)
@@ -129,17 +88,6 @@ def test_a_refused_key_is_an_empty_source_that_status_names_as_denied(
     monkeypatch.setattr(adapter.urllib.request, "urlopen", urlopen)
 
     assert adapter.search("матрица") == []
-    server = adapter.ThreadingHTTPServer(("127.0.0.1", 0), adapter.Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
-    try:
-        connection.request("GET", "/status")
-        status = json.loads(connection.getresponse().read())
-    finally:
-        connection.close()
-        server.shutdown()
-        server.server_close()
-    assert status == {"key": True, "api": state}
 
 
 @pytest.mark.parametrize(
