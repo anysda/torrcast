@@ -37,6 +37,25 @@ META_STEP_GROW = 1.5
 META_STEP_MAX = 0.2
 
 
+class _Magnets:
+    """Магниты добавленных нами раздач: после рестарта ``get`` должен сперва вернуть рой."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._by_hash: dict[str, str] = {}
+
+    def keep(self, torrent_hash: str, magnet: str) -> None:
+        with self._lock:
+            self._by_hash[torrent_hash.casefold()] = magnet
+
+    def get(self, torrent_hash: str) -> str:
+        with self._lock:
+            return self._by_hash.get(torrent_hash.casefold(), "")
+
+
+_MAGNETS = _Magnets()
+
+
 class TorrServer:
     """HTTP-клиент движка раздач с прежними таймаутами и обработкой ошибок."""
 
@@ -53,6 +72,7 @@ class TorrServer:
         torrent_hash = str(payload.get("hash", ""))
         if not torrent_hash:
             raise ServerDownError(phrase("torrserver.no_hash"))
+        _MAGNETS.keep(torrent_hash, magnet)
         DESCRIBER.later(self.base_url, torrent_hash)  # описание без пиров, если есть .torrent
         return torrent_hash
 
@@ -179,7 +199,20 @@ class TorrServer:
 
     def _post(self, path: str, body: dict[str, Any], json_body: bool = True) -> Any:
         ask = partial(self._ask, path, body, json_body)
-        return ENGINE.answered(self.base_url, self, ask, self.timeout, body.get("action") == "add")
+        torrent_hash = str(body.get("hash", ""))
+        recover = (
+            partial(self._restore, torrent_hash)
+            if path == "/torrents" and body.get("action") == "get" and torrent_hash
+            else _silent
+        )
+        return ENGINE.answered(
+            self.base_url, self, ask, self.timeout, body.get("action") == "add", recover
+        )
+
+    def _restore(self, torrent_hash: str) -> None:
+        """После падения службы вернуть известную раздачу магнитом перед повторным ``get``."""
+        if magnet := _MAGNETS.get(torrent_hash):
+            self.add(magnet)
 
     def _ask(self, path: str, body: dict[str, Any], json_body: bool, timeout: float) -> Any:
         import requests
@@ -198,3 +231,7 @@ class TorrServer:
             raise ServerDownError(
                 phrase("torrserver.unresponsive", base_url=self.base_url, reason=why(exc))
             ) from exc
+
+
+def _silent() -> None:
+    return None

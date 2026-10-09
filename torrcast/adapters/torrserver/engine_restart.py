@@ -103,7 +103,13 @@ class EngineRestart:
         self.tell: Callable[[], None] = _silent
 
     def answered[T](
-        self, base_url: str, probes: _Probes, ask: Callable[[float], T], timeout: float, add: bool
+        self,
+        base_url: str,
+        probes: _Probes,
+        ask: Callable[[float], T],
+        timeout: float,
+        add: bool,
+        recover: Callable[[], object] = _silent,
     ) -> T:
         """Ответ на ``ask(срок)``; ``add`` своей службы ждёт сперва :data:`ADD_TIMEOUT`.
 
@@ -119,6 +125,8 @@ class EngineRestart:
             verdict = self._mend(probes, rounds, exc, off) if mends else "no"
             if off() or verdict == "no" or (verdict == "rest" and first >= timeout):
                 raise
+        if verdict == "again":
+            recover()
         return ask(timeout - first if verdict == "rest" else first)
 
     def _mend(self, probes: _Probes, rounds: int, exc: ServerDownError, off: Stop) -> Verdict:

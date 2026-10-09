@@ -1,6 +1,5 @@
 """Снятие при нашем идущем чтении: обрыв сразу, ``rem`` после отпуска читателей службой."""
 
-import socket
 import threading
 from pathlib import Path
 from typing import Any
@@ -8,7 +7,7 @@ from typing import Any
 import pytest
 
 from tests.fakes.clock import FakeClock
-from torrcast.adapters.torrserver.describer import RELEASE, Describer
+from torrcast.adapters.torrserver.describer import Describer
 from torrcast.adapters.torrserver.stream_reads import READS
 
 KEY = "0123456789abcdef0123456789abcdef01234567"
@@ -21,24 +20,17 @@ def _state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _Answer:
-    def __init__(self, sock: socket.socket) -> None:
-        self._sock = sock
-
     def __enter__(self) -> "_Answer":
         return self
 
     def __exit__(self, *_: Any) -> None:
         return None
 
-    def fileno(self) -> int:
-        return self._sock.fileno()
 
-
-def _close_while_reading(idle_after: int | None) -> tuple[list[float], int, bytes, FakeClock]:
+def _close_while_reading(idle_after: int | None) -> tuple[list[float], int, FakeClock]:
     """Снять раздачу посреди чтения; служба отпускает читателей с ``idle_after``-го опроса."""
     clock = FakeClock(now=10.0)
     describer = Describer(clock=clock)
-    ours, service = socket.socketpair()
     removed: list[float] = []
     polls = 0
 
@@ -51,33 +43,22 @@ def _close_while_reading(idle_after: int | None) -> tuple[list[float], int, byte
         removed.append(clock.monotonic())
         return True
 
-    with READS.opened(URL, lambda: _Answer(ours)) as answer:
+    with READS.opened(URL, _Answer) as answer:
         assert answer is not None
         assert describer.close(KEY, remove, idle)
-        service.settimeout(3)
-        hangup = service.recv(1)
-        for thread in threading.enumerate():
-            if thread.name == f"settle-{KEY}":
-                thread.join(5)
+        assert removed == [], "живого читателя нельзя снимать из-под TorrServer"
+    for thread in threading.enumerate():
+        if thread.name == f"settle-{KEY}":
+            thread.join(5)
     READS.reopen(KEY)
-    ours.close()
-    service.close()
-    return removed, polls, hangup, clock
+    return removed, polls, clock
 
 
 def test_the_removal_waits_for_the_service_to_release_the_readers_then_goes() -> None:
-    removed, polls, hangup, _clock = _close_while_reading(idle_after=3)
+    removed, polls, _clock = _close_while_reading(idle_after=3)
 
-    assert hangup == b""  # наше соединение оборвано до rem
     assert polls == 3
     assert removed == [pytest.approx(10.0 + 2 * 0.05)]
-
-
-def test_a_reader_the_service_never_releases_does_not_hold_the_removal_past_the_bound() -> None:
-    removed, _polls, _hangup, _clock = _close_while_reading(idle_after=None)
-
-    assert len(removed) == 1
-    assert 10.0 + RELEASE <= removed[0] < 10.0 + RELEASE + 0.1
 
 
 def test_without_our_reads_the_removal_goes_at_once_and_the_service_is_not_asked() -> None:
@@ -108,10 +89,13 @@ def test_a_torrent_added_again_while_the_service_releases_readers_is_not_removed
     clock = FakeClock(now=10.0)
     describer = Describer(clock=clock)
     removed: list[float] = []
+    added_again = False
 
     def idle() -> bool:
+        nonlocal added_again
         describer.later("http://torrserver", KEY)  # повторное добавление той же раздачи
-        return False
+        added_again = True
+        return True
 
     def remove() -> bool:
         removed.append(clock.monotonic())
@@ -121,9 +105,10 @@ def test_a_torrent_added_again_while_the_service_releases_readers_is_not_removed
         with READS.opened(URL, lambda: _Unwired()) as answer:
             assert answer is not None
             assert describer.close(KEY, remove, idle)
-            for thread in threading.enumerate():
-                if thread.name == f"settle-{KEY}":
-                    thread.join(5)
+        for thread in threading.enumerate():
+            if thread.name == f"settle-{KEY}":
+                thread.join(5)
+        assert added_again
         assert removed == [], "rem ушёл по раздаче, которую добавили заново"
         assert not describer.dropped(KEY)
     finally:

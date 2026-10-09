@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 from typing import Any, Literal
 
 import pytest
@@ -74,40 +73,33 @@ STREAM = f"http://torrserver/stream?link={TORRENT}&index=1&play"
 
 
 class _Wire(_Body):
-    """Ответ ``/stream`` на сокете: читая, снимает раздачу, как поток снятия посреди прогрева."""
+    """Ответ ``/stream``, который пытаются снять посреди прогрева."""
 
     def __init__(self) -> None:
         super().__init__([])
-        self.ours, self.service = socket.socketpair()
-        self.cut: bool | None = None
-
-    def fileno(self) -> int:
-        return self.ours.fileno()
+        self.closed: bool | None = None
 
     def read(self, _size: int) -> bytes:
-        self.cut = READS.cut(TORRENT)
-        return self.ours.recv(1) if self.cut else b""
+        self.closed = READS.close(TORRENT)
+        return b""
 
 
-def test_a_warm_up_in_flight_is_on_the_books_and_the_removal_cuts_it(
+def test_a_warm_up_in_flight_is_on_the_books_until_it_returns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """🔴 TC-1407: прогрев снятой раздачи - тот же живой читатель под ``rem``, его рвём."""
+    """🔴 TC-1413: прогрев держит снятие до конца собственного запроса."""
     wire = _Wire()
     monkeypatch.setattr(module.urllib.request, "urlopen", lambda *_a, **_k: wire)
     try:
         assert warm_at(STREAM, 0, 1 << 20) == 0
-        assert wire.cut is True, "прогрев не встал на учёт снятия"
-        wire.service.settimeout(3)
-        assert wire.service.recv(1) == b"", "служба не увидела обрыва"
+        assert wire.closed is True, "прогрев не встал на учёт снятия"
+        assert not READS.busy(TORRENT), "прогрев остался на учёте после своего конца"
     finally:
         READS.reopen(TORRENT)
-        wire.ours.close()
-        wire.service.close()
 
 
 def test_a_removed_torrent_is_not_warmed_and_not_asked(monkeypatch: pytest.MonkeyPatch) -> None:
-    READS.cut(TORRENT)
+    READS.close(TORRENT)
 
     def never(*_a: Any, **_k: Any) -> Any:
         pytest.fail("снятую раздачу не спрашивают")

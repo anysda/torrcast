@@ -43,6 +43,69 @@ def test_a_crashed_service_is_left_to_systemd_when_it_comes_back_by_itself() -> 
     assert service.restarted == 0
 
 
+def test_a_get_after_a_crash_restores_the_torrent_before_repeating_get() -> None:
+    """Упавшая служба теряет память: повторный get без add честно дал бы 404."""
+    clock = FakeClock()
+    service = FakeService(state="activating")
+    restart, _ = engine(service, clock)
+    calls: list[str] = []
+
+    def get(_timeout: float) -> str:
+        calls.append("get")
+        if len(calls) == 1:
+            raise down(REFUSED)
+        return "files"
+
+    answer = restart.answered(
+        LOCAL,
+        FakeProbes(alive=lambda: clock.now >= 5.0),
+        get,
+        30.0,
+        add=False,
+        recover=lambda: calls.append("add"),
+    )
+
+    assert answer == "files"
+    assert calls == ["get", "add", "get"]
+
+
+def test_torrserver_readds_its_known_magnet_before_retrying_get(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """После systemd-подъёма у службы пустая память, так что одного ``get`` недостаточно."""
+    key = "0123456789abcdef0123456789abcdef01234567"
+    magnet = f"magnet:?xt=urn:btih:{key}"
+    calls: list[str] = []
+
+    class _Restarted:
+        def answered(
+            self,
+            _base: str,
+            _probes: object,
+            ask: Callable[[float], object],
+            timeout: float,
+            add: bool,
+            recover: Callable[[], object],
+        ) -> object:
+            if not add:
+                recover()
+            return ask(timeout)
+
+    server = TorrServer(LOCAL)
+
+    def ask(_path: str, body: dict[str, object], _json: bool, _timeout: float) -> object:
+        calls.append(str(body["action"]))
+        return {"hash": key, "data": "known"} if body["action"] == "add" else {"file_stats": []}
+
+    monkeypatch.setattr(torr_server, "ENGINE", _Restarted())
+    monkeypatch.setattr(server, "_ask", ask)
+    assert server.add(magnet) == key
+    calls.clear()
+
+    assert server.status(key) == {"file_stats": []}
+    assert calls == ["add", "get"]
+
+
 def test_a_crashed_service_nobody_brings_back_is_restarted() -> None:
     clock = FakeClock()
     service = FakeService(state="activating")

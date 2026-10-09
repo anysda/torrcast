@@ -23,7 +23,7 @@ def warm_at(source_url: str, offset: int, upto: int = HEAD_WARM, alive: Any = No
     ``alive`` — жив ли ещё смысл греть: релиз, от которого показ отказался, дотягивать
     нельзя, он отъедает полосу у выбранного
     (:meth:`torrcast.usecases.select_bench.bench.Bench.keep_only`). Снятую раздачу не читает
-    вовсе, а идущее чтение снятие обрывает (TC-1407, :data:`READS`).
+    вовсе, а уже идущее чтение даёт снятию дождаться своего конца (TC-1413, :data:`READS`).
     """
     began = time.monotonic()
     taken = 0

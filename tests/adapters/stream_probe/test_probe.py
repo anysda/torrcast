@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from torrcast.adapters.stream_probe.probe import Runner, probe
+from torrcast.adapters.torrserver.stream_reads import READS
 from torrcast.domain.infra_error import InfraError
 
 if TYPE_CHECKING:
@@ -142,3 +143,23 @@ def test_a_failed_probe_leaves_no_record_on_the_shelf(
     probe("http://torr/stream/hash-1/2", run=_asked(seen))
 
     assert len(seen) == 1, "пустой паспорт на полку не лёг - спросили заново"
+
+
+def test_ffprobe_holds_the_torrent_until_its_process_returns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Снос соседа не имеет права послать ``rem`` между стартом ffprobe и его выходом."""
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key = "0123456789abcdef0123456789abcdef01234567"
+    url = f"http://torr/stream?link={key}&index=1&play"
+
+    def held(command: list[str], timeout: float, alive: Any) -> str:
+        assert READS.close(key), "ffprobe не встал читателем /stream"
+        assert READS.busy(key)
+        return _ANSWER
+
+    try:
+        probe(url, run=held)
+        assert not READS.busy(key)
+    finally:
+        READS.reopen(key)

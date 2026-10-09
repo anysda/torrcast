@@ -1,7 +1,6 @@
 """Проверяет диапазонный HTTP-адаптер без настоящей сети."""
 
 import http.client
-import socket
 from typing import Any
 
 import pytest
@@ -106,11 +105,10 @@ STREAM = f"http://torrserver/stream?link={TORRENT}&index=1&play"
 
 
 class _Wire:
-    """Ответ ``/stream`` на сокете: читая, снимает раздачу, как поток снятия посреди чтения."""
+    """Ответ ``/stream``, который пытаются снять посреди чтения."""
 
     def __init__(self) -> None:
-        self.ours, self.service = socket.socketpair()
-        self.cut: bool | None = None
+        self.closed: bool | None = None
 
     def __enter__(self) -> "_Wire":
         return self
@@ -118,36 +116,25 @@ class _Wire:
     def __exit__(self, *_: Any) -> None:
         return None
 
-    def fileno(self) -> int:
-        return self.ours.fileno()
-
     def read(self) -> bytes:
-        self.cut = READS.cut(TORRENT)
-        if not self.cut:
-            return b"index"  # обрывать нечего: ответ не на учёте
-        if self.ours.recv(1) == b"":
-            raise http.client.IncompleteRead(b"", 5)
+        self.closed = READS.close(TORRENT)
         return b"index"
 
 
-def test_a_read_in_flight_is_on_the_books_and_the_removal_cuts_it() -> None:
-    """🔴 TC-1407: снятие рвёт идущий ``/stream`` до ``rem``, иначе служба крутит ``readOnceAt``."""
+def test_a_read_in_flight_is_on_the_books_until_it_returns() -> None:
+    """🔴 TC-1413: ``rem`` ждёт читателя и не рвёт поток под TorrServer."""
     wire = _Wire()
     try:
-        with pytest.raises(SwarmSilentError):
-            HttpRangeReader(STREAM, opener=lambda *_a, **_k: wire).read(0, 5)
-        assert wire.cut is True, "чтение не встало на учёт снятия"
-        wire.service.settimeout(3)
-        assert wire.service.recv(1) == b"", "служба не увидела обрыва"
+        assert HttpRangeReader(STREAM, opener=lambda *_a, **_k: wire).read(0, 5) == b"index"
+        assert wire.closed is True, "чтение не встало на учёт снятия"
+        assert not READS.busy(TORRENT), "читатель остался на учёте после своего конца"
     finally:
         READS.reopen(TORRENT)
-        wire.ours.close()
-        wire.service.close()
 
 
 def test_a_removed_torrent_is_not_asked_at_all() -> None:
     """Снятую раздачу не читаем: новый запрос оживил бы читателя под ``rem``."""
-    READS.cut(TORRENT)
+    READS.close(TORRENT)
 
     def never(*_a: Any, **_k: Any) -> Any:
         pytest.fail("снятую раздачу не спрашивают")

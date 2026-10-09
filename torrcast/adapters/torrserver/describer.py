@@ -9,8 +9,8 @@
 Поэтому подача проверяет снятие под тем же замком, под которым встаёт в работу, а снятие
 ждёт конца идущей подачи и выдерживает :data:`SETTLE` после неё.
 
-🔴 Наши идущие чтения ``/stream`` снятие сперва обрывает и ждёт, пока служба отпустит
-читателей, и только потом шлёт ``rem`` (TC-1407, :mod:`~torrcast.adapters.torrserver.stream_reads`).
+🔴 Наши идущие чтения ``/stream`` снимаются естественно; до их конца ``rem`` не уходит
+(TC-1413, :mod:`~torrcast.adapters.torrserver.stream_reads`).
 
 Подачу из другого процесса того же экземпляра снятие видит по метке на диске
 (:class:`~torrcast.adapters.torrserver.upload_mark.UploadMark`) и выдерживает так же.
@@ -42,9 +42,7 @@ if TYPE_CHECKING:
 #: службу или давал перехваченную панику, через 50 мс и дольше - ноль из 90 заходов.
 SETTLE: Final = 0.3
 
-#: Сколько снятие ждёт, пока служба отпустит оборванных читателей. С идущими данными они
-#: уходят на стенде за 0.1-1.2 с; без данных спят в ``Cond.Wait``, а их ``rem`` будит без цикла.
-RELEASE: Final = 1.0
+#: Как часто поток снятия проверяет, закончили ли читатели и отпустила ли их служба.
 RELEASE_STEP: Final = 0.05
 
 
@@ -68,19 +66,19 @@ class Describer:
 
         Без подачи рядом ``remove`` зовётся сразу и его ответ возвращается. Подача (своя или
         другого процесса) идёт или прошло меньше :data:`SETTLE` - ``remove`` уходит в поток
-        снятия, ответ ``True``. Наши чтения раздачи обрываются сразу; если было что рвать,
-        поток снятия до ``remove`` ждёт ``idle`` (служба отпустила читателей), не дольше
-        :data:`RELEASE`.
+        снятия, ответ ``True``. Уже начатые чтения не обрываются: поток снятия ждёт их
+        естественного конца и затем ``idle`` (служба отпустила читателей). Верхнего срока
+        нет: ``rem`` под живым читателем небезопасен для TorrServer.
         """
         key = torrent_hash.casefold()
-        cut = READS.cut(key) and idle is not None
+        reading = READS.close(key) and idle is not None
         with self._lock:
             self._closed.add(key)
             if key in self._settling:
                 return True  # снятие той же раздачи уже ждёт в своём потоке
             at = self._uploaded.get(key)
             busy = (
-                cut
+                reading
                 or key in self._delivering
                 or (at is not None and at + SETTLE > self._clock.monotonic())
                 or self._marks.left(key, SETTLE) is not None
@@ -92,14 +90,14 @@ class Describer:
         if not busy:
             return remove()
         threading.Thread(
-            target=self._settle, args=(key, remove, idle if cut else None), name=f"settle-{key}"
+            target=self._settle, args=(key, remove, idle if reading else None), name=f"settle-{key}"
         ).start()
         return True
 
     def _settle(
         self, key: str, remove: Callable[[], bool], idle: Callable[[], bool] | None
     ) -> None:
-        """Дождаться конца подачи, :data:`SETTLE` после неё и отпуска читателей, потом снять."""
+        """Дождаться подачи, читателей и их отпуска службой, только потом снять."""
         try:
             with self._lock:
                 self._lock.wait_for(lambda: key not in self._delivering, CALL_TIMEOUT)
@@ -108,8 +106,7 @@ class Describer:
             left = max(mine, self._marks.left(key, SETTLE, CALL_TIMEOUT) or 0.0)
             if left > 0:
                 self._clock.sleep(left)
-            end = self._clock.monotonic() + RELEASE
-            while idle is not None and not idle() and self._clock.monotonic() < end:
+            while READS.busy(key) or (idle is not None and not idle()):
                 self._clock.sleep(RELEASE_STEP)
         finally:
             with self._lock:
@@ -172,4 +169,4 @@ class Describer:
 #: Описатель процесса: его будит ``TorrServer.add``, ему же говорят о снятии раздачи.
 DESCRIBER: Final = Describer()
 
-__all__ = ["DESCRIBER", "RELEASE", "SETTLE", "Describer"]
+__all__ = ["DESCRIBER", "SETTLE", "Describer"]
