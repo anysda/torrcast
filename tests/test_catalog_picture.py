@@ -15,6 +15,7 @@ _ROWS: list[_RuName] = [
     ("tt1396484", "movie", "It", "2017", "Оно"),
     ("tt0099864", "tvMiniSeries", "It", "1990", "Оно"),
     ("tt0409591", "tvSeries", "Naruto", "2002", "Наруто"),
+    ("tt4581438", "tvSeries", "Animals.", "2016", "Звери."),
     ("tt0000011", "movie", "Molot", "2001", "Молот"),
     ("tt0000012", "movie", "Motor", "2001", "Мотор"),
 ]
@@ -25,6 +26,7 @@ _VOTES = {
     "tt1396484": 709_523,
     "tt0099864": 150_000,
     "tt0409591": 174_119,
+    "tt4581438": 4_736,
     "tt0000011": 5_000,
     "tt0000012": 4_000,
 }
@@ -53,6 +55,17 @@ def test_a_whole_name_is_the_best_known_picture_of_that_name() -> None:
 def test_a_trailing_year_picks_the_namesake_of_that_year() -> None:
     assert _name("Оно 1990") == ("It", 1990, True)
     assert _name("Матрица 2003") is None
+
+
+def test_a_named_year_after_a_series_start_is_not_that_series() -> None:
+    """🔴 «Animals 2026» - фильм 2026 года, которого карта не знает, а не сериал 2016-го.
+
+    Узнай карта тут сериал - он повёл бы круг, и добор по имени фильма не пошёл бы вовсе:
+    плитка «Animals» открывалась отказом, а выдача ставила дефолтом «Звери.».
+    """
+    assert _name("Animals 2026") is None
+    assert _name("Animals 2016") == ("Animals.", 2016, True)
+    assert _name("Animals") == ("Animals.", 2016, True), "голое имя - самая известная картина"
 
 
 def test_one_typo_names_the_picture_but_a_prefix_does_not() -> None:

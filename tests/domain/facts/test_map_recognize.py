@@ -29,3 +29,9 @@ def test_a_named_year_picks_its_namesake() -> None:
 def test_a_name_the_map_does_not_know_is_not_recognized() -> None:
     assert map_recognize(known, "Дюна 1990") is None
     assert map_recognize(known, "Дюнка") is None
+
+
+def test_a_year_after_a_series_start_is_not_that_series() -> None:
+    """🔴 Сериал 2000 года не узнаётся по 2026-му: такого года у карты нет."""
+    assert map_recognize(known, "Дюна 2026") is None
+    assert map_recognize(known, "Дюна 2000") == DUNE[2]
