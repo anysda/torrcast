@@ -27,6 +27,16 @@ def test_the_heavier_group_wins_the_shared_name() -> None:
     assert _aliases(groups) == {"brother": "толстый"}
 
 
+def test_a_group_of_unparsed_titles_claims_no_name() -> None:
+    """Неразобранные имена дают пустой ключ группы, и вес её не отнимает чужого имени."""
+    groups = {
+        "": [_picture("?", None, 40)],
+        "животные": [_picture("Животные", "Animals", 22)],
+    }
+
+    assert _aliases(groups) == {"animals": "животные"}
+
+
 def test_a_picture_without_an_original_name_leads_nowhere() -> None:
     groups = {"брат": [_picture("Брат", None, 3)]}
 

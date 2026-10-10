@@ -15,7 +15,9 @@ def _aliases(groups: dict[str, list[Picture]]) -> dict[str, str]:
             if not picture.original:
                 continue
             for name in (franchise_key(picture.original), slugify(picture.original)):
-                if name and weight[key] > weight.get(aliases.get(name, ""), 0):
+                # Not ``aliases.get(name, "")``: an unparsed title slugs to the empty key, and a
+                # heavy «?» group then outweighed every unclaimed name («Animals» lost «Животные»).
+                if name and (name not in aliases or weight[key] > weight[aliases[name]]):
                     aliases[name] = key
     return aliases
 
