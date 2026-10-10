@@ -100,7 +100,10 @@ KEYS_REFUSED: Final = 24 * 60 * 60.0
 #: 3 - без ``CueRelativePosition`` проба судит блок со временем точки, а не первый
 #: видеоблок кластера (:func:`~torrcast.domain.frames.mkv.key_frame.key_frame`): честные
 #: индексы отвергались за чужой кадр, и их отказы на полке уносит этот номер.
-KEYS_RULES: Final = 3
+#: 4 - сверка с прогоном не осуждает посадку на сам заказанный кадр карты
+#: (:func:`~torrcast.adapters.stream_pack.keys_agree.keys_agree`): ffmpeg без сведений
+#: о B-кадрах садится туда, и честная карта mkv уходила в отказ.
+KEYS_RULES: Final = 4
 
 #: Сколько карт опорных кадров держим на полке (:func:`_keys_cache`).
 #:
