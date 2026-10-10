@@ -78,6 +78,12 @@ def keys_agree(
     ahead = bisect.bisect_left(keys.at, stood - SPLIT_SLACK) - bisect.bisect_right(
         keys.at, guess + SPLIT_SLACK
     )
+    # Встал на СЛЕДУЮЩИЙ кадр карты, не проехав ни одного: кадр там есть, рисовать нечего.
+    # Так садится mkv ровно на кадр, если ffmpeg не успел узнать о B-кадрах и не опустил
+    # цель (замер: ``-probesize 32`` на ``-ss 8.425`` даёт 8.425 вместо 4.796).
+    landed = bisect.bisect_left(keys.at, stood - SPLIT_SLACK)
+    if ahead <= 0 and landed < len(keys.at) and keys.at[landed] <= stood + SPLIT_SLACK:
+        return KeyAgreement(True, measured)
     journal().mark(
         "прогон проехал мимо кадра карты",
         просили=round(at, 3),

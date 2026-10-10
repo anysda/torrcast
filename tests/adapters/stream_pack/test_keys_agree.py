@@ -89,8 +89,8 @@ def test_a_map_that_promises_nothing_here_is_not_measured() -> None:
 def test_a_run_without_a_first_packet_judges_like_the_boundary_and_is_not_measured() -> None:
     """🔴 Прогон без первого пакета (``nan``): вердикт тот же, что был до полки, но не «замер».
 
-    До полки неудачный прогон отвечал самой границей, и сверка судила именно её: у mkv
-    посадка ровно на кадр карта ведёт на прежний кадр, и такая граница карту осуждала.
+    До полки неудачный прогон отвечал самой границей, и сверка судила именно её. Граница
+    сетки - кадр карты, поэтому такой ответ карту не осуждает ни у mkv, ни у mp4.
     Иной вердикт здесь - это другая сетка первого показа.
     """
     mp4 = FilmKeys(KEYS.duration, KEYS.at, KEYS.offset, "mp4")
@@ -105,8 +105,25 @@ def test_a_run_without_a_first_packet_judges_like_the_boundary_and_is_not_measur
             f"без замера сетка первого показа стала другой: {keys.kind} {at}"
         )
         assert before.measured and not now.measured, "неизмеренный прогон назван замером"
-    assert keys_agree(URL, KEYS.at[8], KEYS, start=blind).agreed is False
+    assert keys_agree(URL, KEYS.at[8], KEYS, start=blind).agreed is True
     assert keys_agree(URL, KEYS.at[8], mp4, start=blind).agreed is True
+
+
+def test_a_run_that_stood_on_the_asked_frame_itself_keeps_the_map() -> None:
+    """🔴 Прогон встал на сам заказанный кадр карты, ни одного не проехав: кадр есть.
+
+    Боевая запись: ``просили 8.425, карта 4.796, факт 8.425, нарисовано 0`` - и честная
+    карта mkv ушла в отказ, сетка стала ровной. ffmpeg, не узнавший о B-кадрах, не опускает
+    цель и садится ровно на кадр, а не на прежний (замер: ``-probesize 32`` на ``-ss 8.425``
+    даёт 8.425 вместо 4.796).
+    """
+    start, _ = _stood(KEYS.at[9])
+
+    assert keys_agree(URL, KEYS.at[9], KEYS, start=start).agreed is True
+    off_map, _ = _stood(round(KEYS.at[9] + STEP / 2, 3))
+    assert keys_agree(URL, KEYS.at[9], KEYS, start=off_map).agreed is False, (
+        "встал мимо карты - это не кадр карты"
+    )
 
 
 #: Карта ролика стенда, собранная ИЗ его шага опорных кадров, а не снятая с файла: сверке
