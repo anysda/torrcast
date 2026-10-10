@@ -13,9 +13,9 @@ from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
 from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT, echoed
 from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.file_stats import file_stats
-from torrcast.adapters.torrserver.file_wait import wait_files
 from torrcast.adapters.torrserver.reading import Stop, reading
 from torrcast.adapters.torrserver.restart_recovery import RECOVERY
+from torrcast.adapters.torrserver.wait_files import wait_files
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError

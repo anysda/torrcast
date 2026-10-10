@@ -1,4 +1,4 @@
-"""Ожидание метаданных раздачи с контрактом ``ContactWait``."""
+"""Ожидание файлов раздачи с контрактом ``ContactWait``."""
 
 from __future__ import annotations
 
