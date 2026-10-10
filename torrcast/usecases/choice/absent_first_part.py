@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from torrcast.usecases.choice.part_one_swap import _first_part
+from torrcast.usecases.choice.part_one_guard import _first_part
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan

@@ -1,0 +1,71 @@
+"""Причина стража первой части: ключ строки и её поля."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from torrcast.domain.franchise_key import franchise_key
+from torrcast.domain.numbered_line import _numbered_line
+from torrcast.domain.part_of_franchise import part_of_franchise
+from torrcast.domain.slugify import slugify
+from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.usecases.choice._named import _named
+from torrcast.usecases.choice.asked_kind import asked_kind
+from torrcast.usecases.choice.default_note import _passed_why
+from torrcast.usecases.choice.first_alive import first_alive
+
+if TYPE_CHECKING:
+    from torrcast.domain.picture import Picture
+    from torrcast.usecases.select.plan import Plan
+
+
+def part_one_guard(plans: list[Plan], asked: str) -> tuple[str, dict[str, str]]:
+    """Ключ строки стража и её поля; пустой ключ - страж молчит.
+
+    Строку меню и строку взятия без ``--menu`` собирают из одной причины разными фразами:
+    «назови номер» уместно только там, где номер и правда называет человек.
+    """
+    name, _index = split_franchise_index(asked)
+    first, franchise = _first_part(plans, asked)
+    if not franchise:
+        return "", {}
+    if first is None:
+        return "choice.part_one_absent", {"name": name}
+    default = plans[first_alive(plans) - 1].picture
+    if default is first or default.title.casefold() == first.title.casefold():
+        return "", {}
+    number = next(n for n, plan in enumerate(plans, start=1) if plan.picture is first)
+    why = _passed_why(plans, number, asked_kind(plans))
+    if why:
+        return "choice.part_one_dead_why", {"picture": _named(first), "why": why}
+    return "choice.part_one_dead", {"picture": _named(first)}
+
+
+def _first_part(plans: list[Plan], asked: str) -> tuple[Picture | None, bool]:
+    """Первая часть спрошенной франшизы и признак того, что стражу тут есть что стеречь.
+
+    Второе значение отделяет «франшизы в запросе нет вовсе» от «франшиза есть, а первой
+    её части в выдаче нет»: снаружи это разные случаи, и молчание стража об одном из них
+    читалось бы как молчание о другом (:func:`absent_first_part`).
+    """
+    name, index = split_franchise_index(asked)
+    if index is not None or len(plans) < 2:
+        return None, False
+    key = slugify(name)
+    pictures = [plan.picture for plan in plans]
+    films = [p for p in pictures if p.kind != "other"]
+    # A numbered part of another franchise («Агашки по вызову 2: Начало») is no part of the
+    # asked name: the line it heads would make a namesake its first part.
+    if not key or not any(part_of_franchise(p, key) for p in films):
+        return None, False
+    line = _numbered_line(films)[0]
+    first = line[0] if line and line[0].part in (None, 1) else None
+    if first is not None and any(p.year and first.year and p.year < first.year for p in films):
+        return None, False
+    names = {p.franchise for p in pictures}
+    # Оригинальные имена зовут ту же франшизу («cars» - это «тачки»), а корень ключа
+    # (:func:`franchise_key`) режет номер части: «Cars 2» подписано корнем «cars».
+    names |= {franchise_key(p.original) for p in pictures if p.original}
+    if key not in names:  # запрос назвал не франшизу, а картину - подменять тут нечего
+        return None, False
+    return first, True

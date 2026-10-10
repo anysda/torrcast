@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.choice._named import _named
-from torrcast.usecases.choice.part_one_swap import part_one_guard
+from torrcast.usecases.choice.part_one_guard import part_one_guard
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
