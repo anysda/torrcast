@@ -28,6 +28,7 @@ from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._choose import _choose
@@ -171,6 +172,26 @@ def test_the_warm_and_the_take_cannot_disagree(branch: Branch) -> None:
     else:
         assert world.asked[-1][2] is None, "Enter тут не берёт ничего - дефолта быть не должно"
         assert bench.spared == [menu[first_alive(menu) - 1].picture.key]
+
+
+@pytest.mark.parametrize("branch", branches(), ids=lambda one: one.why)
+def test_without_a_question_only_the_taken_picture_is_warmed(branch: Branch) -> None:
+    """Без вопроса соседку не выберет никто, и греется одна взятая картина с запасным.
+
+    Прогрев соседей под меню, которого не будет, - чистая трата: их раздачи снесутся
+    при старте, а пока живут, отнимают у взятой картины полосу и TorrServer. На «брат
+    1997» метаданные первой раздачи ждали прогрева двух «Братьев Кадфаэлей» лишние
+    0.1-0.2 с перед решением. Под вопросом голова меню греется, как грелась.
+    """
+    world = Outside(answers=[branch.answer] if branch.answer is not None else [])
+
+    _menu, taken, bench = _walked(branch, world)
+
+    assert taken is not None, "вопрос обязан был кончиться картиной"
+    if world.asked:
+        assert 1 < len(bench.warmed) <= PREWARM, "под вопросом греется голова меню"
+    else:
+        assert bench.warmed == [taken.picture.key], "без вопроса соседку не выберут"
 
 
 def _rules_of_the_step() -> set[str]:

@@ -126,10 +126,10 @@ class _WatchBench:
 def _continue_by_bookmark(
     state: WatchState, menu: list[Plan], marked: int, bench: _WatchBench
 ) -> object:
-    """Путь продолжения: закладка на части ``marked``, в меню выбрана она же."""
+    """Путь продолжения: закладка на части ``marked``, в меню (``--menu``) выбрана она же."""
     return _choose(
         Config(),
-        cast(Any, Args(query=["тачки"])),
+        cast(Any, Args(query=["тачки"], menu=True)),
         Choice(profile=CAUTIOUS, how="стенд"),
         state,
         None,
@@ -221,7 +221,7 @@ def test_the_selection_gets_the_renewal_the_stage_names(monkeypatch: pytest.Monk
         with pytest.raises(_ChosenError):
             _choose(
                 Config(),
-                cast(Any, Args(query=["тачки"])),
+                cast(Any, Args(query=["тачки"], menu=True)),
                 Choice(profile=CAUTIOUS, how="стенд"),
                 WatchState(),
                 None,
