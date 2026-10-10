@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from functools import partial
-
 import torrcast.adapters.choice_environment as _choice_slots
 import torrcast.usecases.cache_reserve as _cache_reserve
 import torrcast.usecases.choice.configure as _choice_configure
@@ -27,7 +25,7 @@ from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.facts_wiring import FACTS
-from torrcast.runtime.wire_search import wire_search
+from torrcast.runtime.wire_search import BEFORE_PICTURE, wire_search
 from torrcast.usecases.rank._cut import _cut
 from torrcast.usecases.rank.bitrate_of import bitrate_of
 from torrcast.usecases.rank.hevc_hope import hevc_hope
@@ -69,20 +67,20 @@ def test_the_search_gets_the_real_catalogue_and_the_real_release_service() -> No
     # Служба раздач и паспорт потока: запас кэша, уборка и длительность серии.
     assert _cache_reserve._reserve_engines is TorrServer
     assert torrents._cleanup_engines is TorrServer
-    assert _episode_duration._episode_prober is probe
+    # До первого кадра хвост файла не читает никто: конец картинки дочитывает показ после него.
+    assert _episode_duration._episode_prober is BEFORE_PICTURE
+    assert _bench_state._bench_prober is BEFORE_PICTURE
+    assert _pick_state._select_prober is BEFORE_PICTURE
+    assert BEFORE_PICTURE.func is probe
+    assert (BEFORE_PICTURE.args, BEFORE_PICTURE.keywords) == ((), {"tail_wait": 0.0})
     assert ENGINE.tell == START.restarted
 
     # Стенд отбора и сам отбор.
-    # Отбор хвоста файла не читает: конец картинки дочитывает показ после первого кадра.
-    bench_prober = _bench_state._bench_prober
-    assert isinstance(bench_prober, partial) and bench_prober.func is probe
-    assert (bench_prober.args, bench_prober.keywords) == ((), {"tail_wait": 0.0})
     assert _bench_state._bench_warm_file is warm_file
     assert _bench_state._bench_swarm_pulse is swarm_pulse
     assert _bench_state._bench_contact_wait is ContactWait
     assert _bench_state._bench_swarm_demand is swarm_demand
     assert _pick_state._select_engines is TorrServer
-    assert _pick_state._select_prober is probe
     assert _pick_state._select_ask_line is ask_line
 
     # Поиск и добор: сырая выдача каталога, справка и завод клиента индексеров.

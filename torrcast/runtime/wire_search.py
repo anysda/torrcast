@@ -3,6 +3,7 @@
 Зовёт её композиционный корень (:func:`torrcast.runtime.wire.wire`), и только он."""
 
 from functools import partial
+from typing import Final
 
 from torrcast.adapters.choice_environment import _configure_choice_environment
 from torrcast.adapters.choice_environment import environment as choice_environment
@@ -35,6 +36,11 @@ from torrcast.usecases.select_bench._bench_state import _configure_select_bench
 from torrcast.usecases.start_progress import START
 from torrcast.usecases.torrents import _configure_torrents
 
+#: Паспорт до первого кадра: голова без хвоста файла. Ни длительность серии, ни отбор хвост
+#: не читают: до картинки рой занят головой, а конец картинки дочитывает показ после неё
+#: (:class:`torrcast.usecases.playback._ending._Ending`).
+BEFORE_PICTURE: Final = partial(probe, tail_wait=0.0)
+
 
 def wire_search() -> None:
     """Отдать поиску и отбору их внешний мир: каталог раздач, службу раздач и паспорт."""
@@ -58,18 +64,15 @@ def wire_search() -> None:
     _configure_torrents(TorrServer)
     # Служба раздач, поднимаемая заново (TC-1199), говорит это экрану ожидания вкладки.
     ENGINE.tell = START.restarted
-    _configure_episode_duration(probe)
+    _configure_episode_duration(BEFORE_PICTURE)
     # Стенд отбора греет раздачи параллельно: чтение паспорта, прогрев файла, признак
     # жизни роя и отсрочка первого контакта - четыре разных внешних мира, и все четыре
     # приходят отсюда. Прежде стенд доставал их строкой с именем прежнего фасада.
-    # Хвоста файла стенд не читает: конец картинки дочитывает показ после первого кадра.
-    _configure_select_bench(
-        partial(probe, tail_wait=0.0), warm_file, swarm_pulse, ContactWait, swarm_demand
-    )
+    _configure_select_bench(BEFORE_PICTURE, warm_file, swarm_pulse, ContactWait, swarm_demand)
     # Сам отбор ходит в службу раздач ровно один раз - за дорожками названного
     # вручную релиза, - и спрашивает человека о начале сериала заново. Служба,
     # чтение паспорта и вопрос приходят отсюда, а не из строки с именем фасада.
-    _configure_select(TorrServer, probe, ask_line)
+    _configure_select(TorrServer, BEFORE_PICTURE, ask_line)
     # Поиск: сырая выдача каталога, справка о картинах и завод клиента индексеров. Все
     # трое ходят в сеть, и слою сценариев их не назвать - только корню. Добор берёт первые
     # два тем же порядком: прежде их раздавал импорт фасада-смертника `torrcast.reinforce`,
