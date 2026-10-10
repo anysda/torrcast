@@ -13,8 +13,11 @@ from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turned_down
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_notes import _BenchNotes
+from torrcast.usecases.select_bench._retried_verdict import _as_planned
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from torrcast.domain.args import Args
 
 
@@ -29,6 +32,7 @@ class _BenchRecheck(_BenchNotes):
         progress: Progress,
         judged: dict[int, str],
         deadline: float,
+        label: Callable[[int], int] = _as_planned,
     ) -> _Prep | None:
         """Второй спрос очереди, промолчавшей целиком: одному релизу и без отсрочек.
 
@@ -76,7 +80,7 @@ class _BenchRecheck(_BenchNotes):
             phrase(
                 "select_bench.recheck_note",
                 total=len(queue),
-                number=number,
+                number=label(number),
                 budget=f"{self.meta_budget + self.probe_budget:g}",
             )
         )
@@ -96,7 +100,7 @@ class _BenchRecheck(_BenchNotes):
             raise InfraError(prep.error)
         trouble = self._trouble(
             prep,
-            pinned=args.pinned,
+            pinned=args.spared,
             warn_mbit=plan.warn_mbit,
             recode=plan.recode_at > 0,
             hard_mbit=plan.hard_mbit,
@@ -115,14 +119,14 @@ class _BenchRecheck(_BenchNotes):
             print(
                 phrase(
                     "select_bench.recheck_result_note",
-                    number=number,
+                    number=label(number),
                     result=result,
                     trouble=trouble,
                 )
             )
             self._forget(prep)
             return None
-        if not args.pinned and voice_unproven(prep.found, native=plan.picture.native):
+        if not args.spared and voice_unproven(prep.found, native=plan.picture.native):
             # Ожил релиз без искомой дорожки: её не нашлось ни у кого, кого удалось спросить.
             # 🔴 TC-741. Играет он только если язык НАЗВАН: тогда зритель слышит, чей это
             # звук, и решает сам. Паспорт, промолчавший про язык, тут ровно тот же отказ,
@@ -132,7 +136,7 @@ class _BenchRecheck(_BenchNotes):
             if all(track.named for track in prep.found.tracks):
                 return self._mute_fallback(plan, prep, queue, judged, len(queue), len(queue))
             _turned_down(judged, number, phrase("select_bench.reason_no_voice"), prep)
-            print(phrase("select_bench.recheck_no_voice_note", number=number))
+            print(phrase("select_bench.recheck_no_voice_note", number=label(number)))
             self._forget(prep)
             return None
         # Проверки честности (:meth:`_honest`) тут нет по той же причине, что и на запасном

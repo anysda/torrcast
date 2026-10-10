@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+def _as_planned(number: int) -> int:
+    """Номер релиза в строках обхода, когда человек его не набирал: место в плане."""
+    return number
+
 
 def _retried_verdict(
     queue: list[int],
@@ -9,6 +19,7 @@ def _retried_verdict(
     judged_before: set[int],
     tried: list[str],
     silents: int,
+    label: Callable[[int], int] = _as_planned,
 ) -> tuple[list[str], int]:
     """Переписать итог обхода, если второй спрос вынес приговор вместо молчания.
 
@@ -21,8 +32,8 @@ def _retried_verdict(
     )
     if retried is None:
         return tried, silents
+    shown = label(retried)  # строки ``tried`` начинаются с номера, который набрал человек
     rewritten = [
-        f"{retried} - {judged[retried]}" if row.startswith(f"{retried} - ") else row
-        for row in tried
+        f"{shown} - {judged[retried]}" if row.startswith(f"{shown} - ") else row for row in tried
     ]
     return rewritten, silents - 1

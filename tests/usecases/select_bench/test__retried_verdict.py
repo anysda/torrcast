@@ -31,3 +31,18 @@ def test_a_verdict_that_was_there_before_is_not_a_new_one() -> None:
     rows = ["3 - тяжелее потолка"]
 
     assert _retried_verdict([3], {3: "тяжелее потолка"}, {3}, rows, 0) == (rows, 0)
+
+
+def test_the_line_is_found_by_the_number_the_human_typed() -> None:
+    """Строки обхода начинаются с набранного номера (69), а не с места в плане (2)."""
+    tried, silents = _retried_verdict(
+        queue=[2],
+        judged={2: "перекод такого кадра этой машине не по силам"},
+        judged_before=set(),
+        tried=["69 - не дождались за 20 с"],
+        silents=1,
+        label={2: 69}.__getitem__,
+    )
+
+    assert tried == ["69 - перекод такого кадра этой машине не по силам"]
+    assert silents == 0

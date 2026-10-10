@@ -9,6 +9,8 @@ from torrcast.domain.args import Args
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.torr_file import TorrFile
+from torrcast.ports.contact_wait import ContactWait
 from torrcast.usecases.select_bench.bench import Bench
 
 
@@ -61,4 +63,42 @@ def test_the_verdict_names_the_release_by_the_number_the_human_typed(
 
     said = capsys.readouterr().out
     assert "релиз 69 не годится" in said
+    assert "релиз 2 " not in said
+
+
+class _SilentOnce(Torrents):
+    """Рой, который промолчал на первом спросе и ответил на втором: медленный, не мёртвый."""
+
+    def __init__(self, silent: str) -> None:
+        super().__init__(dead={silent})
+
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWait = 0.0
+    ) -> list[TorrFile]:
+        try:
+            return super().wait_files(torrent_hash, timeout, grace)
+        finally:
+            self.dead.discard(torrent_hash)
+
+
+def test_judge_still_judges_a_named_release_that_answers_only_on_the_second_ask(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-1314. Медленный рой не обходит приговор: второй спрос судит так же, как первый.
+
+    Прежде второй спрос звал названный релиз «не судимым» по одному тому, что он назван,
+    и ремукс, промолчавший в обходе, играл «перекодирую на ходу целиком» вопреки ``--judge``.
+    Номер в строках второго спроса и в отказе - тот, что набрал человек, а не место в плане.
+    """
+    pool = [rel("one"), NAMED]
+    torrents = _SilentOnce(f"hash-{NAMED.magnet}")
+    bench = Bench(torrents, prober=probes(pool, FHD, REMUX), meta_budget=0.5, probe_budget=0.5)
+    args = Args(query=["кино"], release=69, release_hash=info_hash(NAMED), judge=True)
+
+    with pytest.raises(NotFoundError, match=r"годного релиза нет \(69 - перекод такого кадра"):
+        bench.resolve(plan(pool, warn_mbit=40.0, hard_mbit=25.0), args, Said())
+
+    said = capsys.readouterr().out
+    assert "спрашиваю релиз 69 ещё раз" in said
+    assert "релиз 69 ответил в одиночку" in said
     assert "релиз 2 " not in said

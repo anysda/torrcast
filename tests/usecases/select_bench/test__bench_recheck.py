@@ -145,3 +145,45 @@ def test_a_revived_release_whose_passport_stays_ambiguous_does_not_play(
 
     assert revived is None, "не все дорожки паспорта названы - второй спрос не спасает"
     assert "релиз 1 ответил в одиночку, но без русской озвучки" in capsys.readouterr().out
+
+
+def _ambiguous_revival(args: Args, capsys: pytest.CaptureFixture[str]) -> tuple[bool, str]:
+    pool = [rel(name="r0 | Дубляж", seeders=100)]
+    built = plan(pool)
+    ambiguous = Media(
+        RUNTIME,
+        (AudioTrack(index=0), AudioTrack(index=1, language="eng", title="Original")),
+        "h264",
+        height=1080,
+        width=1920,
+    )
+    bench = Bench(Torrents(), prober=probes(pool, ambiguous), meta_budget=1.0, probe_budget=1.0)
+    silent = bench.start(built, 1)
+    bench._wait(silent, Said())
+    silent.media = None
+    silent.error = "раздача не отдала метаданные за 1 с - нет пиров"
+    revived = bench._recheck(
+        built, [1], args, Said(), {}, deadline=bench.clock() + 100.0, label={1: 69}.__getitem__
+    )
+    return revived is not None, capsys.readouterr().out
+
+
+def test_judge_asks_a_named_revival_for_its_voice_by_the_typed_number(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """С ``--judge`` ожившая названная раздача проходит и суд по озвучке, номером человека."""
+    played, said = _ambiguous_revival(Args(query=["кино"], release=69, judge=True), capsys)
+
+    assert not played, "под --judge паспорт без названной русской дорожки не играет"
+    assert "релиз 69 ответил в одиночку, но без русской озвучки" in said
+    assert "релиз 1 " not in said
+
+
+def test_a_named_revival_without_judge_plays_as_the_human_chose(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Без ``--judge`` выбор человека не судится и на втором спросе."""
+    played, said = _ambiguous_revival(Args(query=["кино"], release=69), capsys)
+
+    assert played
+    assert "спрашиваю релиз 69 ещё раз" in said

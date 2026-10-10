@@ -183,11 +183,13 @@ class Bench(_BenchPrewarm):
             self._spare(tally.mute)
         if tally.verdicts == 0 and exhausted and tally.tried:
             judged_before = set(tally.judged)
-            revived = self._recheck(plan, queue, args, progress, tally.judged, deadline)
+            revived = self._recheck(
+                plan, queue, args, progress, tally.judged, deadline, tally.label
+            )
             if revived is not None:
                 return revived
             tally.tried, tally.silents = _retried_verdict(
-                queue, tally.judged, judged_before, tally.tried, tally.silents
+                queue, tally.judged, judged_before, tally.tried, tally.silents, tally.label
             )
         _bench_refusal(
             plan, queue, tally.tried, tally.silents, exhausted, args.release, tally.voiceless
