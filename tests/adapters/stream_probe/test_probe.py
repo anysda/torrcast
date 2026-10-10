@@ -163,3 +163,23 @@ def test_ffprobe_holds_the_torrent_until_its_process_returns(
         assert not READS.busy(key)
     finally:
         READS.reopen(key)
+
+
+def test_ffprobe_stops_when_its_stream_read_is_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Срок снятия раздачи должен остановить ffprobe тем же callback, что и мёртвый рой."""
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key = "1123456789abcdef0123456789abcdef01234567"
+    url = f"http://torr/stream?link={key}&index=1&play"
+
+    def stopped(command: list[str], timeout: float, alive: Any) -> str:
+        assert READS.close(key), "ffprobe не встал читателем /stream"
+        READS.stop(key)
+        assert alive is not None and not alive(), "ffprobe не увидел срок чтения"
+        return _ANSWER
+
+    try:
+        probe(url, run=stopped)
+    finally:
+        READS.reopen(key)
