@@ -194,12 +194,12 @@ def test_the_last_warmed_piece_whose_end_was_never_measured_is_handed_over_too(
     last = show.grid.count - 1
     lay(store.dir, last)
     monkeypatch.setattr(feed_segment, "segment_start", lambda path: _Clock(math.nan, movie=False))
-    monkeypatch.setattr(feed_segment, "segment_end", lambda path: math.nan)
+    monkeypatch.setattr(feed_segment, "tail_mark", lambda path, head, began: math.nan)
 
     assert _warm(show, last) == store.dir / f"v{last}.ts", "хвост стёрт по незнанию"
     assert said == []
 
-    monkeypatch.setattr(feed_segment, "segment_end", lambda path: 1.0)
+    monkeypatch.setattr(feed_segment, "tail_mark", lambda path, head, began: 1.0)
     assert _warm(show, last) is None, "измеренный обрыв хвоста перестал ловиться"
     # Обрыв зритель видит заминкой на хвосте: прогретое стёрто, и то же место идёт живой
     # упаковкой. Молчание тут читается поломкой показа, а не решением, - строка обязана

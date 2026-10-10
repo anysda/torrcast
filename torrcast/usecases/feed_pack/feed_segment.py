@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.feed_pack.feed_newest import _newest
-from torrcast.usecases.warm.segment_end import segment_end
 from torrcast.usecases.warm.segment_start import segment_start
 from torrcast.usecases.warm.settings import SKEW_MAX, TAIL_GAP_MAX
+from torrcast.usecases.warm.tail_mark import tail_mark
 from torrcast.usecases.warm.zeroed import zeroed
 
 if TYPE_CHECKING:
@@ -154,10 +154,10 @@ def _warm(state: _State, slot: int) -> Path | None:
         state._say(phrase("feed.warm_zeroed", slot=slot))
         return None
     if slot == state.grid.count - 1:
-        # 🔴 TC-772. Конец куска меряется по ЛЮБОЙ его дорожке (:func:`segment_end`), а не по
+        # 🔴 TC-772. Конец куска меряется по ЛЮБОЙ его дорожке (:func:`tail_mark`), а не по
         # одной картинке: у настоящего релиза видеодорожка вправе кончиться раньше паспорта
         # контейнера, и мера по картинке звала целый хвост оборванным на 9% корпуса.
-        ended = segment_end(path)
+        ended = tail_mark(path, state.vault.head(), state.grid.start(slot) + state.grid.origin)
         promised = state.grid.duration + state.grid.origin
         if not math.isnan(ended) and promised - ended > TAIL_GAP_MAX:
             state.vault.reject(slot)

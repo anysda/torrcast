@@ -207,11 +207,11 @@ def test_only_a_complete_warmed_tail_reaches_the_show(
     monkeypatch.setattr(
         feed_segment, "segment_start", lambda path: _Started(grid.start(grid.count - 1), True)
     )
-    monkeypatch.setattr(feed_segment, "segment_end", lambda path: 20.8)
+    monkeypatch.setattr(feed_segment, "tail_mark", lambda path, head, began: 20.8)
 
     assert feed._warm(grid.count - 1) == tail, "здоровый хвост забракован"
 
-    monkeypatch.setattr(feed_segment, "segment_end", lambda path: 20.5)
+    monkeypatch.setattr(feed_segment, "tail_mark", lambda path, head, began: 20.5)
     assert feed._warm(grid.count - 1) is None, "обрезанный хвост уехал зрителю"
     assert not tail.exists(), "обрезанный хвост остался готовым на диске"
 
