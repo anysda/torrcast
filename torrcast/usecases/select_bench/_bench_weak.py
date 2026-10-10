@@ -13,6 +13,7 @@ from torrcast.usecases.select_bench._bench_supply import _supply_note, _supply_v
 
 if TYPE_CHECKING:
     from torrcast.domain.profile import Profile
+    from torrcast.domain.torr_file import TorrFile
     from torrcast.ports.torrent_engine import TorrentEngine
     from torrcast.usecases.select._prep import _Prep
     from torrcast.usecases.select_bench._bench_tally import _Tally
@@ -42,12 +43,12 @@ def _weak_alive(
     """
     ratio, got, need, prep = weak
     if ratio < profile.supply_floor and prep.video is not None and need > 0:
-        source = torrserver.stream_url(prep.torrent_hash, prep.video.index)
-        seconds = profile.supply_demand_seconds
-        before, began = _intake(torrserver, prep.torrent_hash), time.monotonic()
-        _bench_state._bench_swarm_demand(source, prep.video.size // 2, seconds)
-        taken = _intake(torrserver, prep.torrent_hash) - before
-        got = taken * 8 / 1_000_000 / max(time.monotonic() - began, seconds)
+        remeasured = _remeasure(profile, torrserver, prep.torrent_hash, prep.video)
+        if remeasured is None:  # замера не было: берётся, как и до перемера, по вехам
+            tally.judged.pop(prep.number, None)
+            print(_supply_note(prep, got, need, ratio))
+            return prep
+        got = remeasured
         ratio = got / need
     numbers = {"got": f"{got:.2f}", "need": f"{need:.2f}", "ratio": f"{ratio:.2f}"}
     if ratio < profile.supply_floor:
@@ -88,10 +89,31 @@ def _mute_alive(
     return alive
 
 
-def _intake(torrserver: TorrentEngine, torrent_hash: str) -> float:
-    """Сколько байт раздача приняла от роя; молчание службы - ноль, как и на вехах."""
+def _remeasure(
+    profile: Profile, torrserver: TorrentEngine, torrent_hash: str, video: TorrFile
+) -> float | None:
+    """Мбит/с роя под спросом или ``None`` - счётчик приёма не прочитан, замера не было.
+
+    Отказ сети не приговор: молчание службы до или после спроса, как и счётчик, ушедший
+    назад, дали бы и «везёт 0.00 - не беру», и «везёт 10000 - беру (1250x)». Такой рой
+    судится, как судился до перемера, по вехам прогрева.
+    """
+    source = torrserver.stream_url(torrent_hash, video.index)
+    seconds = profile.supply_demand_seconds
+    before, began = _intake(torrserver, torrent_hash), time.monotonic()
+    if before is None:
+        return None
+    _bench_state._bench_swarm_demand(source, video.size // 2, seconds)
+    after = _intake(torrserver, torrent_hash)
+    if after is None or after < before:
+        return None
+    return (after - before) * 8 / 1_000_000 / max(time.monotonic() - began, seconds)
+
+
+def _intake(torrserver: TorrentEngine, torrent_hash: str) -> float | None:
+    """Сколько байт раздача приняла от роя, или ``None`` - служба промолчала."""
     with suppress(Exception):
         read = cast(Any, torrserver).status(torrent_hash).get("bytes_read")
         if isinstance(read, (int, float)) and not isinstance(read, bool):
             return float(read)
-    return 0.0
+    return None

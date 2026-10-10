@@ -1,6 +1,7 @@
 """Кончилась очередь: лучший из слабых роёв берётся, только если он живой под спросом."""
 
 from dataclasses import replace
+from typing import cast
 
 import pytest
 
@@ -98,6 +99,62 @@ def test_a_weak_swarm_above_the_floor_is_taken_without_a_remeasure(
 
     assert taken is prep
     assert not forgotten
+
+
+#: Служба не ответила на ``status``: сеть, таймаут, упавший TorrServer.
+SILENT = object()
+
+
+class _Counter(Torrents):
+    """Счётчик приёма до спроса и после: число, ``None`` - поля нет, :data:`SILENT` - молчание."""
+
+    def __init__(self, before: object, after: object) -> None:
+        super().__init__()
+        self.before, self.after, self.demanded = before, after, False
+
+    def status(self, torrent_hash: str) -> dict[str, JsonValue]:
+        read = self.after if self.demanded else self.before
+        if read is SILENT:
+            raise ConnectionError("служба молчит")
+        return {} if read is None else {"bytes_read": cast(float, read)}
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        pytest.param(SILENT, SILENT, id="service-silent"),
+        pytest.param(None, None, id="no-bytes-read-field"),
+        pytest.param(SILENT, 5_000_000_000.0, id="before-silent-after-answers"),
+        pytest.param(1_000_000.0, SILENT, id="after-silent"),
+        pytest.param(5_000_000.0, 1_000_000.0, id="counter-went-back"),
+    ],
+)
+def test_an_unread_intake_counter_is_no_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    before: object,
+    after: object,
+) -> None:
+    """Отказ сети не приговор: без счётчика рой судится по вехам, как до перемера."""
+    torrents = _Counter(before, after)
+
+    def _demand(source: str, offset: int, seconds: float) -> None:
+        torrents.demanded = True
+
+    composition.use_swarm_demand(monkeypatch, _demand)
+    prep = _Prep(number=3, release=rel("weak"))
+    prep.video = TorrFile(0, "movie.mkv", 4 * GB)
+    tally, forgotten = _Tally(), list[_Prep]()
+    tally.judged[3] = "рой короток"
+
+    taken = _weak_alive(PROFILE, torrents, (0.05, 0.48, 9.54, prep), tally, forgotten.append)
+
+    said = capsys.readouterr().out
+    assert taken is prep
+    assert not forgotten
+    assert 3 not in tally.judged
+    assert "под спросом" not in said
+    assert "рой релиза 3 везёт 0.48 при нужных 9.54 Мбит/с - беру (0.05x)" in said
 
 
 ENGLISH = Media(RUNTIME, (AudioTrack(index=0, language="eng"),), "h264", height=1080, width=1920)
