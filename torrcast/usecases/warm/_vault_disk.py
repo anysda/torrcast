@@ -28,19 +28,24 @@ def _disk_free(root: Path) -> int:
 _KEY = re.compile(r"[0-9a-f]{16}")
 
 
+def _shelf(path: Path) -> bool:
+    """Каталог, который завёл склад: с именем-ключом или с паспортом. Нечитаемое чужое
+    (``lost+found`` под ``nobody`` в контейнере) - не полка, а не повод ослепнуть на все."""
+    try:
+        return path.is_dir() and (_KEY.fullmatch(path.name) is not None or (path / META).is_file())
+    except OSError:
+        return False
+
+
 def _dirs(root: Path) -> list[Path]:
-    """Полки склада: каталоги, которые завёл он сам, - с именем-ключом или с паспортом.
+    """Полки склада (:func:`_shelf`).
 
     Имя спасает полку, чей паспорт не записался на полном разделе. Чужое в корне - не
     полка: на отдельном разделе там лежит ``lost+found``, и вытеснитель не вправе ни
     считать его, ни сносить.
     """
     try:
-        return [
-            path
-            for path in root.iterdir()
-            if path.is_dir() and (_KEY.fullmatch(path.name) or (path / META).is_file())
-        ]
+        return [path for path in root.iterdir() if _shelf(path)]
     except OSError:
         return []
 

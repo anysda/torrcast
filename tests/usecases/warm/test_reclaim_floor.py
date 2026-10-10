@@ -162,3 +162,24 @@ def test_lost_and_found_of_the_partition_is_never_a_shelf(tmp_path: Path) -> Non
         assert (found / "#12").exists(), "снесён lost+found раздела"
         assert [facts["key"] for event, _, facts in sky.events if event == "evict"] == ["старая"]
         assert found not in sky.removed
+
+
+def test_an_unreadable_lost_and_found_does_not_blind_the_floor(tmp_path: Path) -> None:
+    """Живой стенд 10-10: в контейнере ``lost+found`` раздела - ``nobody`` 0700.
+
+    Проверка паспорта внутри него падает отказом в доступе; склад обязан пропустить этот
+    каталог, а не потерять из виду все полки и встать на полу при отдаваемой чужой.
+    """
+    sky = world()
+    root = tmp_path / "warm"
+    found = _found(root)
+    _shelf(root, "1234567890abcdef", 10, 3000.0)
+    store = Vault(root=root, key="новый", budget=1000, floor=30, free_of=_room(40))
+    found.chmod(0)
+    try:
+        assert store.fit(5) == "", "полка была отдаваемой, а пол отказал"
+    finally:
+        found.chmod(0o700)
+    evicted = [facts["key"] for event, _, facts in sky.events if event == "evict"]
+    assert evicted == ["1234567890abcdef"]
+    assert (found / "#12").exists()
