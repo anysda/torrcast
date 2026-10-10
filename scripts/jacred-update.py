@@ -54,18 +54,23 @@ class PlaybackBrake:
         self._clock = clock
         self._sleep = sleep
         self._paused_at: float | None = None
+        self._next_probe = 0.0
+        self._busy = False
 
     def blocked(self) -> bool:
-        try:
-            with urllib.request.urlopen(STATE, timeout=1) as response:
-                body = json.load(response)
-        except (OSError, ValueError, json.JSONDecodeError):
-            return False
-        busy = isinstance(body, dict) and body.get("state") in {"starting", "playing"}
-        if not busy:
+        now = self._clock()
+        if now >= self._next_probe:
+            self._next_probe = now + PAUSE_POLL
+            try:
+                with urllib.request.urlopen(STATE, timeout=1) as response:
+                    body = json.load(response)
+            except (OSError, ValueError, json.JSONDecodeError):
+                self._busy = False
+            else:
+                self._busy = isinstance(body, dict) and body.get("state") in {"starting", "playing"}
+        if not self._busy:
             self._paused_at = None
             return False
-        now = self._clock()
         if self._paused_at is None:
             self._paused_at = now
         return now - self._paused_at < PAUSE_LIMIT

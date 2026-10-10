@@ -67,3 +67,37 @@ def test_playback_brake_has_a_three_hour_ceiling(
     now[0] = updater.PAUSE_LIMIT
     assert brake.blocked() is False
     assert slept == []
+
+
+def test_playback_brake_probes_the_state_at_most_four_times_a_second(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A million SQLite rows must not turn into a million HTTP requests."""
+    now = [0.0]
+    calls = 0
+
+    class State:
+        def __enter__(self) -> "State":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _size: int = -1) -> bytes:
+            return b'{"state":"playing"}'
+
+    def state(*_args: object, **_kwargs: object) -> State:
+        nonlocal calls
+        calls += 1
+        return State()
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", state)
+    brake = updater.PlaybackBrake(clock=lambda: now[0])
+
+    assert brake.blocked() is True
+    now[0] = updater.PAUSE_POLL / 2
+    assert brake.blocked() is True
+    assert calls == 1
+    now[0] = updater.PAUSE_POLL
+    assert brake.blocked() is True
+    assert calls == 2
