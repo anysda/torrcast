@@ -117,6 +117,10 @@ def _jacred_initial_install_command(prefix: Path, state: Path, language: str) ->
     return "\n".join(
         [
             "set -eu",
+            # Only the installer may name the language here: neither the caller's own
+            # choice nor a product setting on the machine running the test leaks in.
+            "unset TORRCAST_LANGUAGE",
+            f"export TORRCAST_CONFIG={shlex.quote(str(state / 'absent-config.json'))}",
             f"REPO_DIR={shlex.quote(str(REPO))}",
             f"PREFIX={shlex.quote(str(prefix))}",
             f"STATE_DIR={shlex.quote(str(state))}",
@@ -142,8 +146,8 @@ def _jacred_initial_install_command(prefix: Path, state: Path, language: str) ->
 @pytest.mark.parametrize(
     ("language", "expected"),
     [
-        ("en", "indexed 1 releases in 0.0 s\n"),
-        ("ru", "проиндексировано 1 раздач за 0.0 с\n"),
+        ("en", "indexed 1 release in 0.0 s\n"),
+        ("ru", "проиндексирована 1 раздача за 0.0 с\n"),
     ],
 )
 def test_the_initial_jacred_refresh_uses_the_installer_language(
@@ -308,6 +312,8 @@ SYSTEMCTL={shlex.quote(str(systemctl))}
 OS_FAMILY=linux
 PYTHON=/chosen/python
 PREFIX=/chosen/prefix
+CONFIG_DIR=/chosen/etc
+LOCALE=ru_RU.UTF-8
 jacred_index=/chosen/state/index.sqlite
 {installer}
 install_jacred_refresh_unit
@@ -323,6 +329,80 @@ install_jacred_refresh_unit
         "daemon-reload",
         "enable --now torrcast-jacred-refresh.timer",
     ]
+
+
+def _generated_jacred_refresh(
+    tmp_path: Path, prefix: Path, index: Path
+) -> tuple[dict[str, str], list[str]]:
+    """Write the refresh unit by the installer's own function; return its environment, command."""
+    units = tmp_path / "units"
+    units.mkdir()
+    systemctl = tmp_path / "systemctl"
+    systemctl.write_text("#!/bin/sh\n", encoding="utf-8")
+    systemctl.chmod(0o755)
+    installer = "install_jacred_refresh_unit() {\n" + _body("install_jacred_refresh_unit") + "\n}"
+    command = f"""
+set -eu
+SYSTEMD_UNIT_DIR={shlex.quote(str(units))}
+SYSTEMCTL={shlex.quote(str(systemctl))}
+OS_FAMILY=linux
+PYTHON={shlex.quote(sys.executable)}
+PREFIX={shlex.quote(str(prefix))}
+CONFIG_DIR={shlex.quote(str(tmp_path / "etc"))}
+LOCALE=C.UTF-8
+jacred_index={shlex.quote(str(index))}
+{installer}
+install_jacred_refresh_unit
+"""
+    done = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr
+    unit = (units / "torrcast-jacred-refresh.service").read_text(encoding="utf-8")
+    environment = dict(
+        line.removeprefix("Environment=").strip('"').split("=", 1)
+        for line in unit.splitlines()
+        if line.startswith("Environment=")
+    )
+    start = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
+    return environment, shlex.split(start.removeprefix("ExecStart="))
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [("en", "refresh already running\n"), ("ru", "обновление уже запущено\n")],
+)
+def test_the_timer_refresh_speaks_the_language_of_the_product_setting(
+    tmp_path: Path, language: str, expected: str
+) -> None:
+    """The timer gets no TORRCAST_LANGUAGE; its unit leads the updater to the live setting.
+
+    The setting is changed AFTER the unit is written, the way ``cast --ru`` changes it, so a
+    language frozen into the unit at install time would answer in the former one.
+    """
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    for script in ("jacred-index.py", "jacred-update.py"):
+        shutil.copy(REPO / "scripts" / script, prefix / script)
+    index = tmp_path / "state" / "index.sqlite"
+    index.parent.mkdir()
+    environment, command = _generated_jacred_refresh(tmp_path, prefix, index)
+    config = tmp_path / "etc" / "config.json"
+    assert environment["TORRCAST_CONFIG"] == str(config)
+    config.parent.mkdir()
+    config.write_text(json.dumps({"language": language}), encoding="utf-8")
+    inherited = {
+        k: v for k, v in os.environ.items() if k not in {"TORRCAST_LANGUAGE", "TORRCAST_CONFIG"}
+    }
+
+    with index.with_suffix(index.suffix + ".refresh.lock").open("a+") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        done = subprocess.run(
+            command, capture_output=True, text=True, check=False, env={**inherited, **environment}
+        )
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout == expected
+    assert done.stderr == ""
 
 
 def test_the_two_local_indexers_do_not_share_one_prowlarr_queue() -> None:

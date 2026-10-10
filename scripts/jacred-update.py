@@ -30,6 +30,9 @@ HA_PORT_ENV = "TORRCAST_HA_PORT"
 PAUSE_POLL = 0.25
 PAUSE_LIMIT = 3 * 60 * 60
 DOWNLOAD_TRIES = 3
+DEFAULT_CONFIG = "/etc/torrcast/config.json"
+#: The builder's refusal of an archive without a single usable row (``jacred-index.py``).
+EMPTY_CATALOGUE = "FileDB contains no usable releases"
 
 
 BUSY: Literal["busy"] = "busy"
@@ -205,11 +208,37 @@ def refresh(target: Path) -> tuple[int, float] | Literal["busy"] | None:
             return result
 
 
+def _language() -> str:
+    """The installer names the language of its first refresh; the timer follows the setting.
+
+    ``cast --ru`` / ``cast --en`` rewrite only ``config.json``, and every service reads the
+    language from there live, so a language frozen into the timer unit would go stale.
+    """
+    named = os.environ.get("TORRCAST_LANGUAGE")
+    if named:
+        return named
+    config = Path(os.environ.get("TORRCAST_CONFIG") or DEFAULT_CONFIG)
+    try:
+        body = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "en"
+    return "ru" if isinstance(body, dict) and body.get("language") == "ru" else "en"
+
+
 def _say(english: str, russian: str, *, error: bool = False) -> None:
-    print(
-        russian if os.environ.get("TORRCAST_LANGUAGE") == "ru" else english,
-        file=sys.stderr if error else sys.stdout,
-    )
+    print(russian if _language() == "ru" else english, file=sys.stderr if error else sys.stdout)
+
+
+def _indexed(rows: int, elapsed: float) -> tuple[str, str]:
+    """Agree the English noun and the Russian participle and noun with the number."""
+    english = f"indexed {rows} release{'' if rows == 1 else 's'} in {elapsed:.1f} s"
+    if rows % 10 == 1 and rows % 100 != 11:
+        participle, noun = "проиндексирована", "раздача"
+    elif 2 <= rows % 10 <= 4 and not 12 <= rows % 100 <= 14:
+        participle, noun = "проиндексированы", "раздачи"
+    else:
+        participle, noun = "проиндексировано", "раздач"
+    return english, f"{participle} {rows} {noun} за {elapsed:.1f} с"
 
 
 def main() -> int:
@@ -229,15 +258,15 @@ def main() -> int:
         _say("JacRed catalogue source disappeared", "пропал источник каталога JacRed", error=True)
         return 1
     except ValueError as error:
-        if str(error) != "FileDB contains no usable releases":
-            _say(
-                "could not refresh the JacRed catalogue", "не обновился каталог JacRed", error=True
-            )
-        else:
+        if str(error) == EMPTY_CATALOGUE:
             _say(
                 "JacRed catalogue has no usable releases",
                 "в каталоге JacRed нет пригодных раздач",
                 error=True,
+            )
+        else:
+            _say(
+                "could not refresh the JacRed catalogue", "не обновился каталог JacRed", error=True
             )
         return 1
     except Exception:
@@ -248,11 +277,7 @@ def main() -> int:
     elif result is None:
         _say("catalogue unchanged", "каталог не изменился")
     else:
-        rows, elapsed = result
-        _say(
-            f"indexed {rows} releases in {elapsed:.1f} s",
-            f"проиндексировано {rows} раздач за {elapsed:.1f} с",
-        )
+        _say(*_indexed(*result))
     return 0
 
 

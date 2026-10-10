@@ -40,7 +40,7 @@ SPEC.loader.exec_module(updater)
         (
             "en",
             None,
-            ValueError("FileDB contains no usable releases"),
+            ValueError(updater.EMPTY_CATALOGUE),
             1,
             "",
             "JacRed catalogue has no usable releases\n",
@@ -48,7 +48,7 @@ SPEC.loader.exec_module(updater)
         (
             "ru",
             None,
-            ValueError("FileDB contains no usable releases"),
+            ValueError(updater.EMPTY_CATALOGUE),
             1,
             "",
             "в каталоге JacRed нет пригодных раздач\n",
@@ -81,17 +81,121 @@ def test_the_updater_says_every_result_in_the_install_language(
     assert captured.err == stderr
 
 
-def test_the_updater_keeps_english_without_an_install_language(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_the_empty_catalogue_is_recognised_by_the_builder_s_own_refusal(tmp_path: Path) -> None:
+    """The updater names an empty archive by the builder's exact words, not a copy of them."""
+    source = tmp_path / "filedb"
+    source.mkdir()
+
+    with pytest.raises(ValueError) as refused:
+        updater._builder().build(source, tmp_path / "index.sqlite")
+
+    assert str(refused.value) == updater.EMPTY_CATALOGUE
+
+
+@pytest.mark.parametrize(
+    ("rows", "english", "russian"),
+    [
+        (1, "indexed 1 release in 2.0 s", "проиндексирована 1 раздача за 2.0 с"),
+        (2, "indexed 2 releases in 2.0 s", "проиндексированы 2 раздачи за 2.0 с"),
+        (5, "indexed 5 releases in 2.0 s", "проиндексировано 5 раздач за 2.0 с"),
+        (11, "indexed 11 releases in 2.0 s", "проиндексировано 11 раздач за 2.0 с"),
+        (12, "indexed 12 releases in 2.0 s", "проиндексировано 12 раздач за 2.0 с"),
+        (14, "indexed 14 releases in 2.0 s", "проиндексировано 14 раздач за 2.0 с"),
+        (21, "indexed 21 releases in 2.0 s", "проиндексирована 21 раздача за 2.0 с"),
+        (22, "indexed 22 releases in 2.0 s", "проиндексированы 22 раздачи за 2.0 с"),
+        (111, "indexed 111 releases in 2.0 s", "проиндексировано 111 раздач за 2.0 с"),
+        (
+            1_234_561,
+            "indexed 1234561 releases in 2.0 s",
+            "проиндексирована 1234561 раздача за 2.0 с",
+        ),
+    ],
+)
+def test_the_count_of_releases_agrees_with_its_number(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    rows: int,
+    english: str,
+    russian: str,
 ) -> None:
     monkeypatch.setattr(sys, "argv", ["jacred-update.py", "index.sqlite"])
+    monkeypatch.setattr(updater, "refresh", lambda _target: (rows, 2.0))
+    said = {}
+    for language in ("en", "ru"):
+        monkeypatch.setenv("TORRCAST_LANGUAGE", language)
+        assert updater.main() == 0
+        said[language] = capsys.readouterr().out
+    assert said == {"en": english + "\n", "ru": russian + "\n"}
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        (None, "catalogue unchanged\n"),
+        ('{"language": "en"}', "catalogue unchanged\n"),
+        ('{"language": "ru"}', "каталог не изменился\n"),
+        ('{"language": "de"}', "catalogue unchanged\n"),
+        ("not json", "catalogue unchanged\n"),
+        ('["ru"]', "catalogue unchanged\n"),
+    ],
+)
+def test_without_a_named_language_the_updater_follows_the_product_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    config: str | None,
+    expected: str,
+) -> None:
+    """The timer runs without the installer: the setting decides, a broken one means English."""
+    path = tmp_path / "config.json"
+    if config is not None:
+        path.write_text(config, encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["jacred-update.py", "index.sqlite"])
     monkeypatch.delenv("TORRCAST_LANGUAGE", raising=False)
+    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
     monkeypatch.setattr(updater, "refresh", lambda _target: None)
 
     assert updater.main() == 0
     captured = capsys.readouterr()
-    assert captured.out == "catalogue unchanged\n"
+    assert captured.out == expected
     assert captured.err == ""
+
+
+def test_the_language_named_by_the_installer_outranks_the_setting(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A reinstall with ``-en`` speaks English even before it rewrites a Russian setting."""
+    path = tmp_path / "config.json"
+    path.write_text('{"language": "ru"}', encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["jacred-update.py", "index.sqlite"])
+    monkeypatch.setenv("TORRCAST_LANGUAGE", "en")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
+    monkeypatch.setattr(updater, "refresh", lambda _target: None)
+
+    assert updater.main() == 0
+    assert capsys.readouterr().out == "catalogue unchanged\n"
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        ("en", "usage: jacred-update.py INDEX.sqlite\n"),
+        ("ru", "использование: jacred-update.py INDEX.sqlite\n"),
+    ],
+)
+def test_a_wrong_call_is_told_its_usage_in_the_install_language(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    language: str,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["jacred-update.py"])
+    monkeypatch.setenv("TORRCAST_LANGUAGE", language)
+
+    assert updater.main() == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == expected
 
 
 def test_the_dynamic_builder_keeps_its_checked_build_contract() -> None:

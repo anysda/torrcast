@@ -2888,6 +2888,10 @@ IOSchedulingClass=idle
 CPUWeight=1
 IOWeight=1
 MemoryHigh=1G
+# The journal speaks the product's language: the updater reads it from the same setting
+# that cast --ru / --en rewrite, so the language is not frozen into this unit.
+Environment="LANG=$LOCALE"
+Environment="TORRCAST_CONFIG=$CONFIG_DIR/config.json"
 ExecStart=$PYTHON $PREFIX/jacred-update.py $jacred_index
 EOF
     cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.timer" <<EOF
