@@ -88,9 +88,6 @@ def en() -> dict[str, str]:
             "“{name}”: part one is not in the results - taking the first live one, "
             "“{picture}”, part {part}; another one: cast {name} --menu"
         ),
-        "choice.guard_taken": (
-            "{guard}; taking the first live one, “{taken}”; another one: cast {asked} --menu"
-        ),
         "choice.default_taken": (
             "taking the first live one, “{picture}” - {total} pictures matched; another "
             "one: cast {asked} --menu"
@@ -137,6 +134,18 @@ def en() -> dict[str, str]:
         "choice.part_one_dead_why": (
             "“{picture}” does not play: {why}; another part I do not start instead on "
             "my own - here is what there is, name the number"
+        ),
+        "choice.part_one_absent_taken": (
+            "“{name}”: part one is not in the results - taking the first live one, "
+            "“{taken}”; another one: cast {asked} --menu"
+        ),
+        "choice.part_one_dead_taken": (
+            "“{picture}” does not play - taking the first live one, “{taken}”; another "
+            "one: cast {asked} --menu"
+        ),
+        "choice.part_one_dead_why_taken": (
+            "“{picture}” does not play: {why} - taking the first live one, “{taken}”; "
+            "another one: cast {asked} --menu"
         ),
         "choice.taken": (
             "taking “{picture}” - {total} pictures matched; another one: cast releases "

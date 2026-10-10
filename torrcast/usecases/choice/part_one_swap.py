@@ -44,20 +44,30 @@ def part_one_swap(plans: list[Plan], asked: str) -> str:
     Часть I») - это глава, а не часть франшизы: если «первая часть» линейки младше другой
     картины меню, перед нами семья однофамильцев, и там дефолт честен.
     """
+    key, fields = part_one_guard(plans, asked)
+    return phrase(key, **fields) if key else ""
+
+
+def part_one_guard(plans: list[Plan], asked: str) -> tuple[str, dict[str, str]]:
+    """Ключ строки стража и её поля; пустой ключ - страж молчит.
+
+    Строку меню и строку взятия без ``--menu`` собирают из одной причины разными фразами:
+    «назови номер» уместно только там, где номер и правда называет человек.
+    """
     name, _index = split_franchise_index(asked)
     first, franchise = _first_part(plans, asked)
     if not franchise:
-        return ""
+        return "", {}
     if first is None:
-        return phrase("choice.part_one_absent", name=name)
+        return "choice.part_one_absent", {"name": name}
     default = plans[first_alive(plans) - 1].picture
     if default is first or default.title.casefold() == first.title.casefold():
-        return ""
+        return "", {}
     number = next(n for n, plan in enumerate(plans, start=1) if plan.picture is first)
     why = _passed_why(plans, number, asked_kind(plans))
     if why:
-        return phrase("choice.part_one_dead_why", picture=_named(first), why=why)
-    return phrase("choice.part_one_dead", picture=_named(first))
+        return "choice.part_one_dead_why", {"picture": _named(first), "why": why}
+    return "choice.part_one_dead", {"picture": _named(first)}
 
 
 def _first_part(plans: list[Plan], asked: str) -> tuple[Picture | None, bool]:

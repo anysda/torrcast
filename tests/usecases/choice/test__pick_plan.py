@@ -334,12 +334,9 @@ def test_a_default_that_swaps_a_part_starts_the_first_alive_out_loud() -> None:
 
     assert world.said == [
         phrase(
-            "choice.guard_taken",
-            guard=phrase(
-                "choice.part_one_dead_why",
-                picture="Тачки (2006)",
-                why=phrase("choice.why_nothing_playable"),
-            ),
+            "choice.part_one_dead_why_taken",
+            picture="Тачки (2006)",
+            why=phrase("choice.why_nothing_playable"),
             taken="Тачки 2 (2011)",
             asked="тачки",
         )

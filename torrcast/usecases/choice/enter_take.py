@@ -125,7 +125,7 @@ def enter_take(
         if not menu:
             return Take(
                 default,
-                note=part_one_taken_line(plans, default, asked, note),
+                note=part_one_taken_line(plans, default, asked),
                 why="страж первой части, взята первая живая",
             )
         # За --menu строка называет, что с первой частью, а номер зовёт человек.

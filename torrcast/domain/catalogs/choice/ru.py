@@ -86,7 +86,6 @@ def ru() -> dict[str, str]:
             "«{name}»: первой части в выдаче нет - беру первую живую «{picture}», "
             "часть {part}; другая: cast {name} --menu"
         ),
-        "choice.guard_taken": "{guard}; беру первую живую «{taken}»; другая: cast {asked} --menu",
         "choice.default_taken": (
             "беру первую живую «{picture}» - подошло картин {total}; другая: cast {asked} --menu"
         ),
@@ -131,6 +130,17 @@ def ru() -> dict[str, str]:
         "choice.part_one_dead_why": (
             "«{picture}» не играет: {why}; вместо неё другую часть сам не включаю - вот "
             "что есть, назови номер"
+        ),
+        "choice.part_one_absent_taken": (
+            "«{name}»: первой части в выдаче нет - беру первую живую «{taken}»; "
+            "другая: cast {asked} --menu"
+        ),
+        "choice.part_one_dead_taken": (
+            "«{picture}» не играет - беру первую живую «{taken}»; другая: cast {asked} --menu"
+        ),
+        "choice.part_one_dead_why_taken": (
+            "«{picture}» не играет: {why} - беру первую живую «{taken}»; "
+            "другая: cast {asked} --menu"
         ),
         "choice.taken": (
             "беру «{picture}» - подошло картин {total}; другая: cast releases {asked} и --pick N"
