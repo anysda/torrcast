@@ -149,6 +149,26 @@ def test_a_ghost_does_not_buy_itself_off_with_an_honest_neighbour() -> None:
         keys(reader, reader.read(0, HEAD))
 
 
+def test_without_named_places_the_index_is_judged_by_the_cue_time() -> None:
+    """Места блоков муксер не назвал, а первым в кластере лежит чужой кадр (TC-1230).
+
+    Живая серия: индекс честный, кластер начинается кадрами прошлого GOP, и проба по
+    первому блоку отвергала карту целиком. Время точки едет из индекса до самой пробы:
+    честный файл даёт карту, а призрак за опорным соседом всё равно пойман.
+    """
+    cues = [(1000, 1024, 1), (3000, 2048, 1), (5000, 3072, 1), (7000, 4096, 1)]
+    data, base = Matroska(cues=cues, before=2).bytes()
+    reader = Served(data)
+    found = keys(reader, reader.read(0, HEAD))
+
+    assert [p.offset for p in found.points] == [base + 1024, base + 2048, base + 3072, base + 4096]
+
+    data, _base = Matroska(cues=cues, before=2, ghost=True).bytes()
+    reader = Served(data)
+    with pytest.raises(InfraError, match="lies"):
+        keys(reader, reader.read(0, HEAD))
+
+
 def test_a_block_header_cut_by_the_window_edge_is_not_a_crash() -> None:
     """Окно пробы обрезало заголовок блока: «не разобрать», а не падение (TC-687).
 

@@ -33,6 +33,7 @@ from torrcast.domain.frames.mkv.ids import (
     SEEK_POSITION,
     SEGMENT,
     SIMPLE_BLOCK,
+    TIMESTAMP,
     TIMESTAMP_SCALE,
     TRACK_ENTRY,
     TRACK_NUMBER,
@@ -42,8 +43,6 @@ from torrcast.domain.frames.mkv.ids import (
 from torrcast.domain.frames.mkv.key_frame import BLOCK_BYTES
 
 EBML_HEADER = 0x1A45DFA3
-#: EBML-идентификаторы, которых нет в ids.py: разбору они не нужны, нужны сборке.
-TIMESTAMP = 0xE7
 #: Кодеки пробных дорожек, как пишет их ``CodecID``.
 AVC = "V_MPEG4/ISO/AVC"
 AC3 = "A_AC3"
@@ -105,6 +104,9 @@ class Matroska:
     #: нарочно противоположны названному по опорности: так видно, чей кадр судит
     #: проверка честности - названный точкой или первый попавшийся в кластере.
     before: int = 0
+    #: Сколько байт набивки несёт кадр каждого из :attr:`before`: толстые кадры уводят
+    #: названный блок за первое окно пробы, как у живых файлов с длинным GOP.
+    fat: int = 0
     #: Муксер назвал место блока внутри кластера (``CueRelativePosition``).
     relative: bool = False
     #: ``Cues`` лежат после кластеров, в хвосте файла, а не в голове перед ними: так
@@ -115,7 +117,8 @@ class Matroska:
         """Смещение названного блока от начала данных кластера; ноль - муксер смолчал."""
         if not self.relative:
             return 0
-        return len(elem(TIMESTAMP, uint(0))) + self.before * len(self._block(1, idr=self.ghost))
+        lead = self._block(1, idr=self.ghost, at=-1, fat=self.fat)
+        return len(elem(TIMESTAMP, uint(0))) + self.before * len(lead)
 
     def _cues(self) -> bytes:
         points = b""
@@ -152,11 +155,16 @@ class Matroska:
             entries += elem(TRACK_ENTRY, entry)
         return elem(TRACKS, entries)
 
-    def _block(self, track: int, idr: bool) -> bytes:
-        """Блок дорожки с настоящим срезом AVC внутри: IDR (NAL типа 5) или обычный."""
+    def _block(self, track: int, idr: bool, at: int = 0, fat: int = 0) -> bytes:
+        """Блок дорожки с настоящим срезом AVC внутри: IDR (NAL типа 5) или обычный.
+
+        ``at`` - метка блока относительно кластера: у названного точкой она ноль, то есть
+        время блока совпадает с ``CueTime``, у чужих кадров перед ним - своя.
+        """
         flags = 0x80 | (0x06 if self.laced else 0)
-        frame = (5).to_bytes(4, "big") + (b"\x65" if idr else b"\x41") + b"\x00" * 4
-        return elem(SIMPLE_BLOCK, bytes([0x80 | track]) + b"\x00\x00" + bytes([flags]) + frame)
+        frame = (5 + fat).to_bytes(4, "big") + (b"\x65" if idr else b"\x41") + b"\x00" * (4 + fat)
+        stamp = struct.pack(">h", at)
+        return elem(SIMPLE_BLOCK, bytes([0x80 | track]) + stamp + bytes([flags]) + frame)
 
     def _cluster(self, at: int, tracks: list[int], ordinal: int = 0) -> bytes:
         """Кластер: набивка чужих видеокадров, затем по блоку на каждую дорожку точки.
@@ -168,7 +176,9 @@ class Matroska:
             return self._cut_cluster(at)
         real = not self.ghost and ordinal % self.step == 0
         real = real and not (self.lies_after and ordinal >= self.lies_after)
-        payload = elem(TIMESTAMP, uint(at)) + self._block(1, idr=not real) * self.before
+        payload = elem(TIMESTAMP, uint(at))
+        for k in range(self.before):
+            payload += self._block(1, idr=not real, at=-1 - k, fat=self.fat)
         for track in tracks:
             payload += self._block(track, idr=real)
         return elem(CLUSTER, payload)

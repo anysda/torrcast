@@ -30,7 +30,7 @@ def test_the_probes_are_two_neighbour_pairs_and_not_shares_of_the_tape() -> None
     """
     picked = probes(_index(384), TAIL)
 
-    where = [point.at for point, _ in picked]
+    where = [point.at for point, *_ in picked]
     assert len(picked) == 4, "две пары - каждая лишняя проба это Range-запрос на старте"
     assert where[1] - where[0] == 2.0, "соседние точки индекса, а не доли ленты"
     assert where[3] - where[2] == 2.0, "и вторая пара - соседи"
@@ -48,8 +48,8 @@ def test_the_first_pair_reads_the_head_and_the_second_the_end_of_the_tape() -> N
 
     picked = probes(row, TAIL)
 
-    assert all(point.offset < HEAD_WARM for point, _ in picked[:2]), "первая пара в голове"
-    assert [point.at for point, _ in picked[2:]] == [764.0, 766.0], "вторая - в конце ленты"
+    assert all(point.offset < HEAD_WARM for point, *_ in picked[:2]), "первая пара в голове"
+    assert [point.at for point, *_ in picked[2:]] == [764.0, 766.0], "вторая - в конце ленты"
 
 
 def test_the_second_pair_sits_next_to_the_index_wherever_the_muxer_put_it() -> None:
@@ -65,8 +65,8 @@ def test_the_second_pair_sits_next_to_the_index_wherever_the_muxer_put_it() -> N
     middle = probes(row, row[200].point.offset + 4096)
 
     assert len(head) == 2, "индекс в голове - пара одна, хвост не читается"
-    assert all(point.offset < HEAD_WARM for point, _ in head), "проба не уходит из головы"
-    assert [point.at for point, _ in middle[2:]] == [400.0, 402.0], "пара у самого индекса"
+    assert all(point.offset < HEAD_WARM for point, *_ in head), "проба не уходит из головы"
+    assert [point.at for point, *_ in middle[2:]] == [400.0, 402.0], "пара у самого индекса"
 
 
 def test_a_lying_step_that_divides_the_old_shares_does_not_divide_a_pair() -> None:
@@ -74,7 +74,7 @@ def test_a_lying_step_that_divides_the_old_shares_does_not_divide_a_pair() -> No
     picked = probes(_index(2880), TAIL)
 
     for pair in (picked[:2], picked[2:]):
-        numbers = [round(point.at / 2.0) for point, _ in pair]
+        numbers = [round(point.at / 2.0) for point, *_ in pair]
         assert [n % 48 == 0 for n in numbers].count(True) <= 1, "обе на шаг вруна не сядут"
 
 
@@ -89,7 +89,7 @@ def test_a_probe_is_not_spent_on_a_block_it_would_not_reach() -> None:
 
     picked = probes(row, TAIL)
 
-    assert all(inside < REACH for _, inside in picked), "проба смотрит туда, где что-то видно"
+    assert all(inside < REACH for _, inside, *_ in picked), "проба смотрит туда, где что-то видно"
 
 
 def test_a_pair_never_asks_the_same_block_twice() -> None:
@@ -98,7 +98,7 @@ def test_a_pair_never_asks_the_same_block_twice() -> None:
 
     picked = probes(row, TAIL)
 
-    for (one, _), (other, _) in (picked[:2], picked[2:]):
+    for (one, *_), (other, *_) in (picked[:2], picked[2:]):
         assert one.offset != other.offset, "пара спрашивает два разных кадра"
 
 
@@ -106,7 +106,7 @@ def test_the_pair_is_taken_in_time_order_whatever_order_the_index_lay_in() -> No
     """Соседство считается по времени: индекс вправе лежать вперемешку, пара - нет."""
     picked = probes(list(reversed(_index(40))), TAIL)
 
-    where = [point.at for point, _ in picked]
+    where = [point.at for point, *_ in picked]
     assert where[1] - where[0] == 2.0
     assert where[3] - where[2] == 2.0
 

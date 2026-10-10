@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tests.domain.frames.mkv.blocks import AVC, Matroska
 from tests.domain.frames.mp4.boxes import Served
-from torrcast.domain.frames.mkv.key_frame import key_frame
+from torrcast.domain.frames.mkv.key_frame import BLOCK_BYTES, CLUSTER_BYTES, key_frame
 
 
 def _served(film: Matroska) -> tuple[Served, int]:
@@ -21,21 +21,21 @@ def test_an_idr_slice_is_a_key_frame() -> None:
     """У честного файла первый срез блока - IDR (NAL тип 5)."""
     served, base = _served(Matroska())
 
-    assert key_frame(served, base + 1024, 1, AVC) is True
+    assert key_frame(served, base + 1024, 1, AVC, tick=0) is True
 
 
 def test_a_non_idr_slice_behind_a_key_flag_is_a_ghost() -> None:
     """Флаг опорности стоит, а срез не IDR - точка Cues призрак, и видно это по байтам."""
     served, base = _served(Matroska(ghost=True))
 
-    assert key_frame(served, base + 1024, 1, AVC) is False
+    assert key_frame(served, base + 1024, 1, AVC, tick=0) is False
 
 
 def test_a_codec_we_cannot_read_is_not_a_verdict() -> None:
     """Не AVC - содержимое кадра нам не по зубам: «не разобрать», а не призрак."""
     served, base = _served(Matroska())
 
-    assert key_frame(served, base + 1024, 1, "A_AC3") is None
+    assert key_frame(served, base + 1024, 1, "A_AC3", tick=0) is None
     assert served.requests == 0, "чужой кодек не стоит ни одного запроса"
 
 
@@ -43,14 +43,14 @@ def test_a_laced_block_cannot_be_read() -> None:
     """Лейсинг блока не разбираем - честное «не разобрать», а не догадка."""
     served, base = _served(Matroska(laced=True))
 
-    assert key_frame(served, base + 1024, 1, AVC) is None
+    assert key_frame(served, base + 1024, 1, AVC, tick=0) is None
 
 
 def test_an_offset_without_a_cluster_cannot_be_read() -> None:
     """По смещению нет кластера - опять «не разобрать»: решение остаётся за вызывающим."""
     served, base = _served(Matroska())
 
-    assert key_frame(served, base + 100, 1, AVC) is None
+    assert key_frame(served, base + 100, 1, AVC, tick=0) is None
 
 
 def test_a_block_header_cut_by_the_window_edge_cannot_be_read() -> None:
@@ -62,7 +62,7 @@ def test_a_block_header_cut_by_the_window_edge_cannot_be_read() -> None:
     """
     served, base = _served(Matroska(cues=[(0, 1024, 1)], cut_header=True))
 
-    assert key_frame(served, base + 1024, 1, AVC) is None
+    assert key_frame(served, base + 1024, 1, AVC, tick=0) is None
 
 
 def test_the_named_block_is_judged_and_not_the_first_one_in_the_cluster() -> None:
@@ -75,7 +75,7 @@ def test_the_named_block_is_judged_and_not_the_first_one_in_the_cluster() -> Non
     film = Matroska(before=2, relative=True)
     served, base = _served(film)
 
-    assert key_frame(served, base + 1024, 1, AVC, film.inside()) is True
+    assert key_frame(served, base + 1024, 1, AVC, film.inside(), tick=0) is True
 
 
 def test_a_ghost_behind_an_honest_neighbour_in_the_same_cluster_is_seen() -> None:
@@ -86,4 +86,51 @@ def test_a_ghost_behind_an_honest_neighbour_in_the_same_cluster_is_seen() -> Non
     film = Matroska(before=2, relative=True, ghost=True)
     served, base = _served(film)
 
-    assert key_frame(served, base + 1024, 1, AVC, film.inside()) is False
+    assert key_frame(served, base + 1024, 1, AVC, film.inside(), tick=0) is False
+
+
+def test_without_a_named_place_the_block_at_the_cue_time_is_judged() -> None:
+    """Муксер места не назвал, а первым в кластере лежит чужой не-IDR (TC-1230).
+
+    Так выглядит живая серия: точка Cues ссылается на кластер, в котором до опорного
+    кадра лежат кадры прошлого GOP. Судится блок, чьё время равно ``CueTime``, и честный
+    индекс остаётся честным.
+    """
+    served, base = _served(Matroska(before=2))
+
+    assert key_frame(served, base + 1024, 1, AVC, tick=0) is True
+
+
+def test_without_a_named_place_a_ghost_behind_an_honest_neighbour_is_seen() -> None:
+    """Первый видеоблок кластера опорный, а блок со временем точки - нет: это призрак."""
+    served, base = _served(Matroska(before=2, ghost=True))
+
+    assert key_frame(served, base + 1024, 1, AVC, tick=0) is False
+
+
+def test_the_cue_time_block_beyond_the_first_window_is_read_to() -> None:
+    """Блок со временем точки лежит за первым окном - кластер дочитывается одним заходом.
+
+    Живая серия: кадр в 0.4-1.25 МБ от начала кластера при окне в 128 КБ.
+    """
+    film = Matroska(cues=[(0, 1024, 1)], before=3, fat=BLOCK_BYTES // 2)
+    served, base = _served(film)
+
+    assert key_frame(served, base + 1024, 1, AVC, tick=0) is True
+    assert served.requests == 2, "окно и дочитка кластера, не больше"
+
+
+def test_a_cue_time_with_no_block_in_the_cluster_cannot_be_read() -> None:
+    """Блока с временем точки в кластере нет - «не разобрать», а не призрак."""
+    served, base = _served(Matroska(before=2))
+
+    assert key_frame(served, base + 1024, 1, AVC, tick=7) is None
+
+
+def test_a_cluster_longer_than_the_ceiling_is_not_read_past_it() -> None:
+    """Кластер толще потолка: читаем до потолка и честно молчим, а не тянем весь файл."""
+    film = Matroska(cues=[(0, 1024, 1)], before=2, fat=CLUSTER_BYTES // 2)
+    served, base = _served(film)
+
+    assert key_frame(served, base + 1024, 1, AVC, tick=0) is None
+    assert served.taken <= CLUSTER_BYTES

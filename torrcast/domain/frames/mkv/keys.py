@@ -86,7 +86,8 @@ def _ghost(cues: list[Cue], facts: Head, reader: Reader) -> str | None:
     Отличает призрака только содержимое кадра (:func:`key_frame`), причём именно того
     блока, который назвала точка (:attr:`~torrcast.domain.frames.mkv.cue.Cue.inside`):
     первый видеоблок кластера бывает чужим кадром, и тогда проверка судит не то, о чём
-    говорит точка. Куда ставить пробы, решает :func:`~torrcast.domain.frames.mkv.probes.
+    говорит точка; без места блок узнаётся по времени (:attr:`~torrcast.domain.frames.mkv.
+    cue.Cue.tick`). Куда ставить пробы, решает :func:`~torrcast.domain.frames.mkv.probes.
     probes` - это соседние пары в начале ленты и у самого индекса: пара ловит вруна
     счётом, а не удачей, а вторая пара ловит и того, кто честен только в голове, но не
     уводит пробу в хвост, который показу не нужен.
@@ -99,7 +100,7 @@ def _ghost(cues: list[Cue], facts: Head, reader: Reader) -> str | None:
     own = [cue for cue in cues if cue.point.track == facts.video]
     for cue in probes(own, facts.cues_at or 0):
         at, offset, _ = cue.point
-        if key_frame(reader, offset, facts.video, facts.codec, cue.inside) is False:
+        if key_frame(reader, offset, facts.video, facts.codec, cue.inside, tick=cue.tick) is False:
             return phrase("frames.mkv_cues_lie", at=f"{at:.3f}")
     return None
 
@@ -117,10 +118,11 @@ def _cues(body: bytes, facts: Head) -> list[Cue]:
     base = facts.segment or 0
     cues: list[Cue] = []
     for _, point_size, point in [e for e in walk(body, 0, len(body)) if e[0] == CUE_POINT]:
-        at = None
+        at, tick = None, 0
         for sub, sub_size, sub_data in walk(body, point, point + point_size):
             if sub == CUE_TIME:
-                at = uint(body, sub_data, sub_size) * facts.scale / 1e9
+                tick = uint(body, sub_data, sub_size)
+                at = tick * facts.scale / 1e9
             elif sub == CUE_TRACK_POSITIONS and at is not None:
                 offset, track, inside = 0, 0, 0
                 for deep, deep_size, deep_data in walk(body, sub_data, sub_data + sub_size):
@@ -130,5 +132,5 @@ def _cues(body: bytes, facts: Head) -> list[Cue]:
                         track = uint(body, deep_data, deep_size)
                     elif deep == CUE_RELATIVE_POSITION:
                         inside = uint(body, deep_data, deep_size)
-                cues.append(Cue(Point(at, base + offset, track), inside))
+                cues.append(Cue(Point(at, base + offset, track), inside, tick))
     return cues
