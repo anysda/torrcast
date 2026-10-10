@@ -11,6 +11,7 @@ import torrcast.usecases.playback._show_state as _show_state
 import torrcast.usecases.select._pick_state as _pick_state
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
+from torrcast.domain.content_flowed import content_flowed
 from torrcast.domain.entry import Entry
 from torrcast.domain.pick_settings import RECORDED_CONTACT, SWARM_GRACE
 from torrcast.domain.swarm_alive import swarm_alive
@@ -25,6 +26,8 @@ from torrcast.usecases.torrent_claims import CLAIMS
 
 #: Шаг опроса роя, пока ждём первый контакт.
 CONTACT_STEP = 0.5
+#: Шаг опроса, пока ждём содержимое: он лежит прямо на пути старта живой записи.
+BYTE_STEP = 0.1
 
 
 def _dead_release(config: Config, entry: Entry, own: _Voiced, clock: Clock | None = None) -> str:
@@ -34,8 +37,8 @@ def _dead_release(config: Config, entry: Entry, own: _Voiced, clock: Clock | Non
     :data:`~torrcast.domain.pick_settings.RECORDED_CONTACT` - роя нет; метаданные есть, а
     файла с записанным номером (:attr:`torrcast.domain._playing._Playing.file_idx`) в них
     нет - играть нечего; файлы есть, но за тот же срок от ``add`` ни с одним пиром не
-    поговорили (:func:`_heard`) - байта никто не отдаст; поговорили, а первый байт файла
-    так и не пришёл (:func:`_delivered`) - рой отвечает, но не отдаёт. Третий признак
+    поговорили (:func:`_heard`) - байта никто не отдаст; поговорили, а ни байта
+    содержимого так и не пришло (:func:`_delivered`) - рой отвечает, но не отдаёт. Третий признак
     нужен потому, что файлы служба знает и без роя: раздача легла в её базу при прошлом
     показе (``save_to_db``), и «метаданные приехали» у такой записи ничего не говорит о
     рое. Четвёртый - потому, что и контакт ничего не обещает: пир, который отвечает и
@@ -68,9 +71,9 @@ def _dead_release(config: Config, entry: Entry, own: _Voiced, clock: Clock | Non
 
     ⚠️ Раздача поднимается НАШИМ вызовом, поэтому хэш её сразу записывается хозяину
     (``own``): не сыграла - её уберёт он же (:meth:`_Voiced.drop`), сыграла - примет юнит.
-    Живая запись платит за проверку только ожиданием первого контакта и первого байта,
-    которые юниту всё равно нужны до кадра; чтение байта начинается вместе с ожиданием
-    контакта, внахлёст.
+    Живая запись платит за проверку ожиданием контакта и первых байт содержимого по счёту
+    службы, а не целого куска: показ с полки играет из своей головы, и куска начала файла
+    ему не нужно. Чтение потока (спрос на куски) начинается вместе с ожиданием контакта.
 
     Каждый из трёх исходов отмечается в следе с временем и причиной: «жива» и «спросить
     не удалось» снаружи неотличимы (обе возвращают пусто), и без отметки цену проверки
@@ -91,7 +94,7 @@ def _dead_release(config: Config, entry: Entry, own: _Voiced, clock: Clock | Non
                 arrived = _pick_state._select_first_byte(url)
                 spent = time.monotonic() - started
                 _heard(torrserver, torrent_hash, RECORDED_CONTACT - spent, clock)
-                _delivered(arrived, started)
+                _delivered(arrived, started, lambda: _flowed(torrserver, torrent_hash), clock)
     except SwarmError as refused:
         verdict, how, why = str(refused), "похоронена", str(refused)
     except TorrcastError as failed:
@@ -141,21 +144,44 @@ def _heard(
         )
 
 
-def _delivered(arrived: Callable[[float], bool | None], started: float) -> None:
-    """Дождаться первого байта записанного файла; не пришёл за срок - :class:`SwarmError`.
+def _delivered(
+    arrived: Callable[[float], bool | None],
+    started: float,
+    flowed: Callable[[], bool] = lambda: False,
+    clock: Clock | None = None,
+) -> None:
+    """Дождаться содержимого записанного файла; не пришло за срок - :class:`SwarmError`.
 
+    Содержимое пришло, когда служба насчитала полезные байты роя (``flowed``) или поток
+    отдал первый байт (``arrived``) - что раньше. Счётчик службы приходит на 1.3-2.7 с
+    раньше байта потока (замер TC-1420): поток ждёт целого проверенного куска.
     Срок - тот же :data:`RECORDED_CONTACT` от ``add``, но после контакта роя не меньше
     :data:`SWARM_GRACE`: пир, найденный на последней секунде, обязан успеть отдать байт.
     Отказ самой службы (``None``) приговора не даёт - это «спросить не удалось».
     """
-    now = time.monotonic()
-    budget = max(started + RECORDED_CONTACT, now + SWARM_GRACE) - now
-    said = arrived(budget)
-    if said is None:
-        raise TorrcastError(phrase("select.bytes_unasked"))
-    if not said:
-        waited = round(time.monotonic() - started)
-        raise SwarmError(phrase("select.no_bytes", seconds=waited), waited=waited)
+    watch = clock if clock is not None else _show_state.CLOCK
+    before = time.monotonic() - started
+    began = watch.monotonic()
+    end = began + max(RECORDED_CONTACT - before, SWARM_GRACE)
+    while True:
+        said = arrived(0.0)
+        if said is None:
+            raise TorrcastError(phrase("select.bytes_unasked"))
+        if said or flowed():
+            return
+        left = end - watch.monotonic()
+        if left <= 0:
+            break
+        watch.sleep(min(BYTE_STEP, left))
+    waited = round(before + watch.monotonic() - began)
+    raise SwarmError(phrase("select.no_bytes", seconds=waited), waited=waited)
+
+
+def _flowed(torrserver: TorrentEngine, torrent_hash: str) -> bool:
+    """Насчитала ли служба полезные байты роя (:func:`content_flowed`); не спросили - нет."""
+    with suppress(Exception):
+        return content_flowed(cast(Any, torrserver).status(torrent_hash))
+    return False
 
 
 def _swarm_said(torrserver: TorrentEngine, torrent_hash: str) -> tuple[bool, bool | None]:

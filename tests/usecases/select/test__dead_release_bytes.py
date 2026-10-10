@@ -45,9 +45,14 @@ class _Byte:
         return arrived
 
 
-def _world(monkeypatch: pytest.MonkeyPatch, said: bool | None, talks_at: float = 0.0) -> _Byte:
+def _world(
+    monkeypatch: pytest.MonkeyPatch,
+    said: bool | None,
+    talks_at: float = 0.0,
+    flows_at: float | None = None,
+) -> _Byte:
     clock = FakeClock()
-    composition.use_engines(monkeypatch, Swarm(talks_at=talks_at, clock=clock))
+    composition.use_engines(monkeypatch, Swarm(talks_at=talks_at, clock=clock, flows_at=flows_at))
     byte = _Byte(said, clock)
     composition.use_first_byte(monkeypatch, byte)
     return byte
@@ -103,29 +108,42 @@ def test_the_byte_is_asked_before_the_contact_and_not_after_it(
     assert byte.clock.now >= 20.0, "а приговор вынесен только после контакта"
 
 
-def test_the_byte_wait_ends_with_the_contact_limit() -> None:
-    """Контакт был ранним - байт ждут не дольше срока от ``add``."""
-    budgets: list[float] = []
+def test_content_counted_by_the_service_answers_before_the_stream_byte(
+    monkeypatch: pytest.MonkeyPatch, tape: Tape
+) -> None:
+    """🔴 TC-1420. Служба насчитала полезные байты роя - запись жива, байта потока не ждём.
 
-    def arrived(timeout: float) -> bool | None:
-        budgets.append(timeout)
-        return True
+    Поток отдаёт байт только целым проверенным куском: на стенде это 1.3-2.7 с поверх
+    счётчика службы, и каждая живая запись платила их на старте."""
+    byte = _world(monkeypatch, said=False, flows_at=1.5)
 
-    _delivered(arrived, time.monotonic())
+    assert _dead_release(Config(), entry(file_idx=0), _Voiced(), clock=byte.clock) == ""
+    (mark,) = tape.named("записанная раздача")
+    assert mark["исход"] == "жива"
+    assert byte.clock.now < 2.0, "ждали ровно до счётчика, а не до конца срока"
 
-    assert RECORDED_CONTACT - 1.0 < budgets[0] <= RECORDED_CONTACT
+
+def _never(_timeout: float) -> bool | None:
+    return False
 
 
-def test_a_late_contact_still_gets_the_grace_for_its_first_byte() -> None:
-    """Пир найден на последней секунде срока - байту дают отсрочку роя, а не остаток."""
-    budgets: list[float] = []
-
-    def arrived(timeout: float) -> bool | None:
-        budgets.append(timeout)
-        return False
+def test_the_content_wait_ends_with_the_contact_limit() -> None:
+    """Контакт был ранним - содержимое ждут не дольше срока от ``add``."""
+    clock = FakeClock()
 
     with pytest.raises(SwarmError) as refused:
-        _delivered(arrived, time.monotonic() - (RECORDED_CONTACT - 0.5))
+        _delivered(_never, time.monotonic(), clock=clock)
 
-    assert SWARM_GRACE - 0.5 < budgets[0] <= SWARM_GRACE
+    assert RECORDED_CONTACT - 1.0 < clock.now <= RECORDED_CONTACT
+    assert refused.value.waited == round(RECORDED_CONTACT)
+
+
+def test_a_late_contact_still_gets_the_grace_for_its_content() -> None:
+    """Пир найден на последней секунде срока - содержимому дают отсрочку роя, а не остаток."""
+    clock = FakeClock()
+
+    with pytest.raises(SwarmError) as refused:
+        _delivered(_never, time.monotonic() - (RECORDED_CONTACT - 0.5), clock=clock)
+
+    assert SWARM_GRACE - 0.5 < clock.now <= SWARM_GRACE
     assert refused.value.waited is not None and refused.value.waited >= RECORDED_CONTACT - 1

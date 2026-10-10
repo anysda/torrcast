@@ -21,6 +21,8 @@ class Swarm:
     ``talks_at`` - с какой секунды часов с роем поговорили; ``None`` - ни с кем и никогда,
     а служба при этом честно видит адреса из DHT (замеренный облик мёртвого роя,
     :func:`torrcast.domain.swarm_alive.swarm_alive`). ``quiet`` - служба про рой молчит вовсе.
+    ``flows_at`` - с какой секунды служба насчитала полезные байты содержимого; ``None`` -
+    не насчитала никогда (:func:`torrcast.domain.content_flowed.content_flowed`).
     """
 
     def __init__(
@@ -30,12 +32,14 @@ class Swarm:
         talks_at: float | None = 0.0,
         clock: FakeClock | None = None,
         quiet: bool = False,
+        flows_at: float | None = None,
     ) -> None:
         self.files = MOVIE if files is None else files
         self.needs = needs
         self.talks_at = talks_at
         self.clock = clock if clock is not None else FakeClock()
         self.quiet = quiet
+        self.flows_at = flows_at
         self.added: list[str] = []
         self.asked: list[float] = []
 
@@ -61,5 +65,7 @@ class Swarm:
         if self.quiet:
             return {}
         if self.talks_at is not None and self.clock.now >= self.talks_at:
-            return {"total_peers": 96, "active_peers": 1, "half_open_peers": 25}
+            flows = self.flows_at is not None and self.clock.now >= self.flows_at
+            useful = {"bytes_read_useful_data": 16384} if flows else {}
+            return {"total_peers": 96, "active_peers": 1, "half_open_peers": 25, **useful}
         return {"total_peers": 8, "half_open_peers": 8}
