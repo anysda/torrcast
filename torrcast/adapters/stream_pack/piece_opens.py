@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from torrcast.adapters.stream_pack.opens_clean import (
+    _DECODER,
     ENTRY_PACKETS,
     _decodes_quietly,
     _first_slice_idr,
@@ -17,6 +18,11 @@ from torrcast.domain.hls_wait import ENTRY_TIMEOUT
 
 #: Типы NAL AVC: 1 и 5 - срезы картинки, 7 - SPS, с которого декодер вообще может начать.
 _SLICES, _SPS = (1, 5), 7
+
+#: Слова жалобы на наборы параметров в строке ``[h264 @``: ``non-existing PPS 0 referenced``,
+#: ``no frame!``, жалобы на SPS. Одной метки ``[h264 @`` мало: ею же подписан отказ муксера
+#: ``h264 muxer supports only codec h264`` у любого куска не AVC (HEVC, VP9), код тот же 234.
+_NO_PARAMETERS = (b"pps", b"sps", b"no frame")
 
 
 def piece_opens(
@@ -38,7 +44,12 @@ def piece_opens(
     Кусок уже лежит на диске, поэтому сверка локальная: его поток ``-f h264`` режется от
     первого SPS (раньше него декодер не начнёт, и вкладка тоже) на :data:`ENTRY_PACKETS`
     картинок, и дальше решают те же две ступени: IDR - сразу ``True``, иначе молчание
-    декодера. Нет SPS, не AVC, не прочиталось, декодер не успел - ``None``.
+    декодера. Картинки без SPS - ``False``: войти вкладке не с чего. Так же ``False``,
+    если копия упала с жалобой декодера: кусок прогрева без SPS и PPS ffmpeg не выписывает
+    вовсе (``non-existing PPS``, код 234), и прежнее ``None`` оставляло на полке голову, с
+    которой показ не стартовал. Судят слова о параметрах (:data:`_NO_PARAMETERS`), а не
+    метка строки: отказ муксера на куске не AVC подписан тем же ``[h264 @``. Не AVC, не
+    прочиталось, декодер не успел - ``None``.
     """
     began = clock()
     command = [
@@ -50,12 +61,22 @@ def piece_opens(
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
-        return None
+        return False if _without_parameters(done.stderr) else None
     entry = _entry(done.stdout)
+    if not entry:
+        return False if done.stdout else None
     first = _first_slice_idr(entry)
     if first is not False:
         return first
     return _decodes_quietly(entry, timeout - (clock() - began), run)
+
+
+def _without_parameters(stderr: bytes) -> bool:
+    """Жалуется ли декодер AVC на отсутствующие SPS/PPS: строка ``[h264 @`` со словом о них."""
+    return any(
+        _DECODER in line and any(word in line.lower() for word in _NO_PARAMETERS)
+        for line in stderr.splitlines()
+    )
 
 
 def _entry(stream: bytes) -> bytes:

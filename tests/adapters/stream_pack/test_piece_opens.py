@@ -16,13 +16,13 @@ _IDR, _I, _P = b"\x00\x00\x01\x65\x88", b"\x00\x00\x01\x41\x9a", b"\x00\x00\x01\
 _MMCO = b"[h264 @ 0x5] mmco: unref short failure\n"
 
 
-def _answer(stdout: bytes, stderr: bytes = b"") -> Any:
-    """Подставной ``run``: копия куска отдаёт ``stdout``, декодер - ``stderr``; помнит входы."""
+def _answer(stdout: bytes, stderr: bytes = b"", code: int = 0) -> Any:
+    """Подставной ``run``: копия куска отдаёт ``stdout`` и ``code``, декодер - ``stderr``."""
     fed: list[bytes] = []
 
     def _run(command: list[str], **kwargs: Any) -> Any:
         fed.append(kwargs.get("input", b""))
-        return SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+        return SimpleNamespace(returncode=code, stdout=stdout, stderr=stderr)
 
     _run.fed = fed  # type: ignore[attr-defined]
     return _run
@@ -50,9 +50,35 @@ def test_the_decoder_hears_the_entry_pictures_and_no_dangling_delimiter() -> Non
     assert quiet.fed[1] == _SPS[1:] + _PPS + _I + picture * 15
 
 
-def test_a_piece_without_parameter_sets_is_not_a_verdict() -> None:
-    """Нет SPS или ffmpeg не ответил - ``None``, и показ берёт голову прежним путём."""
-    assert piece_opens(Path("v1.ts"), run=_answer(_I + _P, stderr=_MMCO)) is None
+def test_a_piece_without_parameter_sets_is_refused() -> None:
+    """Картинки без SPS вкладка не откроет: ``False``, и показ уходит в перекод.
+
+    Живой кусок прогрева без SPS и PPS ffmpeg даже не выписал: код 234 и ``non-existing
+    PPS`` в stderr. С прежним ``None`` голова оставалась на полке, и показ не стартовал.
+    """
+    assert piece_opens(Path("v1.ts"), run=_answer(_I + _P)) is False
+    broken = b"[h264 @ 0x5] non-existing PPS 0 referenced\n"
+    assert piece_opens(Path("v1.ts"), run=_answer(b"", stderr=broken, code=234)) is False
+
+
+def test_a_piece_that_is_not_avc_is_not_a_verdict() -> None:
+    """Отказ муксера у куска не AVC подписан тем же ``[h264 @``, но это не жалоба декодера.
+
+    Строка дословно с ffmpeg 8.0.1 на куске HEVC: ``False`` здесь значил бы сплошной
+    перекод всего показа, а docstring обещает ``None``.
+    """
+    muxer = (
+        b"[h264 @ 0x5] h264 muxer supports only codec h264 for type video\n"
+        b"[out#0/h264 @ 0x6] Could not write header (incorrect codec parameters ?): "
+        b"Invalid argument\n"
+    )
+    assert piece_opens(Path("v1.ts"), run=_answer(b"", stderr=muxer, code=234)) is None
+
+
+def test_an_unread_piece_is_not_a_verdict() -> None:
+    """ffmpeg не ответил или упал без жалобы декодера - ``None``, голова идёт прежним путём."""
+    assert piece_opens(Path("v1.ts"), run=_answer(b"", stderr=b"No such file\n", code=1)) is None
+    assert piece_opens(Path("v1.ts"), run=_answer(b"")) is None
 
     def _hang(*a: Any, **k: Any) -> Any:
         raise subprocess.TimeoutExpired("ffmpeg", 1.0)
@@ -112,3 +138,19 @@ def test_an_open_gop_piece_without_mmco_on_entry_keeps_the_shelf(tmp_path: Path)
 def test_a_piece_whose_pictures_point_before_its_entry_is_refused(tmp_path: Path) -> None:
     """Настоящим ffmpeg: MMCO на картинки до входа, как у v534 «Интерстеллара», - ``False``."""
     assert piece_opens(_piece(tmp_path, "ref=4:b-pyramid=normal")) is False
+
+
+@pytest.mark.ffmpeg
+@pytest.mark.parametrize(("name", "codec"), [("hevc.ts", "libx265"), ("vp9.webm", "libvpx-vp9")])
+def test_a_real_piece_in_another_codec_is_not_a_verdict(
+    tmp_path: Path, name: str, codec: str
+) -> None:
+    """Настоящим ffmpeg: кусок HEVC или VP9 вкладка этой сверкой не судит - ``None``."""
+    piece = tmp_path / name
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+         "-i", "testsrc2=size=320x240:rate=24", "-t", "2", "-c:v", codec, str(piece)],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    assert piece_opens(piece) is None
