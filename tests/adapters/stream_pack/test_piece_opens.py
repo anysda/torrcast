@@ -75,6 +75,12 @@ def test_a_piece_that_is_not_avc_is_not_a_verdict() -> None:
     assert piece_opens(Path("v1.ts"), run=_answer(b"", stderr=muxer, code=234)) is None
 
 
+def test_a_decoder_out_of_picture_buffers_is_not_a_verdict() -> None:
+    """``no frame buffer available`` - тот же ``[h264 @``, но про буфер, а не про SPS/PPS."""
+    full = b"[h264 @ 0x5] no frame buffer available\n"
+    assert piece_opens(Path("v1.ts"), run=_answer(b"", stderr=full, code=234)) is None
+
+
 def test_an_unread_piece_is_not_a_verdict() -> None:
     """ffmpeg не ответил или упал без жалобы декодера - ``None``, голова идёт прежним путём."""
     assert piece_opens(Path("v1.ts"), run=_answer(b"", stderr=b"No such file\n", code=1)) is None
@@ -154,3 +160,19 @@ def test_a_real_piece_in_another_codec_is_not_a_verdict(
         capture_output=True,
     )  # fmt: skip
     assert piece_opens(piece) is None
+
+
+@pytest.mark.ffmpeg
+def test_a_real_piece_cut_past_its_parameter_sets_is_refused(tmp_path: Path) -> None:
+    """Настоящим ffmpeg: кусок отрезан за SPS/PPS единственного IDR - код 234, ``False``."""
+    film, piece = tmp_path / "film.ts", tmp_path / "v1.ts"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+         "-i", "testsrc2=size=320x240:rate=24", "-t", "2", "-c:v", "libx264", "-g", "100",
+         "-bf", "0", str(film)],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    packets = film.read_bytes()
+    piece.write_bytes(packets[len(packets) // 188 // 2 * 188 :])
+    assert piece_opens(piece) is False

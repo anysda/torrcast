@@ -22,7 +22,9 @@ _SLICES, _SPS = (1, 5), 7
 #: Слова жалобы на наборы параметров в строке ``[h264 @``: ``non-existing PPS 0 referenced``,
 #: ``no frame!``, жалобы на SPS. Одной метки ``[h264 @`` мало: ею же подписан отказ муксера
 #: ``h264 muxer supports only codec h264`` у любого куска не AVC (HEVC, VP9), код тот же 234.
-_NO_PARAMETERS = (b"pps", b"sps", b"no frame")
+#: ``no frame!`` - с восклицательным знаком: ``no frame buffer available`` того же декодера
+#: говорит о занятом буфере картинок, а не о параметрах.
+_NO_PARAMETERS = (b"pps", b"sps", b"no frame!")
 
 
 def piece_opens(
