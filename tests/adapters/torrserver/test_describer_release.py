@@ -73,9 +73,13 @@ def test_a_hung_reader_is_stopped_at_the_deadline_before_removing() -> None:
         polls += 1
         return polls >= 3
 
+    def remove() -> bool:
+        removed.append(clock.monotonic())
+        return True
+
     with READS.opened(URL, _Answer) as answer:
         assert answer is not None
-        assert describer.close(KEY, lambda: removed.append(clock.monotonic()) or True, idle)
+        assert describer.close(KEY, remove, idle)
         for thread in threading.enumerate():
             if thread.name == f"settle-{KEY}":
                 thread.join(5)
