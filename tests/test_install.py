@@ -4,6 +4,7 @@
 добавление индексеров не уходит в фон, а отказ Prowlarr остаётся виден.
 """
 
+import fcntl
 import ipaddress
 import json
 import os
@@ -107,6 +108,48 @@ def test_jacred_is_a_regular_local_indexer() -> None:
     assert "torrcast-jacred-refresh.timer" in SCRIPT
     assert "api.jacred.su" not in SCRIPT
     assert (REPO / "scripts" / "jacred.yml").is_file()
+
+
+@pytest.mark.machine
+def test_a_busy_jacred_refresh_does_not_stop_the_russian_installer(tmp_path: Path) -> None:
+    """The initial refresh may meet its timer, but installation remains successful and Russian."""
+    prefix = tmp_path / "prefix"
+    state = tmp_path / "state"
+    target = state / "jacred" / "index.sqlite"
+    target.parent.mkdir(parents=True)
+    lock = target.with_suffix(target.suffix + ".refresh.lock")
+    body = SCRIPT.split("install_prowlarr() {\n", 1)[1].split(
+        '    if ! cmp -s "$REPO_DIR/scripts/jacred-indexer.py"', 1
+    )[0]
+    command = "\n".join(
+        [
+            "set -eu",
+            f"REPO_DIR={shlex.quote(str(REPO))}",
+            f"PREFIX={shlex.quote(str(prefix))}",
+            f"STATE_DIR={shlex.quote(str(state))}",
+            f"PYTHON={shlex.quote(sys.executable)}",
+            "PL_URL=http://example.invalid",
+            "LANGUAGE=ru",
+            "log() { :; }",
+            "info() { :; }",
+            "pick_python() { :; }",
+            "install_prowlarr_binary() { :; }",
+            "stop_service() { :; }",
+            "run_service() { :; }",
+            "wait_http() { :; }",
+            "install_prowlarr() {",
+            body,
+            "}",
+            "install_prowlarr",
+        ]
+    )
+
+    with lock.open("a+") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        done = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "обновление уже запущено\n" in done.stdout
 
 
 def test_jacred_refresh_yields_cpu_io_and_page_cache_to_playback() -> None:

@@ -11,7 +11,7 @@ import urllib.error
 from collections.abc import Callable
 from email.message import Message
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, get_type_hints
 from urllib.request import Request
 
 import pytest
@@ -22,6 +22,11 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 updater = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(updater)
+
+
+def test_the_dynamic_builder_keeps_its_checked_build_contract() -> None:
+    assert get_type_hints(updater._builder)["return"] is updater.Builder
+    assert get_type_hints(updater.Builder.build)["return"] == tuple[int, float]
 
 
 def test_an_unchanged_archive_keeps_the_live_index(
@@ -41,6 +46,73 @@ def test_an_unchanged_archive_keeps_the_live_index(
     assert updater.refresh(target) is None
     assert asked == ['"old"']
     assert target.read_bytes() == b"published"
+
+
+@pytest.mark.parametrize("published", [None, b""])
+def test_a_missing_or_empty_index_forces_an_unconditional_catalogue_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, published: bytes | None
+) -> None:
+    """An ETag alone cannot stand in for a catalogue the local adapter can read."""
+    target = tmp_path / "index.sqlite"
+    if published is not None:
+        target.write_bytes(published)
+    updater._etag_file(target).write_text('"old"\n')
+    asked: list[str | None] = []
+
+    class Archive(io.BytesIO):
+        headers = Message()
+
+        def __enter__(self) -> "Archive":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class Builder:
+        def build(
+            self, _source: Path, _target: Path, _wait_for_idle: Callable[[], None] | None = None
+        ) -> tuple[int, float]:
+            return 1, 0.0
+
+    class Brake:
+        def wait(self) -> None:
+            return None
+
+    def download(request: Request, timeout: float) -> Archive:
+        assert timeout == 1800
+        asked.append(request.get_header("If-none-match"))
+        return Archive(b"archive")
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", download)
+    monkeypatch.setattr(updater, "PlaybackBrake", Brake)
+    monkeypatch.setattr(updater, "_unpack", lambda *_args: None)
+    monkeypatch.setattr(updater, "_builder", lambda: Builder())
+
+    assert updater.refresh(target) == (1, 0.0)
+    assert asked == [None]
+
+
+def test_download_uses_its_small_retry_ceiling_and_reraises_the_last_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts = 0
+
+    def broken(*_args: object, **_kwargs: object) -> NoReturn:
+        nonlocal attempts
+        attempts += 1
+        raise OSError("connection lost")
+
+    class Brake:
+        def wait(self) -> None:
+            return None
+
+    assert updater.DOWNLOAD_TRIES == 3
+    monkeypatch.setattr(updater.urllib.request, "urlopen", broken)
+
+    with pytest.raises(OSError, match="connection lost"):
+        updater._download(Request("https://example.invalid"), tmp_path / "latest.tar.zst", Brake())
+
+    assert attempts == updater.DOWNLOAD_TRIES
 
 
 def test_a_new_refresh_discards_work_left_by_an_interrupted_one(

@@ -2933,7 +2933,7 @@ install_prowlarr() {
     # refresh builds beside this file and publishes only its completed replacement.
     if [ ! -s "$jacred_index" ]; then
         log "building the local JacRed catalogue" "собираю локальный каталог JacRed"
-        "$PYTHON" "$PREFIX/jacred-update.py" "$jacred_index" \
+        TORRCAST_LANGUAGE="$LANGUAGE" "$PYTHON" "$PREFIX/jacred-update.py" "$jacred_index" \
             || die "could not build the local JacRed catalogue" "не собрался локальный каталог JacRed"
     fi
     if ! cmp -s "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"; then

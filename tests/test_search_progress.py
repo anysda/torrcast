@@ -78,7 +78,6 @@ def _blocking_search(
     client: _PreviewClient,
     gate: threading.Event,
     whole: bool = True,
-    completed: threading.Event | None = None,
 ) -> Any:
     """Круг поиска, который отдаёт клиента сразу и не возвращается, пока не отпустят.
 
@@ -88,21 +87,17 @@ def _blocking_search(
         on_indexer(client)
         gate.wait(2.0)
         try:
-            try:
-                return search_circle(
-                    config,
-                    args,
-                    said,
-                    profile,
-                    indexer=lambda *_a, **_k: client,
-                    passport=lambda *_a, **_k: Origin(),
-                )
-            except NothingFoundError as nothing:
-                nothing.whole = whole
-                raise
-        finally:
-            if completed is not None:
-                completed.set()
+            return search_circle(
+                config,
+                args,
+                said,
+                profile,
+                indexer=lambda *_a, **_k: client,
+                passport=lambda *_a, **_k: Origin(),
+            )
+        except NothingFoundError as nothing:
+            nothing.whole = whole
+            raise
 
     return search
 
@@ -476,16 +471,16 @@ def test_nothing_found_is_an_empty_final_not_a_refusal() -> None:
     wire_catalogue()
     gate = threading.Event()
     client = _PreviewClient(answers={}, raw=[])
-    completed = threading.Event()
-    search = _blocking_search(client, gate, completed=completed)
+    search = _blocking_search(client, gate)
 
     results, partial = _poll("нетакого", search)
     assert (results, partial) == ([], True), "the job is not done yet: an empty step"
 
-    gate.set()
-    assert completed.wait(1.0), "the search worker did not finish after its gate opened"
-    worker = module._jobs["нетакого"].worker
-    assert worker is not None
+    worker = next(thread for thread in threading.enumerate() if thread.name == "search-progress")
+    try:
+        assert not hasattr(module._jobs["нетакого"], "worker")
+    finally:
+        gate.set()
     worker.join(timeout=1.0)
     assert not worker.is_alive(), "the job did not settle after its search returned"
     results, partial = _poll("нетакого", search)

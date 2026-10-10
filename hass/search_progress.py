@@ -145,7 +145,7 @@ def search_progress(
         if job is None or stale:
             job = SearchJob(catalog=None if catalog is None else catalog(query))
             _jobs[key] = job
-            job.worker = worker = threading.Thread(
+            worker = threading.Thread(
                 target=job.run,
                 args=(config, query, detect, remember, search, offer, warm),
                 daemon=True,

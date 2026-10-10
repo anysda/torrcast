@@ -22,7 +22,7 @@ import urllib.request
 from collections.abc import Callable
 from fcntl import LOCK_EX, LOCK_NB, flock
 from pathlib import Path
-from typing import Any, BinaryIO, Literal, cast
+from typing import BinaryIO, Literal, Protocol, runtime_checkable
 
 ARCHIVE = "https://jacred.su/database/latest.tar.zst"
 BUILDER = Path(__file__).with_name("jacred-index.py")
@@ -33,6 +33,15 @@ DOWNLOAD_TRIES = 3
 
 
 BUSY: Literal["busy"] = "busy"
+
+
+@runtime_checkable
+class Builder(Protocol):
+    """The part of the dynamically loaded index builder the updater uses."""
+
+    def build(
+        self, source: Path, target: Path, wait_for_idle: Callable[[], None] | None = None
+    ) -> tuple[int, float]: ...
 
 
 def _state() -> str:
@@ -79,11 +88,12 @@ class PlaybackBrake:
             self._sleep(PAUSE_POLL)
 
 
-def _builder() -> Any:
+def _builder() -> Builder:
     spec = importlib.util.spec_from_file_location("jacred_index", BUILDER)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    assert isinstance(module, Builder)
     return module
 
 
@@ -162,7 +172,12 @@ def refresh(target: Path) -> tuple[int, float] | Literal["busy"] | None:
         _discard_abandoned_refreshes(target)
         etag_file = _etag_file(target)
         brake = PlaybackBrake()
-        headers = {"If-None-Match": etag_file.read_text().strip()} if etag_file.is_file() else {}
+        has_index = target.is_file() and target.stat().st_size > 0
+        headers = (
+            {"If-None-Match": etag_file.read_text().strip()}
+            if has_index and etag_file.is_file()
+            else {}
+        )
         request = urllib.request.Request(ARCHIVE, headers=headers)
         with tempfile.TemporaryDirectory(dir=target.parent, prefix="refresh-") as temporary:
             work = Path(temporary)
@@ -181,7 +196,7 @@ def refresh(target: Path) -> tuple[int, float] | Literal["busy"] | None:
                 etag_file.write_text(etag + "\n")
             else:
                 etag_file.unlink(missing_ok=True)
-            return cast(tuple[int, float], result)
+            return result
 
 
 if __name__ == "__main__":
@@ -189,7 +204,11 @@ if __name__ == "__main__":
         raise SystemExit("usage: jacred-update.py INDEX.sqlite")
     result = refresh(Path(sys.argv[1]))
     if result == BUSY:
-        print("refresh already running")
+        print(
+            "обновление уже запущено"
+            if os.environ.get("TORRCAST_LANGUAGE") == "ru"
+            else "refresh already running"
+        )
     elif result is None:
         print("catalogue unchanged")
     else:
