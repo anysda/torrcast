@@ -2,7 +2,8 @@
 
 Мера про две вещи, и обе стоили проекту суток. Первая - ПРАВДА карты: время из ``Cues``
 считается масштабом файла, а смещение обязано быть абсолютным, потому что рой знает только
-байты от начала файла. Вторая - ЦЕНА: заходов к рою ровно два, и оба минимальные.
+байты от начала файла. Вторая - ЦЕНА: заходов к рою ровно два, и пробы у индекса ничего
+к ним не добавляют.
 """
 
 from __future__ import annotations
@@ -114,7 +115,25 @@ def test_an_honest_index_passes_the_frame_check() -> None:
         (4.0, base + 3072, 1),
         (6.0, base + 4096, 1),
     ]
-    assert reader.requests == 6, "голова, один заход за Cues и две соседние пары проб"
+    assert reader.requests == 2, "голова и окно у индекса: файл меньше окна, пробы из памяти"
+
+
+def test_the_probes_near_the_index_answer_from_the_window_not_the_swarm() -> None:
+    """🔴 Пара проб у индекса не стоит ни одного захода к рою: её кластеры пришли с Cues.
+
+    Замер холодных показов 10-10: три-четыре захода за пробами у индекса шли друг за
+    другом по 1-1.5 с и добавляли к старту около 4 с. Здесь кластеры пары лежат в 6 МБ
+    от головы, у самого индекса: в рой ходят голова, окно у индекса и пара в голове ленты.
+    """
+    far = 6 << 20
+    cues = [(0, 1024, 1), (2000, 2048, 1), (4000, far, 1), (6000, far + 4096, 1)]
+    data, base = Matroska(cues=cues, cues_last=True).bytes()
+    reader = Served(data)
+    found = keys(reader, reader.read(0, HEAD))
+
+    assert [p.offset for p in found.points][2:] == [base + far, base + far + 4096]
+    assert reader.requests == 4, "голова, окно у индекса и две пробы в голове ленты"
+    assert all(at < far for at, _ in reader.asked[2:]), "у индекса - ни одного своего захода"
 
 
 def test_an_honest_index_survives_a_cluster_with_several_video_frames() -> None:

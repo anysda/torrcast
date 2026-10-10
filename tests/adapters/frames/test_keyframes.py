@@ -24,6 +24,7 @@ from torrcast.adapters.frames.keyframes import HEAD_PEEK, keyframes
 from torrcast.domain.frames.keymap.video_track import video_track
 from torrcast.domain.frames.mkv.ids import CUES_CHUNK, HEAD_BYTES
 from torrcast.domain.frames.mkv.key_frame import BLOCK_BYTES
+from torrcast.domain.frames.mkv.window import BEFORE
 from torrcast.domain.frames.range_reader import RangeReader
 from torrcast.domain.infra_error import InfraError
 
@@ -106,18 +107,19 @@ def test_the_unnamed_source_is_the_real_http_reader() -> None:
 
 
 def test_mkv_small_head_one_cues_read_and_two_pairs_of_probes(served: _Served, clip: str) -> None:
-    """Карта mkv: маленькая голова, один заход за Cues и две пары проб честности индекса.
+    """Карта mkv: маленькая голова, окно у индекса и две пары проб честности индекса.
 
     Пробы появились с TC-639: встречаются индексы-вруны (точка Cues на каждый кластер при
-    редких настоящих опорных кадрах), и отличает их только содержимое кадра - отсюда по
-    запросу на пробу, раз на файл, дальше карта лежит в кэше. Проб четыре, две соседние
-    пары: в начале ленты и в конце, перед индексом, - иначе файл, честный только в
-    голове, проходил бы целиком. Больше не берём: десять секунд старта столько лишних
-    запросов не держат.
+    редких настоящих опорных кадрах), и отличает их только содержимое кадра. Проб четыре,
+    две соседние пары: в начале ленты и в конце, перед индексом, - иначе файл, честный
+    только в голове, проходил бы целиком. Пара у индекса читается тем же заходом, что и
+    сам индекс (:class:`~torrcast.domain.frames.mkv.window.Window`): по отдельности её
+    заходы стоили холодному старту около 4 с. В рой идут только пробы в голове ленты.
     """
     found = keyframes(clip, source=served)
-    assert [size for _, size in served[clip]] == [HEAD_PEEK, CUES_CHUNK] + [BLOCK_BYTES] * 4
-    assert found.requests == 6
+    sizes = [size for _, size in served[clip]]
+    assert sizes == [HEAD_PEEK, BEFORE + CUES_CHUNK] + [BLOCK_BYTES] * 2
+    assert found.requests == 4
     assert found.duration > 0
     assert found.points
     assert video_track(found.points) in {p.track for p in found.points}

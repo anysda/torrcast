@@ -28,6 +28,7 @@ from torrcast.domain.frames.mkv.key_frame import key_frame
 from torrcast.domain.frames.mkv.probes import probes
 from torrcast.domain.frames.mkv.uint import uint
 from torrcast.domain.frames.mkv.walk import walk
+from torrcast.domain.frames.mkv.window import Window
 from torrcast.domain.frames.range_reader import RangeReader as Reader
 from torrcast.domain.ghost_keys_error import GhostKeysError
 from torrcast.domain.infra_error import InfraError
@@ -37,10 +38,11 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     """Карта опорных кадров mkv. ``head`` — уже прочитанные :data:`HEAD_PEEK` байт.
 
     Заходов к рою минимум два (:data:`~torrcast.adapters.frames.keyframes.HEAD_PEEK` и
-    :data:`CUES_CHUNK`), и оба — минимально возможного размера: у холодной раздачи цена
-    карты — это не байты, а сколько раз мы заставили рой отдать новое место и сколько ждали
-    перед следующим запросом. Сверх них - пробы честности индекса (:func:`_ghost`):
-    бывают индексы-вруны, и отличает их от честных только содержимое кадра.
+    окно у индекса, :class:`~torrcast.domain.frames.mkv.window.Window`): у холодной раздачи
+    цена карты — это не байты, а сколько раз мы заставили рой отдать новое место и сколько
+    ждали перед следующим запросом. Сверх них - пробы честности индекса (:func:`_ghost`):
+    бывают индексы-вруны, и отличает их от честных только содержимое кадра. Пара проб у
+    индекса отвечает из окна, пара в голове ленты - из байтов, нужных показу и так.
     """
     facts = Head(head)
     if facts.cues_at is None or facts.duration <= 0:  # маленького куска не хватило
@@ -50,7 +52,8 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     if facts.cues_at is None:
         raise InfraError(phrase("frames.mkv_no_cues"))
 
-    chunk = reader.read(facts.cues_at, CUES_CHUNK)
+    near = Window(reader, facts.cues_at, CUES_CHUNK)
+    chunk = near.tail(facts.cues_at)
     found = walk(chunk, 0, min(32, len(chunk)))
     if not found:
         raise InfraError(phrase("frames.mkv_seekhead_not_ebml"))
@@ -66,7 +69,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
         raise InfraError(phrase("frames.mkv_cues_empty"))
     # Пробы честности читают файл, поэтому цена карты считается ПОСЛЕ них: иначе паспорт
     # прогона занизил бы и байты, и число заходов к рою на всю их стоимость.
-    drawn = _ghost(cues, facts, reader)
+    drawn = _ghost(cues, facts, near)
     duration = facts.duration * facts.scale / 1e9
     points = tuple(sorted(cue.point for cue in cues))
     taken = KeyMap(duration, points, reader.taken, reader.requests, "mkv", facts.video)
