@@ -97,3 +97,14 @@ def test_a_typo_is_not_guessed_in_short_words_or_beside_digits() -> None:
     )
     assert index.look("Оно 3") == []
     assert index.look("ывапрол") == []
+
+
+def test_a_named_year_keeps_only_the_pictures_of_that_year() -> None:
+    """🔴 «Gravity 2026» - картина 2026 года, которой карта не знает: плиток каталога нет.
+
+    Плитки каталога стоят в выдаче первыми, и «Animals 2026» открывал первой плиткой
+    сериал «Звери.» 2016 года: год плитки судит то же правило, что и узнавание картины.
+    """
+    assert [one[4] for one in _index().look("Gravity 2026")] == []
+    assert [one[4] for one in _index().look("Gravity 2011")] == ["Гравити Фолз"]
+    assert [one[0] for one in _index().look("Гравитация 2013")] == ["tt1454468"]

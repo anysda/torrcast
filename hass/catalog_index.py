@@ -16,6 +16,8 @@ from typing import Final
 
 from torrcast.domain.asked_year import asked_year
 from torrcast.domain.facts.imdb_rows import _RuName
+from torrcast.domain.facts.map_in_year import map_in_year
+from torrcast.domain.facts.map_pictures import map_pictures
 from torrcast.domain.slugify import slugify
 
 #: Какие записи выгрузки строка поиска показывает: эпизоды, короткий метр и игры - шум.
@@ -79,7 +81,7 @@ class CatalogIndex:
             keys, rows = self._keys, self._rows
         slug = slugify(query)
         name, year = asked_year(query)
-        if year is not None and not _starting(keys, slug):
+        if narrowed := year is not None and not _starting(keys, slug):
             # «Интерстелар 2014»: the year narrows the picture, it is not part of a name.
             slug = slugify(name)
         votes = self.votes()
@@ -92,6 +94,9 @@ class CatalogIndex:
                 if any(_one_edit(slug, key[:size]) for size in range(len(slug) - 1, len(slug) + 2)):
                     found.update((row[0], (False, row)) for row in rows[key] if row[1] in SHOWN)
             kept = _kept(found, votes)
+        if narrowed and year is not None:
+            # The recognizer's own year rule: «Animals 2026» is no tile of the 2016 series.
+            kept = [pair for pair in kept if map_in_year(map_pictures([pair[1]], votes)[0], year)]
         return [row for _, row in kept[:LIMIT]]
 
     def _found(
