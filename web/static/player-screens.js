@@ -113,7 +113,9 @@ const TCPlayerScreens = {
     when.textContent = left > 0 ? TC.say('web.player.preparing_in', { seconds: left }) : '';
     // Служба раздач повисла и поднята заново (TC-1199): этот подъём ждал её, и до кадра
     // строка говорит это, а не источник.
+    // Записанная раздача похоронена (TC-1420): строка - продуктовая, та же, что в консоли.
     note.textContent = start && start.restarted ? TC.say('web.player.restarted')
+      : start && start.buried ? start.buried
       : start && start.source
         ? TC.say('web.player.packaging', { n: start.source, m: start.sources || start.source })
         : '';

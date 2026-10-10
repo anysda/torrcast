@@ -84,3 +84,8 @@ def test_the_waiting_phase_reaches_the_screen_before_the_next_slow_poll(
 
 def test_the_tab_says_the_torrent_service_was_restarted(facts: dict[str, Any]) -> None:
     assert facts["restart"] == {"during": "web.player.restarted", "after": "web.player.packaging"}
+
+
+def test_the_tab_says_why_a_recording_was_left_for_another(facts: dict[str, Any]) -> None:
+    """🔴 TC-1420. Вкладка говорит то же, что консоль: запись не играется, ищу другую."""
+    assert facts["buried"] == "«Кино» - записанная раздача не играется; ищу другую"

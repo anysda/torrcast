@@ -47,6 +47,7 @@ def test_first_lift_says_how_long_we_wait_and_keeps_silent_about_the_term() -> N
         "here": False,
         "packed": False,
         "restarted": False,
+        "buried": None,
     }
 
 
@@ -63,6 +64,24 @@ def test_a_restarted_torrent_service_is_told_until_this_start_ends() -> None:
 
     assert later is not None and later["restarted"] is True
     assert next_start is not None and next_start["restarted"] is False
+
+
+def test_a_buried_recording_is_told_until_this_start_ends() -> None:
+    """🔴 TC-1420. Строка похорон живёт до конца ЭТОГО подъёма, следующий её не слышит."""
+    progress = StartProgress(Ticker())
+    progress.began()
+
+    progress.buried("«Кино» - записанная раздача не играется: ...; ищу другую")
+    progress.source(1, 3)
+    during = progress.seen()
+    progress.gone()
+    progress.began()
+    next_start = progress.seen()
+
+    assert during is not None and during["buried"] == (
+        "«Кино» - записанная раздача не играется: ...; ищу другую"
+    )
+    assert next_start is not None and next_start["buried"] is None
 
 
 def test_a_restart_between_starts_is_not_told_to_the_next_start() -> None:

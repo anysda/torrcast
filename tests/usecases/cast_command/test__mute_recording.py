@@ -17,6 +17,7 @@ from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.usecases.cast_command._cmd_play import _cmd_play
 from torrcast.usecases.select._continue import _continue
+from torrcast.usecases.start_progress import START
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +71,12 @@ def test_a_recording_whose_swarm_gives_no_byte_takes_the_trip_to_search(
         trips.append(args)
         return EXIT_OK
 
-    assert _cmd_play(Args(query=["кино"]), resume=resume, choose=choose) == EXIT_OK
+    START.began()
+    try:
+        assert _cmd_play(Args(query=["кино"]), resume=resume, choose=choose) == EXIT_OK
+        told = START.seen()
+    finally:
+        START.gone()
 
     assert resumed == [], "мёртвая запись не играет"
     assert len(trips) == 1, "показ ушёл в отбор ровно один раз"
@@ -79,3 +85,4 @@ def test_a_recording_whose_swarm_gives_no_byte_takes_the_trip_to_search(
     assert len(lines) == 1, lines
     assert "записанная раздача не играется: за " in lines[0]
     assert "не отдала ни байта; ищу другую" in lines[0]
+    assert told is not None and told["buried"] == lines[0], "вкладка слышит ту же строку"

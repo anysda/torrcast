@@ -15,6 +15,7 @@ from torrcast.usecases.select._about import _about
 from torrcast.usecases.select._dead_release import _dead_release
 from torrcast.usecases.select._voiced import _Voiced, _voiced
 from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.start_progress import START
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -127,5 +128,7 @@ def _buried(
     args.bury(entry.magnet)
     named = f" {entry.label}" if entry.label else ""
     place = phrase("select.buried_place", pos=_hms(entry.pos)) if entry.pos > 0 else ""
-    print(phrase("select.buried_note", title=entry.spoken, named=named, why=why, place=place))
+    note = phrase("select.buried_note", title=entry.spoken, named=named, why=why, place=place)
+    print(note)
+    START.buried(note)  # и вкладке, что ждёт кадра: консоли у неё нет
     return True

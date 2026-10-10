@@ -49,6 +49,7 @@ class StartProgress:
         self._here = False
         self._packed = False
         self._restarted = False
+        self._buried = ""
         self._measured: list[float] = []
 
     def began(self, here: bool = False) -> None:
@@ -59,6 +60,7 @@ class StartProgress:
             self._here = here
             self._packed = False
             self._restarted = False
+            self._buried = ""
 
     def packed(self) -> None:
         """Упаковка дала первый сегмент: теперь приёмник уже ждёт картинку."""
@@ -80,6 +82,16 @@ class StartProgress:
         """
         with self._lock:
             self._restarted = True
+
+    def buried(self, note: str) -> None:
+        """Записанная раздача не играется, и показ ушёл в отбор (TC-1420): строка - экрану.
+
+        Отбор после похорон идёт десятки секунд, и вкладка без этой строки показывала бы
+        голое «Preparing…» там, где консоль уже сказала, почему ждать дольше обычного.
+        Держится до конца подъёма, как и перезапуск службы.
+        """
+        with self._lock:
+            self._buried = note
 
     def landed(self) -> None:
         """Картинка дошла до экрана: подъём замерен, ожидание кончилось.
@@ -117,6 +129,7 @@ class StartProgress:
             here = self._here
             packed = self._packed
             restarted = self._restarted
+            buried = self._buried
             known = len(self._measured) >= ENOUGH
             left = (median(self._measured) - waited) if known else 0.0
         return {
@@ -127,6 +140,7 @@ class StartProgress:
             "here": here,
             "packed": packed,
             "restarted": restarted,
+            "buried": buried or None,
         }
 
 

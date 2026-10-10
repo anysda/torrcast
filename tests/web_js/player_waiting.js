@@ -108,6 +108,17 @@ async function restart() {
   return { during, after: note() };
 }
 
+// Записанная раздача похоронена (TC-1420): строка продукта стоит под заголовком, пока
+// идёт отбор, и первее номера источника.
+async function buried() {
+  const line = '«Кино» - записанная раздача не играется; ищу другую';
+  const start = { waited: 31, here: true, packed: false, source: 1, sources: 3, buried: line };
+  const p = player({ box: () => null, state: () => ({ state: 'starting', has_next: null, start }) });
+  p.mount();
+  await p.time.run(2500);
+  return p.overlay().querySelector('.tc-preparing-note').textContent;
+}
+
 async function main() {
   const facts = {
     here: await lift(true, 'frame'),
@@ -118,6 +129,7 @@ async function main() {
     plaque: await plaque(),
     pace: await pace(),
     restart: await restart(),
+    buried: await buried(),
   };
   process.stdout.write(JSON.stringify(facts) + '\n');
   process.exit(0);
