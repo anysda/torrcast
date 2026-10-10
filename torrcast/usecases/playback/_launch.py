@@ -63,9 +63,9 @@ def _launch(
 
     🔴 Отказ человека спрашивается на двух поворотах подъёма, и что он значит, названо
     в :mod:`torrcast.usecases.playback.refuse_called_off`: до юнита - здесь, а при уже
-    живом юните - в ожидании картинки (:func:`_await_playing`). ``here`` - приёмник ЭТОГО
-    запуска - страница, а не ``config.tv``: юнит берёт это ключом командной строки,
-    как и ``tab`` - ключ вкладки, по которому юнит выбирает ей пороги."""
+    живом юните - в ожидании картинки (:func:`_await_playing`). ``here`` и ``tab`` (ключ
+    вкладки для порогов) юнит берёт ключами командной строки. Место показа называет
+    ``config.receiver``, а не ``here``: машина-вкладка играет в браузер и без него."""
     if dry:
         print(phrase("playback.dry_run_no_cast", about=about))
         return EXIT_OK
@@ -102,8 +102,8 @@ def _launch(
         _state.start_play_unit(key, here, tab)
         journal().mark("юнит")
         with progress_bar() as progress:
-            _await_playing(config, progress, start=entry.pos, owner=owner, here=here)
-    where = playing_where(here)
+            _await_playing(config, progress, start=entry.pos, owner=owner)
+    where = playing_where(config.receiver == "browser")
     print(phrase("playback.now_playing", about=about, secs=f"{clock.total:.0f}", where=where))
     return EXIT_OK
 
@@ -116,7 +116,6 @@ def _await_playing(
     unit: ShowUnit | None = None,
     start: float = 0.0,
     owner: LaunchOwner | None = None,
-    here: bool = False,
 ) -> None:
     """Дождаться **картинки на экране**, а не «упаковка пошла».
 
@@ -178,7 +177,8 @@ def _await_playing(
             if packed:
                 journal().mark("первый сегмент")
                 START.packed()
-        waiting = "playback.waiting_player" if here else "playback.waiting_tv"
+        player = config.receiver == "browser"  # вкладка подхватит и без ``here`` (web.box)
+        waiting = "playback.waiting_player" if player else "playback.waiting_tv"
         progress.phase(phrase(waiting) if packed else phrase("playback.packing"))
         if not unit.active():
             yield_to_other(owner, progress)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -219,3 +220,27 @@ def test_a_uniform_grid_without_a_map_stays_on_the_flat_profile(
     assert made is not None
     assert not made.targets
     assert _prefix("recoder.no_profile") in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("receiver", "weight", "other"),
+    [
+        ("chromecast", "recoder.tv_weight", "recoder.browser_weight"),
+        ("browser", "recoder.browser_weight", "recoder.tv_weight"),
+    ],
+)
+def test_the_weight_names_the_receiver_of_the_launch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    receiver: Literal["chromecast", "browser"],
+    weight: str,
+    other: str,
+) -> None:
+    """Куда уедет поток: телевизору - «на ТВ», вкладке - «в браузер», и никогда наоборот."""
+    config = Config(recode=True, receiver=receiver)
+
+    _recoder("http://ts", 0, grid(), tmp_path, config, video_mbit=8.0)
+
+    said = capsys.readouterr().out
+    assert _prefix(weight) in said
+    assert _prefix(other) not in said

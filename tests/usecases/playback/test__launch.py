@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import pytest
 
@@ -168,25 +168,24 @@ def test_the_budget_of_the_start_is_not_endless(
 
 
 @pytest.mark.parametrize(
-    ("here", "waiting"),
-    [(False, "waiting for the TV"), (True, "waiting for the player")],
+    ("receiver", "waiting"),
+    [("chromecast", "waiting for the TV"), ("browser", "waiting for the player")],
 )
 def test_the_waiting_phase_names_its_receiver(
-    tmp_path: Path, here: bool, waiting: str, _english: None
+    tmp_path: Path, receiver: Literal["chromecast", "browser"], waiting: str, _english: None
 ) -> None:
-    """После первого сегмента ожидание называет ТВ или вкладку, а не общий «packing»."""
+    """После первого сегмента ожидание называет приёмник запуска, а не общий «packing»."""
     out = tmp_path / "hls"
     touch_segment(out)
     progress = FakeProgress()
 
     with pytest.raises(InfraError):
         _await_playing(
-            Config(hls_dir=str(out)),
+            Config(hls_dir=str(out), receiver=receiver),
             progress,
             0.25,
             clock=FakeClock(now=100.0),
             unit=cast(ShowUnit, FakeShow()),
-            here=here,
         )
 
     assert waiting in progress.phases
@@ -205,7 +204,6 @@ def test_the_first_segment_tells_the_page_that_packing_is_over(tmp_path: Path) -
                 0.25,
                 clock=FakeClock(now=100.0),
                 unit=cast(ShowUnit, FakeShow()),
-                here=True,
             )
         seen = START.seen()
     finally:
@@ -585,3 +583,29 @@ def test_the_tab_key_is_handed_to_the_unit_with_here(
     )
 
     assert started == [("movie:кино", True, "gecko-linux")]
+
+
+@pytest.mark.usefixtures("_russian_product")
+@pytest.mark.parametrize(
+    ("config", "where"),
+    [
+        (Config(receiver="chromecast", tv="Living Room"), "на ТВ"),
+        (Config(receiver="browser"), "браузер (этот компьютер)"),
+    ],
+)
+def test_the_final_line_names_the_receiver_of_the_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    show_unit: FakeShowUnit,
+    capsys: pytest.CaptureFixture[str],
+    config: Config,
+    where: str,
+) -> None:
+    """Машина-вкладка играет во вкладку и без ``here``: строка зовёт браузер, ТВ - как был."""
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
+    monkeypatch.setattr(_show_state, "forget_playing", lambda out: None)
+    monkeypatch.setattr(_show_state, "start_play_unit", lambda key, here=False, tab="": None)
+    composition.use_await_playing(monkeypatch, lambda *args, **kwargs: None)
+
+    _launch(config, "movie:кино", Entry(title="Кино", magnet="magnet:?xt=1"), "«Кино»", _Clock())
+
+    assert f"играю «Кино» - {where}   (старт " in capsys.readouterr().out

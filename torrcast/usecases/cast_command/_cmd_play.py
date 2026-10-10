@@ -29,6 +29,7 @@ from torrcast.usecases.cast_command._notes import _notes
 from torrcast.usecases.choice._named import _title
 from torrcast.usecases.playback._launch import _launch
 from torrcast.usecases.playback.head_ahead import HEAD, HeadAhead
+from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.rank.quality_text import quality_text
 from torrcast.usecases.rank.spoken_label import _spoken_media_label
@@ -84,8 +85,8 @@ def _cmd_play(
     if not args.query:
         args.query = [_default_query(state)]
     # Один телевизор - один показ. Сироты уже убраны выше, отметка раздачи значит «идёт наш показ».
-    live = state.showing()
-    _say_showing(live, origin=_state._play_origin)
+    live, box = state.showing(), hls_root(config.hls_dir)
+    _say_showing(live, origin=_state._play_origin, tv=_state._play_box_tv(box, config.tv))
     found_entry = state.find(args.title_query)
     watched = False
     # Бухгалтерия досмотра трогает только тот путь, который сам решает, что играть дальше.

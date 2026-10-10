@@ -4,6 +4,7 @@
 
 from functools import partial
 
+from torrcast.adapters.browser.box_tv import box_tv
 from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.clear_web_position import clear_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
@@ -81,6 +82,8 @@ def wire_show() -> None:
         merge,
         to_releases,
         FACTS.cache.read,
+        # Строка занятости зовёт приёмник живого показа по имени: телевизор или вкладка.
+        box_tv,
     )
     _configure_releases_command(load_config, MenuFacts, detector.detect, pins.remember)
     _configure_voices_command(load_config, TorrServer, native_picture)

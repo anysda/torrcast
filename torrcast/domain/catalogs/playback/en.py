@@ -61,6 +61,7 @@ def en() -> dict[str, str]:
         "recoder.basis_estimate": "an estimate",
         "recoder.basis_measurement": "a measurement",
         "recoder.tv_weight": "will reach the TV at {mbit} Mbit/s, by {basis}",
+        "recoder.browser_weight": "will reach the browser at {mbit} Mbit/s, by {basis}",
         "recoder.no_track_weight": (
             "no video track weight in the passport - I will learn the correction as I go"
         ),

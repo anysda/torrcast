@@ -10,6 +10,7 @@ import torrcast.usecases.revive_playback._revive_state as _revive_state
 import torrcast.usecases.voices_command as _voices_command
 import torrcast.usecases.worker as _worker
 import torrcast.usecases.worker_loop as _worker_loop
+from torrcast.adapters.browser.box_tv import box_tv
 from torrcast.adapters.browser.clear_web_box import clear_web_box
 from torrcast.adapters.browser.clear_web_position import clear_web_position
 from torrcast.adapters.browser.write_web_box import write_web_box
@@ -114,6 +115,7 @@ def test_the_show_gets_the_real_media_pipeline_and_the_real_receiver() -> None:
     assert _play_state._play_merge is merge
     assert _play_state._play_releases is to_releases
     assert _play_state._play_origin == FACTS.cache.read
+    assert _play_state._play_box_tv is box_tv
     assert _releases_command._releases_settings is load_config
     assert _releases_command._releases_facts is MenuFacts
     assert _releases_command._releases_detect == detector.detect

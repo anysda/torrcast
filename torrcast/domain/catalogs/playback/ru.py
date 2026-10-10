@@ -50,6 +50,7 @@ def ru() -> dict[str, str]:
         "recoder.basis_estimate": "оценке",
         "recoder.basis_measurement": "замеру",
         "recoder.tv_weight": "на ТВ уедет {mbit} Мбит/с по {basis}",
+        "recoder.browser_weight": "в браузер уедет {mbit} Мбит/с по {basis}",
         "recoder.no_track_weight": "веса видеодорожки в паспорте нет - поправку наберу по факту",
         "recoder.map_not_grid": " (карта не сетка, но вес по ней честный)",
         "recoder.flat_profile": (

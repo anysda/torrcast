@@ -49,7 +49,7 @@ def _recoder(
     # Сколько уедет на ТВ: видеодорожка идёт копией, звук всегда AAC, сверху оверхед
     # mpegts. Паспорт молчит (mp4 без тегов) - поправка наберётся по факту, как раньше.
     delivered = (video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0
-    weights = _profile(grid, delivered, video_mbit_estimated)
+    weights = _profile(grid, delivered, video_mbit_estimated, config.receiver == "browser")
     return _state.Recoder(
         source=source,
         audio=audio,
@@ -72,7 +72,9 @@ def _recoder(
     )
 
 
-def _profile(grid: MediaGrid, delivered: float, video_mbit_estimated: bool) -> HeavyProfile:
+def _profile(
+    grid: MediaGrid, delivered: float, video_mbit_estimated: bool, browser: bool
+) -> HeavyProfile:
     """Профиль тяжести показа: по карте, которую принесла сетка, а нет карты — ровный.
 
     Профиль по карте считается из уже снятой карты: байты и секунды каждого сегмента
@@ -109,11 +111,14 @@ def _profile(grid: MediaGrid, delivered: float, video_mbit_estimated: bool) -> H
     weights = _mapped(grid, delivered)
     basis_key = "recoder.basis_estimate" if video_mbit_estimated else "recoder.basis_measurement"
     basis = phrase(basis_key)
+    # Куда уедет поток - приёмником запуска: у машины-вкладки телевизора нет, и «на ТВ»
+    # называло бы экран, которого не существует.
+    weight_key = "recoder.browser_weight" if browser else "recoder.tv_weight"
     if weights is not None:
         print(
             phrase("recoder.profile_container", mbit=f"{weights.container:.1f}")
             + (
-                phrase("recoder.tv_weight", mbit=f"{delivered:.1f}", basis=basis)
+                phrase(weight_key, mbit=f"{delivered:.1f}", basis=basis)
                 if delivered > 0
                 else phrase("recoder.no_track_weight")
             )

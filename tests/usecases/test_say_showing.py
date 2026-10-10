@@ -23,7 +23,7 @@ def test_the_viewer_hears_what_will_be_interrupted(capsys: pytest.CaptureFixture
     printed = capsys.readouterr().out
     where = f" {phrase('showing.at', pos='0:11:00')}"
     what = phrase("choice.quoted", it="Моана 2")
-    assert phrase("showing.busy", what=what, where=where) in printed
+    assert phrase("showing.busy_tv", what=what, where=where) in printed
 
 
 @pytest.mark.usefixtures("_english")
@@ -38,7 +38,7 @@ def test_the_interrupted_show_is_named_from_the_reference_cache(
     printed = capsys.readouterr().out
     where = f" {phrase('showing.at', pos='0:11:00')}"
     what = phrase("choice.quoted", it="Moana 2")
-    assert phrase("showing.busy", what=what, where=where) in printed
+    assert phrase("showing.busy_tv", what=what, where=where) in printed
 
 
 @pytest.mark.usefixtures("_english")
@@ -51,7 +51,7 @@ def test_a_cache_miss_leaves_the_recorded_name(capsys: pytest.CaptureFixture[str
     printed = capsys.readouterr().out
     where = f" {phrase('showing.at', pos='0:11:00')}"
     what = phrase("choice.quoted", it="Сваты")
-    assert phrase("showing.busy", what=what, where=where) in printed
+    assert phrase("showing.busy_tv", what=what, where=where) in printed
 
 
 @pytest.mark.usefixtures("_english")
@@ -64,7 +64,7 @@ def test_a_native_picture_keeps_its_recorded_name(capsys: pytest.CaptureFixture[
     printed = capsys.readouterr().out
     where = f" {phrase('showing.at', pos='0:11:00')}"
     what = phrase("choice.quoted", it="Сваты")
-    assert phrase("showing.busy", what=what, where=where) in printed
+    assert phrase("showing.busy_tv", what=what, where=where) in printed
 
 
 @pytest.mark.usefixtures("_english")
@@ -119,4 +119,29 @@ def test_the_russian_product_does_not_consult_the_cache(
 
     printed = capsys.readouterr().out
     where = f" {phrase('showing.at', pos='0:11:00')}"
-    assert phrase("showing.busy", what="«Моана 2»", where=where) in printed
+    assert phrase("showing.busy_tv", what="«Моана 2»", where=where) in printed
+
+
+@pytest.mark.usefixtures("_russian_product")
+def test_a_show_in_the_tab_is_named_the_browser(capsys: pytest.CaptureFixture[str]) -> None:
+    """Живой показ во вкладке: строка зовёт браузер, а телевизора в ней нет."""
+    entry = Entry(title="Моана 2", magnet="magnet:?x=1", pos=660.0, dur=5978.0)
+
+    _say_showing(("ключ", entry), tv=False)
+
+    printed = capsys.readouterr().out
+    assert printed.startswith("в браузере сейчас идёт «Моана 2» на 0:11:00.")
+    assert "телевизор" not in printed
+
+
+@pytest.mark.usefixtures("_russian_product")
+def test_a_show_on_the_tv_keeps_its_old_words(capsys: pytest.CaptureFixture[str]) -> None:
+    """Боевой приёмник-ТВ: строка слово в слово та же, что до вкладки."""
+    entry = Entry(title="Моана 2", magnet="magnet:?x=1", pos=660.0, dur=5978.0)
+
+    _say_showing(("ключ", entry))
+
+    assert capsys.readouterr().out == (
+        "на телевизоре сейчас идёт «Моана 2» на 0:11:00. Выберешь картину - этот показ "
+        "прервётся; пока выбираешь, он идёт как шёл.\n"
+    )
