@@ -12,6 +12,7 @@ import pytest
 import torrcast.adapters.stream_probe.probe as probe_module
 from torrcast.adapters.stream_probe.media_shelf import _media_cache
 from torrcast.adapters.stream_probe.probe import TAIL_LIFE, Runner, probe
+from torrcast.adapters.torrserver.stream_reads import READS
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -102,3 +103,28 @@ def test_the_bench_reads_no_tail_at_all(tmp_path: Path, monkeypatch: pytest.Monk
 
     assert first.duration == 3600.0
     assert not _media_cache("http://torr/stream/hash-1/2").exists(), "полка без хвоста"
+
+
+@pytest.mark.machine
+def test_a_late_tail_holds_the_torrent_until_its_read_returns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Хвост, переживший голову, - тоже читатель ``/stream``: снос раздачи обязан дождаться
+    его конца, а не слать ``rem`` под живым ffprobe, едва вернулась голова.
+
+    Отрицательная проба: хвост вне ``READS.reading`` - раздача свободна, пока он читает.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    monkeypatch.setattr(probe_module, "TAIL_BUDGET", 0.05)
+    key = "2123456789abcdef0123456789abcdef01234567"
+    url = f"http://torr/stream?link={key}&index=1&play"
+    late, timeouts = threading.Event(), list[float]()
+    probe(url, run=_slow(0.0, late, timeouts))
+    try:
+        assert READS.busy(key), "опоздавший хвост читает раздачу не на учёте"
+    finally:
+        late.set()
+    deadline = time.monotonic() + 5.0
+    while READS.busy(key) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not READS.busy(key), "хвост дочитан, а раздача всё ещё занята"

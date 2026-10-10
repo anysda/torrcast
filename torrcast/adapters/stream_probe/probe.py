@@ -110,7 +110,7 @@ def probe(
         tail = None
         if tail_wait != 0:
             pool = ThreadPoolExecutor(1)
-            tail = pool.submit(picture_end, url, min(timeout, TAIL_LIFE), still_reading, run)
+            tail = pool.submit(_read_tail, url, min(timeout, TAIL_LIFE), still_reading, run)
             pool.shutdown(wait=False)
         try:
             stdout = run(command, timeout, still_reading)
@@ -135,6 +135,18 @@ def probe(
     media = to_picture(media, end)
     _keep_media(cache, media)
     return media
+
+
+def _read_tail(url: str, life: float, alive: Callable[[], bool], run: Runner) -> float:
+    """Хвост файла своим читателем ``/stream``: он переживает голову, если опоздал.
+
+    🔴 Без учёта снятие раздачи шлёт ``rem`` под живым ffprobe хвоста, как только голова
+    вернулась (:class:`torrcast.adapters.torrserver.stream_reads.StreamReads`).
+    """
+    with READS.reading(url) as readable:
+        if not readable:
+            return math.nan
+        return picture_end(url, life, alive, run)
 
 
 def _keep_late(cache: Path, media: Media, late: Future[float]) -> None:
