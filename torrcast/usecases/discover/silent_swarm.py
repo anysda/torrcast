@@ -74,6 +74,13 @@ def silent_swarm(
     later = phrase("discover.swarm_later")
     if all_peers <= 0:
         return phrase("discover.swarm_no_peers", counts=counts, later=later, shown=shown)
+    if picked is not None:
+        # 🔴 TC-1420. Релиз назван руками: подменять его молча нельзя, а «до остальных
+        # отбор не дошёл» врёт - идти к остальным его никто не просил. Ходов два, и оба
+        # называются: без --release отбор сам возьмёт живой, или другой номер руками.
+        seed = phrase("discover.swarm_seed_named", peers=peers) if peers else ""
+        move = phrase("discover.swarm_pick_other")
+        return phrase("discover.swarm_picked_silent", seed=seed, move=move, shown=shown)
     if touched < len(queue):
         # 🔴 TC-435. Обход кончился не очередью, а часами (:data:`PICK_BUDGET`): дальше
         # головы дело не дошло, и приписывать молчание хвосту нельзя - его не спрашивали.
@@ -105,11 +112,7 @@ def silent_swarm(
             if peers
             else phrase("discover.swarm_seed_none")
         )
-        move = (
-            phrase("discover.swarm_pick_other")
-            if picked is not None
-            else phrase("discover.swarm_pick_manual")
-        )
+        move = phrase("discover.swarm_pick_manual")
         return phrase(
             "discover.swarm_untouched_some", counts=counts, seed=seed, move=move, shown=shown
         )

@@ -57,7 +57,14 @@ def en() -> dict[str, str]:
         ),
         "discover.swarm_seed_some": " (touched ones listed up to {peers} seeders)",
         "discover.swarm_seed_none": " (touched ones listed no seeders)",
-        "discover.swarm_pick_other": "pick another release",
+        "discover.swarm_pick_other": (
+            "run without --release - the selection takes a live one itself, or pick another release"
+        ),
+        "discover.swarm_seed_named": " (the indexer listed it with up to {peers} seeders)",
+        "discover.swarm_picked_silent": (
+            "the named release is silent{seed}: {move} - cast releases <query>, "
+            "then cast <query> --release N ({shown})"
+        ),
         "discover.swarm_pick_manual": "pick by hand",
         "discover.swarm_untouched_some": (
             "{counts} - these are silent, selection never reached the rest{seed}: {move} - "

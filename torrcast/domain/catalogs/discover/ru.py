@@ -55,7 +55,14 @@ def ru() -> dict[str, str]:
         ),
         "discover.swarm_seed_some": " (у потроганных числилось до {peers} сид)",
         "discover.swarm_seed_none": " (сидов у потроганных не числилось)",
-        "discover.swarm_pick_other": "выбери другой релиз",
+        "discover.swarm_pick_other": (
+            "запусти без --release - отбор сам возьмёт живой, или выбери другой релиз"
+        ),
+        "discover.swarm_seed_named": " (индексер числил у него до {peers} сид)",
+        "discover.swarm_picked_silent": (
+            "названный релиз молчит{seed}: {move} - cast releases <запрос>, "
+            "потом cast <запрос> --release N ({shown})"
+        ),
         "discover.swarm_pick_manual": "выбери руками",
         "discover.swarm_untouched_some": (
             "{counts} - эти молчат, до остальных отбор не дошёл{seed}: {move} - "

@@ -83,6 +83,20 @@ def test_naming_a_release_turns_the_manual_choice_into_another_one() -> None:
     assert "выбери другой релиз" in line
 
 
+def test_a_silent_named_release_offers_the_run_without_it() -> None:
+    """🔴 TC-1420. Названный руками релиз молчит: молча подменять его нельзя, а человеку
+    нужны оба хода - запуск без ``--release`` (отбор сам возьмёт живой) или другой номер.
+    «До остальных отбор не дошёл» тут врало бы: к остальным его никто не посылал."""
+    plan = _plan(_rows(50, 40, 30))
+
+    line = silent_swarm(plan, [2], 1, _SHOWN, picked=2)
+
+    assert line.startswith("названный релиз молчит (индексер числил у него до 40 сид): "), line
+    assert "запусти без --release - отбор сам возьмёт живой" in line
+    assert "до остальных отбор не дошёл" not in line
+    assert _SHOWN in line
+
+
 def test_an_untouched_film_of_another_year_offers_no_manual_choice() -> None:
     """В нетронутом лежит только другая картина - выбирать руками её нельзя."""
     plan = _plan(_rows(50, 40))
