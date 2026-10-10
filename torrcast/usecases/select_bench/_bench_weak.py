@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import torrcast.usecases.select_bench._bench_state as _bench_state
 from torrcast.domain.catalogs.phrase import phrase
-from torrcast.usecases.select_bench._bench_supply import _supply_note
+from torrcast.usecases.select_bench._bench_supply import _supply_note, _supply_verdict
 
 if TYPE_CHECKING:
     from torrcast.domain.profile import Profile
@@ -58,11 +58,34 @@ def _weak_alive(
             for line in tally.tried
         ]
         print(phrase("select_bench.weak_dead", number=prep.number, **numbers))
+        if prep is not tally.mute:
+            tally.dead_voice = tally.dead_voice or prep.number
         forget(prep)
         return None
     tally.judged.pop(prep.number, None)
     print(_supply_note(prep, got, need, ratio))
     return prep
+
+
+def _mute_alive(
+    profile: Profile, torrserver: TorrentEngine, tally: _Tally, forget: Callable[[_Prep], None]
+) -> _Prep | None:
+    """Запасной безрусский ход (:attr:`_Tally.mute`), если его рой довезёт кадр.
+
+    Паспорт без русской дорожки суда роя в обходе не проходит вовсе, и мёртвый рой
+    запасного давал тот же вечный PREPARING, что и «беру (0.00x)». Граница та же:
+    без замера берётся как и прежде, выше пола берётся, ниже - перемер под спросом.
+    """
+    mute = tally.mute
+    if mute is None:
+        return None
+    ratio, got, need = _supply_verdict(profile, mute)
+    if ratio < 0 or ratio >= profile.supply_floor:
+        return mute
+    alive = _weak_alive(profile, torrserver, (ratio, got, need, mute), tally, forget)
+    if alive is None:
+        tally.mute = None
+    return alive
 
 
 def _intake(torrserver: TorrentEngine, torrent_hash: str) -> float:

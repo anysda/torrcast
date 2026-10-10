@@ -62,6 +62,7 @@ class _BenchNotes(_BenchHonest):
         judged: dict[int, str],
         reached: int,
         tried: int,
+        dead_voice: int = 0,
     ) -> _Prep:
         """Запасной ход: дорожки на языке зрителя не нашлось ни у кого - играем то, что есть.
 
@@ -95,6 +96,8 @@ class _BenchNotes(_BenchHonest):
 
         Тихой подмены языка тут по-прежнему нет ни на шаг: ход громкий, строка называет
         язык до старта, а сколько раздач успели спросить - говорит она же (``tried``).
+        Русскую раздачу, отброшенную за мёртвый рой (``dead_voice``), строка называет:
+        «русской озвучки нет нигде» было бы неправдой (TC-1291).
 
         Проверки честности (:meth:`_honest`) тут нет намеренно: она меняет релиз ради
         разрешения, а на этом пути мы уже знаем, что искомой дорожки нет ни у одного из
@@ -102,7 +105,10 @@ class _BenchNotes(_BenchHonest):
         """
         lang = heard(mute.found)
         journal().emit("select", "mute", release=mute.number, lang=lang, checked=tried)
-        print(phrase("select_bench.mute_fallback_note", tried=tried, number=mute.number, lang=lang))
+        key = (
+            "select_bench.mute_dead_voice_note" if dead_voice else "select_bench.mute_fallback_note"
+        )
+        print(phrase(key, tried=tried, dead=dead_voice, number=mute.number, lang=lang))
         # 🔴 TC-1303. Помечаем ход, а не только печатаем строку в stdout: карточка веба
         # печатное слово не читает, и без этого признака зритель молча получал бы чужой
         # звук (см. :class:`web.heard.Heard`, :func:`web.release_keys.release_keys`).

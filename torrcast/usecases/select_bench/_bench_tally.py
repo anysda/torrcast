@@ -44,6 +44,9 @@ class _Tally:
     #: стоит человеку поиск дорожки, которой может не оказаться ни у кого
     #: (:data:`VOICE_BUDGET`).
     hunted: float = 0.0
+    #: Русская раздача, отброшенная в конце очереди за мёртвый рой (:func:`_weak_alive`):
+    #: запасной безрусский ход тогда не вправе сказать «русской озвучки нет нигде».
+    dead_voice: int = 0
 
     def note(
         self, number: int, prep: _Prep, why: str, since: float, clock: Callable[[], float]

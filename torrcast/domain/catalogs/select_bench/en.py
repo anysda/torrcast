@@ -40,6 +40,10 @@ def en() -> dict[str, str]:
         "select_bench.frame_needs_recode": (
             "{quality} - this frame reaches the receiver only through recoding"
         ),
+        "select_bench.mute_dead_voice_note": (
+            "the voice you want was only in releases whose swarm would not bring a frame "
+            "(release {dead}) - turning on release {number}, sound {lang}"
+        ),
         "select_bench.mute_fallback_note": (
             "no English voice in any of the checked releases ({tried}) - "
             "turning on release {number}, sound {lang}"

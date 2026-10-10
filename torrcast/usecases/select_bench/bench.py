@@ -21,7 +21,7 @@ from torrcast.usecases.select_bench._bench_queue import _bench_asking, _bench_qu
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
 from torrcast.usecases.select_bench._bench_supply import _supply_verdict
 from torrcast.usecases.select_bench._bench_tally import _Tally
-from torrcast.usecases.select_bench._bench_weak import _weak_alive
+from torrcast.usecases.select_bench._bench_weak import _mute_alive, _weak_alive
 from torrcast.usecases.select_bench._retried_verdict import _retried_verdict
 
 if TYPE_CHECKING:
@@ -181,10 +181,10 @@ class Bench(_BenchPrewarm):
         ):
             self._announce(plan, alive, queue, tally.judged, reached)
             return alive
-        if tally.mute is not None and (exhausted or tally.hunted >= self.voice_budget):
-            return self._mute_fallback(
-                plan, tally.mute, queue, tally.judged, reached, len(tally.tried)
-            )
+        hunted = exhausted or tally.hunted >= self.voice_budget
+        if hunted and (mute := _mute_alive(self.profile, self.torrserver, tally, self._forget)):
+            checked, dead = len(tally.tried), tally.dead_voice
+            return self._mute_fallback(plan, mute, queue, tally.judged, reached, checked, dead)
         if tally.mute is not None:
             self._spare(tally.mute)
         if tally.verdicts == 0 and exhausted and tally.tried:

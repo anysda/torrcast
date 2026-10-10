@@ -34,6 +34,10 @@ def ru() -> dict[str, str]:
         "select_bench.frame_needs_recode": (
             "{quality} - такой кадр приёмнику только через перекод"
         ),
+        "select_bench.mute_dead_voice_note": (
+            "русская озвучка была только у раздач, чей рой кадра не довезёт (релиз {dead}), - "
+            "включаю релиз {number}, звук {lang}"
+        ),
         "select_bench.mute_fallback_note": (
             "русской озвучки нет ни в одной из проверенных раздач ({tried}) - "
             "включаю релиз {number}, звук {lang}"
