@@ -37,6 +37,27 @@ def test_an_unchanged_archive_keeps_the_live_index(
     assert target.read_bytes() == b"published"
 
 
+def test_a_new_refresh_discards_work_left_by_an_interrupted_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A power loss must not let stale FileDB trees fill the next refresh's disk."""
+    target = tmp_path / "index.sqlite"
+    target.write_bytes(b"published")
+    abandoned = tmp_path / "refresh-interrupted"
+    abandoned.mkdir()
+    (abandoned / "partial-filedb").write_bytes(b"incomplete")
+
+    def unchanged(_request: Request, timeout: float) -> NoReturn:
+        assert timeout == 1800
+        raise urllib.error.HTTPError("https://example.invalid", 304, "unchanged", Message(), None)
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", unchanged)
+
+    assert updater.refresh(target) is None
+    assert not abandoned.exists()
+    assert target.read_bytes() == b"published"
+
+
 def test_playback_brake_has_a_three_hour_ceiling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

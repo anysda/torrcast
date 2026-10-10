@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -92,6 +93,13 @@ def _etag_file(target: Path) -> Path:
     return target.with_suffix(target.suffix + ".etag")
 
 
+def _discard_abandoned_refreshes(target: Path) -> None:
+    """Free incomplete work left by a killed earlier refresh before making a new one."""
+    for work in target.parent.glob("refresh-*"):
+        if work.is_dir():
+            shutil.rmtree(work)
+
+
 def _copy(source: Readable, target: Writable, brake: PlaybackBrake) -> None:
     while block := source.read(1024 * 1024):
         brake.wait()
@@ -121,6 +129,7 @@ def _unpack(archive: Path, source: Path, brake: PlaybackBrake) -> None:
 def refresh(target: Path) -> tuple[int, float] | None:
     """Fetch, unpack and atomically replace ``target``; keep the former index on errors."""
     target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    _discard_abandoned_refreshes(target)
     etag_file = _etag_file(target)
     brake = PlaybackBrake()
     headers = {"If-None-Match": etag_file.read_text().strip()} if etag_file.is_file() else {}
