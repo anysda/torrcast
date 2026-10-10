@@ -8,31 +8,28 @@ from urllib.parse import quote
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.add_once import add_once
 from torrcast.adapters.torrserver.cache_readers import cache_readers
-from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.describer import DESCRIBER
 from torrcast.adapters.torrserver.disconnect_timeout import disconnect_timeout
 from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT, echoed
 from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.file_stats import file_stats
+from torrcast.adapters.torrserver.file_wait import wait_files
 from torrcast.adapters.torrserver.reading import Stop, reading
 from torrcast.adapters.torrserver.restart_recovery import RECOVERY
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.server_down_error import ServerDownError
-from torrcast.domain.swarm_alive import swarm_alive
-from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.why import why
 from torrcast.ports.clock import Clock
+
+# Договор отсрочки - порт: она приходит от сценария, и знать надо обещанное порту. Реализация
+# читает часы ContactWait; по ней «отсрочка с часами» отличается от числа секунд.
 from torrcast.ports.contact_wait import ContactWait as ContactWaitPort
 
 if TYPE_CHECKING:
     import requests
-
-META_STEP = 0.05
-META_STEP_GROW = 1.5
-META_STEP_MAX = 0.2
 
 
 class TorrServer:
@@ -86,43 +83,7 @@ class TorrServer:
     def wait_files(
         self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWaitPort = 0.0
     ) -> list[TorrFile]:
-        began = self.clock.monotonic()
-        deadline = began + timeout
-        hopeless = began + float(grace)
-        empty_since: float | None = None
-        step = META_STEP
-        while True:
-            status = self.status(torrent_hash)
-            files = file_stats(status)
-            if files:
-                return files
-            now = self.clock.monotonic()
-            if swarm_alive(status) is False:
-                empty_since = now if empty_since is None else empty_since
-            else:  # хоть один контакт был - отсрочка считается заново от этой секунды
-                empty_since = None
-            if isinstance(grace, ContactWait):
-                activated = grace.activated_at
-                if activated is None:
-                    self.clock.sleep(min(step, META_STEP_MAX))
-                    step = min(step * META_STEP_GROW, META_STEP_MAX)
-                    continue
-                deadline = max(activated, began + timeout)
-                hopeless = max(
-                    activated, (empty_since if empty_since is not None else now) + grace.seconds
-                )
-            seconds = grace.seconds if isinstance(grace, ContactWait) else float(grace)
-            if seconds > 0 and now >= hopeless and swarm_alive(status) is False:
-                raise SwarmError(
-                    phrase("torrserver.swarm_empty", seconds=f"{seconds:.0f}"), waited=seconds
-                )
-            left = deadline - now
-            if left <= 0:
-                raise SwarmError(
-                    phrase("torrserver.metadata_timeout", timeout=f"{timeout:.0f}"), waited=timeout
-                )
-            self.clock.sleep(min(step, left))
-            step = min(step * META_STEP_GROW, META_STEP_MAX)
+        return wait_files(self.status, torrent_hash, timeout, grace, self.clock)
 
     def stream_url(self, torrent_hash: str, index: int) -> str:
         return f"{self.base_url}/stream?link={quote(torrent_hash)}&index={index}&play"
@@ -160,6 +121,7 @@ class TorrServer:
         def idle() -> bool:
             return cache_readers(self._post, torrent_hash) == 0
 
+        RECOVERY.forget(torrent_hash)
         remove = partial(self._torrent_action, action, torrent_hash)
         return DESCRIBER.close(torrent_hash, remove, idle)
 

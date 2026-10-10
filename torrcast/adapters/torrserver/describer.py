@@ -10,7 +10,9 @@
 ждёт конца идущей подачи и выдерживает :data:`SETTLE` после неё.
 
 🔴 Наши идущие чтения ``/stream`` снимаются естественно; до их конца ``rem`` не уходит
-(TC-1413, :mod:`~torrcast.adapters.torrserver.stream_reads`).
+(TC-1413, :mod:`~torrcast.adapters.torrserver.stream_reads`). После их срока служба может
+навечно оставить своего читателя в ``Cond.Wait``; тогда ограниченный второй срок всё же шлёт
+``rem``, который и будит этот читатель.
 
 Подачу из другого процесса того же экземпляра снятие видит по метке на диске
 (:class:`~torrcast.adapters.torrserver.upload_mark.UploadMark`) и выдерживает так же.
@@ -50,6 +52,12 @@ RELEASE_STEP: Final = 0.05
 #: его транспорт закрывается, затем ``rem`` всё равно ждёт пустой ``/cache``.
 READERS_DEADLINE: Final = 12.0
 
+#: После закрытия наших читателей TorrServer ещё отдаёт ``Readers`` до завершения обработчика.
+#: Обычно это доли секунды; ``Cond.Wait`` без пиров будит только ``rem``, поэтому ожидание
+#: ограничено тем же щедрым сроком. Когда он вышел, безопасно отправить ``rem``: нашего
+#: транспорта уже нет, а без этого команда и ключ :attr:`_settling` жили бы вечно.
+CACHE_DEADLINE: Final = 12.0
+
 
 class Describer:
     """Один поток на раздачу; раздачу, снятую ``drop``/``park``, не трогает."""
@@ -74,7 +82,8 @@ class Describer:
         снятия, ответ ``True``. Уже начатые чтения не обрываются: поток снятия ждёт их
         естественного конца и затем ``idle`` (служба отпустила читателей). Через
         :data:`READERS_DEADLINE` зависший наш HTTP/ffprobe-читатель принудительно
-        завершается, а ``rem`` по-прежнему ждёт пустой ``/cache``.
+        завершается. Затем ``idle`` ждёт пустой ``/cache`` не дольше
+        :data:`CACHE_DEADLINE`; его истечение отправляет ``rem`` без нашего транспорта.
         """
         key = torrent_hash.casefold()
         reading = READS.close(key) and idle is not None
@@ -117,7 +126,8 @@ class Describer:
                 self._clock.sleep(RELEASE_STEP)
             if READS.busy(key):
                 READS.stop(key)
-            while idle is not None and not idle():
+            idle_deadline = self._clock.monotonic() + CACHE_DEADLINE
+            while idle is not None and not idle() and self._clock.monotonic() < idle_deadline:
                 self._clock.sleep(RELEASE_STEP)
         finally:
             with self._lock:
@@ -180,4 +190,4 @@ class Describer:
 #: Описатель процесса: его будит ``TorrServer.add``, ему же говорят о снятии раздачи.
 DESCRIBER: Final = Describer()
 
-__all__ = ["DESCRIBER", "READERS_DEADLINE", "SETTLE", "Describer"]
+__all__ = ["CACHE_DEADLINE", "DESCRIBER", "READERS_DEADLINE", "SETTLE", "Describer"]

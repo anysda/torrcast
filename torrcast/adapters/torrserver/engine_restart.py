@@ -33,11 +33,21 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import Final, Literal, Protocol
+from typing import Final, Protocol
 from urllib.parse import urlsplit
 
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT
+from torrcast.adapters.torrserver.engine_limits import (
+    ADD_TIMEOUT,
+    COMEBACK,
+    LOCAL,
+    PAUSE,
+    SPARING,
+    STEP,
+    UP,
+    Verdict,
+)
 from torrcast.adapters.torrserver.engine_service import EngineService
 from torrcast.adapters.torrserver.kill_stamp import KillStamp
 from torrcast.adapters.torrserver.reading import Stop
@@ -45,29 +55,6 @@ from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.abandon.slot import abandoned, mine
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
-
-#: Сколько ждать ``add`` у своей службы, прежде чем решать, не повисла ли она. Здоровый
-#: отвечает за миллисекунды, со спорным замком базы (:mod:`.add_once`) до 2.6 с на стенде.
-ADD_TIMEOUT: Final = 10.0
-
-#: Сколько ждать, пока systemd поднимет упавшую службу сам: ``RestartSec=5`` и старт.
-COMEBACK: Final = 12.0
-
-#: Сколько ждать ``/echo`` от поднятой нами службы. Здоровый старт на стенде - доли секунды.
-UP: Final = 15.0
-
-#: Не убивать службу чаще: завис, который подъём не вылечил, получает прежний отказ.
-PAUSE: Final = 600.0
-
-#: Общий срок щупов перед KILL (``/echo``, ``list``, ``/cache`` на раздачу). Не уложились -
-#: «не знаю», службу щадим. Отказ человека ждёт не дольше :data:`hass.starting.YIELD_SECONDS`.
-SPARING: Final = 12.0
-
-STEP: Final = 0.25
-LOCAL: Final = frozenset({"127.0.0.1", "localhost", "::1"})
-
-#: Итог разбора отказа: спросить заново, дождаться остатка прежнего срока или отказать.
-Verdict = Literal["again", "rest", "no"]
 
 
 class _Probes(Protocol):
@@ -111,7 +98,11 @@ class EngineRestart:
         add: bool,
         recover: Callable[[], object] | None = None,
     ) -> T:
-        """Ответ на ``ask``; короткий вопрос не чинит службу, ``add`` ждёт :data:`ADD_TIMEOUT`."""
+        """Ответ на ``ask(срок)``; ``add`` своей службы ждёт сперва :data:`ADD_TIMEOUT`.
+
+        Короткий срок (щуп показа, уборка на выходе: три секунды) службу не чинит вовсе:
+        молчание для них не беда по договору, и их тайм-аут - не довод, что служба повисла.
+        """
         mends = urlsplit(base_url).hostname in LOCAL and timeout >= ADD_TIMEOUT
         first = min(timeout, ADD_TIMEOUT) if add and mends else timeout
         rounds, off = self._rounds, mine()
@@ -170,7 +161,12 @@ class EngineRestart:
         return "again" if self._service.restart() and self._waited(probes, UP) else "no"
 
     def _spared(self, probes: _Probes, hung: bool, off: Stop) -> str:
-        """Почему службу убивать нельзя; щуп читателей укладывается в :data:`SPARING`."""
+        """Почему службу убивать нельзя; пусто - можно.
+
+        Пауза спрошена и после щупов: они идут секунды, и за них службу мог убить соседний
+        процесс на том же зависе. Новый щуп идёт, только если уложится в :data:`SPARING`.
+        Отказ ``off`` - свой: снят заказ этого вопроса или начат другой (:func:`.slot.mine`).
+        """
         if self._paused():
             return "pause"
         last = self._clock.monotonic() + SPARING - PROBE_TIMEOUT  # позже щуп не уложится

@@ -19,6 +19,11 @@ class RestartRecovery:
         with self._lock:
             self._by_hash[torrent_hash.casefold()] = magnet
 
+    def forget(self, torrent_hash: str) -> None:
+        """Не возвращать снятую раздачу после рестарта службы."""
+        with self._lock:
+            self._by_hash.pop(torrent_hash.casefold(), None)
+
     def for_request(
         self, path: str, body: dict[str, Any], add: Callable[[str], object]
     ) -> Callable[[], object] | None:

@@ -18,3 +18,16 @@ def test_a_get_recovers_the_known_magnet() -> None:
     assert restore is not None
     restore()
     assert added == [MAGNET]
+
+
+def test_a_removed_torrent_is_not_recovered_after_the_service_restarts() -> None:
+    recovery = RestartRecovery()
+    added: list[str] = []
+    recovery.remember(KEY, MAGNET)
+    recovery.forget(KEY)
+
+    restore = recovery.for_request("/torrents", {"action": "get", "hash": KEY}, added.append)
+
+    assert restore is not None
+    restore()
+    assert added == []

@@ -1,4 +1,4 @@
-"""Снятие при нашем идущем чтении: обрыв сразу, ``rem`` после отпуска читателей службой."""
+"""Снятие ждёт наше чтение, затем ограниченно ждёт читателей TorrServer."""
 
 import threading
 from pathlib import Path
@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from tests.fakes.clock import FakeClock
-from torrcast.adapters.torrserver.describer import READERS_DEADLINE, Describer
+from torrcast.adapters.torrserver.describer import CACHE_DEADLINE, READERS_DEADLINE, Describer
 from torrcast.adapters.torrserver.stream_reads import READS
 
 KEY = "0123456789abcdef0123456789abcdef01234567"
@@ -27,9 +27,27 @@ class _Answer:
         return None
 
 
-def _close_while_reading(idle_after: int | None) -> tuple[list[float], int, FakeClock]:
+class _Clock(FakeClock):
+    """Фальшивые часы, которые не дают потоку снятия обогнать читателя."""
+
+    def __init__(self) -> None:
+        super().__init__(now=10.0)
+        self.waiting = threading.Event()
+        self.proceed = threading.Event()
+
+    def sleep(self, seconds: float) -> None:
+        self.waiting.set()
+        assert self.proceed.wait(1), "проверка не отпустила поток снятия"
+        super().sleep(seconds)
+
+
+def _settler() -> threading.Thread:
+    return next(thread for thread in threading.enumerate() if thread.name == f"settle-{KEY}")
+
+
+def _close_while_reading(idle_after: int | None) -> tuple[list[float], int, _Clock]:
     """Снять раздачу посреди чтения; служба отпускает читателей с ``idle_after``-го опроса."""
-    clock = FakeClock(now=10.0)
+    clock = _Clock()
     describer = Describer(clock=clock)
     removed: list[float] = []
     polls = 0
@@ -43,14 +61,18 @@ def _close_while_reading(idle_after: int | None) -> tuple[list[float], int, Fake
         removed.append(clock.monotonic())
         return True
 
-    with READS.opened(URL, _Answer) as answer:
-        assert answer is not None
-        assert describer.close(KEY, remove, idle)
-        assert removed == [], "живого читателя нельзя снимать из-под TorrServer"
-    for thread in threading.enumerate():
-        if thread.name == f"settle-{KEY}":
-            thread.join(5)
-    READS.reopen(KEY)
+    try:
+        with READS.opened(URL, _Answer) as answer:
+            assert answer is not None
+            assert describer.close(KEY, remove, idle)
+            assert clock.waiting.wait(1), "поток снятия не дошёл до барьера"
+            assert removed == [], "живого читателя нельзя снимать из-под TorrServer"
+        clock.proceed.set()
+        thread = _settler()
+        thread.join(1)
+        assert not thread.is_alive(), "снятие не завершилось после отпуска читателя"
+    finally:
+        READS.reopen(KEY)
     return removed, polls, clock
 
 
@@ -58,12 +80,12 @@ def test_the_removal_waits_for_the_service_to_release_the_readers_then_goes() ->
     removed, polls, _clock = _close_while_reading(idle_after=3)
 
     assert polls == 3
-    assert removed == [pytest.approx(10.0 + 2 * 0.05)]
+    assert removed == [pytest.approx(10.0 + 3 * 0.05)]
 
 
-def test_a_hung_reader_is_stopped_at_the_deadline_before_removing() -> None:
-    """Сосед не держит новый показ вечно: его поток сперва закрывают безопасно."""
-    clock = FakeClock(now=10.0)
+def test_a_hung_reader_and_cache_reader_end_at_the_deadlines_before_removing() -> None:
+    """Мёртвый рой не оставляет ни поток снятия, ни ключ ``_settling`` навсегда."""
+    clock = _Clock()
     describer = Describer(clock=clock)
     removed: list[float] = []
     polls = 0
@@ -71,21 +93,28 @@ def test_a_hung_reader_is_stopped_at_the_deadline_before_removing() -> None:
     def idle() -> bool:
         nonlocal polls
         polls += 1
-        return polls >= 3
+        return False
 
     def remove() -> bool:
         removed.append(clock.monotonic())
         return True
 
-    with READS.opened(URL, _Answer) as answer:
-        assert answer is not None
-        assert describer.close(KEY, remove, idle)
-        for thread in threading.enumerate():
-            if thread.name == f"settle-{KEY}":
-                thread.join(5)
-        assert READS.stopped(URL), "срок должен остановить брошенное чтение"
-        assert removed == [pytest.approx(10.0 + READERS_DEADLINE + 2 * 0.05)]
-    READS.reopen(KEY)
+    try:
+        with READS.opened(URL, _Answer) as answer:
+            assert answer is not None
+            assert describer.close(KEY, remove, idle)
+            assert clock.waiting.wait(1), "поток снятия не дошёл до барьера"
+            assert removed == [], "живого читателя нельзя снимать из-под TorrServer"
+            clock.proceed.set()
+            thread = _settler()
+            thread.join(1)
+            assert not thread.is_alive(), "поток снятия остался ждать /cache"
+            assert READS.stopped(URL), "срок должен остановить брошенное чтение"
+            assert KEY not in describer._settling
+        assert polls > 0
+        assert removed == [pytest.approx(10.0 + READERS_DEADLINE + CACHE_DEADLINE)]
+    finally:
+        READS.reopen(KEY)
 
 
 def test_without_our_reads_the_removal_goes_at_once_and_the_service_is_not_asked() -> None:
@@ -102,7 +131,7 @@ def test_without_our_reads_the_removal_goes_at_once_and_the_service_is_not_asked
 
 
 class _Unwired:
-    """Ответ без сокета: на учёте стоит, рвать в нём нечего, ``cut`` всё равно ``True``."""
+    """Ответ без сокета: он на учёте, но принудительно закрыть в нём нечего."""
 
     def __enter__(self) -> "_Unwired":
         return self
@@ -113,7 +142,7 @@ class _Unwired:
 
 def test_a_torrent_added_again_while_the_service_releases_readers_is_not_removed() -> None:
     """Новый ``add`` посреди ожидания отпуска: ``rem`` уже чужой, он снял бы живую раздачу."""
-    clock = FakeClock(now=10.0)
+    clock = _Clock()
     describer = Describer(clock=clock)
     removed: list[float] = []
     added_again = False
@@ -132,9 +161,11 @@ def test_a_torrent_added_again_while_the_service_releases_readers_is_not_removed
         with READS.opened(URL, lambda: _Unwired()) as answer:
             assert answer is not None
             assert describer.close(KEY, remove, idle)
-        for thread in threading.enumerate():
-            if thread.name == f"settle-{KEY}":
-                thread.join(5)
+            assert clock.waiting.wait(1), "поток снятия не дошёл до барьера"
+        clock.proceed.set()
+        thread = _settler()
+        thread.join(1)
+        assert not thread.is_alive(), "повторный add не завершил поток снятия"
         assert added_again
         assert removed == [], "rem ушёл по раздаче, которую добавили заново"
         assert not describer.dropped(KEY)

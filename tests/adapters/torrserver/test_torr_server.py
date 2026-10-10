@@ -3,6 +3,7 @@
 import pytest
 
 from tests.fakes.clock import FakeClock
+from torrcast.adapters.torrserver import torr_server
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.swarm_error import SwarmError
@@ -181,6 +182,22 @@ def test_a_parked_release_is_closed_and_its_disk_cache_kept() -> None:
 
     assert server.drop("abc") is True
     assert server.body == {"action": "rem", "hash": "abc"}, "снос остаётся сносом"
+
+
+def test_a_closed_torrent_is_forgotten_before_a_restart_can_restore_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forgotten: list[str] = []
+
+    class _Recovery:
+        def forget(self, torrent_hash: str) -> None:
+            forgotten.append(torrent_hash)
+
+    monkeypatch.setattr(torr_server, "RECOVERY", _Recovery())
+    server = _Recording()
+
+    assert server.drop("abc") is True
+    assert forgotten == ["abc"]
 
 
 class _Listing(TorrServer):
