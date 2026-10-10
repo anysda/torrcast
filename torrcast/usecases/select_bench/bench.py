@@ -114,7 +114,7 @@ class Bench(_BenchPrewarm):
                 raise InfraError(prep.error)
             trouble = self._trouble(
                 prep,
-                pinned=args.pinned,
+                pinned=args.spared,
                 warn_mbit=plan.warn_mbit,
                 recode=plan.recode_at > 0,
                 hard_mbit=plan.hard_mbit,
@@ -130,12 +130,12 @@ class Bench(_BenchPrewarm):
             # правила незнанием: очередь вставала на первом же безымянном релизе.
             voiceless = (
                 not trouble
-                and not args.pinned
+                and not args.spared
                 and voice_unproven(prep.voiced, native=plan.picture.native)
             )
             if not trouble and not voiceless:
                 supply = _supply_verdict(self.profile, prep)
-                if args.pinned or supply[0] < 0 or supply[0] >= self.profile.supply_ratio:
+                if args.spared or supply[0] < 0 or supply[0] >= self.profile.supply_ratio:
                     progress.phase("")
                     prep = self._honest(plan, prep, queue, args, progress, tally.judged)
                     self._announce(plan, prep, queue, tally.judged, attempt)

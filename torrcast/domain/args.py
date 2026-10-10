@@ -51,6 +51,9 @@ class Args:
     voice: int | str | None = None
     from_start: bool = False
     dry: bool = False
+    #: Отладочное: ``--judge`` с ``--release N`` судит названную раздачу так же, как
+    #: отбор судит свою, - приговор вместо показа, если она не годится.
+    judge: bool = False
     #: ``cast log --since 2d|12h|30m|ГГГГ-ММ-ДД`` - с какого момента показывать след.
     since: str | None = None
     #: Внутреннее: показ внутри transient-юнита, руками не зовётся.
@@ -140,6 +143,11 @@ class Args:
     def pinned(self) -> bool:
         """Релиз или файл названы руками — отладочный путь, подмен в нём не бывает."""
         return self.release is not None or self.file is not None
+
+    @property
+    def spared(self) -> bool:
+        """Отбор не судит названный релиз: человек выбрал сам и не просил ``--judge``."""
+        return self.pinned and not self.judge
 
     @property
     def from_menu(self) -> bool:

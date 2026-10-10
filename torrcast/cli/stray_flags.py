@@ -34,6 +34,7 @@ _FLAG: Final[Mapping[str, str]] = {
     "picture_original": "--picture-original",
     "card_release": "--card-release",
     "layout": "--layout",
+    "judge": "--judge",
 }
 
 #: Что читает сам показ. ``language`` тут потому, что язык рядом с работой запоминает
@@ -57,6 +58,7 @@ _READ_BY_PLAY: Final = frozenset(
         "picture_original",
         "card_release",
         "layout",
+        "judge",
     }
 )
 
