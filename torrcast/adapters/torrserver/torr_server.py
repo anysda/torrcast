@@ -15,7 +15,7 @@ from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.file_stats import file_stats
 from torrcast.adapters.torrserver.reading import Stop, reading
 from torrcast.adapters.torrserver.restart_recovery import RECOVERY
-from torrcast.adapters.torrserver.wait_files import wait_files
+from torrcast.adapters.torrserver.wait_files import META_STEP_MAX, wait_files
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
@@ -160,3 +160,6 @@ class TorrServer:
             raise ServerDownError(
                 phrase("torrserver.unresponsive", base_url=self.base_url, reason=why(exc))
             ) from exc
+
+
+__all__ = ["META_STEP_MAX", "TorrServer"]
