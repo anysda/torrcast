@@ -1,6 +1,7 @@
 """The catalogue updater avoids a full archive download when the ETag is unchanged."""
 
 import importlib.util
+import json
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -34,3 +35,35 @@ def test_an_unchanged_archive_keeps_the_live_index(
     assert updater.refresh(target) is None
     assert asked == ['"old"']
     assert target.read_bytes() == b"published"
+
+
+def test_playback_brake_has_a_three_hour_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A long show yields the refresh only up to its declared 3-hour bound."""
+    states = iter(["starting", "playing", "playing"])
+    now = [0.0]
+    slept: list[float] = []
+
+    class State:
+        def __enter__(self) -> "State":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _size: int = -1) -> bytes:
+            return json.dumps({"state": next(states)}).encode()
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda *_args, **_kwargs: State())
+
+    def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += 1
+
+    brake = updater.PlaybackBrake(clock=lambda: now[0], sleep=sleep)
+
+    assert brake.blocked() is True
+    now[0] = updater.PAUSE_LIMIT
+    assert brake.blocked() is False
+    assert slept == []

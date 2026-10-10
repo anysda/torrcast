@@ -13,7 +13,7 @@ import os
 import sqlite3
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 SCHEMA = """
@@ -53,7 +53,9 @@ def records(root: Path) -> Iterator[tuple[str, str, int, int, int, str]]:
             )
 
 
-def build(source: Path, target: Path) -> tuple[int, float]:
+def build(
+    source: Path, target: Path, wait_for_idle: Callable[[], None] | None = None
+) -> tuple[int, float]:
     """Write a complete new index then atomically publish it."""
     began = time.monotonic()
     fresh = target.with_suffix(".new")
@@ -63,6 +65,8 @@ def build(source: Path, target: Path) -> tuple[int, float]:
     count = 0
     batch: list[tuple[str, str, int, int, int, str]] = []
     for row in records(source):
+        if wait_for_idle:
+            wait_for_idle()
         batch.append(row)
         if len(batch) == 1000:
             db.executemany(
@@ -83,6 +87,8 @@ def build(source: Path, target: Path) -> tuple[int, float]:
         db.close()
         fresh.unlink(missing_ok=True)
         raise ValueError("FileDB contains no usable releases")
+    if wait_for_idle:
+        wait_for_idle()
     db.execute("INSERT INTO search(search) VALUES('optimize')")
     db.commit()
     db.close()

@@ -71,3 +71,17 @@ def test_a_build_interrupted_before_replace_keeps_the_live_index(
 
     with sqlite3.connect(target) as published:
         assert published.execute("SELECT value FROM known").fetchall() == [("published",)]
+
+
+def test_build_checks_for_playback_before_each_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "filedb"
+    source.mkdir()
+    target = tmp_path / "index.sqlite"
+    rows = [("Матрица", "magnet:?xt=urn:btih:a", 8, 42, 3, "2026-08-11")] * 1001
+    monkeypatch.setattr(index, "records", lambda _root: iter(rows))
+    waits: list[None] = []
+
+    assert index.build(source, target, lambda: waits.append(None))[0] == 1001
+    assert len(waits) == 1002
