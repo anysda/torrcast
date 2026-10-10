@@ -136,6 +136,18 @@ def test_the_probes_near_the_index_answer_from_the_window_not_the_swarm() -> Non
     assert all(at < far for at, _ in reader.asked[2:]), "у индекса - ни одного своего захода"
 
 
+def test_a_codec_without_probes_does_not_pay_for_the_window() -> None:
+    """Не AVC - проб нет, и хвост перед индексом рою не заказывается: только сам индекс."""
+    far = 6 << 20
+    cues = [(0, 1024, 1), (2000, 2048, 1), (4000, far, 1), (6000, far + 4096, 1)]
+    data, _base = Matroska(cues=cues, cues_last=True, video="V_MPEGH/ISO/HEVC").bytes()
+    reader = Served(data)
+    keys(reader, reader.read(0, HEAD))
+
+    assert reader.requests == 2, "голова и индекс, проб у HEVC нет"
+    assert reader.asked[1][0] > far, "окно не уходит за индекс назад"
+
+
 def test_an_honest_index_survives_a_cluster_with_several_video_frames() -> None:
     """Опорный кадр не первым в кластере - индекс всё равно честный, и карта строится.
 

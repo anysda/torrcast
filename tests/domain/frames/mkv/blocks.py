@@ -112,6 +112,8 @@ class Matroska:
     #: ``Cues`` лежат после кластеров, в хвосте файла, а не в голове перед ними: так
     #: кладёт индекс большинство муксеров, и так лежали все файлы замера 30-09.
     cues_last: bool = False
+    #: ``CodecID`` дорожки видео: не AVC - и пробы честности по содержимому кадра не ходят.
+    video: str = AVC
 
     def inside(self) -> int:
         """Смещение названного блока от начала данных кластера; ноль - муксер смолчал."""
@@ -146,7 +148,7 @@ class Matroska:
             return b""
         entries = b""
         for number, kind in self.tracks:
-            codec = AVC if kind == 1 else AC3
+            codec = self.video if kind == 1 else AC3
             entry = (
                 elem(TRACK_NUMBER, uint(number))
                 + elem(TRACK_TYPE, uint(kind))

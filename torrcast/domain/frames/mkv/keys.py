@@ -24,11 +24,11 @@ from torrcast.domain.frames.mkv.ids import (
     CUES_CHUNK,
     HEAD_BYTES,
 )
-from torrcast.domain.frames.mkv.key_frame import key_frame
+from torrcast.domain.frames.mkv.key_frame import AVC, key_frame
 from torrcast.domain.frames.mkv.probes import probes
 from torrcast.domain.frames.mkv.uint import uint
 from torrcast.domain.frames.mkv.walk import walk
-from torrcast.domain.frames.mkv.window import Window
+from torrcast.domain.frames.mkv.window import BEFORE, Window
 from torrcast.domain.frames.range_reader import RangeReader as Reader
 from torrcast.domain.ghost_keys_error import GhostKeysError
 from torrcast.domain.infra_error import InfraError
@@ -52,7 +52,8 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     if facts.cues_at is None:
         raise InfraError(phrase("frames.mkv_no_cues"))
 
-    near = Window(reader, facts.cues_at, CUES_CHUNK)
+    # Пробы судят только AVC (:func:`key_frame`): у другого кодека хвост перед индексом не нужен.
+    near = Window(reader, facts.cues_at, CUES_CHUNK, BEFORE if facts.codec == AVC else 0)
     chunk = near.tail(facts.cues_at)
     found = walk(chunk, 0, min(32, len(chunk)))
     if not found:

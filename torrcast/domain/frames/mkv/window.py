@@ -22,9 +22,9 @@ BEFORE: Final = 2 << 20
 class Window:
     """Читатель, который отвечает из уже прочитанного окна и ходит к рою только мимо него."""
 
-    def __init__(self, reader: Reader, at: int, size: int) -> None:
+    def __init__(self, reader: Reader, at: int, size: int, before: int = BEFORE) -> None:
         self._reader = reader
-        self.start = max(0, at - BEFORE)
+        self.start = max(0, at - before)
         self.data = reader.read(self.start, at + size - self.start)
         # Отдали меньше, чем просили, - окно упёрлось в конец файла, и дальше читать нечего.
         self._eof = len(self.data) < at + size - self.start
