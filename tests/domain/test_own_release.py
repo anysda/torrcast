@@ -42,3 +42,12 @@ def test_a_namesake_of_another_year_is_not_the_picture() -> None:
 
 def test_a_season_of_a_series_is_dated_by_its_own_year() -> None:
     assert _own("Наруто / Naruto (2005) S04 WEBRip 720p", _NARUTO)
+
+
+def test_a_film_sharing_the_original_of_a_series_is_no_season_of_it() -> None:
+    """Раздача без сезона в имени датируется как фильм: «Животные» 2026 - не сезон «Звери.»."""
+    animals = MapPicture("Звери.", 2016, True, "Animals.", 9_000)
+    assert not _own("Животные / Animals (2026) WEB-DL 1080p", animals)
+    assert not _own("Animals.2026.1080p.WEBRip.x265", animals)
+    assert _own("Звери. / Animals. (2016) WEB-DL 1080p", animals)
+    assert _own("Animals.S02.2017.1080p.WEB-DL", animals)

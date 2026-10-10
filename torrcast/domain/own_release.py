@@ -33,15 +33,18 @@ def own_release(release: Release, known: MapPicture) -> bool:
         return False
     if any(key.startswith(f"{own}-") for key in said - names for own in names):
         return False
-    return _year_fits(release.year, known, len(matched))
+    return _year_fits(release, known, len(matched))
 
 
-def _year_fits(year: int | None, known: MapPicture, matched: int) -> bool:
+def _year_fits(release: Release, known: MapPicture, matched: int) -> bool:
+    year = release.year
     if known.year is None:
         return True
-    if known.series:
+    if known.series and (release.kind == "tv" or year is None):
         # A season is dated by its own year: any year from the series start on.
         return year is None or year >= known.year - YEAR_SLACK
+    # A row with no season in its name is dated as a film: «Животные / Animals (2026)»
+    # shares the original of the series «Звери.» (2016) and is no season of it.
     if year is None:
         # Without a year only both names together tell the picture from a namesake.
         return matched >= 2
