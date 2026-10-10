@@ -107,6 +107,9 @@ def _passed_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
     Счёт раздач в последней причине - у ВЗЯТОЙ картины (:func:`first_alive`), ради
     которой пропуск и объясняется. У взятой тоже одна раздача - сравнивать нечего, и
     причина молчит: строка, которая врёт про причину выбора, хуже отсутствия строки.
+    Молчит она и тогда, когда раздач больше одной у самой пропущенной: :func:`backed`
+    её не трогал, взятая просто стоит в меню раньше. «Брат» 1997 года с сорока раздачами
+    слышал «у неё всего одна раздача, а тут их 3» про дилогию, вставшую перед ним.
     """
     life = liveliness(plans[number - 1])
     if life <= 0:
@@ -116,6 +119,6 @@ def _passed_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
     if not fitness(plans[number - 1]):
         return phrase("choice.why_no_hd")
     taken = len(plans[first_alive(plans) - 1].ranked)
-    if taken <= 1:
+    if taken <= 1 or len(plans[number - 1].ranked) > 1:
         return ""
     return phrase("choice.why_single_release", taken=taken)

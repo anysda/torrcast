@@ -298,3 +298,18 @@ def test_every_key_the_line_builds_on_the_fly_exists_in_the_catalog() -> None:
     keys += [f"choice.note_season{tail}" for tail in tails]
 
     assert [key for key in keys if key not in en()] == []
+
+
+def test_a_skipped_picture_with_a_queue_of_its_own_hears_no_single_release_reason() -> None:
+    """«Всего одна раздача» - про пропущенную; у которой очередь своя, той это неправда.
+
+    Живую годную картину с очередью :func:`backed` не трогает: взятая просто стоит в меню
+    раньше. Так «Брат» 1997 года с сорока раздачами слышал «у неё всего одна раздача, а тут
+    их 3» про вставшую перед ним дилогию.
+    """
+    brat = [
+        plan("Брат и Брат 2", 1997, part=2, pool=[film(f"Дилогия {n}", seeders=18) for n in "abc"]),
+        plan("Брат", 1997, pool=[film(f"Брат 1997 {n}", seeders=300) for n in "ab"]),
+    ]
+
+    assert _passed_why(brat, 2, [1, 2]) == ""
