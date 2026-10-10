@@ -42,12 +42,16 @@ _ANSWER = json.dumps(
 )
 
 
-def _asked(seen: list[list[str]], answer: str = _ANSWER) -> Runner:
+#: Хвост обычного файла (:func:`picture_end`): картинка до конца контейнера, файл дочитан.
+_TAIL = "video,3599.96,0.04\naudio,3599.968,0.032\n"
+
+
+def _asked(seen: list[list[str]], answer: str = _ANSWER, tail: str = _TAIL) -> Runner:
     """Запуск ffprobe, который ничего не запускает: собирает команды и отвечает готовым."""
 
     def _run(command: list[str], timeout: float, alive: Any) -> str:
         seen.append(command)
-        return answer if "-seekable" in command else ""  # хвост (:func:`picture_end`) молчит
+        return answer if "-seekable" in command else tail
 
     return _run
 
@@ -100,6 +104,27 @@ def test_the_second_ask_comes_from_the_shelf(
 
     assert len(seen) == 2, "второй раз ffprobe не зовут: ни голову, ни хвост"
     assert cached == first
+
+
+def test_a_passport_whose_tail_was_not_read_stays_off_the_shelf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Хвост не дочитался - длительность по контейнеру только на этот раз, а не навсегда.
+
+    Стенд: холодный рой не отдал хвост за бюджет, полка запомнила 2702.7 вместо 2588.5,
+    и все следующие запуски серии снова ждали кусков за последним кадром. Отрицательная
+    проба: класть паспорт на полку всегда - второй щуп не зовёт ffprobe, тест красный.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    seen: list[list[str]] = []
+
+    first = probe("http://torr/stream/hash-1/2", run=_asked(seen, tail=""))
+    again = probe("http://torr/stream/hash-1/2", run=_asked(seen))
+
+    assert first.duration == again.duration == 3600.0
+    assert len(seen) == 4, "второй щуп обязан спросить хвост снова"
+    third = probe("http://torr/stream/hash-1/2", run=_asked(seen))
+    assert third == again and len(seen) == 4, "дочитанный хвост ложится на полку"
 
 
 def test_a_missing_ffprobe_is_named_not_traced(

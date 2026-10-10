@@ -25,8 +25,9 @@ from torrcast.domain.warm_open import PROBE_KEPT
 #: несёт, и молчание в ней неотличимо от честного ответа. ``2`` - формат кадра и профиль,
 #: ``3`` - кривая яркости (:attr:`Media.hdr`), ``4`` - развёртка (:attr:`Media.interlaced`),
 #: ``5`` - длительность по концу картинки
-#: (:func:`torrcast.adapters.stream_probe.to_picture.to_picture`).
-_MEDIA_VERSION: Final = 5
+#: (:func:`torrcast.adapters.stream_probe.to_picture.to_picture`), ``6`` - она же без
+#: паспортов, где хвост не дочитался и длительность осталась по контейнеру.
+_MEDIA_VERSION: Final = 6
 
 
 def _media_cache(source_url: str) -> Path:

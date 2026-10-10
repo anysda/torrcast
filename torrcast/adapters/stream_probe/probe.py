@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -26,9 +27,8 @@ from torrcast.domain.media import Media
 #: Чем читается поток: боевой запуск ffprobe (:func:`_run_ffprobe`) или подделка стенда.
 Runner = Callable[[list[str], float, Callable[[], bool] | None], str]
 
-#: Сколько секунд ждать хвост файла (:func:`picture_end`). Холодный хвост на стенде
-#: читается за 2.8-3.0 с против 0.2-0.6 с головы; за бюджетом длительность остаётся
-#: по контейнеру, как и было.
+#: Сколько секунд ждать хвост файла (:func:`picture_end`). За бюджетом длительность
+#: остаётся по контейнеру, а паспорт на полку не ложится: следующий щуп спросит хвост снова.
 TAIL_BUDGET: Final = 8.0
 
 
@@ -103,6 +103,8 @@ def probe(
             raise InfraError(
                 phrase("media_binaries.ffprobe_failed", reason=(exc.stderr or "").strip()[:120])
             ) from exc
-    media = to_picture(parse_media(stdout), tail.result())
-    _keep_media(cache, media)
+    end = tail.result()
+    media = to_picture(parse_media(stdout), end)
+    if not math.isnan(end):
+        _keep_media(cache, media)  # неузнанный хвост - не ответ навсегда, а промах роя
     return media

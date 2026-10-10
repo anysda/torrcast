@@ -1696,7 +1696,7 @@ def test_probe_reads_the_scan_type_from_the_stream() -> None:
 
     def fake_probe(command: list[str], timeout: float, alive: object) -> str:
         asked.append(command)
-        return payload
+        return payload if "-seekable" in command else "video,3599.96,0.04\n"
 
     media = probe("http://torr/stream/hash-1/2", run=fake_probe)
     assert media.interlaced and media.quality == "1080i"
