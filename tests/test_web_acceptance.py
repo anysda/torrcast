@@ -464,6 +464,61 @@ def test_пустое_название_не_открывает_чужую_кар
     assert "пустое название" in module._open_card_by_page(ctx, " ")
 
 
+class _SearchNode:
+    """Locator выдачи: пишет в журнал страницы, чего ждали и что нажали."""
+
+    def __init__(self, page: _SearchPage, selector: str) -> None:
+        self.page, self.selector = page, selector
+
+    @property
+    def first(self) -> _SearchNode:
+        return self
+
+    def count(self) -> int:
+        return 1
+
+    def wait_for(self, state: str, timeout: float) -> None:
+        del timeout
+        self.page.said.append(f"ждём {self.selector} {state}")
+
+    def click(self) -> None:
+        self.page.said.append(f"жмём {self.selector}")
+
+    def type(self, text: str) -> None:
+        self.page.said.append(f"набираем {text}")
+
+
+class _SearchPage:
+    """Главная с полем поиска; журнал ``said`` - порядок действий прибора."""
+
+    def __init__(self) -> None:
+        self.said: list[str] = []
+        self.keyboard = SimpleNamespace(press=lambda _key: self.said.append("Enter"))
+
+    def goto(self, _url: str, **_: Any) -> None:
+        return None
+
+    def get_by_placeholder(self, _text: str, exact: bool) -> _SearchNode:
+        assert exact
+        return _SearchNode(self, "поле")
+
+    def locator(self, selector: str) -> _SearchNode:
+        return _SearchNode(self, selector)
+
+
+def test_карточку_жмут_когда_поиск_кончился(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Пока поиск идёт, первой стоит догадка подсказчика, и клик по ней открывал чужую
+    картину: «Less of a Stranger» играл «Глаза незнакомца» (1981)."""
+    module = acceptance()
+    page = _SearchPage()
+    monkeypatch.setattr(module, "_await_card", lambda _ctx: True)
+    ctx = module.Ctx("http://example", page, True, Path("/tmp"), {"web.search.placeholder": "S"})
+
+    assert module._open_card_by_page(ctx, "Less of a Stranger") is None
+    tile, searching = module._LIVE_TILE, module._SEARCHING
+    assert page.said.index(f"ждём {searching} detached") < page.said.index(f"жмём {tile}")
+
+
 def test_прибор_отказывает_на_пустом_сериале(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

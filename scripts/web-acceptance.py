@@ -175,6 +175,10 @@ _CONTINUE_WAIT: Final = 20.0
 #: `data-tc-tile`, и первый узел в DOM обычно как раз скелет: у него нет ни обработчика,
 #: ни фокуса, и клик по нему не делает ничего (по живому замеру - 14 скелетов).
 _LIVE_TILE: Final = "[data-tc-tile][data-tc-focusable]"
+#: Строка «ищем в N источниках» выдачи: стоит, пока поиск не закончен (``home.js``).
+_SEARCHING: Final = ".tc-searching"
+#: Потолок ожидания конца поиска перед кликом: срок финала сервера с запасом.
+_SEARCH_DONE_WAIT: Final = 60000
 
 #: Снимок частей карточки за один обход DOM. Карточка пересобирается после фонового
 #: ответа, поэтому ``count()`` с последующим ``inner_text()`` мог читать уже другой узел.
@@ -2378,6 +2382,10 @@ def _open_card_by_page(ctx: Ctx, title: str) -> str | None:
     ctx.page.keyboard.press("Enter")
     with contextlib.suppress(Exception):
         ctx.page.locator(_LIVE_TILE).first.wait_for(state="visible", timeout=20000)
+    # Пока поиск идёт, первой стоит догадка подсказчика: «Less of a Stranger» открывал
+    # «Глаза незнакомца» (1981), которые к концу круга из выдачи уходят.
+    with contextlib.suppress(Exception):
+        ctx.page.locator(_SEARCHING).first.wait_for(state="detached", timeout=_SEARCH_DONE_WAIT)
     if ctx.page.locator(_LIVE_TILE).count() == 0:
         return f"поиск {title!r} не дал ни одной плитки"
     ctx.page.locator(_LIVE_TILE).first.click()
