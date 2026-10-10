@@ -198,8 +198,9 @@ def test_an_empty_pool_waits_the_quorum_whole() -> None:
 def test_a_down_rest_that_answers_opens_the_grace(tmp_path: Path) -> None:
     """The book held RuTor down, and it brought its rows in a second: Knaben held them 7 s."""
     knaben, rutor = _Ask("Knaben", 5.0), _Ask("RuTor", 5.0)
+    book = _down(tmp_path, "RuTor")  # before the answer's clock starts: its writes took 90 ms
     _answer(rutor, 0.1, rows=2)
-    core, elapsed = _waited([knaben, rutor], names=False, book=_down(tmp_path, "RuTor"), grace=0.2)
+    core, elapsed = _waited([knaben, rutor], names=False, book=book, grace=0.2)
     assert core == [] and knaben.waived, "Knaben comes late, as one the circle did not wait"
     assert 0.3 <= elapsed < 0.8, f"waited {elapsed:.2f} s, not the grace past RuTor"
 
