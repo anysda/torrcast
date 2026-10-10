@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from tests.fakes.clock import FakeClock
-from torrcast.adapters.torrserver.describer import Describer
+from torrcast.adapters.torrserver.describer import READERS_DEADLINE, Describer
 from torrcast.adapters.torrserver.stream_reads import READS
 
 KEY = "0123456789abcdef0123456789abcdef01234567"
@@ -59,6 +59,29 @@ def test_the_removal_waits_for_the_service_to_release_the_readers_then_goes() ->
 
     assert polls == 3
     assert removed == [pytest.approx(10.0 + 2 * 0.05)]
+
+
+def test_a_hung_reader_is_stopped_at_the_deadline_before_removing() -> None:
+    """Сосед не держит новый показ вечно: его поток сперва закрывают безопасно."""
+    clock = FakeClock(now=10.0)
+    describer = Describer(clock=clock)
+    removed: list[float] = []
+    polls = 0
+
+    def idle() -> bool:
+        nonlocal polls
+        polls += 1
+        return polls >= 3
+
+    with READS.opened(URL, _Answer) as answer:
+        assert answer is not None
+        assert describer.close(KEY, lambda: removed.append(clock.monotonic()) or True, idle)
+        for thread in threading.enumerate():
+            if thread.name == f"settle-{KEY}":
+                thread.join(5)
+        assert READS.stopped(URL), "срок должен остановить брошенное чтение"
+        assert removed == [pytest.approx(10.0 + READERS_DEADLINE + 2 * 0.05)]
+    READS.reopen(KEY)
 
 
 def test_without_our_reads_the_removal_goes_at_once_and_the_service_is_not_asked() -> None:

@@ -45,6 +45,11 @@ SETTLE: Final = 0.3
 #: Как часто поток снятия проверяет, закончили ли читатели и отпустила ли их служба.
 RELEASE_STEP: Final = 0.05
 
+#: Верхняя граница пользы от соседа: на CT531 обычные ``/stream`` и ffprobe
+#: освобождают кэш меньше чем за секунду. Через 12 с это уже брошенный читатель;
+#: его транспорт закрывается, затем ``rem`` всё равно ждёт пустой ``/cache``.
+READERS_DEADLINE: Final = 12.0
+
 
 class Describer:
     """Один поток на раздачу; раздачу, снятую ``drop``/``park``, не трогает."""
@@ -67,8 +72,9 @@ class Describer:
         Без подачи рядом ``remove`` зовётся сразу и его ответ возвращается. Подача (своя или
         другого процесса) идёт или прошло меньше :data:`SETTLE` - ``remove`` уходит в поток
         снятия, ответ ``True``. Уже начатые чтения не обрываются: поток снятия ждёт их
-        естественного конца и затем ``idle`` (служба отпустила читателей). Верхнего срока
-        нет: ``rem`` под живым читателем небезопасен для TorrServer.
+        естественного конца и затем ``idle`` (служба отпустила читателей). Через
+        :data:`READERS_DEADLINE` зависший наш HTTP/ffprobe-читатель принудительно
+        завершается, а ``rem`` по-прежнему ждёт пустой ``/cache``.
         """
         key = torrent_hash.casefold()
         reading = READS.close(key) and idle is not None
@@ -106,7 +112,12 @@ class Describer:
             left = max(mine, self._marks.left(key, SETTLE, CALL_TIMEOUT) or 0.0)
             if left > 0:
                 self._clock.sleep(left)
-            while READS.busy(key) or (idle is not None and not idle()):
+            deadline = self._clock.monotonic() + READERS_DEADLINE
+            while READS.busy(key) and self._clock.monotonic() < deadline:
+                self._clock.sleep(RELEASE_STEP)
+            if READS.busy(key):
+                READS.stop(key)
+            while idle is not None and not idle():
                 self._clock.sleep(RELEASE_STEP)
         finally:
             with self._lock:
@@ -169,4 +180,4 @@ class Describer:
 #: Описатель процесса: его будит ``TorrServer.add``, ему же говорят о снятии раздачи.
 DESCRIBER: Final = Describer()
 
-__all__ = ["DESCRIBER", "SETTLE", "Describer"]
+__all__ = ["DESCRIBER", "READERS_DEADLINE", "SETTLE", "Describer"]

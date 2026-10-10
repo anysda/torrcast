@@ -8,8 +8,10 @@
 
 from __future__ import annotations
 
+import os
+import socket
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import parse_qs, urlsplit
 
@@ -23,7 +25,9 @@ class StreamReads:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._readers: dict[str, int] = {}
+        self._answers: dict[str, set[Any]] = {}
         self._closed: set[str] = set()
+        self._stopped: set[str] = set()
 
     @contextmanager
     def reading(self, url: str) -> Iterator[bool]:
@@ -57,7 +61,25 @@ class StreamReads:
                 yield None
                 return
             with open_answer() as answer:
-                yield answer
+                key = _hash_of(url)
+                if key is None:
+                    yield answer
+                    return
+                with self._lock:
+                    stopped = key in self._stopped
+                    if not stopped:
+                        self._answers.setdefault(key, set()).add(answer)
+                if stopped:
+                    _shut(answer)
+                    yield None
+                    return
+                try:
+                    yield answer
+                finally:
+                    with self._lock:
+                        self._answers[key].discard(answer)
+                        if not self._answers[key]:
+                            del self._answers[key]
 
     def close(self, torrent_hash: str) -> bool:
         """Закрыть раздачу для новых читателей; вернуть, есть ли уже идущий."""
@@ -69,12 +91,47 @@ class StreamReads:
     def busy(self, torrent_hash: str) -> bool:
         """Держит ли наш читатель раздачу открытой прямо сейчас."""
         with self._lock:
-            return self._readers.get(torrent_hash.casefold(), 0) > 0
+            key = torrent_hash.casefold()
+            return key not in self._stopped and self._readers.get(key, 0) > 0
+
+    def stop(self, torrent_hash: str) -> None:
+        """Оборвать зависшие наши чтения после срока ожидания.
+
+        HTTP-ответы получают ``shutdown`` сокета. ``ffprobe`` спрашивает
+        :meth:`stopped` между короткими ``communicate`` и завершает себя. После этого
+        ``Describer`` всё ещё ждёт пустой ``/cache`` перед ``rem``.
+        """
+        key = torrent_hash.casefold()
+        with self._lock:
+            self._stopped.add(key)
+            answers = list(self._answers.get(key, ()))
+        for answer in answers:
+            _shut(answer)
+
+    def stopped(self, url: str) -> bool:
+        """Был ли срок чтения этого ``/stream`` исчерпан."""
+        key = _hash_of(url)
+        if key is None:
+            return False
+        with self._lock:
+            return key in self._stopped
 
     def reopen(self, torrent_hash: str) -> None:
         """Раздачу добавили заново: читать её снова можно."""
         with self._lock:
-            self._closed.discard(torrent_hash.casefold())
+            key = torrent_hash.casefold()
+            self._closed.discard(key)
+            self._stopped.discard(key)
+
+
+def _shut(answer: Any) -> None:
+    """Оборвать ответ, не закрывая объект за читающим потоком."""
+    try:
+        fd = os.dup(answer.fileno())
+    except (OSError, ValueError, AttributeError):
+        return
+    with socket.socket(fileno=fd) as sock, suppress(OSError):
+        sock.shutdown(socket.SHUT_RDWR)
 
 
 def _hash_of(url: str) -> str | None:

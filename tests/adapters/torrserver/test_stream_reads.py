@@ -18,6 +18,19 @@ def test_a_close_waits_for_the_reader_to_leave() -> None:
     assert not reads.busy(KEY)
 
 
+def test_a_deadline_stops_a_hung_reader_without_reopening_the_torrent() -> None:
+    reads = StreamReads()
+    url = f"http://torrserver/stream?link={KEY}&index=1&play"
+
+    with reads.reading(url) as readable:
+        assert readable
+        assert reads.close(KEY)
+        reads.stop(KEY)
+        assert reads.stopped(url)
+        assert not reads.busy(KEY)
+    reads.reopen(KEY)
+
+
 def test_a_cut_torrent_refuses_new_reads_without_asking_until_it_is_added_again() -> None:
     reads = StreamReads()
     url = f"http://torrserver/stream?link={KEY}&index=1&play"

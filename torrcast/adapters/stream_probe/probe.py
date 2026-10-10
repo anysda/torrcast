@@ -71,12 +71,16 @@ def probe(
     # Info и Tracks из головы. MP4 с moov в хвосте этим не ускорить: там метаданные
     # действительно лежат в конце, и неперематываемый вход доберётся до них лишь перебором.
     flags = ["-v", "error", "-seekable", "0", "-show_entries", entries, "-of", "json"]
+
+    def still_reading() -> bool:
+        return not READS.stopped(url) and (alive is None or alive())
+
     command = ["ffprobe", *flags, url]
     with READS.reading(url) as readable:
         if not readable:
             raise InfraError(phrase("select.stream_not_read"))
         try:
-            stdout = run(command, timeout, alive)
+            stdout = run(command, timeout, still_reading)
         except FileNotFoundError as exc:
             raise InfraError(phrase("media_binaries.ffprobe_missing")) from exc
         except subprocess.TimeoutExpired as exc:
