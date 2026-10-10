@@ -71,3 +71,31 @@ def test_a_suggesters_guess_without_releases_leaves_after_the_circle() -> None:
     assert _shape(catalog_merge([guess], [], done=False)) == [(_OTHER["key"], None, True, None)]
     assert catalog_merge([guess], [], done=True) == []
     assert "guess" not in catalog_merge([guess], [], done=False)[0]  # type: ignore[operator]
+
+
+def test_a_suggesters_guess_stands_behind_the_pictures_the_circle_found() -> None:
+    """Догадка о тексте не встаёт над находкой: первую плитку жмут, пока круг идёт.
+
+    На «Less of a Stranger» карта промолчала, подсказчик назвал «Eyes of a Stranger» (1981) и
+    «Hands of a Stranger» (1962), и обе догадки стояли над найденной картиной 2026 года. Клик
+    по первой плитке в эту секунду открывал чужой фильм, а к концу круга догадки уходили.
+    """
+    eyes: _Record = {"key": "movie:глаза-незнакомца:1981", "title": "Глаза незнакомца",
+                     "year": 1981, "kind": "movie", "original": "Eyes of a Stranger",
+                     "pick": 0, "guess": True}  # fmt: skip
+    hands: _Record = {**eyes, "key": "movie:руки-незнакомца:1962", "title": "Руки незнакомца",
+                      "year": 1962, "original": "Hands of a Stranger"}  # fmt: skip
+    found: _Record = {"key": "movie:не-такой-уж-незнакомый:2026",
+                      "title": "Не такой уж незнакомый", "year": 2026, "kind": "movie",
+                      "original": "Mniej obcy", "pick": 1}  # fmt: skip
+
+    merged = catalog_merge([eyes, hands], [found], done=False)
+
+    assert _shape(merged) == [
+        ("movie:не-такой-уж-незнакомый:2026", None, None, None),
+        ("movie:глаза-незнакомца:1981", None, True, None),
+        ("movie:руки-незнакомца:1962", None, True, None),
+    ]
+    assert _shape(catalog_merge([_TILE, eyes], [found], done=False))[0][0] == _TILE["key"], (
+        "плитка карты держит своё место первой: она картина каталога, а не догадка"
+    )

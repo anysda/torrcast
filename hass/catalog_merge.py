@@ -16,7 +16,10 @@
 именем спрашивать раздачи.
 
 Догадка подсказчика (:data:`~hass.catalog_tiles.GUESS`) без раздач после круга уходит
-совсем: про неё мы не знаем даже того, что такая картина есть.
+совсем: про неё мы не знаем даже того, что такая картина есть. Поэтому и стоит она за
+находками круга, а не перед ними: на «Less of a Stranger» подсказчик назвал «Eyes of a
+Stranger» (1981), его плитка встала первой над найденной картиной 2026 года, и клик по
+первой плитке в эту секунду играл чужой фильм.
 """
 
 from __future__ import annotations
@@ -49,13 +52,18 @@ def catalog_merge(
         if at is not None:
             slots[at] = _text(tile, "key")
     landed = {key: n for n, key in slots.items()}
+    shown = [
+        (
+            bool(tile.get(GUESS)),
+            {**found[landed[key]], "slot": key} if key in landed else _waiting(tile, done),
+        )
+        for tile in tiles
+        if (key := _text(tile, "key")) and (key in landed or not (done and tile.get(GUESS)))
+    ]
     return [
-        *(
-            {**found[landed[key]], "slot": key} if key in landed else _waiting(tile, done)
-            for tile in tiles
-            if (key := _text(tile, "key")) and (key in landed or not (done and tile.get(GUESS)))
-        ),
+        *(row for guess, row in shown if not guess),
         *(hit for n, hit in enumerate(found) if n not in slots),
+        *(row for guess, row in shown if guess),
     ]
 
 
