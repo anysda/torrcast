@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 from pathlib import Path
 
 from torrcast.usecases.warm.settings import META
@@ -22,9 +23,24 @@ def _disk_free(root: Path) -> int:
     return stat.f_bavail * stat.f_frsize
 
 
+# Имя полки - ключ показа, шестнадцать знаков sha1 во всех формах ключа
+# (:mod:`torrcast.usecases.warm.warm_key`, :mod:`torrcast.usecases.warm.key_form`).
+_KEY = re.compile(r"[0-9a-f]{16}")
+
+
 def _dirs(root: Path) -> list[Path]:
+    """Полки склада: каталоги, которые завёл он сам, - с именем-ключом или с паспортом.
+
+    Имя спасает полку, чей паспорт не записался на полном разделе. Чужое в корне - не
+    полка: на отдельном разделе там лежит ``lost+found``, и вытеснитель не вправе ни
+    считать его, ни сносить.
+    """
     try:
-        return [path for path in root.iterdir() if path.is_dir()]
+        return [
+            path
+            for path in root.iterdir()
+            if path.is_dir() and (_KEY.fullmatch(path.name) or (path / META).is_file())
+        ]
     except OSError:
         return []
 

@@ -135,3 +135,30 @@ def test_a_roomy_disk_evicts_nothing(tmp_path: Path) -> None:
     assert store.fit(5) == ""
     assert (root / "давняя").exists()
     assert sky.events == [] and sky.removed == []
+
+
+def _found(root: Path) -> Path:
+    """Каталог ``lost+found`` отдельного раздела под складом: без паспорта и с находкой."""
+    found = root / "lost+found"
+    found.mkdir(parents=True)
+    (found / "#12").write_bytes(b"x" * 5)
+    return found
+
+
+def test_lost_and_found_of_the_partition_is_never_a_shelf(tmp_path: Path) -> None:
+    """Живой стенд 10-10: склад на своём разделе, бюджет и пол сносили ``lost+found``.
+
+    Ни бюджет, ни прежняя форма, ни пол не вправе считать его полкой: в ленте не должно
+    быть ``evict lost+found``, а сносить system-owned каталог служба под root не смеет.
+    """
+    for budget, floor, capacity in ((15, 0, 1 << 30), (1000, 30, 40)):
+        sky = world()
+        root = tmp_path / f"warm-{budget}"
+        found = _found(root)
+        _shelf(root, "старая", 10, 3000.0)
+        store = Vault(root=root, key="новый", budget=budget, floor=floor, free_of=_room(capacity))
+
+        assert store.fit(8 if floor == 0 else 5) == ""
+        assert (found / "#12").exists(), "снесён lost+found раздела"
+        assert [facts["key"] for event, _, facts in sky.events if event == "evict"] == ["старая"]
+        assert found not in sky.removed
