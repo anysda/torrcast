@@ -106,18 +106,20 @@ def test_a_stop_shutdowns_a_real_http_reader_and_the_silent_server_sees_it() -> 
     stream = _SilentStream()
     reading = threading.Event()
     finished = threading.Event()
+    outcome: dict[str, object] = {}
 
     def read() -> None:
         try:
             with reads.opened(
-                stream.url, lambda: urllib.request.urlopen(stream.url, timeout=1)
+                stream.url, lambda: urllib.request.urlopen(stream.url, timeout=30)
             ) as answer:
-                assert answer is not None
-                assert answer.read(5) == b"first"
+                if answer is None:
+                    return
+                outcome["head"] = answer.read(5)
                 reading.set()
-                assert answer.read(1) == b""
-        except (ConnectionResetError, http.client.IncompleteRead, OSError):
-            pass
+                outcome["tail"] = answer.read(1)
+        except (http.client.IncompleteRead, OSError) as exc:
+            outcome["tail"] = exc
         finally:
             finished.set()
 
@@ -128,6 +130,12 @@ def test_a_stop_shutdowns_a_real_http_reader_and_the_silent_server_sees_it() -> 
         assert reading.wait(1), "читатель не дошёл до молчащего тела"
         reads.stop(KEY)
         assert finished.wait(1), "читатель не вышел после stop"
+        assert outcome.get("head") == b"first"
+        tail = outcome.get("tail")
+        assert tail == b"" or (
+            isinstance(tail, (http.client.IncompleteRead, OSError))
+            and not isinstance(tail, TimeoutError)
+        ), f"чтение кончилось не обрывом: {tail!r}"
         assert stream.gone.wait(1), "сервер не увидел EOF или RST от читателя"
         reader.join(1)
         assert not reader.is_alive(), "поток чтения пережил срок"
