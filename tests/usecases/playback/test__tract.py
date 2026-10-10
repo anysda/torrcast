@@ -11,6 +11,7 @@ import pytest
 
 import torrcast.adapters.http_server.hls_server as hls_server
 import torrcast.usecases.feed_pack.feed_segment as feed_segment
+import torrcast.usecases.playback._show_state as _state
 from tests.usecases.playback.world import grid
 from tests.usecases.warm.test_run import _Encode, _Packer
 from tests.usecases.warm.test_run import _tract as run_tract
@@ -22,13 +23,17 @@ from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.position import Position
 from torrcast.domain.trace_sources import WARMED_RECODE
 from torrcast.ports.journal.slot import install
 from torrcast.ports.recode.encoding import Encoding
+from torrcast.usecases.playback._end_ahead import _end_ahead
+from torrcast.usecases.playback._ending import _Ending
 from torrcast.usecases.playback._tract import _tract
 from torrcast.usecases.warm.run import _run
 from torrcast.usecases.warm.segment_start import _Clock
+from torrcast.usecases.watch import Watch
 
 
 class _Cutting:
@@ -206,3 +211,28 @@ def test_a_spot_marked_after_serving_started_is_named_as_a_warmed_recode(
         assert tape[-1]["src"] == WARMED_RECODE
     finally:
         serving.stop()
+
+
+def test_the_picture_end_of_a_watched_show_reaches_the_feed(tmp_path: Path) -> None:
+    """Паспорт, дочитываемый за упаковкой, доезжает до ленты: и к списку, и к часам показа.
+
+    Отрицательная проба: тракт не ставит ``settle`` - готовый конец картинки не встаёт в
+    список; не ставит ``tick`` - поздний не встаёт никогда; не ставит ``go`` или флаг
+    картинки - паспорт не читается вовсе или читается раньше первого кадра.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    entry = Entry(title="серия", query="серия", magnet="magnet:?xt=1", dur=300.0)
+    ahead = _end_ahead("http://ts")
+
+    _r, _w, feed, server, _receiver = _tract(
+        _config(tmp_path), "http://ts", 0, "кино", out, grid(), None, 0.0, 8.0, False,
+        _Cutting(), watch=Watch(key="k", entry=entry, every=0.0), ahead=ahead,
+    )  # fmt: skip
+    try:
+        assert isinstance(feed.settle, _Ending) and feed.settle.ahead is ahead
+        assert feed.tick == feed.settle.tick and feed.settle.go == ahead.go
+        assert not feed.settle.picture()
+        _state.playing_flag(out).touch()
+        assert feed.settle.picture()
+    finally:
+        server.stop()

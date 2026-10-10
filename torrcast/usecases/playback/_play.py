@@ -15,6 +15,8 @@ from torrcast.domain.why import why
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
+from torrcast.usecases.playback._end_ahead import _end_ahead
+from torrcast.usecases.playback._ending import _Ending
 from torrcast.usecases.playback._publish_box import _publish_box
 from torrcast.usecases.playback._show_end import _close_show, _report_end, _say_whole
 from torrcast.usecases.playback._tract import _tract
@@ -76,19 +78,13 @@ def _play(
     video_mbit = max(0.0, watch.entry.vbps) if watch else 0.0
     video_mbit_estimated = watch.entry.vbps_estimated if watch else False
     session_tag = session_tag or phrase("playback.session_tag", id=journal().session_id())
-    # Сетка сегментов снимается с самого файла и дальше не меняется: она же в манифесте,
-    # она же в команде ffmpeg. Всё, что показ говорит о времени, считается по ней.
-    #
-    # Сетке нужен не только шаг, но и вес. Сегмент тяжелее ~19 МБ приёмник не
-    # доигрывает, а выбрасывает буфер и качает его заново, поэтому граница ставится с
-    # оглядкой на предсказанный вес куска - а он зависит и от паспорта (что уедет на ТВ),
-    # и от того, перекодируем ли мы тяжёлое (тогда кусок не тяжелее ``recode_mbit``).
-    # Кодек, который приёмник не декодирует, - это решение на весь показ, а не на кусок:
-    # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен -
-    # перекодировать поверх перекода нечего. Решается это ДО сетки: от битрейта перекода
-    # зависит вес каждого куска, а значит и то, где сетка поставит границы.
-    # Серия с записью раскладывается ТОЛЬКО по ней (:func:`entry_layout`): тем же
-    # переводом раскладывает её прогрев, когда она ещё следующая.
+    # Сетка сегментов снимается с самого файла: она же в манифесте, она же в команде ffmpeg.
+    # Ей нужен не только шаг, но и вес: кусок тяжелее ~19 МБ приёмник выбрасывает и качает
+    # заново, а вес зависит и от паспорта, и от решения о перекоде - поэтому оно ДО сетки.
+    # Серия раскладывается ТОЛЬКО по своей записи (:func:`entry_layout`), как и у прогрева.
+    # Конец картинки показ дочитывает сам после первого кадра (``ahead``), не держа им старт,
+    # и разошедшийся с записью пересобирает сетку впереди упаковки (:class:`_Ending`).
+    ahead = _end_ahead(source) if watch else None
     journal().mark("раскладка")
     grid, whole = (
         entry_layout(config, source, watch.entry, profile, file_size, _say)
@@ -116,6 +112,10 @@ def _play(
         codec=codec,
         depth=depth,
         voice=voice,
+        watch=watch,
+        supply=supply,
+        ahead=ahead,
+        file_size=file_size,
     )
     url = f"{_state.hls_base(config)}/index.m3u8"
 
@@ -178,7 +178,8 @@ def _play(
             # раньше картинки, и число от него занижено.
         # ⚠️ Прогрев стартует ровно ЗДЕСЬ, при играющем показе и на остатке процессора. Лента,
         # ушедшая в сплошной перекод, отцепила его хранилище (``feed_clean``): читать прогретое
-        # некому, а копия по всему фильму ела ~21% ЦП.
+        # некому, а копия по всему фильму ела ~21% ЦП. Сетка у него - та, что ушла в список.
+        warmer = _Ending.after_load(feed, warmer)
         if warmer is not None and feed.vault is not None:
             warmer.start()
         expected_end = _hold(

@@ -16,16 +16,20 @@ from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.spot_recoder import SpotRecoder
-from torrcast.usecases.feed_pack.feed import Feed
+from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.feed_pack.feed_segment import _stocked
 from torrcast.usecases.playback._cuttable import _Cuttable
-from torrcast.usecases.playback._recoder import _recoder
-from torrcast.usecases.playback._warmer import _warmer
+from torrcast.usecases.playback._end_ahead import _Ahead
+from torrcast.usecases.playback._ending import _Ending
+from torrcast.usecases.playback._show_parts import _show_parts
+from torrcast.usecases.playback.ended_feed import EndedFeed
+from torrcast.usecases.playback.entry_layout import entry_layout
 from torrcast.usecases.playback.following import Following
 from torrcast.usecases.playback.media_grid import MediaGrid
 from torrcast.usecases.playback.pack_container import pack_container
 from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.warm.warmer import Warmer
+from torrcast.usecases.watch import Watch
 
 
 def _tract(
@@ -46,45 +50,42 @@ def _tract(
     codec: str = "",
     depth: int = 0,
     voice: str = "",
-) -> tuple[SpotRecoder | None, Warmer | None, Feed, StreamServer, Receiver]:
-    """Собрать тракт показа: кодировщик, прогрев, упаковку, раздачу и приёмник."""
+    *,
+    watch: Watch | None = None,
+    supply: StreamSource | None = None,
+    ahead: _Ahead | None = None,
+    file_size: int = 0,
+) -> tuple[SpotRecoder | None, Warmer | None, EndedFeed, StreamServer, Receiver]:
+    """Собрать тракт показа: кодировщик, прогрев, упаковку, раздачу и приёмник.
+
+    ``ahead`` - паспорт, который показ дочитывает сам, когда на экране первый кадр
+    (:func:`torrcast.usecases.playback._end_ahead._end_ahead`): старт его не ждёт, а конец
+    картинки, разошедшийся с записью, пересобирает сетку впереди упаковки (:class:`_Ending`).
+    """
     # Профиль тяжести всего фильма известен со старта - он считается из уже снятой
     # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
-    # начнёт перекодировать сразу, пока играет остальное.
-    recoder = (
-        None
-        if whole is not None
-        else _recoder(
-            source,
-            audio,
-            grid,
-            out / _state.RECODE_DIR,
-            config,
-            video_mbit=video_mbit,
-            profile=profile,
-            video_mbit_estimated=video_mbit_estimated,
-            voice=voice,
-        )
-    )
-    # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и
-    # сетка, и решение о перекодировании - те же, что у живой упаковки.
+    # начнёт перекодировать сразу, пока играет остальное. Прогрев поднимается ПОСЛЕ старта
+    # показа, а собирается здесь: ему нужны и сетка, и решение о перекодировании - те же,
+    # что у живой упаковки. Сборка одна и для пересборки по концу картинки (``parts``).
     container = pack_container(profile, whole)
-    warmer = _warmer(
+    parts = partial(
+        _show_parts,
         config,
         source,
         audio,
-        grid,
-        start,
         about,
+        out,
         whole=whole,
-        recoder=recoder,
+        start=start,
+        video_mbit=video_mbit,
         follow=follow,
         profile=profile,
-        video_mbit=video_mbit,
+        video_mbit_estimated=video_mbit_estimated,
         container=container,
         voice=voice,
     )
-    feed = Feed(
+    recoder, warmer = parts(grid=grid)
+    feed = EndedFeed(
         source=source,
         audio=audio,
         voice=voice,
@@ -140,4 +141,22 @@ def _tract(
     # каждой.
     if isinstance(receiver, _Cuttable):
         receiver.next_cut = grid.after
+    if ahead is not None and watch is not None:
+        relayout = partial(entry_layout, config, source, watch.entry, profile, file_size)
+        ending = _Ending(
+            ahead,
+            watch,
+            supply,
+            relayout,
+            parts,
+            feed,
+            server,
+            receiver,
+            recoder,
+            warmer,
+            start,
+            picture=_state.playing_flag(out).exists,
+            go=ahead.go,
+        )
+        feed.settle, feed.tick = ending, ending.tick
     return recoder, warmer, feed, server, receiver

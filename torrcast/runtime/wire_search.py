@@ -2,6 +2,8 @@
 
 Зовёт её композиционный корень (:func:`torrcast.runtime.wire.wire`), и только он."""
 
+from functools import partial
+
 from torrcast.adapters.choice_environment import _configure_choice_environment
 from torrcast.adapters.choice_environment import environment as choice_environment
 from torrcast.adapters.console.console.ask_line import ask_line
@@ -60,7 +62,10 @@ def wire_search() -> None:
     # Стенд отбора греет раздачи параллельно: чтение паспорта, прогрев файла, признак
     # жизни роя и отсрочка первого контакта - четыре разных внешних мира, и все четыре
     # приходят отсюда. Прежде стенд доставал их строкой с именем прежнего фасада.
-    _configure_select_bench(probe, warm_file, swarm_pulse, ContactWait, swarm_demand)
+    # Хвоста файла стенд не ждёт: конец картинки дочитывает показ за упаковкой головы.
+    _configure_select_bench(
+        partial(probe, tail_wait=0.0), warm_file, swarm_pulse, ContactWait, swarm_demand
+    )
     # Сам отбор ходит в службу раздач ровно один раз - за дорожками названного
     # вручную релиза, - и спрашивает человека о начале сериала заново. Служба,
     # чтение паспорта и вопрос приходят отсюда, а не из строки с именем фасада.

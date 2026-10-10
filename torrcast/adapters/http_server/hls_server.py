@@ -88,6 +88,7 @@ class HlsServer:
         self.feed = feed
         self.warm_recodes = warm_recodes if warm_recodes is not None else set()
         self._server: _Server | None = None
+        self._bound: type[_Handler] | None = None
 
     def start(self) -> None:
         ctx = None
@@ -111,10 +112,16 @@ class HlsServer:
                 phrase("http_server.port_unavailable", port=self.port, reason=why(exc))
             ) from exc
         server.ctx = ctx
-        self._server = server
+        self._server, self._bound = server, handler
         threading.Thread(
             target=server.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True
         ).start()
+
+    def relabel(self, warm_recodes: set[int]) -> None:
+        """Подписывать прогретыми куски нового хранилища: сетка показа пересобрана."""
+        self.warm_recodes = warm_recodes
+        if self._bound is not None:
+            self._bound.warm_recodes = warm_recodes
 
     def stop(self) -> None:
         """Погасить раздачу целиком: и слушающий сокет, и живые соединения приёмника.

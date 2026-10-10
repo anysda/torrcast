@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 import torrcast.adapters.choice_environment as _choice_slots
 import torrcast.usecases.cache_reserve as _cache_reserve
 import torrcast.usecases.choice.configure as _choice_configure
@@ -71,7 +73,10 @@ def test_the_search_gets_the_real_catalogue_and_the_real_release_service() -> No
     assert ENGINE.tell == START.restarted
 
     # Стенд отбора и сам отбор.
-    assert _bench_state._bench_prober is probe
+    # Отбор хвоста файла не ждёт: конец картинки дочитывает показ за упаковкой головы.
+    bench_prober = _bench_state._bench_prober
+    assert isinstance(bench_prober, partial) and bench_prober.func is probe
+    assert (bench_prober.args, bench_prober.keywords) == ((), {"tail_wait": 0.0})
     assert _bench_state._bench_warm_file is warm_file
     assert _bench_state._bench_swarm_pulse is swarm_pulse
     assert _bench_state._bench_contact_wait is ContactWait

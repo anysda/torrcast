@@ -47,6 +47,7 @@ def probe(
     alive: Callable[[], bool] | None = None,
     *,
     run: Runner = _run_ffprobe,
+    tail_wait: float | None = None,
 ) -> Media:
     """Дорожки и длительность из HTTP-потока, не качая файл: ffprobe берёт заголовок mkv
     одним запросом от нуля — это и есть цена меню озвучек.
@@ -65,6 +66,10 @@ def probe(
 
     ``run`` - чем запускать ffprobe. Боевое умолчание одно (:func:`_run_ffprobe`), и
     меняет его только стенд: настоящий запуск требует и ffprobe, и живой раздачи.
+
+    ``tail_wait`` - сколько ждать хвост сверх головы (без него - бюджет щупа). Отбор раздачи
+    в CLI не ждёт его вовсе (ноль): конец картинки дочитывает сам показ, пока пакуется голова
+    (:class:`torrcast.usecases.playback._ending._Ending`), а поздний хвост и так ложится на полку.
     """
     cache = _media_cache(url)
     if (ready := _read_media(cache)) is not None:
@@ -114,7 +119,7 @@ def probe(
             ) from exc
     media = parse_media(stdout)
     try:
-        end = tail.result(TAIL_BUDGET)
+        end = tail.result(TAIL_BUDGET if tail_wait is None else tail_wait)
     except Late:
         tail.add_done_callback(lambda late: _keep_late(cache, media, late))
         return media  # неузнанный хвост - не ответ навсегда, а промах роя
