@@ -134,7 +134,8 @@ class _BenchRecheck(_BenchNotes):
             # Внутри ветки «искомой нет» «все языки названы» - это и есть прямое «нет»
             # (под русской ручкой - :attr:`Media.foreign`).
             if all(track.named for track in prep.found.tracks):
-                return self._mute_fallback(plan, prep, queue, judged, len(queue), len(queue))
+                every = len(queue)
+                return self._mute_fallback(plan, prep, queue, judged, every, every, label=label)
             _turned_down(judged, number, phrase("select_bench.reason_no_voice"), prep)
             print(phrase("select_bench.recheck_no_voice_note", number=label(number)))
             self._forget(prep)

@@ -13,8 +13,11 @@ from torrcast.usecases.rank.stepdown_note import stepdown_note
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_honest import _BenchHonest
+from torrcast.usecases.select_bench._retried_verdict import _as_planned
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from torrcast.domain.args import Args
 
 
@@ -63,6 +66,7 @@ class _BenchNotes(_BenchHonest):
         reached: int,
         tried: int,
         dead_voice: int = 0,
+        label: Callable[[int], int] = _as_planned,
     ) -> _Prep:
         """Запасной ход: дорожки на языке зрителя не нашлось ни у кого - играем то, что есть.
 
@@ -98,6 +102,7 @@ class _BenchNotes(_BenchHonest):
         язык до старта, а сколько раздач успели спросить - говорит она же (``tried``).
         Русскую раздачу, отброшенную за мёртвый рой (``dead_voice``), строка называет:
         «русской озвучки нет нигде» было бы неправдой (TC-1291).
+        Номера в строке - те, что набрал человек (``label``), а не места в плане (TC-1314).
 
         Проверки честности (:meth:`_honest`) тут нет намеренно: она меняет релиз ради
         разрешения, а на этом пути мы уже знаем, что искомой дорожки нет ни у одного из
@@ -108,7 +113,8 @@ class _BenchNotes(_BenchHonest):
         key = (
             "select_bench.mute_dead_voice_note" if dead_voice else "select_bench.mute_fallback_note"
         )
-        print(phrase(key, tried=tried, dead=dead_voice, number=mute.number, lang=lang))
+        shown = {"dead": dead_voice and label(dead_voice), "number": label(mute.number)}
+        print(phrase(key, tried=tried, lang=lang, **shown))
         # 🔴 TC-1303. Помечаем ход, а не только печатаем строку в stdout: карточка веба
         # печатное слово не читает, и без этого признака зритель молча получал бы чужой
         # звук (см. :class:`web.heard.Heard`, :func:`web.release_keys.release_keys`).

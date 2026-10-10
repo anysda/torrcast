@@ -6,6 +6,7 @@ import pytest
 
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
+from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
@@ -102,3 +103,22 @@ def test_judge_still_judges_a_named_release_that_answers_only_on_the_second_ask(
     assert "спрашиваю релиз 69 ещё раз" in said
     assert "релиз 69 ответил в одиночку" in said
     assert "релиз 2 " not in said
+
+
+#: Годный кадр, звук только английский, и язык паспорт назвал.
+ENGLISH = Media(RUNTIME, (AudioTrack(index=0, language="eng"),), "h264", height=1080, width=1920)
+
+
+def test_judge_names_the_foreign_voice_fallback_by_the_typed_number(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Запасной ход на чужой звук под ``--judge`` называет раздачу номером человека."""
+    pool = [rel("one"), NAMED]
+    bench = Bench(Torrents(), prober=probes(pool, FHD, ENGLISH))
+    args = Args(query=["кино"], release=69, release_hash=info_hash(NAMED), judge=True)
+
+    assert bench.resolve(plan(pool), args, Said()).number == 2
+
+    said = capsys.readouterr().out
+    assert "включаю релиз 69, звук английский" in said
+    assert "релиз 2" not in said

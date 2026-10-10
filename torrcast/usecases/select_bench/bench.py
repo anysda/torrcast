@@ -177,8 +177,8 @@ class Bench(_BenchPrewarm):
             return alive
         hunted = exhausted or tally.hunted >= self.voice_budget
         if hunted and (mute := _mute_alive(self.profile, self.torrserver, tally, self._forget)):
-            checked, dead = len(tally.tried), tally.dead_voice
-            return self._mute_fallback(plan, mute, queue, tally.judged, reached, checked, dead)
+            said = len(tally.tried), tally.dead_voice, tally.label  # сколько, кого, каким номером
+            return self._mute_fallback(plan, mute, queue, tally.judged, reached, *said)
         if tally.mute is not None:
             self._spare(tally.mute)
         if tally.verdicts == 0 and exhausted and tally.tried:

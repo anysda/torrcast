@@ -147,16 +147,16 @@ def test_a_revived_release_whose_passport_stays_ambiguous_does_not_play(
     assert "релиз 1 ответил в одиночку, но без русской озвучки" in capsys.readouterr().out
 
 
-def _ambiguous_revival(args: Args, capsys: pytest.CaptureFixture[str]) -> tuple[bool, str]:
+#: Одна дорожка без языка и одна английская: паспорт про русский звук молчит.
+_AMBIGUOUS = (AudioTrack(index=0), AudioTrack(index=1, language="eng", title="Original"))
+
+
+def _ambiguous_revival(
+    args: Args, capsys: pytest.CaptureFixture[str], tracks: tuple[AudioTrack, ...] = _AMBIGUOUS
+) -> tuple[bool, str]:
     pool = [rel(name="r0 | Дубляж", seeders=100)]
     built = plan(pool)
-    ambiguous = Media(
-        RUNTIME,
-        (AudioTrack(index=0), AudioTrack(index=1, language="eng", title="Original")),
-        "h264",
-        height=1080,
-        width=1920,
-    )
+    ambiguous = Media(RUNTIME, tracks, "h264", height=1080, width=1920)
     bench = Bench(Torrents(), prober=probes(pool, ambiguous), meta_budget=1.0, probe_budget=1.0)
     silent = bench.start(built, 1)
     bench._wait(silent, Said())
@@ -187,3 +187,15 @@ def test_a_named_revival_without_judge_plays_as_the_human_chose(
 
     assert played
     assert "спрашиваю релиз 69 ещё раз" in said
+
+
+def test_judge_names_a_foreign_voice_revival_by_the_typed_number(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ожившая названная раздача с одним английским звуком играет запасным ходом - номером 69."""
+    english = (AudioTrack(index=0, language="eng"),)
+    played, said = _ambiguous_revival(Args(query=["кино"], release=69, judge=True), capsys, english)
+
+    assert played
+    assert "включаю релиз 69, звук английский" in said
+    assert "релиз 1 " not in said
