@@ -125,6 +125,9 @@ def probe(
     media = parse_media(stdout)
     if tail is None:
         return media
+    if media.video is None:  # файл озвучки: картинки нет, хвосту резать нечего
+        _keep_media(cache, media)
+        return media
     try:
         end = tail.result(TAIL_BUDGET if tail_wait is None else tail_wait)
     except Late:

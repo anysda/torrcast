@@ -127,6 +127,32 @@ def test_a_passport_whose_tail_was_not_read_stays_off_the_shelf(
     assert third == again and len(seen) == 4, "дочитанный хвост ложится на полку"
 
 
+def test_a_voice_file_passport_reaches_the_shelf_without_a_picture_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Внешняя озвучка картинки не несёт, и конца картинки у неё не бывает вовсе.
+
+    Паспорт звука следующей серии автопереход посреди обрыва берёт только с полки
+    (:func:`torrcast.usecases.episode_duration._duration`). Отрицательная проба: убрать
+    ветку файла без видео - второй щуп зовёт ffprobe, тест красный.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    voice = json.dumps(
+        {
+            "format": {"duration": "2702.688"},
+            "streams": [{"index": 0, "codec_name": "ac3", "codec_type": "audio", "channels": 6}],
+        }
+    )
+    tail = "".join(f"audio,{2690 + 0.032 * n:.3f},0.032\n" for n in range(300))
+
+    first = probe("http://torr/stream/hash-voice/3", run=_asked([], answer=voice, tail=tail))
+
+    def boom(*_a: object) -> str:
+        raise AssertionError("паспорт озвучки обязан прийти с полки")
+
+    assert probe("http://torr/stream/hash-voice/3", run=boom) == first
+
+
 def test_a_missing_ffprobe_is_named_not_traced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
