@@ -71,19 +71,36 @@ def test_a_darkness_at_the_end_that_was_not_raised_counts_only_with_its_tail(
     """
     entry = Entry(title="Кино", magnet="magnet:?xt=1", dur=7200.0, pos=7190.0)
     watch = Watch(key="кино", entry=entry)
-    receiver = PlainReceiver([(7190.0, "PLAYING"), (0.0, "IDLE")])
+    receiver = FakeReceiver([(7190.0, "PLAYING"), (0.0, "IDLE")], answer=-1.0)
 
-    ended = _hold(
+    _hold(
         cast(Receiver, receiver),
         feed_with_segments(tmp_path, slots=slots),
         watch,
         clock=FakeClock(now=1000.0),
     )
 
-    assert ended is False
     assert watch.cut_short is cut
     watch.close()
     assert watch.done is not cut
+
+
+def test_a_viewer_who_leaves_a_tab_at_96_percent_keeps_it_watched(tmp_path: Path) -> None:
+    """Вкладка поднимать не умеет, и её темнота - уход зрителя (закрыл страницу), а не
+    сдавшийся подъём: 96% остаются «досмотрено» и без упакованного хвоста (TC-882).
+
+    Отрицательная проба: резать хвост на выходе лестницы у любого приёмника - красный.
+    """
+    entry = Entry(title="Кино", magnet="magnet:?xt=1", dur=7200.0, pos=6912.0)
+    watch = Watch(key="кино", entry=entry)
+    receiver = PlainReceiver([(6912.0, "PLAYING"), (0.0, "IDLE")])
+
+    _hold(cast(Receiver, receiver), feed_with_segments(tmp_path, slots=60), watch,
+          clock=FakeClock(now=1000.0))  # fmt: skip
+
+    assert watch.cut_short is False
+    watch.close()
+    assert watch.done is True
 
 
 def test_an_ended_receiver_finishes_the_session_without_a_revival(tmp_path: Path) -> None:

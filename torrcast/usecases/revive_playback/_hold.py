@@ -18,7 +18,7 @@ from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
-from torrcast.usecases.choice._ctl import _ctl
+from torrcast.usecases.choice._ctl import _ctl, _Revivable
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._closed import _closed
@@ -181,8 +181,9 @@ def _hold(
             )
             if watch is not None:
                 watch.skip_to(revival.resume_at)
-            if not still_holding:
-                _tail_cut(watch, feed, screen.held or start)  # сдались у конца без хвоста
+            if not still_holding:  # сдался подъём у конца без хвоста; ушедший зритель - не обрыв
+                if isinstance(receiver, _Revivable):
+                    _tail_cut(watch, feed, screen.held or start)
                 return revival.ended
             # Причину темноты добывает сам :class:`_Revival`, спрашивая источник, и в след
             # она уже легла (:func:`_why`). Второй раз то же событие не пишем.
