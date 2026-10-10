@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import torrcast.adapters.stream_pack.packer_finished as finished
+import torrcast.adapters.stream_pack.tail_end as tail_module
 from tests.usecases.feed_pack.world import FakeProc, grid, lay, packer
 from torrcast.adapters.stream_pack.packer_finished import _cuts, _drift, _finished
 from torrcast.domain.hls_settings import PACK_LIST
@@ -59,11 +59,12 @@ def test_a_last_piece_whose_sound_outlives_the_picture_is_the_end_of_the_film(
     """
     asked: list[str] = []
 
-    def measure(piece: Path) -> float:
+    def measure(piece: Path, header: Path | None) -> float:
         asked.append(piece.name)
-        return 60.0
+        assert header is None, "кусок TS читается сам, без головы"
+        return 4.0
 
-    monkeypatch.setattr(finished, "piece_end", measure)
+    monkeypatch.setattr(tail_module, "piece_overhang", measure)
     run = packer(tmp_path, proc=FakeProc(code=0), grid=grid())
     lay(run.run, 5)
     _list(run.run, ("v5.ts", 50.0, 56.0))
@@ -76,7 +77,7 @@ def test_a_torn_last_piece_stays_torn_by_its_own_tracks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Обрыв входа закрывает обе дорожки вместе: мера по пакетам его не прощает."""
-    monkeypatch.setattr(finished, "piece_end", lambda _piece: 56.1)
+    monkeypatch.setattr(tail_module, "piece_overhang", lambda _piece, _head: 0.1)
     run = packer(tmp_path, proc=FakeProc(code=0), grid=grid())
     lay(run.run, 5)
     _list(run.run, ("v5.ts", 50.0, 56.0))
@@ -90,11 +91,11 @@ def test_a_short_piece_inside_the_film_is_not_measured_again(
     """Звук за картинкой бывает только у конца фильма: середина судится списком, как была."""
     asked: list[str] = []
 
-    def measure(piece: Path) -> float:
+    def measure(piece: Path, _head: Path | None) -> float:
         asked.append(piece.name)
-        return 20.0
+        return 6.0
 
-    monkeypatch.setattr(finished, "piece_end", measure)
+    monkeypatch.setattr(tail_module, "piece_overhang", measure)
     run = packer(tmp_path, proc=FakeProc(code=0), grid=grid())
     lay(run.run, 1)
     _list(run.run, ("v1.ts", 10.0, 14.0))

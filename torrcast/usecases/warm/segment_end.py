@@ -43,7 +43,7 @@ def segment_end(path: Path) -> float:
     конец куска из списка нарезки ffmpeg, а там стоит конец ОПОРНОЙ дорожки, то есть видео,
     а не мукса: замер на стенде - список 1034.508, звук в том же куске до 1038.545. Поэтому
     последний кусок фильма она перемеряет по его пакетам
-    (:func:`torrcast.adapters.stream_pack.piece_end.piece_end`).
+    (:func:`torrcast.adapters.stream_pack.tail_end.tail_end`).
 
     ``nan`` — честное «не знаю»: файл не читается или не выровнен по пакетам TS.
     """

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-import torrcast.adapters.stream_pack.done_slots as slots_module
+import torrcast.adapters.stream_pack.tail_end as tail_module
 from tests.usecases.feed_pack.world import packer
 from torrcast.adapters.stream_pack.done_slots import done_slots
 from torrcast.adapters.stream_pack.grid import Grid
@@ -179,7 +179,7 @@ def test_a_tail_whose_sound_runs_past_the_picture_is_done(
     Замер на стенде: видео в файле кончается на 1034.4 с, звук на 1038.4 с при границе
     1038.46 с. Хвост без этого перемера не выходил наружу, и плеер стоял за 8.5 с до конца.
     """
-    monkeypatch.setattr(slots_module, "piece_end", lambda _piece: GRID.end(TAIL) + GRID.origin)
+    monkeypatch.setattr(tail_module, "piece_overhang", lambda _piece, _head: 4.0)
     run = packer(tmp_path, grid=GRID)
     _cut_list(run.run, {**_whole(), TAIL: GRID.end(TAIL) - 4.0})
 
@@ -190,7 +190,7 @@ def test_a_torn_tail_stays_short_by_every_track(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Перемер по дорожкам не прощает обрыв: звук тоже кончился раньше границы."""
-    monkeypatch.setattr(slots_module, "piece_end", lambda _piece: GRID.start(TAIL) + 2.5)
+    monkeypatch.setattr(tail_module, "piece_overhang", lambda _piece, _head: 0.5)
     run = packer(tmp_path, grid=GRID)
     _cut_list(run.run, {**_whole(), TAIL: GRID.start(TAIL) + 2.0})
 
