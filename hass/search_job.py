@@ -99,6 +99,7 @@ class SearchJob(SearchPosterVerdict):
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     #: One poster verdict of the job at a time: the source marks a picture only once it answers.
     _verdict: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    worker: threading.Thread | None = field(default=None, repr=False)
 
     def run(
         self,

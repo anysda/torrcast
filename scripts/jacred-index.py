@@ -27,12 +27,20 @@ CREATE TRIGGER release_ai AFTER INSERT ON release BEGIN
 
 
 def records(root: Path) -> Iterator[tuple[str, str, int, int, int, str]]:
+    if not root.is_dir():
+        raise FileNotFoundError(f"FileDB source is missing: {root}")
     for path in root.rglob("*"):
+        if path.is_dir():
+            continue
+        if not path.exists():
+            raise FileNotFoundError(f"FileDB source disappeared while building: {path}")
         if not path.is_file():
             continue
         try:
             with gzip.open(path, "rt", encoding="utf-8") as source:
                 raw = json.load(source)
+        except FileNotFoundError as error:
+            raise FileNotFoundError(f"FileDB source disappeared while building: {path}") from error
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
         if not isinstance(raw, dict):
@@ -61,39 +69,45 @@ def build(
     fresh = target.with_suffix(".new")
     fresh.unlink(missing_ok=True)
     db = sqlite3.connect(fresh)
-    db.executescript("PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; " + SCHEMA)
-    count = 0
-    batch: list[tuple[str, str, int, int, int, str]] = []
-    for row in records(source):
-        if wait_for_idle:
-            wait_for_idle()
-        batch.append(row)
-        if len(batch) == 1000:
+    try:
+        db.executescript("PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; " + SCHEMA)
+        count = 0
+        batch: list[tuple[str, str, int, int, int, str]] = []
+        for row in records(source):
+            if wait_for_idle:
+                wait_for_idle()
+            batch.append(row)
+            if len(batch) == 1000:
+                db.executemany(
+                    "INSERT INTO release(title,magnet,size,seeders,leechers,created) "
+                    "VALUES(?,?,?,?,?,?)",
+                    batch,
+                )
+                db.commit()
+                count += len(batch)
+                batch.clear()
+        if batch:
             db.executemany(
                 "INSERT INTO release(title,magnet,size,seeders,leechers,created) "
                 "VALUES(?,?,?,?,?,?)",
                 batch,
             )
-            db.commit()
             count += len(batch)
-            batch.clear()
-    if batch:
-        db.executemany(
-            "INSERT INTO release(title,magnet,size,seeders,leechers,created) VALUES(?,?,?,?,?,?)",
-            batch,
-        )
-        count += len(batch)
-    if not count:
+        if not count:
+            raise ValueError("FileDB contains no usable releases")
+        if wait_for_idle:
+            wait_for_idle()
+        db.execute("INSERT INTO search(search) VALUES('optimize')")
+        db.commit()
+        db.close()
+        if not source.is_dir():
+            raise FileNotFoundError(f"FileDB source disappeared while building: {source}")
+        os.replace(fresh, target)
+        return count, time.monotonic() - began
+    except BaseException:
         db.close()
         fresh.unlink(missing_ok=True)
-        raise ValueError("FileDB contains no usable releases")
-    if wait_for_idle:
-        wait_for_idle()
-    db.execute("INSERT INTO search(search) VALUES('optimize')")
-    db.commit()
-    db.close()
-    os.replace(fresh, target)
-    return count, time.monotonic() - began
+        raise
 
 
 if __name__ == "__main__":

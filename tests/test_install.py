@@ -129,6 +129,42 @@ def test_jacred_refresh_yields_cpu_io_and_page_cache_to_playback() -> None:
     assert "ExecStart=$PYTHON $PREFIX/jacred-update.py $jacred_index" in unit
 
 
+@pytest.mark.machine
+def test_reinstall_overwrites_the_existing_jacred_refresh_unit(tmp_path: Path) -> None:
+    """An upgrade writes the changed unit and asks systemd to reread it."""
+    units = tmp_path / "units"
+    units.mkdir()
+    service = units / "torrcast-jacred-refresh.service"
+    service.write_text("old unit\n", encoding="utf-8")
+    calls = tmp_path / "systemctl.calls"
+    systemctl = tmp_path / "systemctl"
+    systemctl.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(calls))}\n')
+    systemctl.chmod(0o755)
+    installer = "install_jacred_refresh_unit() {\n" + _body("install_jacred_refresh_unit") + "\n}"
+    command = f"""
+set -eu
+SYSTEMD_UNIT_DIR={shlex.quote(str(units))}
+SYSTEMCTL={shlex.quote(str(systemctl))}
+OS_FAMILY=linux
+PYTHON=/chosen/python
+PREFIX=/chosen/prefix
+jacred_index=/chosen/state/index.sqlite
+{installer}
+install_jacred_refresh_unit
+"""
+
+    done = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stderr
+    installed = service.read_text(encoding="utf-8")
+    assert "old unit" not in installed
+    assert "Nice=19" in installed
+    assert calls.read_text(encoding="utf-8").splitlines() == [
+        "daemon-reload",
+        "enable --now torrcast-jacred-refresh.timer",
+    ]
+
+
 def test_the_two_local_indexers_do_not_share_one_prowlarr_queue() -> None:
     """Prowlarr paces its asks per host and ignores the port: one host means one queue.
 

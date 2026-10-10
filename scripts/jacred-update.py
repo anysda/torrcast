@@ -20,28 +20,26 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from fcntl import LOCK_EX, LOCK_NB, flock
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Any, BinaryIO, Literal, cast
 
 ARCHIVE = "https://jacred.su/database/latest.tar.zst"
 BUILDER = Path(__file__).with_name("jacred-index.py")
-STATE = "http://127.0.0.1:8479/api/state"
+HA_PORT_ENV = "TORRCAST_HA_PORT"
 PAUSE_POLL = 0.25
 PAUSE_LIMIT = 3 * 60 * 60
+DOWNLOAD_TRIES = 3
 
 
-class Builder(Protocol):
-    def build(
-        self, source: Path, target: Path, wait_for_idle: Callable[[], None] | None = None
-    ) -> tuple[int, float]: ...
+BUSY: Literal["busy"] = "busy"
 
 
-class Readable(Protocol):
-    def read(self, size: int = -1) -> bytes: ...
-
-
-class Writable(Protocol):
-    def write(self, data: bytes) -> object: ...
+def _state() -> str:
+    try:
+        return f"http://127.0.0.1:{int(os.environ.get(HA_PORT_ENV) or 8479)}/api/state"
+    except ValueError:
+        return "http://127.0.0.1:8479/api/state"
 
 
 class PlaybackBrake:
@@ -63,7 +61,7 @@ class PlaybackBrake:
         if now >= self._next_probe:
             self._next_probe = now + PAUSE_POLL
             try:
-                with urllib.request.urlopen(STATE, timeout=1) as response:
+                with urllib.request.urlopen(_state(), timeout=1) as response:
                     body = json.load(response)
             except (OSError, ValueError, json.JSONDecodeError):
                 self._busy = False
@@ -81,12 +79,12 @@ class PlaybackBrake:
             self._sleep(PAUSE_POLL)
 
 
-def _builder() -> Builder:
+def _builder() -> Any:
     spec = importlib.util.spec_from_file_location("jacred_index", BUILDER)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return cast(Builder, module)
+    return module
 
 
 def _etag_file(target: Path) -> Path:
@@ -100,7 +98,7 @@ def _discard_abandoned_refreshes(target: Path) -> None:
             shutil.rmtree(work)
 
 
-def _copy(source: Readable, target: Writable, brake: PlaybackBrake) -> None:
+def _copy(source: BinaryIO, target: BinaryIO, brake: PlaybackBrake) -> None:
     while block := source.read(1024 * 1024):
         brake.wait()
         target.write(block)
@@ -111,32 +109,32 @@ def _unpack(archive: Path, source: Path, brake: PlaybackBrake) -> None:
         ["tar", "--zstd", "-xf", archive, "-C", source], start_new_session=True
     )
     paused = False
-    while process.poll() is None:
-        blocked = brake.blocked()
-        if blocked and not paused:
-            os.killpg(process.pid, signal.SIGSTOP)
-            paused = True
-        elif not blocked and paused:
+    try:
+        while process.poll() is None:
+            blocked = brake.blocked()
+            if blocked and not paused:
+                os.killpg(process.pid, signal.SIGSTOP)
+                paused = True
+            elif not blocked and paused:
+                os.killpg(process.pid, signal.SIGCONT)
+                paused = False
+            time.sleep(PAUSE_POLL)
+    except BaseException:
+        if paused:
             os.killpg(process.pid, signal.SIGCONT)
-            paused = False
-        time.sleep(PAUSE_POLL)
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait()
+        raise
     if paused:
         os.killpg(process.pid, signal.SIGCONT)
     if process.returncode:
         raise subprocess.CalledProcessError(process.returncode, process.args)
 
 
-def refresh(target: Path) -> tuple[int, float] | None:
-    """Fetch, unpack and atomically replace ``target``; keep the former index on errors."""
-    target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-    _discard_abandoned_refreshes(target)
-    etag_file = _etag_file(target)
-    brake = PlaybackBrake()
-    headers = {"If-None-Match": etag_file.read_text().strip()} if etag_file.is_file() else {}
-    request = urllib.request.Request(ARCHIVE, headers=headers)
-    with tempfile.TemporaryDirectory(dir=target.parent, prefix="refresh-") as temporary:
-        work = Path(temporary)
-        archive = work / "latest.tar.zst"
+def _download(request: urllib.request.Request, archive: Path, brake: PlaybackBrake) -> str | None:
+    """Restart an interrupted paused download instead of publishing a partial archive."""
+    for attempt in range(DOWNLOAD_TRIES):
         try:
             with (
                 urllib.request.urlopen(request, timeout=1800) as response,
@@ -144,26 +142,55 @@ def refresh(target: Path) -> tuple[int, float] | None:
             ):
                 _copy(response, out, brake)
                 etag = response.headers.get("ETag")
-        except urllib.error.HTTPError as error:
-            if error.code == 304:
-                return None
+                return etag if isinstance(etag, str) else None
+        except urllib.error.HTTPError:
             raise
-        source = work / "filedb"
-        source.mkdir()
-        _unpack(archive, source, brake)
-        result = _builder().build(source, target, brake.wait)
-        if etag:
-            etag_file.write_text(etag + "\n")
-        else:
-            etag_file.unlink(missing_ok=True)
-        return result
+        except OSError:
+            if attempt + 1 == DOWNLOAD_TRIES:
+                raise
+    raise AssertionError("unreachable")
+
+
+def refresh(target: Path) -> tuple[int, float] | Literal["busy"] | None:
+    """Fetch, unpack and atomically replace ``target``; keep the former index on errors."""
+    target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    with target.with_suffix(target.suffix + ".refresh.lock").open("a+") as lock:
+        try:
+            flock(lock, LOCK_EX | LOCK_NB)
+        except BlockingIOError:
+            return BUSY
+        _discard_abandoned_refreshes(target)
+        etag_file = _etag_file(target)
+        brake = PlaybackBrake()
+        headers = {"If-None-Match": etag_file.read_text().strip()} if etag_file.is_file() else {}
+        request = urllib.request.Request(ARCHIVE, headers=headers)
+        with tempfile.TemporaryDirectory(dir=target.parent, prefix="refresh-") as temporary:
+            work = Path(temporary)
+            archive = work / "latest.tar.zst"
+            try:
+                etag = _download(request, archive, brake)
+            except urllib.error.HTTPError as error:
+                if error.code == 304:
+                    return None
+                raise
+            source = work / "filedb"
+            source.mkdir()
+            _unpack(archive, source, brake)
+            result = _builder().build(source, target, brake.wait)
+            if etag:
+                etag_file.write_text(etag + "\n")
+            else:
+                etag_file.unlink(missing_ok=True)
+            return cast(tuple[int, float], result)
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise SystemExit("usage: jacred-update.py INDEX.sqlite")
     result = refresh(Path(sys.argv[1]))
-    if result is None:
+    if result == BUSY:
+        print("refresh already running")
+    elif result is None:
         print("catalogue unchanged")
     else:
         rows, elapsed = result

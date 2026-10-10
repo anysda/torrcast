@@ -2871,6 +2871,41 @@ prowlarr_config_ok() {  # $1 - путь к config.xml
     LC_ALL=C tr -d '\000' <"$f" | cmp -s - "$f"
 }
 
+install_jacred_refresh_unit() {
+    [ "${OS_FAMILY:-linux}" = linux ] && [ -z "${TORRCAST_NO_SYSTEMD:-}" ] || return 0
+    cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.service" <<EOF
+[Unit]
+Description=Refresh the local JacRed catalogue
+
+[Service]
+Type=oneshot
+# A FileDB refresh is deliberately background work.  Keep its archive expansion,
+# FTS build and page cache below a cold stream: ``idle`` yields the block device
+# whenever TorrServer needs it, and the cgroup limits prevent the file cache from
+# claiming the guest's whole memory while SQLite scans the unpacked catalogue.
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=1
+IOWeight=1
+MemoryHigh=1G
+ExecStart=$PYTHON $PREFIX/jacred-update.py $jacred_index
+EOF
+    cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.timer" <<EOF
+[Unit]
+Description=Refresh the local JacRed catalogue every six hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    "$SYSTEMCTL" daemon-reload
+    "$SYSTEMCTL" enable --now torrcast-jacred-refresh.timer >/dev/null
+}
+
 install_prowlarr() {
     log "Prowlarr ($PL_URL, public indexers)" "Prowlarr ($PL_URL, публичные индексеры)"
     pick_python
@@ -2911,39 +2946,7 @@ install_prowlarr() {
         || info "⚠ JacRed did not start - other indexers will continue working" "⚠ JacRed не поднялся - остальные индексеры продолжат работать"
     # A refresh does not stop searches: the updater replaces index.sqlite only after
     # SQLite has committed and closed the new file.  The timer starts after boot too.
-    if [ "${OS_FAMILY:-linux}" = linux ] && [ -z "${TORRCAST_NO_SYSTEMD:-}" ]; then
-        cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.service" <<EOF
-[Unit]
-Description=Refresh the local JacRed catalogue
-
-[Service]
-Type=oneshot
-# A FileDB refresh is deliberately background work.  Keep its archive expansion,
-# FTS build and page cache below a cold stream: ``idle`` yields the block device
-# whenever TorrServer needs it, and the cgroup limits prevent the file cache from
-# claiming the guest's whole memory while SQLite scans the unpacked catalogue.
-Nice=19
-IOSchedulingClass=idle
-CPUWeight=1
-IOWeight=1
-MemoryHigh=1G
-ExecStart=$PYTHON $PREFIX/jacred-update.py $jacred_index
-EOF
-        cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.timer" <<EOF
-[Unit]
-Description=Refresh the local JacRed catalogue every six hours
-
-[Timer]
-OnBootSec=15min
-OnUnitActiveSec=6h
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
-        "$SYSTEMCTL" daemon-reload
-        "$SYSTEMCTL" enable --now torrcast-jacred-refresh.timer >/dev/null
-    fi
+    install_jacred_refresh_unit
     install -d -m 0755 "$PREFIX/prowlarr-data/Definitions"
     if ! cmp -s "$REPO_DIR/scripts/anilibria.yml" \
             "$PREFIX/prowlarr-data/Definitions/anilibria.yml" \

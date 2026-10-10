@@ -469,7 +469,10 @@ def test_a_new_job_after_the_ttl_keeps_the_poster_verdict_already_known(tmp_path
 
 @pytest.mark.machine
 def test_nothing_found_is_an_empty_final_not_a_refusal() -> None:
-    """The page says «nothing found» only on an empty final: a refusal draws a failed search."""
+    """The page says «nothing found» only on an empty final: a refusal draws a failed search.
+
+    This stays ``machine`` because it joins the real ``search-progress`` worker thread.
+    """
     wire_catalogue()
     gate = threading.Event()
     client = _PreviewClient(answers={}, raw=[])
@@ -481,6 +484,10 @@ def test_nothing_found_is_an_empty_final_not_a_refusal() -> None:
 
     gate.set()
     assert completed.wait(1.0), "the search worker did not finish after its gate opened"
+    worker = module._jobs["нетакого"].worker
+    assert worker is not None
+    worker.join(timeout=1.0)
+    assert not worker.is_alive(), "the job did not settle after its search returned"
     results, partial = _poll("нетакого", search)
     assert (results, partial) == ([], False)
 

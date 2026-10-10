@@ -2,6 +2,7 @@
 
 import gzip
 import importlib.util
+import shutil
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -71,6 +72,54 @@ def test_a_build_interrupted_before_replace_keeps_the_live_index(
 
     with sqlite3.connect(target) as published:
         assert published.execute("SELECT value FROM known").fetchall() == [("published",)]
+
+
+def test_a_source_file_lost_during_build_does_not_replace_the_live_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "filedb"
+    source.mkdir()
+    lost = source / "gone.json.gz"
+    with gzip.open(lost, "wt", encoding="utf-8") as out:
+        out.write('{"one":{"title":"Матрица","magnet":"magnet:?xt=urn:btih:a"}}')
+    target = tmp_path / "index.sqlite"
+    target.write_bytes(b"published")
+    real_open = index.gzip.open
+
+    def vanish(path: Path, *args: object, **kwargs: object) -> object:
+        path.unlink()
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(index.gzip, "open", vanish)
+
+    with pytest.raises(FileNotFoundError, match="disappeared while building"):
+        index.build(source, target)
+
+    assert target.read_bytes() == b"published"
+    assert not target.with_suffix(".new").exists()
+
+
+def test_a_source_directory_lost_after_records_does_not_replace_the_live_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "filedb"
+    source.mkdir()
+    with gzip.open(source / "one.json.gz", "wt", encoding="utf-8") as out:
+        out.write('{"one":{"title":"Матрица","magnet":"magnet:?xt=urn:btih:a"}}')
+    target = tmp_path / "index.sqlite"
+    target.write_bytes(b"published")
+    real_records = index.records
+
+    def remove_root(root: Path) -> Iterator[tuple[str, str, int, int, int, str]]:
+        yield from real_records(root)
+        shutil.rmtree(root)
+
+    monkeypatch.setattr(index, "records", remove_root)
+
+    with pytest.raises(FileNotFoundError, match="disappeared while building"):
+        index.build(source, target)
+
+    assert target.read_bytes() == b"published"
 
 
 def test_build_checks_for_playback_before_each_batch(

@@ -145,12 +145,13 @@ def search_progress(
         if job is None or stale:
             job = SearchJob(catalog=None if catalog is None else catalog(query))
             _jobs[key] = job
-            threading.Thread(
+            job.worker = worker = threading.Thread(
                 target=job.run,
                 args=(config, query, detect, remember, search, offer, warm),
                 daemon=True,
                 name="search-progress",
-            ).start()
+            )
+            worker.start()
     if job.overdue():
         job.settle(_preview(query, job, offer, done=True))
     if not job.done:
