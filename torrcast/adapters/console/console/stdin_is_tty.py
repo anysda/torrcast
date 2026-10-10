@@ -4,12 +4,36 @@
 
 from __future__ import annotations
 
+import os
 import sys
+from typing import TextIO
 
 
 def stdin_is_tty() -> bool:
-    """Есть ли живой терминал на входе. Отдельной функцией — чтобы тесты могли соврать."""
+    """Есть ли живой терминал на входе. Отдельной функцией — чтобы тесты могли соврать.
+
+    Терминал наш, только пока мы в его группе переднего плана. Фоновую задачу (``cast ... &``,
+    ``timeout`` без ``--foreground``, который уводит команду в свою группу) ядро
+    останавливает SIGTTOU на первой же смене режима и SIGTTIN на первом чтении, и команда
+    висит, пока её не продолжат руками: ``timeout 300 cast ...`` под pty стоял так дольше
+    своего срока. Фоновой задаче терминал не отвечает, и для неё его нет.
+    """
     try:
-        return bool(sys.stdin.isatty())
+        if not sys.stdin.isatty():
+            return False
     except ValueError:  # закрытый stdin (так бывает в юните)
         return False
+    return _foreground(sys.stdin)
+
+
+def _foreground(stream: TextIO) -> bool:
+    """Не стоит ли на переднем плане управляющего терминала чужая группа.
+
+    Остановкой ядро грозит только на управляющем терминале. Поток без дескриптора (подделка
+    входа) и терминал, который нам не управляющий (``tcgetpgrp`` отвечает ENOTTY), никого не
+    останавливают: там верим ответу потока.
+    """
+    try:
+        return os.tcgetpgrp(stream.fileno()) == os.getpgrp()
+    except (AttributeError, ValueError, OSError):
+        return True
