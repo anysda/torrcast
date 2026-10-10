@@ -67,9 +67,12 @@ def probe(
     ``run`` - чем запускать ffprobe. Боевое умолчание одно (:func:`_run_ffprobe`), и
     меняет его только стенд: настоящий запуск требует и ffprobe, и живой раздачи.
 
-    ``tail_wait`` - сколько ждать хвост сверх головы (без него - бюджет щупа). Отбор раздачи
-    в CLI не ждёт его вовсе (ноль): конец картинки дочитывает сам показ, пока пакуется голова
-    (:class:`torrcast.usecases.playback._ending._Ending`), а поздний хвост и так ложится на полку.
+    ``tail_wait`` - сколько ждать хвост сверх головы (без него - бюджет щупа). Ноль - хвост
+    не читается вовсе: отбор раздачи в CLI его не ждёт, а конец картинки дочитывает сам показ
+    после первого кадра (:class:`torrcast.usecases.playback._ending._Ending`). 🔴 Стенд 10-10,
+    «Теория большого взрыва» s2e5, холодный рой: хвост отбора, которого никто не ждал, читался
+    рядом с головой 17 с и залез в заход упаковки. Паспорт без хвоста на полку не ложится:
+    иначе показ взял бы его оттуда и конца картинки не узнал.
     """
     cache = _media_cache(url)
     if (ready := _read_media(cache)) is not None:
@@ -104,9 +107,11 @@ def probe(
     with READS.reading(url) as readable:
         if not readable:
             raise InfraError(phrase("select.stream_not_read"))
-        pool = ThreadPoolExecutor(1)
-        tail = pool.submit(picture_end, url, min(timeout, TAIL_LIFE), still_reading, run)
-        pool.shutdown(wait=False)
+        tail = None
+        if tail_wait != 0:
+            pool = ThreadPoolExecutor(1)
+            tail = pool.submit(picture_end, url, min(timeout, TAIL_LIFE), still_reading, run)
+            pool.shutdown(wait=False)
         try:
             stdout = run(command, timeout, still_reading)
         except FileNotFoundError as exc:
@@ -118,6 +123,8 @@ def probe(
                 phrase("media_binaries.ffprobe_failed", reason=(exc.stderr or "").strip()[:120])
             ) from exc
     media = parse_media(stdout)
+    if tail is None:
+        return media
     try:
         end = tail.result(TAIL_BUDGET if tail_wait is None else tail_wait)
     except Late:

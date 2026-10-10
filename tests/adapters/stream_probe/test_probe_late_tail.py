@@ -84,25 +84,21 @@ def test_a_tail_that_lands_after_the_answer_reaches_the_shelf_for_the_next_show(
     assert probe("http://torr/stream/hash-1/2", run=boom).duration == pytest.approx(3000.0)
 
 
-@pytest.mark.machine
-def test_the_bench_does_not_wait_for_the_tail_at_all(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Отбор раздачи хвоста не ждёт: конец картинки дочитывает показ за упаковкой головы,
-    а поздний хвост всё равно ложится на полку.
+def test_the_bench_reads_no_tail_at_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Отбор раздачи хвоста не ждёт и не читает: конец картинки дочитывает показ после
+    первого кадра, а рой до картинки занят только головой.
 
-    🔴 Стенд 10-10: ожидание хвоста стоило старту до +7.4 с («Брат», холодная раздача).
-    Отрицательная проба: ``tail_wait`` не доходит до ожидания - ответ ждёт хвост весь бюджет.
+    🔴 Стенд 10-10: хвост отбора читался рядом с головой 17 с и залез в заход упаковки.
+    Отрицательная проба: хвост читается при нулевом ``tail_wait`` - щуп зовёт его ffprobe;
+    паспорт без хвоста ложится на полку - показ берёт его оттуда без конца картинки.
     """
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    late, timeouts = threading.Event(), list[float]()
-    began = time.monotonic()
-    first = probe("http://torr/stream/hash-1/2", run=_slow(0.0, late, timeouts), tail_wait=0.0)
-    assert time.monotonic() - began < 1.0, "отбор ждал хвост"
+
+    def head_only(command: list[str], timeout: float, alive: Any) -> str:
+        assert "-seekable" in command, "отбор читал хвост"
+        return _ANSWER
+
+    first = probe("http://torr/stream/hash-1/2", run=head_only, tail_wait=0.0)
+
     assert first.duration == 3600.0
-    late.set()
-    shelf = _media_cache("http://torr/stream/hash-1/2")
-    deadline = time.monotonic() + 5.0
-    while not shelf.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert shelf.exists(), "поздний хвост не лёг на полку"
+    assert not _media_cache("http://torr/stream/hash-1/2").exists(), "полка без хвоста"

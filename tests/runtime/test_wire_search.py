@@ -73,7 +73,7 @@ def test_the_search_gets_the_real_catalogue_and_the_real_release_service() -> No
     assert ENGINE.tell == START.restarted
 
     # Стенд отбора и сам отбор.
-    # Отбор хвоста файла не ждёт: конец картинки дочитывает показ за упаковкой головы.
+    # Отбор хвоста файла не читает: конец картинки дочитывает показ после первого кадра.
     bench_prober = _bench_state._bench_prober
     assert isinstance(bench_prober, partial) and bench_prober.func is probe
     assert (bench_prober.args, bench_prober.keywords) == ((), {"tail_wait": 0.0})
