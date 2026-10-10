@@ -74,7 +74,12 @@ class _PreviewClient(Indexer):
         return list(self._raw)
 
 
-def _blocking_search(client: _PreviewClient, gate: threading.Event, whole: bool = True) -> Any:
+def _blocking_search(
+    client: _PreviewClient,
+    gate: threading.Event,
+    whole: bool = True,
+    completed: threading.Event | None = None,
+) -> Any:
     """Круг поиска, который отдаёт клиента сразу и не возвращается, пока не отпустят.
 
     ``whole`` - ответил ли его каталог целиком: так его пустоту метит наблюдатель кругов."""
@@ -83,17 +88,21 @@ def _blocking_search(client: _PreviewClient, gate: threading.Event, whole: bool 
         on_indexer(client)
         gate.wait(2.0)
         try:
-            return search_circle(
-                config,
-                args,
-                said,
-                profile,
-                indexer=lambda *_a, **_k: client,
-                passport=lambda *_a, **_k: Origin(),
-            )
-        except NothingFoundError as nothing:
-            nothing.whole = whole
-            raise
+            try:
+                return search_circle(
+                    config,
+                    args,
+                    said,
+                    profile,
+                    indexer=lambda *_a, **_k: client,
+                    passport=lambda *_a, **_k: Origin(),
+                )
+            except NothingFoundError as nothing:
+                nothing.whole = whole
+                raise
+        finally:
+            if completed is not None:
+                completed.set()
 
     return search
 
@@ -458,20 +467,21 @@ def test_a_new_job_after_the_ttl_keeps_the_poster_verdict_already_known(tmp_path
     assert len(source.judged) == 1, "повтор после TTL снова судил уже известные обложки"
 
 
+@pytest.mark.machine
 def test_nothing_found_is_an_empty_final_not_a_refusal() -> None:
     """The page says «nothing found» only on an empty final: a refusal draws a failed search."""
     wire_catalogue()
     gate = threading.Event()
     client = _PreviewClient(answers={}, raw=[])
-    search = _blocking_search(client, gate)
+    completed = threading.Event()
+    search = _blocking_search(client, gate, completed=completed)
 
     results, partial = _poll("нетакого", search)
     assert (results, partial) == ([], True), "the job is not done yet: an empty step"
 
     gate.set()
-    deadline = time.monotonic() + 1.0
-    while time.monotonic() < deadline and partial:
-        results, partial = _poll("нетакого", search)
+    assert completed.wait(1.0), "the search worker did not finish after its gate opened"
+    results, partial = _poll("нетакого", search)
     assert (results, partial) == ([], False)
 
 
