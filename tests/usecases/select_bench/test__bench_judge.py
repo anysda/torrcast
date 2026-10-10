@@ -1,9 +1,12 @@
 """``--judge``: названную раздачу отбор судит так же, как свою."""
 
+from dataclasses import replace
+
 import pytest
 
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
+from torrcast.domain.info_hash import info_hash
 from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.select_bench.bench import Bench
@@ -39,3 +42,23 @@ def test_judge_gives_a_named_release_the_selection_verdict() -> None:
 def test_judge_lets_a_named_release_that_fits_play() -> None:
     """Приговор не придирка: годную названную раздачу ``--judge`` играет."""
     assert _resolve(FHD, Args(query=["кино"], release=1, judge=True)) == 1
+
+
+#: Раздача, названная номером строки таблицы, которую человек видел: в плане она вторая.
+NAMED = replace(rel("named"), magnet="magnet:?xt=urn:btih:" + "ab" * 20)
+
+
+def test_the_verdict_names_the_release_by_the_number_the_human_typed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """«Релиз 2 не годится» на ``--release 69`` читается как приговор чужой раздаче."""
+    pool = [rel("one"), NAMED]
+    bench = Bench(Torrents(), prober=probes(pool, FHD, REMUX))
+    args = Args(query=["кино"], release=69, release_hash=info_hash(NAMED), judge=True)
+
+    with pytest.raises(NotFoundError, match=r"годного релиза нет \(69 - перекод такого кадра"):
+        bench.resolve(plan(pool, warn_mbit=40.0, hard_mbit=25.0), args, Said())
+
+    said = capsys.readouterr().out
+    assert "релиз 69 не годится" in said
+    assert "релиз 2 " not in said

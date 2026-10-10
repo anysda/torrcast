@@ -200,3 +200,22 @@ def test_the_fallback_names_the_russian_release_lost_to_a_dead_swarm(
     said = capsys.readouterr().out
     assert "русская озвучка была только у раздач, чей рой кадра не довезёт (релиз 1)" in said
     assert "русской озвучки нет ни в одной" not in said
+
+
+def test_a_named_dead_swarm_is_called_by_the_number_the_human_typed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--release 69`` на третьей в плане раздаче: и строка роя, и отказ говорят 69."""
+    torrents = _Counter(1_000_000.0, 1_000_000.0)
+    composition.use_swarm_demand(monkeypatch, lambda source, offset, seconds: None)
+    prep = _Prep(number=3, release=rel("weak"))
+    prep.video = TorrFile(0, "movie.mkv", 4 * GB)
+    tally = _Tally(shown={3: 69}, tried=["69 - рой короток"])
+
+    assert (
+        _weak_alive(PROFILE, torrents, (0.05, 0.48, 9.54, prep), tally, list[_Prep]().append)
+        is None
+    )
+
+    assert "рой релиза 69 и под спросом везёт 0.00" in capsys.readouterr().out
+    assert tally.tried[0].startswith("69 - рой везёт 0.00")

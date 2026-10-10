@@ -46,7 +46,7 @@ def _weak_alive(
         remeasured = _remeasure(profile, torrserver, prep.torrent_hash, prep.video)
         if remeasured is None:  # замера не было: берётся, как и до перемера, по вехам
             tally.judged.pop(prep.number, None)
-            print(_supply_note(prep, got, need, ratio))
+            print(_supply_note(prep, got, need, ratio, tally.label(prep.number)))
             return prep
         got = remeasured
         ratio = got / need
@@ -54,17 +54,17 @@ def _weak_alive(
     if ratio < profile.supply_floor:
         why = phrase("select_bench.reason_thin_swarm", **numbers)
         tally.judged[prep.number] = why
+        shown = tally.label(prep.number)
         tally.tried = [
-            f"{prep.number} - {why}" if line.startswith(f"{prep.number} - ") else line
-            for line in tally.tried
+            f"{shown} - {why}" if line.startswith(f"{shown} - ") else line for line in tally.tried
         ]
-        print(phrase("select_bench.weak_dead", number=prep.number, **numbers))
+        print(phrase("select_bench.weak_dead", number=shown, **numbers))
         if prep is not tally.mute:
             tally.dead_voice = tally.dead_voice or prep.number
         forget(prep)
         return None
     tally.judged.pop(prep.number, None)
-    print(_supply_note(prep, got, need, ratio))
+    print(_supply_note(prep, got, need, ratio, tally.label(prep.number)))
     return prep
 
 

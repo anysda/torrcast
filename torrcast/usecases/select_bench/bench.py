@@ -9,7 +9,6 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.playback.refuse_called_off import refuse_called_off
-from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _waiting_note
@@ -78,7 +77,7 @@ class Bench(_BenchPrewarm):
             return card
         for number in _bench_front(queue, 1):
             self.start(plan, number)
-        tally = _Tally(self.voice_budget)
+        tally = _Tally(self.voice_budget, shown=_Tally.typed(queue, args.release))
         weak: tuple[float, float, float, _Prep] | None = None
         exhausted = False
         reached = 0
@@ -159,12 +158,7 @@ class Bench(_BenchPrewarm):
             affordable = tally.affordable(self.verdict_budget)
             goes_on = following is not None and affordable and self.clock() < deadline
             tail = phrase("select_bench.tail_take", following=following) if goes_on else ""
-            head = (
-                phrase("select_bench.voiceless_head", number=number, lang=heard(prep.voiced))
-                if voiceless
-                else phrase("select_bench.unfit_note", number=number, why=why)
-            )
-            print(head + tail)
+            print(tally.head(number, prep, why, voiceless=voiceless) + tail)
             if not goes_on:
                 # Дошли до конца очереди, а не встали по бюджету/попыткам: следующего нет.
                 exhausted = following is None

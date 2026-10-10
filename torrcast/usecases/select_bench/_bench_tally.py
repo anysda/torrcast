@@ -9,7 +9,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.pick_settings import MAX_TRIES, VOICE_BUDGET
+from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turned_down
 
@@ -47,6 +49,26 @@ class _Tally:
     #: Русская раздача, отброшенная в конце очереди за мёртвый рой (:func:`_weak_alive`):
     #: запасной безрусский ход тогда не вправе сказать «русской озвучки нет нигде».
     dead_voice: int = 0
+    #: Номер, который человек набрал (``--release``), по месту раздачи в плане: строки
+    #: приговора называют раздачу им, а не порядком ``plan.ranked``.
+    shown: dict[int, int] = field(default_factory=dict)
+
+    @staticmethod
+    def typed(queue: list[int], release: int | None) -> dict[int, int]:
+        """:attr:`shown` обхода: названа одна раздача (``--release``) - номер её набранный."""
+        return {} if release is None else dict.fromkeys(queue[:1], release)
+
+    def label(self, number: int) -> int:
+        """Каким номером раздачу назвать человеку (:attr:`shown`)."""
+        return self.shown.get(number, number)
+
+    def head(self, number: int, prep: _Prep, why: str, *, voiceless: bool) -> str:
+        """Строка осечки человеку: без нужной дорожки или не годится, с номером :meth:`label`."""
+        if voiceless:
+            return phrase(
+                "select_bench.voiceless_head", number=self.label(number), lang=heard(prep.voiced)
+            )
+        return phrase("select_bench.unfit_note", number=self.label(number), why=why)
 
     def note(
         self, number: int, prep: _Prep, why: str, since: float, clock: Callable[[], float]
@@ -57,7 +79,7 @@ class _Tally:
         сказал всё и стоит человеку секунд ожидания (:data:`VERDICT_BUDGET`) - их и
         считают часы, заведённые с ``since``, момента начала ожидания.
         """
-        self.tried.append(f"{number} - {why}")
+        self.tried.append(f"{self.label(number)} - {why}")
         if _silenced(prep):
             _did_not_answer(number, why, prep)
         else:

@@ -33,11 +33,13 @@ def _supply_verdict(profile: Profile, prep: _Prep) -> tuple[float, float, float]
     return _bench_supply(profile, prep)
 
 
-def _supply_note(prep: _Prep, got: float, need: float, ratio: float) -> str:
+def _supply_note(
+    prep: _Prep, got: float, need: float, ratio: float, number: int | None = None
+) -> str:
     """Назвать выбранный рой его измеренными скоростью, нуждой и отношением."""
     return phrase(
         "select_bench.supply_note",
-        number=prep.number,
+        number=prep.number if number is None else number,
         got=f"{got:.2f}",
         need=f"{need:.2f}",
         ratio=f"{ratio:.2f}",
