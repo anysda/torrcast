@@ -15,6 +15,7 @@ from torrcast.adapters.torrserver.echoed import PROBE_TIMEOUT, echoed
 from torrcast.adapters.torrserver.engine_restart import ENGINE
 from torrcast.adapters.torrserver.file_stats import file_stats
 from torrcast.adapters.torrserver.reading import Stop, reading
+from torrcast.adapters.torrserver.restart_recovery import RECOVERY
 from torrcast.adapters.torrserver.warmup import Warmup
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
@@ -24,9 +25,6 @@ from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.why import why
 from torrcast.ports.clock import Clock
-
-# Договор отсрочки - порт: она приходит от сценария, и знать надо обещанное порту. Часы
-# ведёт наша ContactWait выше, по ней же «отсрочка с часами» отличается от числа секунд.
 from torrcast.ports.contact_wait import ContactWait as ContactWaitPort
 
 if TYPE_CHECKING:
@@ -35,25 +33,6 @@ if TYPE_CHECKING:
 META_STEP = 0.05
 META_STEP_GROW = 1.5
 META_STEP_MAX = 0.2
-
-
-class _Magnets:
-    """Магниты добавленных нами раздач: после рестарта ``get`` должен сперва вернуть рой."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._by_hash: dict[str, str] = {}
-
-    def keep(self, torrent_hash: str, magnet: str) -> None:
-        with self._lock:
-            self._by_hash[torrent_hash.casefold()] = magnet
-
-    def get(self, torrent_hash: str) -> str:
-        with self._lock:
-            return self._by_hash.get(torrent_hash.casefold(), "")
-
-
-_MAGNETS = _Magnets()
 
 
 class TorrServer:
@@ -72,7 +51,7 @@ class TorrServer:
         torrent_hash = str(payload.get("hash", ""))
         if not torrent_hash:
             raise ServerDownError(phrase("torrserver.no_hash"))
-        _MAGNETS.keep(torrent_hash, magnet)
+        RECOVERY.remember(torrent_hash, magnet)
         DESCRIBER.later(self.base_url, torrent_hash)  # описание без пиров, если есть .torrent
         return torrent_hash
 
@@ -128,11 +107,6 @@ class TorrServer:
                     self.clock.sleep(min(step, META_STEP_MAX))
                     step = min(step * META_STEP_GROW, META_STEP_MAX)
                     continue
-                # 🔴 TC-739. Прогрев спрашивает рой с той секунды, как раздача добавлена,
-                # а не с той, как до неё дошла очередь: своё ожидание он уже отстоял, и
-                # начинать бюджеты заново значит ждать по второму разу то же самое.
-                # Приговор при этом не выносится раньше вопроса: до него релиз никому не
-                # мешает, и объявлять его негодным незачем.
                 deadline = max(activated, began + timeout)
                 hopeless = max(
                     activated, (empty_since if empty_since is not None else now) + grace.seconds
@@ -186,9 +160,8 @@ class TorrServer:
         def idle() -> bool:
             return cache_readers(self._post, torrent_hash) == 0
 
-        return DESCRIBER.close(
-            torrent_hash, lambda: self._torrent_action(action, torrent_hash), idle
-        )
+        remove = partial(self._torrent_action, action, torrent_hash)
+        return DESCRIBER.close(torrent_hash, remove, idle)
 
     def _torrent_action(self, action: str, torrent_hash: str) -> bool:
         try:
@@ -199,20 +172,14 @@ class TorrServer:
 
     def _post(self, path: str, body: dict[str, Any], json_body: bool = True) -> Any:
         ask = partial(self._ask, path, body, json_body)
-        torrent_hash = str(body.get("hash", ""))
-        recover = (
-            partial(self._restore, torrent_hash)
-            if path == "/torrents" and body.get("action") == "get" and torrent_hash
-            else _silent
-        )
         return ENGINE.answered(
-            self.base_url, self, ask, self.timeout, body.get("action") == "add", recover
+            self.base_url,
+            self,
+            ask,
+            self.timeout,
+            body.get("action") == "add",
+            RECOVERY.for_request(path, body, self.add),
         )
-
-    def _restore(self, torrent_hash: str) -> None:
-        """После падения службы вернуть известную раздачу магнитом перед повторным ``get``."""
-        if magnet := _MAGNETS.get(torrent_hash):
-            self.add(magnet)
 
     def _ask(self, path: str, body: dict[str, Any], json_body: bool, timeout: float) -> Any:
         import requests
@@ -231,7 +198,3 @@ class TorrServer:
             raise ServerDownError(
                 phrase("torrserver.unresponsive", base_url=self.base_url, reason=why(exc))
             ) from exc
-
-
-def _silent() -> None:
-    return None

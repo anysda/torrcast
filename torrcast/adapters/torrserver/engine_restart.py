@@ -109,13 +109,9 @@ class EngineRestart:
         ask: Callable[[float], T],
         timeout: float,
         add: bool,
-        recover: Callable[[], object] = _silent,
+        recover: Callable[[], object] | None = None,
     ) -> T:
-        """Ответ на ``ask(срок)``; ``add`` своей службы ждёт сперва :data:`ADD_TIMEOUT`.
-
-        Короткий срок (щуп показа, уборка на выходе: три секунды) службу не чинит вовсе:
-        молчание для них не беда по договору, и их тайм-аут - не довод, что служба повисла.
-        """
+        """Ответ на ``ask``; короткий вопрос не чинит службу, ``add`` ждёт :data:`ADD_TIMEOUT`."""
         mends = urlsplit(base_url).hostname in LOCAL and timeout >= ADD_TIMEOUT
         first = min(timeout, ADD_TIMEOUT) if add and mends else timeout
         rounds, off = self._rounds, mine()
@@ -125,7 +121,7 @@ class EngineRestart:
             verdict = self._mend(probes, rounds, exc, off) if mends else "no"
             if off() or verdict == "no" or (verdict == "rest" and first >= timeout):
                 raise
-        if verdict == "again":
+        if verdict == "again" and recover is not None:
             recover()
         return ask(timeout - first if verdict == "rest" else first)
 
@@ -174,12 +170,7 @@ class EngineRestart:
         return "again" if self._service.restart() and self._waited(probes, UP) else "no"
 
     def _spared(self, probes: _Probes, hung: bool, off: Stop) -> str:
-        """Почему службу убивать нельзя; пусто - можно.
-
-        Пауза спрошена и после щупов: они идут секунды, и за них службу мог убить соседний
-        процесс на том же зависе. Новый щуп идёт, только если уложится в :data:`SPARING`.
-        Отказ ``off`` - свой: снят заказ этого вопроса или начат другой (:func:`.slot.mine`).
-        """
+        """Почему службу убивать нельзя; щуп читателей укладывается в :data:`SPARING`."""
         if self._paused():
             return "pause"
         last = self._clock.monotonic() + SPARING - PROBE_TIMEOUT  # позже щуп не уложится
