@@ -594,7 +594,7 @@ def test_a_stream_that_ended_by_itself_hands_over_at_once_and_costs_no_extra_pol
         seen.append(receiver)
         _hold(
             cast(Receiver, receiver),
-            feed_with_segments(tmp_path / title, whole=2600.0),
+            feed_with_segments(tmp_path / title, slots=260, whole=2600.0),  # хвост отдан
             watch,
             clock=FakeClock(now=1000.0),
         )

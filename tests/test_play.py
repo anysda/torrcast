@@ -670,6 +670,9 @@ class _Warm:
     def shown(self, pos: float, playing: bool) -> None:
         pass
 
+    def packed(self) -> None:
+        pass  # живая упаковка у конца файла: очередь следующей серии здесь не нужна
+
     def line(self) -> str:
         return "прогрето"
 
@@ -722,9 +725,19 @@ class _Fading:
         self.replays.append(at)
         if not self.takes:
             return NOT_RAISED
-        # Показ поднялся и доехал до титров - дальше приёмник гаснет уже законно.
+        # Показ поднялся и доехал до титров - дальше приёмник гаснет уже законно: хвост
+        # упакован и отдан ему целиком.
         self.at, self.left = self.dur * 0.96, 2
+        _pack_tail(self.feed, self.at)
         return at
+
+
+def _pack_tail(feed: Feed, at: float) -> None:
+    """Упаковка дошла до конца картины: куски от места ``at`` до последнего лежат подряд."""
+    first = feed.grid.slot_at(at)
+    for slot in range(first, feed.grid.count):
+        (feed.out / f"v{slot}.ts").write_bytes(b"x")
+    feed.packer = fake_packer(feed.out, first=first)  # их выложил прогон хвоста
 
 
 def _dark(
@@ -1091,11 +1104,24 @@ def test_a_finished_movie_is_not_resurrected(tmp_path: Path) -> None:
     """Титры - не авария: досмотренный фильм гаснет и остаётся погашенным."""
 
     clock, feed, warmer, receiver = _dark(tmp_path, offline="", at=7100.0)
+    _pack_tail(feed, 7100.0)
 
     _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [], "конец показа не воскрешают"
     assert clock.now - 1000.0 < REVIVE_PAUSE, "и не ждут на нём ни сети, ни выдержки"
+
+
+def test_a_darkness_before_an_unpacked_tail_is_raised_from_its_place(tmp_path: Path) -> None:
+    """Та же темнота на 7100 из 7200, но хвоста упаковка не отдала: это обрыв, не титры.
+
+    Показ держит лестница подъёма, как посреди фильма: ждёт куска под местом обрыва.
+    """
+    clock, feed, warmer, receiver = _dark(tmp_path, offline="", at=7100.0)
+
+    _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+
+    assert clock.now - 1000.0 >= REVIVE_PAUSE, "обрыв у конца держат лестницей, а не гасят"
 
 
 class _Nudged:
@@ -3200,7 +3226,7 @@ def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
     state.save()
     watch = _Watch(key=key, entry=entry, every=0.0)
     clock = _Ticker()
-    feed = _feed_with_segments(tmp_path)
+    feed = _feed_with_segments(tmp_path, at=7100.0)  # хвост упакован и отдан
     receiver = _Stuck(at=7100.0)
 
     ended = _hold(receiver, feed, watch, None, clock=clock)

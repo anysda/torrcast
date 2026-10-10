@@ -60,6 +60,32 @@ def test_a_show_that_cannot_be_raised_ends_by_itself(tmp_path: Path) -> None:
     assert ended is False, "лестница не поднимала - это обычный конец показа"
 
 
+@pytest.mark.parametrize(("slots", "cut"), [(60, True), (720, False)])
+def test_a_darkness_at_the_end_that_was_not_raised_counts_only_with_its_tail(
+    tmp_path: Path, slots: int, cut: bool
+) -> None:
+    """Приёмник погас у самого конца, и подъём сдался: без отданного хвоста это обрыв
+    (отметка темноты, без «досмотрено»), с отданным - титры, как и было.
+
+    Отрицательная проба: убрать :func:`_tail_cut` с выхода лестницы - красная первая ветка.
+    """
+    entry = Entry(title="Кино", magnet="magnet:?xt=1", dur=7200.0, pos=7190.0)
+    watch = Watch(key="кино", entry=entry)
+    receiver = PlainReceiver([(7190.0, "PLAYING"), (0.0, "IDLE")])
+
+    ended = _hold(
+        cast(Receiver, receiver),
+        feed_with_segments(tmp_path, slots=slots),
+        watch,
+        clock=FakeClock(now=1000.0),
+    )
+
+    assert ended is False
+    assert watch.cut_short is cut
+    watch.close()
+    assert watch.done is not cut
+
+
 def test_an_ended_receiver_finishes_the_session_without_a_revival(tmp_path: Path) -> None:
     """``ENDED`` - штатный конец файла, не темнота, которую надо поднимать обратно."""
     receiver = FakeReceiver([(7199.0, "ENDED")])
@@ -208,7 +234,33 @@ def test_a_dead_session_before_the_first_frame_keeps_the_usual_poll(tmp_path: Pa
 def test_a_stuck_pointer_at_the_tail_finishes_the_session(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Указатель стоит у самого конца дольше минуты - сеанс доигран, и переход не теряется."""
+    """Указатель стоит у самого конца дольше минуты, хвост отдан - сеанс доигран, и
+    переход не теряется."""
+    clock = FakeClock(now=1000.0)
+    entry = Entry(title="Кино", magnet="magnet:?xt=1", dur=7200.0, pos=7190.0)
+    watch = Watch(key="кино", entry=entry)
+    receiver = FakeReceiver([(7190.0, "PLAYING")] * 200)
+    feed = feed_with_segments(tmp_path, slots=720)
+
+    ended = _hold(cast(Receiver, receiver), feed, watch, clock=clock)
+
+    assert ended is True
+    assert (
+        phrase("revive.tail_ended", pos=_hms(7190.0), secs=f"{TAIL_LIMIT:.0f}")
+        in capsys.readouterr().out
+    )
+    assert watch.cut_short is False and watch.entry.dark == 0.0
+
+
+def test_a_stuck_pointer_before_an_unpacked_tail_is_a_break_not_the_end(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 Стенд, «Теория большого взрыва» s2e5: приёмник стоял на 1198.6 из 1204.3, хвост
+    перепаковывался по кругу, и страховка перехода засчитала серию. Хвоста перед указателем
+    нет - сеанс кончается обрывом: вслух, с отметкой темноты и без «досмотрено».
+
+    Отрицательная проба: убрать :func:`_tail_cut` из страховки - строка «доиграно», тест красный.
+    """
     clock = FakeClock(now=1000.0)
     entry = Entry(title="Кино", magnet="magnet:?xt=1", dur=7200.0, pos=7190.0)
     watch = Watch(key="кино", entry=entry)
@@ -217,10 +269,11 @@ def test_a_stuck_pointer_at_the_tail_finishes_the_session(
     ended = _hold(cast(Receiver, receiver), feed_with_segments(tmp_path), watch, clock=clock)
 
     assert ended is True
-    assert (
-        phrase("revive.tail_ended", pos=_hms(7190.0), secs=f"{TAIL_LIMIT:.0f}")
-        in capsys.readouterr().out
-    )
+    out = capsys.readouterr().out
+    assert phrase("revive.tail_ended", pos=_hms(7190.0), secs=f"{TAIL_LIMIT:.0f}") not in out
+    said = phrase("revive.tail_unserved", pos=_hms(7190.0), front=_hms(7190.0), dur=_hms(7200.0))
+    assert said in out
+    assert watch.cut_short is True and watch.entry.dark > 0 and watch.entry.dark_why == said
 
 
 def test_a_dead_packing_with_a_healthy_source_falls_honestly(tmp_path: Path) -> None:

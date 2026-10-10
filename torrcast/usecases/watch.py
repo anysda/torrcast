@@ -47,6 +47,8 @@ class Watch:
     #: Закладка при этом двигается как обычно, а вот следующую серию цикл (:mod:`torrcast.
     #: usecases.worker_loop`) на приёмнике не поднимает - сеанс кончается на месте (TC-880).
     closed_by_remote: bool = False
+    #: Сеанс оборвался у конца без отданного хвоста (:meth:`cut`): это не «досмотрено».
+    cut_short: bool = False
     #: One deferred search at a torrent boundary; it must never hold up receiver polling.
     nearing_end: Callable[[], None] | None = None
     _near_called: bool = False
@@ -77,6 +79,17 @@ class Watch:
         self.entry.pos = pos
         self.flush()  # решение необратимо для сеанса и обязано пережить его внезапную смерть
 
+    def cut(self, why: str) -> None:
+        """Хвост картины не отдан, а сеанс кончается: сказать вслух и оставить отметку темноты.
+
+        Отметка (:attr:`torrcast.domain.entry.Entry.dark`) переживает юнит, и по ней
+        бухгалтерия досмотра (:func:`_account_watched`) не засчитывает закладку у конца.
+        """
+        self.cut_short = True
+        self.entry.dark = self.entry.dark or time.time()
+        self.entry.dark_why = why
+        print(why, flush=True)
+
     def close(self) -> None:
         """Конец сеанса: картина доиграна - «досмотрено», а сериалу следующая серия.
 
@@ -87,7 +100,7 @@ class Watch:
         помечался досмотренным, не показав ни кадра. Отсюда
         :attr:`torrcast.domain._playing._Playing.moved`.
         """
-        if not self.sealed and self.entry.moved and self.entry.ending:
+        if not self.sealed and self.entry.moved and self.entry.ending and not self.cut_short:
             self.entry.pos = self.entry.dur
             self.done = True
         self.flush()

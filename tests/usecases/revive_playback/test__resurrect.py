@@ -64,12 +64,27 @@ def test_a_negative_place_is_an_ordinary_end_of_show(tmp_path: Path) -> None:
 
 
 def test_a_finished_movie_is_not_resurrected(tmp_path: Path) -> None:
-    """Фильм досмотрен: гаснущий экран тут и есть титры, поднимать его незачем."""
-    feed = feed_with_segments(tmp_path)
+    """Фильм досмотрен и хвост отдан: гаснущий экран тут и есть титры, поднимать незачем."""
+    feed = feed_with_segments(tmp_path, slots=720)
 
     assert (
         _resurrect(_ladder(), cast(Receiver, FakeReceiver()), feed, None, feed.duration - 1.0)
         is False
+    )
+
+
+def test_a_darkness_before_an_unpacked_tail_is_raised_like_any_other(tmp_path: Path) -> None:
+    """🔴 Стенд, «Отчаянные домохозяйки» s3e2: упаковка встала на куске 258, приёмник на
+    2579.5 из 2702.7 дал ошибку, и доля 95 % назвала это титрами - серия «досмотрена» без
+    последних двух минут. Хвоста нет - это обрыв, и показ держат, а не гасят.
+
+    Отрицательная проба: убрать условие отданного хвоста - ``False``, тест красный.
+    """
+    feed = feed_with_segments(tmp_path)  # куски только до 10-й минуты из 120
+
+    assert (
+        _resurrect(_ladder(), cast(Receiver, FakeReceiver()), feed, None, feed.duration - 1.0)
+        is True
     )
 
 

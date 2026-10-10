@@ -16,11 +16,15 @@ from torrcast.usecases.rank._hms import _hms
 def _account_watched(state: WatchState, found: tuple[str, Entry]) -> tuple[tuple[str, Entry], bool]:
     """На следующем ``cast`` превратить закладку >= 95 % в «досмотрено».
 
+    Закладку, на которой показ погас (:attr:`Entry.dark`), не засчитывает: это обрыв у
+    конца, а не остановка зрителем (:meth:`torrcast.usecases.watch.Watch.cut`), и
+    ``cast`` продолжает с места обрыва.
+
     Это бухгалтерия сохранённого места, не переход играющего сериала: живой юнит
     по-прежнему берёт следующую серию только после естественного конца потока.
     """
     key, entry = found
-    if entry.done or not entry.watched:
+    if entry.done or not entry.watched or entry.dark:
         return found, False
     stopped, label = entry.pos, entry.label
     following = entry.advance()

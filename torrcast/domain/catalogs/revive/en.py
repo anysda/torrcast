@@ -61,6 +61,10 @@ def en() -> dict[str, str]:
             "end of the picture: the pointer has stood at {pos} for {secs} s already - "
             "calling it watched"
         ),
+        "revive.tail_unserved": (
+            "the tail was not served: packed up to {front} of {dur}, the show stopped at {pos} - "
+            "not marking it watched, cast will resume here"
+        ),
         "revive.closed_by_remote": (
             "{tag} show closed from the remote at {pos} - not bringing it back"
         ),

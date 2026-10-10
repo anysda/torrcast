@@ -16,6 +16,7 @@ from torrcast.usecases.choice._ctl import _Revivable
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._blame import _Blaming, _may, _why
+from torrcast.usecases.revive_playback._tail_served import _tail_served
 from torrcast.usecases.warm.warmer import Warmer
 
 if TYPE_CHECKING:
@@ -98,7 +99,9 @@ def _resurrect(
     if not isinstance(receiver, _Revivable) or pos < 0:
         return False  # поднимать нечем или неоткуда - это обычный конец показа
     pos = max(pos, state.resume_at)
-    if ending_reached(pos, feed.duration):
+    # Конец картины - только с отданным хвостом: темнота перед неупакованным концом - наш
+    # обрыв, и поднимается она лестницей, как посреди фильма (:func:`_tail_served`).
+    if ending_reached(pos, feed.duration) and _tail_served(feed, pos):
         if sure:
             state.will_since = -1.0
             return False  # фильм досмотрен: гаснущий экран тут и есть титры, а не авария

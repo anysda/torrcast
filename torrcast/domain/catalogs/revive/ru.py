@@ -51,6 +51,10 @@ def ru() -> dict[str, str]:
         "revive.tail_ended": (
             "конец картины: указатель стоит на {pos} уже {secs} с - считаю доигранным"
         ),
+        "revive.tail_unserved": (
+            "хвост не отдан: упаковано до {front} из {dur}, показ встал на {pos} - "
+            "«досмотрено» не ставлю, cast продолжит отсюда"
+        ),
         "revive.closed_by_remote": "{tag} показ закрыт с пульта на {pos} - поднимать не буду",
         "revive.source_restarted": "TorrServer перезапускался - раздачу вернул магнитом",
         "revive.source_back_readded": "источник вернулся - раздачу добавил магнитом заново",

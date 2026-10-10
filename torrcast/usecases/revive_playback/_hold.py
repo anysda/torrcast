@@ -38,6 +38,7 @@ from torrcast.usecases.revive_playback._screen import (
 )
 from torrcast.usecases.revive_playback._screen_state import _Screen
 from torrcast.usecases.revive_playback._source_wait import _SourceWait
+from torrcast.usecases.revive_playback._tail_cut import _tail_cut
 from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
@@ -141,22 +142,18 @@ def _hold(
         if position.state == "ENDED":
             _closed(position, session_tag, screen.held or start, watch)
             return True
-        # 🔴 Страховка перехода. Конец потока приёмник называет не всегда: залипший на
-        # последнем куске рапортует BUFFERING и живым себя считать не перестаёт, а сторож
-        # подвиса на нём молчит по своему же правилу - впереди честно пусто, потому что
-        # картина кончилась, и неподвижность он читает как законное ожидание упаковки
+        # 🔴 Страховка перехода. Залипший на последнем куске приёмник рапортует BUFFERING, а
+        # сторож подвиса молчит: впереди пусто, и неподвижность читается как ожидание упаковки
         # (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._nudge`).
-        # Сеанс в этом месте не кончался вовсе: показ висел до утра, следующая серия не начиналась,
-        # и терялся именно переход - то, что дороже хвоста. Поэтому неподвижный указатель ЗА долей
-        # длительности сам кончает сеанс: дальше конец разбирает :meth:`Watch.close`.
+        # Показ висел до утра, и терялся переход. Поэтому неподвижный указатель ЗА долей сам
+        # кончает сеанс; не отданный упаковкой хвост - обрыв, а не титры (:func:`_tail_cut`).
         if watch is not None and position.playing and watch.entry.ending:
             if position.pos != screen.tail_at:
                 screen.tail_at, screen.tail_since = position.pos, clock.monotonic()
             elif clock.monotonic() - screen.tail_since > TAIL_LIMIT:
-                print(
-                    phrase("revive.tail_ended", pos=_hms(position.pos), secs=f"{TAIL_LIMIT:.0f}"),
-                    flush=True,
-                )
+                if not _tail_cut(watch, feed, position.pos):
+                    pos, secs = _hms(position.pos), f"{TAIL_LIMIT:.0f}"
+                    print(phrase("revive.tail_ended", pos=pos, secs=secs), flush=True)
                 return True
         else:
             screen.tail_at, screen.tail_since = -1.0, 0.0
@@ -185,6 +182,7 @@ def _hold(
             if watch is not None:
                 watch.skip_to(revival.resume_at)
             if not still_holding:
+                _tail_cut(watch, feed, screen.held or start)  # сдались у конца без хвоста
                 return revival.ended
             # Причину темноты добывает сам :class:`_Revival`, спрашивая источник, и в след
             # она уже легла (:func:`_why`). Второй раз то же событие не пишем.
