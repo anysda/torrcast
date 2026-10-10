@@ -103,7 +103,8 @@ def _remeasure(
     before, began = _intake(torrserver, torrent_hash), time.monotonic()
     if before is None:
         return None
-    _bench_state._bench_swarm_demand(source, video.size // 2, seconds)
+    if not _bench_state._bench_swarm_demand(source, video.size // 2, seconds):
+        return None  # раздачу уже сняли: спроса не было, и счётчик рой не мерил
     after = _intake(torrserver, torrent_hash)
     if after is None or after < before:
         return None

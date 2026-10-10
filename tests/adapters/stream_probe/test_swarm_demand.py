@@ -50,7 +50,9 @@ def test_a_silent_swarm_does_not_break_the_demand(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(urllib.request, "urlopen", _open)
 
-    swarm_demand("http://torr/stream/hash-1/2", offset=0, seconds=0.1)
+    assert swarm_demand("http://torr/stream/hash-1/2", offset=0, seconds=0.1), (
+        "молчание роя - спрос был"
+    )
 
 
 #: Адрес ровно в том виде, в каком его строит ``TorrServer.stream_url``.
@@ -71,8 +73,7 @@ def test_the_demand_reader_is_on_the_books_of_its_release(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=0.0: _Watched([b"x"]))
 
-    swarm_demand(STREAM, offset=0, seconds=0.5)
-
+    assert swarm_demand(STREAM, offset=0, seconds=0.5), "спрос был"
     assert seen and all(seen)
     assert not reads.busy("abc123"), "кончив читать, спрос с учёта сходит"
 
@@ -92,6 +93,7 @@ def test_a_cut_release_is_not_demanded(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(urllib.request, "urlopen", _open)
 
-    swarm_demand(STREAM, offset=0, seconds=0.1)
+    demanded = swarm_demand(STREAM, offset=0, seconds=0.1)
 
     assert not asked, "снятую раздачу не просят"
+    assert demanded is False, "спроса не было - перемер не выносит по нему приговор"

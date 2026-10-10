@@ -54,10 +54,11 @@ def test_best_is_kept_when_every_swarm_is_short(
     )
     torrents = _DifferentSupply()
 
-    def _demand(source: str, offset: int, seconds: float) -> None:
+    def _demand(source: str, offset: int, seconds: float) -> bool:
         # Короток, но жив: под спросом середины файла рой везёт 12 Мбит/с (выше пола).
         torrent_hash = source.split("/")[-2]
         torrents.read[torrent_hash] = torrents.read.get(torrent_hash, 0) + int(6e6)
+        return True
 
     composition.use_swarm_demand(monkeypatch, _demand)
     bench = Bench(torrents, prober=probes([one, two], media, media), profile=profile)

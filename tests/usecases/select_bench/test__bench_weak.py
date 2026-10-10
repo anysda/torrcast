@@ -41,9 +41,10 @@ class _Stalled(Torrents):
 def _resolve(monkeypatch: pytest.MonkeyPatch, speed: float, asked: list[tuple[str, int]]) -> int:
     torrents = _Stalled()
 
-    def _demand(source: str, offset: int, seconds: float) -> None:
+    def _demand(source: str, offset: int, seconds: float) -> bool:
         asked.append((source, offset))
         torrents.intake += speed * seconds  # рой везёт ``speed`` байт в секунду
+        return True
 
     composition.use_swarm_demand(monkeypatch, _demand)
     pool = [rel("one"), rel("two")]
@@ -87,7 +88,7 @@ def test_a_weak_swarm_above_the_floor_is_taken_without_a_remeasure(
 ) -> None:
     """Пол режет только мёртвых: 0.42x кадр довозит, лишние 4 с ему ни к чему."""
 
-    def _demand(source: str, offset: int, seconds: float) -> None:
+    def _demand(source: str, offset: int, seconds: float) -> bool:
         raise AssertionError("выше пола перемер не нужен")
 
     composition.use_swarm_demand(monkeypatch, _demand)
@@ -120,13 +121,15 @@ class _Counter(Torrents):
 
 
 @pytest.mark.parametrize(
-    ("before", "after"),
+    ("before", "after", "asked"),
     [
-        pytest.param(SILENT, SILENT, id="service-silent"),
-        pytest.param(None, None, id="no-bytes-read-field"),
-        pytest.param(SILENT, 5_000_000_000.0, id="before-silent-after-answers"),
-        pytest.param(1_000_000.0, SILENT, id="after-silent"),
-        pytest.param(5_000_000.0, 1_000_000.0, id="counter-went-back"),
+        pytest.param(SILENT, SILENT, True, id="service-silent"),
+        pytest.param(None, None, True, id="no-bytes-read-field"),
+        pytest.param(SILENT, 5_000_000_000.0, True, id="before-silent-after-answers"),
+        pytest.param(1_000_000.0, SILENT, True, id="after-silent"),
+        pytest.param(5_000_000.0, 1_000_000.0, True, id="counter-went-back"),
+        # Раздачу сняли до спроса: счётчик стоит, и без признака это читалось «везёт 0.00».
+        pytest.param(1_000_000.0, 1_000_000.0, False, id="release-already-closed"),
     ],
 )
 def test_an_unread_intake_counter_is_no_verdict(
@@ -134,12 +137,14 @@ def test_an_unread_intake_counter_is_no_verdict(
     capsys: pytest.CaptureFixture[str],
     before: object,
     after: object,
+    asked: bool,
 ) -> None:
     """Отказ сети не приговор: без счётчика рой судится по вехам, как до перемера."""
     torrents = _Counter(before, after)
 
-    def _demand(source: str, offset: int, seconds: float) -> None:
+    def _demand(source: str, offset: int, seconds: float) -> bool:
         torrents.demanded = True
+        return asked
 
     composition.use_swarm_demand(monkeypatch, _demand)
     prep = _Prep(number=3, release=rel("weak"))
@@ -166,9 +171,10 @@ def _fallback(
     """Очередь из ``media``; под спросом везут только раздачи из ``alive`` (12 Мбит/с)."""
     torrents = _Stalled()
 
-    def _demand(source: str, offset: int, seconds: float) -> None:
+    def _demand(source: str, offset: int, seconds: float) -> bool:
         if any(f"hash-magnet-{name}/" in source for name in alive):
             torrents.intake += 1_500_000.0 * seconds
+        return True
 
     composition.use_swarm_demand(monkeypatch, _demand)
     pool = [rel(name) for name in ("one", "two")[: len(media)]]
@@ -207,7 +213,7 @@ def test_a_named_dead_swarm_is_called_by_the_number_the_human_typed(
 ) -> None:
     """``--release 69`` на третьей в плане раздаче: и строка роя, и отказ говорят 69."""
     torrents = _Counter(1_000_000.0, 1_000_000.0)
-    composition.use_swarm_demand(monkeypatch, lambda source, offset, seconds: None)
+    composition.use_swarm_demand(monkeypatch, lambda source, offset, seconds: True)
     prep = _Prep(number=3, release=rel("weak"))
     prep.video = TorrFile(0, "movie.mkv", 4 * GB)
     tally = _Tally(shown={3: 69}, tried=["69 - рой короток"])

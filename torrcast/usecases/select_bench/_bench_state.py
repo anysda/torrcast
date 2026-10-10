@@ -16,7 +16,7 @@ _bench_prober: Prober
 _bench_warm_file: Callable[..., object]
 _bench_swarm_pulse: Callable[..., Callable[[], bool]]
 _bench_contact_wait: Callable[[float], ContactWait]
-_bench_swarm_demand: Callable[[str, int, float], None]
+_bench_swarm_demand: Callable[[str, int, float], bool]
 
 
 def _configure_select_bench(
@@ -24,7 +24,7 @@ def _configure_select_bench(
     warm_file: Callable[..., object],
     swarm_pulse: Callable[..., Callable[[], bool]],
     contact_wait: Callable[[float], ContactWait],
-    swarm_demand: Callable[[str, int, float], None],
+    swarm_demand: Callable[[str, int, float], bool],
 ) -> None:
     """Назначить стенду отбора его внешний мир."""
     global _bench_prober, _bench_warm_file, _bench_swarm_pulse, _bench_contact_wait
