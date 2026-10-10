@@ -1700,7 +1700,8 @@ def test_probe_reads_the_scan_type_from_the_stream() -> None:
 
     media = probe("http://torr/stream/hash-1/2", run=fake_probe)
     assert media.interlaced and media.quality == "1080i"
-    assert any("field_order" in flag for flag in asked[0]), "спросили тем же одним запросом"
+    head = next(command for command in asked if "-seekable" in command)
+    assert any("field_order" in flag for flag in head), "спросили тем же одним запросом"
 
     def boom(*a: object) -> str:
         raise AssertionError("паспорт обязан прийти с полки, а не от ffprobe")

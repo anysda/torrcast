@@ -149,8 +149,9 @@ def pack_command(
     command += ["-c:v", "copy"] if encode is None else encode.args(grid, slot, upto - 2)
     if video_tag:
         command += ["-tag:v", video_tag]
-    if until >= 0:
-        command += ["-to", f"{grid.end(until) + 1.0:.3f}"]
+    # Живой прогон тоже кончается на секунде за концом сетки: за последним кадром звук идёт
+    # дальше (s3 «Отчаянных домохозяек» - на 114 с), и без меры он весь уехал бы в хвост.
+    command += ["-to", f"{tail if until < 0 else grid.end(until) + 1.0:.3f}"]
     if grid.origin > 0:
         command += ["-output_ts_offset", f"{grid.origin:.3f}"]
     command += [

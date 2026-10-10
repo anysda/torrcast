@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from typing import Final
 
 from torrcast.adapters.ffprobe.parse_media import parse_media
 from torrcast.adapters.stream_probe.media_shelf import (
@@ -13,7 +15,9 @@ from torrcast.adapters.stream_probe.media_shelf import (
     _media_cache,
     _read_media,
 )
+from torrcast.adapters.stream_probe.picture_end import picture_end
 from torrcast.adapters.stream_probe.run_ffprobe import _run_ffprobe
+from torrcast.adapters.stream_probe.to_picture import to_picture
 from torrcast.adapters.torrserver.stream_reads import READS
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
@@ -21,6 +25,11 @@ from torrcast.domain.media import Media
 
 #: Чем читается поток: боевой запуск ffprobe (:func:`_run_ffprobe`) или подделка стенда.
 Runner = Callable[[list[str], float, Callable[[], bool] | None], str]
+
+#: Сколько секунд ждать хвост файла (:func:`picture_end`). Холодный хвост на стенде
+#: читается за 2.8-3.0 с против 0.2-0.6 с головы; за бюджетом длительность остаётся
+#: по контейнеру, как и было.
+TAIL_BUDGET: Final = 8.0
 
 
 def probe(
@@ -76,9 +85,14 @@ def probe(
         return not READS.stopped(url) and (alive is None or alive())
 
     command = ["ffprobe", *flags, url]
+    # Конец картинки - вторым запросом и одновременно с головой: голова его не знает, а
+    # сетка показа без него обещает куски за последним кадром (:func:`to_picture`).
     with READS.reading(url) as readable:
         if not readable:
             raise InfraError(phrase("select.stream_not_read"))
+        pool = ThreadPoolExecutor(1)
+        tail = pool.submit(picture_end, url, min(timeout, TAIL_BUDGET), still_reading, run)
+        pool.shutdown(wait=False)
         try:
             stdout = run(command, timeout, still_reading)
         except FileNotFoundError as exc:
@@ -89,6 +103,6 @@ def probe(
             raise InfraError(
                 phrase("media_binaries.ffprobe_failed", reason=(exc.stderr or "").strip()[:120])
             ) from exc
-    media = parse_media(stdout)
+    media = to_picture(parse_media(stdout), tail.result())
     _keep_media(cache, media)
     return media

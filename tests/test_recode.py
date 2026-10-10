@@ -252,7 +252,10 @@ def test_the_copy_path_is_untouched_by_the_encoder() -> None:
     grid = _grid()
     command = ffmpeg_pack_command("src", 0, "/run", grid, 5, grid.start(5) - 3.0)
     assert command[command.index("-c:v") + 1] == "copy"
-    assert "-to" not in command
+    # Мера живого прогона - секунда за концом сетки, а не кусок: за последним кадром звук
+    # бывает длиннее на минуты, и без меры он весь уезжал в хвостовой кусок.
+    end = grid.end(grid.count - 1) + 1.0
+    assert float(command[command.index("-to") + 1]) == pytest.approx(end, abs=0.01)
     assert "-force_key_frames" not in command
 
 
@@ -1454,7 +1457,7 @@ def test_a_codec_the_receiver_cannot_decode_is_a_decision_about_the_file() -> No
 def test_the_whole_file_run_encodes_every_segment_to_the_end_of_the_film() -> None:
     """Прогон сплошного перекода не ограничен ни куском, ни заходом.
 
-    Отличие от захода кодировщика ровно в этом: ``-to`` нет вовсе, а принудительные
+    Отличие от захода кодировщика ровно в этом: ``-to`` - конец сетки, а принудительные
     опорные кадры стоят на КАЖДОЙ границе сетки до конца фильма — иначе сегментный муксер
     с ``-break_non_keyframes 0`` ждал бы кадр кодировщика и резал бы куда попало.
     """
@@ -1462,7 +1465,10 @@ def test_the_whole_file_run_encodes_every_segment_to_the_end_of_the_film() -> No
     command = ffmpeg_pack_command("src", 0, "/run", grid, 0, 0.0, encode=Encode(preset=FULL_PRESET))
     assert command[command.index("-c:v") + 1] == "libx264"
     assert command[command.index("-preset") + 1] == FULL_PRESET
-    assert "-to" not in command, "сплошной перекод идёт до конца входа"
+    end = grid.end(grid.count - 1) + 1.0
+    assert float(command[command.index("-to") + 1]) == pytest.approx(end, abs=0.01), (
+        "сплошной перекод идёт до конца фильма, а не до куска"
+    )
     forced = [float(x) for x in command[command.index("-force_key_frames") + 1].split(",")]
     assert len(forced) == grid.count, "опорный кадр обязан стоять на каждой границе"
     assert forced[-1] == pytest.approx(grid.start(grid.count - 1) - 0.02, abs=0.001)

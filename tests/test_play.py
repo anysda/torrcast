@@ -1871,7 +1871,9 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
 
     printed = capsys.readouterr().out
     decoded = float(printed.split("decoded ")[1].split(" ")[0])
-    assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "показ оборвался"
+    # Допуск в сегмент от ОБЪЯВЛЕННОЙ длительности, как у показа с головы: прогон кончается
+    # на секунде за концом сетки, и за занижённой длительностью фильма уже не видно.
+    assert decoded >= length - HLS_SEGMENT_SECONDS, "показ оборвался"
     # 🔴 TC-1002. Пакуется слот ВХОДА, а не слот закладки. Опорного кадра ровно на границе
     # у ролика нет (они стоят через :data:`CLIP_KEY_SECONDS`), и упаковка заходит с
     # ближайшего входа не позже закладки - иначе первый кусок нечем начинать.

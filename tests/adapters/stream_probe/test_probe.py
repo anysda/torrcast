@@ -47,7 +47,7 @@ def _asked(seen: list[list[str]], answer: str = _ANSWER) -> Runner:
 
     def _run(command: list[str], timeout: float, alive: Any) -> str:
         seen.append(command)
-        return answer
+        return answer if "-seekable" in command else ""  # хвост (:func:`picture_end`) молчит
 
     return _run
 
@@ -61,8 +61,10 @@ def test_the_whole_passport_is_taken_by_one_request(
 
     media = probe("http://torr/stream/hash-1/2", run=_asked(seen))
 
-    assert len(seen) == 1, "один ffprobe на файл, и только один"
-    flags = " ".join(seen[0])
+    heads = [command for command in seen if "-seekable" in command]
+    assert len(heads) == 1, "голова паспорта - одним ffprobe на файл, и только одним"
+    assert len(seen) == 2, "вторым идёт только хвост с концом картинки"
+    flags = " ".join(heads[0])
     for field in ("profile", "pix_fmt", "color_transfer", "field_order", "stream_tags"):
         assert field in flags, f"{field} берётся тем же запросом"
     assert media.duration == 3600.0
@@ -79,9 +81,10 @@ def test_the_http_probe_cannot_jump_to_the_torrent_tail(
 
     probe(url, run=_asked(seen))
 
-    seek = seen[0].index("-seekable")
-    assert seen[0][seek : seek + 2] == ["-seekable", "0"]
-    assert seek < seen[0].index(url), "это опция входа, после URL она его уже не ограничит"
+    head = next(command for command in seen if "format=duration" in " ".join(command))
+    seek = head.index("-seekable")
+    assert head[seek : seek + 2] == ["-seekable", "0"]
+    assert seek < head.index(url), "это опция входа, после URL она его уже не ограничит"
 
 
 def test_the_second_ask_comes_from_the_shelf(
@@ -95,7 +98,7 @@ def test_the_second_ask_comes_from_the_shelf(
     first = probe("http://torr/stream/hash-1/2", run=run)
     cached = probe("http://torr/stream/hash-1/2", run=run)
 
-    assert len(seen) == 1, "второй раз ffprobe не зовут"
+    assert len(seen) == 2, "второй раз ffprobe не зовут: ни голову, ни хвост"
     assert cached == first
 
 
@@ -142,7 +145,7 @@ def test_a_failed_probe_leaves_no_record_on_the_shelf(
     seen: list[list[str]] = []
     probe("http://torr/stream/hash-1/2", run=_asked(seen))
 
-    assert len(seen) == 1, "пустой паспорт на полку не лёг - спросили заново"
+    assert len(seen) == 2, "пустой паспорт на полку не лёг - спросили заново"
 
 
 def test_ffprobe_holds_the_torrent_until_its_process_returns(

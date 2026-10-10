@@ -23,8 +23,10 @@ from torrcast.domain.warm_open import PROBE_KEPT
 #: Версия формата паспорта на полке (:func:`_read_media`). Растёт, когда в паспорт
 #: добавляется поле, от которого зависит РЕШЕНИЕ показа: старая запись такого поля не
 #: несёт, и молчание в ней неотличимо от честного ответа. ``2`` - формат кадра и профиль,
-#: ``3`` - кривая яркости (:attr:`Media.hdr`), ``4`` - развёртка (:attr:`Media.interlaced`).
-_MEDIA_VERSION: Final = 4
+#: ``3`` - кривая яркости (:attr:`Media.hdr`), ``4`` - развёртка (:attr:`Media.interlaced`),
+#: ``5`` - длительность по концу картинки
+#: (:func:`torrcast.adapters.stream_probe.to_picture.to_picture`).
+_MEDIA_VERSION: Final = 5
 
 
 def _media_cache(source_url: str) -> Path:
