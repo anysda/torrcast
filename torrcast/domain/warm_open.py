@@ -97,7 +97,10 @@ KEYS_REFUSED: Final = 24 * 60 * 60.0
 #:
 #: 2 - проверка честности смотрит и в конец ленты (:func:`~torrcast.domain.frames.mkv.
 #: probes.probes`): карта, принятая одной парой в голове, могла быть вруном дальше неё.
-KEYS_RULES: Final = 2
+#: 3 - без ``CueRelativePosition`` проба судит блок со временем точки, а не первый
+#: видеоблок кластера (:func:`~torrcast.domain.frames.mkv.key_frame.key_frame`): честные
+#: индексы отвергались за чужой кадр, и их отказы на полке уносит этот номер.
+KEYS_RULES: Final = 3
 
 #: Сколько карт опорных кадров держим на полке (:func:`_keys_cache`).
 #:
