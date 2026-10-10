@@ -1,4 +1,4 @@
-"""Скорость роя под настоящим спросом: читаем файл с места, которого нет в кэше."""
+"""Спрос на раздачу: читаем файл с места, которого нет в кэше, чтобы рой его вёз."""
 
 from __future__ import annotations
 
@@ -9,16 +9,15 @@ import urllib.request
 from torrcast.adapters.torrserver.stream_reads import READS
 
 
-def swarm_demand(source_url: str, offset: int, seconds: float) -> float:
-    """Байт в секунду, которые раздача отдала за ``seconds`` чтения с ``offset``.
+def swarm_demand(source_url: str, offset: int, seconds: float) -> None:
+    """Читать ``seconds`` секунд файл с ``offset``: служба просит у роя куски оттуда.
 
-    Счётчик службы на вехах прогрева врёт в обе стороны: голову, уже лежащую в кэше,
-    ffprobe читает без роя, и живой рой меряется нулём. Здесь спрос настоящий - место,
-    которого не читал ни прогрев, ни ffprobe, - и меряется то, что пришло к нам, а не
-    то, что служба насчитала. Молчание и обрыв - ноль: байт не пришло.
+    Мерит не этот читатель, а счётчик приёма службы (живой замер 10-10): поток служба
+    отдаёт только целыми кусками, кусок раздачи 4-16 МБ, и на живом рое в 150 КБ/с за
+    4 с к читателю не пришло ни байта, пока счётчик показывал 1.16 Мбит/с. Молчание и
+    обрыв - не ошибка: спрос создан, остальное скажет счётчик.
     """
     began = time.monotonic()
-    taken = 0
     request = urllib.request.Request(source_url, headers={"Range": f"bytes={offset}-"})
     with (
         contextlib.suppress(Exception),
@@ -27,8 +26,5 @@ def swarm_demand(source_url: str, offset: int, seconds: float) -> float:
         ) as answer,
     ):
         while answer is not None and time.monotonic() - began < seconds:
-            chunk = answer.read1(1 << 16)
-            if not chunk:
+            if not answer.read1(1 << 16):
                 break
-            taken += len(chunk)
-    return taken / max(time.monotonic() - began, seconds)

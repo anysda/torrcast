@@ -862,9 +862,8 @@ def _no_warming(*_args: object, **_kwargs: object) -> None:
     """Грелка, которая не греет: у модульного прогона нет своего TorrServer."""
 
 
-def _no_demand(_source: str, _offset: int, _seconds: float) -> float:
-    """Спрос без сети: байт в модульном прогоне не приходит никогда - ноль, как у мёртвого."""
-    return 0.0
+def _no_demand(_source: str, _offset: int, _seconds: float) -> None:
+    """Спрос без сети: у модульного прогона нет своего TorrServer, читать нечего."""
 
 
 def _no_pulse(_source: str, grace: float = 0.0, wait: object = None) -> Callable[[], bool]:

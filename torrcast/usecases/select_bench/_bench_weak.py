@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from contextlib import suppress
+from typing import TYPE_CHECKING, Any, cast
 
 import torrcast.usecases.select_bench._bench_state as _bench_state
 from torrcast.domain.catalogs.phrase import phrase
@@ -33,17 +35,19 @@ def _weak_alive(
     приговор: ffprobe читает голову, уже лежащую в кэше, и в окне замера рою нечего
     отдавать, а рой, который DHT ещё не раскачал, к концу очереди мог ожить. Поэтому
     рой ниже пола (:attr:`Profile.supply_floor`) перемеряется под настоящим спросом -
-    серединой файла, которой не читал никто (:func:`swarm_demand`), - и судит новое
-    число. Живой берётся с ним, мёртвый не берётся: обход идёт дальше тем же путём,
-    что и без слабого роя, - к запасному безрусскому ходу, перепросу или отказу.
+    читаем середину файла, которой не читал никто (:func:`swarm_demand`), и снимаем
+    счётчик приёма раздачи до и после, - и судит новое число. Живой берётся с ним,
+    мёртвый не берётся: обход идёт дальше тем же путём, что и без слабого роя, - к
+    запасному безрусскому ходу, перепросу или отказу.
     """
     ratio, got, need, prep = weak
     if ratio < profile.supply_floor and prep.video is not None and need > 0:
         source = torrserver.stream_url(prep.torrent_hash, prep.video.index)
-        speed = _bench_state._bench_swarm_demand(
-            source, prep.video.size // 2, profile.supply_demand_seconds
-        )
-        got = speed * 8 / 1_000_000
+        seconds = profile.supply_demand_seconds
+        before, began = _intake(torrserver, prep.torrent_hash), time.monotonic()
+        _bench_state._bench_swarm_demand(source, prep.video.size // 2, seconds)
+        taken = _intake(torrserver, prep.torrent_hash) - before
+        got = taken * 8 / 1_000_000 / max(time.monotonic() - began, seconds)
         ratio = got / need
     numbers = {"got": f"{got:.2f}", "need": f"{need:.2f}", "ratio": f"{ratio:.2f}"}
     if ratio < profile.supply_floor:
@@ -59,3 +63,12 @@ def _weak_alive(
     tally.judged.pop(prep.number, None)
     print(_supply_note(prep, got, need, ratio))
     return prep
+
+
+def _intake(torrserver: TorrentEngine, torrent_hash: str) -> float:
+    """Сколько байт раздача приняла от роя; молчание службы - ноль, как и на вехах."""
+    with suppress(Exception):
+        read = cast(Any, torrserver).status(torrent_hash).get("bytes_read")
+        if isinstance(read, (int, float)) and not isinstance(read, bool):
+            return float(read)
+    return 0.0

@@ -28,20 +28,24 @@ def _russian_ladder(_russian_product: None) -> None:
 
 
 class _Stalled(Torrents):
-    """Счётчик службы стоит: на вехах прогрева каждый рой везёт 0.00."""
+    """На вехах прогрева счётчик стоит - 0.00; принятое под спросом копится в ``intake``."""
+
+    intake = 0.0
 
     def status(self, torrent_hash: str) -> dict[str, JsonValue]:
-        return {"bytes_read": 0}
+        return {"bytes_read": self.intake}
 
 
 def _resolve(monkeypatch: pytest.MonkeyPatch, speed: float, asked: list[tuple[str, int]]) -> int:
-    def _demand(source: str, offset: int, seconds: float) -> float:
+    torrents = _Stalled()
+
+    def _demand(source: str, offset: int, seconds: float) -> None:
         asked.append((source, offset))
-        return speed
+        torrents.intake += speed * seconds  # рой везёт ``speed`` байт в секунду
 
     composition.use_swarm_demand(monkeypatch, _demand)
     pool = [rel("one"), rel("two")]
-    bench = Bench(_Stalled(), prober=probes(pool, MEDIA, MEDIA), profile=PROFILE)
+    bench = Bench(torrents, prober=probes(pool, MEDIA, MEDIA), profile=PROFILE)
     return bench.resolve(plan(pool), Args(query=["кино"]), Said()).number
 
 
@@ -81,7 +85,7 @@ def test_a_weak_swarm_above_the_floor_is_taken_without_a_remeasure(
 ) -> None:
     """Пол режет только мёртвых: 0.42x кадр довозит, лишние 4 с ему ни к чему."""
 
-    def _demand(source: str, offset: int, seconds: float) -> float:
+    def _demand(source: str, offset: int, seconds: float) -> None:
         raise AssertionError("выше пола перемер не нужен")
 
     composition.use_swarm_demand(monkeypatch, _demand)

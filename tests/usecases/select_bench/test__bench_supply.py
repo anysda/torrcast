@@ -47,14 +47,20 @@ def test_slow_front_is_rejected_and_fat_supply_plays(capsys: object) -> None:
 def test_best_is_kept_when_every_swarm_is_short(
     capsys: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Короток, но жив: под спросом середины файла рой везёт 12 Мбит/с (выше пола).
-    composition.use_swarm_demand(monkeypatch, lambda *_: 1_500_000.0)
     one, two = rel("slow-one"), rel("slow-two")
     media = Media(RUNTIME, (), "h264", height=1080, width=1920)
     profile = replace(
         CAUTIOUS, supply_settle_seconds=0.0, supply_window_seconds=0.0, supply_ratio=10.0
     )
-    bench = Bench(_DifferentSupply(), prober=probes([one, two], media, media), profile=profile)
+    torrents = _DifferentSupply()
+
+    def _demand(source: str, offset: int, seconds: float) -> None:
+        # Короток, но жив: под спросом середины файла рой везёт 12 Мбит/с (выше пола).
+        torrent_hash = source.split("/")[-2]
+        torrents.read[torrent_hash] = torrents.read.get(torrent_hash, 0) + int(6e6)
+
+    composition.use_swarm_demand(monkeypatch, _demand)
+    bench = Bench(torrents, prober=probes([one, two], media, media), profile=profile)
 
     chosen = bench.resolve(plan([one, two]), Args(query=["кино"]), Said())
 
