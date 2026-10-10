@@ -36,3 +36,13 @@ def test_a_movie_pool_never_lacks_a_season() -> None:
     found = franchise("кино", [row("Кино / Movie (1999) BDRip 1080p", "e")])
 
     assert not lacks_season(found, Args(query=["кино"]))
+
+
+def test_a_film_the_map_recognized_does_not_ask_for_its_neighbours_season() -> None:
+    """Узнан фильм, серию не называли: сериал рядом - сосед по слову, а не просьба."""
+    found = franchise("брат", [row("Брат (1997) BDRip 1080p", "f")])
+    found += franchise("брат кадфаэль", [row("Брат Кадфаэль / Cadfael (1997) S03", "g")])
+
+    assert lacks_season(found, Args(query=["брат"]))
+    assert not lacks_season(found, Args(query=["брат"]), led=True)
+    assert lacks_season(found, Args(query=["брат", "s01e01"]), led=True), "серию назвали"

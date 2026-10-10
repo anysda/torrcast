@@ -162,7 +162,7 @@ def _circle(
     WATCH.keep(raw)
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
-    if lacks_season(found, args):
+    if lacks_season(found, args, led):
         raw, pictures, found = _season_reinforce(
             client, query, args, raw, found, progress, titled, passport=passport
         )

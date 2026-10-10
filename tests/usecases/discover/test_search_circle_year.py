@@ -34,3 +34,31 @@ def test_the_year_named_leads_the_franchise_line() -> None:
     )
 
     assert [(p.picture.year, p.picture.kind) for p in plans][:2] == [(2026, "tv"), (1995, "movie")]
+
+
+_BRAT = [
+    row("Брат (1997) WEB-DL 1080p", "e"),
+    row("Брат / Brother (Алексей Балабанов) [1997, Россия, драма, WEB-DLRip-AVC]", "f"),
+    row("Брат Кадфаэль 3 сезон (1-3 из 3) / Cadfael (1997) DVDRip | AVC", "g"),
+    row("Брат Кадфаэль / Cadfael / Сезон: 3 / Серии: 1-3(3) [1997, DVDRip]", "h"),
+]
+
+
+def test_a_recognized_film_of_the_year_sends_no_circle_for_a_season_of_its_neighbour() -> None:
+    """«Брат 1997»: карта узнала фильм, и «Брат Кадфаэль» того же года - сосед по слову.
+
+    Сериал с одним третьим сезоном рядом с узнанным фильмом звал сезонный круг: лишний
+    поход за «Cadfael S01» и строка про сезон, которого никто не спрашивал.
+    """
+    wire_catalogue()
+    _configure_recognize(lambda _query, _wait: MapPicture("Брат", 1997, False, "Brat", 118767))
+    indexer = Indexer(rows=_BRAT)
+    plans = search_circle(
+        Config(prowlarr_apikey="KEY"),
+        Args(query=["Брат 1997"]),
+        Said(),
+        indexer=lambda *_args: indexer,
+    )
+
+    assert (plans[0].picture.title, plans[0].picture.year) == ("Брат", 1997)
+    assert not [asked for asked in indexer.asked if "S01" in asked], indexer.asked
