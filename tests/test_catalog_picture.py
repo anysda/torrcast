@@ -5,6 +5,9 @@ from __future__ import annotations
 from hass.catalog_index import CatalogIndex
 from hass.catalog_picture import catalog_picture
 from torrcast.domain.facts.imdb_rows import _RuName
+from torrcast.domain.facts.map_picture import MapPicture
+from torrcast.domain.facts.map_pictures import map_pictures
+from torrcast.domain.facts.map_recognize import map_recognize
 from torrcast.domain.slugify import slugify
 
 _ROWS: list[_RuName] = [
@@ -48,8 +51,32 @@ def _name(query: str) -> tuple[str, int | None, bool] | None:
 
 def test_a_whole_name_is_the_best_known_picture_of_that_name() -> None:
     assert _name("Оно") == ("It", 2017, False)
-    assert _name("The Matrix") == ("The Matrix", 1999, False)
+    assert _name("Матрица") == ("The Matrix", 1999, False)
     assert _name("Наруто") == ("Naruto", 2002, True)
+
+
+def test_an_original_name_names_no_picture() -> None:
+    """🔴 Картину называет прокатное имя, как в командной строке, а не оригинал.
+
+    «Animals» узнавался сериалом «Звери.» 2016 года: его имена забирали раздачи фильма
+    «Животные / Animals» 2026 года, и веб играл фильм под карточкой сериала.
+    """
+    assert _name("Animals") is None
+    assert _name("The Matrix") is None
+    assert _name("Interstelar 2014") is None
+
+
+def test_the_web_and_the_command_line_name_the_same_picture() -> None:
+    """Веб и командная строка узнают картину одним правилом: иначе играют разное."""
+
+    def known(title: str) -> list[MapPicture]:
+        rows = [row for row in _ROWS if slugify(row[4]) == slugify(title)]
+        return map_pictures(rows, _VOTES)
+
+    asked = ["Оно", "Оно 1990", "Матрица", "Звери", "Звери 2026", "Animals", "Animals 2026"]
+    asked += ["The Matrix", "The Matrix 1999", "It", "Naruto 2002"]
+    for query in asked:
+        assert catalog_picture(_index(), query) == map_recognize(known, query), query
 
 
 def test_a_trailing_year_picks_the_namesake_of_that_year() -> None:
@@ -58,19 +85,19 @@ def test_a_trailing_year_picks_the_namesake_of_that_year() -> None:
 
 
 def test_a_named_year_after_a_series_start_is_not_that_series() -> None:
-    """🔴 «Animals 2026» - фильм 2026 года, которого карта не знает, а не сериал 2016-го.
+    """🔴 «Звери 2026» - картина 2026 года, которой карта не знает, а не сериал 2016-го.
 
     Узнай карта тут сериал - он повёл бы круг, и добор по имени фильма не пошёл бы вовсе:
     плитка «Animals» открывалась отказом, а выдача ставила дефолтом «Звери.».
     """
-    assert _name("Animals 2026") is None
-    assert _name("Animals 2016") == ("Animals.", 2016, True)
-    assert _name("Animals") == ("Animals.", 2016, True), "голое имя - самая известная картина"
+    assert _name("Звери 2026") is None
+    assert _name("Звери 2016") == ("Animals.", 2016, True)
+    assert _name("Звери") == ("Animals.", 2016, True), "голое имя - самая известная картина"
 
 
 def test_one_typo_names_the_picture_but_a_prefix_does_not() -> None:
     assert _name("Интерстелар") == ("Interstellar", 2014, False)
-    assert _name("Interstelar 2014") == ("Interstellar", 2014, False)
+    assert _name("Интерстелар 2014") == ("Interstellar", 2014, False)
     assert _name("Матр") is None
     assert _name("ывапрол") is None
 

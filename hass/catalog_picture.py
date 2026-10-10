@@ -4,6 +4,12 @@ Mature trackers know the picture before they ask for releases (Radarr, Lampa wit
 the circle then asks indexers by the picture's own names and year
 (:func:`torrcast.usecases.discover.named_round.named_round`). A prefix is not a picture:
 «Матр» stays the viewer's text.
+
+Only the Russian release name names a picture, as on the command line
+(:func:`torrcast.domain.facts.map_recognize.map_recognize`). The original is shared by
+pictures the map does not know yet: «Animals» took the 2016 series «Звери.», whose names
+then swallowed the releases of the 2026 film «Животные / Animals», and the web played
+the film under the series while the command line played «Животные».
 """
 
 from __future__ import annotations
@@ -46,16 +52,12 @@ def catalog_picture(index: CatalogIndex, query: str, wait: float = 0.0) -> MapPi
 
 
 def _named(index: CatalogIndex, query: str, key: str, votes: dict[str, int]) -> list[MapPicture]:
-    rows = [row for row in index.look(query) if key in (name_key(row[4]), name_key(row[2]))]
+    rows = [row for row in index.look(query) if key == name_key(row[4])]
     return sorted(map_pictures(rows, votes), key=lambda p: -p.votes)
 
 
 def _near(index: CatalogIndex, query: str, key: str, votes: dict[str, int]) -> list[MapPicture]:
-    rows = [
-        row
-        for row in index.look(query)
-        if _one_edit(key, name_key(row[4])) or _one_edit(key, name_key(row[2]))
-    ]
+    rows = [row for row in index.look(query) if _one_edit(key, name_key(row[4]))]
     return sorted(map_pictures(rows, votes), key=lambda p: -p.votes)
 
 
