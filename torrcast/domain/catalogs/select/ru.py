@@ -20,6 +20,8 @@ def ru() -> dict[str, str]:
             "«{title}»{named} - записанная раздача не играется: {why}; ищу другую{place}"
         ),
         "select.file_gone": "файла №{index} в ней больше нет",
+        "select.no_bytes": "за {seconds} с она не отдала ни байта",
+        "select.bytes_unasked": "служба не дала прочитать файл",
         "select.timed_out": "не дождались за {secs} с",
         "select.gave_up": "не дождались",
         "select.release_missing_new_listing": (

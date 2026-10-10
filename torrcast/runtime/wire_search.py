@@ -12,6 +12,7 @@ from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.adapters.stream_pack.warm_file import warm_file
+from torrcast.adapters.stream_probe.first_byte import first_byte
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.swarm_demand import swarm_demand
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
@@ -71,8 +72,9 @@ def wire_search() -> None:
     _configure_select_bench(BEFORE_PICTURE, warm_file, swarm_pulse, ContactWait, swarm_demand)
     # Сам отбор ходит в службу раздач ровно один раз - за дорожками названного
     # вручную релиза, - и спрашивает человека о начале сериала заново. Служба,
-    # чтение паспорта и вопрос приходят отсюда, а не из строки с именем фасада.
-    _configure_select(TorrServer, BEFORE_PICTURE, ask_line)
+    # чтение паспорта, вопрос и чтение первого байта записанной раздачи приходят
+    # отсюда, а не из строки с именем фасада.
+    _configure_select(TorrServer, BEFORE_PICTURE, ask_line, first_byte)
     # Поиск: сырая выдача каталога, справка о картинах и завод клиента индексеров. Все
     # трое ходят в сеть, и слою сценариев их не назвать - только корню. Добор берёт первые
     # два тем же порядком: прежде их раздавал импорт фасада-смертника `torrcast.reinforce`,

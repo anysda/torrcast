@@ -54,6 +54,9 @@ class Swarm:
             raise SwarmError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
         return list(self.files)
 
+    def stream_url(self, torrent_hash: str, index: int) -> str:
+        return f"http://ts/stream/{torrent_hash}/{index}"
+
     def status(self, torrent_hash: str) -> dict[str, int]:
         if self.quiet:
             return {}

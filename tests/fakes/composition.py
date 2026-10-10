@@ -122,6 +122,11 @@ def use_swarm_pulse(patch: pytest.MonkeyPatch, swarm_pulse: StandIn) -> None:
     patch.setattr(_bench_state, "_bench_swarm_pulse", swarm_pulse)
 
 
+def use_first_byte(patch: pytest.MonkeyPatch, first_byte: StandIn) -> None:
+    """Первый байт записанной раздачи: его знает только отбор."""
+    patch.setattr(_pick_state, "_select_first_byte", first_byte)
+
+
 def use_swarm_demand(patch: pytest.MonkeyPatch, swarm_demand: StandIn) -> None:
     """Скорость роя под спросом: её меряет только стенд отбора."""
     patch.setattr(_bench_state, "_bench_swarm_demand", swarm_demand)

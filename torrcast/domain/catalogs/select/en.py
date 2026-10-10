@@ -21,6 +21,8 @@ def en() -> dict[str, str]:
             "looking for another{place}"
         ),
         "select.file_gone": "file №{index} is no longer in it",
+        "select.no_bytes": "it gave not one byte in {seconds}s",
+        "select.bytes_unasked": "the engine would not serve the file",
         "select.timed_out": "gave up after {secs}s",
         "select.gave_up": "gave up waiting",
         "select.release_missing_new_listing": (

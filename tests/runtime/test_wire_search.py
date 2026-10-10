@@ -18,6 +18,7 @@ from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.adapters.stream_pack.warm_file import warm_file
+from torrcast.adapters.stream_probe.first_byte import first_byte
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.swarm_demand import swarm_demand
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
@@ -82,6 +83,7 @@ def test_the_search_gets_the_real_catalogue_and_the_real_release_service() -> No
     assert _bench_state._bench_swarm_demand is swarm_demand
     assert _pick_state._select_engines is TorrServer
     assert _pick_state._select_ask_line is ask_line
+    assert _pick_state._select_first_byte is first_byte
 
     # Поиск и добор: сырая выдача каталога, справка и завод клиента индексеров.
     assert _search_state._search_catalogue is torrent_catalogue

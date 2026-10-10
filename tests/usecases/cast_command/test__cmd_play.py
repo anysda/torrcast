@@ -379,6 +379,9 @@ def test_a_healthy_recording_never_takes_the_trip_to_search(
         def wait_files(self, *_args: object, **_kw: object) -> list[TorrFile]:
             return [TorrFile(index=0, name="кино/кино.mkv", size=8 * GB)]
 
+        def stream_url(self, torrent_hash: str, index: int) -> str:
+            return f"http://ts/stream/{torrent_hash}/{index}"
+
     composition.use_engines(monkeypatch, _Swarm())
 
     def resume(*args: object, **rest: object) -> int | None:

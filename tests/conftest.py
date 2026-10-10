@@ -845,6 +845,7 @@ def _no_machine_swarm(monkeypatch: pytest.MonkeyPatch) -> None:
     composition.use_warm_file(monkeypatch, _no_warming)
     composition.use_swarm_pulse(monkeypatch, _no_pulse)
     composition.use_swarm_demand(monkeypatch, _no_demand)
+    composition.use_first_byte(monkeypatch, _byte_at_once)
 
 
 @pytest.fixture(autouse=True)
@@ -860,6 +861,17 @@ def _no_head_ahead(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _no_warming(*_args: object, **_kwargs: object) -> None:
     """Грелка, которая не греет: у модульного прогона нет своего TorrServer."""
+
+
+def _byte_at_once(_source: str) -> Callable[[float], bool | None]:
+    """Первый байт записанной раздачи без сети: пришёл сразу.
+
+    Не «удобство»: так вела себя проверка записанной раздачи до чтения байта, и записи
+    подделок раздач, которые тесты зовут живыми, - это записи, которые отдают. Приговор
+    по молчащему байту тесты ставят себе сами через
+    :func:`tests.fakes.composition.use_first_byte`.
+    """
+    return lambda _timeout: True
 
 
 def _no_demand(_source: str, _offset: int, _seconds: float) -> bool:
