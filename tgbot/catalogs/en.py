@@ -45,7 +45,6 @@ def en() -> dict[str, str]:
         "replaced": "The previous request was stopped. Starting the new one.",
         "failed": "The cast did not start: {detail}",
         "invalid_config_object": "invalid configuration {path}: expected a JSON object",
-        "unavailable": "The TV is unavailable.",
         "chosen": "Picture selected.",
         "cancel": "Cancel",
         "cancelled": "Choice cancelled, nothing is started.",
