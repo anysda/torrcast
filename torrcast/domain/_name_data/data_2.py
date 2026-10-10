@@ -37,6 +37,11 @@ _TITLE_CUT_RE: Final = re.compile(
 _COLLECTION_CUT_RE: Final = re.compile(
     f"^(?:{_COLLECTION_LATIN}|{_COLLECTION_RUSSIAN})$", re.IGNORECASE
 )
+# Счёт фильмов отдельной меткой где угодно в имени: «Брат и Брат 2 (1997, 2000) WEB-DL [Дилогия]».
+_COLLECTION_TAG_RE: Final = re.compile(
+    "(?:^|[\\[(|/])\\s*(?:кинотрилогия|трилогия|дилогия|квадрология)\\s*(?=$|[\\])|/])",
+    re.IGNORECASE,
+)
 _ALTERNATIVE_PICTURE_RE: Final = re.compile(
     "\\bпароди[яи]\\b|\\bфанатск\\w*\\s+верси\\w*\\b|\\b(?:fan[ ._-]?edit)\\b|\\bсмешн(?:ой|ый)\\s+перевод\\b",
     re.IGNORECASE,

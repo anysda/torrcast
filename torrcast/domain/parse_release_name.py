@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from torrcast.domain._name_data.data_1 import _CYRILLIC, _HDR_RE, _LATIN, _QUALITY_RE
+from torrcast.domain._name_data.data_2 import _COLLECTION_TAG_RE
 from torrcast.domain.find_year import _find_year
 from torrcast.domain.is_non_video import _is_non_video
 from torrcast.domain.kind import Kind
@@ -41,7 +42,11 @@ def parse_release_name(name: str) -> Release:
     names = (title, *((original,) if original else ()), *aliases)
     latin_names = sum(bool(_LATIN.search(part) and not _CYRILLIC.search(part)) for part in names)
     russian_names = sum(bool(_CYRILLIC.search(part)) for part in names)
-    collection = collection or (latin_names >= 3 and russian_names >= 3)
+    collection = (
+        collection
+        or (latin_names >= 3 and russian_names >= 3)
+        or bool(_COLLECTION_TAG_RE.search(text))
+    )
     quality_match = _QUALITY_RE.search(text)
     quality = _normalize_quality(quality_match.group(1)) if quality_match else None
     season, episode, seasons, episodes, series = _parse_series(text)
