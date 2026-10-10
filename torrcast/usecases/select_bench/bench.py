@@ -19,8 +19,9 @@ from torrcast.usecases.select_bench._bench_in_time import _in_time
 from torrcast.usecases.select_bench._bench_prewarm import _BenchPrewarm
 from torrcast.usecases.select_bench._bench_queue import _bench_asking, _bench_queue
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
-from torrcast.usecases.select_bench._bench_supply import _supply_note, _supply_verdict
+from torrcast.usecases.select_bench._bench_supply import _supply_verdict
 from torrcast.usecases.select_bench._bench_tally import _Tally
+from torrcast.usecases.select_bench._bench_weak import _weak_alive
 from torrcast.usecases.select_bench._retried_verdict import _retried_verdict
 
 if TYPE_CHECKING:
@@ -175,12 +176,11 @@ class Bench(_BenchPrewarm):
         # нетронутые раздачи, и ход у человека есть - выбрать релиз руками.
         # 🔴 TC-968. Исключение одно - потолок ПОИСКА ДОРОЖКИ: тот обход спрашивал хвост
         # об одном, ответ получал один и тот же, и встал не от беды, а по цене.
-        if weak is not None:
-            ratio, got, need, prep = weak
-            tally.judged.pop(prep.number, None)
-            print(_supply_note(prep, got, need, ratio))
-            self._announce(plan, prep, queue, tally.judged, reached)
-            return prep
+        if weak is not None and (
+            alive := _weak_alive(self.profile, self.torrserver, weak, tally, self._forget)
+        ):
+            self._announce(plan, alive, queue, tally.judged, reached)
+            return alive
         if tally.mute is not None and (exhausted or tally.hunted >= self.voice_budget):
             return self._mute_fallback(
                 plan, tally.mute, queue, tally.judged, reached, len(tally.tried)

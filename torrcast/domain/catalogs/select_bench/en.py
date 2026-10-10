@@ -52,6 +52,10 @@ def en() -> dict[str, str]:
             "release {number}'s swarm delivers {got} at the needed {need} Mbit/s - "
             "taking it ({ratio}x)"
         ),
+        "select_bench.weak_dead": (
+            "release {number}'s swarm still delivers {got} at the needed {need} Mbit/s "
+            "under demand ({ratio}x) - it would not bring a frame, not taking it"
+        ),
         "select_bench.recheck_note": (
             "the whole queue stayed silent ({total}) - asking release {number} once more, "
             "alone and without grace periods (waiting up to {budget}s)"

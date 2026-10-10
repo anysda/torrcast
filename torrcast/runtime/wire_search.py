@@ -10,6 +10,7 @@ from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.adapters.stream_pack.warm_file import warm_file
 from torrcast.adapters.stream_probe.probe import probe
+from torrcast.adapters.stream_probe.swarm_demand import swarm_demand
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.engine_restart import ENGINE
@@ -59,7 +60,7 @@ def wire_search() -> None:
     # Стенд отбора греет раздачи параллельно: чтение паспорта, прогрев файла, признак
     # жизни роя и отсрочка первого контакта - четыре разных внешних мира, и все четыре
     # приходят отсюда. Прежде стенд доставал их строкой с именем прежнего фасада.
-    _configure_select_bench(probe, warm_file, swarm_pulse, ContactWait)
+    _configure_select_bench(probe, warm_file, swarm_pulse, ContactWait, swarm_demand)
     # Сам отбор ходит в службу раздач ровно один раз - за дорожками названного
     # вручную релиза, - и спрашивает человека о начале сериала заново. Служба,
     # чтение паспорта и вопрос приходят отсюда, а не из строки с именем фасада.

@@ -1,4 +1,4 @@
-"""Внешний мир стенда: паспорт потока, прогрев файла, признак жизни роя и отсрочка."""
+"""Внешний мир стенда: паспорт потока, прогрев, признак жизни и спрос роя, отсрочка."""
 
 from __future__ import annotations
 
@@ -8,13 +8,15 @@ from torrcast.ports.contact_wait import ContactWait
 from torrcast.ports.prober import Prober
 
 #: Внешний мир стенда: чем читается паспорт потока, чем греется файл, чем спрашивается
-#: признак жизни роя и чем заводится отсрочка первого контакта. Ни сети, ни диска у
-#: самого стенда нет - всё это кладёт композиционный корень (:mod:`torrcast.runtime.wire`).
+#: признак жизни роя, чем меряется его скорость под спросом и чем заводится отсрочка
+#: первого контакта. Ни сети, ни диска у самого стенда нет - всё это кладёт
+#: композиционный корень (:mod:`torrcast.runtime.wire`).
 #: Отсрочка приезжает заводом, а не значением: часы у каждого прогрева свои.
 _bench_prober: Prober
 _bench_warm_file: Callable[..., object]
 _bench_swarm_pulse: Callable[..., Callable[[], bool]]
 _bench_contact_wait: Callable[[float], ContactWait]
+_bench_swarm_demand: Callable[[str, int, float], float]
 
 
 def _configure_select_bench(
@@ -22,10 +24,13 @@ def _configure_select_bench(
     warm_file: Callable[..., object],
     swarm_pulse: Callable[..., Callable[[], bool]],
     contact_wait: Callable[[float], ContactWait],
+    swarm_demand: Callable[[str, int, float], float],
 ) -> None:
     """Назначить стенду отбора его внешний мир."""
     global _bench_prober, _bench_warm_file, _bench_swarm_pulse, _bench_contact_wait
+    global _bench_swarm_demand
     _bench_prober = prober
     _bench_warm_file = warm_file
     _bench_swarm_pulse = swarm_pulse
     _bench_contact_wait = contact_wait
+    _bench_swarm_demand = swarm_demand

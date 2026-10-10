@@ -122,6 +122,11 @@ def use_swarm_pulse(patch: pytest.MonkeyPatch, swarm_pulse: StandIn) -> None:
     patch.setattr(_bench_state, "_bench_swarm_pulse", swarm_pulse)
 
 
+def use_swarm_demand(patch: pytest.MonkeyPatch, swarm_demand: StandIn) -> None:
+    """Скорость роя под спросом: её меряет только стенд отбора."""
+    patch.setattr(_bench_state, "_bench_swarm_demand", swarm_demand)
+
+
 def use_passport(patch: pytest.MonkeyPatch, passport: StandIn) -> None:
     """Справка о картине - окружению выбора и поиску."""
     patch.setattr(choice_environment, "_passport", passport)

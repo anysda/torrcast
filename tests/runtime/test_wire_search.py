@@ -19,6 +19,7 @@ from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.adapters.stream_pack.warm_file import warm_file
 from torrcast.adapters.stream_probe.probe import probe
+from torrcast.adapters.stream_probe.swarm_demand import swarm_demand
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.engine_restart import ENGINE
@@ -74,6 +75,7 @@ def test_the_search_gets_the_real_catalogue_and_the_real_release_service() -> No
     assert _bench_state._bench_warm_file is warm_file
     assert _bench_state._bench_swarm_pulse is swarm_pulse
     assert _bench_state._bench_contact_wait is ContactWait
+    assert _bench_state._bench_swarm_demand is swarm_demand
     assert _pick_state._select_engines is TorrServer
     assert _pick_state._select_prober is probe
     assert _pick_state._select_ask_line is ask_line

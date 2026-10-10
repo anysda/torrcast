@@ -44,6 +44,10 @@ def ru() -> dict[str, str]:
         "select_bench.supply_note": (
             "рой релиза {number} везёт {got} при нужных {need} Мбит/с - беру ({ratio}x)"
         ),
+        "select_bench.weak_dead": (
+            "рой релиза {number} и под спросом везёт {got} при нужных {need} Мбит/с "
+            "({ratio}x) - кадра не довезёт, не беру"
+        ),
         "select_bench.recheck_note": (
             "промолчала вся очередь ({total}) - спрашиваю релиз {number} ещё раз, одного и "
             "без отсрочек (жду до {budget} с)"

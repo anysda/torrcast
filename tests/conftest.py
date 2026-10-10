@@ -844,6 +844,7 @@ def _no_machine_swarm(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     composition.use_warm_file(monkeypatch, _no_warming)
     composition.use_swarm_pulse(monkeypatch, _no_pulse)
+    composition.use_swarm_demand(monkeypatch, _no_demand)
 
 
 @pytest.fixture(autouse=True)
@@ -859,6 +860,11 @@ def _no_head_ahead(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _no_warming(*_args: object, **_kwargs: object) -> None:
     """Грелка, которая не греет: у модульного прогона нет своего TorrServer."""
+
+
+def _no_demand(_source: str, _offset: int, _seconds: float) -> float:
+    """Спрос без сети: байт в модульном прогоне не приходит никогда - ноль, как у мёртвого."""
+    return 0.0
 
 
 def _no_pulse(_source: str, grace: float = 0.0, wait: object = None) -> Callable[[], bool]:

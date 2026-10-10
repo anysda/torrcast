@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from tests.fakes import composition
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
 from torrcast.domain.catalogs.phrase import phrase
@@ -43,7 +44,11 @@ def test_slow_front_is_rejected_and_fat_supply_plays(capsys: object) -> None:
     assert "релиз 1 не годится (рой везёт" in said
 
 
-def test_best_is_kept_when_every_swarm_is_short(capsys: object) -> None:
+def test_best_is_kept_when_every_swarm_is_short(
+    capsys: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Короток, но жив: под спросом середины файла рой везёт 12 Мбит/с (выше пола).
+    composition.use_swarm_demand(monkeypatch, lambda *_: 1_500_000.0)
     one, two = rel("slow-one"), rel("slow-two")
     media = Media(RUNTIME, (), "h264", height=1080, width=1920)
     profile = replace(
