@@ -183,3 +183,14 @@ def test_an_unreadable_lost_and_found_does_not_blind_the_floor(tmp_path: Path) -
     evicted = [facts["key"] for event, _, facts in sky.events if event == "evict"]
     assert evicted == ["1234567890abcdef"]
     assert (found / "#12").exists()
+
+
+def test_a_key_named_shelf_without_a_passport_is_still_given_back(tmp_path: Path) -> None:
+    """``Vault.touch`` глотает отказ записи паспорта: полку держит отдаваемой её имя-ключ."""
+    sky, root, key = world(), tmp_path / "warm", "fedcba9876543210"
+    _shelf(root, key, 10, 3000.0)
+    (root / key / META).unlink()
+    store = Vault(root=root, key="новый", budget=1000, floor=30, free_of=_room(40))
+    assert store.fit(5) == "", "полка без паспорта стала вечным мусором"
+    assert not (root / key).exists()
+    assert [facts["key"] for event, _, facts in sky.events if event == "evict"] == [key]
