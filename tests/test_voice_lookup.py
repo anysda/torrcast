@@ -18,6 +18,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
+from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select.plan import Plan
 from web.episode_lookup import RETRY
 from web.voice_lookup import VoiceLookup
@@ -48,12 +49,14 @@ class _Bench:
     profiles: list[Any] = field(default_factory=list)
     release: Release = _RELEASE
     lends: bool = False
+    picker: Any = None
 
     def __call__(
         self, _engine: object, choose: object = None, profile: Any = None, lends: bool = False
     ) -> _Bench:
         self.profiles.append(profile)
         self.lends = lends
+        self.picker = choose
         return self
 
     def resolve(self, plan: Plan, args: Any, _progress: object) -> _Prep:
@@ -378,6 +381,31 @@ def test_a_show_bookmark_warms_its_own_episode_and_a_finished_film_does_not_coun
     episode = bench.asked[0][1].episode
     assert (episode.season, episode.episode) == (2, 5)
     assert bench.asked[1][1].card_release == ""
+
+
+def test_a_show_bookmark_card_picks_the_bookmark_file_not_the_first_episode_of_its_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Серия в аргументах ещё не файл: план карточки целит в s1e1, и грелась первая серия."""
+    bench = _Bench(_MEDIA, release=_KEPT)
+    lookup = _lookup(monkeypatch, bench, spawn=_sync)
+    show = _live(
+        kind="tv", season=2, episode=5, pos=0.0, file_idx=7, episodes=[[1, 1, 1], [2, 5, 7]]
+    )
+    files = [
+        TorrFile(1, "S01/Film.S01E01.mkv", 1 << 30),
+        TorrFile(7, "S02/Film.S02E05.mkv", 1 << 30),
+    ]
+    plan = Plan(
+        picture=Picture(title="Film", year=2010, kind="tv", releases=[_RELEASE, _KEPT]),
+        ranked=[_RELEASE, _KEPT],
+        runtime=0,
+        warn_mbit=0,
+    )
+
+    lookup.of(plan, "film", _CONFIG, show)
+
+    assert bench.picker(plan, _KEPT, files).index == 7
 
 
 @dataclass

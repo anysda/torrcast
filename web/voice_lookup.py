@@ -26,12 +26,12 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.progress.slot import progress
 from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.runtime.native_picture import native_picture
-from torrcast.usecases.playback.file_picker import file_picker
 from torrcast.usecases.select.kept_media import kept_media
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
 from web.bookmark import bookmark
 from web.bookmark_args import bookmark_args
+from web.bookmark_picker import bookmark_picker
 from web.card_warm import CardWarm
 from web.episode_lookup import RETRY, Spawn
 from web.heard import Heard
@@ -140,7 +140,7 @@ class VoiceLookup:
         engines = self.engines(config.torrserver_url)
 
         def make() -> Bench:
-            bench = Bench(engines, choose=file_picker(args), profile=profile, lends=True)
+            bench = Bench(engines, choose=bookmark_picker(args, kept), profile=profile, lends=True)
             bench.resume = kept.pos if kept is not None else 0.0
             return bench
 
