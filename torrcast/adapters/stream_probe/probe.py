@@ -7,8 +7,9 @@ from __future__ import annotations
 import math
 import subprocess
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from typing import Final
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as Late
+from typing import TYPE_CHECKING, Final
 
 from torrcast.adapters.ffprobe.parse_media import parse_media
 from torrcast.adapters.stream_probe.media_shelf import (
@@ -24,12 +25,20 @@ from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 #: Чем читается поток: боевой запуск ffprobe (:func:`_run_ffprobe`) или подделка стенда.
 Runner = Callable[[list[str], float, Callable[[], bool] | None], str]
 
-#: Сколько секунд ждать хвост файла (:func:`picture_end`). За бюджетом длительность
-#: остаётся по контейнеру, а паспорт на полку не ложится: следующий щуп спросит хвост снова.
+#: Сколько секунд ждать хвост файла (:func:`picture_end`) сверх головы: хвост читается
+#: одновременно с ней, и холодная голова (до 27 с на стенде) - это время хвоста даром. За
+#: бюджетом длительность остаётся по контейнеру, а паспорт на полку не ложится.
 TAIL_BUDGET: Final = 8.0
+
+#: Сколько хвост дочитывается в фоне после ответа: поздний конец картинки ложится на полку,
+#: и следующий показ того же файла (возврат к месту обрыва, повторный ``cast``) его знает.
+TAIL_LIFE: Final = 60.0
 
 
 def probe(
@@ -91,7 +100,7 @@ def probe(
         if not readable:
             raise InfraError(phrase("select.stream_not_read"))
         pool = ThreadPoolExecutor(1)
-        tail = pool.submit(picture_end, url, min(timeout, TAIL_BUDGET), still_reading, run)
+        tail = pool.submit(picture_end, url, min(timeout, TAIL_LIFE), still_reading, run)
         pool.shutdown(wait=False)
         try:
             stdout = run(command, timeout, still_reading)
@@ -103,8 +112,21 @@ def probe(
             raise InfraError(
                 phrase("media_binaries.ffprobe_failed", reason=(exc.stderr or "").strip()[:120])
             ) from exc
-    end = tail.result()
-    media = to_picture(parse_media(stdout), end)
-    if not math.isnan(end):
-        _keep_media(cache, media)  # неузнанный хвост - не ответ навсегда, а промах роя
+    media = parse_media(stdout)
+    try:
+        end = tail.result(TAIL_BUDGET)
+    except Late:
+        tail.add_done_callback(lambda late: _keep_late(cache, media, late))
+        return media  # неузнанный хвост - не ответ навсегда, а промах роя
+    if math.isnan(end):
+        return media
+    media = to_picture(media, end)
+    _keep_media(cache, media)
     return media
+
+
+def _keep_late(cache: Path, media: Media, late: Future[float]) -> None:
+    """Кладёт на полку паспорт, чей хвост дочитался уже после ответа щупа."""
+    end = late.result()
+    if not math.isnan(end):
+        _keep_media(cache, to_picture(media, end))
