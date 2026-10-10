@@ -19,6 +19,7 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.select.plan import Plan
 from web.card_lookup import card_lookup
 from web.key_name import key_name
+from web.route_year import route_year
 
 #: Круг раздач по одной строке; в бою это :meth:`web.warm_cache.WarmCache.take`.
 Circle = Callable[[str], "list[Plan]"]
@@ -31,7 +32,7 @@ def _cold(_query: str) -> list[Plan] | None:
 
 
 def own_plan(
-    key: str, query: str, title: str, circle: Circle, warm: Warm = _cold
+    key: str, query: str, title: str, circle: Circle, warm: Warm = _cold, year: str | None = None
 ) -> tuple[Plan | None, int, str]:
     """Картина по своему имени, а не по строке, которой её нашли; строка, что сработала.
 
@@ -48,7 +49,13 @@ def own_plan(
     строку слагом («рататуй»), круг согрет под «Рататуй», и сетевой круг по слагу стоил
     карточке и «Играть» с закладки 7-8 с.
     """
-    candidates = [c for c in dict.fromkeys((query.strip(), title.strip(), key_name(key))) if c]
+    known_year = route_year(year or "")
+    dated = (
+        f"{title.strip()} {known_year}" if key.startswith("movie:") and title and known_year else ""
+    )
+    candidates = [
+        c for c in dict.fromkeys((dated, query.strip(), title.strip(), key_name(key))) if c
+    ]
     for candidate in candidates:
         plan, pick = card_lookup(warm(candidate) or [], key)
         if plan is not None:

@@ -50,6 +50,29 @@ def test_an_empty_query_still_finds_the_picture_by_its_title() -> None:
     assert asked == ["призрак в доспехах"]
 
 
+def test_a_movie_tile_asks_its_year_before_its_ambiguous_title() -> None:
+    """A shelf tile carries its year, unlike an ordinary title search."""
+    movie = Picture(title="Призрак в доспехах", year=2026, kind="movie")
+    plan = Plan(picture=movie, ranked=[], runtime=1.0, warn_mbit=12.0)
+    asked, circle = _circle({"Призрак в доспехах 2026": [plan]})
+
+    got = own_plan(movie.key, "призрак в доспехах", movie.title, circle, year="2026")
+
+    assert got == (plan, 1, "Призрак в доспехах 2026")
+    assert asked == ["Призрак в доспехах 2026"]
+
+
+def test_a_series_tile_does_not_turn_its_first_year_into_a_release_year() -> None:
+    series = Picture(title="Призрак в доспехах", year=2026, kind="tv")
+    plan = Plan(picture=series, ranked=[], runtime=1.0, warn_mbit=12.0)
+    asked, circle = _circle({"призрак в доспехах": [plan]})
+
+    got = own_plan(series.key, "призрак в доспехах", series.title, circle, year="2026")
+
+    assert got == (plan, 1, "призрак в доспехах")
+    assert asked == ["призрак в доспехах"]
+
+
 def test_a_stranger_pictures_query_still_finds_the_right_one_by_title() -> None:
     """Родня или история завели карточку чужой строкой - своё имя всё равно находит."""
     asked, circle = _circle({"призрак в доспехах": [_PLAN]})

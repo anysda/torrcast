@@ -78,18 +78,18 @@ _SETTLE: Final = 1.0
 
 def card(request: Request) -> Answer:
     """Собрать карточку по ключу картины, найденной тем же кругом, что и поиск."""
-    query = request.query.get("query", "")
-    title = request.query.get("title", "").strip()
+    query, title = request.query.get("query", ""), request.query.get("title", "").strip()
     key = request.path[len(_PREFIX) :]
     if not query.strip() and not title and not key_name(key):
         return refusal(400, "no_query")
     hint = start_related(request, _facts, _related)
     if early := preview(request, key, WARM, _related, _poster.of):
         return early
-    config = load_config()
-    asked = HeardCircle(WARM.take)  # живой запрос несогретый круг считает сам, без очереди
+    config, asked = load_config(), HeardCircle(WARM.take)
     try:
-        plan, pick, found = own_plan(key, query, title, asked, lambda q: WARM.live(q, True))
+        plan, pick, found = own_plan(
+            key, query, title, asked, lambda q: WARM.live(q, True), request.query.get("year")
+        )
     except TorrcastError as failed:
         return asked.refusal(failed)
     if plan is None:
