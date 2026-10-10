@@ -24,6 +24,76 @@ updater = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(updater)
 
 
+@pytest.mark.parametrize(
+    ("language", "result", "failure", "code", "stdout", "stderr"),
+    [
+        ("en", (7, 1.5), None, 0, "indexed 7 releases in 1.5 s\n", ""),
+        ("ru", (7, 1.5), None, 0, "проиндексировано 7 раздач за 1.5 с\n", ""),
+        ("en", None, None, 0, "catalogue unchanged\n", ""),
+        ("ru", None, None, 0, "каталог не изменился\n", ""),
+        ("en", updater.BUSY, None, 0, "refresh already running\n", ""),
+        ("ru", updater.BUSY, None, 0, "обновление уже запущено\n", ""),
+        ("en", None, updater.DownloadError(), 1, "", "could not download the JacRed catalogue\n"),
+        ("ru", None, updater.DownloadError(), 1, "", "не скачался каталог JacRed\n"),
+        ("en", None, FileNotFoundError(), 1, "", "JacRed catalogue source disappeared\n"),
+        ("ru", None, FileNotFoundError(), 1, "", "пропал источник каталога JacRed\n"),
+        (
+            "en",
+            None,
+            ValueError("FileDB contains no usable releases"),
+            1,
+            "",
+            "JacRed catalogue has no usable releases\n",
+        ),
+        (
+            "ru",
+            None,
+            ValueError("FileDB contains no usable releases"),
+            1,
+            "",
+            "в каталоге JacRed нет пригодных раздач\n",
+        ),
+    ],
+)
+def test_the_updater_says_every_result_in_the_install_language(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    language: str,
+    result: tuple[int, float] | str | None,
+    failure: Exception | None,
+    code: int,
+    stdout: str,
+    stderr: str,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["jacred-update.py", "index.sqlite"])
+    monkeypatch.setenv("TORRCAST_LANGUAGE", language)
+
+    def refresh(_target: Path) -> tuple[int, float] | str | None:
+        if failure:
+            raise failure
+        return result
+
+    monkeypatch.setattr(updater, "refresh", refresh)
+
+    assert updater.main() == code
+    captured = capsys.readouterr()
+    assert captured.out == stdout
+    assert captured.err == stderr
+
+
+def test_the_updater_keeps_english_without_an_install_language(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["jacred-update.py", "index.sqlite"])
+    monkeypatch.delenv("TORRCAST_LANGUAGE", raising=False)
+    monkeypatch.setattr(updater, "refresh", lambda _target: None)
+
+    assert updater.main() == 0
+    captured = capsys.readouterr()
+    assert captured.out == "catalogue unchanged\n"
+    assert captured.err == ""
+
+
 def test_the_dynamic_builder_keeps_its_checked_build_contract() -> None:
     assert get_type_hints(updater._builder)["return"] is updater.Builder
     assert get_type_hints(updater.Builder.build)["return"] == tuple[int, float]

@@ -35,6 +35,10 @@ DOWNLOAD_TRIES = 3
 BUSY: Literal["busy"] = "busy"
 
 
+class DownloadError(Exception):
+    """The archive could not be fetched after the updater's retries."""
+
+
 @runtime_checkable
 class Builder(Protocol):
     """The part of the dynamically loaded index builder the updater uses."""
@@ -187,7 +191,9 @@ def refresh(target: Path) -> tuple[int, float] | Literal["busy"] | None:
             except urllib.error.HTTPError as error:
                 if error.code == 304:
                     return None
-                raise
+                raise DownloadError from error
+            except OSError as error:
+                raise DownloadError from error
             source = work / "filedb"
             source.mkdir()
             _unpack(archive, source, brake)
@@ -199,18 +205,56 @@ def refresh(target: Path) -> tuple[int, float] | Literal["busy"] | None:
             return result
 
 
-if __name__ == "__main__":
+def _say(english: str, russian: str, *, error: bool = False) -> None:
+    print(
+        russian if os.environ.get("TORRCAST_LANGUAGE") == "ru" else english,
+        file=sys.stderr if error else sys.stdout,
+    )
+
+
+def main() -> int:
     if len(sys.argv) != 2:
-        raise SystemExit("usage: jacred-update.py INDEX.sqlite")
-    result = refresh(Path(sys.argv[1]))
-    if result == BUSY:
-        print(
-            "обновление уже запущено"
-            if os.environ.get("TORRCAST_LANGUAGE") == "ru"
-            else "refresh already running"
+        _say(
+            "usage: jacred-update.py INDEX.sqlite",
+            "использование: jacred-update.py INDEX.sqlite",
+            error=True,
         )
+        return 2
+    try:
+        result = refresh(Path(sys.argv[1]))
+    except DownloadError:
+        _say("could not download the JacRed catalogue", "не скачался каталог JacRed", error=True)
+        return 1
+    except FileNotFoundError:
+        _say("JacRed catalogue source disappeared", "пропал источник каталога JacRed", error=True)
+        return 1
+    except ValueError as error:
+        if str(error) != "FileDB contains no usable releases":
+            _say(
+                "could not refresh the JacRed catalogue", "не обновился каталог JacRed", error=True
+            )
+        else:
+            _say(
+                "JacRed catalogue has no usable releases",
+                "в каталоге JacRed нет пригодных раздач",
+                error=True,
+            )
+        return 1
+    except Exception:
+        _say("could not refresh the JacRed catalogue", "не обновился каталог JacRed", error=True)
+        return 1
+    if result == BUSY:
+        _say("refresh already running", "обновление уже запущено")
     elif result is None:
-        print("catalogue unchanged")
+        _say("catalogue unchanged", "каталог не изменился")
     else:
         rows, elapsed = result
-        print(f"indexed {rows} releases in {elapsed:.1f} s")
+        _say(
+            f"indexed {rows} releases in {elapsed:.1f} s",
+            f"проиндексировано {rows} раздач за {elapsed:.1f} с",
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

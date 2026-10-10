@@ -110,18 +110,11 @@ def test_jacred_is_a_regular_local_indexer() -> None:
     assert (REPO / "scripts" / "jacred.yml").is_file()
 
 
-@pytest.mark.machine
-def test_a_busy_jacred_refresh_does_not_stop_the_russian_installer(tmp_path: Path) -> None:
-    """The initial refresh may meet its timer, but installation remains successful and Russian."""
-    prefix = tmp_path / "prefix"
-    state = tmp_path / "state"
-    target = state / "jacred" / "index.sqlite"
-    target.parent.mkdir(parents=True)
-    lock = target.with_suffix(target.suffix + ".refresh.lock")
+def _jacred_initial_install_command(prefix: Path, state: Path, language: str) -> str:
     body = SCRIPT.split("install_prowlarr() {\n", 1)[1].split(
         '    if ! cmp -s "$REPO_DIR/scripts/jacred-indexer.py"', 1
     )[0]
-    command = "\n".join(
+    return "\n".join(
         [
             "set -eu",
             f"REPO_DIR={shlex.quote(str(REPO))}",
@@ -129,7 +122,7 @@ def test_a_busy_jacred_refresh_does_not_stop_the_russian_installer(tmp_path: Pat
             f"STATE_DIR={shlex.quote(str(state))}",
             f"PYTHON={shlex.quote(sys.executable)}",
             "PL_URL=http://example.invalid",
-            "LANGUAGE=ru",
+            f"LANGUAGE={language}",
             "log() { :; }",
             "info() { :; }",
             "pick_python() { :; }",
@@ -144,12 +137,136 @@ def test_a_busy_jacred_refresh_does_not_stop_the_russian_installer(tmp_path: Pat
         ]
     )
 
+
+@pytest.mark.machine
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        ("en", "indexed 1 releases in 0.0 s\n"),
+        ("ru", "проиндексировано 1 раздач за 0.0 с\n"),
+    ],
+)
+def test_the_initial_jacred_refresh_uses_the_installer_language(
+    tmp_path: Path, language: str, expected: str
+) -> None:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    tar = bindir / "tar"
+    tar.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        'while [ "$#" -gt 0 ]; do\n'
+        '  case "$1" in\n'
+        "    -C) destination=$2; shift 2 ;;\n"
+        "    *) shift ;;\n"
+        "  esac\n"
+        "done\n"
+        'mkdir -p "$destination"\n'
+        'printf \'%s\' \'{"one": {"title": "Example", "magnet": "magnet:?xt=urn:btih:test"}}\' '
+        '| gzip > "$destination/release.json.gz"\n',
+        encoding="utf-8",
+    )
+    tar.chmod(0o755)
+    hook = tmp_path / "hook"
+    hook.mkdir()
+    (hook / "sitecustomize.py").write_text(
+        "import io\n"
+        "import time\n"
+        "import urllib.request\n"
+        "from email.message import Message\n"
+        "class Archive(io.BytesIO):\n"
+        "    headers = Message()\n"
+        "    def __enter__(self): return self\n"
+        "    def __exit__(self, *_args): return None\n"
+        "urllib.request.urlopen = lambda *_args, **_kwargs: Archive(b'archive')\n"
+        "time.monotonic = lambda: 1.0\n",
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "PYTHONPATH": str(hook),
+    }
+
+    done = subprocess.run(
+        [
+            "bash",
+            "-c",
+            _jacred_initial_install_command(tmp_path / "prefix", tmp_path / "state", language),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout == expected
+    assert done.stderr == ""
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        (
+            "en",
+            "could not download the JacRed catalogue\ncould not build the local JacRed catalogue\n",
+        ),
+        ("ru", "не скачался каталог JacRed\nне собрался локальный каталог JacRed\n"),
+    ],
+)
+def test_a_jacred_download_failure_reaches_the_installer_without_a_traceback(
+    tmp_path: Path, language: str, expected: str
+) -> None:
+    hook = tmp_path / "hook"
+    hook.mkdir()
+    (hook / "sitecustomize.py").write_text(
+        "import urllib.request\n"
+        "def fail(*_args, **_kwargs): raise OSError('offline')\n"
+        "urllib.request.urlopen = fail\n",
+        encoding="utf-8",
+    )
+    command = _jacred_initial_install_command(tmp_path / "prefix", tmp_path / "state", language)
+    die = 'die() { if [ "$LANGUAGE" = ru ]; then printf \'%s\\n\' "$2" >&2; '
+    die += "else printf '%s\\n' \"$1\" >&2; fi; return 1; }"
+    command = command.replace("wait_http() { :; }", f"wait_http() {{ :; }}\n{die}")
+    done = subprocess.run(
+        ["bash", "-c", command],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(hook)},
+    )
+
+    assert done.returncode == 1
+    assert done.stdout == ""
+    assert done.stderr == expected
+    assert "Traceback" not in done.stderr
+
+
+@pytest.mark.machine
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [("en", "refresh already running\n"), ("ru", "обновление уже запущено\n")],
+)
+def test_a_busy_jacred_refresh_does_not_stop_the_installer(
+    tmp_path: Path, language: str, expected: str
+) -> None:
+    """The initial refresh may meet its timer, but installation remains successful."""
+    prefix = tmp_path / "prefix"
+    state = tmp_path / "state"
+    target = state / "jacred" / "index.sqlite"
+    target.parent.mkdir(parents=True)
+    lock = target.with_suffix(target.suffix + ".refresh.lock")
+    command = _jacred_initial_install_command(prefix, state, language)
+
     with lock.open("a+") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         done = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=False)
 
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "обновление уже запущено\n" in done.stdout
+    assert done.stdout == expected
 
 
 def test_jacred_refresh_yields_cpu_io_and_page_cache_to_playback() -> None:
