@@ -114,3 +114,15 @@ def test_brat_is_the_first_line_of_its_own_menu() -> None:
         ("Брат", 1997),
         ("Брат 2", 2000),
     ]
+
+
+def test_a_year_glued_to_the_bracket_of_the_original_is_still_the_year() -> None:
+    """«Брат(Brat)1997 [1080P]» - это «Брат» 1997 года, а не картина «Брат 1997» без года.
+
+    Год без пробела за скобкой не читался, и в меню по «Брат 1997» вставала отдельная
+    безгодовая «Брат 1997 (?)», а страж «имя названо целиком» брал именно её.
+    """
+    names = ["Брат(Brat)1997 [1080P]", "Брат(Brat)1997", "Брат / Brat (1997) BDRip 1080p"]
+    pictures = cluster([parse_release_name(name) for name in names])
+
+    assert [(p.title, p.year, len(p.releases)) for p in pictures] == [("Брат", 1997, 3)]
