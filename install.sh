@@ -2918,6 +2918,15 @@ Description=Refresh the local JacRed catalogue
 
 [Service]
 Type=oneshot
+# A FileDB refresh is deliberately background work.  Keep its archive expansion,
+# FTS build and page cache below a cold stream: ``idle`` yields the block device
+# whenever TorrServer needs it, and the cgroup limits prevent the file cache from
+# claiming the guest's whole memory while SQLite scans the unpacked catalogue.
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=1
+IOWeight=1
+MemoryHigh=1G
 ExecStart=$PYTHON $PREFIX/jacred-update.py $jacred_index
 EOF
         cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.timer" <<EOF

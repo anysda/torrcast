@@ -109,6 +109,26 @@ def test_jacred_is_a_regular_local_indexer() -> None:
     assert (REPO / "scripts" / "jacred.yml").is_file()
 
 
+def test_jacred_refresh_yields_cpu_io_and_page_cache_to_playback() -> None:
+    """The six-hour rebuild is background work, including after an in-place install.
+
+    ``index.sqlite`` is already published atomically by the updater.  The remaining
+    failure mode is resource contention: unpacking FileDB and constructing FTS used
+    every I/O slot and most of the guest's page cache, starving the stream.  These
+    are unit properties rather than Python nice calls so tar and zstd inherit them.
+    The installer writes this unit unconditionally, which also replaces it on top
+    of an old installation.
+    """
+    unit = SCRIPT.split('cat >"$SYSTEMD_UNIT_DIR/torrcast-jacred-refresh.service" <<EOF\n', 1)[1]
+    unit = unit.split("EOF\n", 1)[0]
+
+    assert "Nice=19" in unit
+    assert "IOSchedulingClass=idle" in unit
+    assert "CPUWeight=1" in unit and "IOWeight=1" in unit
+    assert "MemoryHigh=1G" in unit
+    assert "ExecStart=$PYTHON $PREFIX/jacred-update.py $jacred_index" in unit
+
+
 def test_the_two_local_indexers_do_not_share_one_prowlarr_queue() -> None:
     """Prowlarr paces its asks per host and ignores the port: one host means one queue.
 

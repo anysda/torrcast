@@ -3,6 +3,7 @@
 import gzip
 import importlib.util
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -44,3 +45,29 @@ def test_an_empty_source_keeps_the_published_index(tmp_path: Path) -> None:
 
     assert target.read_bytes() == b"known-good"
     assert not target.with_suffix(".new").exists()
+
+
+def test_a_build_interrupted_before_replace_keeps_the_live_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Power loss while constructing ``.new`` must not corrupt the served catalogue."""
+    source = tmp_path / "filedb"
+    source.mkdir()
+    target = tmp_path / "index.sqlite"
+    old = sqlite3.connect(target)
+    old.execute("CREATE TABLE known(value TEXT)")
+    old.execute("INSERT INTO known VALUES ('published')")
+    old.commit()
+    old.close()
+
+    def cut_records(_root: Path) -> Iterator[tuple[str, str, int, int, int, str]]:
+        yield ("Матрица", "magnet:?xt=urn:btih:a", 8, 42, 3, "2026-08-11")
+        raise OSError("simulated power cut")
+
+    monkeypatch.setattr(index, "records", cut_records)
+
+    with pytest.raises(OSError, match="power cut"):
+        index.build(source, target)
+
+    with sqlite3.connect(target) as published:
+        assert published.execute("SELECT value FROM known").fetchall() == [("published",)]
